@@ -615,6 +615,12 @@ func (s *PostgresStore) IncrementGlobalTaskNumber(ctx context.Context) (int, err
 
 // ListProjects lists all projects for a given user
 func (s *PostgresStore) ListProjects(ctx context.Context, req *ListProjectsQuery) ([]*types.Project, error) {
+	// Defensive check: require at least UserID or OrganizationID to prevent
+	// accidentally returning all projects without proper filtering
+	if req.UserID == "" && req.OrganizationID == "" {
+		return []*types.Project{}, nil
+	}
+
 	var projects []*types.Project
 
 	q := s.gdb.WithContext(ctx).Model(&types.Project{})

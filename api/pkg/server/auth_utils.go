@@ -163,6 +163,8 @@ func addCorsHeaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
 	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+	// Expose X-Token-Refreshed header so frontend can read it for transparent token refresh
+	w.Header().Set("Access-Control-Expose-Headers", "X-Token-Refreshed")
 }
 
 /*
@@ -172,7 +174,7 @@ Access Control
 */
 
 func hasUser(user *types.User) bool {
-	return user.ID != ""
+	return user != nil && user.ID != ""
 }
 
 func hasUserOrRunner(user *types.User) bool {
@@ -184,7 +186,7 @@ func isAdmin(user *types.User) bool {
 }
 
 func isRunner(user *types.User) bool {
-	return user.Token != "" && user.TokenType == types.TokenTypeRunner
+	return user != nil && user.Token != "" && user.TokenType == types.TokenTypeRunner
 }
 
 func canSeeSession(user *types.User, session *types.Session) bool {

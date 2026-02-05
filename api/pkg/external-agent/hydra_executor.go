@@ -373,6 +373,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 			Str("desktop_ip", bridgeResp.DesktopIP).
 			Str("gateway", bridgeResp.Gateway).
 			Str("subnet", bridgeResp.Subnet).
+			Str("interface", bridgeResp.Interface).
 			Msg("Desktop bridged to Hydra network")
 	}
 

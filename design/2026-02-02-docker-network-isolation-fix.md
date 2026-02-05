@@ -193,13 +193,69 @@ thirdOctet := ((bridgeIndex - 1) % 16) * 16
 sessionPoolBase := fmt.Sprintf("10.%d.%d.0/20", secondOctet, thirdOctet)
 ```
 
+### Fix 4: Bridge Desktop to Hydra Network
+
+**File:** `api/pkg/external-agent/hydra_executor.go`
+
+After creating the desktop container, call `BridgeDesktop` to create a veth pair connecting the desktop (on sandbox's docker0) to the per-session Hydra dockerd network. This enables the desktop to reach containers started via `docker compose` on the per-session dockerd.
+
+```go
+// Bridge desktop container to per-session Hydra dockerd network
+bridgeReq := &hydra.BridgeDesktopRequest{
+    SessionID:          agent.SessionID,
+    DesktopContainerID: resp.ContainerID,
+}
+bridgeResp, err := hydraClient.BridgeDesktop(ctx, bridgeReq)
+if err != nil {
+    log.Warn().Err(err).Msg("Failed to bridge desktop to Hydra network")
+} else {
+    log.Info().
+        Str("desktop_ip", bridgeResp.DesktopIP).
+        Str("gateway", bridgeResp.Gateway).
+        Msg("Desktop bridged to Hydra network")
+}
+```
+
+**What BridgeDesktop does:**
+1. Creates a veth pair: `veth-{session}-h` (host end) and `veth-{session}-c` (container end)
+2. Attaches host end to the Hydra bridge (e.g., `hydra3`)
+3. Injects container end into the desktop container's network namespace
+4. Assigns IP address from the Hydra subnet (e.g., `10.200.3.254/24`)
+5. Adds route for the Hydra bridge network (`10.200.x.0/24`) via eth1
+6. Adds route for per-session dockerd networks (`10.112.0.0/12`) via the Hydra gateway
+7. Configures DNS to use Hydra's DNS server (resolves container names)
+8. Sets up localhost forwarding for exposed Docker ports (refreshed every 10 seconds)
+
+**Result:** Desktop container gets a second interface (`eth1`) with:
+- Connectivity to containers on the per-session dockerd (via 10.112.0.0/12 route)
+- DNS resolution for container names (via Hydra DNS on 10.200.x.1:53)
+- Localhost port forwarding for `docker run -p` exposed ports
+
+### Fix 5: Bind dns-proxy to Specific Interface
+
+**File:** `sandbox/05-start-dns-proxy.sh` (renamed from `sandbox/03-start-dns-proxy.sh`)
+
+The dns-proxy was binding to `0.0.0.0:53`, which blocked Hydra's per-session DNS servers from binding to `10.200.X.1:53`. This prevented container name resolution.
+
+**Changes:**
+1. Renamed script from `03-start-dns-proxy.sh` to `05-start-dns-proxy.sh` (runs AFTER dockerd)
+2. Changed bind address from `0.0.0.0:53` to `10.213.0.1:53` (sandbox docker0 gateway)
+3. Updated Dockerfile.sandbox to use `45-start-dns-proxy.sh` instead of `35-`
+
+**Result:** Two DNS servers run simultaneously:
+- `dns-proxy` on `10.213.0.1:53` - forwards to Docker DNS for enterprise DNS resolution
+- Hydra DNS on `10.200.X.1:53` - resolves container names on per-session dockerd
+
+Desktop containers can now use `curl http://my-container:80` to reach containers by name.
+
+
 ### Network Allocation Summary
 
 | Component | Subnet Range | Purpose |
 |-----------|--------------|---------|
 | Host docker0 | 172.17.0.0/16 | Host Docker default bridge |
 | helix_default (outer) | 172.19.0.0/16 | Helix control plane |
-| Sandbox docker0 | 172.17.0.0/16 | Sandbox default bridge (Wolf desktop containers) |
+| Sandbox docker0 | 10.213.0.0/24 | Sandbox default bridge (desktop containers) |
 | Sandbox user networks | 10.213.0.0/16 | Networks created on sandbox's main dockerd |
 | Hydra bridges | 10.200.X.0/24 | Per-session Docker bridges (veth connections) |
 | Per-session dockerd networks | 10.112.0.0/12 | User docker-compose projects in isolated dockerds |
@@ -211,7 +267,7 @@ sessionPoolBase := fmt.Sprintf("10.%d.%d.0/20", secondOctet, thirdOctet)
 
 ---
 
-## Fix 4: Helix-in-Helix Docker Socket Isolation
+## Fix 6: Helix-in-Helix Docker Socket Isolation
 
 **File:** `api/pkg/external-agent/hydra_executor.go`
 

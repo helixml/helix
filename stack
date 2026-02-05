@@ -738,15 +738,14 @@ function start() {
     }
   fi
 
-  # Check if FRONTEND_URL=/www is set but frontend not built
+  # Always rebuild frontend when FRONTEND_URL=/www is set (production frontend mode)
+  # This ensures ./stack start always has the latest frontend build
   if grep -q "^FRONTEND_URL=/www" .env 2>/dev/null; then
-    if [ ! -f "./frontend/dist/index.html" ]; then
-      echo "🔨 FRONTEND_URL=/www set but frontend not built, building..."
-      build-frontend || {
-        echo "❌ Failed to build frontend. Please check the error messages above."
-        exit 1
-      }
-    fi
+    echo "🔨 FRONTEND_URL=/www set, rebuilding frontend..."
+    build-frontend || {
+      echo "❌ Failed to build frontend. Please check the error messages above."
+      exit 1
+    }
   fi
 
   export MANUALRUN=1
@@ -1821,9 +1820,27 @@ function update_openapi() {
 }
 
 function build-frontend() {
-	echo "🔄 Building production frontend (for FRONTEND_URL=/www mode)..."
-	cd "$DIR/frontend"
-	yarn build || {
+	local force="${1:-}"
+	local dist_marker="$DIR/frontend/dist/index.html"
+
+	# Check if rebuild is needed (skip if dist is newer than all source files)
+	if [ -f "$dist_marker" ] && [ "$force" != "--force" ]; then
+		# Find any source files newer than the dist marker
+		local newer_files=$(find "$DIR/frontend/src" "$DIR/frontend/package.json" "$DIR/frontend/vite.config.ts" \
+			-newer "$dist_marker" 2>/dev/null | head -1)
+
+		if [ -z "$newer_files" ]; then
+			echo "✅ Frontend already up to date (no source changes)"
+			return 0
+		fi
+		echo "🔄 Frontend source changed, rebuilding..."
+	else
+		echo "🔄 Building production frontend (for FRONTEND_URL=/www mode)..."
+	fi
+
+	(
+		cd "$DIR/frontend" && yarn build
+	) || {
 		echo "❌ Frontend build failed"
 		return 1
 	}

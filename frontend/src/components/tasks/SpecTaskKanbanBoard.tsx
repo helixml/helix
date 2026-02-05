@@ -1118,11 +1118,11 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     <Box
       sx={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}
     >
-      {/* Header - Linear style */}
+      {/* Header - Linear style (hidden on mobile) */}
       <Box
         sx={{
           flexShrink: 0,
-          display: "flex",
+          display: { xs: "none", md: "flex" },
           justifyContent: "space-between",
           alignItems: "center",
           mb: 3,
@@ -1141,9 +1141,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                 color: "text.primary",
               }}
             >
-              Agent Swarm
+              Agent Team
             </Typography>
-            <Tooltip title="Each agent has its own desktop. You and your team can all connect to watch and pair. Each agent owns its desktop.">
+            <Tooltip title="Each task gets its own Agent Desktop with a dedicated AI agent. The Human Desktop is for exploring the codebase and testing your app.">
               <InfoIcon
                 sx={{ fontSize: 16, color: "text.secondary", cursor: "help" }}
               />

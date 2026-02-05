@@ -78,7 +78,7 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
           Projects
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Each Project has a Swarm of Agents working in parallel and a Team Desktop for manual testing.
+          Each Project has Agent Desktops where AI agents work on tasks, and a Human Desktop for exploring the codebase and testing your app.
         </Typography>
       </Box>
 
