@@ -132,8 +132,49 @@ The host-side socket is created and listening. Now need to make it accessible to
 - [x] Socket creation working
 - [x] Guest-host communication path established (TCP proxy)
 - [x] Protocol PING/PONG tested and working
+- [x] Frame request protocol tested
+- [x] VideoToolbox encoder initialization working
 
-### 🚧 Next: Test Frame Export with Real GPU Resources
+### 🔍 Current Issue: Resource Metal Texture Backing
+
+**Problem:** Regular virtio-gpu resources don't have Metal texture backing.
+
+**Discovery:**
+- Scanned resource IDs 1-200, found many valid resources
+- Resources include buffers and textures (1920x1080, 1280x800, etc.)
+- ALL resources have `native_type=0` (VIRGL_NATIVE_HANDLE_NONE)
+- Expected `native_type=2` (VIRGL_NATIVE_HANDLE_METAL_TEXTURE)
+
+**Root Cause:**
+Only **scanout resources** (those being displayed) get Metal texture handles.
+This happens via `virgl_renderer_create_handle_for_scanout()` in `virgl_cmd_set_scanout()`.
+
+**Solution Attempts:**
+
+1. ✅ **Scanout tracking implemented**
+   - Added `virtio_gpu_get_scanout_resource_id()` helper
+   - Frame requests with `resource_id=0` use current scanout
+   - Scanout resource ID correctly identified (resource 2, 1280x800)
+
+2. ✅ **Call create_handle_for_scanout**
+   - Implemented automatic call to `virgl_renderer_create_handle_for_scanout()`
+   - Should convert regular resources to Metal textures
+   - **ISSUE**: Returns type=NONE instead of type=METAL_TEXTURE
+
+**Current Blocker: virglrenderer Metal Backend**
+
+`virgl_renderer_create_handle_for_scanout()` is not creating Metal textures.
+Possible causes:
+- Metal backend not properly initialized in virglrenderer
+- UTM's virglrenderer build missing Metal support
+- Resources created through GL path, not compatible with Metal export
+- Need to modify virglrenderer source to enable Metal texture creation
+
+**Next Steps:**
+1. Investigate UTM's virglrenderer build configuration
+2. Check if Metal rendering is actually being used (vs GL/ANGLE)
+3. May need to modify virglrenderer source code
+4. Alternative: Use GL texture → IOSurface path instead of direct Metal
 
 1. **Create test virtio-gpu resource in guest**
    - Run simple Vulkan/GL app to create a framebuffer
