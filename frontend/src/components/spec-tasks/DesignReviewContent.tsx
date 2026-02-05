@@ -217,14 +217,15 @@ export default function DesignReviewContent({
   // Always subscribe when viewing a spec task - that way we're already connected when comments are created
   useEffect(() => {
     // [DRWS-DEBUG] Log subscription decision
+    // With BFF auth, session cookie is automatically sent with WebSocket connections
     console.log('[DRWS-DEBUG] Subscription check:', {
       planningSessionId,
-      hasToken: !!account.token,
-      willSubscribe: !!(planningSessionId && account.token),
+      hasUser: !!account.user,
+      willSubscribe: !!(planningSessionId && account.user),
     })
 
-    if (!planningSessionId || !account.token) {
-      console.log('[DRWS-DEBUG] Not subscribing - missing planningSessionId or token')
+    if (!planningSessionId || !account.user) {
+      console.log('[DRWS-DEBUG] Not subscribing - missing planningSessionId or user')
       return
     }
 

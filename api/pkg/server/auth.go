@@ -537,22 +537,28 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Generate a new token
-		token, err := s.authenticator.GenerateUserToken(r.Context(), user)
+		// Create a BFF session for this user
+		// For regular auth, we don't have OIDC tokens
+		_, err = s.sessionManager.CreateSession(
+			r.Context(),
+			w,
+			r,
+			user.ID,
+			types.AuthProviderRegular,
+			"", // no OIDC access token
+			"", // no OIDC refresh token
+			time.Time{}, // no OIDC token expiry
+		)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to generate user token")
-			http.Error(w, "Failed to generate user token: "+err.Error(), http.StatusInternalServerError)
+			log.Error().Err(err).Msg("Failed to create session")
+			http.Error(w, "Failed to create session: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		// OK, set authentication cookies and redirect
-		cookieManager.Set(w, accessTokenCookie, token)
-		cookieManager.Set(w, refreshTokenCookie, token)
-
+		// Return user info without token (frontend doesn't need it with BFF)
 		response := types.UserResponse{
 			ID:    user.ID,
 			Email: user.Email,
-			Token: token,
 			Name:  user.FullName,
 		}
 		writeResponse(w, response, http.StatusOK)
@@ -653,23 +659,49 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set cookies, if applicable
-	if oauth2Token.AccessToken != "" {
-		cm.Set(w, accessTokenCookie, oauth2Token.AccessToken)
-	} else {
+	// Validate access token is present
+	if oauth2Token.AccessToken == "" {
 		log.Debug().Msg("access_token is empty")
 		http.Error(w, "access_token is empty", http.StatusBadRequest)
 		return
 	}
-	if oauth2Token.RefreshToken != "" {
-		cm.Set(w, refreshTokenCookie, oauth2Token.RefreshToken)
-		log.Info().Msg("Refresh token received and stored")
-	} else {
-		// No refresh token - this is expected for providers like Google when
-		// OIDC_OFFLINE_ACCESS is not enabled. Without a refresh token, the session
-		// will expire when the access token expires (typically 1 hour for Google).
+
+	// Get or create user from OIDC claims via ValidateUserToken
+	// This handles user lookup/creation in the database
+	user, err := s.oidcClient.ValidateUserToken(ctx, oauth2Token.AccessToken)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to validate user token and get/create user")
+		http.Error(w, "Failed to get user info: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Log if no refresh token received
+	if oauth2Token.RefreshToken == "" {
 		log.Warn().Msg("No refresh token received from OIDC provider. Set OIDC_OFFLINE_ACCESS=true for Google to enable token refresh.")
 	}
+
+	// Create a BFF session with OIDC tokens stored on the backend
+	_, err = s.sessionManager.CreateSession(
+		ctx,
+		w,
+		r,
+		user.ID,
+		types.AuthProviderOIDC,
+		oauth2Token.AccessToken,
+		oauth2Token.RefreshToken,
+		oauth2Token.Expiry,
+	)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create session")
+		http.Error(w, "Failed to create session: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().
+		Str("user_id", user.ID).
+		Bool("has_refresh_token", oauth2Token.RefreshToken != "").
+		Time("token_expiry", oauth2Token.Expiry).
+		Msg("Created BFF session for OIDC user")
 
 	// Check if we have a stored redirect URI
 	redirectURI := s.Cfg.WebServer.URL // default redirect
@@ -692,6 +724,36 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// BFF pattern: Check for session cookie first
+	if s.sessionManager != nil {
+		session, err := s.sessionManager.GetSessionFromRequest(ctx, r)
+		if err == nil && session != nil {
+			// Get user info from database using session
+			user, err := s.Store.GetUser(ctx, &store.GetUserQuery{ID: session.UserID})
+			if err != nil {
+				log.Error().Err(err).Str("user_id", session.UserID).Msg("Failed to get user for BFF session")
+				http.Error(w, "Failed to get user info", http.StatusInternalServerError)
+				return
+			}
+
+			log.Debug().
+				Str("session_id", session.ID).
+				Str("user_id", session.UserID).
+				Msg("User info retrieved via BFF session")
+
+			response := types.UserResponse{
+				ID:    user.ID,
+				Email: user.Email,
+				Token: "", // No token exposed with BFF pattern
+				Name:  user.FullName,
+				Admin: user.Admin,
+			}
+			writeResponse(w, response, http.StatusOK)
+			return
+		}
+	}
+
+	// Fallback: Check for legacy access_token cookie (for backwards compatibility)
 	cm := NewCookieManager(s.Cfg)
 	accessToken, err := cm.Get(r, accessTokenCookie)
 	if err != nil {
@@ -769,6 +831,42 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, response, http.StatusOK)
 }
 
+// session godoc
+// @Summary Get current session info
+// @Description Returns session info for BFF authentication. The frontend uses this to check if the user is logged in.
+// @Tags    auth
+// @Success 200 {object} types.SessionInfo
+// @Failure 401 {string} string "Not authenticated"
+// @Router /api/v1/auth/session [get]
+func (s *HelixAPIServer) session(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Try to get user from BFF session
+	session, err := s.sessionManager.GetSessionFromRequest(ctx, r)
+	if err != nil {
+		// No valid session
+		http.Error(w, "Not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	// Get user info from database
+	user, err := s.Store.GetUser(ctx, &store.GetUserQuery{ID: session.UserID})
+	if err != nil {
+		log.Error().Err(err).Str("user_id", session.UserID).Msg("Failed to get user for session")
+		http.Error(w, "Failed to get user info", http.StatusInternalServerError)
+		return
+	}
+
+	// Return user info without tokens
+	response := types.UserResponse{
+		ID:    user.ID,
+		Email: user.Email,
+		Name:  user.FullName,
+		Admin: s.authMiddleware.isAdminWithContext(ctx, user.ID),
+	}
+	writeResponse(w, response, http.StatusOK)
+}
+
 // user godoc
 // @Summary Logout
 // @Description Logout the user
@@ -780,7 +878,14 @@ func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Remove cookies
+	// Delete BFF session if one exists
+	if session, err := s.sessionManager.GetSessionFromRequest(r.Context(), r); err == nil && session != nil {
+		if err := s.sessionManager.DeleteSession(r.Context(), w, session.ID); err != nil {
+			log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to delete session during logout")
+		}
+	}
+
+	// Remove legacy cookies (for backward compatibility during migration)
 	NewCookieManager(s.Cfg).DeleteAllCookies(w)
 
 	// Use redirect_uri from query param if provided (set by frontend from window.location.origin)
@@ -849,6 +954,27 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// BFF pattern: Check for session cookie first
+	if s.sessionManager != nil {
+		session, err := s.sessionManager.GetSessionFromRequest(ctx, r)
+		if err != nil {
+			log.Debug().Err(err).Msg("BFF session lookup failed in authenticated endpoint")
+		}
+		if session != nil {
+			log.Debug().
+				Str("session_id", session.ID).
+				Str("user_id", session.UserID).
+				Msg("User authenticated via BFF session in authenticated endpoint")
+			writeResponse(w, types.AuthenticatedResponse{
+				Authenticated: true,
+			}, http.StatusOK)
+			return
+		}
+	} else {
+		log.Debug().Msg("sessionManager is nil in authenticated endpoint")
+	}
+
+	// Fallback: Check for legacy access_token cookie (for backwards compatibility)
 	cm := NewCookieManager(s.Cfg)
 	accessToken, err := cm.Get(r, accessTokenCookie)
 	if err != nil {

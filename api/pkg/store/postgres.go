@@ -150,6 +150,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.OAuthProvider{},
 		&types.OAuthConnection{},
 		&types.OAuthRequestToken{},
+		&types.UserSession{},
 		&types.GitProviderConnection{},
 		&types.ServiceConnection{},
 		&types.UsageMetric{},
