@@ -54,7 +54,7 @@ const FileStoreDataGrid: FC<React.PropsWithChildren<FileStoreDataGridProps>> = (
         let icon = null
   
         if(isImage(data.name)) {
-          icon = account.token ? (
+          icon = account.user ? (
             <Box
               component={'img'}
               sx={{
@@ -209,7 +209,7 @@ const FileStoreDataGrid: FC<React.PropsWithChildren<FileStoreDataGridProps>> = (
     onView,
     onEdit,
     onDelete,
-    account.token,
+    account.user,
   ])
 
   const theme = useTheme()

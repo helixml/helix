@@ -25,8 +25,6 @@ export interface IAccountContext {
   isOrgMember: boolean,
   user?: IKeycloakUser,
   userMeta?: { slug: string },  // User metadata including slug for GitHub-style URLs
-  token?: string,
-  tokenUrlEscaped?: string,
   loggingOut?: boolean,
   serverConfig: IServerConfig,
   userConfig: IUserConfig,
@@ -96,7 +94,6 @@ export const useAccountContext = (): IAccountContext => {
   const [ initialized, setInitialized ] = useState(false)
   const [ user, setUser ] = useState<IKeycloakUser>()
   const [ userMeta, setUserMeta ] = useState<{ slug: string }>()
-  const [ tokenExpiryMinutes, setTokenExpiryMinutes ] = useState<number | null>(null)
   const [ credits, setCredits ] = useState(0)
   const [ loggingOut, setLoggingOut ] = useState(false)
   const [ userConfig, setUserConfig ] = useState<IUserConfig>({})
@@ -115,15 +112,6 @@ export const useAccountContext = (): IAccountContext => {
   const [providerEndpoints, setProviderEndpoints] = useState<IProviderEndpoint[]>([])
   const [hasImageModels, setHasImageModels] = useState(false)
 
-  const token = useMemo(() => {
-    if (user && user.token) {
-      return user.token
-    } else {
-      return ''
-    }
-  }, [
-    user,
-  ])
 
   const isOrgAdmin = useMemo(() => {
     if(admin) return true
@@ -153,10 +141,6 @@ export const useAccountContext = (): IAccountContext => {
     isOrgAdmin,
   ])
 
-  const tokenUrlEscaped = useMemo(() => {
-    if (!token) return '';
-    return encodeURIComponent(token);
-  }, [token]);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -292,6 +276,8 @@ export const useAccountContext = (): IAccountContext => {
 
   const onLogout = useCallback(async () => {
     setLoggingOut(true)
+    setUser(undefined)
+
     try {
       // Use redirect: 'manual' to prevent fetch from following cross-origin redirects
       // which would fail due to CORS when redirecting to Keycloak
@@ -341,7 +327,6 @@ export const useAccountContext = (): IAccountContext => {
       if (authenticated.data.authenticated) {
         const userResponse = await client.v1AuthUserList()
         const user = userResponse.data as IKeycloakUser
-        api.setToken(user.token)
 
         const win = (window as any)
         if (win.setUser) {
@@ -356,87 +341,6 @@ export const useAccountContext = (): IAccountContext => {
         }
 
         setUser(user)
-
-        // Check if token expires soon and refresh immediately if needed
-        const checkAndRefreshToken = async () => {
-          try {
-            if (user.token) {
-              const payload = JSON.parse(atob(user.token.split('.')[1]))
-              const expiry = new Date(payload.exp * 1000)
-              const now = new Date()
-              const minutesUntilExpiry = (expiry.getTime() - now.getTime()) / 1000 / 60
-
-              // If token expires in less than 4 minutes, refresh immediately!
-              if (minutesUntilExpiry < 4) {
-                console.log(`[AUTH] Token expires in ${Math.round(minutesUntilExpiry)} minutes - refreshing immediately!`)
-                const innerClient = api.getApiClient()
-                await innerClient.v1AuthRefreshCreate()
-                const userResponse = await innerClient.v1AuthUserList()
-                const refreshedUser = userResponse.data as IKeycloakUser
-
-                setUser(Object.assign({}, refreshedUser, {
-                  token: refreshedUser.token,
-                  is_admin: admin,
-                }))
-                if (refreshedUser.token) {
-                  api.setToken(refreshedUser.token)
-                  console.log('[AUTH] Emergency refresh completed')
-                }
-              }
-            }
-          } catch (e) {
-            console.error('[AUTH] Emergency refresh failed:', e)
-          }
-        }
-
-        // Do immediate check/refresh if needed
-        await checkAndRefreshToken()
-
-        // Set up token refresh interval - using 4 minutes to stay well within
-        // 15 minute implicit flow token expiry (accessTokenLifespanForImplicitFlow)
-        const refreshInterval = setInterval(async () => {
-          try {
-            const innerClient = api.getApiClient()
-            await innerClient.v1AuthRefreshCreate()
-            const userResponse = await innerClient.v1AuthUserList()
-            const user = userResponse.data as IKeycloakUser
-
-            setUser(Object.assign({}, user, {
-              token: user.token,
-              is_admin: admin,
-            }))
-            if (user.token) {
-              api.setToken(user.token)
-              console.log('[AUTH] Updated axios headers with new token')
-            }
-          } catch (e) {
-            console.error('Error refreshing token:', e)
-
-            // Try to get token expiry info for better error message
-            let expiryInfo = ''
-            try {
-              const currentToken = api.getApiClient().securityData?.token
-              if (currentToken) {
-                const payload = JSON.parse(atob(currentToken.split('.')[1]))
-                const expiry = new Date(payload.exp * 1000)
-                expiryInfo = ` (token expired at ${expiry.toISOString()})`
-              }
-            } catch {}
-
-            // Instead of immediately calling onLogin, clear interval and try one more time
-            clearInterval(refreshInterval)
-            // Only call onLogin if we're really unauthorized, not for network issues
-            if ((e as any).response && (e as any).response.status === 401) {
-              const reason = `Token refresh failed${expiryInfo} - session expired or server restarted`
-              localStorage.setItem('logout_reason', reason)
-              console.log('[AUTH] Logging out:', reason, e)
-              onLogin()
-            }
-          }
-        }, 120 * 1000) // 2 minutes (tokens expire in 5min, so refresh every 2min to be safe)
-
-        // Clean up interval on component unmount
-        return () => clearInterval(refreshInterval)
       }
     } catch (e) {
       const errorMessage = extractErrorMessage(e)
@@ -516,6 +420,7 @@ export const useAccountContext = (): IAccountContext => {
     initialize()
   }, [])
 
+
   useEffect(() => {
     try {
       if (user) {
@@ -533,8 +438,6 @@ export const useAccountContext = (): IAccountContext => {
     initialized,
     user,
     userMeta,
-    token,
-    tokenUrlEscaped,
     admin,
     loggingOut,
     serverConfig,

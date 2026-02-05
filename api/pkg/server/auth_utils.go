@@ -172,7 +172,7 @@ Access Control
 */
 
 func hasUser(user *types.User) bool {
-	return user.ID != ""
+	return user != nil && user.ID != ""
 }
 
 func hasUserOrRunner(user *types.User) bool {
@@ -184,7 +184,7 @@ func isAdmin(user *types.User) bool {
 }
 
 func isRunner(user *types.User) bool {
-	return user.Token != "" && user.TokenType == types.TokenTypeRunner
+	return user != nil && user.Token != "" && user.TokenType == types.TokenTypeRunner
 }
 
 func canSeeSession(user *types.User, session *types.Session) bool {

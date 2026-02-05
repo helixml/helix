@@ -42,10 +42,12 @@ type authMiddlewareConfig struct {
 }
 
 type authMiddleware struct {
-	authenticator authpkg.Authenticator
-	oidcClient    authpkg.OIDC // For OIDC token validation (nil if not using OIDC)
-	store         store.Store
-	cfg           authMiddlewareConfig
+	authenticator  authpkg.Authenticator
+	oidcClient     authpkg.OIDC // For OIDC token validation (nil if not using OIDC)
+	store          store.Store
+	cfg            authMiddlewareConfig
+	serverCfg      *config.ServerConfig // Server config for cookie management
+	sessionManager *authpkg.SessionManager // BFF session manager (nil if not using sessions)
 }
 
 func newAuthMiddleware(
@@ -53,12 +55,16 @@ func newAuthMiddleware(
 	oidcClient authpkg.OIDC,
 	store store.Store,
 	cfg authMiddlewareConfig,
+	serverCfg *config.ServerConfig,
+	sessionManager *authpkg.SessionManager,
 ) *authMiddleware {
 	return &authMiddleware{
-		authenticator: authenticator,
-		oidcClient:    oidcClient,
-		store:         store,
-		cfg:           cfg,
+		authenticator:  authenticator,
+		oidcClient:     oidcClient,
+		store:          store,
+		cfg:            cfg,
+		serverCfg:      serverCfg,
+		sessionManager: sessionManager,
 	}
 }
 
@@ -256,13 +262,76 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 	return user, nil
 }
 
+// getUserFromSession checks for a valid BFF session and returns the user
+// This is the primary auth method for browser-based clients using HttpOnly session cookies
+func (auth *authMiddleware) getUserFromSession(ctx context.Context, r *http.Request) (*types.User, error) {
+	if auth.sessionManager == nil {
+		return nil, authpkg.ErrSessionNotFound
+	}
+
+	session, err := auth.sessionManager.GetSessionFromRequest(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Load user from database
+	dbUser, err := auth.store.GetUser(ctx, &store.GetUserQuery{ID: session.UserID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to load user for session: %w", err)
+	}
+	if dbUser == nil {
+		return nil, fmt.Errorf("user not found for session: %s", session.UserID)
+	}
+
+	// Set token type based on auth provider
+	if session.AuthProvider == types.AuthProviderOIDC {
+		dbUser.Token = session.OIDCAccessToken
+		dbUser.TokenType = types.TokenTypeOIDC
+	} else {
+		dbUser.TokenType = types.TokenTypeSession
+	}
+
+	dbUser.Admin = auth.isAdminWithContext(ctx, dbUser.ID)
+
+	return dbUser, nil
+}
+
 // this will extract the token from the request and then load the correct
 // user based on what type of token it is
 // if there is no token, a default user object will be written to the
 // request context
 func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 	f := func(w http.ResponseWriter, r *http.Request) {
-		user, err := auth.getUserFromToken(r.Context(), getRequestToken(r))
+		var user *types.User
+		var err error
+
+		// First, try BFF session authentication (from helix_session cookie)
+		// This is the primary auth method for browser clients
+		if auth.sessionManager != nil {
+			user, err = auth.getUserFromSession(r.Context(), r)
+			if err == nil && user != nil {
+				// Successfully authenticated via session
+				r = r.WithContext(setRequestUser(r.Context(), *user))
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Session expired - clear the session cookie
+			if errors.Is(err, authpkg.ErrSessionExpired) {
+				auth.sessionManager.ClearSessionCookie(w)
+			}
+
+			// If session auth failed but it's not a "not found" error, log it
+			if err != nil && !errors.Is(err, authpkg.ErrSessionNotFound) {
+				log.Debug().Err(err).Str("path", r.URL.Path).Msg("BFF session auth failed, trying token auth")
+			}
+
+			// Fall through to token-based auth
+			err = nil
+		}
+
+		// Fall back to token-based authentication (API keys, runner tokens, OIDC tokens)
+		user, err = auth.getUserFromToken(r.Context(), getRequestToken(r))
 		if err != nil {
 			// Check if error is due to server not ready vs invalid token
 			// Return 503 for server errors so frontend doesn't auto-logout during API restart
@@ -271,9 +340,22 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 				http.Error(w, "Authentication service temporarily unavailable", http.StatusServiceUnavailable)
 				return
 			}
-			log.Debug().Err(err).Str("path", r.URL.Path).Msg("Auth error - returning 401")
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-			return
+			// If the error is due to stale Helix JWT while OIDC is configured,
+			// clear all cookies so the user is forced to re-login via OIDC
+			if errors.Is(err, ErrHelixTokenWithOIDC) && auth.serverCfg != nil {
+				log.Warn().Str("path", r.URL.Path).Msg("Clearing stale Helix JWT cookies - user needs to re-login via OIDC")
+				NewCookieManager(auth.serverCfg).DeleteAllCookies(w)
+				http.Error(w, err.Error(), http.StatusUnauthorized)
+				return
+			}
+
+			// With BFF pattern, token refresh is handled by SessionManager
+			// API keys and runner tokens don't need refresh
+			if err != nil {
+				log.Debug().Err(err).Str("path", r.URL.Path).Msg("Auth error - returning 401")
+				http.Error(w, err.Error(), http.StatusUnauthorized)
+				return
+			}
 		}
 		if user == nil {
 			user = &types.User{}
@@ -305,6 +387,12 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 				http.Error(w, "Authentication service temporarily unavailable", http.StatusServiceUnavailable)
 				return
 			}
+			// If the error is due to stale Helix JWT while OIDC is configured,
+			// clear all cookies so the user is forced to re-login via OIDC
+			if errors.Is(err, ErrHelixTokenWithOIDC) && auth.serverCfg != nil {
+				log.Warn().Str("path", r.URL.Path).Msg("Clearing stale Helix JWT cookies - user needs to re-login via OIDC")
+				NewCookieManager(auth.serverCfg).DeleteAllCookies(w)
+			}
 			log.Debug().Err(err).Str("path", r.URL.Path).Msg("Auth error - returning 401")
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
@@ -324,4 +412,56 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 
 		f(w, r)
 	}
+}
+
+// csrfExemptPaths are paths that don't require CSRF protection
+// These are typically auth endpoints or APIs used before/during session creation
+var csrfExemptPaths = map[string]bool{
+	"/api/v1/auth/login":         true, // Login doesn't have CSRF cookie yet
+	"/api/v1/auth/logout":        true, // Logout clears the session
+	"/api/v1/auth/oidc":          true, // OIDC redirect
+	"/api/v1/auth/oidc/callback": true, // OIDC callback
+	"/api/v1/auth/authenticated": true, // Read-only check
+	"/api/v1/auth/session":       true, // Session info (GET-like semantics)
+	"/api/v1/auth/user":          true, // Get user info
+}
+
+// csrfMiddleware validates CSRF tokens for state-changing requests
+// when the request uses cookie-based session authentication.
+// API key and runner token authenticated requests skip CSRF validation.
+func (auth *authMiddleware) csrfMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Only check CSRF for state-changing methods
+		if r.Method != "POST" && r.Method != "PUT" && r.Method != "DELETE" && r.Method != "PATCH" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check if path is exempt from CSRF
+		if csrfExemptPaths[r.URL.Path] {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check if this request was authenticated via session cookie
+		// If using API key or runner token, skip CSRF validation
+		_, err := r.Cookie(authpkg.SessionCookieName)
+		if err != nil {
+			// No session cookie - this is API key or runner token auth, skip CSRF
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Session cookie exists - validate CSRF token
+		if !authpkg.ValidateCSRF(r) {
+			log.Warn().
+				Str("path", r.URL.Path).
+				Str("method", r.Method).
+				Msg("CSRF validation failed")
+			http.Error(w, "CSRF validation failed", http.StatusForbidden)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }

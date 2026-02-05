@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,7 +14,12 @@ import (
 // runDocker handles docker CLI commands with path translation and cache injection
 func runDocker(args []string) int {
 	// Process arguments
-	newArgs := processDockerArgs(args)
+	newArgs, err := processDockerArgs(args)
+	if err != nil {
+		// Fail fast: print error and exit with non-zero code
+		fmt.Fprintf(os.Stderr, "docker-shim: build failed: %v\n", err)
+		return 1
+	}
 
 	log.Debug().
 		Strs("original", args).
@@ -25,7 +31,8 @@ func runDocker(args []string) int {
 }
 
 // processDockerArgs processes docker arguments for path translation and cache injection
-func processDockerArgs(args []string) []string {
+// Returns error if a required component (like shared builder) is unavailable
+func processDockerArgs(args []string) ([]string, error) {
 	result := make([]string, 0, len(args)+4) // Extra space for cache flags
 
 	// First pass: translate paths in volume/mount arguments
@@ -66,9 +73,13 @@ func processDockerArgs(args []string) []string {
 	}
 
 	// Second pass: inject BuildKit cache flags for build commands
-	result = injectBuildCacheFlags(result)
+	// This may fail if the shared builder is unavailable
+	result, err := injectBuildCacheFlags(result)
+	if err != nil {
+		return nil, err
+	}
 
-	return result
+	return result, nil
 }
 
 // isBuildCommand checks if the args represent a docker build command
@@ -166,23 +177,94 @@ func hasCacheFlags(args []string) bool {
 	return false
 }
 
-// injectBuildCacheFlags adds BuildKit cache flags to build commands
-func injectBuildCacheFlags(args []string) []string {
-	// Only process build commands
-	if !isBuildCommand(args) {
-		return args
+// SharedBuilderName is the name of the shared buildx builder with cache mount
+const SharedBuilderName = "helix-shared"
+
+// SharedBuildKitContainerName is the name of the BuildKit container
+const SharedBuildKitContainerName = "helix-buildkit"
+
+// ensureSharedBuilder checks if the helix-shared builder exists, creates it if not
+// Returns nil if the builder is available, error with details if it couldn't be set up
+func ensureSharedBuilder() error {
+	// Check if builder already exists
+	checkCmd := exec.Command(DockerRealPath, "buildx", "inspect", SharedBuilderName)
+	if err := checkCmd.Run(); err == nil {
+		log.Debug().Str("builder", SharedBuilderName).Msg("Shared builder already exists")
+		return nil
 	}
 
-	// Check if cache directory exists
+	// Check if BuildKit container exists
+	checkContainerCmd := exec.Command(DockerRealPath, "inspect", SharedBuildKitContainerName)
+	if err := checkContainerCmd.Run(); err != nil {
+		return fmt.Errorf("shared BuildKit container '%s' not found. "+
+			"This container should be started by Hydra. Check that Hydra is running and has set up the BuildKit container. "+
+			"Error: %w", SharedBuildKitContainerName, err)
+	}
+
+	// Get buildkit container IP
+	ipCmd := exec.Command(DockerRealPath, "inspect", "-f",
+		"{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+		SharedBuildKitContainerName)
+	ipOutput, err := ipCmd.Output()
+	if err != nil {
+		return fmt.Errorf("could not get IP for BuildKit container '%s': %w",
+			SharedBuildKitContainerName, err)
+	}
+	buildkitIP := strings.TrimSpace(string(ipOutput))
+	if buildkitIP == "" {
+		return fmt.Errorf("BuildKit container '%s' has no IP address. "+
+			"The container may not be connected to a network properly",
+			SharedBuildKitContainerName)
+	}
+
+	// Create the builder
+	log.Info().
+		Str("builder", SharedBuilderName).
+		Str("endpoint", "tcp://"+buildkitIP+":1234").
+		Msg("Creating shared buildx builder")
+
+	createCmd := exec.Command(DockerRealPath, "buildx", "create",
+		"--name", SharedBuilderName,
+		"--driver", "remote",
+		"tcp://"+buildkitIP+":1234",
+	)
+	if output, err := createCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create shared builder '%s': %s: %w",
+			SharedBuilderName, strings.TrimSpace(string(output)), err)
+	}
+
+	return nil
+}
+
+// hasBuilderFlag checks if --builder flag is already present
+func hasBuilderFlag(args []string) bool {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--builder") {
+			return true
+		}
+	}
+	return false
+}
+
+// injectBuildCacheFlags adds BuildKit cache flags and builder to build commands
+// Returns the modified args and an error if the shared builder can't be set up
+// Fail-fast: if cache directory exists, builder MUST be available
+func injectBuildCacheFlags(args []string) ([]string, error) {
+	// Only process build commands
+	if !isBuildCommand(args) {
+		return args, nil
+	}
+
+	// Check if cache directory exists - if it does, we REQUIRE the builder
 	if _, err := os.Stat(BuildKitCacheDir); os.IsNotExist(err) {
 		log.Debug().Msg("BuildKit cache directory not found, skipping cache injection")
-		return args
+		return args, nil
 	}
 
 	// Don't inject if user already specified cache flags
 	if hasCacheFlags(args) {
 		log.Debug().Msg("Cache flags already present, skipping injection")
-		return args
+		return args, nil
 	}
 
 	// Extract image name for cache key
@@ -196,11 +278,10 @@ func injectBuildCacheFlags(args []string) []string {
 
 	// Ensure cache subdirectory exists
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		log.Warn().Err(err).Str("dir", cacheDir).Msg("Failed to create cache directory")
-		return args
+		return nil, fmt.Errorf("failed to create cache directory '%s': %w", cacheDir, err)
 	}
 
-	// Find where to insert cache flags (after "build" or "buildx build")
+	// Find where to insert flags (after "build" or "buildx build")
 	insertIdx := -1
 	for i, arg := range args {
 		if arg == "build" {
@@ -210,15 +291,43 @@ func injectBuildCacheFlags(args []string) []string {
 	}
 
 	if insertIdx == -1 || insertIdx > len(args) {
-		return args
+		return args, nil
 	}
 
-	// Build new args with cache flags
+	// FAIL FAST: Shared builder is REQUIRED when cache directory exists
+	// This ensures builds always use the shared cache for consistency
+	if !hasBuilderFlag(args) {
+		if err := ensureSharedBuilder(); err != nil {
+			return nil, fmt.Errorf("shared BuildKit builder required for cached builds: %w\n\n"+
+				"The /buildkit-cache directory exists, which means cached builds are expected.\n"+
+				"Ensure Hydra has started the helix-buildkit container.", err)
+		}
+	}
+
+	// Build new args with builder and cache flags
 	cacheFrom := "--cache-from=type=local,src=" + cacheDir
 	cacheTo := "--cache-to=type=local,dest=" + cacheDir + ",mode=max"
 
-	result := make([]string, 0, len(args)+2)
+	result := make([]string, 0, len(args)+4)
 	result = append(result, args[:insertIdx]...)
+
+	// Add --builder flag if not already specified
+	if !hasBuilderFlag(args) {
+		result = append(result, "--builder="+SharedBuilderName)
+		// With remote builder, we need --load to get image into local docker
+		// Check if --load or --push already specified
+		hasOutput := false
+		for _, arg := range args {
+			if arg == "--load" || arg == "--push" || strings.HasPrefix(arg, "-o") || strings.HasPrefix(arg, "--output") {
+				hasOutput = true
+				break
+			}
+		}
+		if !hasOutput {
+			result = append(result, "--load")
+		}
+	}
+
 	result = append(result, cacheFrom, cacheTo)
 	result = append(result, args[insertIdx:]...)
 
@@ -227,7 +336,7 @@ func injectBuildCacheFlags(args []string) []string {
 		Str("image", imageName).
 		Msg("Injected BuildKit cache flags")
 
-	return result
+	return result, nil
 }
 
 // execReal executes the real binary, replacing the current process

@@ -284,11 +284,12 @@ func ValidateEntityType(datasetType string, acceptEmpty bool) (DataEntityType, e
 type TokenType string
 
 const (
-	TokenTypeNone   TokenType = ""
-	TokenTypeRunner TokenType = "runner"
-	TokenTypeOIDC   TokenType = "oidc"
-	TokenTypeAPIKey TokenType = "api_key"
-	TokenTypeSocket TokenType = "socket"
+	TokenTypeNone    TokenType = ""
+	TokenTypeRunner  TokenType = "runner"
+	TokenTypeOIDC    TokenType = "oidc"
+	TokenTypeAPIKey  TokenType = "api_key"
+	TokenTypeSocket  TokenType = "socket"
+	TokenTypeSession TokenType = "session" // BFF session for regular (email/password) auth
 )
 
 type ScriptRunState string

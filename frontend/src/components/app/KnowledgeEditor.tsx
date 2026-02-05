@@ -503,7 +503,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
 
   // Add functions to open files in a new tab and in the filestore
   const openFileInNewTab = (file: IFileStoreItem, sourcePath: string) => {
-    if (!account.token) {
+    if (!account.user) {
       snackbar.error('Must be logged in to view files');
       return;
     }

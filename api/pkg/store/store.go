@@ -364,6 +364,16 @@ type Store interface {
 	UpdateServiceConnection(ctx context.Context, connection *types.ServiceConnection) error
 	DeleteServiceConnection(ctx context.Context, id string) error
 
+	// User Session methods (BFF authentication)
+	CreateUserSession(ctx context.Context, session *types.UserSession) (*types.UserSession, error)
+	GetUserSession(ctx context.Context, id string) (*types.UserSession, error)
+	GetUserSessionsByUser(ctx context.Context, userID string) ([]*types.UserSession, error)
+	UpdateUserSession(ctx context.Context, session *types.UserSession) (*types.UserSession, error)
+	DeleteUserSession(ctx context.Context, id string) error
+	DeleteUserSessionsByUser(ctx context.Context, userID string) error
+	GetUserSessionsNearOIDCExpiry(ctx context.Context, expiresBefore time.Time) ([]*types.UserSession, error)
+	DeleteExpiredUserSessions(ctx context.Context) error
+
 	CreateUsageMetric(ctx context.Context, metric *types.UsageMetric) (*types.UsageMetric, error)
 	GetAppUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsageMetric, error)
 	GetAppDailyUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.AggregatedUsageMetric, error)

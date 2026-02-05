@@ -1,0 +1,19 @@
+{{- if and .Values.ingress.enabled .Values.ingress.gke .Values.ingress.gke.managedCertificate .Values.ingress.gke.managedCertificate.enabled }}
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-managed-cert
+  labels:
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+spec:
+  domains:
+    {{- if .Values.ingress.gke.managedCertificate.domains }}
+    {{- range .Values.ingress.gke.managedCertificate.domains }}
+    - {{ . | quote }}
+    {{- end }}
+    {{- else }}
+    {{- range .Values.ingress.hosts }}
+    - {{ .host | quote }}
+    {{- end }}
+    {{- end }}
+{{- end }}

@@ -180,7 +180,15 @@ export default function useOrganizations(): IOrganizationTools {
       console.error(`Error loading organization ${id}:`, error)
       const errorMessage = extractErrorMessage(error)
       snackbar.error(errorMessage || `Error loading organization details`)
-      setOrganization(undefined)
+
+      // Only clear organization on 404 (not found) errors, not on transient errors like auth issues
+      // This prevents the org from disappearing due to temporary network/auth problems
+      const status = (error as any)?.response?.status
+      if (status === 404) {
+        setOrganization(undefined)
+      }
+      // For other errors (401, 403, 500, network errors), keep the current org state
+      // so the user can retry or wait for auth to recover
     } finally {
       setLoading(false)
     }
@@ -637,16 +645,21 @@ export default function useOrganizations(): IOrganizationTools {
       return
     }
 
-    if (orgID && initialized) {  
+    if (orgID && initialized) {
       const useOrg = organizations.find((org) => org.id === orgID || org.name === orgID)
       if (!useOrg || !useOrg.id) {
-        setOrganization(undefined)
+        // Only clear the organization if we've loaded the list and still can't find it.
+        // If organizations is empty but we're still loading (or haven't loaded yet),
+        // don't clear - we might just not have the data yet.
+        if (organizations.length > 0) {
+          setOrganization(undefined)
+        }
         return
       } else {
         loadOrganization(useOrg.id)
       }
     }
-  }, [orgID, initialized])
+  }, [orgID, initialized, organizations])
 
   return {
     organizations,

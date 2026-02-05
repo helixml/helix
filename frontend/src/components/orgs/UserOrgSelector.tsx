@@ -24,9 +24,9 @@ import {
   HelpCircle,  
   FileQuestionMark,
   MessageCircle,
+  Kanban,
 } from 'lucide-react'
 import SettingsIcon from '@mui/icons-material/Settings'
-import { Hive } from '@mui/icons-material'
 
 
 import useAccount from '../../hooks/useAccount'
@@ -374,11 +374,11 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const navigationButtons = useMemo(() => {
     const baseButtons = [
       {
-        icon: <Hive sx={{ fontSize: NAV_BUTTON_SIZE }} />,
-        tooltip: "View swarm",
+        icon: <Kanban size={NAV_BUTTON_SIZE} />,
+        tooltip: "View projects",
         isActive: isActive(['spec-tasks', 'projects', 'project']),
         onClick: handleProjectsClick,
-        label: "Swarm",
+        label: "Projects",
       },
       {
         icon: <MessageCircle size={NAV_BUTTON_SIZE} />,

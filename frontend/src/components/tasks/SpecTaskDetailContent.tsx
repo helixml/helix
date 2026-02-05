@@ -48,8 +48,8 @@ import ArchiveIcon from "@mui/icons-material/Archive";
 import AccountTree from "@mui/icons-material/AccountTree";
 import { TypesSpecTaskPriority, TypesSpecTaskStatus } from "../../api/api";
 import ExternalAgentDesktopViewer, { useSandboxState } from "../external-agent/ExternalAgentDesktopViewer";
-
 import DiffViewer from "./DiffViewer";
+import { getCSRFToken } from "../../utils/csrf";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
 import useSnackbar from "../../hooks/useSnackbar";
 import useAccount from "../../hooks/useAccount";
@@ -467,9 +467,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       const queryString = queryParams.toString();
       const url = `/api/v1/spec-tasks/${task.id}/start-planning${queryString ? `?${queryString}` : ""}`;
 
+      const csrfToken = getCSRFToken();
       const response = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrfToken && { "X-CSRF-Token": csrfToken }),
+        },
         credentials: "include",
       });
       if (!response.ok) {
@@ -704,11 +708,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           const formData = new FormData();
           formData.append("file", file);
 
+          const csrfToken = getCSRFToken();
           const response = await fetch(
             `/api/v1/external-agents/${activeSessionId}/upload?open_file_manager=false`,
             {
               method: "POST",
               body: formData,
+              headers: csrfToken ? { "X-CSRF-Token": csrfToken } : undefined,
             },
           );
 

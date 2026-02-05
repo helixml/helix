@@ -62,6 +62,7 @@ import NewSpecTaskForm from "./NewSpecTaskForm";
 import { useStreaming } from "../../contexts/streaming";
 import { SESSION_TYPE_TEXT } from "../../types";
 import useAccount from "../../hooks/useAccount";
+import { getCSRFToken } from "../../utils/csrf";
 
 // Pulse animation for active agent indicator
 const activePulse = keyframes`
@@ -371,7 +372,7 @@ const PanelTab: React.FC<PanelTabProps> = ({
           ? tab.reviewTitle
           : `Review: ${tab.reviewTitle || "Spec"}`
         : tab.type === "desktop"
-          ? tab.desktopTitle || "Team Desktop"
+          ? tab.desktopTitle || "Human Desktop"
           : displayTask?.user_short_title ||
             displayTask?.short_title ||
             displayTask?.name ||
@@ -388,7 +389,7 @@ const PanelTab: React.FC<PanelTabProps> = ({
     }
     // Desktop tabs
     if (tab.type === "desktop") {
-      return tab.desktopTitle || "Team Desktop";
+      return tab.desktopTitle || "Human Desktop";
     }
     if (!hasSession) {
       return displayTask?.name || displayTask?.description || "Task details";
@@ -819,9 +820,13 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
       const queryString = queryParams.toString();
       const url = `/api/v1/spec-tasks/${activeTask.id}/start-planning${queryString ? `?${queryString}` : ""}`;
 
+      const csrfToken = getCSRFToken();
       const response = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrfToken && { "X-CSRF-Token": csrfToken }),
+        },
         credentials: "include",
       });
       if (!response.ok) {
@@ -1215,7 +1220,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
             </>
           )}
 
-          {/* Team Desktop - the exploratory session for the project */}
+          {/* Human Desktop - the exploratory session for the project */}
           {exploratorySessionId &&
             (() => {
               const desktopTabId = `desktop-${exploratorySessionId}`;
@@ -1228,7 +1233,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
                         onAddDesktop(
                           panel.id,
                           exploratorySessionId,
-                          "Team Desktop",
+                          "Human Desktop",
                         );
                       }
                       setMenuAnchor(null);
@@ -1244,7 +1249,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
                       />
                     </ListItemIcon>
                     <ListItemText
-                      primary="Team Desktop"
+                      primary="Human Desktop"
                       secondary={alreadyOpen ? "Already open" : undefined}
                       primaryTypographyProps={{ fontSize: "0.875rem" }}
                       secondaryTypographyProps={{ fontSize: "0.7rem" }}
@@ -1487,7 +1492,7 @@ interface TabsViewProps {
   initialTaskId?: string; // Task ID to open initially (from "Split Screen" button)
   initialDesktopId?: string; // Desktop session ID to open initially (from "Split Screen" button)
   initialReviewId?: string; // Review ID to open initially (requires initialTaskId)
-  exploratorySessionId?: string; // Team Desktop session ID (one per project)
+  exploratorySessionId?: string; // Human Desktop session ID (one per project)
 }
 
 // localStorage key prefix for workspace state (per-project)
@@ -1744,7 +1749,7 @@ const TabsView: React.FC<TabsViewProps> = ({
         ? tasks.find((t) => t.planning_session_id === initialDesktopId)
         : null;
       const desktopTitle = isTeamDesktop
-        ? "Team Desktop"
+        ? "Human Desktop"
         : ownerTask
           ? ownerTask.user_short_title ||
             ownerTask.short_title ||
@@ -1890,7 +1895,7 @@ const TabsView: React.FC<TabsViewProps> = ({
       ? tasks.find((t) => t.planning_session_id === initialDesktopId)
       : null;
     const desktopTitle = isTeamDesktop
-      ? "Team Desktop"
+      ? "Human Desktop"
       : ownerTask
         ? ownerTask.user_short_title ||
           ownerTask.short_title ||
@@ -2300,7 +2305,7 @@ const TabsView: React.FC<TabsViewProps> = ({
     [],
   );
 
-  // Handle adding a Team Desktop tab to a panel
+  // Handle adding a Human Desktop tab to a panel
   const handleAddDesktop = useCallback(
     (panelId: string, sessionId: string, title?: string) => {
       const desktopTabId = `desktop-${sessionId}`;
@@ -2321,7 +2326,7 @@ const TabsView: React.FC<TabsViewProps> = ({
                 id: desktopTabId,
                 type: "desktop" as const,
                 sessionId,
-                desktopTitle: title || "Team Desktop",
+                desktopTitle: title || "Human Desktop",
               },
             ],
             activeTabId: desktopTabId,

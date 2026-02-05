@@ -451,7 +451,7 @@ func injectComposeCacheFlags(args []string) []string {
 		return args
 	}
 
-	// Check compose version for --set support (v2.24+)
+	// Check compose version for --set support (v2.24+ but removed in v5.0+)
 	version := getComposeVersion()
 	if version == "" {
 		log.Warn().Msg("Could not determine compose version, skipping cache injection")
@@ -465,6 +465,12 @@ func injectComposeCacheFlags(args []string) []string {
 		// For older versions, we'd need to modify the compose file directly
 		// which we already do in processComposeFile for path translation
 		// Adding cache config there would require more complex YAML manipulation
+		return args
+	}
+
+	// --set flag was removed in Compose v5.x
+	if compareVersions(version, "5.0.0") {
+		log.Debug().Msg("Compose version >= 5.0, --set removed, skipping cache injection")
 		return args
 	}
 

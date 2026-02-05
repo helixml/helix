@@ -201,6 +201,13 @@ ingress:
         - path: /
           pathType: ImplementationSpecific
   tls: []
+  # GKE-specific configuration
+  gke:
+    managedCertificate:
+      # Enable to automatically create a Google-managed TLS certificate
+      enabled: false
+      # Optional: specify domains explicitly. If empty, uses ingress.hosts[].host
+      domains: []
 
 resources: {}
 

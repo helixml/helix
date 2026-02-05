@@ -83,10 +83,7 @@ const Projects: FC = () => {
       })
     }
     return map
-  }, [apps.apps])
-
-  // Check if org slug is set in the URL
-  // const orgSlug = router.params.org_id || ''
+  }, [apps.apps])  
 
   const isOrgResolved = !account.organizationTools.orgID || !!account.organizationTools.organization
   const shouldLoadProjects = isLoggedIn && !account.organizationTools.loading && isOrgResolved

@@ -25,7 +25,7 @@ import { useStreaming } from '../contexts/streaming'
 import { SESSION_TYPE_TEXT } from '../types'
 
 /**
- * TeamDesktopPage - Standalone page for the Team Desktop (exploratory session)
+ * TeamDesktopPage - Standalone page for the Human Desktop (exploratory session)
  *
  * This page displays the remote desktop stream with an integrated chat panel,
  * allowing users to interact with the AI agent in a shared desktop environment.
@@ -117,7 +117,7 @@ const TeamDesktopPage: FC = () => {
               {project?.name || 'Project'}
             </Link>
             <Typography color="text.primary" sx={{ fontSize: '0.875rem' }}>
-              Team Desktop
+              Human Desktop
             </Typography>
           </Breadcrumbs>
         </Box>
