@@ -167,7 +167,10 @@ func TestIntegration_DockerBuildNoCacheDir(t *testing.T) {
 	args := []string{"build", "-t", "test:nocache", "."}
 
 	// Save original and use non-existent cache dir
-	processed := injectBuildCacheFlags(args)
+	processed, err := injectBuildCacheFlags(args)
+	if err != nil {
+		t.Fatalf("injectBuildCacheFlags returned error: %v", err)
+	}
 
 	// Should be unchanged since /buildkit-cache doesn't exist
 	if len(processed) != len(args) {

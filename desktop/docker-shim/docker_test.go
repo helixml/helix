@@ -209,7 +209,10 @@ func TestInjectBuildCacheFlags(t *testing.T) {
 
 	t.Run("no cache dir - no injection", func(t *testing.T) {
 		args := []string{"build", "-t", "myimage", "."}
-		got := injectBuildCacheFlags(args)
+		got, err := injectBuildCacheFlags(args)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
 		if !reflect.DeepEqual(got, args) {
 			t.Errorf("Expected no change when cache dir doesn't exist, got %v", got)
 		}
@@ -217,7 +220,10 @@ func TestInjectBuildCacheFlags(t *testing.T) {
 
 	t.Run("non-build command - no injection", func(t *testing.T) {
 		args := []string{"run", "-it", "ubuntu"}
-		got := injectBuildCacheFlags(args)
+		got, err := injectBuildCacheFlags(args)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
 		if !reflect.DeepEqual(got, args) {
 			t.Errorf("Expected no change for non-build command, got %v", got)
 		}
@@ -225,7 +231,10 @@ func TestInjectBuildCacheFlags(t *testing.T) {
 
 	t.Run("already has cache flags - no injection", func(t *testing.T) {
 		args := []string{"build", "--cache-from=type=local,src=/other", "-t", "myimage", "."}
-		got := injectBuildCacheFlags(args)
+		got, err := injectBuildCacheFlags(args)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
 		if !reflect.DeepEqual(got, args) {
 			t.Errorf("Expected no change when cache flags present, got %v", got)
 		}
@@ -278,7 +287,10 @@ func TestProcessDockerArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := processDockerArgs(tt.args)
+			got, err := processDockerArgs(tt.args)
+			if err != nil {
+				t.Fatalf("processDockerArgs(%v) returned error: %v", tt.args, err)
+			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("processDockerArgs(%v) = %v, want %v", tt.args, got, tt.want)
 			}
