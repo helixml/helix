@@ -123,21 +123,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --release && \
     cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
 
-# ====================================================================
-# CUDA libraries - amd64 only (ARM64 builds skip this)
-# ====================================================================
-# Extract minimal CUDA runtime libs needed for GStreamer cudascale
-# On ARM64: This stage is never built (selector pattern below prevents it)
-FROM --platform=linux/amd64 nvidia/cuda:12.6.3-runtime-ubuntu24.04 AS cuda-libs-amd64
-RUN cp /usr/local/cuda/lib64/libnvrtc.so.12 /libnvrtc.so.12 && \
-    cp /usr/local/cuda/lib64/libnvrtc-builtins.so.12.6 /libnvrtc-builtins.so.12.6
-
-# ARM64: Empty stage (provides files for COPY but they won't be used)
-FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS cuda-libs-arm64
-RUN touch /libnvrtc.so.12 /libnvrtc-builtins.so.12.6
-
-# Selector: Choose architecture-specific CUDA libs
-FROM cuda-libs-${TARGETARCH} AS cuda-libs
+# (CUDA libraries are downloaded directly in main stage when needed)
 
 # ====================================================================
 # wlroots 0.19.0 build stage (from source)
@@ -757,8 +743,6 @@ ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 # Install zerocopy plugin and CUDA libs
 # ====================================================================
 COPY --from=rust-build-env /libgstpipewirezerocopy.so /tmp/zerocopy.so
-COPY --from=cuda-libs /libnvrtc.so.12 /tmp/libnvrtc.so.12
-COPY --from=cuda-libs /libnvrtc-builtins.so.12.6 /tmp/libnvrtc-builtins.so.12.6
 
 ARG TARGETARCH
 RUN <<_INSTALL_ZEROCOPY
@@ -771,12 +755,35 @@ if [ "${TARGETARCH}" = "amd64" ]; then
     cp /tmp/zerocopy.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
     chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
 
-    # Install CUDA runtime libs
-    cp /tmp/libnvrtc.so.12 ${LIB_DIR}/libnvrtc.so.12
-    cp /tmp/libnvrtc-builtins.so.12.6 ${LIB_DIR}/libnvrtc-builtins.so.12.6
-    ln -sf libnvrtc.so.12 ${LIB_DIR}/libnvrtc.so
-    ldconfig
+    # Download and install CUDA runtime libs (needed for cudascale element)
+    # Using wget to extract specific files from nvidia/cuda container
+    echo "Downloading CUDA runtime libraries..."
+    apt-get update && apt-get install -y --no-install-recommends wget ca-certificates
 
+    # Download from NVIDIA's container registry (faster than apt repos)
+    mkdir -p /tmp/cuda
+    cd /tmp/cuda
+
+    # Pull minimal CUDA runtime files from NVIDIA container
+    # Alternative: Could use apt with CUDA repos, but this is smaller/faster
+    wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+    dpkg -i cuda-keyring_1.1-1_all.deb
+    apt-get update
+    apt-get download cuda-nvrtc-12-6
+    dpkg-deb -x cuda-nvrtc-*.deb /tmp/cuda-extract
+
+    # Copy just the runtime libs we need
+    cp /tmp/cuda-extract/usr/local/cuda-12.6/lib64/libnvrtc.so.12.6.* ${LIB_DIR}/libnvrtc.so.12
+    cp /tmp/cuda-extract/usr/local/cuda-12.6/lib64/libnvrtc-builtins.so.12.6.* ${LIB_DIR}/libnvrtc-builtins.so.12.6
+    ln -sf libnvrtc.so.12 ${LIB_DIR}/libnvrtc.so
+
+    # Cleanup
+    rm -rf /tmp/cuda /tmp/cuda-extract
+    apt-get remove -y wget ca-certificates
+    apt-get autoremove -y
+    rm -rf /var/lib/apt/lists/*
+
+    ldconfig
     echo "Zerocopy plugin and CUDA libs installed"
 
 elif [ "${TARGETARCH}" = "arm64" ]; then
@@ -791,7 +798,7 @@ elif [ "${TARGETARCH}" = "arm64" ]; then
 fi
 
 # Cleanup temp files
-rm -f /tmp/zerocopy.so /tmp/libnvrtc*.so*
+rm -f /tmp/zerocopy.so
 _INSTALL_ZEROCOPY
 
 # Grim with JPEG support (from build stage)
