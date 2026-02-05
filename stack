@@ -766,31 +766,40 @@ function start() {
   # (in Helix-in-Helix mode, this skips sandbox profile and we start it on host Docker later)
   setup_sandbox_profile
 
-  # Stop and remove sandbox if running to ensure fresh start
-  # Must remove container completely or docker compose up will fail trying to remove network
-  docker compose -f docker-compose.dev.yaml stop "$SANDBOX_SERVICE" 2>/dev/null || true
+  # Remove old sandbox container to avoid network conflicts
   docker rm -f "$SANDBOX_CONTAINER" 2>/dev/null || true
 
-  # Start services based on enabled profiles
+  # Start control plane services WITHOUT sandbox profiles
+  # Sandbox started separately afterward to avoid network conflicts
+  echo "🚀 Starting control plane services (API, postgres, etc.)"
+
+  # Filter out sandbox profiles from COMPOSE_PROFILES
+  SANDBOX_PROFILE_REGEX="code-nvidia|code-amd-intel|sandbox"
+  CONTROL_PLANE_PROFILES=$(echo "${COMPOSE_PROFILES:-}" | tr ',' '\n' | grep -Ev "$SANDBOX_PROFILE_REGEX" | tr '\n' ',' | sed 's/,$//')
+
   if [[ -n "$WITH_RUNNER" ]]; then
     if [[ -n "$WITH_DEMOS" ]]; then
-      # Both runner and demos
-      echo "🚀 Starting services with runner ($RUNNER_CONTAINER) and demos profiles"
-      docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos up -d
+      # Runner and demos
+      COMPOSE_PROFILES="$CONTROL_PLANE_PROFILES,$RUNNER_CONTAINER,demos" \
+        docker compose -f docker-compose.dev.yaml up -d
     else
       # Just runner
-      echo "🚀 Starting services with runner ($RUNNER_CONTAINER) profile"
-      docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" up -d
+      COMPOSE_PROFILES="$CONTROL_PLANE_PROFILES,$RUNNER_CONTAINER" \
+        docker compose -f docker-compose.dev.yaml up -d
     fi
   elif [[ -n "$WITH_DEMOS" ]]; then
     # Just demos
-    echo "🚀 Starting services with demos profile"
-    docker compose -f docker-compose.dev.yaml --profile demos up -d
+    COMPOSE_PROFILES="$CONTROL_PLANE_PROFILES,demos" \
+      docker compose -f docker-compose.dev.yaml up -d
   else
-    # No special profiles
-    echo "🚀 Starting base services"
-    docker compose -f docker-compose.dev.yaml up -d
+    # Base services only
+    COMPOSE_PROFILES="$CONTROL_PLANE_PROFILES" \
+      docker compose -f docker-compose.dev.yaml up -d
   fi
+
+  # Start sandbox separately to avoid network conflicts
+  echo "🚀 Starting sandbox ($SANDBOX_SERVICE)"
+  docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
 
   sleep 2
 
