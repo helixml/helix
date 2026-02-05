@@ -126,28 +126,39 @@ The host-side socket is created and listening. Now need to make it accessible to
 
 **Options for guest-host communication:**
 
-1. **Verify socket is created**
-   - Check `/tmp/helix-frame-export.sock` exists
-   - Verify permissions and ownership
-   - Test connection from guest
+### ✅ Completed:
+- [x] Socket creation working
+- [x] Guest-host communication path established (TCP proxy)
+- [x] Protocol PING/PONG tested and working
 
-2. **Build guest client**
-   - Modify vsockenc to connect to UNIX socket (need to mount /tmp from host?)
-   - OR use virtserialport for guest→host communication
-   - OR implement host→guest socket forwarding
+### 🚧 Next: Test Frame Export with Real GPU Resources
 
-3. **Test protocol**
-   - Send test FrameRequest from guest
-   - Verify helix-frame-export receives it
-   - Check virgl_renderer_resource_get_info_ext() works
-   - Verify Metal texture extraction
-   - Test VideoToolbox encoding
+1. **Create test virtio-gpu resource in guest**
+   - Run simple Vulkan/GL app to create a framebuffer
+   - Get resource ID from virglrenderer
+   - OR use existing GNOME desktop framebuffer
 
-4. **End-to-end test**
-   - Start helix-ubuntu container
-   - Run desktop-bridge with vsockenc
-   - Stream video to browser
+2. **Test virgl_renderer_resource_get_info_ext()**
+   - Send FrameRequest with real resource ID
+   - Verify function returns Metal texture handle
+   - Check IOSurface backing exists
+
+3. **Test VideoToolbox encoding**
+   - Verify IOSurface → CVPixelBuffer conversion works
+   - Check H.264 encoding produces valid NALs
+   - Measure encoding latency
+
+4. **Build vsockenc replacement**
+   - Modify desktop-bridge vsockenc to connect to 10.0.2.2:5900
+   - Use PipeWire ScreenCast to get DmaBuf resource IDs
+   - Send FrameRequest messages
+   - Receive and output H.264 NALs
+
+5. **End-to-end integration**
+   - Test with helix-ubuntu container
+   - Stream to browser via WebSocket
    - Measure FPS and latency
+   - Compare to current x86 performance
 
 ## Known Challenges
 
@@ -188,7 +199,28 @@ socat TCP-LISTEN:5900,bind=127.0.0.1,fork,reuseaddr \
 10.0.2.2:5900  # QEMU user-mode networking forwards to host 127.0.0.1:5900
 ```
 
-Verified connection works from guest. Ready to test protocol.
+Verified connection works from guest.
+
+**✅ PROTOCOL TESTED AND WORKING!**
+
+Test client successfully sent PING and received PONG response:
+```
+Connecting to 127.0.0.1:5900...
+Connected! Sending PING...
+PING sent, waiting for PONG...
+Received response:
+  Magic: 0x52465848 (expected: 0x52465848)
+  Type: 0x11 (expected: 0x11 for PONG)
+  Session: 1
+
+✅ SUCCESS! Helix frame export protocol working!
+```
+
+End-to-end communication path confirmed:
+1. QEMU helix-frame-export module listening on UNIX socket ✅
+2. socat TCP proxy forwarding to socket ✅
+3. Client connects and sends messages ✅
+4. Server receives and responds correctly ✅
 
 **Note:** UTM ignores AdditionalArguments and SharedDirectories config for 9p/virtfs. TCP proxy is sufficient for testing. For production, will implement virtserialport in QEMU code directly.
 
