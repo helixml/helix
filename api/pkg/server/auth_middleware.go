@@ -42,11 +42,12 @@ type authMiddlewareConfig struct {
 }
 
 type authMiddleware struct {
-	authenticator authpkg.Authenticator
-	oidcClient    authpkg.OIDC // For OIDC token validation (nil if not using OIDC)
-	store         store.Store
-	cfg           authMiddlewareConfig
-	serverCfg     *config.ServerConfig // Server config for cookie management
+	authenticator  authpkg.Authenticator
+	oidcClient     authpkg.OIDC // For OIDC token validation (nil if not using OIDC)
+	store          store.Store
+	cfg            authMiddlewareConfig
+	serverCfg      *config.ServerConfig // Server config for cookie management
+	sessionManager *SessionManager      // BFF session manager (nil if not using sessions)
 }
 
 func newAuthMiddleware(
@@ -55,13 +56,15 @@ func newAuthMiddleware(
 	store store.Store,
 	cfg authMiddlewareConfig,
 	serverCfg *config.ServerConfig,
+	sessionManager *SessionManager,
 ) *authMiddleware {
 	return &authMiddleware{
-		authenticator: authenticator,
-		oidcClient:    oidcClient,
-		store:         store,
-		cfg:           cfg,
-		serverCfg:     serverCfg,
+		authenticator:  authenticator,
+		oidcClient:     oidcClient,
+		store:          store,
+		cfg:            cfg,
+		serverCfg:      serverCfg,
+		sessionManager: sessionManager,
 	}
 }
 
@@ -259,13 +262,82 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 	return user, nil
 }
 
+// getUserFromSession checks for a valid BFF session and returns the user
+// This is the primary auth method for browser-based clients using HttpOnly session cookies
+func (auth *authMiddleware) getUserFromSession(ctx context.Context, r *http.Request) (*types.User, error) {
+	if auth.sessionManager == nil {
+		return nil, ErrSessionNotFound
+	}
+
+	session, err := auth.sessionManager.GetSessionFromRequest(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Load user from database
+	dbUser, err := auth.store.GetUser(ctx, &store.GetUserQuery{ID: session.UserID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to load user for session: %w", err)
+	}
+	if dbUser == nil {
+		return nil, fmt.Errorf("user not found for session: %s", session.UserID)
+	}
+
+	// Set token type based on auth provider
+	if session.AuthProvider == types.AuthProviderOIDC {
+		dbUser.Token = session.OIDCAccessToken
+		dbUser.TokenType = types.TokenTypeOIDC
+	} else {
+		dbUser.TokenType = types.TokenTypeSession
+	}
+
+	dbUser.Admin = auth.isAdminWithContext(ctx, dbUser.ID)
+
+	log.Debug().
+		Str("session_id", session.ID).
+		Str("user_id", dbUser.ID).
+		Str("auth_provider", string(session.AuthProvider)).
+		Msg("Authenticated user via BFF session")
+
+	return dbUser, nil
+}
+
 // this will extract the token from the request and then load the correct
 // user based on what type of token it is
 // if there is no token, a default user object will be written to the
 // request context
 func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 	f := func(w http.ResponseWriter, r *http.Request) {
-		user, err := auth.getUserFromToken(r.Context(), getRequestToken(r))
+		var user *types.User
+		var err error
+
+		// First, try BFF session authentication (from helix_session cookie)
+		// This is the primary auth method for browser clients
+		if auth.sessionManager != nil {
+			user, err = auth.getUserFromSession(r.Context(), r)
+			if err == nil && user != nil {
+				// Successfully authenticated via session
+				r = r.WithContext(setRequestUser(r.Context(), *user))
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Session expired - clear the session cookie
+			if errors.Is(err, ErrSessionExpired) {
+				auth.sessionManager.clearSessionCookie(w)
+			}
+
+			// If session auth failed but it's not a "not found" error, log it
+			if err != nil && !errors.Is(err, ErrSessionNotFound) {
+				log.Debug().Err(err).Str("path", r.URL.Path).Msg("BFF session auth failed, trying token auth")
+			}
+
+			// Fall through to token-based auth
+			err = nil
+		}
+
+		// Fall back to token-based authentication (API keys, runner tokens, OIDC tokens)
+		user, err = auth.getUserFromToken(r.Context(), getRequestToken(r))
 		if err != nil {
 			// Check if error is due to server not ready vs invalid token
 			// Return 503 for server errors so frontend doesn't auto-logout during API restart

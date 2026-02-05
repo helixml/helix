@@ -108,6 +108,7 @@ type HelixAPIServer struct {
 	authenticator             auth.Authenticator
 	oidcClient                auth.OIDC
 	oauthManager              *oauth.Manager
+	sessionManager            *SessionManager
 	fileServerHandler         http.Handler
 	cache                     *ristretto.Cache[string, string]
 	avatarsBucket             *blob.Bucket
@@ -254,16 +255,7 @@ func NewServer(
 		requestToCommenterMapping:   make(map[string]string),
 		streamingRateLimiter:        make(map[string]time.Time),
 		inferenceServer:             inferenceServer,
-		authMiddleware: newAuthMiddleware(
-			authenticator,
-			oidcClient,
-			store,
-			authMiddlewareConfig{
-				adminUserIDs: cfg.WebServer.AdminUserIDs,
-				runnerToken:  cfg.WebServer.RunnerToken,
-			},
-			cfg,
-		),
+		sessionManager: NewSessionManager(store, oidcClient, cfg),
 		providerManager:   providerManager,
 		modelInfoProvider: modelInfoProvider,
 		pubsub:            ps,
@@ -296,6 +288,19 @@ func NewServer(
 		connman:                  connectionManager,
 		auditLogService:          services.NewAuditLogService(store),
 	}
+
+	// Initialize auth middleware with session manager for BFF authentication
+	apiServer.authMiddleware = newAuthMiddleware(
+		authenticator,
+		oidcClient,
+		store,
+		authMiddlewareConfig{
+			adminUserIDs: cfg.WebServer.AdminUserIDs,
+			runnerToken:  cfg.WebServer.RunnerToken,
+		},
+		cfg,
+		apiServer.sessionManager,
+	)
 
 	// Initialize SummaryService for async interaction summaries and session titles
 	apiServer.summaryService = NewSummaryService(store, providerManager, ps)
@@ -770,6 +775,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	insecureRouter.HandleFunc("/auth/login", apiServer.login).Methods(http.MethodPost)
 	insecureRouter.HandleFunc("/auth/callback", apiServer.callback).Methods(http.MethodGet)
 	insecureRouter.HandleFunc("/auth/user", apiServer.user).Methods(http.MethodGet)
+	insecureRouter.HandleFunc("/auth/session", apiServer.session).Methods(http.MethodGet)
 	insecureRouter.HandleFunc("/auth/logout", apiServer.logout).Methods(http.MethodPost)
 	insecureRouter.HandleFunc("/auth/authenticated", apiServer.authenticated).Methods(http.MethodGet)
 	insecureRouter.HandleFunc("/auth/refresh", apiServer.refresh).Methods(http.MethodPost)

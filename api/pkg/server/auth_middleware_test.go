@@ -21,7 +21,7 @@ func TestIsAdminWithContext_EmptyUserID(t *testing.T) {
 
 	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
 		adminUserIDs: nil,
-	}, nil)
+	}, nil, nil)
 
 	result := auth.isAdminWithContext(context.Background(), "")
 	assert.False(t, result, "empty userID should return false")
@@ -36,7 +36,7 @@ func TestIsAdminWithContext_DevMode_EveryoneIsAdmin(t *testing.T) {
 
 	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
 		adminUserIDs: []string{config.AdminAllUsers},
-	}, nil)
+	}, nil, nil)
 
 	result := auth.isAdminWithContext(context.Background(), "any-user-id")
 	assert.True(t, result, "with ADMIN_USER_IDS=all, any user should be admin")
@@ -52,7 +52,7 @@ func TestIsAdminWithContext_SpecificUserInList(t *testing.T) {
 
 	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
 		adminUserIDs: []string{"user-123", "user-456"},
-	}, nil)
+	}, nil, nil)
 
 	result := auth.isAdminWithContext(context.Background(), userID)
 	assert.True(t, result, "user in ADMIN_USER_IDS list should be admin")
@@ -75,7 +75,7 @@ func TestIsAdminWithContext_UserNotInList_ChecksDatabase(t *testing.T) {
 
 	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
 		adminUserIDs: []string{"user-123", "user-456"}, // user-789 not in list
-	}, nil)
+	}, nil, nil)
 
 	result := auth.isAdminWithContext(context.Background(), userID)
 	assert.True(t, result, "user not in list but Admin=true in database should be admin")
@@ -97,7 +97,7 @@ func TestIsAdminWithContext_DatabaseAdmin_True(t *testing.T) {
 
 	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
 		adminUserIDs: nil, // Empty list - use database
-	}, nil)
+	}, nil, nil)
 
 	result := auth.isAdminWithContext(context.Background(), userID)
 	assert.True(t, result, "user with Admin=true in database should be admin")
@@ -119,7 +119,7 @@ func TestIsAdminWithContext_DatabaseAdmin_False(t *testing.T) {
 
 	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
 		adminUserIDs: nil, // Empty list - use database
-	}, nil)
+	}, nil, nil)
 
 	result := auth.isAdminWithContext(context.Background(), userID)
 	assert.False(t, result, "user with Admin=false in database should not be admin")
@@ -138,7 +138,7 @@ func TestIsAdminWithContext_UserNotFound(t *testing.T) {
 
 	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
 		adminUserIDs: nil, // Empty list - use database
-	}, nil)
+	}, nil, nil)
 
 	result := auth.isAdminWithContext(context.Background(), userID)
 	assert.False(t, result, "user not found should return false")
@@ -157,7 +157,7 @@ func TestIsAdminWithContext_DatabaseError(t *testing.T) {
 
 	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
 		adminUserIDs: nil, // Empty list - use database
-	}, nil)
+	}, nil, nil)
 
 	result := auth.isAdminWithContext(context.Background(), userID)
 	assert.False(t, result, "database error should return false")
