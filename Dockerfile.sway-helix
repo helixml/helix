@@ -68,20 +68,19 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /docker-shim .
 
 # ====================================================================
-# Rust build stage for GStreamer zero-copy plugin (amd64 only)
+# Rust build stage for GStreamer zero-copy plugin
 # ====================================================================
 # This plugin enables GPU-accelerated video streaming:
-# - NVIDIA: DMA-BUF -> EGL -> CUDA -> NVENC
-# - AMD/Intel: DMA-BUF -> VA-API
+# - amd64: DMA-BUF -> EGL -> CUDA -> NVENC (with CUDA support)
+# - arm64: DMA-BUF -> PipeWire (without CUDA, not needed for macOS host encoding)
 # Enable with HELIX_VIDEO_MODE=zerocopy
-#
-# NOTE: Only built for amd64 - ARM64 uses standard pipewiresrc + host-side encoding
-# Using Ubuntu 25.10 because Debian Bookworm has GStreamer 1.22, but we need 1.24+
-FROM --platform=linux/amd64 ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env-amd64
+FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env
 WORKDIR /build
 
-# Install Rust and GStreamer dev packages
+ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Rust and GStreamer dev packages
 RUN apt-get update && apt-get install -y \
     curl \
     build-essential \
@@ -101,8 +100,12 @@ RUN apt-get update && apt-get install -y \
     libudev-dev \
     libgbm-dev \
     libgstreamer-plugins-bad1.0-0 \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so
+    && rm -rf /var/lib/apt/lists/*
+
+# Create CUDA symlink for amd64 only
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so; \
+    fi
 
 # Install Rust 1.85 via rustup
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0
@@ -113,35 +116,27 @@ COPY desktop/wayland-display-core ./wayland-display-core/
 COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
 
 # Build the plugin (creates libgstpipewirezerocopy.so)
-# Note: Not caching target directory to ensure fresh rebuild when dependencies change
+# On amd64: Full build with CUDA support
+# On arm64: Build without CUDA (host-side encoding on macOS)
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cd gst-pipewire-zerocopy && \
     cargo build --release && \
     cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
 
-# Placeholder stage for arm64 (no zerocopy plugin)
-FROM --platform=linux/arm64 ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env-arm64
-RUN touch /libgstpipewirezerocopy.so
-
-# Selector stage: choose platform-specific Rust build output
-FROM rust-build-env-${TARGETARCH} AS rust-build-env
-
 # ====================================================================
-# CUDA libraries stage - extract libnvrtc for GStreamer cudascale (amd64 only)
+# CUDA libraries - amd64 only (ARM64 builds skip this)
 # ====================================================================
-# cudascale element requires CUDA runtime compilation library (libnvrtc)
-# We copy just this library from NVIDIA's CUDA image to keep the image small
-# NOTE: CUDA/NVENC not available for ARM64 - video encoding happens on macOS host
+# Extract minimal CUDA runtime libs needed for GStreamer cudascale
+# On ARM64: This stage is never built (selector pattern below prevents it)
 FROM --platform=linux/amd64 nvidia/cuda:12.6.3-runtime-ubuntu24.04 AS cuda-libs-amd64
-# libnvrtc is in /usr/local/cuda/lib64/
 RUN cp /usr/local/cuda/lib64/libnvrtc.so.12 /libnvrtc.so.12 && \
     cp /usr/local/cuda/lib64/libnvrtc-builtins.so.12.6 /libnvrtc-builtins.so.12.6
 
-# Placeholder stage for arm64 (no CUDA)
-FROM --platform=linux/arm64 ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS cuda-libs-arm64
+# ARM64: Empty stage (provides files for COPY but they won't be used)
+FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS cuda-libs-arm64
 RUN touch /libnvrtc.so.12 /libnvrtc-builtins.so.12.6
 
-# Selector stage: choose platform-specific CUDA libs
+# Selector: Choose architecture-specific CUDA libs
 FROM cuda-libs-${TARGETARCH} AS cuda-libs
 
 # ====================================================================
@@ -759,12 +754,12 @@ ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 # ====================================================================
 # GStreamer zero-copy plugin and CUDA libs (amd64 only)
 # ====================================================================
-# On arm64, zerocopy mode is not available (no NVENC, encoding happens on macOS host)
+# Install zerocopy plugin and CUDA libs
+# ====================================================================
 COPY --from=rust-build-env /libgstpipewirezerocopy.so /tmp/zerocopy.so
 COPY --from=cuda-libs /libnvrtc.so.12 /tmp/libnvrtc.so.12
 COPY --from=cuda-libs /libnvrtc-builtins.so.12.6 /tmp/libnvrtc-builtins.so.12.6
 
-# Install zerocopy plugin and CUDA libs (amd64 only)
 ARG TARGETARCH
 RUN <<_INSTALL_ZEROCOPY
 set -e
@@ -772,25 +767,27 @@ if [ "${TARGETARCH}" = "amd64" ]; then
     echo "=== Installing zerocopy plugin and CUDA libs for amd64 ==="
     LIB_DIR="/usr/lib/x86_64-linux-gnu"
 
-    # Install zerocopy plugin (only if real .so file)
-    if file /tmp/zerocopy.so | grep -q "shared object"; then
-        cp /tmp/zerocopy.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
-        chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
-        echo "Zerocopy plugin installed"
-    fi
+    # Install zerocopy plugin
+    cp /tmp/zerocopy.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+    chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
 
-    # Install CUDA runtime libs (only if real files)
-    if [ -s /tmp/libnvrtc.so.12 ]; then
-        cp /tmp/libnvrtc.so.12 ${LIB_DIR}/libnvrtc.so.12
-        cp /tmp/libnvrtc-builtins.so.12.6 ${LIB_DIR}/libnvrtc-builtins.so.12.6
-        ln -sf libnvrtc.so.12 ${LIB_DIR}/libnvrtc.so
-        ldconfig
-        echo "CUDA runtime libs installed"
-    fi
+    # Install CUDA runtime libs
+    cp /tmp/libnvrtc.so.12 ${LIB_DIR}/libnvrtc.so.12
+    cp /tmp/libnvrtc-builtins.so.12.6 ${LIB_DIR}/libnvrtc-builtins.so.12.6
+    ln -sf libnvrtc.so.12 ${LIB_DIR}/libnvrtc.so
+    ldconfig
+
+    echo "Zerocopy plugin and CUDA libs installed"
+
 elif [ "${TARGETARCH}" = "arm64" ]; then
-    echo "=== arm64: Skipping zerocopy plugin (uses native pipewiresrc) ==="
+    echo "=== ARM64: Installing zerocopy plugin (no CUDA needed) ==="
     LIB_DIR="/usr/lib/aarch64-linux-gnu"
-    mkdir -p ${LIB_DIR}/gstreamer-1.0
+
+    # Install zerocopy plugin (built without CUDA support)
+    cp /tmp/zerocopy.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+    chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+
+    echo "Zerocopy plugin installed (host-side encoding on macOS)"
 fi
 
 # Cleanup temp files
