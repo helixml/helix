@@ -3162,6 +3162,7 @@ export interface TypesProject {
   guidelines_version?: number;
   id?: string;
   metadata?: TypesProjectMetadata;
+  /** Indexed for search prefix matching */
   name?: string;
   /**
    * Auto-incrementing task number for human-readable directory names
@@ -3590,6 +3591,7 @@ export interface TypesResourceSearchResponse {
 }
 
 export interface TypesResourceSearchResult {
+  contents?: string;
   description?: string;
   id?: string;
   name?: string;
@@ -4253,6 +4255,7 @@ export interface TypesSpecTask {
   /** Whether branch was merged to main */
   merged_to_main?: boolean;
   metadata?: Record<string, any>;
+  /** Indexed for search prefix matching */
   name?: string;
   /** Organization scope for search */
   organization_id?: string;
@@ -4538,6 +4541,7 @@ export interface TypesSpecTaskWithProject {
   /** Whether branch was merged to main */
   merged_to_main?: boolean;
   metadata?: Record<string, any>;
+  /** Indexed for search prefix matching */
   name?: string;
   /** Organization scope for search */
   organization_id?: string;

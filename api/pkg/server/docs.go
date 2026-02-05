@@ -20965,6 +20965,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.ProjectMetadata"
                 },
                 "name": {
+                    "description": "Indexed for search prefix matching",
                     "type": "string"
                 },
                 "next_task_number": {
@@ -21979,6 +21980,9 @@ const docTemplate = `{
         "types.ResourceSearchResult": {
             "type": "object",
             "properties": {
+                "contents": {
+                    "type": "string"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -23558,6 +23562,7 @@ const docTemplate = `{
                     "additionalProperties": true
                 },
                 "name": {
+                    "description": "Indexed for search prefix matching",
                     "type": "string"
                 },
                 "organization_id": {
@@ -24236,6 +24241,7 @@ const docTemplate = `{
                     "additionalProperties": true
                 },
                 "name": {
+                    "description": "Indexed for search prefix matching",
                     "type": "string"
                 },
                 "organization_id": {

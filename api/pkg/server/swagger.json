@@ -20961,6 +20961,7 @@
                     "$ref": "#/definitions/types.ProjectMetadata"
                 },
                 "name": {
+                    "description": "Indexed for search prefix matching",
                     "type": "string"
                 },
                 "next_task_number": {
@@ -21975,6 +21976,9 @@
         "types.ResourceSearchResult": {
             "type": "object",
             "properties": {
+                "contents": {
+                    "type": "string"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -23554,6 +23558,7 @@
                     "additionalProperties": true
                 },
                 "name": {
+                    "description": "Indexed for search prefix matching",
                     "type": "string"
                 },
                 "organization_id": {
@@ -24232,6 +24237,7 @@
                     "additionalProperties": true
                 },
                 "name": {
+                    "description": "Indexed for search prefix matching",
                     "type": "string"
                 },
                 "organization_id": {

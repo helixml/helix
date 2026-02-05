@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/gorm"
 )
 
 // ResourceSearch - searches across projects, spec tasks, sessions, prompts, knowledge, repositories, apps (agents)
@@ -123,7 +124,6 @@ func (s *PostgresStore) searchSpecTasks(ctx context.Context, query string, req *
 		q = q.Where("user_id = ?", req.UserID)
 	}
 
-	// Name: prefix match, Description/Prompt: contains match
 	q = q.Where("archived = false").
 		Where("LOWER(name) LIKE ? OR LOWER(description) LIKE ? OR LOWER(original_prompt) LIKE ?",
 			query+"%", "%"+query+"%", "%"+query+"%")
@@ -135,11 +135,16 @@ func (s *PostgresStore) searchSpecTasks(ctx context.Context, query string, req *
 
 	results := make([]types.ResourceSearchResult, 0, len(tasks))
 	for _, t := range tasks {
+		contents := t.OriginalPrompt
+		if contents == "" && t.Description != "" {
+			contents = t.Description
+		}
 		results = append(results, types.ResourceSearchResult{
 			ResourceType:        types.ResourceSpecTask,
 			ResourceID:          t.ID,
 			ResourceName:        t.Name,
 			ResourceDescription: t.Description,
+			Contents:            contents,
 		})
 	}
 	return results, nil
@@ -148,8 +153,10 @@ func (s *PostgresStore) searchSpecTasks(ctx context.Context, query string, req *
 func (s *PostgresStore) searchSessions(ctx context.Context, query string, req *types.ResourceSearchRequest) ([]types.ResourceSearchResult, error) {
 	var sessions []*types.Session
 
-	// Name: prefix match
 	q := s.gdb.WithContext(ctx).Model(&types.Session{}).
+		Preload("Interactions", func(db *gorm.DB) *gorm.DB {
+			return db.Order("created ASC").Limit(1)
+		}).
 		Where("LOWER(name) LIKE ?", query+"%")
 
 	if req.OrganizationID != "" {
@@ -164,12 +171,17 @@ func (s *PostgresStore) searchSessions(ctx context.Context, query string, req *t
 	}
 
 	results := make([]types.ResourceSearchResult, 0, len(sessions))
-	for _, s := range sessions {
+	for _, sess := range sessions {
+		var contents string
+		if len(sess.Interactions) > 0 {
+			contents = sess.Interactions[0].PromptMessage
+		}
 		results = append(results, types.ResourceSearchResult{
 			ResourceType:        types.ResourceSession,
-			ResourceID:          s.ID,
-			ResourceName:        s.Name,
+			ResourceID:          sess.ID,
+			ResourceName:        sess.Name,
 			ResourceDescription: "",
+			Contents:            contents,
 		})
 	}
 	return results, nil
@@ -194,7 +206,6 @@ func (s *PostgresStore) searchPrompts(ctx context.Context, query string, req *ty
 
 	results := make([]types.ResourceSearchResult, 0, len(prompts))
 	for _, p := range prompts {
-		// Truncate content for description
 		desc := p.Content
 		if len(desc) > 100 {
 			desc = desc[:100] + "..."
@@ -204,6 +215,7 @@ func (s *PostgresStore) searchPrompts(ctx context.Context, query string, req *ty
 			ResourceID:          p.ID,
 			ResourceName:        desc,
 			ResourceDescription: "",
+			Contents:            p.Content,
 		})
 	}
 	return results, nil

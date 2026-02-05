@@ -5175,6 +5175,7 @@ definitions:
       metadata:
         $ref: '#/definitions/types.ProjectMetadata'
       name:
+        description: Indexed for search prefix matching
         type: string
       next_task_number:
         description: |-
@@ -5892,6 +5893,8 @@ definitions:
     type: object
   types.ResourceSearchResult:
     properties:
+      contents:
+        type: string
       description:
         type: string
       id:
@@ -7015,6 +7018,7 @@ definitions:
         additionalProperties: true
         type: object
       name:
+        description: Indexed for search prefix matching
         type: string
       organization_id:
         description: Organization scope for search
@@ -7520,6 +7524,7 @@ definitions:
         additionalProperties: true
         type: object
       name:
+        description: Indexed for search prefix matching
         type: string
       organization_id:
         description: Organization scope for search
