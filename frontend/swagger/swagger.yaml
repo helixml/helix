@@ -5901,6 +5901,8 @@ definitions:
         type: string
       name:
         type: string
+      parent_id:
+        type: string
       type:
         $ref: '#/definitions/types.Resource'
     type: object
@@ -6551,6 +6553,19 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.SessionType'
         description: e.g. text, image
+    type: object
+  types.SessionInfo:
+    properties:
+      auth_provider:
+        $ref: '#/definitions/types.AuthProvider'
+      created_at:
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: string
+      user_id:
+        type: string
     type: object
   types.SessionMetadata:
     properties:
@@ -7933,13 +7948,17 @@ definitions:
     - oidc
     - api_key
     - socket
+    - session
     type: string
+    x-enum-comments:
+      TokenTypeSession: BFF session for regular (email/password) auth
     x-enum-varnames:
     - TokenTypeNone
     - TokenTypeRunner
     - TokenTypeOIDC
     - TokenTypeAPIKey
     - TokenTypeSocket
+    - TokenTypeSession
   types.Tool:
     properties:
       config:
@@ -9591,6 +9610,22 @@ paths:
         "200":
           description: OK
       summary: Register
+      tags:
+      - auth
+  /api/v1/auth/session:
+    get:
+      description: Returns session info for BFF authentication. The frontend uses
+        this to check if the user is logged in.
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SessionInfo'
+        "401":
+          description: Not authenticated
+          schema:
+            type: string
+      summary: Get current session info
       tags:
       - auth
   /api/v1/auth/update:

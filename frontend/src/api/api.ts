@@ -3982,6 +3982,14 @@ export interface TypesSessionChatRequest {
   type?: TypesSessionType;
 }
 
+export interface TypesSessionInfo {
+  auth_provider?: TypesAuthProvider;
+  created_at?: string;
+  expires_at?: string;
+  id?: string;
+  user_id?: string;
+}
+
 export interface TypesSessionMetadata {
   active_tools?: string[];
   /** Agent type: "helix" or "zed_external" */
@@ -4800,6 +4808,7 @@ export enum TypesTokenType {
   TokenTypeOIDC = "oidc",
   TokenTypeAPIKey = "api_key",
   TokenTypeSocket = "socket",
+  TokenTypeSession = "session",
 }
 
 export interface TypesTool {
@@ -6178,6 +6187,21 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "POST",
         body: request,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Returns session info for BFF authentication. The frontend uses this to check if the user is logged in.
+     *
+     * @tags auth
+     * @name V1AuthSessionList
+     * @summary Get current session info
+     * @request GET:/api/v1/auth/session
+     */
+    v1AuthSessionList: (params: RequestParams = {}) =>
+      this.request<TypesSessionInfo, string>({
+        path: `/api/v1/auth/session`,
+        method: "GET",
         ...params,
       }),
 
