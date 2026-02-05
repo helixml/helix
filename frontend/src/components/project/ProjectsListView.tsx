@@ -8,8 +8,6 @@ import {
   Typography,
   IconButton,
   Alert,
-  TextField,
-  InputAdornment,
   Pagination,
   Skeleton,
   Popper,
@@ -17,7 +15,6 @@ import {
   Fade,
 } from '@mui/material'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
-import SearchIcon from '@mui/icons-material/Search'
 import TrendingUpIcon from '@mui/icons-material/TrendingUp'
 import TrendingDownIcon from '@mui/icons-material/TrendingDown'
 import { Kanban } from 'lucide-react'
@@ -31,8 +28,6 @@ interface ProjectsListViewProps {
   projects: TypesProject[]
   error: Error | null
   isLoading: boolean
-  searchQuery: string
-  onSearchChange: (query: string) => void
   page: number
   onPageChange: (page: number) => void
   filteredProjects: TypesProject[]
@@ -439,8 +434,6 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
   projects,
   error,
   isLoading,
-  searchQuery,
-  onSearchChange,
   page,
   onPageChange,
   filteredProjects,
@@ -475,82 +468,12 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
           Projects
         </Typography>
         <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)' }}>
-          Each Project has a Swarm of Agents working in parallel and a Team Desktop for manual testing.
+          Each Project has a Team of Agents working in parallel to perform tasks, collaborate, and build software.
         </Typography>
       </Box>
 
-      {projects.length > 0 && (
-        <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 2 }}>
-          <TextField
-            placeholder="Filter projects..."
-            size="small"
-            value={searchQuery}
-            onChange={(e) => {
-              onSearchChange(e.target.value)
-              onPageChange(0)
-            }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon sx={{ fontSize: 18, color: 'rgba(255,255,255,0.4)' }} />
-                </InputAdornment>
-              ),
-            }}
-            sx={{ 
-              maxWidth: 300,
-              '& .MuiOutlinedInput-root': {
-                background: 'rgba(255,255,255,0.03)',
-                '& fieldset': {
-                  borderColor: 'rgba(255,255,255,0.08)',
-                },
-                '&:hover fieldset': {
-                  borderColor: 'rgba(255,255,255,0.15)',
-                },
-                '&.Mui-focused fieldset': {
-                  borderColor: 'rgba(167, 139, 250, 0.5)',
-                },
-              },
-              '& .MuiInputBase-input': {
-                color: 'rgba(255,255,255,0.9)',
-                '&::placeholder': {
-                  color: 'rgba(255,255,255,0.4)',
-                  opacity: 1,
-                },
-              },
-            }}
-          />
-          {searchQuery && (
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
-              {filteredProjects.length} of {projects.length} projects
-            </Typography>
-          )}
-        </Box>
-      )}
 
-      {filteredProjects.length === 0 && searchQuery ? (
-        <Box sx={{ textAlign: 'center', py: 8 }}>
-          <Typography variant="h6" sx={{ color: 'rgba(255,255,255,0.6)' }} gutterBottom>
-            No projects found
-          </Typography>
-          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.4)', mb: 3 }}>
-            Try adjusting your search query
-          </Typography>
-          <Button
-            variant="outlined"
-            onClick={() => onSearchChange('')}
-            sx={{
-              borderColor: 'rgba(255,255,255,0.2)',
-              color: 'rgba(255,255,255,0.7)',
-              '&:hover': {
-                borderColor: 'rgba(255,255,255,0.3)',
-                background: 'rgba(255,255,255,0.05)',
-              },
-            }}
-          >
-            Clear Search
-          </Button>
-        </Box>
-      ) : projects.length === 0 && !isLoading ? (
+      {projects.length === 0 && !isLoading ? (
         <Box sx={{ textAlign: 'center', py: 8 }}>
           <Box sx={{ color: 'rgba(255,255,255,0.2)', mb: 2 }}>
             <Kanban size={80} />

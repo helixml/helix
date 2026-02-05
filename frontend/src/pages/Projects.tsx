@@ -136,8 +136,7 @@ const Projects: FC = () => {
   const [browseProvidersOpen, setBrowseProvidersOpen] = useState(false)
   const [linkingFromBrowser, setLinkingFromBrowser] = useState(false)
 
-  // Search and pagination for projects
-  const [projectsSearchQuery, setProjectsSearchQuery] = useState('')
+  // Pagination for projects
   const [projectsPage, setProjectsPage] = useState(0)
   const projectsPerPage = 24
 
@@ -146,11 +145,8 @@ const Projects: FC = () => {
   const [reposPage, setReposPage] = useState(0)
   const reposPerPage = 10
 
-  // Filter and paginate projects
-  const filteredProjects = projects.filter(project =>
-    project.name?.toLowerCase().includes(projectsSearchQuery.toLowerCase()) ||
-    project.description?.toLowerCase().includes(projectsSearchQuery.toLowerCase())
-  )
+  // Paginate projects
+  const filteredProjects = projects
   const paginatedProjects = filteredProjects.slice(
     projectsPage * projectsPerPage,
     (projectsPage + 1) * projectsPerPage
@@ -569,6 +565,8 @@ const Projects: FC = () => {
       breadcrumbParent={currentView !== 'projects' ? { title: 'Projects', routeName: 'projects' } : undefined}
       breadcrumbs={[]}
       orgBreadcrumbs={true}
+      globalSearch={true}
+      organizationId={account.organizationTools.organization?.id}
       topbarContent={currentView === 'projects' ? (
         <CreateProjectButton
           onCreateEmpty={handleNewProject}
@@ -627,8 +625,6 @@ const Projects: FC = () => {
             projects={projects}
             error={isLoggedIn ? error : null}
             isLoading={isProjectsLoading}
-            searchQuery={projectsSearchQuery}
-            onSearchChange={setProjectsSearchQuery}
             page={projectsPage}
             onPageChange={setProjectsPage}
             filteredProjects={filteredProjects}

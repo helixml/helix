@@ -2556,6 +2556,8 @@ export interface TypesKnowledge {
   name?: string;
   /** Populated by the cron job controller */
   next_run?: string;
+  /** Organization scope for search */
+  organization_id?: string;
   /** User ID */
   owner?: string;
   /** e.g. user, system, org */
@@ -3282,6 +3284,8 @@ export interface TypesPromptHistoryEntry {
   last_used_at?: string;
   /** When to retry (for exponential backoff) */
   next_retry_at?: string;
+  /** Organization scope for search */
+  organization_id?: string;
   /** Library features for prompt reuse */
   pinned?: boolean;
   /** For reference, but primary grouping is by spec_task */
@@ -3574,10 +3578,10 @@ export enum TypesResource {
 
 export interface TypesResourceSearchRequest {
   limit?: number;
-  org_id?: string;
-  owner_id?: string;
+  organization_id?: string;
   query?: string;
   types?: TypesResource[];
+  user_id?: string;
 }
 
 export interface TypesResourceSearchResponse {
@@ -4250,6 +4254,8 @@ export interface TypesSpecTask {
   merged_to_main?: boolean;
   metadata?: Record<string, any>;
   name?: string;
+  /** Organization scope for search */
+  organization_id?: string;
   /** Kiro's actual approach: simple, human-readable artifacts */
   original_prompt?: string;
   planning_options?: TypesStartPlanningOptions;
@@ -4299,6 +4305,8 @@ export interface TypesSpecTask {
   updated_at?: string;
   /** Use host Docker socket (requires privileged sandbox) */
   use_host_docker?: boolean;
+  /** Owner user ID for search */
+  user_id?: string;
   /** User override */
   user_short_title?: string;
   workspace_config?: number[];
@@ -4531,6 +4539,8 @@ export interface TypesSpecTaskWithProject {
   merged_to_main?: boolean;
   metadata?: Record<string, any>;
   name?: string;
+  /** Organization scope for search */
+  organization_id?: string;
   /** Kiro's actual approach: simple, human-readable artifacts */
   original_prompt?: string;
   planning_options?: TypesStartPlanningOptions;
@@ -4581,6 +4591,8 @@ export interface TypesSpecTaskWithProject {
   updated_at?: string;
   /** Use host Docker socket (requires privileged sandbox) */
   use_host_docker?: boolean;
+  /** Owner user ID for search */
+  user_id?: string;
   /** User override */
   user_short_title?: string;
   workspace_config?: number[];

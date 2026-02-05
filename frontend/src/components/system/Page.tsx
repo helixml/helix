@@ -1,9 +1,13 @@
-import React, { ReactNode } from 'react'
+import React, { ReactNode, useState, useEffect, useCallback } from 'react'
 import Box from '@mui/material/Box'
 import Link from '@mui/material/Link'
+import TextField from '@mui/material/TextField'
+import InputAdornment from '@mui/material/InputAdornment'
 import { SxProps } from '@mui/system'
+import SearchIcon from '@mui/icons-material/Search'
 
 import AppBar from './AppBar'
+import GlobalSearchDialog from './GlobalSearchDialog'
 
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
@@ -32,6 +36,9 @@ const Page: React.FC<{
   sx?: SxProps,
   // if true, disables the default overflowY: auto on content area (for pages that manage their own scroll)
   disableContentScroll?: boolean,
+  // global search parameters
+  organizationId?: string,
+  globalSearch?: boolean,
   children?: ReactNode,
 }> = ({
   topbarContent = null,
@@ -47,11 +54,27 @@ const Page: React.FC<{
   px = 3,
   sx = {},
   disableContentScroll = false,
+  organizationId,
+  globalSearch = false,
   children,
 }) => {
   const router = useRouter()
   const account = useAccount()
   const lightTheme = useLightTheme()
+  const [searchDialogOpen, setSearchDialogOpen] = useState(false)
+
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault()
+      setSearchDialogOpen(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!globalSearch) return
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [globalSearch, handleKeyDown])
 
   let useBreadcrumbTitles: IPageBreadcrumb[] = []
   
@@ -197,6 +220,90 @@ const Page: React.FC<{
               px={ px }
               onOpenDrawer={ showDrawerButton ? () => account.setMobileMenuOpen(true) : undefined }
             >
+              {globalSearch && (
+                <TextField
+                  placeholder="Search..."
+                  size="small"
+                  value=""
+                  onClick={() => setSearchDialogOpen(true)}
+                  onKeyDown={(e) => e.preventDefault()}
+                  InputProps={{
+                    readOnly: true,
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon sx={{ fontSize: 18, color: 'rgba(255,255,255,0.4)' }} />
+                      </InputAdornment>
+                    ),
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 0.25,
+                            px: 0.5,
+                            py: 0.25,
+                            borderRadius: 0.5,
+                            bgcolor: 'rgba(255,255,255,0.05)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                          }}
+                        >
+                          <Box
+                            component="span"
+                            sx={{
+                              fontSize: '0.65rem',
+                              fontWeight: 500,
+                              color: 'rgba(255,255,255,0.5)',
+                              lineHeight: 1,
+                            }}
+                          >
+                            {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}
+                          </Box>
+                          <Box
+                            component="span"
+                            sx={{
+                              fontSize: '0.65rem',
+                              fontWeight: 500,
+                              color: 'rgba(255,255,255,0.5)',
+                              lineHeight: 1,
+                            }}
+                          >
+                            K
+                          </Box>
+                        </Box>
+                      </InputAdornment>
+                    ),
+                  }}
+                  sx={{
+                    width: 200,
+                    mr: 2,
+                    flexShrink: 0,
+                    cursor: 'pointer',
+                    '& .MuiOutlinedInput-root': {
+                      cursor: 'pointer',
+                      background: 'rgba(255,255,255,0.03)',
+                      '& fieldset': {
+                        borderColor: 'rgba(255,255,255,0.08)',
+                      },
+                      '&:hover fieldset': {
+                        borderColor: 'rgba(255,255,255,0.15)',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: 'rgba(255,255,255,0.15)',
+                        borderWidth: 1,
+                      },
+                    },
+                    '& .MuiInputBase-input': {
+                      cursor: 'pointer',
+                      color: 'rgba(255,255,255,0.9)',
+                      '&::placeholder': {
+                        color: 'rgba(255,255,255,0.4)',
+                        opacity: 1,
+                      },
+                    },
+                  }}
+                />
+              )}
               { topbarContent }
             </AppBar>
           </Box>
@@ -238,6 +345,13 @@ const Page: React.FC<{
           </Box>
         )
       }
+      {globalSearch && (
+        <GlobalSearchDialog
+          open={searchDialogOpen}
+          onClose={() => setSearchDialogOpen(false)}
+          organizationId={organizationId || ''}
+        />
+      )}
     </Box>
   )
 }
