@@ -65,12 +65,14 @@
 ### ✅ Guest Build (ARM64 VM)
 - Repository cloned and updated to feature/macos-arm-desktop-port
 - Core stack built successfully (API, frontend, haystack)
-- Images ready: helix-api:latest, helix-frontend:latest, helix-haystack:dev
+- helix-ubuntu built successfully (version 556954)
+- Image pushed to local registry (localhost:5000/helix-ubuntu:556954)
+- All images ready for stack start
 
-### ❌ Remaining Steps
-- Build helix-ubuntu with updated vsockenc
-- Start Helix stack (./stack start)
-- Start test session
+### ⏭️ Ready for Testing
+- Run `./stack start` in VM to start all services
+- Wait for services to be healthy
+- Start test session with vsockenc → TCP → host VideoToolbox pipeline
 - Verify end-to-end video streaming
 
 ## Testing Steps (Inside VM)
