@@ -64,16 +64,17 @@
 
 ### ✅ Guest Build (ARM64 VM)
 - Repository cloned and updated to feature/macos-arm-desktop-port
-- Core stack built successfully (API, frontend, haystack)
+- Core stack built successfully (API, frontend, haystack, typesense)
+- Zed IDE built (291M binary, release mode)
+- Sandbox container built and restarted
 - helix-ubuntu built successfully (version 556954)
 - Image pushed to local registry (localhost:5000/helix-ubuntu:556954)
-- All images ready for stack start
+- ARM64 support complete: CUDA optional, uses sbsa repo for Grace Hopper
 
-### ⏭️ Ready for Testing
-- Run `./stack start` in VM to start all services
-- Wait for services to be healthy
-- Start test session with vsockenc → TCP → host VideoToolbox pipeline
-- Verify end-to-end video streaming
+### ✅ Ready for ./stack start
+- All build steps complete
+- Services ready to start with `./stack start`
+- Test with vsockenc → TCP → host VideoToolbox pipeline
 
 ## Testing Steps (Inside VM)
 
