@@ -358,18 +358,21 @@ function setup_sandbox_profile() {
   fi
 
   # Stop conflicting sandbox containers before starting
-  # All sandbox variants use the same static IP (172.19.0.50), so only one can run at a time
+  # Only one sandbox can run at a time (they provide the same service endpoint)
   # Silently remove any sandbox containers that might conflict with the one we're about to start
   local current_profile="${COMPOSE_PROFILES:-}"
   if [[ "$current_profile" == *"code-software"* ]]; then
     # Starting software sandbox - stop GPU sandboxes
-    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-amd-intel-1 2>/dev/null || true
+    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-amd-intel-1 helix-sandbox-macos-1 2>/dev/null || true
   elif [[ "$current_profile" == *"code-amd-intel"* ]]; then
     # Starting AMD/Intel sandbox - stop other sandboxes
-    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-software-1 2>/dev/null || true
+    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-software-1 helix-sandbox-macos-1 2>/dev/null || true
+  elif [[ "$current_profile" == *"code-macos"* ]]; then
+    # Starting macOS sandbox - stop other sandboxes
+    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-amd-intel-1 helix-sandbox-software-1 2>/dev/null || true
   else
     # Starting NVIDIA sandbox (default) - stop other sandboxes
-    docker rm -f helix-sandbox-software-1 helix-sandbox-amd-intel-1 2>/dev/null || true
+    docker rm -f helix-sandbox-software-1 helix-sandbox-amd-intel-1 helix-sandbox-macos-1 2>/dev/null || true
   fi
 
   # If COMPOSE_PROFILES was set in environment before .env (even to empty), respect it
