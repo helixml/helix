@@ -314,7 +314,6 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
           fontFamily: monoFont,
           fontSize: '0.72rem',
           lineHeight: 1.6,
-          overflow: 'auto',
         }}
       >
         {parsedDiff.map((line, idx) => (
@@ -386,13 +385,15 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
               component="span"
               sx={{
                 flex: 1,
+                minWidth: 0,
                 pl: 1,
                 pr: 2,
                 color: getLineColor(line.type, themeConfig),
                 fontFamily: monoFont,
                 fontSize: '0.72rem',
-                whiteSpace: 'pre',
-                overflowX: 'auto',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                overflowWrap: 'anywhere',
               }}
             >
               {line.content}

@@ -1,4 +1,4 @@
-//go:build cgo
+//go:build cgo && linux
 
 // Package desktop provides xkbcommon integration for keysym to keycode conversion.
 // This enables proper keyboard input on Sway/wlroots compositors that don't support

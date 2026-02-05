@@ -51,89 +51,64 @@ const apiClientSingleton = new Api({
   }
 })
 
-// Track if we're currently refreshing to avoid multiple refresh attempts
-let isRefreshing = false
-let refreshPromise: Promise<boolean> | null = null
+// Custom event name for token refresh - account.tsx listens for this
+export const TOKEN_REFRESHED_EVENT = 'helix-token-refreshed'
 
-// Attempt to refresh the token and update in-memory state
-const attemptTokenRefresh = async (): Promise<boolean> => {
-  try {
-    console.log('[API] Attempting token refresh...')
-    // Refresh updates cookies on the backend
-    await apiClientSingleton.v1AuthRefreshCreate()
+// Helper function to handle X-Token-Refreshed header from backend
+// This is called for both successful and error responses
+const handleTokenRefreshHeader = (headers: Record<string, string> | undefined) => {
+  if (!headers) return
+  const newToken = headers['x-token-refreshed']
+  if (newToken) {
+    console.log('[API] Token refreshed transparently by backend, updating all token locations')
 
-    // Fetch user to get the new token for in-memory storage
-    // The v1AuthUserList endpoint reads the fresh cookie and returns the token in the response
-    const userResponse = await apiClientSingleton.v1AuthUserList()
-    const newToken = (userResponse.data as any)?.token
+    // Update axios defaults (for raw axios calls)
+    axios.defaults.headers.common = getTokenHeaders(newToken)
 
-    if (newToken) {
-      // Update both axios defaults and OpenAPI client security data
-      axios.defaults.headers.common = getTokenHeaders(newToken)
-      apiClientSingleton.setSecurityData({ token: newToken })
-      console.log('[API] Token refresh successful, in-memory token updated')
-    } else {
-      console.log('[API] Token refresh successful (cookie only, no token in response)')
+    // Update OpenAPI client security data
+    apiClientSingleton.setSecurityData({ token: newToken })
+
+    // Also update the client instance headers directly (matches setToken behavior)
+    try {
+      apiClientSingleton.instance.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
+    } catch (e) {
+      console.error('[API] Failed to set token directly on client instance:', e)
     }
 
-    return true
-  } catch (refreshError) {
-    console.error('[API] Token refresh failed:', refreshError)
-    return false
+    // Update localStorage for direct fetch() calls
+    localStorage.setItem('token', newToken)
+
+    // Dispatch event so account.tsx can update React state
+    window.dispatchEvent(new CustomEvent(TOKEN_REFRESHED_EVENT, { detail: { token: newToken } }))
   }
 }
 
-// Add response interceptor to handle 401 errors with automatic token refresh
-// When a 401 is received (token expired), we try to refresh and retry the request
+// Add response interceptor to handle X-Token-Refreshed header from backend
+// The backend transparently refreshes expired tokens and sends the new token in this header
+// We update all frontend token storage locations and dispatch an event for React state
 apiClientSingleton.instance.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config
+  (response) => {
+    handleTokenRefreshHeader(response.headers as Record<string, string>)
+    return response
+  },
+  (error) => {
+    // Also check for X-Token-Refreshed in error responses
+    // The backend might refresh the token but the request could still fail for other reasons
+    // (e.g., user not authorized for a specific resource)
+    handleTokenRefreshHeader(error.response?.headers as Record<string, string>)
+    return Promise.reject(error)
+  }
+)
 
-    if (error.response?.status === 401) {
-      const url = originalRequest?.url || ''
-      const isAuthEndpoint = url.includes('/api/v1/auth/')
-
-      // Don't try to refresh for auth endpoints (would cause infinite loop)
-      // Also don't retry if we already tried refreshing for this request
-      if (!isAuthEndpoint && !originalRequest._retry) {
-        originalRequest._retry = true
-
-        // If we're already refreshing, wait for that to complete
-        if (isRefreshing && refreshPromise) {
-          const refreshed = await refreshPromise
-          if (refreshed) {
-            // Delete old Authorization header - the fresh cookies will be used instead
-            delete originalRequest.headers['Authorization']
-            return apiClientSingleton.instance.request(originalRequest)
-          }
-        } else {
-          // Start a new refresh
-          isRefreshing = true
-          refreshPromise = attemptTokenRefresh()
-
-          try {
-            const refreshed = await refreshPromise
-            if (refreshed) {
-              // Delete old Authorization header - the fresh cookies will be used instead
-              // The backend will use the updated access_token cookie set by the refresh endpoint
-              delete originalRequest.headers['Authorization']
-              return apiClientSingleton.instance.request(originalRequest)
-            }
-          } finally {
-            isRefreshing = false
-            refreshPromise = null
-          }
-        }
-
-        // Refresh failed, log for debugging
-        console.error('[API] 401 Unauthorized after refresh attempt:', {
-          url: url,
-          method: originalRequest?.method,
-          message: error.response?.data?.error || error.message
-        })
-      }
-    }
+// Also add interceptor to global axios instance for raw axios.get/post/etc calls
+// These are used by some legacy code paths (e.g., loadStatus in account.tsx)
+axios.interceptors.response.use(
+  (response) => {
+    handleTokenRefreshHeader(response.headers as Record<string, string>)
+    return response
+  },
+  (error) => {
+    handleTokenRefreshHeader(error.response?.headers as Record<string, string>)
     return Promise.reject(error)
   }
 )

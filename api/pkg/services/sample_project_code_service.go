@@ -3831,6 +3831,55 @@ echo "  docker-outer stop $SANDBOX_NAME && docker-outer rm $SANDBOX_NAME"
 SCRIPTEOF
 chmod +x "$WORKSPACE/start-outer-sandbox.sh"
 
+# Create helper script to push sandbox image to host Docker
+cat > "$WORKSPACE/push-sandbox-image.sh" << 'SCRIPTEOF'
+#!/bin/bash
+# Push sandbox image from inner dockerd to host Docker via registry
+# Use this after building a new sandbox: ./stack build-sandbox && ./push-sandbox-image.sh
+set -e
+
+# Get task number for unique tagging
+TASK_NUMBER="${HELIX_TASK_NUMBER:-0}"
+SANDBOX_IMAGE_TAG="task-${TASK_NUMBER}-latest"
+REGISTRY_IMAGE="registry:5000/helix-sandbox:${SANDBOX_IMAGE_TAG}"
+
+echo "Pushing sandbox image to registry..."
+echo "Tag: $SANDBOX_IMAGE_TAG"
+echo ""
+
+# Find the sandbox image on inner dockerd
+INNER_SANDBOX_IMAGE=$(docker images helix-sandbox --format "{{.Repository}}:{{.Tag}}" | head -1)
+if [ -z "$INNER_SANDBOX_IMAGE" ] || [ "$INNER_SANDBOX_IMAGE" = ":" ]; then
+    echo "Error: No helix-sandbox image found on inner dockerd"
+    echo "Build with: cd helix && ./stack build-sandbox"
+    exit 1
+fi
+
+echo "Found: $INNER_SANDBOX_IMAGE"
+
+# Tag and push to registry
+docker tag "$INNER_SANDBOX_IMAGE" "$REGISTRY_IMAGE"
+echo "Pushing to $REGISTRY_IMAGE..."
+docker push "$REGISTRY_IMAGE"
+
+echo ""
+echo "✓ Pushed to registry"
+echo ""
+
+# Pull on host Docker
+echo "Pulling on host Docker..."
+export DOCKER_HOST=unix:///var/run/host-docker.sock
+docker pull "$REGISTRY_IMAGE"
+
+echo ""
+echo "✓ Sandbox image available on host Docker: $REGISTRY_IMAGE"
+echo ""
+echo "To restart sandbox with new image:"
+echo "  DOCKER_HOST=unix:///var/run/host-docker.sock docker rm -f helix-inner-sandbox-\$HELIX_SESSION_ID"
+echo "  ./start-outer-sandbox.sh"
+SCRIPTEOF
+chmod +x "$WORKSPACE/push-sandbox-image.sh"
+
 echo -e "${GREEN}5. Verifying Docker access...${NC}"
 
 echo "   Inner Docker (control plane):"
@@ -3916,23 +3965,21 @@ echo ""
 echo "   Running containers:"
 docker compose ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || docker ps --format "table {{.Names}}\t{{.Status}}"
 
-# Connect this container to the inner stack's network so we can reach the API
-# The inner stack creates a "helix_default" network
-CONTAINER_ID=$(cat /etc/hostname)
+# Find the inner API container and set up port forwarding
+# NOTE: We use BridgeDesktop (veth) for network connectivity to compose containers,
+# NOT docker network connect (which doesn't work across different dockerds)
 if docker network inspect helix_default >/dev/null 2>&1; then
-    echo -e "${GREEN}7. Connecting to inner stack network...${NC}"
-    docker network connect helix_default "$CONTAINER_ID" 2>/dev/null || true
-
     # Find the inner API container name
     INNER_API=$(docker ps --filter "name=api" --format "{{.Names}}" | head -1)
     if [ -n "$INNER_API" ]; then
-        echo "   Inner API container: $INNER_API"
+        echo -e "${GREEN}7. Found inner API container: $INNER_API${NC}"
 
         # Create convenience alias
         echo "export INNER_API_HOST=$INNER_API" >> "$WORKSPACE/.helix-dev-env"
 
         # Set up port forwarding from localhost:8080 to inner API
         # This allows the expose endpoint to work (it proxies to localhost:8080)
+        # BridgeDesktop provides the route from desktop to compose containers
         echo -e "${GREEN}8. Setting up port forwarding to inner API...${NC}"
 
         # Use socat to forward localhost:8080 to inner API container
@@ -3959,13 +4006,57 @@ echo ""
 
 # Auto-start a sandbox on host Docker if available
 if [ -S /var/run/host-docker.sock ]; then
-    echo -e "${GREEN}9. Starting sandbox on host Docker...${NC}"
+    echo -e "${GREEN}9. Preparing sandbox on host Docker...${NC}"
 
-    # Use host Docker
+    # Get task number for unique image tagging (avoids conflicts between concurrent agents)
+    TASK_NUMBER="${HELIX_TASK_NUMBER:-0}"
+    SANDBOX_IMAGE_TAG="task-${TASK_NUMBER}-latest"
+    REGISTRY_IMAGE="registry:5000/helix-sandbox:${SANDBOX_IMAGE_TAG}"
+
+    # Check if we have a locally built sandbox image on inner dockerd
+    # If so, push it to registry so host Docker can pull it
+    INNER_SANDBOX_IMAGE=$(docker images helix-sandbox --format "{{.Repository}}:{{.Tag}}" | head -1)
+    if [ -n "$INNER_SANDBOX_IMAGE" ] && [ "$INNER_SANDBOX_IMAGE" != ":" ]; then
+        echo "   Found sandbox image on inner dockerd: $INNER_SANDBOX_IMAGE"
+        echo "   Pushing to registry as: $REGISTRY_IMAGE"
+
+        # Tag and push to registry (registry:5000 is accessible from both inner and outer Docker)
+        docker tag "$INNER_SANDBOX_IMAGE" "$REGISTRY_IMAGE"
+        if docker push "$REGISTRY_IMAGE" 2>/dev/null; then
+            echo -e "   ${GREEN}✓ Pushed to registry${NC}"
+            USE_REGISTRY_IMAGE=true
+        else
+            echo -e "   ${YELLOW}⚠ Failed to push to registry, will try host image${NC}"
+            USE_REGISTRY_IMAGE=false
+        fi
+    else
+        USE_REGISTRY_IMAGE=false
+    fi
+
+    # Switch to host Docker
     export DOCKER_HOST=unix:///var/run/host-docker.sock
 
-    # Check if sandbox image is available
-    if docker images | grep -q helix-sandbox; then
+    # Determine which image to use
+    if [ "$USE_REGISTRY_IMAGE" = true ]; then
+        echo "   Pulling sandbox image from registry..."
+        if docker pull "$REGISTRY_IMAGE" 2>/dev/null; then
+            SANDBOX_IMAGE="$REGISTRY_IMAGE"
+            echo -e "   ${GREEN}✓ Pulled from registry${NC}"
+        else
+            echo -e "   ${YELLOW}⚠ Failed to pull from registry${NC}"
+            SANDBOX_IMAGE=""
+        fi
+    else
+        # Check if sandbox image exists on host Docker
+        if docker images | grep -q helix-sandbox; then
+            SANDBOX_IMAGE="helix-sandbox:latest"
+            echo "   Using existing sandbox image on host Docker"
+        else
+            SANDBOX_IMAGE=""
+        fi
+    fi
+
+    if [ -n "$SANDBOX_IMAGE" ]; then
         # Use session ID for unique sandbox name
         SESSION_ID="${HELIX_SESSION_ID:-}"
         if [ -z "$SESSION_ID" ]; then
@@ -4009,6 +4100,7 @@ if [ -S /var/run/host-docker.sock ]; then
 
             if [ -n "$INNER_API_URL" ]; then
                 echo "   Starting sandbox connecting to: $INNER_API_URL"
+                echo "   Using image: $SANDBOX_IMAGE"
 
                 docker run -d \
                     --name "$SANDBOX_NAME" \
@@ -4019,7 +4111,7 @@ if [ -S /var/run/host-docker.sock ]; then
                     -e SANDBOX_INSTANCE_ID="$SANDBOX_NAME" \
                     -e HYDRA_ENABLED=true \
                     -e GPU_VENDOR=nvidia \
-                    helix-sandbox:latest
+                    "$SANDBOX_IMAGE"
 
                 echo -e "   ${GREEN}✓ Sandbox started: $SANDBOX_NAME${NC}"
                 echo ""
@@ -4027,8 +4119,10 @@ if [ -S /var/run/host-docker.sock ]; then
             fi
         fi
     else
-        echo -e "   ${YELLOW}⚠ helix-sandbox image not found on host Docker${NC}"
-        echo "   Build with: ./stack build-sandbox"
+        echo -e "   ${YELLOW}⚠ No sandbox image available${NC}"
+        echo "   Options:"
+        echo "   1. Build on host Docker: ./stack build-sandbox"
+        echo "   2. Build on inner dockerd and it will be pushed to registry automatically"
     fi
 
     # Reset DOCKER_HOST

@@ -21,18 +21,25 @@ echo "Using iptables-legacy for Docker-in-Docker networking compatibility"
 
 # ================================================================================
 # Configure dockerd with DNS and optional NVIDIA runtime
-# DNS is configured to use dns-proxy (172.17.0.1) which forwards to outer Docker DNS.
+# DNS is configured to use dns-proxy (10.213.0.1) which forwards to outer Docker DNS.
 # This enables enterprise DNS resolution for FQDNs (e.g., myapp.internal.company.com).
 # Search domains are NOT needed for FQDNs - they're only for short hostnames.
+# NOTE: We use 10.213.0.1 because default-address-pools sets docker0 to 10.213.0.0/24
 # ================================================================================
 mkdir -p /etc/docker
 
-echo "🔗 DNS: 172.17.0.1 (dns-proxy → Docker DNS → enterprise DNS)"
+echo "🔗 DNS: 10.213.0.1 (dns-proxy → Docker DNS → enterprise DNS)"
 
 # GPU_VENDOR is set in docker-compose.yaml based on the sandbox profile:
 #   - sandbox-nvidia: GPU_VENDOR=nvidia
 #   - sandbox-amd-intel: GPU_VENDOR=intel
 #   - sandbox-software: GPU_VENDOR=none
+# Configure default-address-pools to use high 10.x range instead of 172.x.x.x
+# This prevents subnet conflicts with the outer Docker network (172.19.0.0/16)
+# which would cause routing issues for RevDial connections to the API.
+#
+# We use 10.213.0.0/16 - an awkward number (3×71) no human would choose.
+# See: https://docs.docker.com/reference/cli/dockerd/#daemon-configuration-file
 if [[ "${GPU_VENDOR:-}" == "nvidia" ]]; then
     echo "🎮 GPU_VENDOR=nvidia - configuring NVIDIA container runtime"
     cat > /etc/docker/daemon.json <<'DAEMON_JSON'
@@ -43,20 +50,26 @@ if [[ "${GPU_VENDOR:-}" == "nvidia" ]]; then
       "runtimeArgs": []
     }
   },
-  "dns": ["172.17.0.1"],
-  "storage-driver": "vfs",
+  "dns": ["10.213.0.1"],
+  "storage-driver": "overlay2",
   "log-level": "error",
-  "insecure-registries": ["registry:5000"]
+  "insecure-registries": ["registry:5000"],
+  "default-address-pools": [
+    {"base": "10.213.0.0/16", "size": 24}
+  ]
 }
 DAEMON_JSON
 else
     echo "ℹ️  GPU_VENDOR=${GPU_VENDOR:-unset} - NVIDIA runtime not configured"
     cat > /etc/docker/daemon.json <<'DAEMON_JSON'
 {
-  "dns": ["172.17.0.1"],
-  "storage-driver": "vfs",
+  "dns": ["10.213.0.1"],
+  "storage-driver": "overlay2",
   "log-level": "error",
-  "insecure-registries": ["registry:5000"]
+  "insecure-registries": ["registry:5000"],
+  "default-address-pools": [
+    {"base": "10.213.0.0/16", "size": 24}
+  ]
 }
 DAEMON_JSON
 fi

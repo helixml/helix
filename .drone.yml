@@ -37,11 +37,9 @@ steps:
         path: /usr/local/share/.cache/yarn
       - name: node-modules-cache
         path: /go/src/github.com/helix-ml/helix/frontend/node_modules
-      - name: frontend-build-cache
-        path: /go/src/github.com/helix-ml/helix/frontend/dist
     commands:
       - cd frontend
-      - yarn install
+      - yarn install --frozen-lockfile --check-files
       - yarn test
       - yarn build
     depends_on: []
@@ -173,6 +171,7 @@ steps:
       - name: go-mod-cache
         path: /go/pkg/mod
     commands:
+      - apk add --no-cache git
       # Test GStreamer-dependent packages with CGO disabled (uses stub implementations)
       - CGO_ENABLED=0 go test -timeout 5m -v ./api/pkg/desktop/... ./api/cmd/desktop-bridge/...
     when:
@@ -852,9 +851,6 @@ volumes:
   - name: node-modules-cache
     host:
       path: /var/cache/drone/node_modules
-  - name: frontend-build-cache
-    host:
-      path: /var/cache/drone/frontend-build
 ---
 kind: pipeline
 type: docker

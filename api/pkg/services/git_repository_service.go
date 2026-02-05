@@ -749,6 +749,14 @@ func (s *GitRepositoryService) GetExternalRepoStatus(ctx context.Context, repoID
 	// Get remote tracking commit
 	remoteCommit, err := getRemoteTrackingCommit(ctx, gitRepo.LocalPath, branchName)
 	if err != nil {
+		// If remote tracking ref doesn't exist, the remote repo is empty
+		if giteagit.IsErrNotExist(err) {
+			log.Info().
+				Str("repo_id", gitRepo.ID).
+				Str("branch", branchName).
+				Msg("Remote repository appears to be empty (no tracking ref), returning empty status")
+			return status, nil
+		}
 		return nil, fmt.Errorf("failed to get remote branch reference: %w", err)
 	}
 

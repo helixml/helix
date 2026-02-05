@@ -27,8 +27,7 @@ services:
       dockerfile: Dockerfile
       target: api-dev-env
     networks:
-      default:
-        ipv4_address: 172.19.0.20
+      - default
     ports:
       - ${API_PORT:-8080}:8080
       # Port range for expose endpoint (port-based proxy for dev container services)
@@ -111,7 +110,7 @@ services:
       # Go caches for faster air rebuilds (shared with runner config)
       - go-pkg-mod:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
-      # Production frontend build (used when SERVE_PROD_FRONTEND_IN_DEV=true)
+      # Production frontend build (used when FRONTEND_URL=/www)
       - ./frontend/dist:/www:ro
     depends_on:
       - postgres
@@ -141,6 +140,9 @@ services:
     restart: unless-stopped
     ports:
       - "5000:5000"
+    environment:
+      # Enable manifest deletion for garbage collection
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
     volumes:
       - registry-data:/var/lib/registry
 
@@ -174,7 +176,7 @@ services:
 
   # Kodit code indexing service
   kodit:
-    image: registry.helixml.tech/helix/kodit:0.5.23
+    image: registry.helixml.tech/helix/kodit:0.5.24
     ports:
       - 8632:8632
     command: ["serve", "--host", "0.0.0.0", "--port", "8632"]
@@ -263,8 +265,7 @@ services:
     profiles: [code-nvidia] # NVIDIA GPU sandbox
     image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
     networks:
-      default:
-        ipv4_address: 172.19.0.50
+      - default
     environment:
       # GPU configuration
       - NVIDIA_DRIVER_CAPABILITIES=all
@@ -316,7 +317,8 @@ services:
       - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
       # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
-      - sandbox-data:/data
+      # Set HELIX_SANDBOX_DATA to a host path (e.g., /prod/helix-workspaces) for ZFS dedup
+      - ${HELIX_SANDBOX_DATA:-sandbox-data}:/data
       # Host Docker socket for privileged mode (Helix-in-Helix development)
       # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
       - /var/run/docker.sock:/var/run/host-docker.sock:rw
@@ -352,8 +354,7 @@ services:
     profiles: [code-amd-intel]
     image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
     networks:
-      default:
-        ipv4_address: 172.19.0.50
+      - default
     environment:
       # AMD/Intel GPU configuration (no NVIDIA variables)
       - GPU_VENDOR=${GPU_VENDOR:-intel}
@@ -403,7 +404,8 @@ services:
       - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
       # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
-      - sandbox-data:/data
+      # Set HELIX_SANDBOX_DATA to a host path (e.g., /prod/helix-workspaces) for ZFS dedup
+      - ${HELIX_SANDBOX_DATA:-sandbox-data}:/data
       # Host Docker socket for privileged mode (Helix-in-Helix development)
       # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
       - /var/run/docker.sock:/var/run/host-docker.sock:rw
@@ -435,8 +437,7 @@ services:
     profiles: [code-software]
     image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
     networks:
-      default:
-        ipv4_address: 172.19.0.50
+      - default
     environment:
       # Software rendering (CPU-only, no GPU)
       - GPU_VENDOR=none
@@ -487,7 +488,8 @@ services:
       - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
       # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
-      - sandbox-data:/data
+      # Set HELIX_SANDBOX_DATA to a host path (e.g., /prod/helix-workspaces) for ZFS dedup
+      - ${HELIX_SANDBOX_DATA:-sandbox-data}:/data
       # Host Docker socket for privileged mode (Helix-in-Helix development)
       # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
       - /var/run/docker.sock:/var/run/host-docker.sock:rw
@@ -606,7 +608,7 @@ services:
         TAG: 2025-08-13c-large
     environment:
       # Runner configuration
-      - API_HOST=http://172.17.0.1:8080
+      - API_HOST=http://api:8080
       - API_TOKEN=oh-hallo-insecure-token
       - RUNNER_ID=dev-gpu-runner
       - LOG_LEVEL=debug
@@ -633,7 +635,7 @@ services:
         TAG: 2025-08-13c-large
     environment:
       # Runner configuration
-      - API_HOST=http://172.17.0.1:8080
+      - API_HOST=http://api:8080
       - API_TOKEN=oh-hallo-insecure-token
       - RUNNER_ID=dev-gpu-runner-amd
       - LOG_LEVEL=debug
@@ -746,7 +748,4 @@ volumes:
 
 networks:
   default:
-    name: helix_default
-    ipam:
-      config:
-        - subnet: 172.19.0.0/16
+    name: ${HELIX_NETWORK_NAME:-helix_default}

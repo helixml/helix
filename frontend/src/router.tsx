@@ -239,7 +239,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     meta: {
       drawer: false,
       orgRouteAware: true,
-      title: 'Team Desktop',
+      title: 'Human Desktop',
     },
     render: () => (
       <TeamDesktopPage />

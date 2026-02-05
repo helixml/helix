@@ -723,15 +723,39 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 		// Uses ValidateUserToken which properly computes admin status from ADMIN_USER_IDS
 		user, err = s.oidcClient.ValidateUserToken(ctx, accessToken)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to validate user token")
-			// If the error contains "401" or "unauthorized", it's likely an expired/invalid token
-			errStr := strings.ToLower(err.Error())
-			if strings.Contains(errStr, "401") || strings.Contains(errStr, "unauthorized") {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			} else {
-				http.Error(w, "Failed to validate user token: "+err.Error(), http.StatusInternalServerError)
+			log.Debug().Err(err).Msg("Failed to validate access token in /user, attempting refresh")
+
+			// Try to refresh the token if we have a refresh token
+			refreshToken, refreshErr := cm.Get(r, refreshTokenCookie)
+			if refreshErr == nil && refreshToken != "" && !looksLikeHelixJWT(refreshToken) {
+				newToken, refreshErr := s.oidcClient.RefreshAccessToken(ctx, refreshToken)
+				if refreshErr == nil && newToken.AccessToken != "" {
+					// Update cookies with new tokens
+					cm.Set(w, accessTokenCookie, newToken.AccessToken)
+					if newToken.RefreshToken != "" {
+						cm.Set(w, refreshTokenCookie, newToken.RefreshToken)
+					}
+
+					// Retry validation with new token
+					user, err = s.oidcClient.ValidateUserToken(ctx, newToken.AccessToken)
+					if err == nil {
+						log.Debug().Msg("Token refreshed and validated successfully in /user")
+						accessToken = newToken.AccessToken // Update for response
+					}
+				}
 			}
-			return
+
+			// If still failing after refresh attempt, return error
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to validate user token after refresh attempt")
+				errStr := strings.ToLower(err.Error())
+				if strings.Contains(errStr, "401") || strings.Contains(errStr, "unauthorized") {
+					http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				} else {
+					http.Error(w, "Failed to validate user token: "+err.Error(), http.StatusInternalServerError)
+				}
+				return
+			}
 		}
 	}
 
@@ -854,7 +878,46 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 		_, err = s.oidcClient.ValidateUserToken(ctx, accessToken)
 	}
 	if err != nil {
-		log.Debug().Err(err).Msg("Failed to validate user token")
+		log.Debug().Err(err).Msg("Failed to validate access token, attempting refresh")
+
+		// Try to refresh the token if we have a refresh token
+		refreshToken, refreshErr := cm.Get(r, refreshTokenCookie)
+		if refreshErr == nil && refreshToken != "" && !looksLikeHelixJWT(refreshToken) {
+			// Attempt to refresh the access token
+			switch s.Cfg.Auth.Provider {
+			case types.AuthProviderRegular:
+				// For regular auth, refresh token is the same as access token (JWT)
+				user, validateErr := s.authenticator.ValidateUserToken(ctx, refreshToken)
+				if validateErr == nil {
+					newToken, genErr := s.authenticator.GenerateUserToken(ctx, user)
+					if genErr == nil {
+						cm.Set(w, accessTokenCookie, newToken)
+						cm.Set(w, refreshTokenCookie, newToken)
+						log.Debug().Msg("Token refreshed successfully during authenticated check")
+						writeResponse(w, types.AuthenticatedResponse{
+							Authenticated: true,
+						}, http.StatusOK)
+						return
+					}
+				}
+			default:
+				// OIDC - use the refresh token to get new access token
+				newToken, refreshErr := s.oidcClient.RefreshAccessToken(ctx, refreshToken)
+				if refreshErr == nil && newToken.AccessToken != "" {
+					cm.Set(w, accessTokenCookie, newToken.AccessToken)
+					if newToken.RefreshToken != "" {
+						cm.Set(w, refreshTokenCookie, newToken.RefreshToken)
+					}
+					log.Debug().Msg("Token refreshed successfully during authenticated check")
+					writeResponse(w, types.AuthenticatedResponse{
+						Authenticated: true,
+					}, http.StatusOK)
+					return
+				}
+				log.Debug().Err(refreshErr).Msg("Token refresh failed during authenticated check")
+			}
+		}
+
 		writeResponse(w, types.AuthenticatedResponse{
 			Authenticated: false,
 		}, http.StatusOK)

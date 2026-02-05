@@ -1,4 +1,4 @@
-//go:build !cgo
+//go:build !cgo || !linux
 
 // Package desktop provides GStreamer pipeline management stubs when CGO is disabled.
 // The actual implementation in gst_pipeline.go requires CGO for go-gst bindings.

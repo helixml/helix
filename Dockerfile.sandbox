@@ -201,9 +201,10 @@ RUN chmod +x /usr/local/bin/hydra /usr/local/bin/sandbox-heartbeat /usr/local/bi
 # Copy Helix sandbox init scripts (run after GOW base scripts)
 # ====================================================================
 
-# Start DNS proxy (before dockerd, enables enterprise DNS for nested containers)
-COPY sandbox/03-start-dns-proxy.sh /etc/cont-init.d/35-start-dns-proxy.sh
-RUN chmod +x /etc/cont-init.d/35-start-dns-proxy.sh
+# Start DNS proxy AFTER dockerd (binds to 10.213.0.1:53 for sandbox docker0,
+# leaving 10.200.X.1:53 free for Hydra's per-session DNS servers)
+COPY sandbox/05-start-dns-proxy.sh /etc/cont-init.d/45-start-dns-proxy.sh
+RUN chmod +x /etc/cont-init.d/45-start-dns-proxy.sh
 
 # Start dockerd script
 COPY sandbox/04-start-dockerd.sh /etc/cont-init.d/40-start-dockerd.sh

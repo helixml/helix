@@ -46,6 +46,7 @@ type authMiddleware struct {
 	oidcClient    authpkg.OIDC // For OIDC token validation (nil if not using OIDC)
 	store         store.Store
 	cfg           authMiddlewareConfig
+	serverCfg     *config.ServerConfig // Server config for cookie management
 }
 
 func newAuthMiddleware(
@@ -53,12 +54,14 @@ func newAuthMiddleware(
 	oidcClient authpkg.OIDC,
 	store store.Store,
 	cfg authMiddlewareConfig,
+	serverCfg *config.ServerConfig,
 ) *authMiddleware {
 	return &authMiddleware{
 		authenticator: authenticator,
 		oidcClient:    oidcClient,
 		store:         store,
 		cfg:           cfg,
+		serverCfg:     serverCfg,
 	}
 }
 
@@ -271,9 +274,53 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 				http.Error(w, "Authentication service temporarily unavailable", http.StatusServiceUnavailable)
 				return
 			}
-			log.Debug().Err(err).Str("path", r.URL.Path).Msg("Auth error - returning 401")
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-			return
+			// If the error is due to stale Helix JWT while OIDC is configured,
+			// clear all cookies so the user is forced to re-login via OIDC
+			if errors.Is(err, ErrHelixTokenWithOIDC) && auth.serverCfg != nil {
+				log.Warn().Str("path", r.URL.Path).Msg("Clearing stale Helix JWT cookies - user needs to re-login via OIDC")
+				NewCookieManager(auth.serverCfg).DeleteAllCookies(w)
+				http.Error(w, err.Error(), http.StatusUnauthorized)
+				return
+			}
+
+			// Attempt transparent token refresh using refresh_token cookie
+			// This allows requests to succeed even when access token is expired,
+			// as long as we have a valid refresh token
+			if auth.oidcClient != nil && auth.serverCfg != nil {
+				cm := NewCookieManager(auth.serverCfg)
+				refreshToken, refreshErr := cm.Get(r, refreshTokenCookie)
+				if refreshErr == nil && refreshToken != "" && !looksLikeHelixJWT(refreshToken) {
+					newToken, refreshErr := auth.oidcClient.RefreshAccessToken(r.Context(), refreshToken)
+					if refreshErr == nil && newToken.AccessToken != "" {
+						// Update cookies with new tokens
+						cm.Set(w, accessTokenCookie, newToken.AccessToken)
+						if newToken.RefreshToken != "" {
+							cm.Set(w, refreshTokenCookie, newToken.RefreshToken)
+						}
+
+						// Set header for frontend to update its in-memory token
+						w.Header().Set("X-Token-Refreshed", newToken.AccessToken)
+
+						// Retry auth with the new token
+						user, err = auth.getUserFromToken(r.Context(), newToken.AccessToken)
+						if err == nil {
+							log.Info().Str("path", r.URL.Path).Msg("Token refreshed transparently in middleware")
+							// Fall through to continue request processing
+						} else {
+							log.Warn().Err(err).Str("path", r.URL.Path).Msg("Token refresh succeeded but validation failed")
+						}
+					} else if refreshErr != nil {
+						log.Debug().Err(refreshErr).Str("path", r.URL.Path).Msg("Transparent token refresh failed")
+					}
+				}
+			}
+
+			// If still no valid user after refresh attempt, return 401
+			if err != nil {
+				log.Debug().Err(err).Str("path", r.URL.Path).Msg("Auth error - returning 401")
+				http.Error(w, err.Error(), http.StatusUnauthorized)
+				return
+			}
 		}
 		if user == nil {
 			user = &types.User{}
@@ -304,6 +351,12 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 				log.Warn().Err(err).Str("path", r.URL.Path).Msg("OIDC provider not ready during auth check")
 				http.Error(w, "Authentication service temporarily unavailable", http.StatusServiceUnavailable)
 				return
+			}
+			// If the error is due to stale Helix JWT while OIDC is configured,
+			// clear all cookies so the user is forced to re-login via OIDC
+			if errors.Is(err, ErrHelixTokenWithOIDC) && auth.serverCfg != nil {
+				log.Warn().Str("path", r.URL.Path).Msg("Clearing stale Helix JWT cookies - user needs to re-login via OIDC")
+				NewCookieManager(auth.serverCfg).DeleteAllCookies(w)
 			}
 			log.Debug().Err(err).Str("path", r.URL.Path).Msg("Auth error - returning 401")
 			http.Error(w, err.Error(), http.StatusUnauthorized)

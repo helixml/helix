@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import axios from 'axios'
 import useApi from '../hooks/useApi';
 import { FilestoreItem, FilestoreConfig } from '../api/api';
 import { getRelativePath } from '../utils/filestore';
@@ -399,22 +400,19 @@ export async function uploadFilesWithProgress(
       // Create FormData for the file
       const formData = new FormData()
       formData.append('files', file)
-      
-      // Upload the file
-      const response = await fetch(`/api/v1/filestore/upload?path=${encodeURIComponent(uploadPath)}`, {
-        method: 'POST',
-        body: formData,
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+
+      // Upload the file using axios which has the auth token set in its default headers
+      const response = await axios.post(
+        `/api/v1/filestore/upload?path=${encodeURIComponent(uploadPath)}`,
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
         }
-      })
-      
-      if (!response.ok) {
-        throw new Error(`Upload failed for ${file.name}: ${response.statusText}`)
-      }
-      
-      const result = await response.json()
-      results.push(result)
+      )
+
+      results.push(response.data)
     } catch (error) {
       console.error(`Error uploading ${file.name}:`, error)
       results.push({ success: false })

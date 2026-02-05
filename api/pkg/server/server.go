@@ -262,6 +262,7 @@ func NewServer(
 				adminUserIDs: cfg.WebServer.AdminUserIDs,
 				runnerToken:  cfg.WebServer.RunnerToken,
 			},
+			cfg,
 		),
 		providerManager:   providerManager,
 		modelInfoProvider: modelInfoProvider,
@@ -1137,15 +1138,21 @@ func getID(r *http.Request) string {
 
 // Static files router
 func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
-	if apiServer.Cfg.WebServer.ServeProdFrontendInDev {
-		const prodBuildPath = "/www"
-		log.Info().Msgf("serving production frontend from %s", prodBuildPath)
-		fileSystem := http.Dir(prodBuildPath)
-		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem))
+	frontendURL := apiServer.Cfg.WebServer.FrontendURL
+
+	if frontendURL == "" {
+		log.Fatal().Msg("FRONTEND_URL must be set - use a URL (http://...) for dev proxy or a path (/www) for static files")
+	}
+
+	// If FrontendURL is a URL (http:// or https://), proxy to it (dev mode)
+	// Otherwise, serve from filesystem (prod mode, e.g. /www)
+	if strings.HasPrefix(frontendURL, "http://") || strings.HasPrefix(frontendURL, "https://") {
+		log.Info().Msgf("proxying frontend requests to %s", frontendURL)
+		router.PathPrefix("/").Handler(spa.NewSPAReverseProxyServer(frontendURL))
 	} else {
-		const devServerURL = "http://frontend:8081"
-		log.Info().Msgf("proxying frontend requests to %s", devServerURL)
-		router.PathPrefix("/").Handler(spa.NewSPAReverseProxyServer(devServerURL))
+		log.Info().Msgf("serving static UI files from %s", frontendURL)
+		fileSystem := http.Dir(frontendURL)
+		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem))
 	}
 }
 
