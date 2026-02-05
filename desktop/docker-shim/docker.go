@@ -166,7 +166,67 @@ func hasCacheFlags(args []string) bool {
 	return false
 }
 
-// injectBuildCacheFlags adds BuildKit cache flags to build commands
+// SharedBuilderName is the name of the shared buildx builder with cache mount
+const SharedBuilderName = "helix-shared"
+
+// SharedBuildKitContainerName is the name of the BuildKit container
+const SharedBuildKitContainerName = "helix-buildkit"
+
+// ensureSharedBuilder checks if the helix-shared builder exists, creates it if not
+// Returns true if the builder is available, false if it couldn't be set up
+func ensureSharedBuilder() bool {
+	// Check if builder already exists
+	checkCmd := exec.Command(DockerRealPath, "buildx", "inspect", SharedBuilderName)
+	if err := checkCmd.Run(); err == nil {
+		log.Debug().Str("builder", SharedBuilderName).Msg("Shared builder already exists")
+		return true
+	}
+
+	// Get buildkit container IP
+	ipCmd := exec.Command(DockerRealPath, "inspect", "-f",
+		"{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+		SharedBuildKitContainerName)
+	ipOutput, err := ipCmd.Output()
+	if err != nil {
+		log.Debug().Err(err).Msg("Could not get BuildKit container IP, shared builder not available")
+		return false
+	}
+	buildkitIP := strings.TrimSpace(string(ipOutput))
+	if buildkitIP == "" {
+		log.Debug().Msg("BuildKit container has no IP, shared builder not available")
+		return false
+	}
+
+	// Create the builder
+	log.Info().
+		Str("builder", SharedBuilderName).
+		Str("endpoint", "tcp://"+buildkitIP+":1234").
+		Msg("Creating shared buildx builder")
+
+	createCmd := exec.Command(DockerRealPath, "buildx", "create",
+		"--name", SharedBuilderName,
+		"--driver", "remote",
+		"tcp://"+buildkitIP+":1234",
+	)
+	if output, err := createCmd.CombinedOutput(); err != nil {
+		log.Warn().Err(err).Str("output", string(output)).Msg("Failed to create shared builder")
+		return false
+	}
+
+	return true
+}
+
+// hasBuilderFlag checks if --builder flag is already present
+func hasBuilderFlag(args []string) bool {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--builder") {
+			return true
+		}
+	}
+	return false
+}
+
+// injectBuildCacheFlags adds BuildKit cache flags and builder to build commands
 func injectBuildCacheFlags(args []string) []string {
 	// Only process build commands
 	if !isBuildCommand(args) {
@@ -200,7 +260,7 @@ func injectBuildCacheFlags(args []string) []string {
 		return args
 	}
 
-	// Find where to insert cache flags (after "build" or "buildx build")
+	// Find where to insert flags (after "build" or "buildx build")
 	insertIdx := -1
 	for i, arg := range args {
 		if arg == "build" {
@@ -213,12 +273,30 @@ func injectBuildCacheFlags(args []string) []string {
 		return args
 	}
 
-	// Build new args with cache flags
+	// Build new args with builder and cache flags
 	cacheFrom := "--cache-from=type=local,src=" + cacheDir
 	cacheTo := "--cache-to=type=local,dest=" + cacheDir + ",mode=max"
 
-	result := make([]string, 0, len(args)+2)
+	result := make([]string, 0, len(args)+4)
 	result = append(result, args[:insertIdx]...)
+
+	// Add --builder flag if shared builder is available and not already specified
+	if !hasBuilderFlag(args) && ensureSharedBuilder() {
+		result = append(result, "--builder="+SharedBuilderName)
+		// With remote builder, we need --load to get image into local docker
+		// Check if --load or --push already specified
+		hasOutput := false
+		for _, arg := range args {
+			if arg == "--load" || arg == "--push" || strings.HasPrefix(arg, "-o") || strings.HasPrefix(arg, "--output") {
+				hasOutput = true
+				break
+			}
+		}
+		if !hasOutput {
+			result = append(result, "--load")
+		}
+	}
+
 	result = append(result, cacheFrom, cacheTo)
 	result = append(result, args[insertIdx:]...)
 
