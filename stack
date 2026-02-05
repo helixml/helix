@@ -766,8 +766,10 @@ function start() {
   # (in Helix-in-Helix mode, this skips sandbox profile and we start it on host Docker later)
   setup_sandbox_profile
 
-  # Stop sandbox if running to ensure fresh start
+  # Stop and remove sandbox if running to ensure fresh start
+  # Must remove container completely or docker compose up will fail trying to remove network
   docker compose -f docker-compose.dev.yaml stop "$SANDBOX_SERVICE" 2>/dev/null || true
+  docker rm -f "$SANDBOX_CONTAINER" 2>/dev/null || true
 
   # Start services based on enabled profiles
   if [[ -n "$WITH_RUNNER" ]]; then
