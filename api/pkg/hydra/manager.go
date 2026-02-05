@@ -564,6 +564,45 @@ func (m *Manager) deleteBridge(bridgeName string) {
 	}
 }
 
+// checkDocker0Exists returns true if docker0 bridge exists
+func (m *Manager) checkDocker0Exists() bool {
+	cmd := exec.Command("ip", "link", "show", "docker0")
+	return cmd.Run() == nil
+}
+
+// EnsureDocker0Bridge checks if docker0 bridge exists and recreates it if missing.
+// This is a defensive measure against docker0 mysteriously disappearing.
+// The main sandbox dockerd uses docker0 with 10.213.0.0/24 subnet.
+func (m *Manager) EnsureDocker0Bridge() error {
+	// Check if docker0 exists
+	checkCmd := exec.Command("ip", "link", "show", "docker0")
+	if err := checkCmd.Run(); err == nil {
+		// docker0 exists, nothing to do
+		return nil
+	}
+
+	// docker0 is missing - recreate it
+	log.Warn().Msg("docker0 bridge is missing, recreating it")
+
+	// Create the bridge
+	if err := m.runCommand("ip", "link", "add", "docker0", "type", "bridge"); err != nil {
+		return fmt.Errorf("failed to create docker0 bridge: %w", err)
+	}
+
+	// Set the IP address (10.213.0.1/24 per sandbox daemon.json default-address-pools)
+	if err := m.runCommand("ip", "addr", "add", "10.213.0.1/24", "dev", "docker0"); err != nil {
+		log.Warn().Err(err).Msg("Failed to add IP to docker0 (may already exist)")
+	}
+
+	// Bring up the bridge
+	if err := m.runCommand("ip", "link", "set", "docker0", "up"); err != nil {
+		return fmt.Errorf("failed to bring up docker0: %w", err)
+	}
+
+	log.Info().Msg("Recreated docker0 bridge with IP 10.213.0.1/24")
+	return nil
+}
+
 // startDockerd starts a new dockerd process
 func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceRequest) (*DockerInstance, error) {
 	instanceDir := filepath.Join(m.socketDir, string(req.ScopeType)+"-"+req.ScopeID)
@@ -671,6 +710,15 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	// Clean up stale socket
 	os.Remove(socketPath)
 
+	// DEBUG: Check docker0 status before starting session dockerd
+	// This helps diagnose if session dockerd is deleting the main dockerd's docker0
+	docker0ExistsBefore := m.checkDocker0Exists()
+	log.Info().
+		Bool("docker0_exists", docker0ExistsBefore).
+		Str("scope", scopeKey).
+		Str("bridge", bridgeName).
+		Msg("[DEBUG] docker0 status BEFORE starting session dockerd")
+
 	// Start dockerd with our custom bridge
 	// --bridge specifies the bridge interface to use instead of docker0
 	// Note: We don't use --bip because the bridge already has its IP assigned
@@ -725,6 +773,22 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	}
 
 	inst.Status = StatusRunning
+
+	// DEBUG: Check docker0 status after session dockerd is ready
+	docker0ExistsAfter := m.checkDocker0Exists()
+	log.Info().
+		Bool("docker0_exists_before", docker0ExistsBefore).
+		Bool("docker0_exists_after", docker0ExistsAfter).
+		Str("scope", scopeKey).
+		Str("bridge", bridgeName).
+		Msg("[DEBUG] docker0 status AFTER session dockerd started")
+
+	if docker0ExistsBefore && !docker0ExistsAfter {
+		log.Error().
+			Str("scope", scopeKey).
+			Str("bridge", bridgeName).
+			Msg("[DEBUG] docker0 was DELETED by session dockerd startup!")
+	}
 
 	// Start process monitor goroutine
 	go m.monitorProcess(inst, cmd)
