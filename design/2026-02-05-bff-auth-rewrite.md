@@ -337,17 +337,26 @@ authentication is affected - users just need to log in again after the update.
 
 ### Security Considerations
 
-1. **CSRF Protection**
-   - SameSite=Lax on cookies
+1. **CSRF Protection (Double-Submit Cookie Pattern)**
+   - **SameSite=Lax** on both cookies (prevents cross-site requests, allows OAuth redirects)
+   - **Dual-cookie approach:**
+     - `helix_session`: HttpOnly cookie (not readable by JS) - contains session ID
+     - `helix_csrf`: Regular cookie (readable by JS) - contains CSRF token
+   - **X-CSRF-Token header**: Frontend reads `helix_csrf` cookie and sends as `X-CSRF-Token` header
+   - **Validation**: Backend validates that cookie value matches header value
+   - **State-changing requests only**: CSRF validated for POST, PUT, DELETE, PATCH
+   - **Exempt paths**: Login, logout, OIDC endpoints (before session exists)
+   - **API keys bypass**: Requests with API keys (no session cookie) skip CSRF validation
    - State parameter in OIDC flow (already implemented)
 
 2. **Session Hijacking**
-   - Secure cookies (HTTPS only)
-   - HttpOnly (no JS access)
-   - Session tied to IP/user-agent (optional)
+   - Secure cookies (HTTPS only in production)
+   - HttpOnly session cookie (no JS access to session ID)
+   - Session tied to IP/user-agent (recorded for audit)
 
 3. **Session Fixation**
    - New session ID generated on each login
+   - New CSRF token generated with each session
 
 4. **Token Storage**
    - OIDC tokens encrypted at rest in database (recommended)

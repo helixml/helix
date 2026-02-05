@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"strings"
@@ -19,6 +21,12 @@ import (
 const (
 	// SessionCookieName is the name of the HttpOnly session cookie
 	SessionCookieName = "helix_session"
+
+	// CSRFCookieName is the name of the CSRF token cookie (readable by JS)
+	CSRFCookieName = "helix_csrf"
+
+	// CSRFHeaderName is the name of the header that must contain the CSRF token
+	CSRFHeaderName = "X-CSRF-Token"
 
 	// DefaultSessionDuration is the default session lifetime (30 days)
 	DefaultSessionDuration = 30 * 24 * time.Hour
@@ -189,9 +197,11 @@ func (sm *SessionManager) DeleteAllUserSessions(ctx context.Context, w http.Resp
 }
 
 // setSessionCookie sets the session cookie with proper security settings
+// It also sets a companion CSRF token cookie (readable by JS)
 func (sm *SessionManager) setSessionCookie(w http.ResponseWriter, sessionID string, expiresAt time.Time) {
 	secure := sm.isSecureCookies()
 
+	// Set the HttpOnly session cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    sessionID,
@@ -202,9 +212,22 @@ func (sm *SessionManager) setSessionCookie(w http.ResponseWriter, sessionID stri
 		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
+
+	// Set the CSRF token cookie (readable by JS, used for X-CSRF-Token header)
+	csrfToken := generateCSRFToken()
+	http.SetCookie(w, &http.Cookie{
+		Name:     CSRFCookieName,
+		Value:    csrfToken,
+		Path:     "/",
+		Expires:  expiresAt,
+		MaxAge:   int(time.Until(expiresAt).Seconds()),
+		HttpOnly: false, // JS needs to read this
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+	})
 }
 
-// clearSessionCookie clears the session cookie
+// clearSessionCookie clears the session and CSRF cookies
 func (sm *SessionManager) clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
@@ -215,6 +238,41 @@ func (sm *SessionManager) clearSessionCookie(w http.ResponseWriter) {
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     CSRFCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: false,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// generateCSRFToken generates a cryptographically secure random CSRF token
+func generateCSRFToken() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to UUID if crypto/rand fails (shouldn't happen)
+		return uuid.New().String()
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// ValidateCSRF checks that the X-CSRF-Token header matches the helix_csrf cookie
+// Returns true if valid, false otherwise
+func ValidateCSRF(r *http.Request) bool {
+	csrfCookie, err := r.Cookie(CSRFCookieName)
+	if err != nil || csrfCookie.Value == "" {
+		return false
+	}
+
+	csrfHeader := r.Header.Get(CSRFHeaderName)
+	if csrfHeader == "" {
+		return false
+	}
+
+	return csrfCookie.Value == csrfHeader
 }
 
 // getClientIP extracts the client IP from the request

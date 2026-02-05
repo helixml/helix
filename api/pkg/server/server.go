@@ -511,6 +511,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Extract auth for /api/v1 routes only (not frontend static assets)
 	subRouter := router.PathPrefix(APIPrefix).Subrouter()
 	subRouter.Use(apiServer.authMiddleware.extractMiddleware)
+	subRouter.Use(apiServer.authMiddleware.csrfMiddleware)
 
 	// auth router requires a valid token from keycloak or api key
 	authRouter := subRouter.MatcherFunc(matchAllRoutes).Subrouter()
