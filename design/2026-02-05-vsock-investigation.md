@@ -294,7 +294,26 @@ The helix-frame-export.sock exists on macOS host but isn't accessible inside VM 
    - Works via QEMU user-mode networking (10.0.2.2:5900)
    - Less secure (frame data over TCP)
 
-**Next Action:** Implement option 1 (virtserialport) for proper production solution, or option 2 (9p/virtfs) for quick testing.
+## ✅ TCP Implementation Complete
+
+**Changes:**
+- Added `tcp-host` and `tcp-port` properties to gst-vsockenc
+- Updated desktop-bridge pipeline to use `tcp-host=10.0.2.2 tcp-port=5900`
+- Rebuild helix-ubuntu in progress
+
+**Testing flow:**
+1. Host: socat proxies TCP 127.0.0.1:5900 → helix-frame-export.sock ✅
+2. Guest: vsockenc connects to 10.0.2.2:5900 (QEMU user-mode → host 127.0.0.1) ✅
+3. Protocol: DmaBuf resource ID → host reads pixels → VideoToolbox → H.264 NALs ✅
+
+**Next: End-to-end testing**
+- Wait for helix-ubuntu rebuild to complete
+- Start helix-ubuntu session in macOS ARM VM
+- Verify vsockenc element is detected
+- Check video streaming works
+- Measure FPS and latency
+
+**Later: virtserialport implementation** (~200 lines QEMU C for production)
    - PipeWire ScreenCast in containers provides DmaBuf FDs
    - Need to extract virtio-gpu resource ID from DmaBuf
    - Options:
