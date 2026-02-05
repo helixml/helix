@@ -44,9 +44,9 @@ export const useKnowledge = ({
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
-  const filestore = useFilestore()
   const account = useAccount()
-  
+  const filestore = useFilestore()
+
   const [expanded, setExpanded] = useState<string | false>(false);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
 
@@ -577,23 +577,16 @@ export const useKnowledge = ({
     }
     
     try {
-      if (!account.token) {
-        snackbar.error('Must be logged in to download files')
-        return
-      }
-
       // Create a temporary link to trigger the download
       const downloadUrl = `/api/v1/knowledge/${id}/download`
       const link = document.createElement('a')
       link.href = downloadUrl
       link.setAttribute('download', `${source.name}-files.zip`)
-      
-      // Set auth header by creating a fetch request instead of direct link
+
+      // With BFF auth, session cookie is sent automatically with same-origin requests
       const response = await fetch(downloadUrl, {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${account.token}`,
-        },
+        credentials: 'same-origin',
       })
       
       if (!response.ok) {

@@ -37,7 +37,6 @@ import useLightTheme from '../hooks/useLightTheme'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useIsBigScreen from '../hooks/useIsBigScreen'
 import useApps from '../hooks/useApps'
-import useApi from '../hooks/useApi'
 import useUserMenuHeight from '../hooks/useUserMenuHeight'
 import { useGetConfig } from '../services/userService'
 import { TypesAuthProvider } from '../api/api'
@@ -52,13 +51,11 @@ const Layout: FC<{
   const lightTheme = useLightTheme()
   const isBigScreen = useIsBigScreen()
   const router = useRouter()
-  const api = useApi()
   const account = useAccount()
   const apps = useApps()
   const floatingRunnerState = useFloatingRunnerState()
   const floatingModal = useFloatingModal()
   const [showVersionBanner, setShowVersionBanner] = useState(true)
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
   const userMenuHeight = useUserMenuHeight()
   const { data: config } = useGetConfig()
 
@@ -152,25 +149,11 @@ const Layout: FC<{
   let sidebarMenu = null
   const isOrgMenu = router.meta.menu == 'orgs'
 
-  const apiClient = api.getApiClient()
-  
   // Determine which resource type to use
   // 1. Use resource_type from URL params if available
   // 2. If app_id is present in the URL, default to 'apps'
   // 3. Otherwise default to 'chat'
-  const resourceType = router.params.resource_type || (router.params.app_id ? 'apps' : 'chat')  
-
-  // This useEffect handles registering/updating the menu
-  React.useEffect(() => {
-    const checkAuthAndLoad = async () => {
-      const authResponse = await apiClient.v1AuthAuthenticatedList()
-      if (!authResponse.data.authenticated) {
-        return
-      }
-      setIsAuthenticated(true) 
-    }
-    checkAuthAndLoad()
-  }, [resourceType])
+  const resourceType = router.params.resource_type || (router.params.app_id ? 'apps' : 'chat')
 
 
 

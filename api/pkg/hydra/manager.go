@@ -32,6 +32,15 @@ const (
 	// SharedBuildKitCacheDir is the directory for shared BuildKit cache across all sessions
 	// BuildKit uses content-addressed storage, so concurrent access is safe
 	SharedBuildKitCacheDir = "buildkit-cache"
+
+	// SharedBuildKitContainerName is the name of the shared BuildKit container
+	SharedBuildKitContainerName = "helix-buildkit"
+
+	// SharedBuildKitImage is the BuildKit image to use
+	SharedBuildKitImage = "moby/buildkit:latest"
+
+	// SharedBuildxBuilderName is the name of the shared buildx builder
+	SharedBuildxBuilderName = "helix-shared"
 )
 
 // Manager manages multiple dockerd instances
@@ -135,9 +144,22 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	// Create shared BuildKit cache directory for all sessions
 	// This allows docker build cache to be shared across dockerd instances
+	// Use 0777 permissions so dev containers running as non-root can create subdirectories
 	buildkitCacheDir := filepath.Join(m.dataDir, SharedBuildKitCacheDir)
-	if err := os.MkdirAll(buildkitCacheDir, 0755); err != nil {
+	if err := os.MkdirAll(buildkitCacheDir, 0777); err != nil {
 		return fmt.Errorf("failed to create buildkit cache directory: %w", err)
+	}
+	// Ensure permissions are correct even if directory already existed
+	if err := os.Chmod(buildkitCacheDir, 0777); err != nil {
+		log.Warn().Err(err).Str("dir", buildkitCacheDir).Msg("Failed to set buildkit cache directory permissions")
+	}
+
+	// Setup shared BuildKit container and builder for cache sharing
+	// This creates a dedicated BuildKit container with the cache directory mounted,
+	// allowing all dev containers to share build cache
+	if err := m.setupSharedBuildKit(ctx); err != nil {
+		// Log warning but don't fail - builds will still work, just without shared cache
+		log.Warn().Err(err).Msg("Failed to setup shared BuildKit container, builds will work but cache won't be shared")
 	}
 
 	// Start cleanup goroutine
@@ -174,6 +196,103 @@ func (m *Manager) Stop(ctx context.Context) error {
 
 	m.wg.Wait()
 	log.Info().Msg("Hydra manager stopped")
+	return nil
+}
+
+// setupSharedBuildKit creates a shared BuildKit container and buildx builder
+// that all dev containers can use for cached builds.
+// The BuildKit container has the shared cache directory mounted, enabling
+// cache sharing across all dev containers.
+func (m *Manager) setupSharedBuildKit(ctx context.Context) error {
+	buildkitCacheDir := filepath.Join(m.dataDir, SharedBuildKitCacheDir)
+
+	// Check if buildkit container already exists and is running
+	checkCmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.Running}}", SharedBuildKitContainerName)
+	output, err := checkCmd.Output()
+	if err == nil && strings.TrimSpace(string(output)) == "true" {
+		log.Debug().Str("container", SharedBuildKitContainerName).Msg("Shared BuildKit container already running")
+		return m.ensureBuildxBuilder(ctx)
+	}
+
+	// Remove old container if exists (might be stopped)
+	_ = exec.CommandContext(ctx, "docker", "rm", "-f", SharedBuildKitContainerName).Run()
+
+	// Create buildkit container with cache directory mounted
+	log.Info().
+		Str("container", SharedBuildKitContainerName).
+		Str("cache_dir", buildkitCacheDir).
+		Msg("Creating shared BuildKit container")
+
+	createCmd := exec.CommandContext(ctx, "docker", "run", "-d",
+		"--name", SharedBuildKitContainerName,
+		"--privileged",
+		"-v", buildkitCacheDir+":/buildkit-cache",
+		"-v", "buildkit_state:/var/lib/buildkit",
+		"--restart", "unless-stopped",
+		SharedBuildKitImage,
+		"--addr", "unix:///run/buildkit/buildkitd.sock",
+		"--addr", "tcp://0.0.0.0:1234",
+	)
+
+	if output, err := createCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create buildkit container: %w, output: %s", err, string(output))
+	}
+
+	// Wait for container to be running
+	time.Sleep(2 * time.Second)
+
+	return m.ensureBuildxBuilder(ctx)
+}
+
+// ensureBuildxBuilder creates or updates the buildx builder pointing to the shared BuildKit container
+func (m *Manager) ensureBuildxBuilder(ctx context.Context) error {
+	// Get buildkit container IP
+	ipCmd := exec.CommandContext(ctx, "docker", "inspect", "-f",
+		"{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+		SharedBuildKitContainerName)
+	ipOutput, err := ipCmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get buildkit container IP: %w", err)
+	}
+	buildkitIP := strings.TrimSpace(string(ipOutput))
+	if buildkitIP == "" {
+		return fmt.Errorf("buildkit container has no IP address")
+	}
+
+	// Check if builder already exists
+	checkCmd := exec.CommandContext(ctx, "docker", "buildx", "inspect", SharedBuildxBuilderName)
+	if err := checkCmd.Run(); err == nil {
+		log.Debug().Str("builder", SharedBuildxBuilderName).Msg("Buildx builder already exists")
+		// Set as default
+		_ = exec.CommandContext(ctx, "docker", "buildx", "use", SharedBuildxBuilderName).Run()
+		return nil
+	}
+
+	// Remove stale builder if exists
+	_ = exec.CommandContext(ctx, "docker", "buildx", "rm", SharedBuildxBuilderName).Run()
+
+	// Create buildx builder pointing to the container
+	log.Info().
+		Str("builder", SharedBuildxBuilderName).
+		Str("endpoint", "tcp://"+buildkitIP+":1234").
+		Msg("Creating shared buildx builder")
+
+	createCmd := exec.CommandContext(ctx, "docker", "buildx", "create",
+		"--name", SharedBuildxBuilderName,
+		"--driver", "remote",
+		"tcp://"+buildkitIP+":1234",
+		"--use",
+	)
+	if output, err := createCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create buildx builder: %w, output: %s", err, string(output))
+	}
+
+	// Bootstrap the builder
+	bootstrapCmd := exec.CommandContext(ctx, "docker", "buildx", "inspect", "--bootstrap", SharedBuildxBuilderName)
+	if output, err := bootstrapCmd.CombinedOutput(); err != nil {
+		log.Warn().Err(err).Str("output", string(output)).Msg("Failed to bootstrap buildx builder")
+	}
+
 	return nil
 }
 
@@ -450,6 +569,45 @@ func (m *Manager) deleteBridge(bridgeName string) {
 	}
 }
 
+// checkDocker0Exists returns true if docker0 bridge exists
+func (m *Manager) checkDocker0Exists() bool {
+	cmd := exec.Command("ip", "link", "show", "docker0")
+	return cmd.Run() == nil
+}
+
+// EnsureDocker0Bridge checks if docker0 bridge exists and recreates it if missing.
+// This is a defensive measure against docker0 mysteriously disappearing.
+// The main sandbox dockerd uses docker0 with 10.213.0.0/24 subnet.
+func (m *Manager) EnsureDocker0Bridge() error {
+	// Check if docker0 exists
+	checkCmd := exec.Command("ip", "link", "show", "docker0")
+	if err := checkCmd.Run(); err == nil {
+		// docker0 exists, nothing to do
+		return nil
+	}
+
+	// docker0 is missing - recreate it
+	log.Warn().Msg("docker0 bridge is missing, recreating it")
+
+	// Create the bridge
+	if err := m.runCommand("ip", "link", "add", "docker0", "type", "bridge"); err != nil {
+		return fmt.Errorf("failed to create docker0 bridge: %w", err)
+	}
+
+	// Set the IP address (10.213.0.1/24 per sandbox daemon.json default-address-pools)
+	if err := m.runCommand("ip", "addr", "add", "10.213.0.1/24", "dev", "docker0"); err != nil {
+		log.Warn().Err(err).Msg("Failed to add IP to docker0 (may already exist)")
+	}
+
+	// Bring up the bridge
+	if err := m.runCommand("ip", "link", "set", "docker0", "up"); err != nil {
+		return fmt.Errorf("failed to bring up docker0: %w", err)
+	}
+
+	log.Info().Msg("Recreated docker0 bridge with IP 10.213.0.1/24")
+	return nil
+}
+
 // startDockerd starts a new dockerd process
 func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceRequest) (*DockerInstance, error) {
 	instanceDir := filepath.Join(m.socketDir, string(req.ScopeType)+"-"+req.ScopeID)
@@ -557,6 +715,15 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	// Clean up stale socket
 	os.Remove(socketPath)
 
+	// DEBUG: Check docker0 status before starting session dockerd
+	// This helps diagnose if session dockerd is deleting the main dockerd's docker0
+	docker0ExistsBefore := m.checkDocker0Exists()
+	log.Info().
+		Bool("docker0_exists", docker0ExistsBefore).
+		Str("scope", scopeKey).
+		Str("bridge", bridgeName).
+		Msg("[DEBUG] docker0 status BEFORE starting session dockerd")
+
 	// Start dockerd with our custom bridge
 	// --bridge specifies the bridge interface to use instead of docker0
 	// Note: We don't use --bip because the bridge already has its IP assigned
@@ -611,6 +778,22 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	}
 
 	inst.Status = StatusRunning
+
+	// DEBUG: Check docker0 status after session dockerd is ready
+	docker0ExistsAfter := m.checkDocker0Exists()
+	log.Info().
+		Bool("docker0_exists_before", docker0ExistsBefore).
+		Bool("docker0_exists_after", docker0ExistsAfter).
+		Str("scope", scopeKey).
+		Str("bridge", bridgeName).
+		Msg("[DEBUG] docker0 status AFTER session dockerd started")
+
+	if docker0ExistsBefore && !docker0ExistsAfter {
+		log.Error().
+			Str("scope", scopeKey).
+			Str("bridge", bridgeName).
+			Msg("[DEBUG] docker0 was DELETED by session dockerd startup!")
+	}
 
 	// Start process monitor goroutine
 	go m.monitorProcess(inst, cmd)
@@ -674,7 +857,7 @@ func (m *Manager) stopDockerd(ctx context.Context, inst *DockerInstance) error {
 	return nil
 }
 
-// waitForSocket waits for the docker socket to become available
+// waitForSocket waits for the docker socket to become available and the bridge network to be ready
 func (m *Manager) waitForSocket(ctx context.Context, socketPath string) error {
 	deadline := time.Now().Add(DefaultDockerdTimeout)
 
@@ -690,7 +873,14 @@ func (m *Manager) waitForSocket(ctx context.Context, socketPath string) error {
 			// Try to connect
 			cmd := exec.Command("docker", "-H", "unix://"+socketPath, "info")
 			if err := cmd.Run(); err == nil {
-				return nil
+				// Also verify the bridge network is ready
+				// This prevents a race condition where docker info succeeds
+				// but the bridge network driver hasn't finished initializing
+				networkCmd := exec.Command("docker", "-H", "unix://"+socketPath, "network", "inspect", "bridge")
+				if err := networkCmd.Run(); err == nil {
+					return nil
+				}
+				log.Debug().Str("socket", socketPath).Msg("Docker socket ready but bridge network not yet initialized")
 			}
 		}
 

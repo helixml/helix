@@ -30,16 +30,23 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 ) {
 
 	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-		user, err := apiServer.authMiddleware.getUserFromToken(r.Context(), getRequestToken(r))
+		// Try BFF session authentication first (from helix_session cookie)
+		// This is the primary auth method for browser clients
+		user, err := apiServer.authMiddleware.getUserFromSession(r.Context(), r)
 		if err != nil {
-			log.Error().Msgf("Error getting user: %s", err.Error())
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+			// Session auth failed, fall back to token-based auth (API keys, runner tokens)
+			log.Debug().Err(err).Str("path", path).Msg("WebSocket session auth failed, trying token auth")
+			user, err = apiServer.authMiddleware.getUserFromToken(r.Context(), getRequestToken(r))
+			if err != nil {
+				log.Error().Err(err).Msg("WebSocket auth failed")
+				http.Error(w, err.Error(), http.StatusUnauthorized)
+				return
+			}
 		}
 
 		if user == nil || !hasUser(user) {
-			log.Error().Msgf("Error getting user")
-			http.Error(w, "unauthorized", http.StatusInternalServerError)
+			log.Error().Msg("WebSocket: no authenticated user")
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 
