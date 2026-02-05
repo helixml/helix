@@ -28,6 +28,11 @@ sudo install_name_tool -change "$SYSROOT/libgobject-2.0.0.dylib" @rpath/gobject-
 sudo install_name_tool -change "$SYSROOT/libglib-2.0.0.dylib" @rpath/glib-2.0.0.framework/Versions/A/glib-2.0.0 "$QEMU" 2>/dev/null || true
 sudo install_name_tool -change "$SYSROOT/libzstd.1.dylib" @rpath/zstd.1.framework/Versions/A/zstd.1 "$QEMU" 2>/dev/null || true
 sudo install_name_tool -change "$SYSROOT/libslirp.0.dylib" @rpath/slirp.0.framework/Versions/A/slirp.0 "$QEMU" 2>/dev/null || true
+sudo install_name_tool -change "$SYSROOT/libspice-server.1.dylib" @rpath/spice-server.1.framework/Versions/A/spice-server.1 "$QEMU" 2>/dev/null || true
+sudo install_name_tool -change "$SYSROOT/libvirglrenderer.1.dylib" @rpath/virglrenderer.1.framework/Versions/A/virglrenderer.1 "$QEMU" 2>/dev/null || true
+sudo install_name_tool -change "$SYSROOT/libusbredirparser.1.dylib" @rpath/usbredirparser.1.framework/Versions/A/usbredirparser.1 "$QEMU" 2>/dev/null || true
+sudo install_name_tool -change "$SYSROOT/libusb-1.0.0.dylib" @rpath/usb-1.0.0.framework/Versions/A/usb-1.0.0 "$QEMU" 2>/dev/null || true
+sudo install_name_tool -change "$SYSROOT/libgmodule-2.0.0.dylib" @rpath/gmodule-2.0.0.framework/Versions/A/gmodule-2.0.0 "$QEMU" 2>/dev/null || true
 
 # NOTE: Don't change Homebrew dependencies (capstone, gnutls) - UTM doesn't bundle them
 # They must remain pointing to /opt/homebrew/ for QEMU to find them
