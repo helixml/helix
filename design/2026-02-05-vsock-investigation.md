@@ -135,93 +135,59 @@ The host-side socket is created and listening. Now need to make it accessible to
 - [x] Frame request protocol tested
 - [x] VideoToolbox encoder initialization working
 
-### 🔍 Current Issue: Resource Metal Texture Backing
+### ✅ Implemented: GPU Readback with ANGLE
 
-**Problem:** Regular virtio-gpu resources don't have Metal texture backing.
-
-**Discovery:**
-- Scanned resource IDs 1-200, found many valid resources
-- Resources include buffers and textures (1920x1080, 1280x800, etc.)
-- ALL resources have `native_type=0` (VIRGL_NATIVE_HANDLE_NONE)
-- Expected `native_type=2` (VIRGL_NATIVE_HANDLE_METAL_TEXTURE)
-
-**Root Cause:**
-Only **scanout resources** (those being displayed) get Metal texture handles.
-This happens via `virgl_renderer_create_handle_for_scanout()` in `virgl_cmd_set_scanout()`.
-
-**Solution Attempts:**
-
-1. ✅ **Scanout tracking implemented**
-   - Added `virtio_gpu_get_scanout_resource_id()` helper
-   - Frame requests with `resource_id=0` use current scanout
-   - Scanout resource ID correctly identified (resource 2, 1280x800)
-
-2. ✅ **Call create_handle_for_scanout**
-   - Implemented automatic call to `virgl_renderer_create_handle_for_scanout()`
-   - Should convert regular resources to Metal textures
-   - **ISSUE**: Returns type=NONE instead of type=METAL_TEXTURE
-
-**Current Blocker: ANGLE Layer Prevents Direct Metal Access**
-
-### Root Cause
-UTM uses **ANGLE** (OpenGL ES on Metal) as intermediary layer:
+**Problem:** UTM uses **ANGLE** (OpenGL ES → Metal) layer:
 ```
 Guest GL → virglrenderer → ANGLE → Metal
 ```
 
-This means:
-- Resources are GL textures wrapped by ANGLE
-- `virgl_renderer_create_handle_for_scanout()` returns NONE because:
-  - It's looking for direct Metal textures
-  - But textures are actually ANGLE/GL textures backed by Metal internally
-- No direct access to underlying Metal textures
+Resources are GL textures wrapped by ANGLE, not direct Metal textures. This prevents zero-copy Metal texture access via `virgl_renderer_create_handle_for_scanout()`.
 
-### Alternative Approaches
+**Solution: GL Readback → IOSurface → VideoToolbox**
 
-**Option A: Use existing QEMU scanout path**
-- QEMU already renders scanout via `dpy_gl_scanout_texture()`
-- This path must be creating displayable surfaces
-- Hook into that instead of trying to get Metal textures directly
+Implemented in `helix-frame-export.m`:
+1. Use `virgl_renderer_transfer_read_iov()` to read pixel data from resource
+2. Create IOSurface from pixel data (BGRA8888 format)
+3. Create CVPixelBuffer from IOSurface (zero-copy at this point)
+4. Pass to VideoToolbox for H.264 encoding
 
-**Option B: Modify virglrenderer**
-- Add API to export GL textures as IOSurface
-- Works with ANGLE layer
-- Most invasive but cleanest
+**Trade-off:** One CPU copy (GPU → CPU → IOSurface) but guaranteed to work with ANGLE. For headless container rendering at 30-60 FPS, the CPU copy overhead should be acceptable on Apple Silicon.
 
-**Option C: GL readback + re-encode**
-- Read GL texture pixels to CPU memory
-- Create IOSurface from pixels
-- VideoToolbox encode
-- Defeats purpose of zero-copy
+### Next Steps: Test Readback Implementation
 
-**Recommended: Option A** - leverage existing QEMU display pipeline
+1. **Test with real guest resource**
+   - Send FrameRequest from guest with valid resource ID
+   - Verify virgl_renderer_transfer_read_iov() succeeds
+   - Confirm IOSurface created and VideoToolbox encodes
+   - Check H.264 NAL output
 
-1. **Create test virtio-gpu resource in guest**
-   - Run simple Vulkan/GL app to create a framebuffer
-   - Get resource ID from virglrenderer
-   - OR use existing GNOME desktop framebuffer
+2. **Map PipeWire DmaBuf to virtio-gpu resource ID**
+   - PipeWire ScreenCast in containers provides DmaBuf FDs
+   - Need to extract virtio-gpu resource ID from DmaBuf
+   - Options:
+     - Use libdrm to query DmaBuf handle
+     - Use ioctl on DRI device to get resource ID
+     - Check existing desktop-bridge code for DmaBuf handling
 
-2. **Test virgl_renderer_resource_get_info_ext()**
-   - Send FrameRequest with real resource ID
-   - Verify function returns Metal texture handle
-   - Check IOSurface backing exists
+3. **Build guest-side bridge**
+   - Container app renders → PipeWire ScreenCast → DmaBuf
+   - Extract resource ID from DmaBuf
+   - Connect to 10.0.2.2:5900 (TCP proxy to host socket)
+   - Send FrameRequest with resource ID
+   - Receive H.264 NALs, output to WebSocket
 
-3. **Test VideoToolbox encoding**
-   - Verify IOSurface → CVPixelBuffer conversion works
-   - Check H.264 encoding produces valid NALs
-   - Measure encoding latency
-
-4. **Build vsockenc replacement**
-   - Modify desktop-bridge vsockenc to connect to 10.0.2.2:5900
-   - Use PipeWire ScreenCast to get DmaBuf resource IDs
-   - Send FrameRequest messages
-   - Receive and output H.264 NALs
-
-5. **End-to-end integration**
-   - Test with helix-ubuntu container
-   - Stream to browser via WebSocket
+4. **End-to-end testing**
+   - Start helix-ubuntu container in guest
+   - Run desktop app (browser, Zed)
+   - Verify video streaming works
    - Measure FPS and latency
-   - Compare to current x86 performance
+   - Compare performance to x86 implementation
+
+5. **Performance optimization** (if needed)
+   - Profile CPU copy overhead
+   - Consider virglrenderer modifications for zero-copy if readback is too slow
+   - Benchmark different resolutions and frame rates
 
 ## Known Challenges
 
