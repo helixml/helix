@@ -107,8 +107,6 @@ func (sm *SessionManager) GetSessionFromRequest(ctx context.Context, r *http.Req
 		return nil, ErrSessionNotFound
 	}
 
-	log.Debug().Str("session_id", sessionID).Str("path", r.URL.Path).Msg("Looking up session from request")
-
 	session, err := sm.store.GetUserSession(ctx, sessionID)
 	if err != nil {
 		log.Debug().Err(err).Str("session_id", sessionID).Str("path", r.URL.Path).Msg("Session lookup failed in store")
