@@ -1345,10 +1345,37 @@ function transfer-desktop-to-sandbox() {
   fi
   get_sandbox_names
 
+  # In Helix-in-Helix mode, sandbox runs on host Docker with different container name
+  local SANDBOX_DOCKER_HOST=""
+  local SANDBOX_CONTAINER_NAME="$SANDBOX_CONTAINER"
+  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
+    SANDBOX_DOCKER_HOST="$DOCKER_HOST_OUTER"
+    SANDBOX_CONTAINER_NAME="helix-inner-sandbox-${USER:-dev}"
+    echo "🎮 Helix-in-Helix mode: Using host Docker for sandbox ($SANDBOX_CONTAINER_NAME)"
+  fi
+
+  # Helper function to run docker commands against sandbox's Docker host
+  sandbox_docker() {
+    if [[ -n "$SANDBOX_DOCKER_HOST" ]]; then
+      DOCKER_HOST="$SANDBOX_DOCKER_HOST" docker "$@"
+    else
+      docker "$@"
+    fi
+  }
+
   # Check if sandbox container is running
-  if ! docker compose -f docker-compose.dev.yaml ps "$SANDBOX_SERVICE" | grep -q "Up"; then
-    echo "ℹ️  Sandbox container not running, skipping image transfer (will transfer on next start)"
-    return 0
+  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
+    # In Helix-in-Helix mode, check on host Docker
+    if ! sandbox_docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${SANDBOX_CONTAINER_NAME}$"; then
+      echo "ℹ️  Sandbox container not running on host Docker, skipping image transfer"
+      return 0
+    fi
+  else
+    # Normal mode: check via docker-compose
+    if ! docker compose -f docker-compose.dev.yaml ps "$SANDBOX_SERVICE" | grep -q "Up"; then
+      echo "ℹ️  Sandbox container not running, skipping image transfer (will transfer on next start)"
+      return 0
+    fi
   fi
 
   # Ensure local registry is running (needed for push/pull transfer)
@@ -1380,12 +1407,12 @@ function transfer-desktop-to-sandbox() {
   local IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
 
   # Check if sandbox already has this exact image by version tag (skip transfer if so)
-  local SANDBOX_HAS_TAG=$(docker exec "$SANDBOX_CONTAINER" docker images "${IMAGE_NAME}:${IMAGE_TAG}" --format '{{.ID}}' 2>/dev/null)
+  local SANDBOX_HAS_TAG=$(sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker images "${IMAGE_NAME}:${IMAGE_TAG}" --format '{{.ID}}' 2>/dev/null)
   if [ -n "$SANDBOX_HAS_TAG" ]; then
     echo "✅ Sandbox already has ${IMAGE_NAME}:${IMAGE_TAG} - skipping transfer"
     # Still restart heartbeat to ensure API has the correct version
     echo "🔄 Restarting heartbeat daemon to ensure version is current..."
-    docker exec "$SANDBOX_CONTAINER" pkill -f sandbox-heartbeat 2>/dev/null || true
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" pkill -f sandbox-heartbeat 2>/dev/null || true
     return 0
   fi
 
@@ -1404,18 +1431,18 @@ function transfer-desktop-to-sandbox() {
 
   # Pull from registry inside sandbox
   echo "📥 Sandbox pulling from registry (only changed layers transfer)..."
-  if ! docker exec "$SANDBOX_CONTAINER" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$"; then
+  if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$"; then
     echo "❌ Failed to pull from registry inside sandbox"
     return 1
   fi
 
   # Tag with the expected names inside sandbox (Hydra uses helix-${desktop}:${tag})
-  docker exec "$SANDBOX_CONTAINER" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}"
-  docker exec "$SANDBOX_CONTAINER" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest"
+  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}"
+  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest"
 
   # Remove the registry-prefixed tag to allow proper cleanup later
   # (layers are shared, so this just removes the tag, not the data)
-  docker exec "$SANDBOX_CONTAINER" docker rmi "$SANDBOX_REGISTRY_TAG" 2>/dev/null || true
+  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker rmi "$SANDBOX_REGISTRY_TAG" 2>/dev/null || true
 
   echo "✅ ${IMAGE_NAME}:${IMAGE_TAG} transferred via registry"
 
@@ -1426,7 +1453,7 @@ function transfer-desktop-to-sandbox() {
 
   # Restart heartbeat to pick up the new version immediately
   echo "🔄 Restarting heartbeat daemon to report new version..."
-  docker exec "$SANDBOX_CONTAINER" pkill -f sandbox-heartbeat 2>/dev/null || true
+  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" pkill -f sandbox-heartbeat 2>/dev/null || true
   echo "✅ Image transferred and heartbeat restarted"
 
   # Clean up old images to prevent disk exhaustion
@@ -1443,16 +1470,16 @@ function transfer-desktop-to-sandbox() {
   fi
 
   # Clean up old images inside sandbox (keep current tag and latest)
-  local OLD_SANDBOX_IMAGES=$(docker exec "$SANDBOX_CONTAINER" docker images "${IMAGE_NAME}" --format '{{.Tag}}' 2>/dev/null | grep -v "^${IMAGE_TAG}$" | grep -v "^latest$" || true)
+  local OLD_SANDBOX_IMAGES=$(sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker images "${IMAGE_NAME}" --format '{{.Tag}}' 2>/dev/null | grep -v "^${IMAGE_TAG}$" | grep -v "^latest$" || true)
   if [ -n "$OLD_SANDBOX_IMAGES" ]; then
     echo "   Removing old sandbox images: $(echo $OLD_SANDBOX_IMAGES | tr '\n' ' ')"
     for tag in $OLD_SANDBOX_IMAGES; do
-      docker exec "$SANDBOX_CONTAINER" docker rmi "${IMAGE_NAME}:${tag}" 2>/dev/null || true
+      sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker rmi "${IMAGE_NAME}:${tag}" 2>/dev/null || true
     done
   fi
 
   # Prune dangling images in sandbox
-  docker exec "$SANDBOX_CONTAINER" docker image prune -f 2>/dev/null || true
+  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker image prune -f 2>/dev/null || true
 
   # Garbage collect registry to remove orphaned layers
   # This is safe because we only delete old manifests (above), which orphans old layers
