@@ -788,7 +788,7 @@ func (m *Manager) stopDockerd(ctx context.Context, inst *DockerInstance) error {
 	return nil
 }
 
-// waitForSocket waits for the docker socket to become available
+// waitForSocket waits for the docker socket to become available and the bridge network to be ready
 func (m *Manager) waitForSocket(ctx context.Context, socketPath string) error {
 	deadline := time.Now().Add(DefaultDockerdTimeout)
 
@@ -804,7 +804,14 @@ func (m *Manager) waitForSocket(ctx context.Context, socketPath string) error {
 			// Try to connect
 			cmd := exec.Command("docker", "-H", "unix://"+socketPath, "info")
 			if err := cmd.Run(); err == nil {
-				return nil
+				// Also verify the bridge network is ready
+				// This prevents a race condition where docker info succeeds
+				// but the bridge network driver hasn't finished initializing
+				networkCmd := exec.Command("docker", "-H", "unix://"+socketPath, "network", "inspect", "bridge")
+				if err := networkCmd.Run(); err == nil {
+					return nil
+				}
+				log.Debug().Str("socket", socketPath).Msg("Docker socket ready but bridge network not yet initialized")
 			}
 		}
 
