@@ -107,22 +107,70 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 
 ### Frontend Changes (`frontend/src/hooks/useApi.ts`)
 
-Add response interceptor to watch for `X-Token-Refreshed` header:
+The frontend uses interceptors to watch for `X-Token-Refreshed` header on ALL responses (both success and error):
 
 ```typescript
+// Helper function to handle X-Token-Refreshed header from backend
+// This is called for both successful and error responses
+const handleTokenRefreshHeader = (headers: Record<string, string> | undefined) => {
+  if (!headers) return
+  const newToken = headers['x-token-refreshed']
+  if (newToken) {
+    console.log('[API] Token refreshed transparently by backend, updating all token locations')
+
+    // Update axios defaults (for raw axios calls)
+    axios.defaults.headers.common = getTokenHeaders(newToken)
+
+    // Update OpenAPI client security data
+    apiClientSingleton.setSecurityData({ token: newToken })
+
+    // Also update the client instance headers directly
+    apiClientSingleton.instance.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
+
+    // Update localStorage for direct fetch() calls
+    localStorage.setItem('token', newToken)
+
+    // Dispatch event so account.tsx can update React state
+    window.dispatchEvent(new CustomEvent(TOKEN_REFRESHED_EVENT, { detail: { token: newToken } }))
+  }
+}
+
+// Interceptor on API client instance
 apiClientSingleton.instance.interceptors.response.use(
   (response) => {
-    // Check if token was refreshed by backend
-    const newToken = response.headers['x-token-refreshed'];
-    if (newToken) {
-      console.log('[AUTH] Token refreshed by backend, updating axios headers');
-      axios.defaults.headers.common = getTokenHeaders(newToken);
-    }
-    return response;
+    handleTokenRefreshHeader(response.headers)
+    return response
   },
-  // ... existing error handling
-);
+  (error) => {
+    // Also check error responses - token may be refreshed but request fails for other reasons
+    handleTokenRefreshHeader(error.response?.headers)
+    return Promise.reject(error)
+  }
+)
+
+// Also add interceptor to global axios instance for raw axios.get/post calls
+axios.interceptors.response.use(
+  (response) => {
+    handleTokenRefreshHeader(response.headers)
+    return response
+  },
+  (error) => {
+    handleTokenRefreshHeader(error.response?.headers)
+    return Promise.reject(error)
+  }
+)
 ```
+
+Key improvements:
+1. **Error response handling**: Token may be refreshed but request can still fail (e.g., user not authorized for resource). We now capture the token from error responses too.
+2. **Global axios interceptor**: Raw `axios.get/post` calls (used in some legacy code paths) also trigger the interceptor.
+3. **Multiple update locations**: Token is updated in axios defaults, API client security data, localStorage, and React state (via custom event).
+
+### WebSockets and Cookies
+
+WebSocket connections use cookies for authentication (browsers cannot set custom headers on WS connections). The token refresh updates cookies via `Set-Cookie` headers, so subsequent WebSocket connections will use the refreshed token automatically.
+
+Note: **Never put tokens in WebSocket URLs** - this is a security risk as URLs get logged.
 
 ## Testing Plan
 
@@ -134,6 +182,15 @@ apiClientSingleton.instance.interceptors.response.use(
    - Organizations load correctly
    - Projects load correctly
    - `X-Token-Refreshed` header visible in network tab
+   - WebSocket connections authenticate via refreshed cookie
+
+## Remaining Investigation
+
+If issues persist after page refresh:
+1. Check browser Network tab for `/api/v1/auth/authenticated` response
+2. Check if `Set-Cookie` headers are being sent on refresh
+3. Check browser Console for `[API] Token refreshed transparently` log
+4. Verify refresh_token cookie exists in Application > Cookies
 
 ## Rollback
 

@@ -54,39 +54,61 @@ const apiClientSingleton = new Api({
 // Custom event name for token refresh - account.tsx listens for this
 export const TOKEN_REFRESHED_EVENT = 'helix-token-refreshed'
 
+// Helper function to handle X-Token-Refreshed header from backend
+// This is called for both successful and error responses
+const handleTokenRefreshHeader = (headers: Record<string, string> | undefined) => {
+  if (!headers) return
+  const newToken = headers['x-token-refreshed']
+  if (newToken) {
+    console.log('[API] Token refreshed transparently by backend, updating all token locations')
+
+    // Update axios defaults (for raw axios calls)
+    axios.defaults.headers.common = getTokenHeaders(newToken)
+
+    // Update OpenAPI client security data
+    apiClientSingleton.setSecurityData({ token: newToken })
+
+    // Also update the client instance headers directly (matches setToken behavior)
+    try {
+      apiClientSingleton.instance.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
+    } catch (e) {
+      console.error('[API] Failed to set token directly on client instance:', e)
+    }
+
+    // Update localStorage for direct fetch() calls
+    localStorage.setItem('token', newToken)
+
+    // Dispatch event so account.tsx can update React state
+    window.dispatchEvent(new CustomEvent(TOKEN_REFRESHED_EVENT, { detail: { token: newToken } }))
+  }
+}
+
 // Add response interceptor to handle X-Token-Refreshed header from backend
 // The backend transparently refreshes expired tokens and sends the new token in this header
 // We update all frontend token storage locations and dispatch an event for React state
 apiClientSingleton.instance.interceptors.response.use(
   (response) => {
-    // Check if the backend transparently refreshed our token
-    const newToken = response.headers['x-token-refreshed']
-    if (newToken) {
-      console.log('[API] Token refreshed transparently by backend, updating all token locations')
-
-      // Update axios defaults
-      axios.defaults.headers.common = getTokenHeaders(newToken)
-
-      // Update OpenAPI client security data
-      apiClientSingleton.setSecurityData({ token: newToken })
-
-      // Also update the client instance headers directly (matches setToken behavior)
-      try {
-        apiClientSingleton.instance.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
-      } catch (e) {
-        console.error('[API] Failed to set token directly on client instance:', e)
-      }
-
-      // Update localStorage for direct fetch() calls
-      localStorage.setItem('token', newToken)
-
-      // Dispatch event so account.tsx can update React state
-      window.dispatchEvent(new CustomEvent(TOKEN_REFRESHED_EVENT, { detail: { token: newToken } }))
-    }
+    handleTokenRefreshHeader(response.headers as Record<string, string>)
     return response
   },
   (error) => {
-    // Just reject - backend handles refresh transparently, no need for frontend retry
+    // Also check for X-Token-Refreshed in error responses
+    // The backend might refresh the token but the request could still fail for other reasons
+    // (e.g., user not authorized for a specific resource)
+    handleTokenRefreshHeader(error.response?.headers as Record<string, string>)
+    return Promise.reject(error)
+  }
+)
+
+// Also add interceptor to global axios instance for raw axios.get/post/etc calls
+// These are used by some legacy code paths (e.g., loadStatus in account.tsx)
+axios.interceptors.response.use(
+  (response) => {
+    handleTokenRefreshHeader(response.headers as Record<string, string>)
+    return response
+  },
+  (error) => {
+    handleTokenRefreshHeader(error.response?.headers as Record<string, string>)
     return Promise.reject(error)
   }
 )
