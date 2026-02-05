@@ -25,25 +25,23 @@ Implement zero-copy frame export from guest GPU to host VideoToolbox encoding vi
    - helix-frame-export module compiles and links
    - All symbols present in binary
 
-### ❌ Issue: Device Initialization Not Being Called
+### ✅ SOLVED: Initialization Working
 
-**Problem:** `helix_frame_export_init()` is not being executed, even though the virtio-gpu device IS working.
+**Problem:** `helix_frame_export_init()` appeared not to be executing - socket wasn't being created in `/tmp`.
 
-**Investigation:**
+**Root Cause:** macOS sandboxing blocks QEMU from writing to `/tmp`, causing socket creation to fail silently.
 
-1. Added debug markers to initialization functions:
-   - `virtio_gpu_gl_pci_initfn()` - PCI device init
-   - `virtio_gpu_gl_device_realize()` - VirtIO device realization
-   - `virtio_gpu_virgl_init()` - virgl renderer init
-   - `helix_frame_export_init()` - our module init
+**Solution:** Changed socket path from `/tmp/helix-frame-export.sock` to relative path `helix-frame-export.sock` in QEMU's CWD:
+- QEMU CWD: `/Users/luke/Library/Group Containers/WDNLXAD4W8.com.utmapp.UTM/`
+- Socket successfully created and listening
+- Confirmed via marker file: `helix-init-called.txt`
 
-2. **File-based markers failed** (sandboxing blocks `/tmp` writes)
-   - Switched to `error_report()` logging
-   - Need to find where these logs go
-
-3. **Device IS created** (confirmed by checking guest DRI devices)
-   - So initialization MUST be happening
-   - Logs just aren't visible yet
+**Verification:**
+```bash
+$ ls -la "/Users/luke/Library/Group Containers/WDNLXAD4W8.com.utmapp.UTM/" | grep helix
+srwxr-xr-x   1 luke  staff     0  5 Feb 10:07 helix-frame-export.sock
+-rw-r--r--   1 luke  staff    54  5 Feb 10:07 helix-init-called.txt
+```
 
 ### 🔧 Implementation Changes
 
@@ -120,17 +118,13 @@ Guest Container:
 
 ## Next Steps
 
-### Immediate: Find QEMU Logs
+### Current Status: Initialization Working, Need Guest Access
 
-**Priority:** Confirm `helix_frame_export_init()` is actually being called
+The host-side socket is created and listening. Now need to make it accessible to the guest VM.
 
-Options:
-1. Check Console.app for QEMULauncher logs
-2. Find UTM debug log location (DebugLog=true in config)
-3. Run QEMU directly outside UTM to see stderr
-4. Use `dtruss` to trace file/socket operations
+### Immediate: Connect Guest to Host Socket
 
-### Once Initialization Confirmed:
+**Options for guest-host communication:**
 
 1. **Verify socket is created**
    - Check `/tmp/helix-frame-export.sock` exists
@@ -157,17 +151,34 @@ Options:
 
 ## Known Challenges
 
-### 1. Guest Access to Host Socket
+### 1. Guest Access to Host Socket [IN PROGRESS]
 
-Problem: Guest VM needs to connect to `/tmp/helix-frame-export.sock` on host
+**Current:** Socket exists at `/Users/luke/Library/Group Containers/WDNLXAD4W8.com.utmapp.UTM/helix-frame-export.sock` on host, but guest can't access it.
 
-Options:
-- **virtserialport**: QEMU device for guest↔host communication
-- **9p/virtfs**: Mount host /tmp into guest
-- **Port forwarding**: Forward a TCP port to the UNIX socket
-- **vhost-user backend**: Custom vhost-user device (complex)
+**Options:**
 
-Current thinking: Use virtserialport as it's well-supported and designed for this.
+**A) virtserialport** (Recommended - proper solution)
+- QEMU already has virtserialport devices for guest agent and SPICE
+- Guest accesses via `/dev/virtio-ports/helix-frame-export`
+- Requires:
+  - Convert socket code to use chardev backend
+  - Add `-device virtserialport,chardev=helix-export,name=helix-frame-export` to QEMU command
+  - Add `-chardev socket,path=helix-frame-export.sock,server=on,wait=off,id=helix-export` to QEMU command
+- Challenge: Need to modify UTM config or use AdditionalArguments
+
+**B) 9p/virtfs** (Quick test)
+- Mount host directory into guest
+- Guest accesses socket directly via mounted path
+- UTM supports shared folders in UI
+- Quick way to test protocol before implementing virtserialport
+
+**C) TCP proxy** (Workaround)
+- Run socat on host: `socat TCP-LISTEN:5900,fork UNIX-CONNECT:helix-frame-export.sock`
+- Guest connects to host via virtio-net
+- Not zero-copy, adds latency
+- Only for testing
+
+**Next action:** Try 9p/virtfs via UTM shared folder to test protocol end-to-end.
 
 ### 2. virgl Resource Access
 
