@@ -28,59 +28,117 @@
 - `./stack build-utm` updated to use standalone build approach
 - All changes committed to git
 
-## ✅ VM Running Successfully!
+## ✅ VM Running Successfully with HVF!
 
-### TCG Emulation Workaround (SOLVED!)
+### HVF Hardware Acceleration (WORKING!)
 
 **Problem:**
 - Custom QEMU binary needs `com.apple.security.hypervisor` entitlement to use HVF (Hypervisor.framework)
 - Ad-hoc signing (`codesign --sign -`) cannot grant hypervisor access when SIP is enabled
 - Error: `HV_DENIED (0xfae94007)`
 
-**Solution: Use TCG Emulation**
-- Set `QEMU.Hypervisor = false` and `System.Hypervisor = false` in VM config
-- QEMU falls back to TCG software emulation (`-accel tcg`)
-- ✅ VM successfully running without requiring SIP disable or developer certificate!
-
-**Critical Discovery:**
-- UTM maintains a registry in `~/Library/Containers/com.utmapp.UTM/Data/Library/Preferences/com.utmapp.UTM.plist`
-- The registry contains bookmarked paths to VM locations
-- Symlinks in UTM documents folder don't override the registered path!
-- Must modify the config file at the path UTM's registry points to
+**Solution: Disable SIP**
+- Reboot into Recovery Mode (hold Power button)
+- Run `csrutil disable` in Terminal
+- Reboot to macOS
+- ✅ HVF now works with ad-hoc signed QEMU!
 
 **Current Status:**
 - QEMU binary installed: ✅
 - Library paths fixed: ✅
 - Frameworks signed: ✅
-- VM running with TCG: ✅
+- VM running with HVF: ✅ (hardware acceleration, not TCG)
 - Helix symbols in binary: ✅ (`helix_frame_export_init`, `helix_encode_iosurface`)
+- Helix module init called: ✅ (virtio-gpu-virgl.c line 1223)
 - SPICE with GL: ✅ (`-spice ...gl=es`)
 - virtio-gpu-gl-pci: ✅ (`blob=true,venus=true`)
+- Helix code in VM: ✅ (updated to feature/macos-arm-desktop-port@319100b0a)
+- Helix stack in VM: ✅ (API, sandbox, postgres all running)
 
 **QEMU Command Line (verified):**
 ```
--accel tcg,tb-size=16384
+-accel hvf
 -device virtio-gpu-gl-pci,hostmem=256M,blob=true,venus=true
 -spice unix=on,addr=01CECE09-B09D-48A4-BAB6-D046C06E3A68.spice,disable-ticketing=on,image-compression=off,playback-compression=off,streaming-video=off,gl=es
 ```
 
+## ⚠️ Remaining Blockers for End-to-End Testing
+
+### 1. vsock Device Not Added to VM
+**Problem:** UTM ignores `AdditionalArguments` in config.plist
+- Added `["-device", "vhost-vsock-pci,guest-cid=3"]` to config
+- Restarted VM
+- Device not present in QEMU command line
+
+**Attempted Workarounds:**
+- ✅ Set AdditionalArguments in config.plist (ignored by UTM)
+- ⏳ Need to either patch UTM or use alternative IPC
+
+**Impact:** Guest cannot communicate with helix-frame-export module over vsock
+
+### 2. vsock Listener Not Implemented
+**Problem:** helix-frame-export.m has TODO for vsock setup (line 519-525)
+
+**Code Location:**
+`~/pm/qemu-utm/hw/display/helix/helix-frame-export.m:506-533`
+
+**TODO:**
+```c
+/*
+ * TODO: Set up vsock listener on vsock_port
+ *
+ * In QEMU, this would use the virtio-vsock device.
+ * The guest connects to CID 2 (host), port HELIX_VSOCK_PORT.
+ *
+ * For now, this is a placeholder - actual vsock integration
+ * depends on QEMU's vsock implementation.
+ */
+```
+
+**Impact:** Even if vsock device is added, the listener code isn't implemented
+
+### 3. vsockenc GStreamer Element Status Unknown
+**Need to verify:**
+- Is libgstvsockenc.so built in helix-ubuntu:169abe image?
+- Is it installed to `/usr/lib/gstreamer-1.0/`?
+- Does desktop-bridge actually use it for video encoding?
+
 ## Next Steps
 
-1. **✅ VM is running!** No SIP disable needed - using TCG emulation
-2. **Test helix-frame-export** functionality:
-   - ⏳ Connect to SPICE server
-   - ⏳ Verify QEMU module loads and processes frames
-   - ⏳ Test GPU frame export via IOSurface
-   - ⏳ Validate zero-copy texture sharing with virglrenderer
-   - ⏳ Test VideoToolbox H.264 encoding
-3. **Connect to VM:**
-   ```bash
-   # SPICE socket is at:
-   ~/Library/Group Containers/group.com.utmapp.UTM/01CECE09-B09D-48A4-BAB6-D046C06E3A68.spice
+### Option A: Implement vsock (Complete the Original Plan)
+1. **Implement vsock listener in helix-frame-export.m**
+   - Set up QEMU vsock backend (vhost-user-vsock or vhost-vsock-device)
+   - Create UNIX socket for vsock communication
+   - Implement vsock_server_thread to handle guest connections
+2. **Debug UTM AdditionalArguments**
+   - Check UTM source code to understand why it ignores the setting
+   - Or patch QEMU to auto-create vsock device
+3. **Verify vsockenc in guest**
+   - Check if libgstvsockenc.so is in helix-ubuntu:169abe
+   - Test GStreamer pipeline with vsockenc
+4. **Test end-to-end**
 
-   # Or SSH (port forwarded to 2222):
-   ssh -p 2222 luke@127.0.0.1
-   ```
+### Option B: Fallback to Software Encoding (Quick Win)
+**Keep using x264enc in the guest** (what we do on Linux):
+- Already working and tested
+- No vsock needed
+- Helix stack is already running in VM
+- Can test video streaming immediately
+
+**Trade-off:** No zero-copy hardware encoding, but functional streaming
+
+## Connect to VM
+
+```bash
+# SSH (port forwarded to 2222)
+ssh -p 2222 luke@127.0.0.1
+
+# Check stack status
+docker ps
+
+# SPICE socket
+~/Library/Group Containers/group.com.utmapp.UTM/01CECE09-B09D-48A4-BAB6-D046C06E3A68.spice
+```
 
 ## Files Ready for Testing
 
