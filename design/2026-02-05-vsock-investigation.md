@@ -161,20 +161,40 @@ This happens via `virgl_renderer_create_handle_for_scanout()` in `virgl_cmd_set_
    - Should convert regular resources to Metal textures
    - **ISSUE**: Returns type=NONE instead of type=METAL_TEXTURE
 
-**Current Blocker: virglrenderer Metal Backend**
+**Current Blocker: ANGLE Layer Prevents Direct Metal Access**
 
-`virgl_renderer_create_handle_for_scanout()` is not creating Metal textures.
-Possible causes:
-- Metal backend not properly initialized in virglrenderer
-- UTM's virglrenderer build missing Metal support
-- Resources created through GL path, not compatible with Metal export
-- Need to modify virglrenderer source to enable Metal texture creation
+### Root Cause
+UTM uses **ANGLE** (OpenGL ES on Metal) as intermediary layer:
+```
+Guest GL → virglrenderer → ANGLE → Metal
+```
 
-**Next Steps:**
-1. Investigate UTM's virglrenderer build configuration
-2. Check if Metal rendering is actually being used (vs GL/ANGLE)
-3. May need to modify virglrenderer source code
-4. Alternative: Use GL texture → IOSurface path instead of direct Metal
+This means:
+- Resources are GL textures wrapped by ANGLE
+- `virgl_renderer_create_handle_for_scanout()` returns NONE because:
+  - It's looking for direct Metal textures
+  - But textures are actually ANGLE/GL textures backed by Metal internally
+- No direct access to underlying Metal textures
+
+### Alternative Approaches
+
+**Option A: Use existing QEMU scanout path**
+- QEMU already renders scanout via `dpy_gl_scanout_texture()`
+- This path must be creating displayable surfaces
+- Hook into that instead of trying to get Metal textures directly
+
+**Option B: Modify virglrenderer**
+- Add API to export GL textures as IOSurface
+- Works with ANGLE layer
+- Most invasive but cleanest
+
+**Option C: GL readback + re-encode**
+- Read GL texture pixels to CPU memory
+- Create IOSurface from pixels
+- VideoToolbox encode
+- Defeats purpose of zero-copy
+
+**Recommended: Option A** - leverage existing QEMU display pipeline
 
 1. **Create test virtio-gpu resource in guest**
    - Run simple Vulkan/GL app to create a framebuffer
