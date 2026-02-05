@@ -3567,6 +3567,29 @@ export enum TypesResource {
   ResourceTypeDataset = "Dataset",
   ResourceProject = "Project",
   ResourceGitRepository = "GitRepository",
+  ResourceSpecTask = "SpecTask",
+  ResourceSession = "Session",
+  ResourcePrompt = "Prompt",
+}
+
+export interface TypesResourceSearchRequest {
+  limit?: number;
+  org_id?: string;
+  owner_id?: string;
+  query?: string;
+  types?: TypesResource[];
+}
+
+export interface TypesResourceSearchResponse {
+  results?: TypesResourceSearchResult[];
+  total?: number;
+}
+
+export interface TypesResourceSearchResult {
+  description?: string;
+  id?: string;
+  name?: string;
+  type?: TypesResource;
 }
 
 export interface TypesResponseFormat {
@@ -9334,6 +9357,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         query: query,
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Search across projects, tasks, sessions, prompts, knowledge, repositories, and apps concurrently
+     *
+     * @tags search
+     * @name V1ResourceSearchCreate
+     * @summary Search across resources
+     * @request POST:/api/v1/resource-search
+     * @secure
+     */
+    v1ResourceSearchCreate: (request: TypesResourceSearchRequest, params: RequestParams = {}) =>
+      this.request<TypesResourceSearchResponse, any>({
+        path: `/api/v1/resource-search`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

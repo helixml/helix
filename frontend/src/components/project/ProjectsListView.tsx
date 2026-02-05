@@ -1,4 +1,4 @@
-import React, { FC, useMemo } from 'react'
+import React, { FC, useMemo, useState } from 'react'
 import {
   Box,
   Button,
@@ -12,6 +12,9 @@ import {
   InputAdornment,
   Pagination,
   Skeleton,
+  Popper,
+  Paper,
+  Fade,
 } from '@mui/material'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import SearchIcon from '@mui/icons-material/Search'
@@ -21,7 +24,7 @@ import { Kanban } from 'lucide-react'
 
 import CreateProjectButton from './CreateProjectButton'
 import { TypesProject } from '../../services'
-import type { ServerSampleProject } from '../../api/api'
+import type { ServerSampleProject, TypesAggregatedUsageMetric } from '../../api/api'
 import { useGetProjectUsage } from '../../services/projectService'
 
 interface ProjectsListViewProps {
@@ -45,7 +48,17 @@ interface ProjectsListViewProps {
   appNamesMap?: Record<string, string>
 }
 
-const MiniSparkline: FC<{ data: number[]; color: string }> = ({ data, color }) => {
+const formatNumber = (num: number) => {
+  if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`
+  if (num >= 1000) return `${(num / 1000).toFixed(1)}K`
+  return num.toString()
+}
+
+const MiniSparkline: FC<{ data: TypesAggregatedUsageMetric[]; color: string }> = ({ data, color }) => {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
+  const containerRef = React.useRef<HTMLDivElement>(null)
+
   if (!data || data.length === 0) {
     return (
       <Box sx={{ height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -56,42 +69,122 @@ const MiniSparkline: FC<{ data: number[]; color: string }> = ({ data, color }) =
     )
   }
 
-  const max = Math.max(...data, 1)
-  const min = Math.min(...data, 0)
+  const tokenData = data.map(m => m.total_tokens || 0)
+  const max = Math.max(...tokenData, 1)
+  const min = Math.min(...tokenData, 0)
   const range = max - min || 1
   const width = 100
   const height = 32
   const padding = 2
 
-  const points = data.map((value, index) => {
-    const x = padding + (index / (data.length - 1 || 1)) * (width - padding * 2)
+  const points = tokenData.map((value, index) => {
+    const x = padding + (index / (tokenData.length - 1 || 1)) * (width - padding * 2)
     const y = height - padding - ((value - min) / range) * (height - padding * 2)
     return `${x},${y}`
   }).join(' ')
 
   const areaPoints = `${padding},${height - padding} ${points} ${width - padding},${height - padding}`
 
+  const handleMouseMove = (event: React.MouseEvent<SVGRectElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    const x = event.clientX - rect.left
+    const relativeX = x / rect.width
+    const index = Math.round(relativeX * (data.length - 1))
+    const clampedIndex = Math.max(0, Math.min(data.length - 1, index))
+    setHoveredIndex(clampedIndex)
+    setAnchorEl(containerRef.current)
+  }
+
+  const handleMouseLeave = () => {
+    setHoveredIndex(null)
+    setAnchorEl(null)
+  }
+
+  const hoveredData = hoveredIndex !== null ? data[hoveredIndex] : null
+  const hoveredX = hoveredIndex !== null 
+    ? padding + (hoveredIndex / (data.length - 1 || 1)) * (width - padding * 2)
+    : 0
+
   return (
-    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
-      <defs>
-        <linearGradient id={`gradient-${color.replace('#', '')}`} x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <polygon
-        points={areaPoints}
-        fill={`url(#gradient-${color.replace('#', '')})`}
-      />
-      <polyline
-        points={points}
-        fill="none"
-        stroke={color}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <Box sx={{ position: 'relative' }} ref={containerRef}>
+      <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+        <defs>
+          <linearGradient id={`gradient-${color.replace('#', '')}`} x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <polygon
+          points={areaPoints}
+          fill={`url(#gradient-${color.replace('#', '')})`}
+        />
+        <polyline
+          points={points}
+          fill="none"
+          stroke={color}
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {hoveredIndex !== null && (
+          <line
+            x1={hoveredX}
+            y1={0}
+            x2={hoveredX}
+            y2={height}
+            stroke="rgba(255,255,255,0.5)"
+            strokeWidth="0.5"
+            strokeDasharray="1,1"
+          />
+        )}
+        <rect
+          x={0}
+          y={0}
+          width={width}
+          height={height}
+          fill="transparent"
+          style={{ cursor: 'crosshair' }}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+        />
+      </svg>
+      <Popper
+        open={hoveredIndex !== null}
+        anchorEl={anchorEl}
+        placement="top"
+        modifiers={[{ name: 'offset', options: { offset: [0, 8] } }]}
+        sx={{ zIndex: 1500 }}
+      >
+        <Fade in={hoveredIndex !== null} timeout={150}>
+          <Paper sx={{
+            p: 1,
+            backgroundColor: 'rgba(30, 30, 30, 0.95)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 1,
+          }}>
+            {hoveredData && (
+              <Box sx={{ minWidth: 100 }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
+                  {new Date(hoveredData.date || '').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                </Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>Tokens:</Typography>
+                  <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, fontFamily: 'monospace' }}>
+                    {formatNumber(hoveredData.total_tokens || 0)}
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>Requests:</Typography>
+                  <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, fontFamily: 'monospace' }}>
+                    {formatNumber(hoveredData.total_requests || 0)}
+                  </Typography>
+                </Box>
+              </Box>
+            )}
+          </Paper>
+        </Fade>
+      </Popper>
+    </Box>
   )
 }
 
@@ -152,9 +245,9 @@ const ProjectCard: FC<{
     from: sevenDaysAgo,
   })
 
-  const { totalTokens, tokenData, trend } = useMemo(() => {
+  const { totalTokens, trend } = useMemo(() => {
     if (!usageData || usageData.length === 0) {
-      return { totalTokens: 0, tokenData: [], trend: 0 }
+      return { totalTokens: 0, trend: 0 }
     }
 
     const total = usageData.reduce((sum, m) => sum + (m.total_tokens || 0), 0)
@@ -165,14 +258,8 @@ const ProjectCard: FC<{
     const secondHalf = data.slice(halfLen).reduce((a, b) => a + b, 0)
     const trendValue = firstHalf > 0 ? ((secondHalf - firstHalf) / firstHalf) * 100 : 0
 
-    return { totalTokens: total, tokenData: data, trend: trendValue }
+    return { totalTokens: total, trend: trendValue }
   }, [usageData])
-
-  const formatTokens = (tokens: number) => {
-    if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`
-    if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`
-    return tokens.toString()
-  }
 
   const stats = project.stats || {
     total_tasks: 0,
@@ -216,20 +303,36 @@ const ProjectCard: FC<{
         onClick={() => onViewProject(project)}
       >
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>
-          <Typography
-            variant="body2"
-            sx={{
-              fontWeight: 500,
-              flex: 1,
-              lineHeight: 1.4,
-              color: 'text.primary',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {project.name}
-          </Typography>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography
+              variant="body2"
+              sx={{
+                fontWeight: 500,
+                lineHeight: 1.4,
+                color: 'text.primary',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {project.name}
+            </Typography>
+            {project.description && (
+              <Typography
+                variant="caption"
+                sx={{
+                  color: 'text.secondary',
+                  fontSize: '0.7rem',
+                  display: 'block',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {project.description}
+              </Typography>
+            )}
+          </Box>
           <IconButton
             size="small"
             onClick={(e) => {
@@ -241,6 +344,7 @@ const ProjectCard: FC<{
               height: 24,
               color: 'text.secondary',
               ml: 0.5,
+              flexShrink: 0,
               '&:hover': {
                 color: 'text.primary',
                 backgroundColor: 'rgba(0, 0, 0, 0.04)',
@@ -286,7 +390,7 @@ const ProjectCard: FC<{
           {usageLoading ? (
             <Skeleton variant="rectangular" height={32} sx={{ bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 1 }} />
           ) : (
-            <MiniSparkline data={tokenData} color="#10b981" />
+            <MiniSparkline data={usageData || []} color="#10b981" />
           )}
           
           <Box sx={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 0.5, mt: 0.75 }}>
@@ -296,7 +400,7 @@ const ProjectCard: FC<{
               fontFamily: 'monospace',
               fontSize: '1rem',
             }}>
-              {formatTokens(totalTokens)}
+              {formatNumber(totalTokens)}
             </Typography>
             <Typography variant="caption" sx={{ 
               color: 'text.secondary',
@@ -320,7 +424,7 @@ const ProjectCard: FC<{
           }}>
             <StatRow label="Backlog" value={stats.backlog_tasks || 0} />
             <StatRow label="Review" value={stats.pending_review_tasks || 0} />
-            <StatRow label="Running" value={stats.active_agent_sessions || 0} />
+            <StatRow label="Desktops" value={stats.active_agent_sessions || 0} />
             <StatRow label="In Progress" value={(stats.in_progress_tasks || 0) + (stats.planning_tasks || 0)} />
             <StatRow label="Total" value={stats.total_tasks || 0} />
             <StatRow label="Avg Time" value={formatDuration(stats.average_task_completion_hours || 0)} />
