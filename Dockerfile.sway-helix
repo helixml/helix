@@ -753,53 +753,64 @@ set -e
 # Set architecture-specific variables
 if [ "${TARGETARCH}" = "amd64" ]; then
     LIB_DIR="/usr/lib/x86_64-linux-gnu"
-    CUDA_ARCH="x86_64"
+    CUDA_REPO="ubuntu2404/x86_64"
 elif [ "${TARGETARCH}" = "arm64" ]; then
     LIB_DIR="/usr/lib/aarch64-linux-gnu"
-    CUDA_ARCH="arm64"
+    # ARM64 server GPUs (Grace Hopper) use sbsa repository
+    CUDA_REPO="ubuntu2404/sbsa"
 fi
 
-echo "=== Installing zerocopy plugin and CUDA libs for ${TARGETARCH} ==="
+echo "=== Installing zerocopy plugin for ${TARGETARCH} ==="
 
 # Install zerocopy plugin
 cp /tmp/zerocopy.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
 chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
 
-# Download and install CUDA runtime libs (needed for cudascale element)
-echo "Downloading CUDA runtime libraries..."
+# Download and install CUDA runtime libs (for NVIDIA GPUs)
+# On ARM64: Uses sbsa (Server Base System Architecture) repository for Grace Hopper
+echo "Attempting to download CUDA runtime libraries from ${CUDA_REPO}..."
 apt-get update && apt-get install -y --no-install-recommends wget ca-certificates
 
-# Download CUDA keyring and nvrtc package from NVIDIA repos
-wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/${CUDA_ARCH}/cuda-keyring_1.1-1_all.deb
-dpkg -i cuda-keyring_1.1-1_all.deb
-apt-get update
-apt-get download cuda-nvrtc-12-6
+# Download CUDA keyring and try to get nvrtc package
+wget -q https://developer.download.nvidia.com/compute/cuda/repos/${CUDA_REPO}/cuda-keyring_1.1-1_all.deb || true
+if [ -f cuda-keyring_1.1-1_all.deb ]; then
+    dpkg -i cuda-keyring_1.1-1_all.deb
+    apt-get update
 
-# Extract the .deb package
-dpkg-deb -x cuda-nvrtc-*.deb /tmp/cuda-extract
+    # Try to download cuda-nvrtc package (may not exist for all architectures)
+    if apt-get download cuda-nvrtc-12-6 2>/dev/null; then
+        # Extract the .deb package
+        dpkg-deb -x cuda-nvrtc-*.deb /tmp/cuda-extract
 
-# Find and copy the actual versioned files (e.g., libnvrtc.so.12.6.85)
-NVRTC_SO=$(find /tmp/cuda-extract -name "libnvrtc.so.12.6.*" | head -1)
-NVRTC_BUILTINS=$(find /tmp/cuda-extract -name "libnvrtc-builtins.so.12.6.*" | head -1)
+        # Find and copy the actual versioned files
+        NVRTC_SO=$(find /tmp/cuda-extract -name "libnvrtc.so.12.6.*" -o -name "libnvrtc.so.12.*" | head -1)
+        NVRTC_BUILTINS=$(find /tmp/cuda-extract -name "libnvrtc-builtins.so.12.6.*" -o -name "libnvrtc-builtins.so.12.*" | head -1)
 
-if [ -n "$NVRTC_SO" ] && [ -n "$NVRTC_BUILTINS" ]; then
-    cp "$NVRTC_SO" ${LIB_DIR}/libnvrtc.so.12
-    cp "$NVRTC_BUILTINS" ${LIB_DIR}/libnvrtc-builtins.so.12.6
-    ln -sf libnvrtc.so.12 ${LIB_DIR}/libnvrtc.so
-    echo "CUDA libs: $(basename $NVRTC_SO) and $(basename $NVRTC_BUILTINS) installed"
+        if [ -n "$NVRTC_SO" ] && [ -n "$NVRTC_BUILTINS" ]; then
+            cp "$NVRTC_SO" ${LIB_DIR}/libnvrtc.so.12
+            cp "$NVRTC_BUILTINS" ${LIB_DIR}/libnvrtc-builtins.so.12.6
+            ln -sf libnvrtc.so.12 ${LIB_DIR}/libnvrtc.so
+            ldconfig
+            echo "CUDA libs installed: $(basename $NVRTC_SO) and $(basename $NVRTC_BUILTINS)"
+        else
+            echo "CUDA nvrtc files not found in package, skipping CUDA support"
+        fi
+        rm -rf /tmp/cuda-extract cuda-nvrtc-*.deb
+    else
+        echo "CUDA nvrtc package not available for ${TARGETARCH}, zerocopy will work without CUDA"
+    fi
+    rm -f cuda-keyring_*.deb
 else
-    echo "ERROR: CUDA nvrtc libraries not found in package"
-    exit 1
+    echo "CUDA repository not available for ${CUDA_REPO}, skipping CUDA libs"
 fi
 
 # Cleanup
-rm -rf /tmp/cuda-extract /tmp/zerocopy.so cuda-keyring_*.deb cuda-nvrtc-*.deb
+rm -f /tmp/zerocopy.so
 apt-get remove -y wget ca-certificates
 apt-get autoremove -y
 rm -rf /var/lib/apt/lists/*
 
-ldconfig
-echo "Zerocopy plugin and CUDA libs installed for ${TARGETARCH}"
+echo "Zerocopy plugin installed for ${TARGETARCH}"
 _INSTALL_ZEROCOPY
 
 # Grim with JPEG support (from build stage)
