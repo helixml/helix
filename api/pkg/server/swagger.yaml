@@ -5839,6 +5839,9 @@ definitions:
     - Dataset
     - Project
     - GitRepository
+    - SpecTask
+    - Session
+    - Prompt
     type: string
     x-enum-varnames:
     - ResourceTeam
@@ -5854,6 +5857,44 @@ definitions:
     - ResourceTypeDataset
     - ResourceProject
     - ResourceGitRepository
+    - ResourceSpecTask
+    - ResourceSession
+    - ResourcePrompt
+  types.ResourceSearchRequest:
+    properties:
+      limit:
+        type: integer
+      org_id:
+        type: string
+      owner_id:
+        type: string
+      query:
+        type: string
+      types:
+        items:
+          $ref: '#/definitions/types.Resource'
+        type: array
+    type: object
+  types.ResourceSearchResponse:
+    properties:
+      results:
+        items:
+          $ref: '#/definitions/types.ResourceSearchResult'
+        type: array
+      total:
+        type: integer
+    type: object
+  types.ResourceSearchResult:
+    properties:
+      description:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      type:
+        $ref: '#/definitions/types.Resource'
+    type: object
   types.ResponseFormat:
     properties:
       schema:
@@ -13981,6 +14022,31 @@ paths:
       summary: List repositories without projects
       tags:
       - Repositories
+  /api/v1/resource-search:
+    post:
+      consumes:
+      - application/json
+      description: Search across projects, tasks, sessions, prompts, knowledge, repositories,
+        and apps concurrently
+      parameters:
+      - description: Search request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.ResourceSearchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ResourceSearchResponse'
+      security:
+      - BearerAuth: []
+      summary: Search across resources
+      tags:
+      - search
   /api/v1/sample-projects:
     get:
       description: Get a list of all available sample projects that users can fork

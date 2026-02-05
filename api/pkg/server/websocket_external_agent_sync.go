@@ -194,43 +194,6 @@ func (manager *ExternalAgentRunnerManager) updatePingByRunner(runnerID string) {
 	}
 }
 
-// listConnections returns all active runner connections, one per runner (most recent per runner)
-func (manager *ExternalAgentRunnerManager) listConnections() []types.ExternalAgentConnection {
-	manager.mu.RLock()
-	defer manager.mu.RUnlock()
-
-	connections := make([]types.ExternalAgentConnection, 0, len(manager.runnerConnections))
-
-	// For each runner, find the most recent connection and include it in the list
-	for runnerID, runnerConns := range manager.runnerConnections {
-		if len(runnerConns) == 0 {
-			continue
-		}
-
-		// Find the most recent connection for this runner
-		var mostRecentConn *ExternalAgentRunnerConnection
-		var mostRecentTime time.Time
-
-		for _, conn := range runnerConns {
-			if conn.ConnectedAt.After(mostRecentTime) {
-				mostRecentConn = conn
-				mostRecentTime = conn.ConnectedAt
-			}
-		}
-
-		if mostRecentConn != nil {
-			connections = append(connections, types.ExternalAgentConnection{
-				SessionID:   runnerID, // Use RunnerID as SessionID for consistency
-				ConnectedAt: mostRecentConn.ConnectedAt,
-				LastPing:    mostRecentConn.LastPing,
-				Status:      mostRecentConn.Status,
-			})
-		}
-	}
-
-	return connections
-}
-
 // handleExternalAgentSync handles WebSocket connections from external agents (Zed instances)
 func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter, req *http.Request) {
 	log.Info().
@@ -430,26 +393,6 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 	apiServer.handleExternalAgentReceiver(ctx, wsConn)
 }
 
-// sendResponseToZed sends a response back to Zed via WebSocket
-func (apiServer *HelixAPIServer) sendResponseToZed(sessionID, contextID, content string, isComplete bool) error {
-	// Determine event type based on completion status
-	eventType := "chat_response_chunk"
-	if isComplete {
-		eventType = "chat_response_done"
-	}
-
-	command := types.ExternalAgentCommand{
-		Type: eventType,
-		Data: map[string]interface{}{
-			"context_id": contextID,
-			"content":    content,
-			"timestamp":  time.Now(),
-		},
-	}
-
-	return apiServer.sendCommandToExternalAgent(sessionID, command)
-}
-
 // handleExternalAgentReceiver handles incoming messages from external agent
 func (apiServer *HelixAPIServer) handleExternalAgentReceiver(ctx context.Context, wsConn *ExternalAgentWSConnection) {
 	defer wsConn.Conn.Close()
@@ -524,20 +467,6 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		Str("session_id", sessionID).
 		Str("event_type", syncMsg.EventType).
 		Msg("Processing external agent sync message")
-
-	// Update activity tracking to prevent idle timeout for active sessions
-	// Get activity record to update last_interaction timestamp
-	// activity, err := apiServer.Store.GetExternalAgentActivity(context.Background(), sessionID)
-	// if err == nil && activity != nil {
-	// 	// Activity record exists - update it to extend idle timeout
-	// 	activity.LastInteraction = time.Now()
-	// 	err = apiServer.Store.UpsertExternalAgentActivity(context.Background(), activity)
-	// 	if err != nil {
-	// 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to update activity for WebSocket message")
-	// 		// Non-fatal - continue processing message
-	// 	}
-	// }
-	// If no activity record exists, that's OK - might be an old session or non-external-agent session
 
 	// Process sync message directly
 	switch syncMsg.EventType {
@@ -2668,5 +2597,3 @@ If you need to verify the current state, check the git status and any running pr
 			Msg("Failed to send continue prompt - channel full")
 	}
 }
-
-

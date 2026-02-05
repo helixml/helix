@@ -8399,6 +8399,45 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/resource-search": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Search across projects, tasks, sessions, prompts, knowledge, repositories, and apps concurrently",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "search"
+                ],
+                "summary": "Search across resources",
+                "parameters": [
+                    {
+                        "description": "Search request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ResourceSearchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ResourceSearchResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sample-projects": {
             "get": {
                 "security": [
@@ -21868,7 +21907,10 @@ const docTemplate = `{
                 "*",
                 "Dataset",
                 "Project",
-                "GitRepository"
+                "GitRepository",
+                "SpecTask",
+                "Session",
+                "Prompt"
             ],
             "x-enum-varnames": [
                 "ResourceTeam",
@@ -21883,8 +21925,65 @@ const docTemplate = `{
                 "ResourceAny",
                 "ResourceTypeDataset",
                 "ResourceProject",
-                "ResourceGitRepository"
+                "ResourceGitRepository",
+                "ResourceSpecTask",
+                "ResourceSession",
+                "ResourcePrompt"
             ]
+        },
+        "types.ResourceSearchRequest": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer"
+                },
+                "org_id": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "types": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Resource"
+                    }
+                }
+            }
+        },
+        "types.ResourceSearchResponse": {
+            "type": "object",
+            "properties": {
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ResourceSearchResult"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.ResourceSearchResult": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.Resource"
+                }
+            }
         },
         "types.ResponseFormat": {
             "type": "object",

@@ -319,13 +319,14 @@ func (s *ZedToHelixSessionService) createSessionPair(
 
 	// Create Helix session first
 	helixSession := &types.Session{
-		ID:      system.GenerateSessionID(),
-		Name:    s.generateSessionName(creationContext, creationMethod),
-		Owner:   creationContext.UserID,
-		Type:    types.SessionTypeText,
-		Mode:    types.SessionModeInference,
-		Created: time.Now(),
-		Updated: time.Now(),
+		ID:        system.GenerateSessionID(),
+		Name:      s.generateSessionName(creationContext, creationMethod),
+		ProjectID: specTask.ProjectID,
+		Owner:     creationContext.UserID,
+		Type:      types.SessionTypeText,
+		Mode:      types.SessionModeInference,
+		Created:   time.Now(),
+		Updated:   time.Now(),
 		Metadata: types.SessionMetadata{
 			AgentType:        "zed_external", // Single agent type for entire workflow
 			SpecTaskID:       creationContext.SpecTaskID,

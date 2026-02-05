@@ -49,7 +49,21 @@ func (s *HelixAPIServer) listProjects(_ http.ResponseWriter, r *http.Request) ([
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	s.populateActiveAgentSessions(projects)
+
 	return projects, nil
+}
+
+// populateActiveAgentSessions gets active agent sessions from memory for each project and adds it to the project stats
+func (s *HelixAPIServer) populateActiveAgentSessions(projects []*types.Project) {
+	desktopSessions := s.externalAgentExecutor.ListSessions()
+	for _, project := range projects {
+		for _, session := range desktopSessions {
+			if session.ProjectID == project.ID {
+				project.Stats.ActiveAgentSessions++
+			}
+		}
+	}
 }
 
 func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *types.User, orgRef string) ([]*types.Project, *system.HTTPError) {
