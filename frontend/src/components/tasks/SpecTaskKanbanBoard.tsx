@@ -29,6 +29,7 @@ import {
 } from "@mui/material";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { getCSRFToken } from "../../utils/csrf";
 import {
   Add as AddIcon,
   ExpandMore as ExpandMoreIcon,
@@ -933,9 +934,13 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       );
       console.log(`[Start Planning] API URL: ${url}`);
 
+      const csrfToken = getCSRFToken();
       const response = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrfToken && { "X-CSRF-Token": csrfToken }),
+        },
         credentials: "include",
       });
       if (!response.ok) {
