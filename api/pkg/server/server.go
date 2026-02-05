@@ -108,7 +108,7 @@ type HelixAPIServer struct {
 	authenticator             auth.Authenticator
 	oidcClient                auth.OIDC
 	oauthManager              *oauth.Manager
-	sessionManager            *SessionManager
+	sessionManager            *auth.SessionManager
 	fileServerHandler         http.Handler
 	cache                     *ristretto.Cache[string, string]
 	avatarsBucket             *blob.Bucket
@@ -255,7 +255,7 @@ func NewServer(
 		requestToCommenterMapping:   make(map[string]string),
 		streamingRateLimiter:        make(map[string]time.Time),
 		inferenceServer:             inferenceServer,
-		sessionManager: NewSessionManager(store, oidcClient, cfg),
+		sessionManager: auth.NewSessionManager(store, oidcClient, cfg),
 		providerManager:   providerManager,
 		modelInfoProvider: modelInfoProvider,
 		pubsub:            ps,

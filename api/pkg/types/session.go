@@ -2,8 +2,6 @@ package types
 
 import (
 	"time"
-
-	"gorm.io/gorm"
 )
 
 // Note: AuthProvider type and constants (AuthProviderRegular, AuthProviderOIDC)
@@ -17,10 +15,9 @@ import (
 //
 // Similar pattern to OAuthConnection but specifically for user authentication.
 type UserSession struct {
-	ID        string         `json:"id" gorm:"primaryKey;type:uuid"`
-	CreatedAt time.Time      `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt time.Time      `json:"updated_at" gorm:"autoUpdateTime"`
-	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
+	ID        string    `json:"id" gorm:"primaryKey"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// User who owns this session
 	UserID string `json:"user_id" gorm:"not null;index"`
@@ -39,7 +36,7 @@ type UserSession struct {
 
 	// Optional metadata for security/audit
 	UserAgent  string    `json:"user_agent,omitempty" gorm:"type:text"`
-	IPAddress  string    `json:"ip_address,omitempty" gorm:"type:varchar(45)"`
+	IPAddress  string    `json:"ip_address,omitempty"`
 	LastUsedAt time.Time `json:"last_used_at"`
 }
 
@@ -79,26 +76,6 @@ func (s *UserSession) UpdateOIDCTokens(accessToken, refreshToken string, expiry 
 // Touch updates the LastUsedAt timestamp
 func (s *UserSession) Touch() {
 	s.LastUsedAt = time.Now()
-}
-
-// BeforeCreate sets default values for new sessions
-func (s *UserSession) BeforeCreate(_ *gorm.DB) error {
-	if s.CreatedAt.IsZero() {
-		s.CreatedAt = time.Now()
-	}
-	if s.UpdatedAt.IsZero() {
-		s.UpdatedAt = time.Now()
-	}
-	if s.LastUsedAt.IsZero() {
-		s.LastUsedAt = time.Now()
-	}
-	return nil
-}
-
-// BeforeUpdate sets updated_at before updating
-func (s *UserSession) BeforeUpdate(_ *gorm.DB) error {
-	s.UpdatedAt = time.Now()
-	return nil
 }
 
 // SessionInfo is the public session information returned to the frontend

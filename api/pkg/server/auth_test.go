@@ -58,7 +58,7 @@ func (suite *AuthSuite) SetupTest() {
 	cfg.Auth.Provider = types.AuthProviderOIDC
 	suite.oidcClient = auth.NewMockOIDC(ctrl)
 	suite.authenticator = auth.NewMockAuthenticator(ctrl)
-	sessionManager := NewSessionManager(suite.store, suite.oidcClient, cfg)
+	sessionManager := auth.NewSessionManager(suite.store, suite.oidcClient, cfg)
 	suite.server = &HelixAPIServer{
 		Cfg:            cfg,
 		oidcClient:     suite.oidcClient,

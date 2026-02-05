@@ -47,7 +47,7 @@ type authMiddleware struct {
 	store          store.Store
 	cfg            authMiddlewareConfig
 	serverCfg      *config.ServerConfig // Server config for cookie management
-	sessionManager *SessionManager      // BFF session manager (nil if not using sessions)
+	sessionManager *authpkg.SessionManager // BFF session manager (nil if not using sessions)
 }
 
 func newAuthMiddleware(
@@ -56,7 +56,7 @@ func newAuthMiddleware(
 	store store.Store,
 	cfg authMiddlewareConfig,
 	serverCfg *config.ServerConfig,
-	sessionManager *SessionManager,
+	sessionManager *authpkg.SessionManager,
 ) *authMiddleware {
 	return &authMiddleware{
 		authenticator:  authenticator,
@@ -266,7 +266,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 // This is the primary auth method for browser-based clients using HttpOnly session cookies
 func (auth *authMiddleware) getUserFromSession(ctx context.Context, r *http.Request) (*types.User, error) {
 	if auth.sessionManager == nil {
-		return nil, ErrSessionNotFound
+		return nil, authpkg.ErrSessionNotFound
 	}
 
 	session, err := auth.sessionManager.GetSessionFromRequest(ctx, r)
@@ -323,12 +323,12 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 			}
 
 			// Session expired - clear the session cookie
-			if errors.Is(err, ErrSessionExpired) {
-				auth.sessionManager.clearSessionCookie(w)
+			if errors.Is(err, authpkg.ErrSessionExpired) {
+				auth.sessionManager.ClearSessionCookie(w)
 			}
 
 			// If session auth failed but it's not a "not found" error, log it
-			if err != nil && !errors.Is(err, ErrSessionNotFound) {
+			if err != nil && !errors.Is(err, authpkg.ErrSessionNotFound) {
 				log.Debug().Err(err).Str("path", r.URL.Path).Msg("BFF session auth failed, trying token auth")
 			}
 
@@ -451,7 +451,7 @@ func (auth *authMiddleware) csrfMiddleware(next http.Handler) http.Handler {
 
 		// Check if this request was authenticated via session cookie
 		// If using API key or runner token, skip CSRF validation
-		_, err := r.Cookie(SessionCookieName)
+		_, err := r.Cookie(authpkg.SessionCookieName)
 		if err != nil {
 			// No session cookie - this is API key or runner token auth, skip CSRF
 			next.ServeHTTP(w, r)
@@ -459,7 +459,7 @@ func (auth *authMiddleware) csrfMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Session cookie exists - validate CSRF token
-		if !ValidateCSRF(r) {
+		if !authpkg.ValidateCSRF(r) {
 			log.Warn().
 				Str("path", r.URL.Path).
 				Str("method", r.Method).

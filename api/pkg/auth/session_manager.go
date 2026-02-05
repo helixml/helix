@@ -1,4 +1,4 @@
-package server
+package auth
 
 import (
 	"context"
@@ -9,10 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-	authpkg "github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
@@ -41,12 +40,12 @@ var (
 // It stores session IDs in HttpOnly cookies and manages OIDC token refresh transparently
 type SessionManager struct {
 	store      store.Store
-	oidcClient authpkg.OIDC
+	oidcClient OIDC
 	cfg        *config.ServerConfig
 }
 
 // NewSessionManager creates a new session manager
-func NewSessionManager(store store.Store, oidcClient authpkg.OIDC, cfg *config.ServerConfig) *SessionManager {
+func NewSessionManager(store store.Store, oidcClient OIDC, cfg *config.ServerConfig) *SessionManager {
 	return &SessionManager{
 		store:      store,
 		oidcClient: oidcClient,
@@ -65,7 +64,7 @@ func (sm *SessionManager) CreateSession(
 	oidcTokenExpiry time.Time,
 ) (*types.UserSession, error) {
 	session := &types.UserSession{
-		ID:               uuid.New().String(),
+		ID:               system.GenerateUserSessionID(),
 		UserID:           userID,
 		AuthProvider:     authProvider,
 		ExpiresAt:        time.Now().Add(DefaultSessionDuration),
@@ -181,7 +180,7 @@ func (sm *SessionManager) DeleteSession(ctx context.Context, w http.ResponseWrit
 	}
 
 	// Clear the session cookie
-	sm.clearSessionCookie(w)
+	sm.ClearSessionCookie(w)
 
 	log.Info().Str("session_id", sessionID).Msg("Deleted user session")
 	return nil
@@ -195,7 +194,7 @@ func (sm *SessionManager) DeleteAllUserSessions(ctx context.Context, w http.Resp
 	}
 
 	// Clear the session cookie
-	sm.clearSessionCookie(w)
+	sm.ClearSessionCookie(w)
 
 	log.Info().Str("user_id", userID).Msg("Deleted all user sessions")
 	return nil
@@ -232,8 +231,8 @@ func (sm *SessionManager) setSessionCookie(w http.ResponseWriter, sessionID stri
 	})
 }
 
-// clearSessionCookie clears the session and CSRF cookies
-func (sm *SessionManager) clearSessionCookie(w http.ResponseWriter) {
+// ClearSessionCookie clears the session and CSRF cookies
+func (sm *SessionManager) ClearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    "",
@@ -258,8 +257,8 @@ func (sm *SessionManager) clearSessionCookie(w http.ResponseWriter) {
 func generateCSRFToken() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		// Fallback to UUID if crypto/rand fails (shouldn't happen)
-		return uuid.New().String()
+		// Fallback to ULID if crypto/rand fails (shouldn't happen)
+		return system.GenerateID()
 	}
 	return base64.RawURLEncoding.EncodeToString(b)
 }
