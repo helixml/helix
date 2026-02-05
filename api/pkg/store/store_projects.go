@@ -45,6 +45,10 @@ func (s *PostgresStore) UpdateProject(ctx context.Context, project *types.Projec
 
 // ListProjects lists all projects for a given user
 func (s *PostgresStore) ListProjects(ctx context.Context, req *ListProjectsQuery) ([]*types.Project, error) {
+	if req.UserID == "" && req.OrganizationID == "" {
+		return []*types.Project{}, nil
+	}
+
 	var projects []*types.Project
 
 	q := s.gdb.WithContext(ctx).Model(&types.Project{})
