@@ -1639,8 +1639,7 @@ function build-sandbox() {
   fi
   get_sandbox_names
   echo "🔄 Restarting sandbox container ($SANDBOX_SERVICE) with updated image..."
-  docker compose -f docker-compose.dev.yaml rm -f "$SANDBOX_SERVICE"
-  docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
+  docker compose -f docker-compose.dev.yaml up -d --force-recreate --no-deps "$SANDBOX_SERVICE"
 
   echo "✅ Sandbox container rebuilt and restarted"
 
