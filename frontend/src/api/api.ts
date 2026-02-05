@@ -3595,6 +3595,7 @@ export interface TypesResourceSearchResult {
   description?: string;
   id?: string;
   name?: string;
+  parent_id?: string;
   type?: TypesResource;
 }
 

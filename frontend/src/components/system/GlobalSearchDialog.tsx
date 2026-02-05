@@ -10,6 +10,7 @@ import {
 import { Search, X, FolderKanban, Bot, MessageSquare, FileText, BookOpen, GitBranch, ListTodo } from 'lucide-react'
 import useLightTheme from '../../hooks/useLightTheme'
 import useResourceSearch from '../../hooks/useResourceSearch'
+import useAccount from '../../hooks/useAccount'
 import { TypesResource, TypesResourceSearchResult } from '../../api/api'
 
 interface GlobalSearchDialogProps {
@@ -55,6 +56,7 @@ const GlobalSearchDialog: FC<GlobalSearchDialogProps> = ({
   organizationId,
 }) => {
   const lightTheme = useLightTheme()
+  const account = useAccount()
   const inputRef = useRef<HTMLInputElement>(null)
   const resultsContainerRef = useRef<HTMLDivElement>(null)
   const [query, setQuery] = useState('')
@@ -134,6 +136,37 @@ const GlobalSearchDialog: FC<GlobalSearchDialogProps> = ({
 
   const showPreview = selectedResult && selectedResult.type && PREVIEW_TYPES.includes(selectedResult.type) && selectedResult.contents
 
+  const navigateToResult = useCallback((result: TypesResourceSearchResult) => {
+    if (!result.type || !result.id) return
+
+    switch (result.type) {
+      case TypesResource.ResourceProject:
+        account.orgNavigate('project-specs', { id: result.id })
+        break
+      case TypesResource.ResourceApplication:
+        account.orgNavigate('app', { app_id: result.id })
+        break
+      case TypesResource.ResourceSession:
+        account.orgNavigate('session', { session_id: result.id })
+        break
+      case TypesResource.ResourceKnowledge:
+        account.orgNavigate('apps')
+        break
+      case TypesResource.ResourceGitRepository:
+        account.orgNavigate('git-repo-detail', { repoId: result.id })
+        break
+      case TypesResource.ResourceSpecTask:
+        if (result.parent_id) {
+          account.orgNavigate('project-task-detail', { id: result.parent_id, taskId: result.id })
+        }
+        break
+      case TypesResource.ResourcePrompt:
+        account.orgNavigate('chat')
+        break
+    }
+    onClose()
+  }, [account, onClose])
+
   useEffect(() => {
     if (selectedIndex >= 0 && resultsContainerRef.current) {
       const selectedElement = resultsContainerRef.current.querySelector(`[data-index="${selectedIndex}"]`)
@@ -169,10 +202,9 @@ const GlobalSearchDialog: FC<GlobalSearchDialogProps> = ({
     }
 
     if (e.key === 'Enter' && selectedIndex >= 0 && selectedResult) {
-      // TODO: Navigate to the selected result
-      console.log('Navigate to:', selectedResult)
+      navigateToResult(selectedResult)
     }
-  }, [onClose, totalResults, selectedIndex, selectedResult])
+  }, [onClose, totalResults, selectedIndex, selectedResult, navigateToResult])
 
   const handleMouseEnter = useCallback((index: number) => {
     setSelectedIndex(index)
@@ -423,6 +455,7 @@ const GlobalSearchDialog: FC<GlobalSearchDialogProps> = ({
                             key={result.id}
                             data-index={thisIndex}
                             onMouseEnter={() => handleMouseEnter(thisIndex)}
+                            onClick={() => navigateToResult(result)}
                             sx={{
                               p: 2,
                               borderRadius: '8px',
@@ -513,10 +546,8 @@ const GlobalSearchDialog: FC<GlobalSearchDialogProps> = ({
                 ...lightTheme.scrollbar,
               }}>
                 <Typography
-                  component="pre"
                   sx={{
-                    fontSize: '0.85rem',
-                    fontFamily: 'monospace',
+                    fontSize: '0.9rem',
                     color: lightTheme.textColor,
                     whiteSpace: 'pre-wrap',
                     wordBreak: 'break-word',
@@ -556,6 +587,22 @@ const GlobalSearchDialog: FC<GlobalSearchDialogProps> = ({
             </Box>
             <Typography sx={{ fontSize: '0.75rem', color: lightTheme.textColorFaded }}>
               to navigate
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{
+              px: 1,
+              py: 0.25,
+              borderRadius: '4px',
+              backgroundColor: lightTheme.isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
+              fontSize: '0.7rem',
+              fontWeight: 500,
+              color: lightTheme.textColorFaded,
+            }}>
+              Enter
+            </Box>
+            <Typography sx={{ fontSize: '0.75rem', color: lightTheme.textColorFaded }}>
+              to open
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
