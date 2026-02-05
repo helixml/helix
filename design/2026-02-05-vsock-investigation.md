@@ -261,9 +261,40 @@ The guest already has all the needed components:
    - Verify video streaming works in browser
    - Measure FPS and latency vs x86 implementation
 
-### Immediate Action: Build gst-vsockenc Integration
+## Summary: What's Working, What's Not
 
-Since TCP proxy (socat) is already running and working, use that for testing. Don't block on virtserialport implementation - that's polish for later.
+**✅ QEMU host-side (helix-frame-export):**
+- Protocol implementation complete
+- UNIX socket listener working
+- virgl_renderer_transfer_read_iov() readback working
+- VideoToolbox H.264 encoding working
+- Thread safety (mutex) implemented
+- Scanout resources rejected (only accept explicit DmaBuf IDs)
+
+**✅ Guest-side (desktop-bridge + gst-vsockenc):**
+- desktop-bridge already has vsockenc pipeline integration
+- gst-vsockenc already implements DmaBuf → resource ID extraction
+- Check for vsockenc element already in selectEncoder()
+
+**❌ Blocker: Socket not accessible to guest**
+
+The helix-frame-export.sock exists on macOS host but isn't accessible inside VM guest.
+
+**Options to fix (pick ONE):**
+1. **virtserialport** (proper, ~200 lines QEMU C code)
+   - Guest accesses `/dev/virtio-ports/com.helix.frame-export`
+   - Standard QEMU approach (used by guest agent, SPICE)
+
+2. **9p/virtfs** (quick test, requires UTM config)
+   - Mount host directory into guest: `mount -t 9p -o trans=virtio helix /mnt/helix`
+   - vsockenc socket-path=/mnt/helix/helix-frame-export.sock
+
+3. **TCP** (for testing only, requires changes to gst-vsockenc)
+   - Add TCP support to vsockenc (~50 lines C)
+   - Works via QEMU user-mode networking (10.0.2.2:5900)
+   - Less secure (frame data over TCP)
+
+**Next Action:** Implement option 1 (virtserialport) for proper production solution, or option 2 (9p/virtfs) for quick testing.
    - PipeWire ScreenCast in containers provides DmaBuf FDs
    - Need to extract virtio-gpu resource ID from DmaBuf
    - Options:
