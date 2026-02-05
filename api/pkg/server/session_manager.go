@@ -98,16 +98,21 @@ func (sm *SessionManager) CreateSession(
 func (sm *SessionManager) GetSessionFromRequest(ctx context.Context, r *http.Request) (*types.UserSession, error) {
 	sessionCookie, err := r.Cookie(SessionCookieName)
 	if err != nil {
+		log.Debug().Err(err).Str("path", r.URL.Path).Msg("No session cookie found")
 		return nil, ErrSessionNotFound
 	}
 
 	sessionID := sessionCookie.Value
 	if sessionID == "" {
+		log.Debug().Str("path", r.URL.Path).Msg("Session cookie is empty")
 		return nil, ErrSessionNotFound
 	}
 
+	log.Debug().Str("session_id", sessionID).Str("path", r.URL.Path).Msg("Looking up session from request")
+
 	session, err := sm.store.GetUserSession(ctx, sessionID)
 	if err != nil {
+		log.Debug().Err(err).Str("session_id", sessionID).Str("path", r.URL.Path).Msg("Session lookup failed in store")
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrSessionNotFound
 		}

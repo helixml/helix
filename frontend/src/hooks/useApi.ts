@@ -31,6 +31,7 @@ export interface IApiOptions {
 const apiClientSingleton = new Api({
   baseURL: window.location.origin,
   secure: true,
+  withCredentials: true, // Required for BFF pattern - send session cookies with requests
   // No securityWorker needed - session cookie is sent automatically
 })
 

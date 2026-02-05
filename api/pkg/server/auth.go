@@ -724,6 +724,36 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// BFF pattern: Check for session cookie first
+	if s.sessionManager != nil {
+		session, err := s.sessionManager.GetSessionFromRequest(ctx, r)
+		if err == nil && session != nil {
+			// Get user info from database using session
+			user, err := s.Store.GetUser(ctx, &store.GetUserQuery{ID: session.UserID})
+			if err != nil {
+				log.Error().Err(err).Str("user_id", session.UserID).Msg("Failed to get user for BFF session")
+				http.Error(w, "Failed to get user info", http.StatusInternalServerError)
+				return
+			}
+
+			log.Debug().
+				Str("session_id", session.ID).
+				Str("user_id", session.UserID).
+				Msg("User info retrieved via BFF session")
+
+			response := types.UserResponse{
+				ID:    user.ID,
+				Email: user.Email,
+				Token: "", // No token exposed with BFF pattern
+				Name:  user.FullName,
+				Admin: user.Admin,
+			}
+			writeResponse(w, response, http.StatusOK)
+			return
+		}
+	}
+
+	// Fallback: Check for legacy access_token cookie (for backwards compatibility)
 	cm := NewCookieManager(s.Cfg)
 	accessToken, err := cm.Get(r, accessTokenCookie)
 	if err != nil {
@@ -924,6 +954,27 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// BFF pattern: Check for session cookie first
+	if s.sessionManager != nil {
+		session, err := s.sessionManager.GetSessionFromRequest(ctx, r)
+		if err != nil {
+			log.Debug().Err(err).Msg("BFF session lookup failed in authenticated endpoint")
+		}
+		if session != nil {
+			log.Debug().
+				Str("session_id", session.ID).
+				Str("user_id", session.UserID).
+				Msg("User authenticated via BFF session in authenticated endpoint")
+			writeResponse(w, types.AuthenticatedResponse{
+				Authenticated: true,
+			}, http.StatusOK)
+			return
+		}
+	} else {
+		log.Debug().Msg("sessionManager is nil in authenticated endpoint")
+	}
+
+	// Fallback: Check for legacy access_token cookie (for backwards compatibility)
 	cm := NewCookieManager(s.Cfg)
 	accessToken, err := cm.Get(r, accessTokenCookie)
 	if err != nil {
