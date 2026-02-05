@@ -756,29 +756,35 @@ if [ "${TARGETARCH}" = "amd64" ]; then
     chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
 
     # Download and install CUDA runtime libs (needed for cudascale element)
-    # Using wget to extract specific files from nvidia/cuda container
     echo "Downloading CUDA runtime libraries..."
     apt-get update && apt-get install -y --no-install-recommends wget ca-certificates
 
-    # Download from NVIDIA's container registry (faster than apt repos)
-    mkdir -p /tmp/cuda
-    cd /tmp/cuda
-
-    # Pull minimal CUDA runtime files from NVIDIA container
-    # Alternative: Could use apt with CUDA repos, but this is smaller/faster
+    # Download CUDA keyring and nvrtc package from NVIDIA repos
     wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
     dpkg -i cuda-keyring_1.1-1_all.deb
     apt-get update
     apt-get download cuda-nvrtc-12-6
+
+    # Extract the .deb package
     dpkg-deb -x cuda-nvrtc-*.deb /tmp/cuda-extract
 
-    # Copy just the runtime libs we need
-    cp /tmp/cuda-extract/usr/local/cuda-12.6/lib64/libnvrtc.so.12.6.* ${LIB_DIR}/libnvrtc.so.12
-    cp /tmp/cuda-extract/usr/local/cuda-12.6/lib64/libnvrtc-builtins.so.12.6.* ${LIB_DIR}/libnvrtc-builtins.so.12.6
-    ln -sf libnvrtc.so.12 ${LIB_DIR}/libnvrtc.so
+    # Find and copy the actual versioned files (e.g., libnvrtc.so.12.6.85)
+    # Files are in /usr/local/cuda-12.6/lib64/
+    NVRTC_SO=$(find /tmp/cuda-extract/usr/local/cuda-12.6/lib64/ -name "libnvrtc.so.12.6.*" | head -1)
+    NVRTC_BUILTINS=$(find /tmp/cuda-extract/usr/local/cuda-12.6/lib64/ -name "libnvrtc-builtins.so.12.6.*" | head -1)
+
+    if [ -n "$NVRTC_SO" ] && [ -n "$NVRTC_BUILTINS" ]; then
+        cp "$NVRTC_SO" ${LIB_DIR}/libnvrtc.so.12
+        cp "$NVRTC_BUILTINS" ${LIB_DIR}/libnvrtc-builtins.so.12.6
+        ln -sf libnvrtc.so.12 ${LIB_DIR}/libnvrtc.so
+        echo "CUDA libs: $(basename $NVRTC_SO) and $(basename $NVRTC_BUILTINS) installed"
+    else
+        echo "ERROR: CUDA nvrtc libraries not found in package"
+        exit 1
+    fi
 
     # Cleanup
-    rm -rf /tmp/cuda /tmp/cuda-extract
+    rm -rf /tmp/cuda-extract cuda-keyring_*.deb cuda-nvrtc-*.deb
     apt-get remove -y wget ca-certificates
     apt-get autoremove -y
     rm -rf /var/lib/apt/lists/*
