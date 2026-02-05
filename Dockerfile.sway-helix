@@ -71,8 +71,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Rust build stage for GStreamer zero-copy plugin
 # ====================================================================
 # This plugin enables GPU-accelerated video streaming:
-# - amd64: DMA-BUF -> EGL -> CUDA -> NVENC (with CUDA support)
-# - arm64: DMA-BUF -> PipeWire (without CUDA, not needed for macOS host encoding)
+# - amd64: DMA-BUF -> EGL -> CUDA -> NVENC (NVIDIA x86_64 GPUs)
+# - arm64: DMA-BUF -> CUDA -> NVENC (NVIDIA Grace Hopper / Spark ARM64 GPUs)
+# On macOS ARM64 VMs: CUDA not used, encoding happens on host via VideoToolbox
 # Enable with HELIX_VIDEO_MODE=zerocopy
 FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env
 WORKDIR /build
@@ -102,9 +103,11 @@ RUN apt-get update && apt-get install -y \
     libgstreamer-plugins-bad1.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Create CUDA symlink for amd64 only
+# Create CUDA symlink for GStreamer CUDA plugin
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
         ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so; \
+    elif [ "$TARGETARCH" = "arm64" ]; then \
+        ln -sf /usr/lib/aarch64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/aarch64-linux-gnu/libgstcuda-1.0.so 2>/dev/null || true; \
     fi
 
 # Install Rust 1.85 via rustup
@@ -116,8 +119,7 @@ COPY desktop/wayland-display-core ./wayland-display-core/
 COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
 
 # Build the plugin (creates libgstpipewirezerocopy.so)
-# On amd64: Full build with CUDA support
-# On arm64: Build without CUDA (host-side encoding on macOS)
+# Builds with CUDA support on both amd64 and arm64 platforms
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cd gst-pipewire-zerocopy && \
     cargo build --release && \
@@ -747,64 +749,57 @@ COPY --from=rust-build-env /libgstpipewirezerocopy.so /tmp/zerocopy.so
 ARG TARGETARCH
 RUN <<_INSTALL_ZEROCOPY
 set -e
+
+# Set architecture-specific variables
 if [ "${TARGETARCH}" = "amd64" ]; then
-    echo "=== Installing zerocopy plugin and CUDA libs for amd64 ==="
     LIB_DIR="/usr/lib/x86_64-linux-gnu"
-
-    # Install zerocopy plugin
-    cp /tmp/zerocopy.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
-    chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
-
-    # Download and install CUDA runtime libs (needed for cudascale element)
-    echo "Downloading CUDA runtime libraries..."
-    apt-get update && apt-get install -y --no-install-recommends wget ca-certificates
-
-    # Download CUDA keyring and nvrtc package from NVIDIA repos
-    wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
-    dpkg -i cuda-keyring_1.1-1_all.deb
-    apt-get update
-    apt-get download cuda-nvrtc-12-6
-
-    # Extract the .deb package
-    dpkg-deb -x cuda-nvrtc-*.deb /tmp/cuda-extract
-
-    # Find and copy the actual versioned files (e.g., libnvrtc.so.12.6.85)
-    # Files are in /usr/local/cuda-12.6/lib64/
-    NVRTC_SO=$(find /tmp/cuda-extract/usr/local/cuda-12.6/lib64/ -name "libnvrtc.so.12.6.*" | head -1)
-    NVRTC_BUILTINS=$(find /tmp/cuda-extract/usr/local/cuda-12.6/lib64/ -name "libnvrtc-builtins.so.12.6.*" | head -1)
-
-    if [ -n "$NVRTC_SO" ] && [ -n "$NVRTC_BUILTINS" ]; then
-        cp "$NVRTC_SO" ${LIB_DIR}/libnvrtc.so.12
-        cp "$NVRTC_BUILTINS" ${LIB_DIR}/libnvrtc-builtins.so.12.6
-        ln -sf libnvrtc.so.12 ${LIB_DIR}/libnvrtc.so
-        echo "CUDA libs: $(basename $NVRTC_SO) and $(basename $NVRTC_BUILTINS) installed"
-    else
-        echo "ERROR: CUDA nvrtc libraries not found in package"
-        exit 1
-    fi
-
-    # Cleanup
-    rm -rf /tmp/cuda-extract cuda-keyring_*.deb cuda-nvrtc-*.deb
-    apt-get remove -y wget ca-certificates
-    apt-get autoremove -y
-    rm -rf /var/lib/apt/lists/*
-
-    ldconfig
-    echo "Zerocopy plugin and CUDA libs installed"
-
+    CUDA_ARCH="x86_64"
 elif [ "${TARGETARCH}" = "arm64" ]; then
-    echo "=== ARM64: Installing zerocopy plugin (no CUDA needed) ==="
     LIB_DIR="/usr/lib/aarch64-linux-gnu"
-
-    # Install zerocopy plugin (built without CUDA support)
-    cp /tmp/zerocopy.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
-    chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
-
-    echo "Zerocopy plugin installed (host-side encoding on macOS)"
+    CUDA_ARCH="arm64"
 fi
 
-# Cleanup temp files
-rm -f /tmp/zerocopy.so
+echo "=== Installing zerocopy plugin and CUDA libs for ${TARGETARCH} ==="
+
+# Install zerocopy plugin
+cp /tmp/zerocopy.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+
+# Download and install CUDA runtime libs (needed for cudascale element)
+echo "Downloading CUDA runtime libraries..."
+apt-get update && apt-get install -y --no-install-recommends wget ca-certificates
+
+# Download CUDA keyring and nvrtc package from NVIDIA repos
+wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/${CUDA_ARCH}/cuda-keyring_1.1-1_all.deb
+dpkg -i cuda-keyring_1.1-1_all.deb
+apt-get update
+apt-get download cuda-nvrtc-12-6
+
+# Extract the .deb package
+dpkg-deb -x cuda-nvrtc-*.deb /tmp/cuda-extract
+
+# Find and copy the actual versioned files (e.g., libnvrtc.so.12.6.85)
+NVRTC_SO=$(find /tmp/cuda-extract -name "libnvrtc.so.12.6.*" | head -1)
+NVRTC_BUILTINS=$(find /tmp/cuda-extract -name "libnvrtc-builtins.so.12.6.*" | head -1)
+
+if [ -n "$NVRTC_SO" ] && [ -n "$NVRTC_BUILTINS" ]; then
+    cp "$NVRTC_SO" ${LIB_DIR}/libnvrtc.so.12
+    cp "$NVRTC_BUILTINS" ${LIB_DIR}/libnvrtc-builtins.so.12.6
+    ln -sf libnvrtc.so.12 ${LIB_DIR}/libnvrtc.so
+    echo "CUDA libs: $(basename $NVRTC_SO) and $(basename $NVRTC_BUILTINS) installed"
+else
+    echo "ERROR: CUDA nvrtc libraries not found in package"
+    exit 1
+fi
+
+# Cleanup
+rm -rf /tmp/cuda-extract /tmp/zerocopy.so cuda-keyring_*.deb cuda-nvrtc-*.deb
+apt-get remove -y wget ca-certificates
+apt-get autoremove -y
+rm -rf /var/lib/apt/lists/*
+
+ldconfig
+echo "Zerocopy plugin and CUDA libs installed for ${TARGETARCH}"
 _INSTALL_ZEROCOPY
 
 # Grim with JPEG support (from build stage)
