@@ -49,7 +49,7 @@
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Status: Code Complete
+## Status: Core Stack Built on ARM64
 
 ### ✅ Host Side (macOS)
 - QEMU helix-frame-export module: Thread-safe, pixel readback working, VideoToolbox encoding
@@ -59,13 +59,19 @@
 ### ✅ Guest Code (helix repository)
 - gst-vsockenc: TCP support added (tcp-host, tcp-port properties)
 - desktop-bridge: Pipeline configured with `tcp-host=10.0.2.2 tcp-port=5900`
+- ARM64 support added to haystack_service (platform markers for PyTorch)
 - Code pushed to `feature/macos-arm-desktop-port` branch
 
-### ❌ Guest Setup (needs to be done inside VM)
-- Clone/pull helix repository
-- Start Helix stack
+### ✅ Guest Build (ARM64 VM)
+- Repository cloned and updated to feature/macos-arm-desktop-port
+- Core stack built successfully (API, frontend, haystack)
+- Images ready: helix-api:latest, helix-frontend:latest, helix-haystack:dev
+
+### ❌ Remaining Steps
 - Build helix-ubuntu with updated vsockenc
+- Start Helix stack (./stack start)
 - Start test session
+- Verify end-to-end video streaming
 
 ## Testing Steps (Inside VM)
 
