@@ -199,7 +199,7 @@ const ProjectCard: FC<{
         transition: 'all 0.15s ease-in-out',
         '&:hover': {
           borderColor: 'rgba(0, 0, 0, 0.12)',
-          borderLeftColor: '#a78bfa',
+          borderLeftColor: 'secondary.main',
           backgroundColor: 'rgba(0, 0, 0, 0.01)',
         },
       }}
