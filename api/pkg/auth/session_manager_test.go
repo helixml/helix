@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
+	"golang.org/x/oauth2"
 	"gorm.io/gorm"
 )
 
@@ -309,4 +311,119 @@ func (s *SessionManagerSuite) TestGetClientIP_RemoteAddr() {
 	r.RemoteAddr = "192.168.1.3:12345"
 
 	s.Equal("192.168.1.3:12345", getClientIP(r))
+}
+
+// Tests for OIDC token refresh scenarios (addresses PR review comment about OIDC_OFFLINE_ACCESS)
+
+func (s *SessionManagerSuite) TestGetSessionFromRequest_OIDCRefreshNeeded_NoRefreshToken() {
+	// Test case: OIDC session needs refresh but no refresh token available
+	// This happens when OIDC_OFFLINE_ACCESS is not enabled
+	sessionID := "uss_no_refresh_token"
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.AddCookie(&http.Cookie{Name: SessionCookieName, Value: sessionID})
+
+	oidcSession := &types.UserSession{
+		ID:               sessionID,
+		UserID:           "usr_test",
+		AuthProvider:     types.AuthProviderOIDC,
+		ExpiresAt:        time.Now().Add(time.Hour),
+		LastUsedAt:       time.Now(),
+		OIDCRefreshToken: "", // No refresh token (OIDC_OFFLINE_ACCESS not enabled)
+		OIDCAccessToken:  "expired_access_token",
+		OIDCTokenExpiry:  time.Now().Add(-time.Minute), // Token expired
+	}
+
+	s.mockStore.EXPECT().
+		GetUserSession(gomock.Any(), sessionID).
+		Return(oidcSession, nil)
+
+	// Session should still be returned even without refresh capability
+	// The access token is expired but we continue - API calls may fail and force re-login
+	session, err := s.sessionManager.GetSessionFromRequest(s.ctx, r)
+
+	s.NoError(err)
+	s.NotNil(session)
+	s.Equal(sessionID, session.ID)
+	s.Empty(session.OIDCRefreshToken) // No refresh token
+}
+
+func (s *SessionManagerSuite) TestGetSessionFromRequest_OIDCRefreshNeeded_RefreshSucceeds() {
+	// Test case: OIDC session needs refresh and refresh succeeds
+	sessionID := "uss_refresh_success"
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.AddCookie(&http.Cookie{Name: SessionCookieName, Value: sessionID})
+
+	oidcSession := &types.UserSession{
+		ID:               sessionID,
+		UserID:           "usr_test",
+		AuthProvider:     types.AuthProviderOIDC,
+		ExpiresAt:        time.Now().Add(time.Hour),
+		LastUsedAt:       time.Now(),
+		OIDCRefreshToken: "valid_refresh_token",
+		OIDCAccessToken:  "expired_access_token",
+		OIDCTokenExpiry:  time.Now().Add(-time.Minute), // Token expired
+	}
+
+	s.mockStore.EXPECT().
+		GetUserSession(gomock.Any(), sessionID).
+		Return(oidcSession, nil)
+
+	// Mock successful token refresh
+	newExpiry := time.Now().Add(time.Hour)
+	s.mockOIDC.EXPECT().
+		RefreshAccessToken(gomock.Any(), "valid_refresh_token").
+		Return(&oauth2.Token{
+			AccessToken:  "new_access_token",
+			RefreshToken: "new_refresh_token",
+			Expiry:       newExpiry,
+		}, nil)
+
+	// Mock session update
+	s.mockStore.EXPECT().
+		UpdateUserSession(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, session *types.UserSession) (*types.UserSession, error) {
+			s.Equal("new_access_token", session.OIDCAccessToken)
+			s.Equal("new_refresh_token", session.OIDCRefreshToken)
+			return session, nil
+		})
+
+	session, err := s.sessionManager.GetSessionFromRequest(s.ctx, r)
+
+	s.NoError(err)
+	s.NotNil(session)
+}
+
+func (s *SessionManagerSuite) TestGetSessionFromRequest_OIDCRefreshNeeded_RefreshFails() {
+	// Test case: OIDC session needs refresh but refresh fails
+	// Session should still be returned - the expired token may still work or force re-login
+	sessionID := "uss_refresh_fails"
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.AddCookie(&http.Cookie{Name: SessionCookieName, Value: sessionID})
+
+	oidcSession := &types.UserSession{
+		ID:               sessionID,
+		UserID:           "usr_test",
+		AuthProvider:     types.AuthProviderOIDC,
+		ExpiresAt:        time.Now().Add(time.Hour),
+		LastUsedAt:       time.Now(),
+		OIDCRefreshToken: "invalid_refresh_token",
+		OIDCAccessToken:  "expired_access_token",
+		OIDCTokenExpiry:  time.Now().Add(-time.Minute), // Token expired
+	}
+
+	s.mockStore.EXPECT().
+		GetUserSession(gomock.Any(), sessionID).
+		Return(oidcSession, nil)
+
+	// Mock failed token refresh
+	s.mockOIDC.EXPECT().
+		RefreshAccessToken(gomock.Any(), "invalid_refresh_token").
+		Return(nil, errors.New("refresh token expired"))
+
+	// Session should still be returned despite refresh failure
+	session, err := s.sessionManager.GetSessionFromRequest(s.ctx, r)
+
+	s.NoError(err) // No error returned to caller
+	s.NotNil(session)
+	s.Equal(sessionID, session.ID)
 }
