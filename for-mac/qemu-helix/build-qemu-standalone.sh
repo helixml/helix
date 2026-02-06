@@ -110,13 +110,60 @@ echo ""
 echo "Output:"
 echo "  • QEMU dylib: $SYSROOT/lib/libqemu-aarch64-softmmu.dylib"
 echo ""
-echo "Next steps:"
-echo "  1. Install into UTM.app:"
-echo "     sudo cp $SYSROOT/lib/libqemu-aarch64-softmmu.dylib \\"
-echo "          /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu"
-echo ""
-echo "  2. Fix library paths:"
-echo "     ~/pm/helix/scripts/fix-qemu-paths.sh"
-echo ""
-echo "  3. Start VM:"
-echo "     /Applications/UTM.app/Contents/MacOS/utmctl start <UUID>"
+
+# Install to UTM.app automatically
+UTM_FRAMEWORK="/Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu"
+if [ -f "$UTM_FRAMEWORK" ]; then
+    echo "📦 Installing to UTM.app..."
+    echo "   CRITICAL: UTM loads QEMU from the FRAMEWORK, not the loose dylib!"
+    echo "   Install path: $UTM_FRAMEWORK"
+    echo ""
+
+    # Backup existing
+    sudo cp "$UTM_FRAMEWORK" "$UTM_FRAMEWORK.backup" 2>/dev/null || true
+
+    # Install to framework
+    sudo cp "$SYSROOT/lib/libqemu-aarch64-softmmu.dylib" "$UTM_FRAMEWORK"
+
+    # Delete the wrong dylib location (UTM doesn't use this)
+    WRONG_DYLIB="/Applications/UTM.app/Contents/Frameworks/libqemu-aarch64-softmmu.dylib"
+    if [ -f "$WRONG_DYLIB" ]; then
+        echo "   🗑️  Removing unused dylib at wrong location: $WRONG_DYLIB"
+        sudo rm "$WRONG_DYLIB" "$WRONG_DYLIB.backup" 2>/dev/null || true
+    fi
+
+    # Fix library paths
+    echo ""
+    echo "🔧 Fixing library paths..."
+    sudo ~/pm/helix/scripts/fix-qemu-paths.sh
+
+    # Clear UTM caches
+    echo ""
+    echo "🧹 Clearing UTM caches..."
+    rm -rf ~/Library/Containers/com.utmapp.UTM/Data/Library/Caches/* 2>/dev/null || true
+
+    # Restart UTM if running
+    if pgrep -q UTM; then
+        echo ""
+        echo "🔄 Restarting UTM..."
+        killall UTM 2>/dev/null || true
+        sleep 2
+        open /Applications/UTM.app
+        echo "   ✅ UTM restarted"
+    fi
+
+    echo ""
+    echo "✅ Installation complete!"
+    echo ""
+    echo "Verification:"
+    strings "$UTM_FRAMEWORK" | grep -E "VERSION.*DisplaySurface|HELIX.*v3" | head -3
+    echo ""
+    echo "Next: Start your VM with:"
+    echo "  /Applications/UTM.app/Contents/MacOS/utmctl start <UUID>"
+else
+    echo "⚠️  UTM.app not found at /Applications/UTM.app"
+    echo "   Manual install required:"
+    echo "   sudo cp $SYSROOT/lib/libqemu-aarch64-softmmu.dylib \\"
+    echo "        /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu"
+    echo "   sudo ~/pm/helix/scripts/fix-qemu-paths.sh"
+fi

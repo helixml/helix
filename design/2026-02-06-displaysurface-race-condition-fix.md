@@ -141,9 +141,18 @@ strings /Applications/UTM.app/Contents/Frameworks/libqemu-aarch64-softmmu.dylib 
 ```bash
 cd ~/pm/helix
 ./for-mac/qemu-helix/build-qemu-standalone.sh
-sudo cp ~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib \
-     /Applications/UTM.app/Contents/Frameworks/libqemu-aarch64-softmmu.dylib
+# Script now automatically:
+#  1. Installs to FRAMEWORK (correct location)
+#  2. Runs fix-qemu-paths.sh
+#  3. Clears UTM caches
+#  4. Restarts UTM if running
 ```
+
+**CRITICAL: UTM QEMU Install Paths**
+- ✅ **CORRECT:** `/Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu`
+- ❌ **WRONG:** `/Applications/UTM.app/Contents/Frameworks/libqemu-aarch64-softmmu.dylib` (UTM doesn't use this!)
+
+UTM loads QEMU from the **framework bundle**, not the loose dylib. Installing to the wrong location means your changes won't run.
 
 ## Result
 
@@ -181,25 +190,25 @@ UTM loads QEMU from the framework bundle, not the loose dylib. Installing to the
 
 ### Solution
 
-**Correct build and install process:**
+**Build and install process (AUTOMATED):**
 ```bash
-# 1. Build QEMU
 cd ~/pm/helix
 ./for-mac/qemu-helix/build-qemu-standalone.sh
+# This script now handles everything automatically:
+#  1. Builds QEMU
+#  2. Installs to correct framework location
+#  3. Deletes wrong dylib location
+#  4. Fixes library paths
+#  5. Clears UTM caches
+#  6. Restarts UTM if running
 
-# 2. Install to framework (NOT loose dylib)
-sudo cp ~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib \
-     /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu
-
-# 3. Fix library paths
-sudo ~/pm/helix/scripts/fix-qemu-paths.sh
-
-# 4. Restart UTM
-killall UTM && sleep 2 && open /Applications/UTM.app
-
-# 5. Start VM
+# Then start your VM:
 /Applications/UTM.app/Contents/MacOS/utmctl start <UUID>
 ```
+
+**CRITICAL PATH INFO:**
+- ✅ **Correct install path:** `/Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu`
+- ❌ **Wrong path (ignored by UTM):** `/Applications/UTM.app/Contents/Frameworks/libqemu-aarch64-softmmu.dylib`
 
 ### Test Results
 
