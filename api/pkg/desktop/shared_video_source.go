@@ -723,9 +723,10 @@ func (s *SharedVideoSource) start() error {
 }
 
 // stallRestartTimeout is the duration after which the pipeline is restarted if no frames arrive.
-// On virtio-gpu (macOS ARM / UTM), PipeWire ScreenCast stops producing frames on static screens
-// after an initial burst. Restarting the pipeline reconnects to PipeWire and gets a fresh burst.
-const stallRestartTimeout = 3 * time.Second
+// This is a safety net for genuine pipeline failures (PipeWire crash, encoder error, etc.).
+// Under normal operation, the cursor-embedded damage keepalive ensures continuous frame production
+// even on static screens, so this timeout should never fire.
+const stallRestartTimeout = 30 * time.Second
 
 // maxStallRestarts is the maximum number of pipeline restarts before giving up.
 // This prevents infinite restart loops if the pipeline keeps failing.

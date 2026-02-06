@@ -1,7 +1,7 @@
 # macOS ARM Video Streaming - Status Update
 
 **Date:** 2026-02-06 (updated)
-**Status:** VIDEO STREAMING WORKING - 26 FPS with downscale optimization (960x540 via videoconvert+videoscale)
+**Status:** VIDEO STREAMING WORKING - 23 FPS on static screens, 26 FPS with active content (cursor-embedded keepalive fix)
 
 ## Summary
 
@@ -259,7 +259,21 @@ docker compose exec -T sandbox-macos docker logs {CONTAINER_NAME} 2>&1 | grep -E
 ```
 PipeWire buffers are released immediately after the fast software scale (~1ms), and only the small 960x540 BGRA buffer enters the leaky queue. (commit d6ff0e538)
 
-#### 7. Ghostty GL Context Exhaustion on virtio-gpu (KNOWN)
+#### 7. Static Screen Stall - PipeWire Produces No Frames (FIXED)
+**Problem**: PipeWire ScreenCast on GNOME/virtio-gpu is strictly damage-based. On a completely static desktop, the pipeline stalls permanently after an initial burst of 2-8 frames.
+
+**Failed approaches**:
+- `pipewiresrc keepalive-time=500`: Resends last buffer on timeout, but the PipeWire thread loop gets spurious wakeups from other ScreenCast sessions sharing the same connection, resetting the 500ms timer before it fires.
+- GNOME Shell D-Bus Eval (St.Widget visibility toggle, color toggle, `queue_redraw()`): Clutter actor changes don't generate compositor-level (DRM/KMS) damage on virtio-gpu headless mode.
+- Pipeline restart every 3 seconds: Workaround that gave 2.3 FPS but with constant keyframe resets.
+
+**Root Cause**: cursor-mode=Metadata (2) means cursor movement only updates PipeWire metadata without producing new video frames. Combined with no screen changes = no frames.
+
+**Fix**: Changed linked ScreenCast session to cursor-mode=Embedded (1), so cursor is composited into the video frame. Then the damage keepalive goroutine injects 1px right/left cursor jitter via `NotifyPointerMotion` on the RemoteDesktop D-Bus API every 500ms. Each cursor movement generates real compositor-level damage → PipeWire produces a new frame. (commit b0b3f0b85)
+
+**Result**: 23.2 FPS sustained on completely static screens (695 frames / 30s). No pipeline restarts needed.
+
+#### 8. Ghostty GL Context Exhaustion on virtio-gpu (KNOWN)
 **Problem**: Launching a second ghostty terminal instance fails with "Unable to acquire an OpenGL context for rendering" on virtio-gpu. The limited number of GL contexts are consumed by the existing ghostty instance and GNOME's ScreenCast sessions.
 
 **Workaround**: Use GNOME Shell D-Bus virtual keyboard to type into the existing terminal.
@@ -304,7 +318,7 @@ PipeWire ScreenCast (container) → pipewiresrc (SHM buffers) ✅
 - ✅ h264parse parses stream (SPS/PPS properly included)
 - ✅ Video streaming works without crashes (1591 frames / 60s test)
 - ✅ 26.5 FPS sustained with terminal activity (downscale optimization)
-- ⚠️ Pipeline doesn't start on static screens (PipeWire ScreenCast damage-based)
+- ✅ 23.2 FPS sustained on static screens (cursor-embedded keepalive, 695 frames / 30s)
 - ⚠️ ghostty second instance fails on virtio-gpu (limited GL contexts)
 
 ## Performance History
@@ -314,6 +328,7 @@ PipeWire ScreenCast (container) → pipewiresrc (SHM buffers) ✅
 | 2026-02-05 | 8.7 | 1920x1080 | 8MB/frame over TCP/SLiRP |
 | 2026-02-06 | 6.8 | 1920x1080 | Same bottleneck, confirmed |
 | 2026-02-06 | 26.2 | 960x540 | videoconvert+videoscale before queue |
+| 2026-02-06 | 23.2 | 960x540 | Static screen: cursor-embedded keepalive (SOLVED) |
 
 ### Downscale Optimization (IMPLEMENTED)
 
