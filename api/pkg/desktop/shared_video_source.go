@@ -724,9 +724,24 @@ func (s *SharedVideoSource) start() error {
 
 // stallRestartTimeout is the duration after which the pipeline is restarted if no frames arrive.
 // This is a safety net for genuine pipeline failures (PipeWire crash, encoder error, etc.).
-// Under normal operation, the cursor-embedded damage keepalive ensures continuous frame production
-// even on static screens, so this timeout should never fire.
+// The frame keepalive (below) handles normal static screen stalls, so this timeout indicates
+// a genuine pipeline problem.
 const stallRestartTimeout = 30 * time.Second
+
+// frameKeepaliveInterval is the duration after which the last frame is re-sent to clients
+// when no new frames arrive from PipeWire.
+//
+// PipeWire ScreenCast on GNOME is damage-based: it only produces frames when screen pixels
+// change. On a static desktop, PipeWire goes idle and stops producing frames entirely.
+// The keepalive-time property on pipewiresrc is supposed to resend the last buffer, but
+// it doesn't fire when PipeWire's scheduler marks the node as idle.
+//
+// Instead of fighting PipeWire's idle detection, we handle it at the broadcast level:
+// when no new frame arrives from the GStreamer pipeline for 500ms, we re-broadcast the
+// last frame from the GOP buffer. This is cheap (no PipeWire/GStreamer/vsockenc round-trip,
+// just re-sending an already-encoded H.264 frame) and gives clients a steady ~2 FPS
+// on static screens.
+const frameKeepaliveInterval = 500 * time.Millisecond
 
 // maxStallRestarts is the maximum number of pipeline restarts before giving up.
 // This prevents infinite restart loops if the pipeline keeps failing.
@@ -771,17 +786,80 @@ func (s *SharedVideoSource) broadcastFrames() {
 	errorCh := s.pipeline.Errors()
 	var frameCount uint64
 	var keyframeCount uint64
+	var keepaliveCount uint64
 	var restartCount int
 
 	// Stall detection timer - fires when no frames arrive for stallRestartTimeout
 	stallTimer := time.NewTimer(stallRestartTimeout)
 	defer stallTimer.Stop()
 
+	// Frame keepalive timer - fires when no frames arrive for frameKeepaliveInterval
+	// Re-sends the last frame to clients to maintain steady FPS on static screens
+	keepaliveTimer := time.NewTimer(frameKeepaliveInterval)
+	defer keepaliveTimer.Stop()
+
 	for {
 		select {
 		case <-s.ctx.Done():
 			fmt.Printf("[SHARED_VIDEO] Broadcast stopped (context cancelled) for node %d\n", s.nodeID)
 			return
+
+		case <-keepaliveTimer.C:
+			// No new frames from PipeWire for frameKeepaliveInterval.
+			// Re-send the last frame from the GOP buffer to keep clients alive.
+			keepaliveTimer.Reset(frameKeepaliveInterval)
+
+			s.clientsMu.RLock()
+			clientCount := len(s.clients)
+			s.clientsMu.RUnlock()
+			if clientCount == 0 {
+				continue
+			}
+
+			s.gopBufferMu.RLock()
+			gopLen := len(s.gopBuffer)
+			var lastFrame VideoFrame
+			if gopLen > 0 {
+				lastFrame = s.gopBuffer[gopLen-1]
+			}
+			s.gopBufferMu.RUnlock()
+
+			if gopLen == 0 {
+				continue
+			}
+
+			// Re-send the last frame with updated timestamp
+			keepaliveFrame := lastFrame
+			keepaliveFrame.Timestamp = time.Now()
+			keepaliveCount++
+
+			if keepaliveCount == 1 {
+				fmt.Printf("[SHARED_VIDEO] Frame keepalive started for node %d (re-sending last %d-byte frame)\n",
+					s.nodeID, len(keepaliveFrame.Data))
+			} else if keepaliveCount%60 == 0 {
+				fmt.Printf("[SHARED_VIDEO] Frame keepalive active for node %d (%d keepalive frames sent)\n",
+					s.nodeID, keepaliveCount)
+			}
+
+			// Broadcast keepalive frame to all live clients (skip catching_up)
+			s.clientsMu.RLock()
+			for _, client := range s.clients {
+				if client.state.Load() == clientStateLive {
+					func() {
+						defer func() {
+							if r := recover(); r != nil {
+								// Channel was closed
+							}
+						}()
+						select {
+						case client.frameCh <- keepaliveFrame:
+						default:
+							// Buffer full - skip keepalive for slow client
+						}
+					}()
+				}
+			}
+			s.clientsMu.RUnlock()
 
 		case <-stallTimer.C:
 			// No frames for stallRestartTimeout - pipeline is stalled
@@ -866,6 +944,16 @@ func (s *SharedVideoSource) broadcastFrames() {
 				}
 			}
 			stallTimer.Reset(stallRestartTimeout)
+
+			// Reset keepalive timer - real frame arrived, no need for keepalive
+			if !keepaliveTimer.Stop() {
+				select {
+				case <-keepaliveTimer.C:
+				default:
+				}
+			}
+			keepaliveTimer.Reset(frameKeepaliveInterval)
+			keepaliveCount = 0 // Reset counter so first keepalive after stall is logged
 
 			// Maintain GOP buffer for mid-stream joins
 			// On keyframe: reset buffer and start fresh GOP
