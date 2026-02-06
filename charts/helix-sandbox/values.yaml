@@ -228,6 +228,13 @@ debug:
   # GStreamer debug level (0-9, higher = more verbose)
   gstDebug: "2"
 
+# Testing options (for non-production environments like kind)
+testing:
+  # Disable hostPath mounts that may not exist in test environments
+  # Set to true when testing on kind, minikube, or similar
+  # WARNING: This disables /run/udev mount needed for device hotplug
+  disableHostPaths: false
+
 # Node selector for GPU nodes
 nodeSelector: {}
 # Example for NVIDIA GPU nodes:

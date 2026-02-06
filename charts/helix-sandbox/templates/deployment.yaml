@@ -152,9 +152,11 @@ spec:
               mountPath: /tmp/sockets
             - name: hydra-socket
               mountPath: /var/run/hydra
+            {{- if not .Values.testing.disableHostPaths }}
             - name: udev
               mountPath: /run/udev
               readOnly: true
+            {{- end }}
             {{- if ne $gpuVendor "none" }}
             # GPU modes need /dev mounted for DRI access
             - name: dev
@@ -248,10 +250,12 @@ spec:
           emptyDir: {}
         - name: hydra-socket
           emptyDir: {}
+        {{- if not .Values.testing.disableHostPaths }}
         - name: udev
           hostPath:
             path: /run/udev
             type: Directory
+        {{- end }}
         {{- if ne $gpuVendor "none" }}
         - name: dev
           hostPath:
