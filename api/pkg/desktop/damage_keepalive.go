@@ -17,19 +17,22 @@ const (
 	// 500ms = 2 FPS minimum on static screens.
 	damageKeepaliveInterval = 500 * time.Millisecond
 
-	// GNOME Shell JavaScript to create a 1x1 actor and toggle its opacity.
+	// GNOME Shell JavaScript to create a 1x1 St.Widget and toggle its visibility.
 	// This generates a minimal damage event (1 pixel) that triggers PipeWire
 	// ScreenCast to produce a new buffer, preventing pipeline stall on static screens.
 	//
 	// On virtio-gpu (macOS ARM / UTM), PipeWire ScreenCast is strictly damage-based:
 	// no screen changes = no frames. The pipewiresrc keepalive-time property doesn't
 	// force frame production. This workaround ensures at least 2 FPS on static screens.
+	//
+	// Uses St.Widget (GNOME Shell Toolkit) with CSS background instead of Clutter.Color,
+	// which is not a constructor in GNOME Shell 45+.
 	damageKeepaliveJS = `(function(){` +
 		`if(!global._hk){` +
-		`global._hk=new imports.gi.Clutter.Actor({width:1,height:1,x:0,y:0,` +
-		`background_color:new imports.gi.Clutter.Color({red:0,green:0,blue:0,alpha:1})});` +
+		`global._hk=new imports.gi.St.Widget({width:1,height:1,x:0,y:0,` +
+		`style:'background:#000'});` +
 		`global.stage.add_child(global._hk)}` +
-		`global._hk.opacity=global._hk.opacity>0?0:1` +
+		`global._hk.visible=!global._hk.visible` +
 		`})()`
 
 	// Cleanup script to remove the keepalive actor on shutdown.
