@@ -42,8 +42,12 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
+            # =====================================================
             # Core Helix configuration
+            # =====================================================
             - name: HELIX_API_URL
+              value: {{ .Values.sandbox.apiUrl | quote }}
+            - name: HELIX_API_BASE_URL
               value: {{ .Values.sandbox.apiUrl | quote }}
             - name: RUNNER_TOKEN
               {{- if .Values.sandbox.runnerTokenExistingSecret }}
@@ -65,24 +69,6 @@ spec:
             - name: MAX_SANDBOXES
               value: {{ .Values.sandbox.maxSandboxes | quote }}
 
-            # TURN server configuration
-            - name: TURN_PUBLIC_IP
-              {{- if .Values.sandbox.turn.publicIp }}
-              value: {{ .Values.sandbox.turn.publicIp | quote }}
-              {{- else }}
-              # Extract hostname from API URL if not specified
-              value: {{ .Values.sandbox.apiUrl | trimPrefix "https://" | trimPrefix "http://" | regexFind "^[^:/]+" | quote }}
-              {{- end }}
-            - name: TURN_PASSWORD
-              {{- if .Values.sandbox.turn.turnPasswordExistingSecret }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.sandbox.turn.turnPasswordExistingSecret }}
-                  key: {{ .Values.sandbox.turn.turnPasswordExistingSecretKey | default "password" }}
-              {{- else }}
-              value: {{ .Values.sandbox.turn.password | quote }}
-              {{- end }}
-
             # Helix hostname for display
             - name: HELIX_HOSTNAME
               {{- if .Values.sandbox.helixHostname }}
@@ -91,13 +77,34 @@ spec:
               value: {{ .Values.sandbox.apiUrl | trimPrefix "https://" | trimPrefix "http://" | regexFind "^[^:/]+" | quote }}
               {{- end }}
 
-            # Sandbox configuration
-            - name: XDG_RUNTIME_DIR
-              value: "/tmp/sockets"
+            # Video encoding configuration
             - name: GOP_SIZE
               value: {{ .Values.sandbox.gopSize | quote }}
 
+            # =====================================================
+            # Hydra configuration (multi-tenant isolation)
+            # =====================================================
+            - name: HYDRA_ENABLED
+              value: {{ .Values.hydra.enabled | quote }}
+            - name: HYDRA_PRIVILEGED_MODE_ENABLED
+              value: {{ .Values.hydra.privilegedMode | quote }}
+
+            # =====================================================
+            # Desktop image configuration
+            # =====================================================
+            {{- if .Values.desktopImages.imageOverride }}
+            - name: ZED_IMAGE
+              value: {{ .Values.desktopImages.imageOverride | quote }}
+            {{- else }}
+            - name: ZED_IMAGE
+              value: "{{ .Values.desktopImages.registry }}/helix/{{ .Values.desktopImages.default }}:{{ .Values.desktopImages.tag }}"
+            {{- end }}
+            - name: HELIX_SANDBOX_REGISTRY
+              value: {{ .Values.desktopImages.registry | quote }}
+
+            # =====================================================
             # GPU vendor configuration
+            # =====================================================
             - name: GPU_VENDOR
               value: {{ $gpuVendor | quote }}
 
@@ -115,23 +122,31 @@ spec:
               value: "4.5"
             {{- end }}
 
-            # Production mode
+            # =====================================================
+            # Runtime configuration
+            # =====================================================
             - name: HELIX_DEV_MODE
               value: "false"
-            - name: ZED_IMAGE
-              value: "registry.helixml.tech/helix/zed-agent:latest"
+            - name: XDG_RUNTIME_DIR
+              value: "/tmp/sockets"
+            - name: SANDBOX_DATA_PATH
+              value: "/data"
 
-          ports:
-            # WebSocket streaming port
-            - name: web
-              containerPort: {{ .Values.service.web.port }}
-              protocol: TCP
+            # =====================================================
+            # Debugging options
+            # =====================================================
+            - name: HELIX_KEEP_DEAD_CONTAINERS
+              value: {{ .Values.debug.keepDeadContainers | quote }}
+            - name: GST_DEBUG
+              value: {{ .Values.debug.gstDebug | quote }}
 
           volumeMounts:
             - name: docker-storage
               mountPath: /var/lib/docker
             - name: hydra-data
               mountPath: /hydra-data
+            - name: workspace-data
+              mountPath: /data
             - name: tmp-sockets
               mountPath: /tmp/sockets
             - name: hydra-socket
@@ -184,20 +199,26 @@ spec:
             {{- end }}
             {{- toYaml $resources | nindent 12 }}
 
+          # Health check: verify nested dockerd is running
+          # The sandbox doesn't expose ports (uses RevDial for outbound connection)
           livenessProbe:
-            tcpSocket:
-              port: web
-            initialDelaySeconds: 30
+            exec:
+              command:
+                - docker
+                - info
+            initialDelaySeconds: 60
             periodSeconds: 30
-            timeoutSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 3
 
           readinessProbe:
-            tcpSocket:
-              port: web
-            initialDelaySeconds: 10
+            exec:
+              command:
+                - docker
+                - info
+            initialDelaySeconds: 30
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 3
 
       volumes:
@@ -212,6 +233,13 @@ spec:
           {{- if .Values.persistence.hydraData.enabled }}
           persistentVolumeClaim:
             claimName: {{ include "helix-sandbox.fullname" . }}-hydra
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: workspace-data
+          {{- if .Values.persistence.workspaceData.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "helix-sandbox.fullname" . }}-workspace
           {{- else }}
           emptyDir: {}
           {{- end }}
