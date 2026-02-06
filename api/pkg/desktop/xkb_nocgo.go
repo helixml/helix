@@ -1,4 +1,4 @@
-//go:build !cgo
+//go:build !cgo || !linux
 
 // Package desktop provides fallback keysym to keycode conversion when CGO is disabled.
 // Without xkbcommon, we fall back to a static QWERTY mapping.

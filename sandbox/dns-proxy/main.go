@@ -1,9 +1,9 @@
 // dns-proxy is a simple DNS forwarder for the Helix sandbox.
-// It listens on the nested Docker bridge gateway (172.17.0.1:53) and forwards
+// It listens on the nested Docker bridge gateway (10.213.0.1:53) and forwards
 // queries to the outer Docker's embedded DNS (127.0.0.11:53).
 //
 // This enables enterprise DNS resolution from dev containers:
-//   Dev container → dns-proxy (172.17.0.1) → Docker DNS (127.0.0.11) → host DNS → enterprise DNS
+//   Dev container → dns-proxy (10.213.0.1) → Docker DNS (127.0.0.11) → host DNS → enterprise DNS
 package main
 
 import (

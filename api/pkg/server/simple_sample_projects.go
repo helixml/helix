@@ -35,6 +35,11 @@ type SimpleSampleProject struct {
 	// These overlay on top of agent-level skills
 	Skills *types.AssistantSkills `json:"skills,omitempty"`
 
+	// Guidelines are project-specific instructions for AI agents
+	// These get injected into implementation prompts and help the agent understand
+	// project conventions, available tools, and how to use them effectively
+	Guidelines string `json:"guidelines,omitempty"`
+
 	// RequiredGitHubRepos specifies GitHub repos that must be cloned for this sample project.
 	// When set, the project creation flow will:
 	// 1. Check if user has GitHub OAuth connected
@@ -659,16 +664,15 @@ This is IMPERATIVE - if you don't record and push the color, it cannot be cloned
 		Category:      "infrastructure",
 		UseHostDocker: true, // Enable host Docker access for running sandboxes on host
 
-		// Skills for CI integration - agents can check build logs after PRs
-		// Uses drone-ci-mcp: https://github.com/madappa-sharath/drone-ci-mcp
+		// Skills for CI and GitHub integration - agents can check build logs and interact with GitHub
 		Skills: &types.AssistantSkills{
 			MCPs: []types.AssistantMCP{
 				{
-					Name:        "drone-ci",
-					Description: "Access Drone CI build logs and pipeline info for helixml repos",
+					Name:        "Drone CI",
+					Description: "Check Drone CI build status, fetch logs, and navigate CI failures",
 					Transport:   "stdio",
-					Command:     "npx",
-					Args:        []string{"-y", "drone-ci-mcp"},
+					Command:     "drone-ci-mcp", // Installed globally in desktop images
+					Args:        []string{},
 					Env: map[string]string{
 						// Pre-configured for Helix CI - users just need to add their Drone API token
 						// Get your token from: https://drone.lukemarsden.net/account
@@ -676,8 +680,46 @@ This is IMPERATIVE - if you don't record and push the color, it cannot be cloned
 						"DRONE_ACCESS_TOKEN": "", // User should add their token in Project Settings
 					},
 				},
+				{
+					Name:          "GitHub",
+					Description:   "Interact with GitHub repositories, issues, pull requests, and more",
+					Transport:     "stdio",
+					Command:       "npx",
+					Args:          []string{"-y", "@modelcontextprotocol/server-github"},
+					OAuthProvider: "github", // Reuse the GitHub OAuth connection from this sample project
+				},
 			},
 		},
+
+		// Project-specific guidelines for the AI agent
+		Guidelines: `## Available MCP Tools
+
+You have access to the following MCP servers for CI/CD and GitHub integration:
+
+### Drone CI (drone-ci-mcp)
+Use these tools to check build status and debug CI failures on drone.lukemarsden.net:
+- **drone_build_info**: Get build status, stages, and steps for a build
+- **drone_fetch_logs**: Fetch logs and save to a temp file (avoids context overflow)
+- **drone_search_logs**: Search for patterns like "FAIL:", "panic:", "error" in logs
+- **drone_read_logs**: Read specific line ranges from fetched logs
+- **drone_tail_logs**: Get the last N lines of a log file
+
+After pushing changes, use drone_build_info to check if the build passed. If it failed, use drone_fetch_logs then drone_search_logs to find the failure.
+
+### GitHub (github-mcp)
+Use these tools to interact with GitHub:
+- **list_issues**, **get_issue**, **create_issue**, **update_issue**: Manage issues
+- **list_pull_requests**, **get_pull_request**, **create_pull_request**: Manage PRs
+- **get_pull_request_files**, **get_pull_request_comments**: Review PR details
+- **search_code**, **search_issues**: Search the codebase and issues
+- **get_file_contents**, **create_or_update_file**: Read/write files via GitHub API
+
+## CI Workflow
+1. After pushing code changes, use drone_build_info to check the build
+2. If the build fails, use drone_fetch_logs to get the logs
+3. Use drone_search_logs to find error patterns
+4. Fix the issues and push again
+`,
 
 		// Require GitHub authentication for push access to make PRs
 		RequiresGitHubAuth: true,
@@ -947,7 +989,8 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		Technologies:   sampleProject.Technologies,
 		StartupScript:  startupScript, // Use sample's startup script
 		Status:         "active",
-		Skills:         sampleProject.Skills, // Copy project-level skills from sample
+		Skills:         applyConfiguredSkillEnvVars(sampleProject.Skills, req.ConfiguredSkillEnvVars),
+		Guidelines:     sampleProject.Guidelines, // Copy sample project guidelines
 	}
 
 	createdProject, err := s.Store.CreateProject(ctx, project)
@@ -1275,6 +1318,8 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 					task := &types.SpecTask{
 						ID:             system.GenerateSpecTaskID(),
 						ProjectID:      createdShapeProject.ID,
+						UserID:         user.ID,
+						OrganizationID: createdShapeProject.OrganizationID,
 						Name:           generateTaskNameFromPrompt(taskPrompt.Prompt),
 						Description:    taskPrompt.Prompt,
 						Type:           inferTaskType(taskPrompt.Labels),
@@ -1661,13 +1706,15 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 	for i := len(sampleProject.TaskPrompts) - 1; i >= 0; i-- {
 		taskPrompt := sampleProject.TaskPrompts[i]
 		task := &types.SpecTask{
-			ID:          system.GenerateSpecTaskID(),
-			ProjectID:   createdProject.ID,
-			Name:        generateTaskNameFromPrompt(taskPrompt.Prompt),
-			Description: taskPrompt.Prompt, // The description IS the prompt
-			Type:        inferTaskType(taskPrompt.Labels),
-			Priority:    taskPrompt.Priority,
-			Status:      "backlog",
+			ID:             system.GenerateSpecTaskID(),
+			ProjectID:      createdProject.ID,
+			UserID:         user.ID,
+			OrganizationID: createdProject.OrganizationID,
+			Name:           generateTaskNameFromPrompt(taskPrompt.Prompt),
+			Description:    taskPrompt.Prompt, // The description IS the prompt
+			Type:           inferTaskType(taskPrompt.Labels),
+			Priority:       taskPrompt.Priority,
+			Status:         "backlog",
 
 			// Store the original prompt, specs will be generated later
 			OriginalPrompt:     taskPrompt.Prompt,
@@ -1675,9 +1722,9 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			TechnicalDesign:    "", // Will be generated when agent picks up task
 			ImplementationPlan: "", // Will be generated when agent picks up task
 
-			CreatedBy: user.ID,
-			CreatedAt:      time.Now(),
-			UpdatedAt:      time.Now(),
+			CreatedBy:  user.ID,
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
 		}
 
 		// Set HelixAppID if we found an agent app
@@ -1756,4 +1803,59 @@ func inferTaskType(labels []string) string {
 		}
 	}
 	return "task"
+}
+
+// applyConfiguredSkillEnvVars merges user-configured env vars into skills
+// This allows users to configure skills (like API tokens) during project creation
+func applyConfiguredSkillEnvVars(skills *types.AssistantSkills, configuredEnvVars map[string]map[string]string) *types.AssistantSkills {
+	if skills == nil || len(configuredEnvVars) == 0 {
+		return skills
+	}
+
+	// Deep copy the skills to avoid modifying the original sample project
+	skillsCopy := &types.AssistantSkills{}
+
+	// Copy MCPs with configured env vars
+	if skills.MCPs != nil {
+		skillsCopy.MCPs = make([]types.AssistantMCP, len(skills.MCPs))
+		for i, mcp := range skills.MCPs {
+			// Copy the MCP
+			mcpCopy := mcp
+
+			// Check if there are configured env vars for this skill
+			if configuredVars, ok := configuredEnvVars[mcp.Name]; ok && len(configuredVars) > 0 {
+				// Copy the env map to avoid modifying the original
+				if mcpCopy.Env == nil {
+					mcpCopy.Env = make(map[string]string)
+				} else {
+					envCopy := make(map[string]string, len(mcp.Env))
+					for k, v := range mcp.Env {
+						envCopy[k] = v
+					}
+					mcpCopy.Env = envCopy
+				}
+
+				// Apply configured values
+				for envVar, value := range configuredVars {
+					if value != "" {
+						mcpCopy.Env[envVar] = value
+					}
+				}
+			}
+
+			skillsCopy.MCPs[i] = mcpCopy
+		}
+	}
+
+	// Copy other skill types as-is (can be extended later)
+	skillsCopy.APIs = skills.APIs
+	skillsCopy.Zapier = skills.Zapier
+	skillsCopy.Browser = skills.Browser
+	skillsCopy.WebSearch = skills.WebSearch
+	skillsCopy.Calculator = skills.Calculator
+	skillsCopy.Email = skills.Email
+	skillsCopy.ProjectManager = skills.ProjectManager
+	skillsCopy.AzureDevOps = skills.AzureDevOps
+
+	return skillsCopy
 }

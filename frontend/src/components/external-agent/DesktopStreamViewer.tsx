@@ -439,18 +439,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // App ID is not used for WebSocket mode - we connect directly to the container
       let actualAppId = appId;
 
-      // Get Helix JWT from account context
-      const helixToken = account.user?.token || '';
-
-      if (!helixToken) {
-        console.error('[DesktopStreamViewer] No token available');
-        throw new Error('Not authenticated - please log in');
-      }
-
-      // API object for WebSocketStream (credentials used for auth)
+      // API object for WebSocketStream
+      // Note: With BFF pattern, auth is handled via HttpOnly session cookies
+      // WebSocket connections automatically include cookies for same-origin requests
       const api = {
         host_url: `/api/v1`,
-        credentials: helixToken,
+        credentials: '', // Not used - auth via cookies
       };
 
       // Get streaming bitrate: user-selected > backend config > resolution-based default

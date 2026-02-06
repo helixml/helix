@@ -40,6 +40,7 @@ import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard';
 import ProjectAuditTrail from '../components/tasks/ProjectAuditTrail';
 import TabsView from '../components/tasks/TabsView';
 import PreviewPanel from '../components/app/PreviewPanel';
+import SpecTasksMobileBottomNav from '../components/tasks/SpecTasksMobileBottomNav';
 import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker';
 import { CodeAgentRuntime, generateAgentName, ICreateAgentParams } from '../contexts/apps';
 import { AGENT_TYPE_ZED_EXTERNAL, IApp, SESSION_TYPE_TEXT } from '../types';
@@ -79,6 +80,7 @@ import {
   useStartProjectExploratorySession,
   useStopProjectExploratorySession,
   useResumeProjectExploratorySession,
+  useGetStartupScriptHistory,
 } from '../services';
 import { useListSessions, useGetSession } from '../services/sessionService';
 import { TypesCreateTaskRequest, TypesSpecTaskPriority, TypesBranchMode } from '../api/api';
@@ -108,6 +110,13 @@ const SpecTasksPage: FC = () => {
   const startExploratorySessionMutation = useStartProjectExploratorySession(projectId || '');
   const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId || '');
   const resumeExploratorySessionMutation = useResumeProjectExploratorySession(projectId || '');
+
+  // Startup script history - used to detect if user has modified the default script
+  // Only fetch when we have a project with a default repo
+  const hasDefaultRepo = !!project?.default_repo_id;
+  const { data: startupScriptHistory } = useGetStartupScriptHistory(projectId || '', hasDefaultRepo);
+  // Script is considered "not configured" if there's only 1 commit (the initial auto-generated script)
+  const startupScriptNotConfigured = hasDefaultRepo && (startupScriptHistory?.length ?? 0) <= 1;
 
   // Redirect to projects list if no project selected (new architecture: must select project first)
   // Exception: if user is trying to create a new task (new=true param), allow it for backward compat
@@ -667,12 +676,12 @@ const SpecTasksPage: FC = () => {
   const handleStartExploratorySession = async () => {
     try {
       const session = await startExploratorySessionMutation.mutateAsync();
-      snackbar.success('Team Desktop started');
-      // Navigate to the Team Desktop page
+      snackbar.success('Human Desktop started');
+      // Navigate to the Human Desktop page
       account.orgNavigate('project-team-desktop', { id: projectId, sessionId: session.id });
     } catch (err: any) {
       // Extract error message from API response
-      const errorMessage = err?.response?.data?.error || err?.message || 'Failed to start Team Desktop';
+      const errorMessage = err?.response?.data?.error || err?.message || 'Failed to start Human Desktop';
       snackbar.error(errorMessage);
     }
   };
@@ -683,11 +692,11 @@ const SpecTasksPage: FC = () => {
     try {
       // Use the mutation hook which properly invalidates the cache
       const session = await resumeExploratorySessionMutation.mutateAsync();
-      snackbar.success('Team Desktop resumed');
-      // Navigate to the Team Desktop page
+      snackbar.success('Human Desktop resumed');
+      // Navigate to the Human Desktop page
       account.orgNavigate('project-team-desktop', { id: projectId, sessionId: session.id });
     } catch (err) {
-      snackbar.error('Failed to resume Team Desktop');
+      snackbar.error('Failed to resume Human Desktop');
     }
   };
 
@@ -933,126 +942,109 @@ const SpecTasksPage: FC = () => {
               </IconButton>
             </Tooltip>
           </Stack>
-
-          {/* Project's default agent lozenge */}
-          {project?.default_helix_app_id && appNamesMap[project.default_helix_app_id] && (
-            <Tooltip title="Default agent for this project. Click to configure MCPs, skills, and knowledge.">
-              <Chip
-                label={appNamesMap[project.default_helix_app_id]}
-                size="small"
-                onClick={() => {
-                  if (project.default_helix_app_id) {
-                    account.orgNavigate('app', { app_id: project.default_helix_app_id });
-                  }
-                }}
-                sx={{
-                  background: 'linear-gradient(145deg, rgba(120, 120, 140, 0.9) 0%, rgba(90, 90, 110, 0.95) 50%, rgba(70, 70, 90, 0.9) 100%)',
-                  color: 'rgba(255, 255, 255, 0.9)',
-                  fontWeight: 500,
-                  fontSize: '0.75rem',
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), 0 1px 3px rgba(0,0,0,0.2)',
-                  cursor: 'pointer',
-                }}
-              />
+         
+          {/* Hide these buttons on mobile - they'll be in the floating menu */}
+          <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 2, alignItems: 'center' }}>
+            {!exploratorySessionData ? (
+              <Tooltip title="Test your app and find tasks for your agents. Shared with your team.">
+                <Button
+                  variant="outlined"
+                  color="secondary"
+                  startIcon={<ExploreIcon />}
+                  onClick={handleStartExploratorySession}
+                  disabled={startExploratorySessionMutation.isPending}
+                  sx={{ flexShrink: 0 }}
+                >
+                  {startExploratorySessionMutation.isPending ? 'Starting...' : 'Open Human Desktop'}
+                </Button>
+              </Tooltip>
+            ) : exploratorySessionData.config?.external_agent_status === 'stopped' ? (
+              <Tooltip title="Test your app and find tasks for your agents. Shared with your team.">
+                <Button
+                  variant="outlined"
+                  color="secondary"
+                  startIcon={<Play size={18} />}
+                  onClick={handleResumeExploratorySession}
+                  disabled={resumeExploratorySessionMutation.isPending}
+                  sx={{ flexShrink: 0 }}
+                >
+                  {resumeExploratorySessionMutation.isPending ? 'Resuming...' : 'Resume Human Desktop'}
+                </Button>
+              </Tooltip>
+            ) : (
+              <>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  startIcon={<Play size={18} />}
+                  onClick={() => {
+                    // Navigate to the Human Desktop page
+                    account.orgNavigate('project-team-desktop', { id: projectId, sessionId: exploratorySessionData.id });
+                  }}
+                  sx={{ flexShrink: 0 }}
+                >
+                  View Human Desktop
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<StopIcon />}
+                  onClick={handleStopExploratorySession}
+                  disabled={stopExploratorySessionMutation.isPending}
+                  sx={{ flexShrink: 0 }}
+                >
+                  {stopExploratorySessionMutation.isPending ? 'Stopping...' : 'Stop Session'}
+                </Button>
+              </>
+            )}
+            <Tooltip title={projectManagerAppId ? "Chat with Project Manager agent" : "Configure Project Manager agent in project settings to enable chat"}>
+              <span>
+                <Button
+                  variant="outlined"
+                  startIcon={<Plus size={18} />}
+                  onClick={handleOpenChatPanel}
+                  disabled={!projectManagerAppId}
+                  sx={{ flexShrink: 0 }}
+                >
+                  New Chat
+                </Button>
+              </span>
             </Tooltip>
-          )}
-          {!exploratorySessionData ? (
-            <Tooltip title="Test your app and find tasks for your agents. Shared with your team.">
+            {defaultRepoId && (
               <Button
                 variant="outlined"
-                color="secondary"
-                startIcon={<ExploreIcon />}
-                onClick={handleStartExploratorySession}
-                disabled={startExploratorySessionMutation.isPending}
-                sx={{ flexShrink: 0 }}
-              >
-                {startExploratorySessionMutation.isPending ? 'Starting...' : 'Open Team Desktop'}
-              </Button>
-            </Tooltip>
-          ) : exploratorySessionData.config?.external_agent_status === 'stopped' ? (
-            <Tooltip title="Test your app and find tasks for your agents. Shared with your team.">
-              <Button
-                variant="outlined"
-                color="secondary"
-                startIcon={<Play size={18} />}
-                onClick={handleResumeExploratorySession}
-                disabled={resumeExploratorySessionMutation.isPending}
-                sx={{ flexShrink: 0 }}
-              >
-                {resumeExploratorySessionMutation.isPending ? 'Resuming...' : 'Resume Team Desktop'}
-              </Button>
-            </Tooltip>
-          ) : (
-            <>
-              <Button
-                variant="contained"
-                color="primary"
-                startIcon={<Play size={18} />}
-                onClick={() => {
-                  // Navigate to the Team Desktop page
-                  account.orgNavigate('project-team-desktop', { id: projectId, sessionId: exploratorySessionData.id });
+                startIcon={<FolderOpen size={18} />}
+                href={account.organizationTools.organization?.name
+                  ? `/org/${account.organizationTools.organization.name}/git-repos/${defaultRepoId}`
+                  : `/git-repos/${defaultRepoId}`}
+                onClick={(e: React.MouseEvent) => {
+                  if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return
+                  e.preventDefault()
+                  account.orgNavigate('git-repo-detail', { repoId: defaultRepoId })
                 }}
                 sx={{ flexShrink: 0 }}
               >
-                View Team Desktop
+                Files
               </Button>
-              <Button
-                variant="outlined"
-                color="error"
-                startIcon={<StopIcon />}
-                onClick={handleStopExploratorySession}
-                disabled={stopExploratorySessionMutation.isPending}
-                sx={{ flexShrink: 0 }}
-              >
-                {stopExploratorySessionMutation.isPending ? 'Stopping...' : 'Stop Session'}
-              </Button>
-            </>
-          )}
-          <Tooltip title={projectManagerAppId ? "Chat with Project Manager agent" : "Configure Project Manager agent in project settings to enable chat"}>
-            <span>
-              <Button
-                variant="outlined"
-                startIcon={<Plus size={18} />}
-                onClick={handleOpenChatPanel}
-                disabled={!projectManagerAppId}
-                sx={{ flexShrink: 0 }}
-              >
-                New Chat
-              </Button>
-            </span>
-          </Tooltip>
-          {defaultRepoId && (
+            )}
             <Button
               variant="outlined"
-              startIcon={<FolderOpen size={18} />}
-              href={account.organizationTools.organization?.name
-                ? `/org/${account.organizationTools.organization.name}/git-repos/${defaultRepoId}`
-                : `/git-repos/${defaultRepoId}`}
-              onClick={(e: React.MouseEvent) => {
-                if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return
-                e.preventDefault()
-                account.orgNavigate('git-repo-detail', { repoId: defaultRepoId })
-              }}
+              startIcon={<Settings size={18} />}
+              onClick={() => account.orgNavigate('project-settings', { id: projectId })}
               sx={{ flexShrink: 0 }}
             >
-              Files
+              Settings
             </Button>
-          )}
-          <Button
-            variant="outlined"
-            startIcon={<Settings size={18} />}
-            onClick={() => account.orgNavigate('project-settings', { id: projectId })}
-            sx={{ flexShrink: 0 }}
-          >
-            Settings
-          </Button>
-          <IconButton
-            size="small"
-            onClick={(e) => setViewMenuAnchorEl(e.currentTarget)}
-          >
-            <MoreHorizontal size={18} />
-          </IconButton>
+          </Box>
+          {/* Hide menu button on mobile - it will be in the bottom nav */}
+          <Box sx={{ display: { xs: 'none', md: 'block' } }}>
+            <IconButton
+              size="small"
+              onClick={(e) => setViewMenuAnchorEl(e.currentTarget)}
+            >
+              <MoreHorizontal size={18} />
+            </IconButton>
+          </Box>
           <Menu
             anchorEl={viewMenuAnchorEl}
             open={Boolean(viewMenuAnchorEl)}
@@ -1068,6 +1060,18 @@ const SpecTasksPage: FC = () => {
               },
             }}
           >
+            {isMobile && defaultRepoId && (
+              <MenuItem onClick={() => { account.orgNavigate('git-repo-detail', { repoId: defaultRepoId }); setViewMenuAnchorEl(null); }}>
+                <FolderOpen style={{ marginRight: 12, width: 20, height: 20 }} />
+                Files
+              </MenuItem>
+            )}
+            {isMobile && projectId && (
+              <MenuItem onClick={() => { account.orgNavigate('project-settings', { id: projectId }); setViewMenuAnchorEl(null); }}>
+                <Settings style={{ marginRight: 12, width: 20, height: 20 }} />
+                Settings
+              </MenuItem>
+            )}
             <MenuItem onClick={() => { setShowArchived(!showArchived); setViewMenuAnchorEl(null); }}>
               {showArchived ? <ViewIcon sx={{ mr: 1.5, fontSize: 20 }} /> : <ArchiveIcon sx={{ mr: 1.5, fontSize: 20 }} />}
               {showArchived ? 'Show Active Tasks' : 'Show Archived Tasks'}
@@ -1103,7 +1107,8 @@ const SpecTasksPage: FC = () => {
           minHeight: 0,
           overflow: 'hidden',
           transition: 'all 0.3s ease-in-out',
-          px: 3,
+          px: { xs: 0, md: 3 },
+          pl: { xs: 2, md: 3 },
         }}>
           {/* No repositories warning */}
           {projectRepositories.length === 0 && (
@@ -1121,7 +1126,27 @@ const SpecTasksPage: FC = () => {
                 </Button>
               }
             >
-              No file storage attached. Go to Settings to connect a repository for file storage.
+              No repositories attached. Go to Settings to connect a repository.
+            </Alert>
+          )}
+
+          {/* No startup script warning - show when repo is connected but startup script hasn't been modified */}
+          {projectRepositories.length > 0 && startupScriptNotConfigured && (
+            <Alert
+              severity="info"
+              sx={{ mb: 2 }}
+              action={
+                <Button
+                  color="inherit"
+                  size="small"
+                  variant="outlined"
+                  onClick={() => account.orgNavigate('project-settings', { id: projectId })}
+                >
+                  Configure Startup Script
+                </Button>
+              }
+            >
+              Set up a startup script to install dependencies and start your dev server.
             </Alert>
           )}
 
@@ -1148,6 +1173,7 @@ const SpecTasksPage: FC = () => {
                 showArchived={showArchived}
                 showMetrics={showMetrics}
                 showMerged={showMerged}
+                hideCreateButton={isMobile}
               />
             )}
             {viewMode === 'workspace' && (
@@ -1174,7 +1200,7 @@ const SpecTasksPage: FC = () => {
           </Box>
         </Box>
 
-        {/* RIGHT PANEL: New Spec Task - slides in from right */}
+        {/* RIGHT PANEL: New Spec Task - slides in from right, full screen on mobile */}
         <Box
           sx={{
             width: createDialogOpen ? { xs: '100%', sm: '450px', md: '500px' } : 0,
@@ -1186,6 +1212,13 @@ const SpecTasksPage: FC = () => {
             display: 'flex',
             flexDirection: 'column',
             backgroundColor: 'background.paper',
+            // Full screen overlay on mobile
+            position: { xs: 'fixed', md: 'relative' },
+            top: { xs: 0, md: 'auto' },
+            left: { xs: 0, md: 'auto' },
+            right: { xs: 0, md: 'auto' },
+            bottom: { xs: 0, md: 'auto' },
+            zIndex: { xs: 1200, md: 'auto' },
           }}
         >
         <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -1505,9 +1538,11 @@ const SpecTasksPage: FC = () => {
                           <Typography variant="body2" sx={{ fontWeight: 600 }}>
                             Just Do It
                           </Typography>
-                          <Box component="span" sx={{ fontSize: '0.65rem', opacity: 0.6, fontFamily: 'monospace', border: '1px solid', borderColor: 'divider', borderRadius: '3px', px: 0.5 }}>
-                            {navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'}
-                          </Box>
+                          {!isMobile && (
+                            <Box component="span" sx={{ fontSize: '0.65rem', opacity: 0.6, fontFamily: 'monospace', border: '1px solid', borderColor: 'divider', borderRadius: '3px', px: 0.5 }}>
+                              {navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'}
+                            </Box>
+                          )}
                         </Box>
                         <Typography variant="caption" color="text.secondary">
                           Skip spec planning — useful for tasks that don't require planning code changes (e.g., if you don't want the agent to push code)
@@ -1560,14 +1595,16 @@ const SpecTasksPage: FC = () => {
                 },
               }}
               endIcon={
-                <Box component="span" sx={{
-                  fontSize: '0.75rem',
-                  opacity: 0.6,
-                  fontFamily: 'monospace',
-                  ml: 1,
-                }}>
-                  {navigator.platform.includes('Mac') ? '⌘↵' : 'Ctrl+↵'}
-                </Box>
+                !isMobile ? (
+                  <Box component="span" sx={{
+                    fontSize: '0.75rem',
+                    opacity: 0.6,
+                    fontFamily: 'monospace',
+                    ml: 1,
+                  }}>
+                    {navigator.platform.includes('Mac') ? '⌘↵' : 'Ctrl+↵'}
+                  </Box>
+                ) : undefined
               }
             >
               Create Task
@@ -1576,7 +1613,7 @@ const SpecTasksPage: FC = () => {
         </Box>
         </Box>
 
-        {/* RIGHT PANEL: Chat with Project Manager Agent */}
+        {/* RIGHT PANEL: Chat with Project Manager Agent - full screen on mobile */}
         {projectManagerAppId && (
           <Box
             sx={{
@@ -1589,6 +1626,13 @@ const SpecTasksPage: FC = () => {
               display: 'flex',
               flexDirection: 'column',
               backgroundColor: 'background.paper',
+              // Full screen overlay on mobile
+              position: { xs: 'fixed', md: 'relative' },
+              top: { xs: 0, md: 'auto' },
+              left: { xs: 0, md: 'auto' },
+              right: { xs: 0, md: 'auto' },
+              bottom: { xs: 0, md: 'auto' },
+              zIndex: { xs: 1200, md: 'auto' },
             }}
           >
             <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
@@ -1716,6 +1760,16 @@ const SpecTasksPage: FC = () => {
         )}
 
       </Box>
+
+      {/* Mobile Bottom Navigation Bar */}
+      {isMobile && (
+        <SpecTasksMobileBottomNav
+          onNewTask={handleOpenCreateDialog}
+          onNewChat={handleOpenChatPanel}
+          chatDisabled={!projectManagerAppId}
+          onMenuClick={(e) => setViewMenuAnchorEl(e.currentTarget)}
+        />
+      )}
 
     </Page>
   );

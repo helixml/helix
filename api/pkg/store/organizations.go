@@ -119,6 +119,23 @@ func (s *PostgresStore) GetOrganization(ctx context.Context, q *GetOrganizationQ
 	return &org, nil
 }
 
+// GetOrganizationByDomain retrieves an organization by its auto-join domain
+func (s *PostgresStore) GetOrganizationByDomain(ctx context.Context, domain string) (*types.Organization, error) {
+	if domain == "" {
+		return nil, fmt.Errorf("domain not specified")
+	}
+
+	var org types.Organization
+	err := s.gdb.WithContext(ctx).Where("auto_join_domain = ?", domain).First(&org).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &org, nil
+}
+
 // ListOrganizations lists organizations based on query parameters
 func (s *PostgresStore) ListOrganizations(ctx context.Context, q *ListOrganizationsQuery) ([]*types.Organization, error) {
 	query := s.gdb.WithContext(ctx)

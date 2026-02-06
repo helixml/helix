@@ -32,17 +32,13 @@ import {
   Switch,
 } from "@mui/material";
 import CodeIcon from "@mui/icons-material/Code";
-import ExploreIcon from "@mui/icons-material/Explore";
 import PeopleIcon from "@mui/icons-material/People";
 import AddIcon from "@mui/icons-material/Add";
 import WarningIcon from "@mui/icons-material/Warning";
 import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import DeleteIcon from "@mui/icons-material/Delete";
 import LinkIcon from "@mui/icons-material/Link";
-import StopIcon from "@mui/icons-material/Stop";
-import RefreshIcon from "@mui/icons-material/Refresh";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
-import EditIcon from "@mui/icons-material/Edit";
 import { Bot } from "lucide-react";
 import HistoryIcon from "@mui/icons-material/History";
 import DescriptionIcon from "@mui/icons-material/Description";
@@ -158,7 +154,8 @@ const ProjectSettings: FC = () => {
     useStopProjectExploratorySession(projectId);
 
   // Create SpecTask mutation for "Fix Startup Script" feature
-  // Uses branch_mode: "existing" with helix-specs branch to push directly (no PR)
+  // Uses branch_mode: "new" to create a feature branch for code changes
+  // The helix-specs worktree is created separately for design docs and startup script edits
   const createSpecTaskMutation = useMutation({
     mutationFn: async (request: {
       prompt: string;
@@ -222,8 +219,11 @@ const ProjectSettings: FC = () => {
       current_name: string;
       new_name?: string;
       has_conflict: boolean;
+      affected_projects?: Array<{ id: string; name: string }>;
     }>;
+    warnings?: string[];
   } | null>(null);
+  const [acceptSharedRepoWarning, setAcceptSharedRepoWarning] = useState(false);
   const [loadingMovePreview, setLoadingMovePreview] = useState(false);
 
   // Project secrets
@@ -292,13 +292,27 @@ const ProjectSettings: FC = () => {
         });
       return response.data;
     },
-    onSuccess: () => {
+    onSuccess: async (_data, organizationId) => {
       snackbar.success("Project moved to organization successfully");
       setMoveDialogOpen(false);
       setSelectedOrgToMove("");
       setMovePreview(null);
+      setAcceptSharedRepoWarning(false);
       // Invalidate project query to refresh data
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+
+      // Find the org to get its name (slug) for navigation
+      const targetOrg = account.organizationTools.organizations.find(
+        (org) => org.id === organizationId
+      );
+      if (targetOrg?.name) {
+        // Switch to the new org context and navigate to the project there
+        await account.organizationTools.loadOrganization(organizationId);
+        navigate("org_project-specs", {
+          org_id: targetOrg.name,
+          id: projectId,
+        });
+      }
     },
     onError: (err: any) => {
       const message = err?.response?.data?.error || "Failed to move project";
@@ -824,7 +838,7 @@ const ProjectSettings: FC = () => {
             }}
           >
             {/* Basic Information */}
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
               <Typography variant="h6" gutterBottom>
                 Basic Information
               </Typography>
@@ -851,7 +865,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Startup Script */}
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
               <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                 <CodeIcon sx={{ mr: 1 }} />
                 <Typography variant="h6">Startup Script</Typography>
@@ -879,12 +893,14 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Repositories */}
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
               <Box
                 sx={{
                   display: "flex",
+                  flexDirection: { xs: "column", sm: "row" },
                   justifyContent: "space-between",
-                  alignItems: "center",
+                  alignItems: { xs: "stretch", sm: "flex-start" },
+                  gap: { xs: 2, sm: 0 },
                   mb: 2,
                 }}
               >
@@ -902,8 +918,9 @@ const ProjectSettings: FC = () => {
                   startIcon={<AddIcon />}
                   onClick={() => setAttachRepoDialogOpen(true)}
                   size="small"
+                  sx={{ flexShrink: 0, alignSelf: { xs: "flex-start", sm: "flex-start" } }}
                 >
-                  Attach Repository
+                  Attach
                 </Button>
               </Box>
               <Divider sx={{ mb: 2 }} />
@@ -939,7 +956,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Default Agent */}
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
               <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                 <Bot size={24} style={{ marginRight: 8 }} />
                 <Typography variant="h6">Agent configuration</Typography>
@@ -1102,7 +1119,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Board Settings */}
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
               <Typography variant="h6" gutterBottom>
                 Kanban Board Settings
               </Typography>
@@ -1114,12 +1131,12 @@ const ProjectSettings: FC = () => {
               <Box
                 sx={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(3, 1fr)",
+                  gridTemplateColumns: { xs: "1fr", sm: "repeat(3, 1fr)" },
                   gap: 2,
                 }}
               >
                 <TextField
-                  label="Planning Column Limit"
+                  label="Planning Limit"
                   value={wipLimits.planning}
                   onChange={(e) =>
                     setWipLimits({
@@ -1128,10 +1145,11 @@ const ProjectSettings: FC = () => {
                     })
                   }
                   onBlur={handleFieldBlur}
-                  helperText="Maximum tasks allowed in Planning column"
+                  helperText="Max tasks in Planning"
+                  size="small"
                 />
                 <TextField
-                  label="Review Column Limit"
+                  label="Review Limit"
                   value={wipLimits.review}
                   onChange={(e) =>
                     setWipLimits({
@@ -1140,10 +1158,11 @@ const ProjectSettings: FC = () => {
                     })
                   }
                   onBlur={handleFieldBlur}
-                  helperText="Maximum tasks allowed in Review column"
+                  helperText="Max tasks in Review"
+                  size="small"
                 />
                 <TextField
-                  label="Implementation Column Limit"
+                  label="Implementation Limit"
                   value={wipLimits.implementation}
                   onChange={(e) =>
                     setWipLimits({
@@ -1152,13 +1171,14 @@ const ProjectSettings: FC = () => {
                     })
                   }
                   onBlur={handleFieldBlur}
-                  helperText="Maximum tasks allowed in Implementation column"
+                  helperText="Max tasks in Implementation"
+                  size="small"
                 />
               </Box>
             </Paper>
 
             {/* Automations */}
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
               <Typography variant="h6" gutterBottom>
                 Automations
               </Typography>
@@ -1236,12 +1256,14 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Project Secrets */}
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
               <Box
                 sx={{
                   display: "flex",
-                  alignItems: "center",
+                  flexDirection: { xs: "column", sm: "row" },
+                  alignItems: { xs: "flex-start", sm: "center" },
                   justifyContent: "space-between",
+                  gap: { xs: 1, sm: 0 },
                   mb: 1,
                 }}
               >
@@ -1255,7 +1277,7 @@ const ProjectSettings: FC = () => {
                   startIcon={<AddIcon />}
                   onClick={() => setAddSecretDialogOpen(true)}
                 >
-                  Add Secret
+                  Add
                 </Button>
               </Box>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -1315,7 +1337,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Project Skills */}
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
               <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
                 <HubIcon sx={{ mr: 1, color: "#10B981" }} />
                 <Typography variant="h6">Skills</Typography>
@@ -1334,12 +1356,14 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Project Guidelines */}
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
               <Box
                 sx={{
                   display: "flex",
-                  alignItems: "center",
+                  flexDirection: { xs: "column", sm: "row" },
+                  alignItems: { xs: "flex-start", sm: "center" },
                   justifyContent: "space-between",
+                  gap: { xs: 1, sm: 0 },
                   mb: 1,
                 }}
               >
@@ -1395,7 +1419,7 @@ const ProjectSettings: FC = () => {
 
             {/* Members & Access Control */}
             {project?.organization_id ? (
-              <Paper sx={{ p: 3 }}>
+              <Paper sx={{ p: { xs: 2, sm: 3 } }}>
                 <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                   <PeopleIcon sx={{ mr: 1 }} />
                   <Typography variant="h6">Members & Access</Typography>
@@ -1576,11 +1600,10 @@ const ProjectSettings: FC = () => {
                     }
                     onClick={() =>
                       createSpecTaskMutation.mutate({
-                        prompt: `Fix the project startup script at /home/retro/work/helix-specs/.helix/startup.sh (in the helix-specs worktree). The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues. You can run the script to test it and iterate on it until it works. It should be idempotent.\n\nIMPORTANT: The startup script lives in the helix-specs branch, NOT the main code branch. After fixing the script:\n1. Edit /home/retro/work/helix-specs/.helix/startup.sh directly\n2. Commit and push directly to helix-specs branch: cd /home/retro/work/helix-specs && git add -A && git commit -m "Fix startup script" && git push origin helix-specs\n3. The user can then test it in the project settings panel.`,
-                        // Push directly to helix-specs, no PR needed
-                        branch_mode: "existing",
-                        base_branch: "helix-specs",
-                        working_branch: "helix-specs",
+                        prompt: `Fix the project startup script at /home/retro/work/helix-specs/.helix/startup.sh (in the helix-specs worktree). The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues. You can run the script to test it and iterate on it until it works. It should be idempotent.\n\nIMPORTANT: The startup script lives in the helix-specs branch, NOT the main code branch. After fixing the script:\n1. Edit /home/retro/work/helix-specs/.helix/startup.sh directly\n2. Commit and push directly to helix-specs branch: cd /home/retro/work/helix-specs && git add -A && git commit -m "Fix startup script" && git push origin helix-specs\n3. The user can then test it in the project settings panel.\n\nNote: A feature branch has been created on the primary repo for any code changes (like fixing bugs in the workspace setup or build scripts), but you probably won't need to use it unless the user specifically asks you to fix something in the codebase itself.`,
+                        // Create a feature branch for any code changes, helix-specs worktree handles design docs
+                        branch_mode: "new",
+                        base_branch: "main",
                       })
                     }
                     disabled={createSpecTaskMutation.isPending}
@@ -2047,34 +2070,63 @@ const ProjectSettings: FC = () => {
                       Repositories ({movePreview.repositories.length})
                     </Typography>
                     {movePreview.repositories.map((repo) => (
-                      <Box
-                        key={repo.id}
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 1,
-                          py: 0.5,
-                        }}
-                      >
-                        <Typography variant="body2">
-                          {repo.current_name}
-                        </Typography>
-                        {repo.has_conflict && repo.new_name && (
-                          <>
-                            <ArrowForwardIcon
-                              fontSize="small"
-                              color="warning"
-                            />
-                            <Typography variant="body2" color="warning.main">
-                              {repo.new_name}
+                      <Box key={repo.id} sx={{ py: 0.5 }}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 1,
+                          }}
+                        >
+                          <Typography variant="body2">
+                            {repo.current_name}
+                          </Typography>
+                          {repo.has_conflict && repo.new_name && (
+                            <>
+                              <ArrowForwardIcon
+                                fontSize="small"
+                                color="warning"
+                              />
+                              <Typography variant="body2" color="warning.main">
+                                {repo.new_name}
+                              </Typography>
+                              <Chip
+                                label="renamed"
+                                size="small"
+                                color="warning"
+                                sx={{ fontSize: "0.7rem" }}
+                              />
+                            </>
+                          )}
+                        </Box>
+                        {repo.affected_projects && repo.affected_projects.length > 0 && (
+                          <Box
+                            sx={{
+                              ml: 2,
+                              mt: 0.5,
+                              p: 1,
+                              backgroundColor: "error.dark",
+                              borderRadius: 1,
+                              border: "1px solid",
+                              borderColor: "error.main",
+                            }}
+                          >
+                            <Typography variant="caption" color="error.contrastText" sx={{ fontWeight: 600 }}>
+                              Warning: This repository is shared with other projects that will lose access:
                             </Typography>
-                            <Chip
-                              label="renamed"
-                              size="small"
-                              color="warning"
-                              sx={{ fontSize: "0.7rem" }}
-                            />
-                          </>
+                            <Box component="ul" sx={{ m: 0, pl: 2, mt: 0.5 }}>
+                              {repo.affected_projects.map((proj) => (
+                                <Typography
+                                  key={proj.id}
+                                  component="li"
+                                  variant="caption"
+                                  color="error.contrastText"
+                                >
+                                  {proj.name}
+                                </Typography>
+                              ))}
+                            </Box>
+                          </Box>
                         )}
                       </Box>
                     ))}
@@ -2089,6 +2141,46 @@ const ProjectSettings: FC = () => {
                 These repositories will become accessible to all members of the
                 organization based on their roles.
               </Typography>
+
+              {/* Warnings about things that won't be moved */}
+              {movePreview.warnings && movePreview.warnings.length > 0 && (
+                <Box sx={{ mt: 2 }}>
+                  {movePreview.warnings.map((warning, index) => (
+                    <Alert
+                      key={index}
+                      severity="info"
+                      icon={<WarningIcon />}
+                      sx={{ mb: 1 }}
+                    >
+                      {warning}
+                    </Alert>
+                  ))}
+                </Box>
+              )}
+
+              {/* Show checkbox if any repos have affected projects */}
+              {movePreview.repositories.some(
+                (r) => r.affected_projects && r.affected_projects.length > 0
+              ) && (
+                <FormControlLabel
+                  sx={{ mt: 2 }}
+                  control={
+                    <Checkbox
+                      checked={acceptSharedRepoWarning}
+                      onChange={(e) =>
+                        setAcceptSharedRepoWarning(e.target.checked)
+                      }
+                      color="error"
+                    />
+                  }
+                  label={
+                    <Typography variant="body2" color="error">
+                      I understand that moving shared repositories will break
+                      the other projects listed above
+                    </Typography>
+                  }
+                />
+              )}
             </Box>
           )}
         </DialogContent>
@@ -2098,6 +2190,7 @@ const ProjectSettings: FC = () => {
               setMoveDialogOpen(false);
               setSelectedOrgToMove("");
               setMovePreview(null);
+              setAcceptSharedRepoWarning(false);
             }}
           >
             Cancel
@@ -2109,7 +2202,11 @@ const ProjectSettings: FC = () => {
             disabled={
               !selectedOrgToMove ||
               !movePreview ||
-              moveProjectMutation.isPending
+              moveProjectMutation.isPending ||
+              (movePreview?.repositories.some(
+                (r) => r.affected_projects && r.affected_projects.length > 0
+              ) &&
+                !acceptSharedRepoWarning)
             }
             startIcon={
               moveProjectMutation.isPending ? (

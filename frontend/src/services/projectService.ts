@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesBoardSettings, TypesSession, ServicesStartupScriptVersion, TypesGitRepository, TypesForkSimpleProjectRequest, TypesGuidelinesHistory } from '../api/api';
+import { TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesBoardSettings, TypesSession, ServicesStartupScriptVersion, TypesGitRepository, TypesForkSimpleProjectRequest, TypesGuidelinesHistory, TypesAggregatedUsageMetric } from '../api/api';
 
 // Query keys
 export const projectsListQueryKey = (orgId?: string) => ['projects', orgId];
@@ -11,6 +11,7 @@ export const sampleProjectQueryKey = (id: string) => ['sample-project', id];
 export const projectExploratorySessionQueryKey = (projectId: string) => ['project-exploratory-session', projectId];
 export const projectStartupScriptHistoryQueryKey = (projectId: string) => ['project-startup-script-history', projectId];
 export const projectGuidelinesHistoryQueryKey = (projectId: string) => ['project-guidelines-history', projectId];
+export const projectUsageQueryKey = (projectId: string) => ['project-usage', projectId];
 
 /**
  * Hook to list all projects for the current user
@@ -353,5 +354,34 @@ export const useGetProjectGuidelinesHistory = (projectId: string, enabled = true
       return response.data || [];
     },
     enabled: enabled && !!projectId,
+  });
+};
+
+/**
+ * Hook to get project token usage metrics (combined across all tasks)
+ */
+export const useGetProjectUsage = (
+  projectId: string,
+  options?: {
+    enabled?: boolean;
+    aggregationLevel?: '5min' | 'hourly' | 'daily';
+    from?: string;
+    to?: string;
+  }
+) => {
+  const api = useApi();
+  const apiClient = api.getApiClient();
+
+  return useQuery<TypesAggregatedUsageMetric[]>({
+    queryKey: projectUsageQueryKey(projectId),
+    queryFn: async () => {
+      const response = await apiClient.v1ProjectsUsageDetail(projectId, {
+        aggregation_level: options?.aggregationLevel,
+        from: options?.from,
+        to: options?.to,
+      });
+      return response.data || [];
+    },
+    enabled: (options?.enabled ?? true) && !!projectId,
   });
 };

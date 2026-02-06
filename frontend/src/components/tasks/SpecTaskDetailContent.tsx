@@ -47,10 +47,12 @@ import LinkIcon from "@mui/icons-material/Link";
 import ArchiveIcon from "@mui/icons-material/Archive";
 import AccountTree from "@mui/icons-material/AccountTree";
 import { TypesSpecTaskPriority, TypesSpecTaskStatus } from "../../api/api";
-import ExternalAgentDesktopViewer, { useSandboxState } from "../external-agent/ExternalAgentDesktopViewer";
+import ExternalAgentDesktopViewer, {
+  useSandboxState,
+} from "../external-agent/ExternalAgentDesktopViewer";
 import ChatStatsOverlay, { ChatStatsToggle } from "../session/ChatStatsOverlay";
-
 import DiffViewer from "./DiffViewer";
+import { getCSRFToken } from "../../utils/csrf";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
 import useSnackbar from "../../hooks/useSnackbar";
 import useAccount from "../../hooks/useAccount";
@@ -313,7 +315,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const [isArchiving, setIsArchiving] = useState(false);
 
   // Public design docs state
-  const [isPublicDesignDocs, setIsPublicDesignDocs] = useState(task?.public_design_docs ?? false);
+  const [isPublicDesignDocs, setIsPublicDesignDocs] = useState(
+    task?.public_design_docs ?? false,
+  );
   const [updatingPublic, setUpdatingPublic] = useState(false);
 
   // Sync public state when task data changes
@@ -325,7 +329,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   const publicLink = `${window.location.origin}/spec-tasks/${taskId}/view`;
 
-  const handlePublicToggle = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePublicToggle = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const newValue = event.target.checked;
     setUpdatingPublic(true);
     try {
@@ -333,9 +339,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         public_design_docs: newValue,
       });
       setIsPublicDesignDocs(newValue);
-      snackbar.success(newValue ? 'Design docs are now public' : 'Design docs are now private');
+      snackbar.success(
+        newValue ? "Design docs are now public" : "Design docs are now private",
+      );
     } catch (err: any) {
-      snackbar.error(err.message || 'Failed to update visibility');
+      snackbar.error(err.message || "Failed to update visibility");
     } finally {
       setUpdatingPublic(false);
     }
@@ -344,9 +352,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const copyPublicLink = async () => {
     try {
       await navigator.clipboard.writeText(publicLink);
-      snackbar.success('Link copied to clipboard!');
+      snackbar.success("Link copied to clipboard!");
     } catch (err) {
-      snackbar.error('Failed to copy link');
+      snackbar.error("Failed to copy link");
     }
   };
 
@@ -374,7 +382,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const activeSessionId = task?.planning_session_id;
 
   // Track sandbox/desktop state for stop/start buttons
-  const { isRunning: isDesktopRunning, isPaused: isDesktopPaused, isStarting: isDesktopStarting } = useSandboxState(activeSessionId || '');
+  const {
+    isRunning: isDesktopRunning,
+    isPaused: isDesktopPaused,
+    isStarting: isDesktopStarting,
+  } = useSandboxState(activeSessionId || "");
 
   // Subscribe to WebSocket updates for the active session when chat is visible
   // On big screens: chat is visible unless collapsed
@@ -471,9 +483,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       const queryString = queryParams.toString();
       const url = `/api/v1/spec-tasks/${task.id}/start-planning${queryString ? `?${queryString}` : ""}`;
 
+      const csrfToken = getCSRFToken();
       const response = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrfToken && { "X-CSRF-Token": csrfToken }),
+        },
         credentials: "include",
       });
       if (!response.ok) {
@@ -708,11 +724,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           const formData = new FormData();
           formData.append("file", file);
 
+          const csrfToken = getCSRFToken();
           const response = await fetch(
             `/api/v1/external-agents/${activeSessionId}/upload?open_file_manager=false`,
             {
               method: "POST",
               body: formData,
+              headers: csrfToken ? { "X-CSRF-Token": csrfToken } : undefined,
             },
           );
 
@@ -1017,7 +1035,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     setSelectedCloneGroupId(task.clone_group_id || null)
                   }
                 >
-                  <AccountTree sx={{ fontSize: 16, color: "inherit", opacity: 0.7 }} />
+                  <AccountTree
+                    sx={{ fontSize: 16, color: "inherit", opacity: 0.7 }}
+                  />
                   <Typography variant="caption" color="text.secondary">
                     Batch Progress
                   </Typography>
@@ -1169,11 +1189,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
         {/* Public Design Docs Toggle */}
         <Divider sx={{ my: 2 }} />
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            mb: 0.5,
+          }}
+        >
           <Box>
-            <Typography variant="subtitle2">
-              Share Design Docs
-            </Typography>
+            <Typography variant="subtitle2">Share Design Docs</Typography>
             <Typography variant="caption" color="text.secondary">
               Anyone with the link can view
             </Typography>
@@ -1186,24 +1211,26 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           />
         </Box>
         {isPublicDesignDocs && (
-          <Box sx={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: 1, 
-            mb: 1,
-            p: 1,
-            bgcolor: 'action.hover',
-            borderRadius: 1,
-          }}>
-            <Typography 
-              variant="caption" 
-              sx={{ 
-                flex: 1, 
-                fontFamily: 'monospace',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                color: 'text.secondary',
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              mb: 1,
+              p: 1,
+              bgcolor: "action.hover",
+              borderRadius: 1,
+            }}
+          >
+            <Typography
+              variant="caption"
+              sx={{
+                flex: 1,
+                fontFamily: "monospace",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                color: "text.secondary",
               }}
             >
               {publicLink}
@@ -2131,10 +2158,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       </Dialog>
 
       {/* Stop Session Confirmation */}
-      <Dialog
-        open={stopConfirmOpen}
-        onClose={() => setStopConfirmOpen(false)}
-      >
+      <Dialog open={stopConfirmOpen} onClose={() => setStopConfirmOpen(false)}>
         <DialogTitle>Stop Desktop?</DialogTitle>
         <DialogContent>
           <DialogContentText>

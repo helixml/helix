@@ -17,6 +17,7 @@ import ProjectsSidebar from '../components/project/ProjectsSidebar'
 
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
+import InstallPWA from '../components/system/InstallPWA'
 import DarkDialog from '../components/dialog/DarkDialog'
 import DialogTitle from '@mui/material/DialogTitle'
 import DialogContent from '@mui/material/DialogContent'
@@ -25,13 +26,9 @@ import Button from '@mui/material/Button'
 import { LicenseKeyPrompt } from '../components/LicenseKeyPrompt'
 import LoginRegisterDialog from '../components/orgs/LoginRegisterDialog'
 
-import FloatingRunnerState from '../components/admin/FloatingRunnerState'
 import { useFloatingRunnerState } from '../contexts/floatingRunnerState'
 import FloatingModal from '../components/admin/FloatingModal'
 import { useFloatingModal } from '../contexts/floatingModal'
-import Tooltip from '@mui/material/Tooltip'
-import IconButton from '@mui/material/IconButton'
-import DnsIcon from '@mui/icons-material/Dns'
 import UserOrgSelector from '../components/orgs/UserOrgSelector'
 
 import useRouter from '../hooks/useRouter'
@@ -40,7 +37,6 @@ import useLightTheme from '../hooks/useLightTheme'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useIsBigScreen from '../hooks/useIsBigScreen'
 import useApps from '../hooks/useApps'
-import useApi from '../hooks/useApi'
 import useUserMenuHeight from '../hooks/useUserMenuHeight'
 import { useGetConfig } from '../services/userService'
 import { TypesAuthProvider } from '../api/api'
@@ -55,13 +51,11 @@ const Layout: FC<{
   const lightTheme = useLightTheme()
   const isBigScreen = useIsBigScreen()
   const router = useRouter()
-  const api = useApi()
   const account = useAccount()
   const apps = useApps()
   const floatingRunnerState = useFloatingRunnerState()
   const floatingModal = useFloatingModal()
   const [showVersionBanner, setShowVersionBanner] = useState(true)
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
   const userMenuHeight = useUserMenuHeight()
   const { data: config } = useGetConfig()
 
@@ -155,25 +149,11 @@ const Layout: FC<{
   let sidebarMenu = null
   const isOrgMenu = router.meta.menu == 'orgs'
 
-  const apiClient = api.getApiClient()
-  
   // Determine which resource type to use
   // 1. Use resource_type from URL params if available
   // 2. If app_id is present in the URL, default to 'apps'
   // 3. Otherwise default to 'chat'
-  const resourceType = router.params.resource_type || (router.params.app_id ? 'apps' : 'chat')  
-
-  // This useEffect handles registering/updating the menu
-  React.useEffect(() => {
-    const checkAuthAndLoad = async () => {
-      const authResponse = await apiClient.v1AuthAuthenticatedList()
-      if (!authResponse.data.authenticated) {
-        return
-      }
-      setIsAuthenticated(true) 
-    }
-    checkAuthAndLoad()
-  }, [resourceType])
+  const resourceType = router.params.resource_type || (router.params.app_id ? 'apps' : 'chat')
 
 
 
@@ -387,6 +367,7 @@ const Layout: FC<{
         </Box>
         <Snackbar />
         <GlobalLoading />
+        <InstallPWA />
         {
           account.showLoginWindow && (
             config?.auth_provider === TypesAuthProvider.AuthProviderRegular ? (
@@ -444,17 +425,17 @@ const Layout: FC<{
             <LicenseKeyPrompt /> :
             null
         }
-        {
+        {/* Floating runner state disabled
           account.admin && floatingRunnerState.isVisible && (
             <FloatingRunnerState onClose={floatingRunnerState.hideFloatingRunnerState} />
           )
-        }
+        */}
         {
           floatingModal.isVisible && account.admin && (
             <FloatingModal onClose={floatingModal.hideFloatingModal} />
           )
         }
-        {
+        {/* Floating runner state toggle button disabled
           account.admin && (
             <Box
               sx={{
@@ -469,8 +450,8 @@ const Layout: FC<{
                   onClick={(e) => {
                     const rect = e.currentTarget.getBoundingClientRect()
                     const clickPosition = {
-                      x: rect.left - 340, // Position floating window to the left of button
-                      y: rect.top - 50    // Position slightly above the button
+                      x: rect.left - 340,
+                      y: rect.top - 50
                     }
                     floatingRunnerState.toggleFloatingRunnerState(clickPosition)
                   }}
@@ -498,7 +479,7 @@ const Layout: FC<{
               </Tooltip>
             </Box>
           )
-        }
+        */}
       </Box>
     </>
   )

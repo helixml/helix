@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 type contextKey string
@@ -75,6 +76,7 @@ func getRequestToken(r *http.Request) string {
 	// First try to get from Authorization header
 	token := getBearerToken(r)
 	if token != "" {
+		log.Debug().Str("source", "authorization_header").Str("path", r.URL.Path).Msg("token from Authorization header")
 		return token
 	}
 
@@ -83,23 +85,30 @@ func getRequestToken(r *http.Request) string {
 	// in the x-api-key header (since that's what Anthropic's API expects)
 	token = r.Header.Get("x-api-key")
 	if token != "" {
+		log.Debug().Str("source", "x-api-key").Str("path", r.URL.Path).Msg("token from x-api-key header")
 		return token
 	}
 
 	// Try api-key header (used by Azure OpenAI SDK clients)
 	token = r.Header.Get("api-key")
 	if token != "" {
+		log.Debug().Str("source", "api-key").Str("path", r.URL.Path).Msg("token from api-key header")
 		return token
 	}
 
 	// Then try to get from cookie
 	cookie, err := r.Cookie("access_token")
 	if err == nil && cookie != nil && cookie.Value != "" {
+		log.Debug().Str("source", "cookie").Str("path", r.URL.Path).Msg("token from access_token cookie")
 		return cookie.Value
 	}
 
 	// Finally fall back to query parameter
-	return getQueryToken(r)
+	queryToken := getQueryToken(r)
+	if queryToken != "" {
+		log.Debug().Str("source", "query").Str("path", r.URL.Path).Msg("token from query parameter")
+	}
+	return queryToken
 }
 
 /*
@@ -163,7 +172,7 @@ Access Control
 */
 
 func hasUser(user *types.User) bool {
-	return user.ID != ""
+	return user != nil && user.ID != ""
 }
 
 func hasUserOrRunner(user *types.User) bool {
@@ -175,7 +184,7 @@ func isAdmin(user *types.User) bool {
 }
 
 func isRunner(user *types.User) bool {
-	return user.Token != "" && user.TokenType == types.TokenTypeRunner
+	return user != nil && user.Token != "" && user.TokenType == types.TokenTypeRunner
 }
 
 func canSeeSession(user *types.User, session *types.Session) bool {

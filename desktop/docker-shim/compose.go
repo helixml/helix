@@ -19,10 +19,8 @@ func runCompose(args []string) int {
 	}
 
 	// Docker CLI plugin protocol: first arg is the plugin name ("compose")
-	// We need to preserve it
-	pluginName := ""
+	// Strip it - the real plugin doesn't expect it as an argument
 	if len(args) > 0 && args[0] == "compose" {
-		pluginName = args[0]
 		args = args[1:]
 	}
 
@@ -34,10 +32,7 @@ func runCompose(args []string) int {
 	projectArgs := getProjectArgs(newArgs)
 
 	// Build final arguments
-	finalArgs := make([]string, 0, len(newArgs)+len(projectArgs)+1)
-	if pluginName != "" {
-		finalArgs = append(finalArgs, pluginName)
-	}
+	finalArgs := make([]string, 0, len(newArgs)+len(projectArgs))
 	finalArgs = append(finalArgs, projectArgs...)
 	finalArgs = append(finalArgs, newArgs...)
 
@@ -456,7 +451,7 @@ func injectComposeCacheFlags(args []string) []string {
 		return args
 	}
 
-	// Check compose version for --set support (v2.24+)
+	// Check compose version for --set support (v2.24+ but removed in v5.0+)
 	version := getComposeVersion()
 	if version == "" {
 		log.Warn().Msg("Could not determine compose version, skipping cache injection")
@@ -470,6 +465,12 @@ func injectComposeCacheFlags(args []string) []string {
 		// For older versions, we'd need to modify the compose file directly
 		// which we already do in processComposeFile for path translation
 		// Adding cache config there would require more complex YAML manipulation
+		return args
+	}
+
+	// --set flag was removed in Compose v5.x
+	if compareVersions(version, "5.0.0") {
+		log.Debug().Msg("Compose version >= 5.0, --set removed, skipping cache injection")
 		return args
 	}
 

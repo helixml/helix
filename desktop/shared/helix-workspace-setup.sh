@@ -290,19 +290,27 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -n "$HELIX_BRANCH_MODE" ]; then
         if [ "$HELIX_BRANCH_MODE" = "existing" ]; then
             # Existing branch mode: checkout the working branch
             if [ -n "$HELIX_WORKING_BRANCH" ]; then
-                echo "  Mode: Continue existing branch"
-                echo "  Checking out branch: $HELIX_WORKING_BRANCH"
-
-                if git show-ref --verify --quiet "refs/heads/$HELIX_WORKING_BRANCH"; then
-                    git checkout "$HELIX_WORKING_BRANCH" 2>&1
-                    echo "  Checked out existing local branch: $HELIX_WORKING_BRANCH"
-                elif git show-ref --verify --quiet "refs/remotes/origin/$HELIX_WORKING_BRANCH"; then
-                    git checkout -b "$HELIX_WORKING_BRANCH" "origin/$HELIX_WORKING_BRANCH" 2>&1
-                    echo "  Created tracking branch from origin: $HELIX_WORKING_BRANCH"
+                # Special case: helix-specs is reserved for the design docs worktree
+                # Never checkout helix-specs directly on the main repo - it has no code!
+                if [ "$HELIX_WORKING_BRANCH" = "helix-specs" ]; then
+                    echo "  Warning: helix-specs is reserved for design docs worktree"
+                    echo "  Keeping main repo on default branch (helix-specs worktree will be created later)"
+                    # Stay on current branch, don't checkout helix-specs
                 else
-                    echo "  Branch not found locally or remotely: $HELIX_WORKING_BRANCH"
-                    echo "  Available remote branches:"
-                    git branch -r | head -10
+                    echo "  Mode: Continue existing branch"
+                    echo "  Checking out branch: $HELIX_WORKING_BRANCH"
+
+                    if git show-ref --verify --quiet "refs/heads/$HELIX_WORKING_BRANCH"; then
+                        git checkout "$HELIX_WORKING_BRANCH" 2>&1
+                        echo "  Checked out existing local branch: $HELIX_WORKING_BRANCH"
+                    elif git show-ref --verify --quiet "refs/remotes/origin/$HELIX_WORKING_BRANCH"; then
+                        git checkout -b "$HELIX_WORKING_BRANCH" "origin/$HELIX_WORKING_BRANCH" 2>&1
+                        echo "  Created tracking branch from origin: $HELIX_WORKING_BRANCH"
+                    else
+                        echo "  Branch not found locally or remotely: $HELIX_WORKING_BRANCH"
+                        echo "  Available remote branches:"
+                        git branch -r | head -10
+                    fi
                 fi
             else
                 echo "  Warning: Existing mode but HELIX_WORKING_BRANCH not set"

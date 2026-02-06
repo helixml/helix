@@ -108,6 +108,7 @@ type HelixAPIServer struct {
 	authenticator             auth.Authenticator
 	oidcClient                auth.OIDC
 	oauthManager              *oauth.Manager
+	sessionManager            *auth.SessionManager
 	fileServerHandler         http.Handler
 	cache                     *ristretto.Cache[string, string]
 	avatarsBucket             *blob.Bucket
@@ -186,6 +187,7 @@ func NewServer(
 			Store:          store,
 			ExpectedIssuer: cfg.Auth.OIDC.ExpectedIssuer,
 			TokenURL:       cfg.Auth.OIDC.TokenURL,
+			OfflineAccess:  cfg.Auth.OIDC.OfflineAccess,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create oidc client: %w", err)
@@ -253,15 +255,7 @@ func NewServer(
 		requestToCommenterMapping:   make(map[string]string),
 		streamingRateLimiter:        make(map[string]time.Time),
 		inferenceServer:             inferenceServer,
-		authMiddleware: newAuthMiddleware(
-			authenticator,
-			oidcClient,
-			store,
-			authMiddlewareConfig{
-				adminUserIDs: cfg.WebServer.AdminUserIDs,
-				runnerToken:  cfg.WebServer.RunnerToken,
-			},
-		),
+		sessionManager: auth.NewSessionManager(store, oidcClient, cfg),
 		providerManager:   providerManager,
 		modelInfoProvider: modelInfoProvider,
 		pubsub:            ps,
@@ -294,6 +288,19 @@ func NewServer(
 		connman:                  connectionManager,
 		auditLogService:          services.NewAuditLogService(store),
 	}
+
+	// Initialize auth middleware with session manager for BFF authentication
+	apiServer.authMiddleware = newAuthMiddleware(
+		authenticator,
+		oidcClient,
+		store,
+		authMiddlewareConfig{
+			adminUserIDs: cfg.WebServer.AdminUserIDs,
+			runnerToken:  cfg.WebServer.RunnerToken,
+		},
+		cfg,
+		apiServer.sessionManager,
+	)
 
 	// Initialize SummaryService for async interaction summaries and session titles
 	apiServer.summaryService = NewSummaryService(store, providerManager, ps)
@@ -504,6 +511,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Extract auth for /api/v1 routes only (not frontend static assets)
 	subRouter := router.PathPrefix(APIPrefix).Subrouter()
 	subRouter.Use(apiServer.authMiddleware.extractMiddleware)
+	subRouter.Use(apiServer.authMiddleware.csrfMiddleware)
 
 	// auth router requires a valid token from keycloak or api key
 	authRouter := subRouter.MatcherFunc(matchAllRoutes).Subrouter()
@@ -591,6 +599,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	router.HandleFunc("/v1/models", apiServer.authMiddleware.auth(apiServer.listModels)).Methods(http.MethodGet)
 	// Anthropic API compatible routes
 	router.HandleFunc("/v1/messages", apiServer.authMiddleware.auth(apiServer.anthropicAPIProxyHandler)).Methods(http.MethodPost, http.MethodOptions)
+	router.HandleFunc("/v1/messages/count_tokens", apiServer.authMiddleware.auth(apiServer.anthropicTokenCountHandler)).Methods(http.MethodPost, http.MethodOptions)
 	// Azure OpenAI API compatible routes
 	router.HandleFunc("/openai/deployments/{model}/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
 
@@ -705,6 +714,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/apps/{id}/trigger-status", apiServer.getAppTriggerStatus).Methods(http.MethodGet)
 
 	authRouter.HandleFunc("/search", system.Wrapper(apiServer.knowledgeSearch)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/resource-search", system.Wrapper(apiServer.resourceSearch)).Methods(http.MethodPost)
 
 	authRouter.HandleFunc("/knowledge", system.Wrapper(apiServer.listKnowledge)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/knowledge/{id}", system.Wrapper(apiServer.getKnowledge)).Methods(http.MethodGet)
@@ -767,6 +777,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	insecureRouter.HandleFunc("/auth/login", apiServer.login).Methods(http.MethodPost)
 	insecureRouter.HandleFunc("/auth/callback", apiServer.callback).Methods(http.MethodGet)
 	insecureRouter.HandleFunc("/auth/user", apiServer.user).Methods(http.MethodGet)
+	insecureRouter.HandleFunc("/auth/session", apiServer.session).Methods(http.MethodGet)
 	insecureRouter.HandleFunc("/auth/logout", apiServer.logout).Methods(http.MethodPost)
 	insecureRouter.HandleFunc("/auth/authenticated", apiServer.authenticated).Methods(http.MethodGet)
 	insecureRouter.HandleFunc("/auth/refresh", apiServer.refresh).Methods(http.MethodPost)
@@ -801,6 +812,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/organizations/{id}/teams/{team_id}/members/{user_id}", apiServer.removeTeamMember).Methods(http.MethodDelete)
 
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/organization-domains", apiServer.listOrganizationDomains).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/users", system.DefaultWrapper(apiServer.usersList)).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/users", system.DefaultWrapper(apiServer.createUser)).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/users/{id}/password", system.DefaultWrapper(apiServer.adminResetPassword)).Methods(http.MethodPut)
@@ -983,6 +995,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}/startup-script/history", system.Wrapper(apiServer.getProjectStartupScriptHistory)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/guidelines-history", system.Wrapper(apiServer.getProjectGuidelinesHistory)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/move", system.Wrapper(apiServer.moveProject)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/usage", system.Wrapper(apiServer.getProjectUsage)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/move/preview", system.Wrapper(apiServer.moveProjectPreview)).Methods(http.MethodPost)
 
 	// Project access grant routes
@@ -1134,15 +1147,21 @@ func getID(r *http.Request) string {
 
 // Static files router
 func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
-	if apiServer.Cfg.WebServer.ServeProdFrontendInDev {
-		const prodBuildPath = "/www"
-		log.Info().Msgf("serving production frontend from %s", prodBuildPath)
-		fileSystem := http.Dir(prodBuildPath)
-		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem))
+	frontendURL := apiServer.Cfg.WebServer.FrontendURL
+
+	if frontendURL == "" {
+		log.Fatal().Msg("FRONTEND_URL must be set - use a URL (http://...) for dev proxy or a path (/www) for static files")
+	}
+
+	// If FrontendURL is a URL (http:// or https://), proxy to it (dev mode)
+	// Otherwise, serve from filesystem (prod mode, e.g. /www)
+	if strings.HasPrefix(frontendURL, "http://") || strings.HasPrefix(frontendURL, "https://") {
+		log.Info().Msgf("proxying frontend requests to %s", frontendURL)
+		router.PathPrefix("/").Handler(spa.NewSPAReverseProxyServer(frontendURL))
 	} else {
-		const devServerURL = "http://frontend:8081"
-		log.Info().Msgf("proxying frontend requests to %s", devServerURL)
-		router.PathPrefix("/").Handler(spa.NewSPAReverseProxyServer(devServerURL))
+		log.Info().Msgf("serving static UI files from %s", frontendURL)
+		fileSystem := http.Dir(frontendURL)
+		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem))
 	}
 }
 

@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from 'react'
 import ReconnectingWebSocket from 'reconnecting-websocket'
-import useAccount from '../hooks/useAccount'
 
 import {
   IWebsocketEvent,
@@ -12,7 +11,6 @@ export const useWebsocket = (
     (ev: IWebsocketEvent): void,
   },
 ) => {
-  const account = useAccount()
   const wsRef = useRef<ReconnectingWebSocket>()
   const messageQueue = useRef<IWebsocketEvent[]>([])
   const processingRef = useRef(false)
@@ -33,12 +31,12 @@ export const useWebsocket = (
   }
 
   useEffect(() => {
-    if(!account.token) return
+    // With BFF auth, session cookie is automatically sent with WebSocket connections
     if(!session_id) return
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsHost = window.location.host
     const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?session_id=${session_id}`
-    
+
     const rws = new ReconnectingWebSocket(url, [], {
       maxRetries: 10,
       reconnectionDelayGrowFactor: 1.3,
@@ -50,7 +48,7 @@ export const useWebsocket = (
 
     const messageHandler = (event: MessageEvent<any>) => {
       const parsedData = JSON.parse(event.data) as IWebsocketEvent
-      
+
       if(parsedData.session_id != session_id) {
         return
       }
@@ -70,10 +68,7 @@ export const useWebsocket = (
         wsRef.current.close()
       }
     }
-  }, [
-    account.token,
-    session_id,
-  ])
+  }, [session_id])
 }
 
 export default useWebsocket

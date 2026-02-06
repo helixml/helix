@@ -347,24 +347,14 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 	repoID := s.generateRepositoryID(request.RepoType, request.Name)
 
 	// Resolve organization ID
+	// Only set if explicitly provided or if the project has an organization.
+	// Personal projects (no org) should have repos with no organization_id.
 	orgID := request.OrganizationID
-	if orgID == "" {
-		// If attached to a project, use project's organization
-		if request.ProjectID != "" {
-			project, err := s.store.GetProject(ctx, request.ProjectID)
-			if err == nil && project.OrganizationID != "" {
-				orgID = project.OrganizationID
-			}
-		}
-
-		// If still no org, get owner's first organization
-		if orgID == "" {
-			memberships, err := s.store.ListOrganizationMemberships(ctx, &store.ListOrganizationMembershipsQuery{
-				UserID: request.OwnerID,
-			})
-			if err == nil && len(memberships) > 0 {
-				orgID = memberships[0].OrganizationID
-			}
+	if orgID == "" && request.ProjectID != "" {
+		// If attached to a project, use project's organization (may be empty for personal projects)
+		project, err := s.store.GetProject(ctx, request.ProjectID)
+		if err == nil && project.OrganizationID != "" {
+			orgID = project.OrganizationID
 		}
 	}
 
@@ -759,6 +749,14 @@ func (s *GitRepositoryService) GetExternalRepoStatus(ctx context.Context, repoID
 	// Get remote tracking commit
 	remoteCommit, err := getRemoteTrackingCommit(ctx, gitRepo.LocalPath, branchName)
 	if err != nil {
+		// If remote tracking ref doesn't exist, the remote repo is empty
+		if giteagit.IsErrNotExist(err) {
+			log.Info().
+				Str("repo_id", gitRepo.ID).
+				Str("branch", branchName).
+				Msg("Remote repository appears to be empty (no tracking ref), returning empty status")
+			return status, nil
+		}
 		return nil, fmt.Errorf("failed to get remote branch reference: %w", err)
 	}
 

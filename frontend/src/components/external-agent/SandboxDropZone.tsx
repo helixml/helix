@@ -3,6 +3,7 @@ import { Box, LinearProgress, Typography, Fade, Snackbar, Alert } from '@mui/mat
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CheckIcon from '@mui/icons-material/Check';
 import ImageIcon from '@mui/icons-material/Image';
+import { getCSRFToken } from '../../utils/csrf';
 
 interface UploadState {
   progress: number; // 0-100 for progress, -1 for error, 101 for complete
@@ -95,6 +96,11 @@ const SandboxDropZone: FC<SandboxDropZoneProps> = ({
           // Pass query param to control file manager opening
           const url = `/api/v1/external-agents/${sessionId}/upload${openFileManager ? '' : '?open_file_manager=false'}`;
           xhr.open('POST', url);
+          // Add CSRF token for BFF auth
+          const csrfToken = getCSRFToken();
+          if (csrfToken) {
+            xhr.setRequestHeader('X-CSRF-Token', csrfToken);
+          }
           xhr.send(formData);
         });
 

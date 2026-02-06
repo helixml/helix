@@ -13,6 +13,7 @@ import (
 type ListProjectsQuery struct {
 	UserID         string
 	OrganizationID string
+	IncludeStats   bool
 }
 
 type GetJobsQuery struct {
@@ -164,6 +165,7 @@ type Store interface {
 	//  Auth + Authz
 	CreateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
 	GetOrganization(ctx context.Context, q *GetOrganizationQuery) (*types.Organization, error)
+	GetOrganizationByDomain(ctx context.Context, domain string) (*types.Organization, error)
 	UpdateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error)
 	DeleteOrganization(ctx context.Context, id string) error
 	ListOrganizations(ctx context.Context, query *ListOrganizationsQuery) ([]*types.Organization, error)
@@ -361,6 +363,16 @@ type Store interface {
 	ListServiceConnectionsByProvider(ctx context.Context, organizationID string, providerType types.ExternalRepositoryType) ([]*types.ServiceConnection, error)
 	UpdateServiceConnection(ctx context.Context, connection *types.ServiceConnection) error
 	DeleteServiceConnection(ctx context.Context, id string) error
+
+	// User Session methods (BFF authentication)
+	CreateUserSession(ctx context.Context, session *types.UserSession) (*types.UserSession, error)
+	GetUserSession(ctx context.Context, id string) (*types.UserSession, error)
+	GetUserSessionsByUser(ctx context.Context, userID string) ([]*types.UserSession, error)
+	UpdateUserSession(ctx context.Context, session *types.UserSession) (*types.UserSession, error)
+	DeleteUserSession(ctx context.Context, id string) error
+	DeleteUserSessionsByUser(ctx context.Context, userID string) error
+	GetUserSessionsNearOIDCExpiry(ctx context.Context, expiresBefore time.Time) ([]*types.UserSession, error)
+	DeleteExpiredUserSessions(ctx context.Context) error
 
 	CreateUsageMetric(ctx context.Context, metric *types.UsageMetric) (*types.UsageMetric, error)
 	GetAppUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsageMetric, error)
@@ -633,6 +645,9 @@ type Store interface {
 	IncrementPromptUsage(ctx context.Context, promptID string) error
 	SearchPrompts(ctx context.Context, userID, query string, limit int) ([]*types.PromptHistoryEntry, error)
 	UnifiedSearch(ctx context.Context, userID string, req *types.UnifiedSearchRequest) (*types.UnifiedSearchResponse, error)
+
+	// ResourceSearch - fast concurrent search across multiple resource types
+	ResourceSearch(ctx context.Context, req *types.ResourceSearchRequest) (*types.ResourceSearchResponse, error)
 }
 
 type EmbeddingsStore interface {

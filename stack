@@ -589,8 +589,16 @@ function build-zed() {
   # Setup cargo + rustup cache for faster rebuilds
   # Note: We mount registry and git separately to avoid shadowing /root/.cargo/bin
   # Rustup cache stores the toolchain (1.91.1 + wasm32-wasip2 target) so it doesn't re-download
-  local CARGO_CACHE="$HOME/.cargo-docker-cache"
-  local RUSTUP_CACHE="$HOME/.rustup-docker-cache"
+  # Use /buildkit-cache if available (persistent across dev containers), otherwise fall back to $HOME
+  if [ -d "/buildkit-cache" ] && [ -w "/buildkit-cache" ]; then
+    local CARGO_CACHE="/buildkit-cache/cargo"
+    local RUSTUP_CACHE="/buildkit-cache/rustup"
+    echo "📦 Using persistent cache at /buildkit-cache (shared across dev containers)"
+  else
+    local CARGO_CACHE="$HOME/.cargo-docker-cache"
+    local RUSTUP_CACHE="$HOME/.rustup-docker-cache"
+    echo "📦 Using local cache at $CARGO_CACHE (not persistent across containers)"
+  fi
   mkdir -p "$CARGO_CACHE/registry" "$CARGO_CACHE/git" "$RUSTUP_CACHE"
 
   # Build command based on type
@@ -730,15 +738,14 @@ function start() {
     }
   fi
 
-  # Check if SERVE_PROD_FRONTEND_IN_DEV is enabled but frontend not built
-  if grep -q "^SERVE_PROD_FRONTEND_IN_DEV=true" .env 2>/dev/null; then
-    if [ ! -f "./frontend/dist/index.html" ]; then
-      echo "🔨 SERVE_PROD_FRONTEND_IN_DEV enabled but frontend not built, building..."
-      build-frontend || {
-        echo "❌ Failed to build frontend. Please check the error messages above."
-        exit 1
-      }
-    fi
+  # Always rebuild frontend when FRONTEND_URL=/www is set (production frontend mode)
+  # This ensures ./stack start always has the latest frontend build
+  if grep -q "^FRONTEND_URL=/www" .env 2>/dev/null; then
+    echo "🔨 FRONTEND_URL=/www set, rebuilding frontend..."
+    build-frontend || {
+      echo "❌ Failed to build frontend. Please check the error messages above."
+      exit 1
+    }
   fi
 
   export MANUALRUN=1
@@ -760,7 +767,14 @@ function start() {
   setup_sandbox_profile
 
   # Stop sandbox if running to ensure fresh start
-  docker compose -f docker-compose.dev.yaml stop "$SANDBOX_SERVICE" 2>/dev/null || true
+  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
+    # In Helix-in-Helix mode, sandbox is on Host Docker
+    DOCKER_HOST="$DOCKER_HOST_OUTER" \
+    COMPOSE_PROFILES="${OUTER_SANDBOX_PROFILE:-code-nvidia}" \
+    docker compose -f docker-compose.dev.yaml stop "$SANDBOX_SERVICE" 2>/dev/null || true
+  else
+    docker compose -f docker-compose.dev.yaml stop "$SANDBOX_SERVICE" 2>/dev/null || true
+  fi
 
   # Start services based on enabled profiles
   if [[ -n "$WITH_RUNNER" ]]; then
@@ -1338,27 +1352,57 @@ function transfer-desktop-to-sandbox() {
   fi
   get_sandbox_names
 
-  # Check if sandbox container is running
-  if ! docker compose -f docker-compose.dev.yaml ps "$SANDBOX_SERVICE" | grep -q "Up"; then
-    echo "ℹ️  Sandbox container not running, skipping image transfer (will transfer on next start)"
-    return 0
+  # In Helix-in-Helix mode, sandbox runs on host Docker with different container name
+  local SANDBOX_DOCKER_HOST=""
+  local SANDBOX_CONTAINER_NAME="$SANDBOX_CONTAINER"
+  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
+    SANDBOX_DOCKER_HOST="$DOCKER_HOST_OUTER"
+    SANDBOX_CONTAINER_NAME="helix-inner-sandbox-${USER:-dev}"
+    echo "🎮 Helix-in-Helix mode: Using host Docker for sandbox ($SANDBOX_CONTAINER_NAME)"
   fi
 
-  # Ensure local registry is running (needed for push/pull transfer)
-  if ! docker compose -f docker-compose.dev.yaml ps registry 2>/dev/null | grep -q "Up"; then
-    echo "🚀 Starting local registry for image transfer..."
-    docker compose -f docker-compose.dev.yaml up -d registry
-    # Wait for registry to be ready
-    local TIMEOUT=10
-    local ELAPSED=0
-    until curl -s http://localhost:5000/v2/ >/dev/null 2>&1; do
-      if [ $ELAPSED -ge $TIMEOUT ]; then
-        echo "⚠️  Registry not ready after ${TIMEOUT}s, continuing anyway..."
-        break
-      fi
-      sleep 1
-      ELAPSED=$((ELAPSED + 1))
-    done
+  # Helper function to run docker commands against sandbox's Docker host
+  sandbox_docker() {
+    if [[ -n "$SANDBOX_DOCKER_HOST" ]]; then
+      DOCKER_HOST="$SANDBOX_DOCKER_HOST" docker "$@"
+    else
+      docker "$@"
+    fi
+  }
+
+  # Check if sandbox container is running
+  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
+    # In Helix-in-Helix mode, check on host Docker
+    if ! sandbox_docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${SANDBOX_CONTAINER_NAME}$"; then
+      echo "ℹ️  Sandbox container not running on host Docker, skipping image transfer"
+      return 0
+    fi
+  else
+    # Normal mode: check via docker-compose
+    if ! docker compose -f docker-compose.dev.yaml ps "$SANDBOX_SERVICE" | grep -q "Up"; then
+      echo "ℹ️  Sandbox container not running, skipping image transfer (will transfer on next start)"
+      return 0
+    fi
+  fi
+
+  # Ensure local registry is running (only needed for normal mode push/pull transfer)
+  # In Helix-in-Helix mode, we use docker save/cp/load instead of registry
+  if [[ "$HELIX_IN_HELIX" != "true" ]]; then
+    if ! docker compose -f docker-compose.dev.yaml ps registry 2>/dev/null | grep -q "Up"; then
+      echo "🚀 Starting local registry for image transfer..."
+      docker compose -f docker-compose.dev.yaml up -d registry
+      # Wait for registry to be ready
+      local TIMEOUT=10
+      local ELAPSED=0
+      until curl -s http://localhost:5000/v2/ >/dev/null 2>&1; do
+        if [ $ELAPSED -ge $TIMEOUT ]; then
+          echo "⚠️  Registry not ready after ${TIMEOUT}s, continuing anyway..."
+          break
+        fi
+        sleep 1
+        ELAPSED=$((ELAPSED + 1))
+      done
+    fi
   fi
 
   # Check if image exists on host
@@ -1373,44 +1417,84 @@ function transfer-desktop-to-sandbox() {
   local IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
 
   # Check if sandbox already has this exact image by version tag (skip transfer if so)
-  local SANDBOX_HAS_TAG=$(docker exec "$SANDBOX_CONTAINER" docker images "${IMAGE_NAME}:${IMAGE_TAG}" --format '{{.ID}}' 2>/dev/null)
+  local SANDBOX_HAS_TAG=$(sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker images "${IMAGE_NAME}:${IMAGE_TAG}" --format '{{.ID}}' 2>/dev/null)
   if [ -n "$SANDBOX_HAS_TAG" ]; then
     echo "✅ Sandbox already has ${IMAGE_NAME}:${IMAGE_TAG} - skipping transfer"
     # Still restart heartbeat to ensure API has the correct version
     echo "🔄 Restarting heartbeat daemon to ensure version is current..."
-    docker exec "$SANDBOX_CONTAINER" pkill -f sandbox-heartbeat 2>/dev/null || true
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" pkill -f sandbox-heartbeat 2>/dev/null || true
     return 0
   fi
 
-  local REGISTRY_TAG="localhost:5000/${IMAGE_NAME}:${IMAGE_TAG}"
-  local SANDBOX_REGISTRY_TAG="registry:5000/${IMAGE_NAME}:${IMAGE_TAG}"
+  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
+    # In Helix-in-Helix mode, the registry runs on session dockerd but the inner sandbox
+    # is on Host Docker — they can't see each other's networks. Use docker save/cp/load instead.
+    echo "🎮 Helix-in-Helix: Transferring ${IMAGE_NAME}:${IMAGE_TAG} via save/cp/load..."
+    local TMPFILE="/tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar"
 
-  # Tag for local registry and push
-  echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${REGISTRY_TAG}..."
-  docker tag "${IMAGE_NAME}:latest" "$REGISTRY_TAG"
+    echo "📤 Saving ${IMAGE_NAME}:latest from session Docker..."
+    if ! docker save "${IMAGE_NAME}:latest" -o "$TMPFILE"; then
+      echo "❌ Failed to save ${IMAGE_NAME}:latest"
+      return 1
+    fi
+    local TAR_SIZE=$(du -sh "$TMPFILE" | cut -f1)
+    echo "   Saved to $TMPFILE ($TAR_SIZE)"
 
-  echo "📤 Pushing to local registry..."
-  if ! docker push "$REGISTRY_TAG" 2>&1 | grep -v "^$"; then
-    echo "❌ Failed to push to local registry"
-    return 1
+    echo "📥 Copying to inner sandbox ($SANDBOX_CONTAINER_NAME) on Host Docker..."
+    if ! sandbox_docker cp "$TMPFILE" "${SANDBOX_CONTAINER_NAME}:/tmp/${IMAGE_NAME}.tar"; then
+      echo "❌ Failed to copy image to inner sandbox"
+      rm -f "$TMPFILE"
+      return 1
+    fi
+
+    echo "📦 Loading image in inner sandbox's dockerd..."
+    if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker load -i "/tmp/${IMAGE_NAME}.tar"; then
+      echo "❌ Failed to load image in inner sandbox"
+      sandbox_docker exec "$SANDBOX_CONTAINER_NAME" rm -f "/tmp/${IMAGE_NAME}.tar" 2>/dev/null || true
+      rm -f "$TMPFILE"
+      return 1
+    fi
+
+    # Tag with version
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}"
+
+    # Clean up temp files
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" rm -f "/tmp/${IMAGE_NAME}.tar" 2>/dev/null || true
+    rm -f "$TMPFILE"
+
+    echo "✅ ${IMAGE_NAME}:${IMAGE_TAG} transferred via save/cp/load"
+  else
+    # Normal mode: use local registry for efficient layer-based transfer
+    local REGISTRY_TAG="localhost:5000/${IMAGE_NAME}:${IMAGE_TAG}"
+    local SANDBOX_REGISTRY_TAG="registry:5000/${IMAGE_NAME}:${IMAGE_TAG}"
+
+    # Tag for local registry and push
+    echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${REGISTRY_TAG}..."
+    docker tag "${IMAGE_NAME}:latest" "$REGISTRY_TAG"
+
+    echo "📤 Pushing to local registry..."
+    if ! docker push "$REGISTRY_TAG" 2>&1 | grep -v "^$"; then
+      echo "❌ Failed to push to local registry"
+      return 1
+    fi
+
+    # Pull from registry inside sandbox
+    echo "📥 Sandbox pulling from registry (only changed layers transfer)..."
+    if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$"; then
+      echo "❌ Failed to pull from registry inside sandbox"
+      return 1
+    fi
+
+    # Tag with the expected names inside sandbox (Hydra uses helix-${desktop}:${tag})
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}"
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest"
+
+    # Remove the registry-prefixed tag to allow proper cleanup later
+    # (layers are shared, so this just removes the tag, not the data)
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker rmi "$SANDBOX_REGISTRY_TAG" 2>/dev/null || true
+
+    echo "✅ ${IMAGE_NAME}:${IMAGE_TAG} transferred via registry"
   fi
-
-  # Pull from registry inside sandbox
-  echo "📥 Sandbox pulling from registry (only changed layers transfer)..."
-  if ! docker exec "$SANDBOX_CONTAINER" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$"; then
-    echo "❌ Failed to pull from registry inside sandbox"
-    return 1
-  fi
-
-  # Tag with the expected names inside sandbox (Hydra uses helix-${desktop}:${tag})
-  docker exec "$SANDBOX_CONTAINER" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}"
-  docker exec "$SANDBOX_CONTAINER" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest"
-
-  # Remove the registry-prefixed tag to allow proper cleanup later
-  # (layers are shared, so this just removes the tag, not the data)
-  docker exec "$SANDBOX_CONTAINER" docker rmi "$SANDBOX_REGISTRY_TAG" 2>/dev/null || true
-
-  echo "✅ ${IMAGE_NAME}:${IMAGE_TAG} transferred via registry"
 
   # Version files are bind-mounted from host (updated by build-desktop)
   if [ -f "sandbox-images/${IMAGE_NAME}.version" ]; then
@@ -1419,8 +1503,52 @@ function transfer-desktop-to-sandbox() {
 
   # Restart heartbeat to pick up the new version immediately
   echo "🔄 Restarting heartbeat daemon to report new version..."
-  docker exec "$SANDBOX_CONTAINER" pkill -f sandbox-heartbeat 2>/dev/null || true
+  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" pkill -f sandbox-heartbeat 2>/dev/null || true
   echo "✅ Image transferred and heartbeat restarted"
+
+  # Clean up old images to prevent disk exhaustion
+  # Keep only the current version tag and latest
+  echo "🧹 Cleaning up old ${IMAGE_NAME} images..."
+
+  # Clean up old images inside sandbox (keep current tag and latest)
+  local OLD_SANDBOX_IMAGES=$(sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker images "${IMAGE_NAME}" --format '{{.Tag}}' 2>/dev/null | grep -v "^${IMAGE_TAG}$" | grep -v "^latest$" || true)
+  if [ -n "$OLD_SANDBOX_IMAGES" ]; then
+    echo "   Removing old sandbox images: $(echo $OLD_SANDBOX_IMAGES | tr '\n' ' ')"
+    for tag in $OLD_SANDBOX_IMAGES; do
+      sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker rmi "${IMAGE_NAME}:${tag}" 2>/dev/null || true
+    done
+  fi
+
+  # Prune dangling images in sandbox
+  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker image prune -f 2>/dev/null || true
+
+  # Registry cleanup (only in normal mode — H-in-H doesn't use registry for transfer)
+  if [[ "$HELIX_IN_HELIX" != "true" ]]; then
+    # Clean up old registry-tagged images on host
+    local OLD_HOST_IMAGES=$(docker images "localhost:5000/${IMAGE_NAME}" --format '{{.Tag}}' 2>/dev/null | grep -v "^${IMAGE_TAG}$" | grep -v "^latest$" || true)
+    if [ -n "$OLD_HOST_IMAGES" ]; then
+      echo "   Removing old host images: $(echo $OLD_HOST_IMAGES | tr '\n' ' ')"
+      for tag in $OLD_HOST_IMAGES; do
+        docker rmi "localhost:5000/${IMAGE_NAME}:${tag}" 2>/dev/null || true
+      done
+    fi
+
+    # Garbage collect registry to remove orphaned layers
+    if docker compose -f docker-compose.dev.yaml ps registry 2>/dev/null | grep -q "Up"; then
+      echo "   Running registry garbage collection..."
+      for old_tag in $(curl -s "http://localhost:5000/v2/${IMAGE_NAME}/tags/list" 2>/dev/null | jq -r '.tags[]?' 2>/dev/null | grep -v "^${IMAGE_TAG}$" || true); do
+        digest=$(curl -s -I -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+          "http://localhost:5000/v2/${IMAGE_NAME}/manifests/${old_tag}" 2>/dev/null | \
+          grep -i docker-content-digest | awk '{print $2}' | tr -d '\r')
+        if [ -n "$digest" ]; then
+          curl -s -X DELETE "http://localhost:5000/v2/${IMAGE_NAME}/manifests/${digest}" 2>/dev/null || true
+        fi
+      done
+      docker compose -f docker-compose.dev.yaml exec -T registry bin/registry garbage-collect /etc/docker/registry/config.yml 2>/dev/null || true
+    fi
+  fi
+
+  echo "✅ Cleanup complete"
 }
 
 # Backward compatibility wrappers
@@ -1566,7 +1694,15 @@ function build-sandbox() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo "📦 Building helix-sandbox container..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  docker build -f Dockerfile.sandbox -t helix-sandbox:latest .
+
+  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
+    # In Helix-in-Helix mode, build the sandbox image on Host Docker
+    # because the inner sandbox runs there (DinD can't nest further on session dockerd)
+    echo "🎮 Helix-in-Helix: Building sandbox image on Host Docker..."
+    DOCKER_HOST="$DOCKER_HOST_OUTER" docker build -f Dockerfile.sandbox -t helix-sandbox:latest .
+  else
+    docker build -f Dockerfile.sandbox -t helix-sandbox:latest .
+  fi
 
   if [ $? -ne 0 ]; then
     echo "❌ Failed to build helix-sandbox container"
@@ -1586,24 +1722,54 @@ function build-sandbox() {
     source "$DIR/.env"
   fi
   get_sandbox_names
-  echo "🔄 Restarting sandbox container ($SANDBOX_SERVICE) with updated image..."
-  docker compose -f docker-compose.dev.yaml rm -f "$SANDBOX_SERVICE"
-  docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
 
-  echo "✅ Sandbox container rebuilt and restarted"
+  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
+    # In Helix-in-Helix mode, restart sandbox on Host Docker
+    local INNER_SANDBOX_NAME="helix-inner-sandbox-${USER:-dev}"
+    echo "🎮 Helix-in-Helix: Restarting inner sandbox ($INNER_SANDBOX_NAME) on Host Docker..."
 
-  # Wait for sandbox's nested dockerd to be ready
-  echo "⏳ Waiting for sandbox dockerd..."
-  local TIMEOUT=30
-  local ELAPSED=0
-  until docker exec "$SANDBOX_CONTAINER" docker info >/dev/null 2>&1; do
-    if [ $ELAPSED -ge $TIMEOUT ]; then
-      echo "⚠️  Sandbox dockerd not ready after ${TIMEOUT}s"
-      break
-    fi
-    sleep 1
-    ELAPSED=$((ELAPSED + 1))
-  done
+    # Stop and remove old inner sandbox container on Host Docker
+    DOCKER_HOST="$DOCKER_HOST_OUTER" docker rm -f "$INNER_SANDBOX_NAME" 2>/dev/null || true
+
+    # Start inner sandbox on Host Docker using compose
+    DOCKER_HOST="$DOCKER_HOST_OUTER" \
+    COMPOSE_PROFILES="${OUTER_SANDBOX_PROFILE:-code-nvidia}" \
+    docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
+
+    echo "✅ Inner sandbox rebuilt and restarted on Host Docker"
+
+    # Wait for inner sandbox's nested dockerd to be ready
+    echo "⏳ Waiting for inner sandbox dockerd..."
+    local TIMEOUT=60
+    local ELAPSED=0
+    until DOCKER_HOST="$DOCKER_HOST_OUTER" docker exec "$INNER_SANDBOX_NAME" docker info >/dev/null 2>&1; do
+      if [ $ELAPSED -ge $TIMEOUT ]; then
+        echo "⚠️  Inner sandbox dockerd not ready after ${TIMEOUT}s"
+        break
+      fi
+      sleep 1
+      ELAPSED=$((ELAPSED + 1))
+    done
+  else
+    echo "🔄 Restarting sandbox container ($SANDBOX_SERVICE) with updated image..."
+    docker compose -f docker-compose.dev.yaml rm -f "$SANDBOX_SERVICE"
+    docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
+
+    echo "✅ Sandbox container rebuilt and restarted"
+
+    # Wait for sandbox's nested dockerd to be ready
+    echo "⏳ Waiting for sandbox dockerd..."
+    local TIMEOUT=30
+    local ELAPSED=0
+    until docker exec "$SANDBOX_CONTAINER" docker info >/dev/null 2>&1; do
+      if [ $ELAPSED -ge $TIMEOUT ]; then
+        echo "⚠️  Sandbox dockerd not ready after ${TIMEOUT}s"
+        break
+      fi
+      sleep 1
+      ELAPSED=$((ELAPSED + 1))
+    done
+  fi
 
   # Transfer desktop images to sandbox via local registry
   echo ""
@@ -1768,9 +1934,27 @@ function update_openapi() {
 }
 
 function build-frontend() {
-	echo "🔄 Building production frontend for SERVE_PROD_FRONTEND_IN_DEV mode..."
-	cd "$DIR/frontend"
-	yarn build || {
+	local force="${1:-}"
+	local dist_marker="$DIR/frontend/dist/index.html"
+
+	# Check if rebuild is needed (skip if dist is newer than all source files)
+	if [ -f "$dist_marker" ] && [ "$force" != "--force" ]; then
+		# Find any source files newer than the dist marker
+		local newer_files=$(find "$DIR/frontend/src" "$DIR/frontend/package.json" "$DIR/frontend/vite.config.ts" \
+			-newer "$dist_marker" 2>/dev/null | head -1)
+
+		if [ -z "$newer_files" ]; then
+			echo "✅ Frontend already up to date (no source changes)"
+			return 0
+		fi
+		echo "🔄 Frontend source changed, rebuilding..."
+	else
+		echo "🔄 Building production frontend (for FRONTEND_URL=/www mode)..."
+	fi
+
+	(
+		cd "$DIR/frontend" && yarn build
+	) || {
 		echo "❌ Frontend build failed"
 		return 1
 	}

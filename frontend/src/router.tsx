@@ -1,3 +1,4 @@
+import React from 'react'
 import createRouter, { Route } from 'router5'
 import { useRoute } from 'react-router5'
 import browserPlugin from 'router5-plugin-browser'
@@ -38,6 +39,7 @@ import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
 import PasswordReset from './pages/PasswordReset'
 import PasswordResetComplete from './pages/PasswordResetComplete'
 import DesignDocPage from './pages/DesignDocPage'
+import useRouter from './hooks/useRouter'
 
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
@@ -89,9 +91,9 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
       orgRouteAware: true,
     },
     render: () => {
-      const { navigate } = useRouter()
+      const { navigateReplace } = useRouter()
       React.useEffect(() => {
-        navigate(namePrefix + 'projects', {}, { replace: true })
+        navigateReplace(namePrefix + 'projects')
       }, [])
       return null
     },
@@ -126,9 +128,9 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     },
     render: () => {
       // Redirect to Projects page with repositories tab
-      const { navigate } = useRouter()
+      const { navigateReplace } = useRouter()
       React.useEffect(() => {
-        navigate('projects', { tab: 'repositories' }, { replace: true })
+        navigateReplace('projects', { tab: 'repositories' })
       }, [])
       return null
     },
@@ -194,9 +196,9 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
       orgRouteAware: true,
     },
     render: () => {
-      const { navigate } = useRouter()
+      const { navigateReplace } = useRouter()
       React.useEffect(() => {
-        navigate(namePrefix + 'projects', {}, { replace: true })
+        navigateReplace(namePrefix + 'projects')
       }, [])
       return null
     },
@@ -239,7 +241,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     meta: {
       drawer: false,
       orgRouteAware: true,
-      title: 'Team Desktop',
+      title: 'Human Desktop',
     },
     render: () => (
       <TeamDesktopPage />
@@ -475,7 +477,25 @@ router.subscribe((state) => {
     win.viewPage(state)
   }
 })
+
+const SELECTED_ORG_STORAGE_KEY = 'selected_org'
+
+const getStoredOrg = (): string | undefined => {
+  const currentPath = window.location.pathname
+  if (currentPath !== '/' && currentPath !== '') return undefined
+  
+  const storedOrg = localStorage.getItem(SELECTED_ORG_STORAGE_KEY)
+  if (!storedOrg || storedOrg === 'default') return undefined
+  
+  return storedOrg
+}
+
+const storedOrg = getStoredOrg()
 router.start()
+
+if (storedOrg) {
+  router.navigate('org_projects', { org_id: storedOrg }, { replace: true })
+}
 
 export function useApplicationRoute(): IApplicationRoute {
   const { route } = useRoute()

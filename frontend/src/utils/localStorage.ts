@@ -2,6 +2,8 @@
  * Local storage utility with TTL (Time To Live) support
  */
 
+export const SELECTED_ORG_STORAGE_KEY = 'selected_org'
+
 interface StorageItem<T> {
   value: T
   expiry: number

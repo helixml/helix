@@ -259,6 +259,10 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 			}
 		} else {
 			// if license is not valid, allow user to upload a new one
+			log.Warn().
+				Err(err).
+				Bool("license_nil", decodedLicense == nil).
+				Msg("license check failed - setting deployment_id to unknown")
 			deploymentID = "unknown"
 		}
 	}

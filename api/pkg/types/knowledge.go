@@ -40,9 +40,10 @@ type Knowledge struct {
 	Created time.Time `json:"created"`
 	Updated time.Time `json:"updated"`
 
-	Name      string    `json:"name" gorm:"index"`
-	Owner     string    `json:"owner" gorm:"index"` // User ID
-	OwnerType OwnerType `json:"owner_type"`         // e.g. user, system, org
+	Name           string    `json:"name" gorm:"index"`
+	Owner          string    `json:"owner" gorm:"index"` // User ID
+	OwnerType      OwnerType `json:"owner_type"`         // e.g. user, system, org
+	OrganizationID string    `json:"organization_id" gorm:"index"` // Organization scope for search
 
 	State   KnowledgeState `json:"state"`
 	Message string         `json:"message"` // Set if something wrong happens

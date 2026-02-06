@@ -40,6 +40,11 @@ type Organization struct {
 	Memberships []OrganizationMembership `json:"memberships" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // Memberships in the organization
 	Roles       []Role                   `json:"roles" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`       // Roles in the organization
 
+	// AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members
+	// Note: Uniqueness is enforced in application code (updateOrganization handler) rather than DB constraint
+	// because empty strings would conflict with each other in a unique index
+	AutoJoinDomain string `json:"auto_join_domain" gorm:"size:255"`
+
 	// Guidelines for AI agents - style guides, conventions, and instructions that apply to all projects
 	Guidelines          string    `json:"guidelines" gorm:"type:text"`
 	GuidelinesVersion   int       `json:"guidelines_version" gorm:"default:0"`            // Incremented on each update
@@ -297,6 +302,9 @@ const (
 	ResourceTypeDataset           Resource = "Dataset"
 	ResourceProject               Resource = "Project"
 	ResourceGitRepository         Resource = "GitRepository"
+	ResourceSpecTask              Resource = "SpecTask"
+	ResourceSession               Resource = "Session"
+	ResourcePrompt                Resource = "Prompt"
 )
 
 type Action string

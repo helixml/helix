@@ -89,8 +89,10 @@ const Apps: FC = () => {
     <Page
       breadcrumbTitle="Agents"
       orgBreadcrumbs={ true }
+      globalSearch={true}
+      organizationId={account.organizationTools.organization?.id}
       topbarContent={(
-        <div>
+        <>
           <Button
             id="secrets-button"
             variant="contained"
@@ -101,18 +103,16 @@ const Apps: FC = () => {
           >
             Secrets
           </Button>
-
           <Button
             id="new-app-button"
             variant="contained"
             color="secondary"
             endIcon={<AddIcon />}
             onClick={onNewAgent}
-            sx={{ mr: 2 }}
           >
             New Agent
           </Button>
-        </div>
+        </>
       )}
     >
       <Container
@@ -128,18 +128,7 @@ const Apps: FC = () => {
           onDelete={ setDeletingApp }
           orgId={ account.organizationTools.organization?.id || '' }
         />
-        
-        {/* Find Agents CTA */}
-        <Box
-          sx={{
-            display: 'flex',
-            justifyContent: 'flex-start',
-            mt: 6,
-            mb: 2,
-          }}
-        >
-          <LaunchpadCTAButton />
-        </Box>
+                        
       </Container>
       {
         deletingApp && (

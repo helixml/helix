@@ -6,6 +6,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"time"
@@ -94,6 +95,14 @@ type MigrationScript struct {
 }
 
 func (s *PostgresStore) autoMigrate() error {
+	// Skip migrations for the public schema if HELIX_SKIP_AUTOMIGRATE is set.
+	// This is used in CI where migrations run in a separate step before parallel tests.
+	// We only skip for public schema - tests that create their own schemas still need migrations.
+	if os.Getenv("HELIX_SKIP_AUTOMIGRATE") == "1" && (s.cfg.Schema == "" || s.cfg.Schema == "public") {
+		log.Debug().Msg("skipping automigrate for public schema (HELIX_SKIP_AUTOMIGRATE=1)")
+		return nil
+	}
+
 	// If schema is specified, check if it exists and if not - create it
 	if s.cfg.Schema != "" {
 		err := s.gdb.WithContext(context.Background()).Exec(fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", s.cfg.Schema)).Error
@@ -102,6 +111,11 @@ func (s *PostgresStore) autoMigrate() error {
 		}
 	}
 
+	return s.runMigrations()
+}
+
+// runMigrations performs the actual database migrations.
+func (s *PostgresStore) runMigrations() error {
 	// Running migrations from ./migrations directory,
 	// ref: https://github.com/golang-migrate/migrate
 	err := s.MigrateUp()
@@ -136,6 +150,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.OAuthProvider{},
 		&types.OAuthConnection{},
 		&types.OAuthRequestToken{},
+		&types.UserSession{},
 		&types.GitProviderConnection{},
 		&types.ServiceConnection{},
 		&types.UsageMetric{},
@@ -536,34 +551,6 @@ func (s *PostgresStore) GetAppCount() (int, error) {
 	return count, nil
 }
 
-// CreateProject creates a new project
-func (s *PostgresStore) CreateProject(ctx context.Context, project *types.Project) (*types.Project, error) {
-	err := s.gdb.WithContext(ctx).Create(project).Error
-	if err != nil {
-		return nil, fmt.Errorf("error creating project: %w", err)
-	}
-	return project, nil
-}
-
-// GetProject gets a project by ID
-func (s *PostgresStore) GetProject(ctx context.Context, projectID string) (*types.Project, error) {
-	var project types.Project
-	err := s.gdb.WithContext(ctx).Where("id = ?", projectID).First(&project).Error
-	if err != nil {
-		return nil, fmt.Errorf("error getting project: %w", err)
-	}
-	return &project, nil
-}
-
-// UpdateProject updates an existing project
-func (s *PostgresStore) UpdateProject(ctx context.Context, project *types.Project) error {
-	err := s.gdb.WithContext(ctx).Save(project).Error
-	if err != nil {
-		return fmt.Errorf("error updating project: %w", err)
-	}
-	return nil
-}
-
 // IncrementProjectTaskNumber atomically increments NextTaskNumber and returns the current value
 // Uses raw SQL with RETURNING for database-level atomicity - no race conditions
 // Returns the value BEFORE incrementing (so first task gets 1, second gets 2, etc.)
@@ -598,53 +585,6 @@ func (s *PostgresStore) IncrementGlobalTaskNumber(ctx context.Context) (int, err
 	}
 	return newNumber, nil
 }
-
-// ListProjects lists all projects for a given user
-func (s *PostgresStore) ListProjects(ctx context.Context, req *ListProjectsQuery) ([]*types.Project, error) {
-	var projects []*types.Project
-
-	q := s.gdb.WithContext(ctx).Model(&types.Project{})
-
-	if req.UserID != "" {
-		q = q.Where("user_id = ?", req.UserID)
-	}
-
-	if req.OrganizationID != "" {
-		q = q.Where("organization_id = ?", req.OrganizationID)
-	} else {
-		// If we are listing just for the user, we don't want to filter by organization
-		q = q.Where("organization_id IS NULL OR organization_id = ''")
-	}
-
-	err := q.Order("created_at DESC").Find(&projects).Error
-	if err != nil {
-		return nil, fmt.Errorf("error listing projects: %w", err)
-	}
-	return projects, nil
-}
-
-// DeleteProject deletes a project by ID
-func (s *PostgresStore) DeleteProject(ctx context.Context, projectID string) error {
-	err := s.gdb.WithContext(ctx).Delete(&types.Project{}, "id = ?", projectID).Error
-	if err != nil {
-		return fmt.Errorf("error deleting project: %w", err)
-	}
-	return nil
-}
-
-// GetProjectRepositories gets all repositories attached to a project
-// func (s *PostgresStore) GetProjectRepositories(ctx context.Context, projectID string) ([]*types.GitRepository, error) {
-// 	if projectID == "" {
-// 		return nil, fmt.Errorf("project id not specified")
-// 	}
-
-// 	var repos []*types.GitRepository
-// 	err := s.gdb.WithContext(ctx).Where("project_id = ?", projectID).Find(&repos).Error
-// 	if err != nil {
-// 		return nil, fmt.Errorf("error getting project repositories: %w", err)
-// 	}
-// 	return repos, nil
-// }
 
 // SetProjectPrimaryRepository sets the primary repository for a project
 func (s *PostgresStore) SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error {

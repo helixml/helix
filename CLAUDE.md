@@ -50,14 +50,18 @@ See also: `.cursor/rules/*.mdc`
 - **Settings-sync-daemon does NOT hot reload** — it runs inside the helix-ubuntu container, so changes to `zed_config.go` or related code require rebuilding the desktop image with `./stack build-ubuntu` and starting a NEW session
 
 ### Production Frontend Mode
-For demos or slow connections, serve the production build instead of Vite dev server:
+For demos or slow connections, serve the production build instead of Vite dev server.
+
+**Note:** The environment may use production frontend mode. If `FRONTEND_URL=/www` is set in `.env`, frontend changes require `yarn build` and a browser refresh to take effect.
+
+**Note:** `SERVE_PROD_FRONTEND_IN_DEV` is an obsolete variable that was reverted. Use `FRONTEND_URL=/www` instead.
 
 ```bash
 # 1. Build the frontend
 cd frontend && yarn build && cd ..
 
-# 2. Enable production mode (add to .env)
-echo "SERVE_PROD_FRONTEND_IN_DEV=true" >> .env
+# 2. Set FRONTEND_URL to serve from /www instead of proxying to Vite
+echo "FRONTEND_URL=/www" >> .env
 
 # 3. Restart API to pick up the change
 docker compose -f docker-compose.dev.yaml up -d api
@@ -69,7 +73,7 @@ cd frontend && yarn build
 # Then just refresh the browser - no container restart needed
 ```
 
-**IMPORTANT for Claude**: When in production frontend mode (`SERVE_PROD_FRONTEND_IN_DEV=true` in .env), ALWAYS run `cd frontend && yarn build` after making any frontend changes, then ask the user to refresh their browser to see the changes.
+**IMPORTANT for Claude**: When in production frontend mode (`FRONTEND_URL=/www` in .env), ALWAYS run `cd frontend && yarn build` after making any frontend changes, then ask the user to refresh their browser to see the changes.
 
 **Cache headers** are automatically set:
 - `index.html`: `no-cache, no-store, must-revalidate` (always fresh)
@@ -77,14 +81,18 @@ cd frontend && yarn build
 
 **To switch back to dev mode** (Vite HMR):
 ```bash
-sed -i '/^SERVE_PROD_FRONTEND_IN_DEV=/d' .env
+sed -i '/^FRONTEND_URL=/d' .env
 docker compose -f docker-compose.dev.yaml up -d api
 ```
 
 ### Docker
+# ⛔⛔⛔ CRITICAL - READ THIS BEFORE TOUCHING DOCKER ⛔⛔⛔
+- **NEVER EVER** run `docker builder prune` — this destroys hours of cached builds and makes rebuilding the entire stack take HOURS. There is NO reason to do this. If disk is full, clean up old IMAGES not build cache.
+- **NEVER** run `docker system prune` — same problem, destroys build cache
 - **NEVER** use `--no-cache` — trust Docker cache
-- **NEVER** run `docker builder prune` or any cache-clearing commands — the cache is correct, you are wrong
+- **NEVER** run ANY cache-clearing commands — the cache is correct, you are wrong
 - **NEVER** run commands that slow down future builds — trust the build system
+- **IF DISK IS FULL**: Delete old helix-ubuntu/helix-sway IMAGE TAGS (not build cache!), delete dangling volumes, or ask user. NEVER touch build cache.
 - **ALWAYS** use `docker-compose.dev.yaml` in development — never use the prod compose file (`docker-compose.yaml`). Mixing prod and dev breaks things because the API has a static IP address in dev that's needed to plumb through to dev containers. If you accidentally start services with the wrong compose file, video streaming and other features will break.
   ```bash
   # ✅ CORRECT - always use dev compose file
@@ -126,12 +134,13 @@ helix-sandbox (outer container)
 | Hydra (`api/pkg/hydra/`) | `./stack build-sandbox` | Hydra binary runs IN sandbox, NOT API |
 | Desktop image (helix-sway) | `./stack build-sway` | Pushes to local registry, updates `sandbox-images/helix-sway.version` |
 | Desktop image (helix-ubuntu) | `./stack build-ubuntu` | Pushes to local registry, updates `sandbox-images/helix-ubuntu.version` |
-| Desktop streaming (`api/pkg/desktop/`) | `./stack build-ubuntu` or `./stack build-sway` | Go code runs IN desktop container, NOT API |
+| Desktop bridge (`api/pkg/desktop/`, `api/cmd/desktop-bridge/`) | `./stack build-ubuntu` or `./stack build-sway` | desktop-bridge binary runs IN desktop container (MCP server, video streaming). NOT API-side code |
 | Zerocopy plugin (`desktop/gst-pipewire-zerocopy/`) | `./stack build-ubuntu` or `./stack build-sway` | Rust plugin built inside desktop image |
 | Sandbox scripts | `./stack build-sandbox` | Dockerfile.sandbox changes |
 | Zed IDE | `./stack build-zed && ./stack build-sway` | Zed binary → desktop image |
 | Qwen Code | `cd ../qwen-code && git commit -am "msg" && cd ../helix && ./stack build-sway` | Needs git commit |
-| Settings-sync-daemon (`api/pkg/external-agent/zed_config.go`) | `./stack build-ubuntu` | Runs IN desktop container, NOT API. Start NEW session after rebuild |
+| Zed config generation (`api/pkg/external-agent/zed_config.go`) | No rebuild needed | API-side code, hot reloads via Air. Start NEW session to fetch updated config |
+| Settings-sync-daemon (`api/cmd/settings-sync-daemon/`) | `./stack build-ubuntu` | Daemon binary runs IN desktop container. Start NEW session after rebuild |
 
 ### Build Order for Full Rebuild
 
@@ -152,16 +161,22 @@ helix-sandbox (outer container)
 
 ### Verify Build
 
-```bash
-# Check desktop image versions
-cat sandbox-images/helix-sway.version
-cat sandbox-images/helix-ubuntu.version
+**IMPORTANT:** After running `./stack build-ubuntu` or `./stack build-sway`, ALWAYS verify the image is ready before testing:
 
-# Verify image is available in sandbox's dockerd
-docker compose exec -T sandbox docker images | grep helix-
+```bash
+# 1. Check version file matches what was built
+cat sandbox-images/helix-ubuntu.version   # Should show new version hash (e.g., "c8ed42")
+
+# 2. Verify image exists in sandbox with correct version
+docker compose exec -T sandbox-nvidia docker images helix-ubuntu:$(cat sandbox-images/helix-ubuntu.version) --format "Tag: {{.Tag}}, Created: {{.CreatedAt}}"
+
+# 3. If image is missing, the build transfer failed - rebuild or manually pull:
+docker compose exec -T sandbox-nvidia docker pull registry:5000/helix-ubuntu:$(cat sandbox-images/helix-ubuntu.version)
 ```
 
-New sessions auto-pull from local registry. Version flow: build writes `.version` files → sandbox heartbeat reads them → API looks up version from heartbeat when starting sessions. Existing containers don't update.
+**Version flow:** build writes `.version` files → pushes to local registry → pulls into sandbox's dockerd → restarts heartbeat → API reads version from heartbeat when starting sessions.
+
+**Key point:** New sessions auto-pull from the sandbox's local dockerd. Existing containers keep their old image - you must start a NEW session to use the updated image.
 
 ## Code Patterns
 

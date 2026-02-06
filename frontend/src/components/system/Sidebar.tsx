@@ -21,7 +21,6 @@ import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
 import useApp from '../../hooks/useApp'
-import useApi from '../../hooks/useApi'
 
 import { useCreateFilestoreFolder, useUploadFilestoreFiles, useFilestoreConfig } from '../../services/filestoreService'
 import DarkDialog from '../dialog/DarkDialog'
@@ -29,7 +28,7 @@ import useSnackbar from '../../hooks/useSnackbar'
 
 import SlideMenuContainer from './SlideMenuContainer'
 import SidebarContextHeader from './SidebarContextHeader'
-import UnifiedSearchBar from '../common/UnifiedSearchBar'
+// import UnifiedSearchBar from '../common/UnifiedSearchBar'
 import { SidebarProvider, useSidebarContext } from '../../contexts/sidebarContext'
 
 
@@ -104,12 +103,9 @@ const SidebarContentInner: React.FC<{
   
 
   const router = useRouter()
-  const api = useApi()
   const account = useAccount()
   const appTools = useApp(params.app_id)
   const snackbar = useSnackbar()
-
-  const apiClient = api.getApiClient()
 
   // New file menu state
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
@@ -123,25 +119,6 @@ const SidebarContentInner: React.FC<{
   const createFolderMutation = useCreateFilestoreFolder()
   const uploadFilesMutation = useUploadFilestoreFiles()
   const { data: filestoreConfig } = useFilestoreConfig()
-
-
-
-  // Ensure apps are loaded when apps tab is selected
-  useEffect(() => {
-    const checkAuthAndLoad = async () => {
-      try {
-        const authResponse = await apiClient.v1AuthAuthenticatedList()
-        if (!authResponse.data.authenticated) {
-          return
-        }        
-        
-      } catch (error) {
-        console.error('[SIDEBAR] Error checking authentication:', error)
-      }
-    }
-
-    checkAuthAndLoad()
-  }, [router.params])    
 
   // Handle create a new chat
   const handleCreateNew = () => {
@@ -270,7 +247,7 @@ const SidebarContentInner: React.FC<{
         <SidebarContextHeader />
         <Divider sx={{ width: '100%' }} />
         {/* Global search - available on all pages */}
-        <UnifiedSearchBar compact placeholder="Search..." />
+        {/* <UnifiedSearchBar compact placeholder="Search..." /> */}
         <Divider sx={{ width: '100%' }} />
         <Box
           sx={{

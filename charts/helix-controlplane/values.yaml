@@ -201,6 +201,13 @@ ingress:
         - path: /
           pathType: ImplementationSpecific
   tls: []
+  # GKE-specific configuration
+  gke:
+    managedCertificate:
+      # Enable to automatically create a Google-managed TLS certificate
+      enabled: false
+      # Optional: specify domains explicitly. If empty, uses ingress.hosts[].host
+      domains: []
 
 resources: {}
 
@@ -281,7 +288,7 @@ kodit:
   # Kodit application image
   image:
     repository: registry.helixml.tech/helix/kodit
-    tag: "0.5.23"
+    tag: "0.5.24"
     pullPolicy: IfNotPresent
 
   # Database authentication (for kodit's vectorchord database)

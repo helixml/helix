@@ -722,6 +722,12 @@ export interface ServerModelSubstitution {
   reason?: string;
 }
 
+export interface ServerOrganizationDomainInfo {
+  auto_join_domain?: string;
+  organization_id?: string;
+  organization_name?: string;
+}
+
 export interface ServerPhaseProgress {
   agent?: string;
   completed_at?: string;
@@ -879,6 +885,12 @@ export interface ServerSimpleSampleProject {
   /** Whether this sample project is shown to users */
   enabled?: boolean;
   github_repo?: string;
+  /**
+   * Guidelines are project-specific instructions for AI agents
+   * These get injected into implementation prompts and help the agent understand
+   * project conventions, available tools, and how to use them effectively
+   */
+  guidelines?: string;
   id?: string;
   name?: string;
   readme_url?: string;
@@ -1088,6 +1100,11 @@ export interface TypesAdminCreateUserRequest {
 
 export interface TypesAdminResetPasswordRequest {
   new_password?: string;
+}
+
+export interface TypesAffectedProjectInfo {
+  id?: string;
+  name?: string;
 }
 
 export enum TypesAgentType {
@@ -2057,6 +2074,12 @@ export interface TypesForkRepositoriesResponse {
 }
 
 export interface TypesForkSimpleProjectRequest {
+  /**
+   * ConfiguredSkillEnvVars contains user-configured env vars for skills
+   * Outer key: skill name, Inner key: env var name, Value: user-provided value
+   * This allows users to configure skills (like API tokens) during project creation
+   */
+  configured_skill_env_vars?: Record<string, Record<string, string>>;
   description?: string;
   /**
    * For repos the user doesn't have write access to, fork them to this target
@@ -2533,6 +2556,8 @@ export interface TypesKnowledge {
   name?: string;
   /** Populated by the cron job controller */
   next_run?: string;
+  /** Organization scope for search */
+  organization_id?: string;
   /** User ID */
   owner?: string;
   /** e.g. user, system, org */
@@ -2835,6 +2860,8 @@ export interface TypesMoveProjectPreviewItem {
 export interface TypesMoveProjectPreviewResponse {
   project?: TypesMoveProjectPreviewItem;
   repositories?: TypesMoveRepositoryPreviewItem[];
+  /** Warnings about things that won't be moved automatically */
+  warnings?: string[];
 }
 
 export interface TypesMoveProjectRequest {
@@ -2842,6 +2869,8 @@ export interface TypesMoveProjectRequest {
 }
 
 export interface TypesMoveRepositoryPreviewItem {
+  /** Other projects that will lose this repo */
+  affected_projects?: TypesAffectedProjectInfo[];
   current_name?: string;
   has_conflict?: boolean;
   id?: string;
@@ -2992,6 +3021,12 @@ export interface TypesOpenAIUsage {
 }
 
 export interface TypesOrganization {
+  /**
+   * AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members
+   * Note: Uniqueness is enforced in application code (updateOrganization handler) rather than DB constraint
+   * because empty strings would conflict with each other in a unique index
+   */
+  auto_join_domain?: string;
   created_at?: string;
   deleted_at?: GormDeletedAt;
   display_name?: string;
@@ -3127,6 +3162,7 @@ export interface TypesProject {
   guidelines_version?: number;
   id?: string;
   metadata?: TypesProjectMetadata;
+  /** Indexed for search prefix matching */
   name?: string;
   /**
    * Auto-incrementing task number for human-readable directory names
@@ -3144,6 +3180,8 @@ export interface TypesProject {
   skills?: TypesAssistantSkills;
   /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
   startup_script?: string;
+  /** Computed */
+  stats?: TypesProjectStats;
   /** "active", "archived", "completed" */
   status?: string;
   technologies?: string[];
@@ -3193,6 +3231,17 @@ export interface TypesProjectMetadata {
   board_settings?: TypesBoardSettings;
 }
 
+export interface TypesProjectStats {
+  active_agent_sessions?: number;
+  average_task_completion_hours?: number;
+  backlog_tasks?: number;
+  completed_tasks?: number;
+  in_progress_tasks?: number;
+  pending_review_tasks?: number;
+  planning_tasks?: number;
+  total_tasks?: number;
+}
+
 export interface TypesProjectUpdateRequest {
   auto_start_backlog_tasks?: boolean;
   default_branch?: string;
@@ -3236,6 +3285,8 @@ export interface TypesPromptHistoryEntry {
   last_used_at?: string;
   /** When to retry (for exponential backoff) */
   next_retry_at?: string;
+  /** Organization scope for search */
+  organization_id?: string;
   /** Library features for prompt reuse */
   pinned?: boolean;
   /** For reference, but primary grouping is by spec_task */
@@ -3521,6 +3572,31 @@ export enum TypesResource {
   ResourceTypeDataset = "Dataset",
   ResourceProject = "Project",
   ResourceGitRepository = "GitRepository",
+  ResourceSpecTask = "SpecTask",
+  ResourceSession = "Session",
+  ResourcePrompt = "Prompt",
+}
+
+export interface TypesResourceSearchRequest {
+  limit?: number;
+  organization_id?: string;
+  query?: string;
+  types?: TypesResource[];
+  user_id?: string;
+}
+
+export interface TypesResourceSearchResponse {
+  results?: TypesResourceSearchResult[];
+  total?: number;
+}
+
+export interface TypesResourceSearchResult {
+  contents?: string;
+  description?: string;
+  id?: string;
+  name?: string;
+  parent_id?: string;
+  type?: TypesResource;
 }
 
 export interface TypesResponseFormat {
@@ -3906,6 +3982,14 @@ export interface TypesSessionChatRequest {
   type?: TypesSessionType;
 }
 
+export interface TypesSessionInfo {
+  auth_provider?: TypesAuthProvider;
+  created_at?: string;
+  expires_at?: string;
+  id?: string;
+  user_id?: string;
+}
+
 export interface TypesSessionMetadata {
   active_tools?: string[];
   /** Agent type: "helix" or "zed_external" */
@@ -4180,7 +4264,10 @@ export interface TypesSpecTask {
   /** Whether branch was merged to main */
   merged_to_main?: boolean;
   metadata?: Record<string, any>;
+  /** Indexed for search prefix matching */
   name?: string;
+  /** Organization scope for search */
+  organization_id?: string;
   /** Kiro's actual approach: simple, human-readable artifacts */
   original_prompt?: string;
   planning_options?: TypesStartPlanningOptions;
@@ -4230,6 +4317,8 @@ export interface TypesSpecTask {
   updated_at?: string;
   /** Use host Docker socket (requires privileged sandbox) */
   use_host_docker?: boolean;
+  /** Owner user ID for search */
+  user_id?: string;
   /** User override */
   user_short_title?: string;
   workspace_config?: number[];
@@ -4461,7 +4550,10 @@ export interface TypesSpecTaskWithProject {
   /** Whether branch was merged to main */
   merged_to_main?: boolean;
   metadata?: Record<string, any>;
+  /** Indexed for search prefix matching */
   name?: string;
+  /** Organization scope for search */
+  organization_id?: string;
   /** Kiro's actual approach: simple, human-readable artifacts */
   original_prompt?: string;
   planning_options?: TypesStartPlanningOptions;
@@ -4512,6 +4604,8 @@ export interface TypesSpecTaskWithProject {
   updated_at?: string;
   /** Use host Docker socket (requires privileged sandbox) */
   use_host_docker?: boolean;
+  /** Owner user ID for search */
+  user_id?: string;
   /** User override */
   user_short_title?: string;
   workspace_config?: number[];
@@ -4714,6 +4808,7 @@ export enum TypesTokenType {
   TokenTypeOIDC = "oidc",
   TokenTypeAPIKey = "api_key",
   TokenTypeSocket = "socket",
+  TokenTypeSession = "session",
 }
 
 export interface TypesTool {
@@ -5352,6 +5447,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description List all organizations that have auto-join domains configured
+     *
+     * @tags organizations
+     * @name V1AdminOrganizationDomainsList
+     * @summary List organization domains (admin only)
+     * @request GET:/api/v1/admin/organization-domains
+     * @secure
+     */
+    v1AdminOrganizationDomainsList: (params: RequestParams = {}) =>
+      this.request<ServerOrganizationDomainInfo[], any>({
+        path: `/api/v1/admin/organization-domains`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
@@ -6075,6 +6187,21 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "POST",
         body: request,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Returns session info for BFF authentication. The frontend uses this to check if the user is logged in.
+     *
+     * @tags auth
+     * @name V1AuthSessionList
+     * @summary Get current session info
+     * @request GET:/api/v1/auth/session
+     */
+    v1AuthSessionList: (params: RequestParams = {}) =>
+      this.request<TypesSessionInfo, string>({
+        path: `/api/v1/auth/session`,
+        method: "GET",
         ...params,
       }),
 
@@ -8707,6 +8834,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get token usage metrics for a project (combined across all tasks)
+     *
+     * @tags Projects
+     * @name V1ProjectsUsageDetail
+     * @summary Get project token usage
+     * @request GET:/api/v1/projects/{id}/usage
+     * @secure
+     */
+    v1ProjectsUsageDetail: (
+      id: string,
+      query?: {
+        /**
+         * Aggregation level (5min, hourly, daily)
+         * @default "hourly"
+         */
+        aggregation_level?: string;
+        /** Start time (RFC3339 format) */
+        from?: string;
+        /** End time (RFC3339 format) */
+        to?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+        path: `/api/v1/projects/${id}/usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Create a minimal project for a repository that doesn't have one
      *
      * @tags Projects
@@ -9237,6 +9398,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         query: query,
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Search across projects, tasks, sessions, prompts, knowledge, repositories, and apps concurrently
+     *
+     * @tags search
+     * @name V1ResourceSearchCreate
+     * @summary Search across resources
+     * @request POST:/api/v1/resource-search
+     * @secure
+     */
+    v1ResourceSearchCreate: (request: TypesResourceSearchRequest, params: RequestParams = {}) =>
+      this.request<TypesResourceSearchResponse, any>({
+        path: `/api/v1/resource-search`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

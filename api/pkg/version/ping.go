@@ -160,8 +160,10 @@ func (s *PingService) GetDeploymentID() string {
 // GetLicenseInfo returns the decoded license information from either the database or environment
 func (s *PingService) GetLicenseInfo(ctx context.Context) (*license.License, error) {
 	// First try to get from database
-	if dbLicense, err := s.db.GetDecodedLicense(ctx); err != nil {
+	dbLicense, err := s.db.GetDecodedLicense(ctx)
+	if err != nil {
 		log.Error().Err(err).Msg("failed to get decoded license from database")
+		// Continue to try environment license as fallback
 	} else if dbLicense != nil {
 		return dbLicense, nil
 	}

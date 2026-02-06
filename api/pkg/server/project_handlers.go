@@ -38,7 +38,8 @@ func (s *HelixAPIServer) listProjects(_ http.ResponseWriter, r *http.Request) ([
 	}
 
 	projects, err := s.Store.ListProjects(r.Context(), &store.ListProjectsQuery{
-		UserID: user.ID,
+		UserID:       user.ID,
+		IncludeStats: true,
 	})
 	if err != nil {
 		log.Error().
@@ -48,7 +49,21 @@ func (s *HelixAPIServer) listProjects(_ http.ResponseWriter, r *http.Request) ([
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	s.populateActiveAgentSessions(projects)
+
 	return projects, nil
+}
+
+// populateActiveAgentSessions gets active agent sessions from memory for each project and adds it to the project stats
+func (s *HelixAPIServer) populateActiveAgentSessions(projects []*types.Project) {
+	desktopSessions := s.externalAgentExecutor.ListSessions()
+	for _, project := range projects {
+		for _, session := range desktopSessions {
+			if session.ProjectID == project.ID {
+				project.Stats.ActiveAgentSessions++
+			}
+		}
+	}
 }
 
 func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *types.User, orgRef string) ([]*types.Project, *system.HTTPError) {
@@ -64,6 +79,7 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 
 	projects, err := s.Store.ListProjects(ctx, &store.ListProjectsQuery{
 		OrganizationID: org.ID,
+		IncludeStats:   true,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
@@ -857,6 +873,18 @@ func (s *HelixAPIServer) attachRepositoryToProject(_ http.ResponseWriter, r *htt
 			Str("repo_owner_id", repo.OwnerID).
 			Msg("user not authorized to attach this repository")
 		return nil, system.NewHTTPError404("repository not found")
+	}
+
+	// Validate org scoping: project and repo must be in the same org scope
+	if project.OrganizationID != repo.OrganizationID {
+		log.Warn().
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Str("project_org", project.OrganizationID).
+			Str("repo_id", repoID).
+			Str("repo_org", repo.OrganizationID).
+			Msg("cannot attach repository from different org scope")
+		return nil, system.NewHTTPError400("repository must be in the same organization as the project")
 	}
 
 	err = s.Store.AttachRepositoryToProject(r.Context(), projectID, repoID)
@@ -1663,7 +1691,7 @@ func (s *HelixAPIServer) moveProjectPreview(_ http.ResponseWriter, r *http.Reque
 		existingRepoNames[repo.Name] = true
 	}
 
-	// Check each repository for conflicts
+	// Check each repository for conflicts and shared usage
 	var repoPreview []types.MoveRepositoryPreviewItem
 	for _, repoID := range repoIDs {
 		repo, err := s.Store.GetGitRepository(r.Context(), repoID)
@@ -1680,12 +1708,41 @@ func (s *HelixAPIServer) moveProjectPreview(_ http.ResponseWriter, r *http.Reque
 			newName := services.GetUniqueRepoName(repo.Name, existingRepoNames)
 			item.NewName = &newName
 		}
+
+		// Check if this repo is shared with other personal workspace projects that will lose access
+		// Only personal workspace projects (no org) can share repos with this project
+		allProjectIDs, err := s.Store.GetProjectsForRepository(r.Context(), repoID)
+		if err == nil && len(allProjectIDs) > 1 {
+			for _, otherProjectID := range allProjectIDs {
+				if otherProjectID == projectID {
+					continue // Skip the project being moved
+				}
+				otherProject, err := s.Store.GetProject(r.Context(), otherProjectID)
+				if err == nil {
+					// Only include personal workspace projects (no org set)
+					if otherProject.OrganizationID != "" {
+						continue
+					}
+					item.AffectedProjects = append(item.AffectedProjects, types.AffectedProjectInfo{
+						ID:   otherProject.ID,
+						Name: otherProject.Name,
+					})
+				}
+			}
+		}
+
 		repoPreview = append(repoPreview, item)
+	}
+
+	// Add warning about agents not being moved
+	warnings := []string{
+		"Agents configured on this project will not be moved. You'll need to create new agents in the target organization and update the project settings.",
 	}
 
 	return &types.MoveProjectPreviewResponse{
 		Project:      projectPreview,
 		Repositories: repoPreview,
+		Warnings:     warnings,
 	}, nil
 }
 
@@ -1834,6 +1891,29 @@ func (s *HelixAPIServer) moveProject(_ http.ResponseWriter, r *http.Request) (*t
 		}
 	}
 
+	// Update sessions to belong to the new organization
+	sessions, _, err := s.Store.ListSessions(r.Context(), store.ListSessionsQuery{
+		ProjectID: projectID,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", projectID).Msg("failed to list sessions for move")
+	} else {
+		for _, session := range sessions {
+			session.OrganizationID = req.OrganizationID
+			session.Updated = time.Now()
+			if _, err := s.Store.UpdateSession(r.Context(), *session); err != nil {
+				log.Warn().Err(err).
+					Str("session_id", session.ID).
+					Str("project_id", projectID).
+					Msg("failed to update session organization")
+			}
+		}
+		log.Info().
+			Int("session_count", len(sessions)).
+			Str("project_id", projectID).
+			Msg("updated sessions for project move")
+	}
+
 	// Log audit event
 	log.Info().
 		Str("user_id", user.ID).
@@ -1843,4 +1923,87 @@ func (s *HelixAPIServer) moveProject(_ http.ResponseWriter, r *http.Request) (*t
 		Msg("project moved to organization")
 
 	return project, nil
+}
+
+// getProjectUsage godoc
+// @Summary Get project token usage
+// @Description Get token usage metrics for a project (combined across all tasks)
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Param aggregation_level query string false "Aggregation level (5min, hourly, daily)" default(hourly)
+// @Param from query string false "Start time (RFC3339 format)"
+// @Param to query string false "End time (RFC3339 format)"
+// @Success 200 {array} types.AggregatedUsageMetric
+// @Failure 400 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/usage [get]
+func (s *HelixAPIServer) getProjectUsage(_ http.ResponseWriter, r *http.Request) ([]*types.AggregatedUsageMetric, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	if user == nil {
+		return nil, system.NewHTTPError401("user not found")
+	}
+
+	// Get the project and check authorization
+	project, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	// Parse aggregation level
+	aggregationLevel := store.AggregationLevelHourly
+	switch r.URL.Query().Get("aggregation_level") {
+	case "daily":
+		aggregationLevel = store.AggregationLevelDaily
+	case "5min":
+		aggregationLevel = store.AggregationLevel5Min
+	}
+
+	// Parse time range
+	var from time.Time
+	var to time.Time
+
+	if r.URL.Query().Get("from") != "" {
+		from, err = time.Parse(time.RFC3339, r.URL.Query().Get("from"))
+		if err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse from date: %s", err))
+		}
+	} else {
+		// Default to last 7 days for project-level usage
+		from = time.Now().Add(-7 * 24 * time.Hour)
+	}
+
+	if r.URL.Query().Get("to") != "" {
+		to, err = time.Parse(time.RFC3339, r.URL.Query().Get("to"))
+		if err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse to date: %s", err))
+		}
+	} else {
+		to = time.Now()
+	}
+
+	// Get aggregated usage metrics for the project (combined across all tasks)
+	metrics, err := s.Store.GetAggregatedUsageMetrics(r.Context(), &store.GetAggregatedUsageMetricsQuery{
+		AggregationLevel: aggregationLevel,
+		UserID:           user.ID,
+		ProjectID:        projectID,
+		// No SpecTaskID - get combined usage for the whole project
+		From: from,
+		To:   to,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return metrics, nil
 }

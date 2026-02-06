@@ -171,13 +171,11 @@ const Account: FC = () => {
   }, [])
 
   useEffect(() => {
-    if (!account.token) {
+    if (!account.user) {
       return
     }
     // API keys are now loaded automatically via React Query hooks
-  }, [
-    account.token,
-  ])
+  }, [account.user])
 
   useEffect(() => {
     setFullName(account.user?.name || '')

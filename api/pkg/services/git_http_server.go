@@ -588,12 +588,25 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	// via the HELIX_ALLOWED_BRANCHES environment variable set above. No post-receive
 	// rollback is needed - unauthorized pushes are rejected before refs are updated.
 
-	// For external repos, SYNCHRONOUSLY push to upstream
+	// For external repos, push to upstream synchronously.
+	// IMPORTANT: We use a background context here because the git client may disconnect
+	// after receiving the successful receive-pack response. At this point, HTTP response
+	// headers have already been sent, so we cannot signal upstream push failures to the
+	// client - they will see success regardless. If upstream push fails, we rollback
+	// locally but the agent won't know. This is a known architectural limitation.
 	if len(pushedBranches) > 0 && repo != nil && repo.ExternalURL != "" {
+		log.Debug().Str("repo_id", repoID).Int("branch_count", len(pushedBranches)).Msg("Starting external push with detached context")
+
 		upstreamPushFailed := false
 		for _, branch := range pushedBranches {
-			log.Info().Str("repo_id", repoID).Str("branch", branch).Msg("Pushing branch to upstream (synchronous)")
-			if err := s.gitRepoService.PushBranchToRemote(r.Context(), repoID, branch, false); err != nil {
+			// Create per-branch timeout so later branches don't get starved
+			branchCtx, branchCancel := context.WithTimeout(context.Background(), 90*time.Second)
+
+			log.Info().Str("repo_id", repoID).Str("branch", branch).Msg("Pushing branch to upstream")
+			err := s.gitRepoService.PushBranchToRemote(branchCtx, repoID, branch, false)
+			branchCancel()
+
+			if err != nil {
 				log.Error().Err(err).Str("repo_id", repoID).Str("branch", branch).Msg("Failed to push branch to upstream - rolling back")
 				upstreamPushFailed = true
 				break
@@ -994,14 +1007,30 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 		return fmt.Errorf("failed to list PRs: %w", err)
 	}
 
+	// Check if this is the project's default repo. We only store PullRequestID for the
+	// default repo to prevent false merge detection. When PRs are created on secondary
+	// repos, storing their PR number would cause the orchestrator to check the wrong repo
+	// (it always uses project.DefaultRepoID), potentially matching an old merged PR.
+	isDefaultRepo := false
+	project, err := s.store.GetProject(ctx, task.ProjectID)
+	if err == nil && project != nil {
+		isDefaultRepo = (repo.ID == project.DefaultRepoID)
+	}
+
 	sourceBranchRef := "refs/heads/" + branch
 	for _, pr := range prs {
 		if pr.SourceBranch == sourceBranchRef && pr.State == types.PullRequestStateOpen {
-			if task.PullRequestID != pr.ID {
+			// Only update task.PullRequestID for the default repo
+			if isDefaultRepo && task.PullRequestID != pr.ID {
 				task.PullRequestID = pr.ID
 				task.UpdatedAt = time.Now()
 				s.store.UpdateSpecTask(ctx, task)
 			}
+			log.Info().
+				Str("pr_id", pr.ID).
+				Str("repo_id", repo.ID).
+				Bool("is_default_repo", isDefaultRepo).
+				Msg("Found existing pull request")
 			return nil
 		}
 	}
@@ -1012,10 +1041,18 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 		return fmt.Errorf("failed to create PR: %w", err)
 	}
 
-	task.PullRequestID = prID
-	task.UpdatedAt = time.Now()
-	s.store.UpdateSpecTask(ctx, task)
-	log.Info().Str("pr_id", prID).Str("branch", branch).Msg("Created pull request")
+	// Only update task.PullRequestID for the default repo
+	if isDefaultRepo {
+		task.PullRequestID = prID
+		task.UpdatedAt = time.Now()
+		s.store.UpdateSpecTask(ctx, task)
+	}
+	log.Info().
+		Str("pr_id", prID).
+		Str("repo_id", repo.ID).
+		Bool("is_default_repo", isDefaultRepo).
+		Str("branch", branch).
+		Msg("Created pull request")
 	return nil
 }
 

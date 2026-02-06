@@ -32,6 +32,15 @@ const (
 	// SharedBuildKitCacheDir is the directory for shared BuildKit cache across all sessions
 	// BuildKit uses content-addressed storage, so concurrent access is safe
 	SharedBuildKitCacheDir = "buildkit-cache"
+
+	// SharedBuildKitContainerName is the name of the shared BuildKit container
+	SharedBuildKitContainerName = "helix-buildkit"
+
+	// SharedBuildKitImage is the BuildKit image to use
+	SharedBuildKitImage = "moby/buildkit:latest"
+
+	// SharedBuildxBuilderName is the name of the shared buildx builder
+	SharedBuildxBuilderName = "helix-shared"
 )
 
 // Manager manages multiple dockerd instances
@@ -135,9 +144,22 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	// Create shared BuildKit cache directory for all sessions
 	// This allows docker build cache to be shared across dockerd instances
+	// Use 0777 permissions so dev containers running as non-root can create subdirectories
 	buildkitCacheDir := filepath.Join(m.dataDir, SharedBuildKitCacheDir)
-	if err := os.MkdirAll(buildkitCacheDir, 0755); err != nil {
+	if err := os.MkdirAll(buildkitCacheDir, 0777); err != nil {
 		return fmt.Errorf("failed to create buildkit cache directory: %w", err)
+	}
+	// Ensure permissions are correct even if directory already existed
+	if err := os.Chmod(buildkitCacheDir, 0777); err != nil {
+		log.Warn().Err(err).Str("dir", buildkitCacheDir).Msg("Failed to set buildkit cache directory permissions")
+	}
+
+	// Setup shared BuildKit container and builder for cache sharing
+	// This creates a dedicated BuildKit container with the cache directory mounted,
+	// allowing all dev containers to share build cache
+	if err := m.setupSharedBuildKit(ctx); err != nil {
+		// Log warning but don't fail - builds will still work, just without shared cache
+		log.Warn().Err(err).Msg("Failed to setup shared BuildKit container, builds will work but cache won't be shared")
 	}
 
 	// Start cleanup goroutine
@@ -174,6 +196,103 @@ func (m *Manager) Stop(ctx context.Context) error {
 
 	m.wg.Wait()
 	log.Info().Msg("Hydra manager stopped")
+	return nil
+}
+
+// setupSharedBuildKit creates a shared BuildKit container and buildx builder
+// that all dev containers can use for cached builds.
+// The BuildKit container has the shared cache directory mounted, enabling
+// cache sharing across all dev containers.
+func (m *Manager) setupSharedBuildKit(ctx context.Context) error {
+	buildkitCacheDir := filepath.Join(m.dataDir, SharedBuildKitCacheDir)
+
+	// Check if buildkit container already exists and is running
+	checkCmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.Running}}", SharedBuildKitContainerName)
+	output, err := checkCmd.Output()
+	if err == nil && strings.TrimSpace(string(output)) == "true" {
+		log.Debug().Str("container", SharedBuildKitContainerName).Msg("Shared BuildKit container already running")
+		return m.ensureBuildxBuilder(ctx)
+	}
+
+	// Remove old container if exists (might be stopped)
+	_ = exec.CommandContext(ctx, "docker", "rm", "-f", SharedBuildKitContainerName).Run()
+
+	// Create buildkit container with cache directory mounted
+	log.Info().
+		Str("container", SharedBuildKitContainerName).
+		Str("cache_dir", buildkitCacheDir).
+		Msg("Creating shared BuildKit container")
+
+	createCmd := exec.CommandContext(ctx, "docker", "run", "-d",
+		"--name", SharedBuildKitContainerName,
+		"--privileged",
+		"-v", buildkitCacheDir+":/buildkit-cache",
+		"-v", "buildkit_state:/var/lib/buildkit",
+		"--restart", "unless-stopped",
+		SharedBuildKitImage,
+		"--addr", "unix:///run/buildkit/buildkitd.sock",
+		"--addr", "tcp://0.0.0.0:1234",
+	)
+
+	if output, err := createCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create buildkit container: %w, output: %s", err, string(output))
+	}
+
+	// Wait for container to be running
+	time.Sleep(2 * time.Second)
+
+	return m.ensureBuildxBuilder(ctx)
+}
+
+// ensureBuildxBuilder creates or updates the buildx builder pointing to the shared BuildKit container
+func (m *Manager) ensureBuildxBuilder(ctx context.Context) error {
+	// Get buildkit container IP
+	ipCmd := exec.CommandContext(ctx, "docker", "inspect", "-f",
+		"{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+		SharedBuildKitContainerName)
+	ipOutput, err := ipCmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get buildkit container IP: %w", err)
+	}
+	buildkitIP := strings.TrimSpace(string(ipOutput))
+	if buildkitIP == "" {
+		return fmt.Errorf("buildkit container has no IP address")
+	}
+
+	// Check if builder already exists
+	checkCmd := exec.CommandContext(ctx, "docker", "buildx", "inspect", SharedBuildxBuilderName)
+	if err := checkCmd.Run(); err == nil {
+		log.Debug().Str("builder", SharedBuildxBuilderName).Msg("Buildx builder already exists")
+		// Set as default
+		_ = exec.CommandContext(ctx, "docker", "buildx", "use", SharedBuildxBuilderName).Run()
+		return nil
+	}
+
+	// Remove stale builder if exists
+	_ = exec.CommandContext(ctx, "docker", "buildx", "rm", SharedBuildxBuilderName).Run()
+
+	// Create buildx builder pointing to the container
+	log.Info().
+		Str("builder", SharedBuildxBuilderName).
+		Str("endpoint", "tcp://"+buildkitIP+":1234").
+		Msg("Creating shared buildx builder")
+
+	createCmd := exec.CommandContext(ctx, "docker", "buildx", "create",
+		"--name", SharedBuildxBuilderName,
+		"--driver", "remote",
+		"tcp://"+buildkitIP+":1234",
+		"--use",
+	)
+	if output, err := createCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create buildx builder: %w, output: %s", err, string(output))
+	}
+
+	// Bootstrap the builder
+	bootstrapCmd := exec.CommandContext(ctx, "docker", "buildx", "inspect", "--bootstrap", SharedBuildxBuilderName)
+	if output, err := bootstrapCmd.CombinedOutput(); err != nil {
+		log.Warn().Err(err).Str("output", string(output)).Msg("Failed to bootstrap buildx builder")
+	}
+
 	return nil
 }
 
@@ -450,6 +569,116 @@ func (m *Manager) deleteBridge(bridgeName string) {
 	}
 }
 
+// SandboxBridgeName is the name of the main sandbox's Docker bridge.
+// We use a custom name instead of "docker0" to prevent session dockerds from
+// accidentally deleting it (Docker's cleanup code specifically targets "docker0").
+const SandboxBridgeName = "sandbox0"
+
+// checkSandboxBridgeExists returns true if the main sandbox bridge exists
+func (m *Manager) checkSandboxBridgeExists() bool {
+	cmd := exec.Command("ip", "link", "show", SandboxBridgeName)
+	return cmd.Run() == nil
+}
+
+// EnsureSandboxBridge checks if the sandbox bridge exists and recreates it if missing.
+// This is a defensive measure against the bridge mysteriously disappearing.
+// The main sandbox dockerd uses sandbox0 with 10.213.0.0/24 subnet.
+// Also reconnects any orphaned veth interfaces that should be on sandbox0.
+func (m *Manager) EnsureSandboxBridge() error {
+	// Check if sandbox0 exists
+	checkCmd := exec.Command("ip", "link", "show", SandboxBridgeName)
+	if err := checkCmd.Run(); err == nil {
+		// sandbox0 exists, but check for orphaned veths and reconnect them
+		m.reconnectOrphanedVeths()
+		return nil
+	}
+
+	// sandbox0 is missing - recreate it
+	log.Warn().Str("bridge", SandboxBridgeName).Msg("Sandbox bridge is missing, recreating it")
+
+	// Create the bridge
+	if err := m.runCommand("ip", "link", "add", SandboxBridgeName, "type", "bridge"); err != nil {
+		return fmt.Errorf("failed to create sandbox bridge %s: %w", SandboxBridgeName, err)
+	}
+
+	// Set the IP address (10.213.0.1/24 per sandbox daemon.json default-address-pools)
+	if err := m.runCommand("ip", "addr", "add", "10.213.0.1/24", "dev", SandboxBridgeName); err != nil {
+		log.Warn().Err(err).Str("bridge", SandboxBridgeName).Msg("Failed to add IP to sandbox bridge (may already exist)")
+	}
+
+	// Bring up the bridge
+	if err := m.runCommand("ip", "link", "set", SandboxBridgeName, "up"); err != nil {
+		return fmt.Errorf("failed to bring up sandbox bridge %s: %w", SandboxBridgeName, err)
+	}
+
+	log.Info().Str("bridge", SandboxBridgeName).Msg("Recreated sandbox bridge with IP 10.213.0.1/24")
+
+	// Reconnect any orphaned veth interfaces to the recreated sandbox0
+	m.reconnectOrphanedVeths()
+
+	return nil
+}
+
+// reconnectOrphanedVeths finds veth interfaces that have no bridge master and reconnects them to sandbox0.
+// This handles the case where session dockerd startup might orphan existing container veths.
+// We identify sandbox veths by checking if their peer (inside a container) is on the 10.213.0.0/24 subnet.
+func (m *Manager) reconnectOrphanedVeths() {
+	// Find all veth interfaces
+	output, err := exec.Command("ip", "-o", "link", "show", "type", "veth").Output()
+	if err != nil {
+		log.Debug().Err(err).Msg("Failed to list veth interfaces")
+		return
+	}
+
+	reconnected := 0
+	for _, line := range strings.Split(string(output), "\n") {
+		if line == "" {
+			continue
+		}
+		// Parse veth name from line like "5: veth7640f86@if2: <BROADCAST,..."
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		vethName := strings.TrimSuffix(strings.Split(parts[1], "@")[0], ":")
+
+		// Skip if it already has a master bridge
+		showCmd := exec.Command("ip", "link", "show", vethName)
+		showOutput, err := showCmd.Output()
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(showOutput), "master ") {
+			continue
+		}
+
+		// Skip non-docker veths (hydra veths use vethb-* naming)
+		if strings.HasPrefix(vethName, "vethb") {
+			continue
+		}
+
+		// Skip container interfaces like eth0, eth1, lo - these are NOT orphaned veths
+		// The sandbox's eth0 appears as a veth from `ip link show type veth` but it's the
+		// container's external interface to the host Docker network and must NOT be attached to sandbox0
+		if strings.HasPrefix(vethName, "eth") || vethName == "lo" {
+			log.Debug().Str("veth", vethName).Msg("Skipping container interface (not an orphaned veth)")
+			continue
+		}
+
+		// This veth has no master - try to reconnect to sandbox0
+		log.Info().Str("veth", vethName).Str("bridge", SandboxBridgeName).Msg("Reconnecting orphaned veth to sandbox bridge")
+		if err := m.runCommand("ip", "link", "set", vethName, "master", SandboxBridgeName); err != nil {
+			log.Warn().Err(err).Str("veth", vethName).Str("bridge", SandboxBridgeName).Msg("Failed to reconnect veth to sandbox bridge")
+		} else {
+			reconnected++
+		}
+	}
+
+	if reconnected > 0 {
+		log.Info().Int("count", reconnected).Str("bridge", SandboxBridgeName).Msg("Reconnected orphaned veths to sandbox bridge")
+	}
+}
+
 // startDockerd starts a new dockerd process
 func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceRequest) (*DockerInstance, error) {
 	instanceDir := filepath.Join(m.socketDir, string(req.ScopeType)+"-"+req.ScopeID)
@@ -509,6 +738,29 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	gatewayIP := fmt.Sprintf("10.200.%d.1", bridgeIndex)
 	dnsJSON := fmt.Sprintf(`["%s"]`, gatewayIP)
 
+	// Configure default-address-pools to give each Hydra dockerd a unique range.
+	// This prevents user-created networks from using 172.x.x.x (outer Docker conflict)
+	// and ensures sessions can't accidentally get overlapping subnets.
+	//
+	// We use awkward 10.x ranges no human would choose:
+	// - Per-session dockerds: 10.112.0.0/12 (10.112.0.0 - 10.127.255.255)
+	// - Sandbox's main dockerd: 10.213.0.0/16 (separate range)
+	// Note: We avoid 100.64.0.0/10 (CGNAT) because Tailscale uses it.
+	//
+	// Allocation scheme using /20 blocks (16 /24 networks per session):
+	// - Session N (bridgeIndex 1-254) gets a unique /20 block
+	// - 16 /20 blocks fit in each /16, so sessions span 10.112.x.x through 10.127.x.x
+	// - Hydra bridges use 10.200.X.0/24 (internal veth connections only)
+	//
+	// Formula: 10.(112 + (N-1)/16).((N-1)%16 * 16).0/20
+	// - bridgeIndex 1: 10.112.0.0/20
+	// - bridgeIndex 16: 10.112.240.0/20
+	// - bridgeIndex 17: 10.113.0.0/20
+	// - bridgeIndex 254: 10.127.208.0/20
+	secondOctet := 112 + (bridgeIndex-1)/16
+	thirdOctet := ((bridgeIndex - 1) % 16) * 16
+	sessionPoolBase := fmt.Sprintf("10.%d.%d.0/20", secondOctet, thirdOctet)
+
 	daemonConfig := fmt.Sprintf(`{
   "runtimes": {
     "nvidia": {
@@ -519,8 +771,11 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
   "storage-driver": "overlay2",
   "log-level": "warn",
   "fixed-cidr": "%s",
-  "dns": %s
-}`, bridgeSubnet, dnsJSON)
+  "dns": %s,
+  "default-address-pools": [
+    {"base": "%s", "size": 24}
+  ]
+}`, bridgeSubnet, dnsJSON, sessionPoolBase)
 
 	if err := os.WriteFile(configFile, []byte(daemonConfig), 0644); err != nil {
 		m.deleteBridge(bridgeName)
@@ -531,6 +786,16 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	// Clean up stale socket
 	os.Remove(socketPath)
 
+	// DEBUG: Check sandbox bridge status before starting session dockerd
+	// This helps diagnose if session dockerd is somehow affecting the main dockerd's bridge
+	sandboxBridgeExistsBefore := m.checkSandboxBridgeExists()
+	log.Info().
+		Bool("sandbox_bridge_exists", sandboxBridgeExistsBefore).
+		Str("sandbox_bridge", SandboxBridgeName).
+		Str("scope", scopeKey).
+		Str("session_bridge", bridgeName).
+		Msg("[DEBUG] Sandbox bridge status BEFORE starting session dockerd")
+
 	// Start dockerd with our custom bridge
 	// --bridge specifies the bridge interface to use instead of docker0
 	// Note: We don't use --bip because the bridge already has its IP assigned
@@ -538,6 +803,11 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	// --ip sets the default IP for container port bindings. By binding to the
 	// gateway IP (10.200.N.1) instead of 0.0.0.0, each session's ports are isolated
 	// and won't conflict with other sessions using the same port numbers.
+	//
+	// Session dockerd uses its own isolated bridge (hydraX) and storage.
+	// We don't use --iptables=false because Docker needs to manage NAT for the session's containers.
+	// We don't use --ip-forward-no-drop because testing showed it breaks internet connectivity
+	// (possibly Docker 29 implementation issue - the flag preserves docker0 but breaks NAT somehow).
 	cmd := exec.Command("dockerd",
 		"--host=unix://"+socketPath,
 		"--data-root="+dataRoot,
@@ -585,6 +855,31 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	}
 
 	inst.Status = StatusRunning
+
+	// DEBUG: Check sandbox bridge status after session dockerd is ready
+	// With the custom bridge name (sandbox0), session dockerds should no longer affect it
+	sandboxBridgeExistsAfter := m.checkSandboxBridgeExists()
+	log.Info().
+		Bool("sandbox_bridge_exists_before", sandboxBridgeExistsBefore).
+		Bool("sandbox_bridge_exists_after", sandboxBridgeExistsAfter).
+		Str("sandbox_bridge", SandboxBridgeName).
+		Str("scope", scopeKey).
+		Str("session_bridge", bridgeName).
+		Msg("[DEBUG] Sandbox bridge status AFTER session dockerd started")
+
+	if sandboxBridgeExistsBefore && !sandboxBridgeExistsAfter {
+		// This should no longer happen with the custom bridge name, but keep defensive code
+		log.Warn().
+			Str("scope", scopeKey).
+			Str("session_bridge", bridgeName).
+			Str("sandbox_bridge", SandboxBridgeName).
+			Msg("Sandbox bridge was unexpectedly deleted by session dockerd startup, restoring it")
+
+		// Restore sandbox bridge - this reconnects orphaned veth pairs from desktop containers
+		if err := m.EnsureSandboxBridge(); err != nil {
+			log.Error().Err(err).Str("bridge", SandboxBridgeName).Msg("Failed to restore sandbox bridge after session dockerd deleted it")
+		}
+	}
 
 	// Start process monitor goroutine
 	go m.monitorProcess(inst, cmd)
@@ -648,7 +943,7 @@ func (m *Manager) stopDockerd(ctx context.Context, inst *DockerInstance) error {
 	return nil
 }
 
-// waitForSocket waits for the docker socket to become available
+// waitForSocket waits for the docker socket to become available and the bridge network to be ready
 func (m *Manager) waitForSocket(ctx context.Context, socketPath string) error {
 	deadline := time.Now().Add(DefaultDockerdTimeout)
 
@@ -664,7 +959,14 @@ func (m *Manager) waitForSocket(ctx context.Context, socketPath string) error {
 			// Try to connect
 			cmd := exec.Command("docker", "-H", "unix://"+socketPath, "info")
 			if err := cmd.Run(); err == nil {
-				return nil
+				// Also verify the bridge network is ready
+				// This prevents a race condition where docker info succeeds
+				// but the bridge network driver hasn't finished initializing
+				networkCmd := exec.Command("docker", "-H", "unix://"+socketPath, "network", "inspect", "bridge")
+				if err := networkCmd.Run(); err == nil {
+					return nil
+				}
+				log.Debug().Str("socket", socketPath).Msg("Docker socket ready but bridge network not yet initialized")
 			}
 		}
 
@@ -1040,10 +1342,19 @@ func (m *Manager) BridgeDesktop(ctx context.Context, req *BridgeDesktopRequest) 
 		return nil, fmt.Errorf("failed to bring up eth1: %w", err)
 	}
 
-	// 8. Add route to Hydra subnet via the new interface
+	// 8. Add route to Hydra bridge subnet via the new interface
 	if err := m.runNsenter(containerPID, "ip", "route", "add", subnet, "dev", "eth1"); err != nil {
 		// Route may already exist, just log warning
 		log.Warn().Err(err).Str("subnet", subnet).Msg("Failed to add route (may already exist)")
+	}
+
+	// 8b. Add route to per-session dockerd networks via the Hydra gateway
+	// The per-session dockerd creates containers on 10.112.0.0/12 (10.112.x.x - 10.127.x.x)
+	// Without this route, DNS returns container IPs that the desktop can't reach
+	dockerdNetworks := "10.112.0.0/12"
+	if err := m.runNsenter(containerPID, "ip", "route", "add", dockerdNetworks, "via", gateway, "dev", "eth1"); err != nil {
+		// Route may already exist, just log warning
+		log.Warn().Err(err).Str("subnet", dockerdNetworks).Msg("Failed to add dockerd networks route (may already exist)")
 	}
 
 	// 9. Configure DNS by adding Hydra's DNS server to resolv.conf

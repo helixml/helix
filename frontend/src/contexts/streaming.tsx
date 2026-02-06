@@ -1,11 +1,16 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect, useRef } from 'react';
 import ReconnectingWebSocket from 'reconnecting-websocket';
 import { IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, ISessionChatRequest, ISessionType, IAgentType } from '../types';
-import useAccount from '../hooks/useAccount';
 import { TypesInteraction, TypesMessage, TypesSession } from '../api/api';
 import { GET_SESSION_QUERY_KEY, SESSION_STEPS_QUERY_KEY } from '../services/sessionService';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateSessionsQuery } from '../services/sessionService';
+
+// CSRF helper - reads the CSRF token from the helix_csrf cookie
+const getCSRFToken = (): string | null => {
+  const match = document.cookie.match(/(^| )helix_csrf=([^;]+)/)
+  return match ? decodeURIComponent(match[2]) : null
+}
 
 interface NewInferenceParams {
   regenerate?: boolean;
@@ -47,7 +52,6 @@ export const useStreaming = (): StreamingContextType => {
 };
 
 export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const account = useAccount();
   const queryClient = useQueryClient();
   const [currentResponses, setCurrentResponses] = useState<Map<string, Partial<TypesInteraction>>>(new Map());
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -197,14 +201,26 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
         requestAnimationFrame(() => {
           setCurrentResponses(prev => {
             const current = prev.get(currentSessionId) || {};
-            const updatedInteraction: Partial<TypesInteraction> = {
-              ...current,
-              id: lastInteraction.id,
-              state: lastInteraction.state,
-              // Copy all important fields from the interaction
-              prompt_message: lastInteraction.prompt_message || current.prompt_message,
-              response_message: lastInteraction.response_message || current.response_message,
-            };
+            // IMPORTANT: Only fall back to current values if the interaction ID matches
+            // Otherwise we'd show stale content from a previous interaction
+            const isSameInteraction = current.id === lastInteraction.id;
+
+            // When it's a different interaction, start fresh - don't spread current
+            const updatedInteraction: Partial<TypesInteraction> = isSameInteraction
+              ? {
+                  ...current,
+                  id: lastInteraction.id,
+                  state: lastInteraction.state,
+                  prompt_message: lastInteraction.prompt_message || current.prompt_message,
+                  response_message: lastInteraction.response_message || current.response_message,
+                }
+              : {
+                  // New interaction - start with clean slate, only use server data
+                  id: lastInteraction.id,
+                  state: lastInteraction.state,
+                  prompt_message: lastInteraction.prompt_message,
+                  response_message: lastInteraction.response_message,
+                };
 
             const newMap = new Map(prev).set(currentSessionId, updatedInteraction);
             return newMap;
@@ -246,13 +262,26 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
         requestAnimationFrame(() => {
           setCurrentResponses(prev => {
             const current = prev.get(currentSessionId) || {};
-            const updated: Partial<TypesInteraction> = {
-              ...current,
-              id: updatedInteraction.id,
-              state: updatedInteraction.state,
-              prompt_message: updatedInteraction.prompt_message || current.prompt_message,
-              response_message: updatedInteraction.response_message || current.response_message,
-            };
+            // IMPORTANT: Only fall back to current values if the interaction ID matches
+            // Otherwise we'd show stale content from a previous interaction
+            const isSameInteraction = current.id === updatedInteraction.id;
+
+            // When it's a different interaction, start fresh - don't spread current
+            const updated: Partial<TypesInteraction> = isSameInteraction
+              ? {
+                  ...current,
+                  id: updatedInteraction.id,
+                  state: updatedInteraction.state,
+                  prompt_message: updatedInteraction.prompt_message || current.prompt_message,
+                  response_message: updatedInteraction.response_message || current.response_message,
+                }
+              : {
+                  // New interaction - start with clean slate
+                  id: updatedInteraction.id,
+                  state: updatedInteraction.state,
+                  prompt_message: updatedInteraction.prompt_message,
+                  response_message: updatedInteraction.response_message,
+                };
 
             const newMap = new Map(prev).set(currentSessionId, updated);
             return newMap;
@@ -263,7 +292,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   }, [currentSessionId]);
 
   useEffect(() => {
-    if (!account.token || !currentSessionId) return;
+    // With BFF auth, session cookie is automatically sent with WebSocket connections
+    if (!currentSessionId) return;
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsHost = window.location.host;
@@ -304,7 +334,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
         invalidateTimerRef.current = null;
       }
     };
-  }, [account.token, currentSessionId, handleWebsocketEvent, queryClient]);
+  }, [currentSessionId]);
 
   const NewInference = async ({
     regenerate = false,
@@ -432,12 +462,20 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     });
 
     try {
+      // With BFF auth, session cookie is sent automatically with same-origin requests
+      // Include CSRF token for protection against cross-site request forgery
+      const csrfToken = getCSRFToken()
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+      if (csrfToken) {
+        headers['X-CSRF-Token'] = csrfToken
+      }
+
       const response = await fetch('/api/v1/sessions/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${account.token}`,
-        },
+        headers,
+        credentials: 'same-origin',
         body: JSON.stringify(sessionChatRequest),
       });
 

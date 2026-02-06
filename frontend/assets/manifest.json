@@ -1,0 +1,19 @@
+{
+  "name": "Helix",
+  "short_name": "Helix",
+  "description": "AI-powered development platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d0d0d",
+  "theme_color": "#4ade80",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/img/logo.png",
+      "sizes": "1000x1000",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["developer", "productivity", "utilities"]
+}

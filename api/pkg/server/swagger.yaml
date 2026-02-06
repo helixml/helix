@@ -1121,6 +1121,15 @@ definitions:
       reason:
         type: string
     type: object
+  server.OrganizationDomainInfo:
+    properties:
+      auto_join_domain:
+        type: string
+      organization_id:
+        type: string
+      organization_name:
+        type: string
+    type: object
   server.PhaseProgress:
     properties:
       agent:
@@ -1377,6 +1386,12 @@ definitions:
         description: Whether this sample project is shown to users
         type: boolean
       github_repo:
+        type: string
+      guidelines:
+        description: |-
+          Guidelines are project-specific instructions for AI agents
+          These get injected into implementation prompts and help the agent understand
+          project conventions, available tools, and how to use them effectively
         type: string
       id:
         type: string
@@ -1718,6 +1733,13 @@ definitions:
   types.AdminResetPasswordRequest:
     properties:
       new_password:
+        type: string
+    type: object
+  types.AffectedProjectInfo:
+    properties:
+      id:
+        type: string
+      name:
         type: string
     type: object
   types.AgentType:
@@ -3335,6 +3357,16 @@ definitions:
     type: object
   types.ForkSimpleProjectRequest:
     properties:
+      configured_skill_env_vars:
+        additionalProperties:
+          additionalProperties:
+            type: string
+          type: object
+        description: |-
+          ConfiguredSkillEnvVars contains user-configured env vars for skills
+          Outer key: skill name, Inner key: env var name, Value: user-provided value
+          This allows users to configure skills (like API tokens) during project creation
+        type: object
       description:
         type: string
       fork_to_organization:
@@ -4122,6 +4154,9 @@ definitions:
       next_run:
         description: Populated by the cron job controller
         type: string
+      organization_id:
+        description: Organization scope for search
+        type: string
       owner:
         description: User ID
         type: string
@@ -4623,6 +4658,11 @@ definitions:
         items:
           $ref: '#/definitions/types.MoveRepositoryPreviewItem'
         type: array
+      warnings:
+        description: Warnings about things that won't be moved automatically
+        items:
+          type: string
+        type: array
     type: object
   types.MoveProjectRequest:
     properties:
@@ -4631,6 +4671,11 @@ definitions:
     type: object
   types.MoveRepositoryPreviewItem:
     properties:
+      affected_projects:
+        description: Other projects that will lose this repo
+        items:
+          $ref: '#/definitions/types.AffectedProjectInfo'
+        type: array
       current_name:
         type: string
       has_conflict:
@@ -4896,6 +4941,12 @@ definitions:
     type: object
   types.Organization:
     properties:
+      auto_join_domain:
+        description: |-
+          AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members
+          Note: Uniqueness is enforced in application code (updateOrganization handler) rather than DB constraint
+          because empty strings would conflict with each other in a unique index
+        type: string
       created_at:
         type: string
       deleted_at:
@@ -5124,6 +5175,7 @@ definitions:
       metadata:
         $ref: '#/definitions/types.ProjectMetadata'
       name:
+        description: Indexed for search prefix matching
         type: string
       next_task_number:
         description: |-
@@ -5148,6 +5200,10 @@ definitions:
         description: Transient field - loaded from primary code repo's .helix/startup.sh,
           never persisted to database
         type: string
+      stats:
+        allOf:
+        - $ref: '#/definitions/types.ProjectStats'
+        description: Computed
       status:
         description: '"active", "archived", "completed"'
         type: string
@@ -5233,6 +5289,25 @@ definitions:
       board_settings:
         $ref: '#/definitions/types.BoardSettings'
     type: object
+  types.ProjectStats:
+    properties:
+      active_agent_sessions:
+        type: integer
+      average_task_completion_hours:
+        type: number
+      backlog_tasks:
+        type: integer
+      completed_tasks:
+        type: integer
+      in_progress_tasks:
+        type: integer
+      pending_review_tasks:
+        type: integer
+      planning_tasks:
+        type: integer
+      total_tasks:
+        type: integer
+    type: object
   types.ProjectUpdateRequest:
     properties:
       auto_start_backlog_tasks:
@@ -5302,6 +5377,9 @@ definitions:
         type: string
       next_retry_at:
         description: When to retry (for exponential backoff)
+        type: string
+      organization_id:
+        description: Organization scope for search
         type: string
       pinned:
         description: Library features for prompt reuse
@@ -5768,6 +5846,9 @@ definitions:
     - Dataset
     - Project
     - GitRepository
+    - SpecTask
+    - Session
+    - Prompt
     type: string
     x-enum-varnames:
     - ResourceTeam
@@ -5783,6 +5864,48 @@ definitions:
     - ResourceTypeDataset
     - ResourceProject
     - ResourceGitRepository
+    - ResourceSpecTask
+    - ResourceSession
+    - ResourcePrompt
+  types.ResourceSearchRequest:
+    properties:
+      limit:
+        type: integer
+      organization_id:
+        type: string
+      query:
+        type: string
+      types:
+        items:
+          $ref: '#/definitions/types.Resource'
+        type: array
+      user_id:
+        type: string
+    type: object
+  types.ResourceSearchResponse:
+    properties:
+      results:
+        items:
+          $ref: '#/definitions/types.ResourceSearchResult'
+        type: array
+      total:
+        type: integer
+    type: object
+  types.ResourceSearchResult:
+    properties:
+      contents:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      parent_id:
+        type: string
+      type:
+        $ref: '#/definitions/types.Resource'
+    type: object
   types.ResponseFormat:
     properties:
       schema:
@@ -6431,6 +6554,19 @@ definitions:
         - $ref: '#/definitions/types.SessionType'
         description: e.g. text, image
     type: object
+  types.SessionInfo:
+    properties:
+      auth_provider:
+        $ref: '#/definitions/types.AuthProvider'
+      created_at:
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: string
+      user_id:
+        type: string
+    type: object
   types.SessionMetadata:
     properties:
       active_tools:
@@ -6897,6 +7033,10 @@ definitions:
         additionalProperties: true
         type: object
       name:
+        description: Indexed for search prefix matching
+        type: string
+      organization_id:
+        description: Organization scope for search
         type: string
       original_prompt:
         description: 'Kiro''s actual approach: simple, human-readable artifacts'
@@ -6971,6 +7111,9 @@ definitions:
       use_host_docker:
         description: Use host Docker socket (requires privileged sandbox)
         type: boolean
+      user_id:
+        description: Owner user ID for search
+        type: string
       user_short_title:
         description: User override
         type: string
@@ -7396,6 +7539,10 @@ definitions:
         additionalProperties: true
         type: object
       name:
+        description: Indexed for search prefix matching
+        type: string
+      organization_id:
+        description: Organization scope for search
         type: string
       original_prompt:
         description: 'Kiro''s actual approach: simple, human-readable artifacts'
@@ -7472,6 +7619,9 @@ definitions:
       use_host_docker:
         description: Use host Docker socket (requires privileged sandbox)
         type: boolean
+      user_id:
+        description: Owner user ID for search
+        type: string
       user_short_title:
         description: User override
         type: string
@@ -7798,13 +7948,17 @@ definitions:
     - oidc
     - api_key
     - socket
+    - session
     type: string
+    x-enum-comments:
+      TokenTypeSession: BFF session for regular (email/password) auth
     x-enum-varnames:
     - TokenTypeNone
     - TokenTypeRunner
     - TokenTypeOIDC
     - TokenTypeAPIKey
     - TokenTypeSocket
+    - TokenTypeSession
   types.Tool:
     properties:
       config:
@@ -8620,6 +8774,21 @@ paths:
       summary: Get sandbox real-time events (SSE)
       tags:
       - Admin
+  /api/v1/admin/organization-domains:
+    get:
+      description: List all organizations that have auto-join domains configured
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/server.OrganizationDomainInfo'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List organization domains (admin only)
+      tags:
+      - organizations
   /api/v1/admin/users/{id}:
     delete:
       description: Permanently delete a user and all associated data. Only admins
@@ -9441,6 +9610,22 @@ paths:
         "200":
           description: OK
       summary: Register
+      tags:
+      - auth
+  /api/v1/auth/session:
+    get:
+      description: Returns session info for BFF authentication. The frontend uses
+        this to check if the user is logged in.
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SessionInfo'
+        "401":
+          description: Not authenticated
+          schema:
+            type: string
+      summary: Get current session info
       tags:
       - auth
   /api/v1/auth/update:
@@ -13092,6 +13277,56 @@ paths:
       summary: Get startup script version history
       tags:
       - Projects
+  /api/v1/projects/{id}/usage:
+    get:
+      consumes:
+      - application/json
+      description: Get token usage metrics for a project (combined across all tasks)
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - default: hourly
+        description: Aggregation level (5min, hourly, daily)
+        in: query
+        name: aggregation_level
+        type: string
+      - description: Start time (RFC3339 format)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339 format)
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AggregatedUsageMetric'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get project token usage
+      tags:
+      - Projects
   /api/v1/projects/quick-create:
     post:
       consumes:
@@ -13845,6 +14080,31 @@ paths:
       summary: List repositories without projects
       tags:
       - Repositories
+  /api/v1/resource-search:
+    post:
+      consumes:
+      - application/json
+      description: Search across projects, tasks, sessions, prompts, knowledge, repositories,
+        and apps concurrently
+      parameters:
+      - description: Search request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.ResourceSearchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ResourceSearchResponse'
+      security:
+      - BearerAuth: []
+      summary: Search across resources
+      tags:
+      - search
   /api/v1/sample-projects:
     get:
       description: Get a list of all available sample projects that users can fork
