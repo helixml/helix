@@ -540,9 +540,11 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				// pixels in BGRx, very fast), videoconvert only processes 500K pixels = 4x less work.
 				// The intermediate capsfilter forces videoscale to output at target resolution
 				// before videoconvert touches the data.
-				"videoscale",
+				// method=0 = nearest-neighbor (fastest for 2x downscale, just picks every other pixel)
+				// dither=0 = no dithering, chroma-mode=0 = full chroma (fastest conversion)
+				"videoscale method=0",
 				"video/x-raw,width=960,height=540",
-				"videoconvert",
+				"videoconvert dither=0 chroma-mode=0",
 				fmt.Sprintf("video/x-raw,format=%s,width=960,height=540", pixelFormat),
 			}
 			v.useRealtimeClock = true
