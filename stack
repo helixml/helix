@@ -1356,7 +1356,14 @@ function transfer-desktop-to-sandbox() {
   local SANDBOX_CONTAINER_NAME="$SANDBOX_CONTAINER"
   if [[ "$HELIX_IN_HELIX" == "true" ]]; then
     SANDBOX_DOCKER_HOST="$DOCKER_HOST_OUTER"
-    SANDBOX_CONTAINER_NAME="helix-inner-sandbox-${USER:-dev}"
+    # Get actual container name from compose (includes project name prefix)
+    SANDBOX_CONTAINER_NAME=$(DOCKER_HOST="$DOCKER_HOST_OUTER" \
+      COMPOSE_PROFILES="${OUTER_SANDBOX_PROFILE:-code-nvidia}" \
+      docker compose -f docker-compose.dev.yaml ps -q "$SANDBOX_SERVICE" 2>/dev/null)
+    if [ -z "$SANDBOX_CONTAINER_NAME" ]; then
+      echo "⚠️  Inner sandbox container not found on host Docker, skipping transfer"
+      return 0
+    fi
     echo "🎮 Helix-in-Helix mode: Using host Docker for sandbox ($SANDBOX_CONTAINER_NAME)"
   fi
 
@@ -1371,8 +1378,8 @@ function transfer-desktop-to-sandbox() {
 
   # Check if sandbox container is running
   if [[ "$HELIX_IN_HELIX" == "true" ]]; then
-    # In Helix-in-Helix mode, check on host Docker
-    if ! sandbox_docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${SANDBOX_CONTAINER_NAME}$"; then
+    # In Helix-in-Helix mode, already resolved container ID above
+    if ! sandbox_docker inspect "$SANDBOX_CONTAINER_NAME" >/dev/null 2>&1; then
       echo "ℹ️  Sandbox container not running on host Docker, skipping image transfer"
       return 0
     fi
@@ -1724,31 +1731,38 @@ function build-sandbox() {
 
   if [[ "$HELIX_IN_HELIX" == "true" ]]; then
     # In Helix-in-Helix mode, restart sandbox on Host Docker
-    local INNER_SANDBOX_NAME="helix-inner-sandbox-${USER:-dev}"
-    echo "🎮 Helix-in-Helix: Restarting inner sandbox ($INNER_SANDBOX_NAME) on Host Docker..."
-
-    # Stop and remove old inner sandbox container on Host Docker
-    DOCKER_HOST="$DOCKER_HOST_OUTER" docker rm -f "$INNER_SANDBOX_NAME" 2>/dev/null || true
+    echo "🎮 Helix-in-Helix: Restarting inner sandbox on Host Docker..."
 
     # Start inner sandbox on Host Docker using compose
+    # Use --force-recreate to pick up new image without removing the network
     DOCKER_HOST="$DOCKER_HOST_OUTER" \
     COMPOSE_PROFILES="${OUTER_SANDBOX_PROFILE:-code-nvidia}" \
-    docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
+    docker compose -f docker-compose.dev.yaml up -d --force-recreate "$SANDBOX_SERVICE"
 
-    echo "✅ Inner sandbox rebuilt and restarted on Host Docker"
+    # Get the actual container name created by compose (includes project name prefix)
+    local INNER_SANDBOX_NAME
+    INNER_SANDBOX_NAME=$(DOCKER_HOST="$DOCKER_HOST_OUTER" \
+      COMPOSE_PROFILES="${OUTER_SANDBOX_PROFILE:-code-nvidia}" \
+      docker compose -f docker-compose.dev.yaml ps -q "$SANDBOX_SERVICE" 2>/dev/null)
 
-    # Wait for inner sandbox's nested dockerd to be ready
-    echo "⏳ Waiting for inner sandbox dockerd..."
-    local TIMEOUT=60
-    local ELAPSED=0
-    until DOCKER_HOST="$DOCKER_HOST_OUTER" docker exec "$INNER_SANDBOX_NAME" docker info >/dev/null 2>&1; do
-      if [ $ELAPSED -ge $TIMEOUT ]; then
-        echo "⚠️  Inner sandbox dockerd not ready after ${TIMEOUT}s"
-        break
-      fi
-      sleep 1
-      ELAPSED=$((ELAPSED + 1))
-    done
+    if [ -z "$INNER_SANDBOX_NAME" ]; then
+      echo "⚠️  Could not find inner sandbox container"
+    else
+      echo "✅ Inner sandbox container: $INNER_SANDBOX_NAME"
+
+      # Wait for inner sandbox's nested dockerd to be ready
+      echo "⏳ Waiting for inner sandbox dockerd..."
+      local TIMEOUT=60
+      local ELAPSED=0
+      until DOCKER_HOST="$DOCKER_HOST_OUTER" docker exec "$INNER_SANDBOX_NAME" docker info >/dev/null 2>&1; do
+        if [ $ELAPSED -ge $TIMEOUT ]; then
+          echo "⚠️  Inner sandbox dockerd not ready after ${TIMEOUT}s"
+          break
+        fi
+        sleep 1
+        ELAPSED=$((ELAPSED + 1))
+      done
+    fi
   else
     echo "🔄 Restarting sandbox container ($SANDBOX_SERVICE) with updated image..."
     docker compose -f docker-compose.dev.yaml rm -f "$SANDBOX_SERVICE"
