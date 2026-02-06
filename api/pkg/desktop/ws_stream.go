@@ -340,6 +340,7 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 
 // selectEncoder chooses the best available encoder
 // Priority order:
+// 0. HELIX_ENCODER env var override (for testing/benchmarking)
 // 1. NVIDIA NVENC (nvh264enc) - fastest, lowest latency
 // 2. Intel QSV (qsvh264enc) - Intel Quick Sync Video
 // 3. VA-API (vah264enc) - Intel/AMD VA-API
@@ -348,6 +349,26 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 // 6. OpenH264 (openh264enc) - Cisco's software encoder (installed by default)
 // 7. x264 (x264enc) - software fallback (requires gst-plugins-ugly)
 func (v *VideoStreamer) selectEncoder() string {
+	// Check for explicit encoder override via environment variable
+	if override := os.Getenv("HELIX_ENCODER"); override != "" {
+		switch strings.ToLower(override) {
+		case "vsock":
+			v.logger.Info("using vsockenc (forced via HELIX_ENCODER)")
+			return "vsock"
+		case "openh264":
+			v.logger.Info("using OpenH264 software encoder (forced via HELIX_ENCODER)")
+			return "openh264"
+		case "x264":
+			v.logger.Info("using x264 software encoder (forced via HELIX_ENCODER)")
+			return "x264"
+		case "nvenc":
+			v.logger.Info("using NVIDIA NVENC encoder (forced via HELIX_ENCODER)")
+			return "nvenc"
+		default:
+			v.logger.Warn("unknown HELIX_ENCODER value, using auto-detect", "value", override)
+		}
+	}
+
 	// Try vsockenc first (macOS/UTM virtio-gpu VideoToolbox encoding)
 	// This delegates encoding to host VideoToolbox via vsock for zero-copy on macOS
 	if checkGstElement("vsockenc") {
@@ -476,12 +497,16 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Mutter ignores MemFd request and allocates DmaBuf, which we can't mmap (tiled format).
 		// Native pipewiresrc properly handles DmaBuf→vapostproc→GPU detiling.
 		// vsockenc: use native pipewiresrc with DMA-BUF (no always-copy)
-		isVsockGnome := !isSway && encoder == "vsock"
+		//
+		// macOS ARM (virtio-gpu) detection: vsockenc element exists even if we're using
+		// a software encoder override (HELIX_ENCODER). We need the same pipewiresrc config
+		// (no always-copy, convert+scale before queue) for any encoder on this platform.
+		isMacOSVirtioGpu := !isSway && checkGstElement("vsockenc")
 
-		isAmdGnome := !isSway && !isNvidiaGnome
+		isAmdGnome := !isSway && !isNvidiaGnome && !isMacOSVirtioGpu
 
-		if isVsockGnome {
-			// vsockenc on macOS/UTM virtio-gpu: use native pipewiresrc WITHOUT always-copy
+		if isMacOSVirtioGpu {
+			// macOS ARM / UTM virtio-gpu: use native pipewiresrc WITHOUT always-copy
 			// always-copy=true breaks PipeWire's damage-based frame production on virtio-gpu,
 			// causing frames to stop after the initial render. Without it, PipeWire keeps
 			// producing frames on screen damage.
@@ -492,7 +517,17 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			// stop producing frames after the initial 2. By converting/scaling immediately
 			// after pipewiresrc, the PipeWire buffer is released quickly (during the fast
 			// software scale), and only the small 960x540 buffer enters the leaky queue.
-			slog.Info("[STREAM] vsockenc detected, using native pipewiresrc with downscale")
+			//
+			// Format depends on encoder:
+			// - vsockenc: NV12 (VideoToolbox natively encodes from NV12)
+			// - openh264enc: I420 (only format openh264 accepts)
+			// - x264enc: I420 (most efficient for x264)
+			pixelFormat := "NV12"
+			if encoder == "openh264" || encoder == "x264" {
+				pixelFormat = "I420"
+			}
+			slog.Info("[STREAM] macOS ARM virtio-gpu detected, using native pipewiresrc with downscale",
+				"encoder", encoder, "format", pixelFormat)
 			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true keepalive-time=500", v.nodeID)
 			if v.pipeWireFd > 0 {
 				srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
@@ -501,12 +536,9 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				srcPart,
 				// Convert and downscale BEFORE the leaky queue so PipeWire buffers
 				// are released immediately after the fast software scale.
-				// NV12 (planar YUV 4:2:0) is 1.5 bytes/pixel vs 4 bytes/pixel for BGRA:
-				//   960x540 NV12 = 777,600 bytes vs BGRA = 2,073,600 bytes (2.65x smaller)
-				// VideoToolbox also natively encodes from NV12, skipping internal BGRA→NV12 conversion.
 				"videoconvert",
 				"videoscale",
-				"video/x-raw,format=NV12,width=960,height=540",
+				fmt.Sprintf("video/x-raw,format=%s,width=960,height=540", pixelFormat),
 			}
 			v.useRealtimeClock = true
 		} else if isAmdGnome {
@@ -735,21 +767,31 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 
 	case "openh264":
 		// OpenH264 software encoder (Cisco's implementation)
-		// videoscale allows clients to request different resolutions
+		// On macOS ARM (virtio-gpu), source already does videoconvert+videoscale to I420,960x540
+		// before the queue, so we skip redundant conversion. On other platforms, add conversion.
+		if !checkGstElement("vsockenc") {
+			// Standard path: add conversion + scaling
+			parts = append(parts,
+				"videoconvert",
+				"videoscale add-borders=true",
+				fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height),
+			)
+		}
 		parts = append(parts,
-			"videoconvert",
-			"videoscale add-borders=true",
-			fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height),
 			fmt.Sprintf("openh264enc complexity=low bitrate=%d gop-size=%d", v.config.Bitrate*1000, v.getEffectiveGOPSize()),
 		)
 
 	case "x264":
 		// x264 software encoder - high quality but requires gst-plugins-ugly
-		// videoscale allows clients to request different resolutions
+		// On macOS ARM (virtio-gpu), source already does videoconvert+videoscale to I420,960x540
+		if !checkGstElement("vsockenc") {
+			parts = append(parts,
+				"videoconvert",
+				"videoscale add-borders=true",
+				fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height),
+			)
+		}
 		parts = append(parts,
-			"videoconvert",
-			"videoscale add-borders=true",
-			fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height),
 			fmt.Sprintf("x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1 key-int-max=%d bitrate=%d aud=false", v.getEffectiveGOPSize(), v.config.Bitrate),
 		)
 
