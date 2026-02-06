@@ -43,6 +43,12 @@ struct _GstVsockEnc {
     /* Frame tracking */
     guint64 frame_count;
     gboolean running;
+
+    /* Pipelining: overlap sending frame N+1 with host encoding frame N.
+     * Instead of blocking after each send, we defer reading the response
+     * until the next handle_frame call. This keeps everything on the
+     * streaming thread (no threading issues with go-gst callbacks). */
+    GstVideoCodecFrame *pending_frame;  /* Frame awaiting host response */
 };
 
 /*
