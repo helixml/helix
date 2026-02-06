@@ -481,10 +481,11 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		isAmdGnome := !isSway && !isNvidiaGnome
 
 		if isVsockGnome {
-			// vsockenc on macOS/UTM virtio-gpu: use native pipewiresrc WITHOUT always-copy
-			// This allows DMA-BUF negotiation so vsockenc can extract resource IDs
-			slog.Info("[STREAM] vsockenc detected, using native pipewiresrc with DMA-BUF")
-			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true keepalive-time=500", v.nodeID)
+			// vsockenc on macOS/UTM virtio-gpu: use native pipewiresrc with always-copy=true
+			// DMA-BUF negotiation isn't useful here - vsockenc always sends raw pixel data
+			// over TCP (resource_id=0 / HELIX_FLAG_PIXEL_DATA path), so we force SHM output
+			slog.Info("[STREAM] vsockenc detected, using native pipewiresrc with always-copy + downscale")
+			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true always-copy=true keepalive-time=500", v.nodeID)
 			if v.pipeWireFd > 0 {
 				srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
 			}
@@ -591,22 +592,18 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	switch encoder {
 	case "vsock":
 		// macOS/UTM virtio-gpu VideoToolbox encoding via vsock
-		// vsockenc delegates to host VideoToolbox via vsock for zero-copy encoding
-		// The encoder connects to QEMU's helix-frame-export module running on the host
+		// Pipeline: PipeWire → videoscale (960x540) → vsockenc (sends raw pixels via TCP)
+		//           → QEMU helix-frame-export (IOSurface → VideoToolbox H.264)
+		//           → H.264 NAL units back via TCP → h264parse → appsink
 		//
-		// Pipeline: PipeWire DMA-BUF → vsockenc (extracts resource ID, sends via TCP)
-		//           → host QEMU (resource → pixels → VideoToolbox H.264)
-		//           → H.264 NAL units back via TCP
+		// Downscale from 1920x1080 (8MB/frame) to 960x540 (2MB/frame) before sending
+		// to reduce TCP/SLiRP bandwidth 4x. VideoToolbox encodes at 960x540 on host.
 		//
-		// vsockenc accepts video/x-raw with DMA-BUF memory from PipeWire
-		// No videoconvert needed - vsockenc handles format internally
-		//
-		// Connection: TCP to 10.0.2.2:15937 (QEMU user-mode networking to host)
-		// QEMU's frame-export module listens on TCP 127.0.0.1:15937
-		// SLiRP forwards guest 10.0.2.2:15937 -> host 127.0.0.1:15937
-		// VideoToolbox on macOS encodes as Main profile - don't constrain profile here
-		// (browser MSE decoders handle Main/High profiles fine)
+		// Connection: TCP to 10.0.2.2:15937 (QEMU user-mode networking)
+		// SLiRP forwards guest 10.0.2.2:15937 → host 127.0.0.1:15937
 		parts = append(parts,
+			"videoscale",
+			"video/x-raw,width=960,height=540",
 			fmt.Sprintf("vsockenc tcp-host=10.0.2.2 tcp-port=15937 bitrate=%d keyframe-interval=%d",
 				v.config.Bitrate, v.getEffectiveGOPSize()),
 			"h264parse",
