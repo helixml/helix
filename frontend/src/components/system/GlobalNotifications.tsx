@@ -6,11 +6,12 @@ import Popover from '@mui/material/Popover'
 import Typography from '@mui/material/Typography'
 import Chip from '@mui/material/Chip'
 import { Bell } from 'lucide-react'
+import { useQueries } from '@tanstack/react-query'
 
 import { useListProjects } from '../../services/projectService'
-import { useSpecTasks } from '../../services/specTaskService'
 import useAccount from '../../hooks/useAccount'
 import useLightTheme from '../../hooks/useLightTheme'
+import useApi from '../../hooks/useApi'
 import { TypesSpecTask, TypesSpecTaskStatus } from '../../api/api'
 
 interface GlobalNotificationsProps {
@@ -28,6 +29,7 @@ interface TaskNotification {
 const REVIEW_STATUSES = [
   TypesSpecTaskStatus.TaskStatusSpecReview,
   TypesSpecTaskStatus.TaskStatusImplementationReview,
+  TypesSpecTaskStatus.TaskStatusPullRequest,
 ]
 
 const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({
@@ -35,6 +37,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({
 }) => {
   const account = useAccount()
   const lightTheme = useLightTheme()
+  const api = useApi()
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null)
 
   const { data: projects = [] } = useListProjects(organizationId, {
@@ -45,13 +48,26 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({
     return projects.filter(p => p.stats?.pending_review_tasks && p.stats.pending_review_tasks > 0)
   }, [projects])
 
-  const { data: allTasks = [] } = useSpecTasks({
-    enabled: projectsWithReviews.length > 0,
-    refetchInterval: 30000,
+  const taskQueries = useQueries({
+    queries: projectsWithReviews.map(project => ({
+      queryKey: ['spec-tasks', 'notifications', project.id],
+      queryFn: async () => {
+        const response = await api.getApiClient().v1SpecTasksList({
+          project_id: project.id,
+        })
+        return { projectId: project.id, tasks: response.data || [] }
+      },
+      enabled: !!project.id,
+      refetchInterval: 30000,
+    })),
   })
 
   const notifications = useMemo<TaskNotification[]>(() => {
     const projectMap = new Map(projects.map(p => [p.id, p.name || 'Unnamed Project']))
+    
+    const allTasks = taskQueries
+      .filter(q => q.data)
+      .flatMap(q => q.data!.tasks)
     
     return allTasks
       .filter((task: TypesSpecTask) => 
@@ -62,10 +78,10 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({
         taskId: task.id || '',
         projectId: task.project_id || '',
         projectName: projectMap.get(task.project_id || '') || 'Unnamed Project',
-        shortTitle: task.user_short_title || task.short_title || 'Untitled Task',
+        shortTitle: task.name,
         description: task.description || '',
       }))
-  }, [allTasks, projects])
+  }, [taskQueries, projects])
 
   const totalCount = notifications.length
 
@@ -79,7 +95,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({
 
   const handleTaskClick = (notification: TaskNotification) => {
     handleClose()
-    account.orgNavigate('project-specs', { id: notification.taskId })
+    account.orgNavigate('project-task-detail', { id: notification.projectId, taskId: notification.taskId })
   }
 
   const open = Boolean(anchorEl)
