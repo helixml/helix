@@ -1335,9 +1335,9 @@ Desktop Container
 ```
 
 **Advantages:**
-- Lighter weight than Kind (single binary, no Docker needed)
+- Lighter weight than Kind (single binary, no Docker needed for K8s itself)
 - Runs directly as a process in the desktop container
-- Uses containerd instead of Docker (less nesting)
+- Uses containerd directly (Docker uses containerd under the hood anyway, so this isn't fewer nesting levels — just fewer API layers)
 - Includes Traefik ingress by default
 - SQLite instead of etcd for single-node (simpler)
 
