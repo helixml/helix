@@ -569,64 +569,6 @@ func (m *Manager) deleteBridge(bridgeName string) {
 	}
 }
 
-// setupBridgeNAT configures iptables NAT rules for a session bridge.
-// Since we use --iptables=false to prevent session dockerd from touching
-// global iptables state, we must manually set up NAT/masquerading so that
-// containers can reach the internet.
-//
-// This sets up:
-// 1. MASQUERADE rule for outbound traffic from the bridge subnet
-// 2. FORWARD rules to allow container traffic
-func (m *Manager) setupBridgeNAT(bridgeName, bridgeSubnet string) error {
-	// Enable IP forwarding (may already be enabled, but ensure it)
-	m.runCommand("sysctl", "-w", "net.ipv4.ip_forward=1")
-
-	// Add MASQUERADE rule for outbound traffic from this bridge's subnet
-	// First delete any existing rule to ensure idempotency
-	m.runCommand("iptables", "-t", "nat", "-D", "POSTROUTING",
-		"-s", bridgeSubnet, "!", "-o", bridgeName, "-j", "MASQUERADE")
-	if err := m.runCommand("iptables", "-t", "nat", "-A", "POSTROUTING",
-		"-s", bridgeSubnet, "!", "-o", bridgeName, "-j", "MASQUERADE"); err != nil {
-		return fmt.Errorf("failed to add MASQUERADE rule for %s: %w", bridgeSubnet, err)
-	}
-
-	// Add FORWARD rules to allow traffic from/to this bridge
-	// Delete first for idempotency
-	m.runCommand("iptables", "-D", "FORWARD", "-i", bridgeName, "-j", "ACCEPT")
-	m.runCommand("iptables", "-D", "FORWARD", "-o", bridgeName, "-j", "ACCEPT")
-
-	if err := m.runCommand("iptables", "-I", "FORWARD", "-i", bridgeName, "-j", "ACCEPT"); err != nil {
-		log.Warn().Err(err).Str("bridge", bridgeName).Msg("Failed to add FORWARD rule for bridge ingress")
-	}
-	if err := m.runCommand("iptables", "-I", "FORWARD", "-o", bridgeName, "-j", "ACCEPT"); err != nil {
-		log.Warn().Err(err).Str("bridge", bridgeName).Msg("Failed to add FORWARD rule for bridge egress")
-	}
-
-	log.Info().
-		Str("bridge", bridgeName).
-		Str("subnet", bridgeSubnet).
-		Msg("Set up NAT rules for session bridge")
-
-	return nil
-}
-
-// cleanupBridgeNAT removes iptables NAT rules for a session bridge.
-// Called when stopping a session dockerd.
-func (m *Manager) cleanupBridgeNAT(bridgeName, bridgeSubnet string) {
-	// Remove MASQUERADE rule
-	m.runCommand("iptables", "-t", "nat", "-D", "POSTROUTING",
-		"-s", bridgeSubnet, "!", "-o", bridgeName, "-j", "MASQUERADE")
-
-	// Remove FORWARD rules
-	m.runCommand("iptables", "-D", "FORWARD", "-i", bridgeName, "-j", "ACCEPT")
-	m.runCommand("iptables", "-D", "FORWARD", "-o", bridgeName, "-j", "ACCEPT")
-
-	log.Debug().
-		Str("bridge", bridgeName).
-		Str("subnet", bridgeSubnet).
-		Msg("Cleaned up NAT rules for session bridge")
-}
-
 // checkDocker0Exists returns true if docker0 bridge exists
 func (m *Manager) checkDocker0Exists() bool {
 	cmd := exec.Command("ip", "link", "show", "docker0")
@@ -707,6 +649,14 @@ func (m *Manager) reconnectOrphanedVeths() {
 
 		// Skip non-docker veths (hydra veths use vethb-* naming)
 		if strings.HasPrefix(vethName, "vethb") {
+			continue
+		}
+
+		// Skip container interfaces like eth0, eth1, lo - these are NOT orphaned veths
+		// The sandbox's eth0 appears as a veth from `ip link show type veth` but it's the
+		// container's external interface to the host Docker network and must NOT be attached to docker0
+		if strings.HasPrefix(vethName, "eth") || vethName == "lo" {
+			log.Debug().Str("veth", vethName).Msg("Skipping container interface (not an orphaned veth)")
 			continue
 		}
 
@@ -848,10 +798,10 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	// gateway IP (10.200.N.1) instead of 0.0.0.0, each session's ports are isolated
 	// and won't conflict with other sessions using the same port numbers.
 	//
-	// CRITICAL: --iptables=false prevents session dockerds from manipulating
-	// global iptables chains (DOCKER, DOCKER-ISOLATION-STAGE-1/2). Without this,
-	// session dockerd startup can delete the main dockerd's docker0 bridge by
-	// modifying shared iptables state. We manually set up NAT rules below.
+	// Session dockerd uses its own isolated bridge (hydraX) and storage.
+	// We don't use --iptables=false because Docker needs to manage NAT for the session's containers.
+	// We don't use --ip-forward-no-drop because testing showed it breaks internet connectivity
+	// (possibly Docker 29 implementation issue - the flag preserves docker0 but breaks NAT somehow).
 	cmd := exec.Command("dockerd",
 		"--host=unix://"+socketPath,
 		"--data-root="+dataRoot,
@@ -860,7 +810,6 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 		"--config-file="+configFile,
 		"--bridge="+bridgeName,
 		"--ip="+gatewayIP,
-		"--iptables=false",
 	)
 
 	// Redirect output to log with prefix
@@ -901,13 +850,8 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 
 	inst.Status = StatusRunning
 
-	// Set up iptables NAT rules for this bridge since we use --iptables=false
-	// This enables containers to reach the internet via MASQUERADE
-	if err := m.setupBridgeNAT(bridgeName, bridgeSubnet); err != nil {
-		log.Warn().Err(err).Str("bridge", bridgeName).Msg("Failed to set up NAT rules (container networking may be limited)")
-	}
-
 	// DEBUG: Check docker0 status after session dockerd is ready
+	// Session dockerd startup can delete docker0 as a side effect of iptables chain management
 	docker0ExistsAfter := m.checkDocker0Exists()
 	log.Info().
 		Bool("docker0_exists_before", docker0ExistsBefore).
@@ -917,13 +861,12 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 		Msg("[DEBUG] docker0 status AFTER session dockerd started")
 
 	if docker0ExistsBefore && !docker0ExistsAfter {
-		log.Error().
+		log.Warn().
 			Str("scope", scopeKey).
 			Str("bridge", bridgeName).
-			Msg("[DEBUG] docker0 was DELETED by session dockerd startup!")
+			Msg("docker0 was deleted by session dockerd startup, restoring it")
 
-		// Immediately fix docker0 and reconnect orphaned veths
-		// This is a known issue where session dockerd deletes docker0 during startup
+		// Restore docker0 bridge - this reconnects orphaned veth pairs from the desktop container
 		if err := m.EnsureDocker0Bridge(); err != nil {
 			log.Error().Err(err).Msg("Failed to restore docker0 after session dockerd deleted it")
 		}
@@ -977,12 +920,6 @@ func (m *Manager) stopDockerd(ctx context.Context, inst *DockerInstance) error {
 	}
 
 	inst.Status = StatusStopped
-
-	// Clean up iptables NAT rules for this bridge
-	if inst.BridgeIndex > 0 && inst.BridgeName != "" {
-		bridgeSubnet := fmt.Sprintf("10.200.%d.0/24", inst.BridgeIndex)
-		m.cleanupBridgeNAT(inst.BridgeName, bridgeSubnet)
-	}
 
 	// Delete the bridge interface
 	if inst.BridgeName != "" {
