@@ -83,6 +83,7 @@ static GstFlowReturn gst_vsockenc_handle_frame(GstVideoEncoder *encoder,
                                                 GstVideoCodecFrame *frame);
 static gboolean gst_vsockenc_connect(GstVsockEnc *self);
 static void gst_vsockenc_disconnect(GstVsockEnc *self);
+static gboolean read_exact(int fd, void *buf, size_t n);
 static guint32 gst_vsockenc_get_resource_id(GstVsockEnc *self, GstBuffer *buffer);
 
 static void
