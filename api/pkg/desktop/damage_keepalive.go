@@ -27,12 +27,16 @@ const (
 	//
 	// Uses St.Widget (GNOME Shell Toolkit) with CSS background instead of Clutter.Color,
 	// which is not a constructor in GNOME Shell 45+.
+	//
+	// Toggles between two nearly-identical colors (#000 and #010) to ensure actual pixel
+	// content changes. Visibility toggling alone doesn't generate PipeWire-visible damage
+	// because Mutter's ScreenCast only reacts to actual pixel changes, not repaint requests.
 	damageKeepaliveJS = `(function(){` +
 		`if(!global._hk){` +
-		`global._hk=new imports.gi.St.Widget({width:1,height:1,x:0,y:0,` +
+		`global._hk=new imports.gi.St.Widget({width:2,height:2,x:0,y:0,` +
 		`style:'background:#000'});` +
 		`global.stage.add_child(global._hk)}` +
-		`global._hk.visible=!global._hk.visible` +
+		`global._hk.style=global._hk.style.indexOf('#000')>=0?'background:#010':'background:#000'` +
 		`})()`
 
 	// Cleanup script to remove the keepalive actor on shutdown.
