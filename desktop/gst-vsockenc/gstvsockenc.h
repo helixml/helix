@@ -29,7 +29,7 @@ struct _GstVsockEnc {
     guint cid;              /* vsock CID (for native vsock, not available on macOS) */
     guint port;             /* vsock port */
     gchar *tcp_host;        /* TCP hostname (e.g., "10.0.2.2" for QEMU user-mode networking) */
-    guint tcp_port;         /* TCP port (default 5900) */
+    guint tcp_port;         /* TCP port (default 15937) */
     gint bitrate;           /* Target bitrate in bps */
     gint keyframe_interval; /* Keyframe interval in frames */
 

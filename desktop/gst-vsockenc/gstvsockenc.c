@@ -38,7 +38,7 @@ enum {
 #define DEFAULT_CID 2  /* VMADDR_CID_HOST */
 #define DEFAULT_PORT 5000
 #define DEFAULT_TCP_HOST NULL
-#define DEFAULT_TCP_PORT 5900
+#define DEFAULT_TCP_PORT 15937
 #define DEFAULT_BITRATE 4000000
 #define DEFAULT_KEYFRAME_INTERVAL 60
 
@@ -123,7 +123,7 @@ gst_vsockenc_class_init(GstVsockEncClass *klass)
 
     g_object_class_install_property(gobject_class, PROP_TCP_PORT,
         g_param_spec_uint("tcp-port", "TCP Port",
-            "TCP port number (default 5900)",
+            "TCP port number (default 15937)",
             0, G_MAXUINT, DEFAULT_TCP_PORT,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
