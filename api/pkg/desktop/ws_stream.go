@@ -534,10 +534,15 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			}
 			parts = []string{
 				srcPart,
-				// Convert and downscale BEFORE the leaky queue so PipeWire buffers
-				// are released immediately after the fast software scale.
-				"videoconvert",
+				// Scale FIRST, then convert format. This is critical for performance:
+				// PipeWire delivers BGRx at 1920x1080 (8.3MB/frame). If we videoconvert
+				// first, we process 2M pixels. By scaling to 960x540 first (just dropping
+				// pixels in BGRx, very fast), videoconvert only processes 500K pixels = 4x less work.
+				// The intermediate capsfilter forces videoscale to output at target resolution
+				// before videoconvert touches the data.
 				"videoscale",
+				"video/x-raw,width=960,height=540",
+				"videoconvert",
 				fmt.Sprintf("video/x-raw,format=%s,width=960,height=540", pixelFormat),
 			}
 			v.useRealtimeClock = true
@@ -642,11 +647,11 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	switch encoder {
 	case "vsock":
 		// macOS/UTM virtio-gpu VideoToolbox encoding via vsock
-		// Pipeline: PipeWire → videoconvert → videoscale (960x540) → vsockenc (sends raw pixels via TCP)
+		// Pipeline: PipeWire → videoscale (960x540) → videoconvert (NV12) → vsockenc (sends raw pixels via TCP)
 		//           → QEMU helix-frame-export (IOSurface → VideoToolbox H.264)
 		//           → H.264 NAL units back via TCP → h264parse → appsink
 		//
-		// Downscale from 1920x1080 to 960x540 and convert to NV12 before sending.
+		// Downscale from 1920x1080 to 960x540 THEN convert to NV12 before sending.
 		// NV12 at 960x540 = 777KB/frame (vs 8MB at 1080p BGRA = 10x reduction).
 		// VideoToolbox natively encodes from NV12, skipping internal colorspace conversion.
 		//
