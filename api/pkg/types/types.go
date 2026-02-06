@@ -2549,11 +2549,12 @@ type AdminResetPasswordRequest struct {
 }
 
 type UserResponse struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-	Token string `json:"token"`
-	Name  string `json:"name"`
-	Admin bool   `json:"admin"`
+	ID                  string `json:"id"`
+	Email               string `json:"email"`
+	Token               string `json:"token"`
+	Name                string `json:"name"`
+	Admin               bool   `json:"admin"`
+	OnboardingCompleted bool   `json:"onboarding_completed"`
 }
 
 type AuthenticatedResponse struct {

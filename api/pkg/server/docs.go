@@ -25744,6 +25744,9 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "onboarding_completed": {
+                    "type": "boolean"
+                },
                 "token": {
                     "type": "string"
                 }
