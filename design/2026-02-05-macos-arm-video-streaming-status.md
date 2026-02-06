@@ -1,7 +1,7 @@
 # macOS ARM Video Streaming - Status Update
 
 **Date:** 2026-02-06 (updated)
-**Status:** VIDEO STREAMING WORKING - 3.7 FPS on static screens (frame keepalive), NV12 format (2.65x bandwidth reduction)
+**Status:** VIDEO STREAMING WORKING - 10.2 FPS on static screens (broadcast frame keepalive), NV12 format (2.65x bandwidth reduction)
 
 ## Summary
 
@@ -275,7 +275,7 @@ PipeWire buffers are released immediately after the fast software scale (~1ms), 
 
 **Fix (v2 - broadcast-level keepalive)**: Instead of fighting PipeWire/compositor damage, handle it at the Go broadcast layer. When no new frame arrives from the GStreamer pipeline for 500ms, re-broadcast the last frame from the GOP buffer. This is extremely cheap (re-sending a ~300-byte H.264 P-frame vs 777KB raw pixel round-trip) and gives clients steady ~2 FPS on static screens. (commit a624cb295)
 
-**Result**: 3.7 FPS sustained on static screens (110 frames / 30s). No pipeline restarts, no keyframe resets, negligible bandwidth (300 bytes per keepalive frame).
+**Result**: 10.2 FPS sustained on static screens (307 frames / 30s, 100ms interval). No pipeline restarts, no keyframe resets, negligible bandwidth (~850 bytes avg per keepalive frame, 69.6 Kbps total).
 
 #### 8. NV12 Pixel Format Optimization (IMPLEMENTED)
 **Problem**: BGRA pixel data at 960x540 = 2,073,600 bytes per frame over TCP/SLiRP.
@@ -326,14 +326,14 @@ PipeWire ScreenCast (container) → pipewiresrc (SHM buffers) ✅
 
 - **VIDEO STREAMING WORKING** on Mutter 49 / Ubuntu 25.10 / virtio-gpu
 - NV12 pixel format: 777KB/frame (2.65x reduction from BGRA)
-- 3.7 FPS sustained on static screens (broadcast-level frame keepalive)
-- Keepalive frames: ~300 bytes each (re-sent H.264 P-frames, no raw pixel transfer)
+- 10.2 FPS sustained on static screens (broadcast-level frame keepalive, 100ms interval)
+- Keepalive frames: ~850 bytes avg each (re-sent H.264 P-frames, no raw pixel transfer)
 - Container screen is correctly captured (not VM desktop)
 - All frames use pixel data path (HELIX_FLAG_PIXEL_DATA)
 - SPS/PPS properly extracted from VideoToolbox CMFormatDescription
 - Baseline profile, level 3.1, constraint_set3_flag=1 (zero-latency decode)
 - ~14ms per frame round-trip (777KB NV12 send + VideoToolbox encode + response)
-- 102 Kbps average bitrate, 3.4 KB average frame size (static screen with keepalive)
+- 69.6 Kbps average bitrate, 850 bytes average frame size (static screen with keepalive)
 
 ## Success Criteria
 
@@ -345,7 +345,7 @@ PipeWire ScreenCast (container) → pipewiresrc (SHM buffers) ✅
 - ✅ vsockenc receives encoded H.264 frames back
 - ✅ h264parse parses stream (SPS/PPS properly included)
 - ✅ Video streaming works on Mutter 49 headless (Ubuntu 25.10)
-- ✅ 3.7 FPS sustained on static screens (broadcast-level frame keepalive)
+- ✅ 10.2 FPS sustained on static screens (broadcast-level frame keepalive, 307 frames / 30s)
 - ⚠️ Active content FPS not yet retested with NV12 (should be higher than BGRA due to less bandwidth)
 - ⚠️ ghostty second instance fails on virtio-gpu (limited GL contexts)
 
@@ -357,7 +357,7 @@ PipeWire ScreenCast (container) → pipewiresrc (SHM buffers) ✅
 | 2026-02-06 | 6.8 | 1920x1080 | BGRA | Same bottleneck, confirmed |
 | 2026-02-06 | 26.2 | 960x540 | BGRA | videoconvert+videoscale before queue |
 | 2026-02-06 | 23.2 | 960x540 | BGRA | Static screen: cursor-embedded keepalive (old Mutter) |
-| 2026-02-06 | 3.7 | 960x540 | NV12 | Static screen: broadcast-level frame keepalive (Mutter 49) |
+| 2026-02-06 | 10.2 | 960x540 | NV12 | Static screen: broadcast-level frame keepalive (Mutter 49) |
 
 ### Downscale + NV12 Optimization (IMPLEMENTED)
 
