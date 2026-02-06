@@ -4,8 +4,6 @@ package desktop
 import (
 	"context"
 	"time"
-
-	"github.com/godbus/dbus/v5"
 )
 
 const (
@@ -76,14 +74,14 @@ func (s *Server) runDamageKeepalive(ctx context.Context) {
 			toggle = !toggle
 
 			rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-			stream := dbus.ObjectPath(s.scStreamPath)
 
 			// Use NotifyPointerMotionAbsolute with the linked stream path.
 			// This explicitly ties cursor movement to the ScreenCast stream's output,
 			// which ensures Mutter generates compositor-level damage on the correct monitor.
+			// Note: Mutter 49 expects stream as string type "s", not ObjectPath "o".
 			err := rdSession.Call(
 				remoteDesktopSessionIface+".NotifyPointerMotionAbsolute", 0,
-				stream, x, float64(100),
+				string(s.scStreamPath), x, float64(100),
 			).Err
 			if err != nil {
 				failCount++
