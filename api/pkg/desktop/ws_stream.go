@@ -604,11 +604,13 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Connection: TCP to 10.0.2.2:15937 (QEMU user-mode networking to host)
 		// QEMU's frame-export module listens on TCP 127.0.0.1:15937
 		// SLiRP forwards guest 10.0.2.2:15937 -> host 127.0.0.1:15937
+		// VideoToolbox on macOS encodes as Main profile - don't constrain profile here
+		// (browser MSE decoders handle Main/High profiles fine)
 		parts = append(parts,
 			fmt.Sprintf("vsockenc tcp-host=10.0.2.2 tcp-port=15937 bitrate=%d keyframe-interval=%d",
 				v.config.Bitrate, v.getEffectiveGOPSize()),
 			"h264parse",
-			"video/x-h264,profile=constrained-baseline,stream-format=byte-stream",
+			"video/x-h264,stream-format=byte-stream",
 		)
 
 	case "nvenc":
