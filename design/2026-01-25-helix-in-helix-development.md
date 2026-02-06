@@ -53,11 +53,51 @@ When developing Helix inside Helix, we want:
 - Developer can run `./stack start` to start the Helix control plane
 - Developer can test with sandboxes
 
-But sandboxes need DinD, and the desktop is already inside DinD. Running DinD-in-DinD-in-DinD doesn't work:
-1. Storage driver issues (overlay2 on overlay2 on overlay2)
+But sandboxes need DinD, and the desktop is already inside DinD. Running DinD-in-DinD-in-DinD doesn't work **if each level uses overlay2 on the layer above**:
+1. Storage driver issues (overlay2 on overlay2 fails)
 2. Device/cgroup access problems
 3. Performance degradation
 4. Namespace nesting limits
+
+### Key Insight: Arbitrary DinD Nesting IS Possible With Volume Mounts
+
+**The constraint is NOT about nesting depth — it's about the storage driver backing filesystem.**
+
+overlay2 requires a real filesystem (ext4/xfs) as its lower layer. It cannot mount on top of another overlay2 filesystem. This is why naive DinD-in-DinD fails: the inner Docker tries to use overlay2 on the outer Docker's overlay2 writable layer.
+
+**But if you bind-mount or volume-mount a real ext4/xfs filesystem through to each level's `/var/lib/docker`, you can nest arbitrarily deep:**
+
+```
+Level 0: Host dockerd
+  /var/lib/docker → host ext4 filesystem
+  overlay2 on ext4 ✓
+
+Level 1: Sandbox container (--privileged)
+  /var/lib/docker → Docker VOLUME (backed by host ext4, NOT overlay)
+  overlay2 on ext4 ✓
+
+Level 2 (hypothetical): Container inside sandbox
+  /var/lib/docker → Docker VOLUME from level 1 (backed by host ext4)
+  overlay2 on ext4 ✓
+
+Level N: As long as /var/lib/docker is a volume, not the container's writable layer
+  overlay2 on ext4 ✓
+```
+
+**This is how our sandbox already works:** the sandbox container's `/var/lib/docker` is a Docker volume, so the sandbox's dockerd gets overlay2-on-ext4, which works fine. The multiple dockerd processes inside the sandbox (main dockerd + session dockerds) all share this volume with separate data-roots.
+
+**Practical implications:**
+- We COULD run the inner sandbox inside the session dockerd if we gave it a volume mount for `/var/lib/docker`
+- The current architecture (inner sandbox on Host Docker) works but adds complexity (two Docker sockets, image transfer, etc.)
+- A future simplification could mount a volume through from host → sandbox → inner sandbox, eliminating the need for `DOCKER_HOST_OUTER`
+- The `--privileged` flag is still required at each level for device access and namespace operations
+
+**Why we still use Host Docker for the inner sandbox:**
+Even though deeper nesting is technically possible, using Host Docker for the inner sandbox is simpler today:
+1. No need to plumb volume mounts through multiple layers
+2. Host Docker has direct GPU access (no passthrough needed)
+3. The inner sandbox's RevDial connection works regardless of Docker topology
+4. Less risk of resource exhaustion in the sandbox container
 
 ---
 
