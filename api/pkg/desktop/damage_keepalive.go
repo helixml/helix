@@ -4,6 +4,8 @@ package desktop
 import (
 	"context"
 	"time"
+
+	"github.com/godbus/dbus/v5"
 )
 
 const (
@@ -27,11 +29,20 @@ const (
 //
 // This approach works because:
 // 1. The linked ScreenCast session uses cursor-mode=Embedded (cursor composited into frame)
-// 2. NotifyPointerMotionRelative via RemoteDesktop D-Bus moves the real cursor
+// 2. NotifyPointerMotionAbsolute via RemoteDesktop D-Bus positions the cursor on the linked stream
 // 3. Mutter's cursor_changed callback calls maybe_record_frame with the cursor embedded
 // 4. This generates real compositor-level damage → PipeWire produces a new frame
 //
-// The cursor jitter (1px right/left alternating) is imperceptible, and user mouse events
+// We use NotifyPointerMotionAbsolute (not Relative) because:
+// - Absolute positioning requires a stream object path, which explicitly associates the
+//   cursor movement with a specific monitor/ScreenCast session
+// - On Mutter 49+ headless mode, relative motion (NotifyPointerMotionRelative) succeeds
+//   but doesn't generate compositor-level damage because the cursor position isn't
+//   associated with any specific output
+// - Absolute positioning on the linked stream ensures Mutter knows which output's
+//   cursor changed, triggering the damage path
+//
+// The cursor jitter (1px right/left at position 100,100) is imperceptible, and user mouse events
 // (absolute positioning from WebSocket) immediately override the keepalive position.
 //
 // Overhead: one D-Bus method call every 500ms = negligible.
@@ -51,40 +62,41 @@ func (s *Server) runDamageKeepalive(ctx context.Context) {
 			s.logger.Info("[KEEPALIVE] Cursor damage keepalive stopped")
 			return
 		case <-ticker.C:
-			// Need an active RemoteDesktop session for cursor movement
-			if s.rdSessionPath == "" {
+			// Need an active RemoteDesktop session and linked ScreenCast stream
+			if s.rdSessionPath == "" || s.scStreamPath == "" {
 				continue
 			}
 
-			// Alternate between +1px and -1px horizontal movement.
-			// Net movement over two ticks: 0px (invisible jitter).
-			dx := float64(1)
+			// Alternate between two positions 1px apart.
+			// Net visual change: cursor moves 1px, imperceptible.
+			x := float64(100)
 			if toggle {
-				dx = -1
+				x = 101
 			}
 			toggle = !toggle
 
 			rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-			// Mutter 49+ renamed NotifyPointerMotion to NotifyPointerMotionRelative.
-			// Try the new name first, fall back to old name for older Mutter versions.
-			method := remoteDesktopSessionIface + ".NotifyPointerMotionRelative"
-			err := rdSession.Call(method, 0, dx, float64(0)).Err
-			if err != nil {
-				// Try legacy method name (Mutter <49)
-				method = remoteDesktopSessionIface + ".NotifyPointerMotion"
-				err = rdSession.Call(method, 0, dx, float64(0)).Err
-			}
+			stream := dbus.ObjectPath(s.scStreamPath)
+
+			// Use NotifyPointerMotionAbsolute with the linked stream path.
+			// This explicitly ties cursor movement to the ScreenCast stream's output,
+			// which ensures Mutter generates compositor-level damage on the correct monitor.
+			err := rdSession.Call(
+				remoteDesktopSessionIface+".NotifyPointerMotionAbsolute", 0,
+				stream, x, float64(100),
+			).Err
 			if err != nil {
 				failCount++
 				if failCount <= 3 || failCount%100 == 0 {
-					s.logger.Warn("[KEEPALIVE] NotifyPointerMotion(Relative) failed",
-						"err", err, "failures", failCount)
+					s.logger.Warn("[KEEPALIVE] NotifyPointerMotionAbsolute failed",
+						"err", err, "failures", failCount, "stream", s.scStreamPath)
 				}
 				continue
 			}
 			successCount++
 			if successCount == 1 {
-				s.logger.Info("[KEEPALIVE] Cursor damage keepalive active (first success)")
+				s.logger.Info("[KEEPALIVE] Cursor damage keepalive active (first success)",
+					"method", "NotifyPointerMotionAbsolute", "stream", s.scStreamPath)
 			}
 		}
 	}
