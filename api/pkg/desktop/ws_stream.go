@@ -481,11 +481,12 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		isAmdGnome := !isSway && !isNvidiaGnome
 
 		if isVsockGnome {
-			// vsockenc on macOS/UTM virtio-gpu: use native pipewiresrc with always-copy=true
-			// DMA-BUF negotiation isn't useful here - vsockenc always sends raw pixel data
-			// over TCP (resource_id=0 / HELIX_FLAG_PIXEL_DATA path), so we force SHM output
-			slog.Info("[STREAM] vsockenc detected, using native pipewiresrc with always-copy + downscale")
-			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true always-copy=true keepalive-time=500", v.nodeID)
+			// vsockenc on macOS/UTM virtio-gpu: use native pipewiresrc WITHOUT always-copy
+			// always-copy=true breaks PipeWire's damage-based frame production on virtio-gpu,
+			// causing frames to stop after the initial render. Without it, PipeWire keeps
+			// producing frames on screen damage.
+			slog.Info("[STREAM] vsockenc detected, using native pipewiresrc with downscale")
+			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true keepalive-time=500", v.nodeID)
 			if v.pipeWireFd > 0 {
 				srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
 			}
@@ -602,8 +603,9 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Connection: TCP to 10.0.2.2:15937 (QEMU user-mode networking)
 		// SLiRP forwards guest 10.0.2.2:15937 → host 127.0.0.1:15937
 		parts = append(parts,
+			"videoconvert",
 			"videoscale",
-			"video/x-raw,width=960,height=540",
+			"video/x-raw,format=BGRA,width=960,height=540",
 			fmt.Sprintf("vsockenc tcp-host=10.0.2.2 tcp-port=15937 bitrate=%d keyframe-interval=%d",
 				v.config.Bitrate, v.getEffectiveGOPSize()),
 			"h264parse",
