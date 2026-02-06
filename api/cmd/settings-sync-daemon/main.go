@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -303,6 +304,15 @@ func main() {
 	helixURL := os.Getenv("HELIX_API_URL")
 	if helixURL == "" {
 		helixURL = "http://api:8080"
+	}
+	// In Helix-in-Helix mode, the inner compose stack shadows the "api" hostname.
+	// If "outer-api" resolves (added by startup script), use it instead so the
+	// daemon always talks to the outer API for config fetches.
+	if strings.Contains(helixURL, "://api:") {
+		if _, err := net.LookupHost("outer-api"); err == nil {
+			helixURL = strings.Replace(helixURL, "://api:", "://outer-api:", 1)
+			log.Printf("Helix-in-Helix: rewrote API URL to %s", helixURL)
+		}
 	}
 	sessionID := os.Getenv("HELIX_SESSION_ID")
 	port := os.Getenv("SETTINGS_SYNC_PORT")
