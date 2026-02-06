@@ -42,10 +42,6 @@ struct _GstVsockEnc {
 
     /* Frame tracking */
     guint64 frame_count;
-    GQueue *pending_frames;  /* Frames waiting for encoded response */
-
-    /* Thread for receiving encoded data */
-    GThread *recv_thread;
     gboolean running;
 };
 
