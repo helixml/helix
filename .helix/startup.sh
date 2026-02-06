@@ -149,11 +149,11 @@ if ! ./stack build; then
     exit 1
 fi
 
-# Build Zed IDE (may fail on network issues, but we can continue without it)
+# Build Zed IDE
 echo "Step 2/4: Building Zed IDE..."
 if ! ./stack build-zed release; then
-    echo "⚠ Warning: Zed build failed (possibly network issue). Continuing without fresh Zed build."
-    echo "  The sandbox may use a cached Zed image if available."
+    echo "❌ Error: Failed to build Zed IDE"
+    exit 1
 fi
 
 # Build sandbox
