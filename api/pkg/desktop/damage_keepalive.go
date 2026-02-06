@@ -40,8 +40,9 @@ const (
 // - Absolute positioning on the linked stream ensures Mutter knows which output's
 //   cursor changed, triggering the damage path
 //
-// The cursor jitter (1px right/left at position 100,100) is imperceptible, and user mouse events
-// (absolute positioning from WebSocket) immediately override the keepalive position.
+// The cursor sweeps through unique positions in a small area (10x10 pixels around 100,100).
+// Each tick moves to a new position, ensuring Mutter 49 can't coalesce repeated identical
+// movements. User mouse events immediately override the keepalive position.
 //
 // Overhead: one D-Bus method call every 500ms = negligible.
 func (s *Server) runDamageKeepalive(ctx context.Context) {
@@ -50,7 +51,7 @@ func (s *Server) runDamageKeepalive(ctx context.Context) {
 	ticker := time.NewTicker(damageKeepaliveInterval)
 	defer ticker.Stop()
 
-	var toggle bool
+	var counter int
 	var failCount int
 	var successCount int
 
@@ -65,13 +66,13 @@ func (s *Server) runDamageKeepalive(ctx context.Context) {
 				continue
 			}
 
-			// Alternate between two positions 1px apart.
-			// Net visual change: cursor moves 1px, imperceptible.
-			x := float64(100)
-			if toggle {
-				x = 101
-			}
-			toggle = !toggle
+			// Cycle through unique positions in a 10x10 grid around (100,100).
+			// Every tick has a different (x,y) so Mutter 49 can't coalesce
+			// repeated identical cursor positions.
+			pos := counter % 100
+			x := float64(100 + pos%10)
+			y := float64(100 + pos/10)
+			counter++
 
 			rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
 
@@ -81,7 +82,7 @@ func (s *Server) runDamageKeepalive(ctx context.Context) {
 			// Note: Mutter 49 expects stream as string type "s", not ObjectPath "o".
 			err := rdSession.Call(
 				remoteDesktopSessionIface+".NotifyPointerMotionAbsolute", 0,
-				string(s.scStreamPath), x, float64(100),
+				string(s.scStreamPath), x, y,
 			).Err
 			if err != nil {
 				failCount++
