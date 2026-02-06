@@ -140,7 +140,7 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 // @Description List spec-driven tasks with optional filtering by project, status, or user
 // @Tags    spec-driven-tasks
 // @Produce json
-// @Param   project_id query string false "Filter by project ID"
+// @Param   project_id query string true "Project ID"
 // @Param   status query string false "Filter by status"
 // @Param   user_id query string false "Filter by user ID"
 // @Param   include_archived query bool false "Include archived tasks" default(false)
@@ -154,6 +154,11 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 
 	projectID := query.Get("project_id")
+
+	if projectID == "" {
+		http.Error(w, "project ID is required", http.StatusBadRequest)
+		return
+	}
 
 	user := getRequestUser(r)
 	if user == nil {

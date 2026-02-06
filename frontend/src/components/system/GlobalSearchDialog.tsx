@@ -17,6 +17,7 @@ interface GlobalSearchDialogProps {
   open: boolean
   onClose: () => void
   organizationId: string
+  defaultResourceTypes?: TypesResource[]
 }
 
 const SEARCHABLE_RESOURCE_TYPES: { type: TypesResource; label: string; icon: React.ReactNode }[] = [
@@ -54,6 +55,7 @@ const GlobalSearchDialog: FC<GlobalSearchDialogProps> = ({
   open,
   onClose,
   organizationId,
+  defaultResourceTypes,
 }) => {
   const lightTheme = useLightTheme()
   const account = useAccount()
@@ -74,6 +76,9 @@ const GlobalSearchDialog: FC<GlobalSearchDialogProps> = ({
   useEffect(() => {
     if (open) {
       setTimeout(() => inputRef.current?.focus(), 0)
+      if (defaultResourceTypes && defaultResourceTypes.length > 0) {
+        setSelectedTypes(defaultResourceTypes)
+      }
     }
     if (!open) {
       setQuery('')
@@ -81,7 +86,7 @@ const GlobalSearchDialog: FC<GlobalSearchDialogProps> = ({
       setDebouncedQuery('')
       setSelectedIndex(-1)
     }
-  }, [open])
+  }, [open, defaultResourceTypes])
 
   const { data, isLoading } = useResourceSearch({
     query: debouncedQuery,
@@ -628,3 +633,4 @@ const GlobalSearchDialog: FC<GlobalSearchDialogProps> = ({
 }
 
 export default GlobalSearchDialog
+export { SEARCHABLE_RESOURCE_TYPES }
