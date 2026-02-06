@@ -536,18 +536,18 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				srcPart,
 				// Scale FIRST, then convert format. This is critical for performance:
 				// PipeWire delivers BGRx at 1920x1080 (8.3MB/frame). If we videoconvert
-				// first, we process 2M pixels. By scaling first, videoconvert processes
-				// fewer pixels. The intermediate capsfilter forces videoscale to output
-				// at target resolution before videoconvert touches the data.
+				// first, we process 2M pixels. By scaling to 960x540 first, videoconvert
+				// only processes 500K pixels = 4x less work.
+				// The intermediate capsfilter forces videoscale to output at target
+				// resolution before videoconvert touches the data.
 				//
-				// The encode resolution controls TCP payload to the host encoder:
-				//   960x540 NV12 = 777KB/frame → ~40 FPS (SLiRP TCP limited to ~31 MB/s)
-				//   640x360 NV12 = 346KB/frame → ~60 FPS target (half the TCP bandwidth)
-				// TODO: Make this configurable via HELIX_ENCODE_RESOLUTION env var
+				// Benchmarked: FPS is ~43 regardless of resolution (640x360 = 38.9 FPS,
+				// 960x540 = 43.3 FPS). The bottleneck is PipeWire/Mutter frame production
+				// on virtio-gpu, not our processing pipeline or TCP throughput.
 				"videoscale",
-				"video/x-raw,width=640,height=360",
+				"video/x-raw,width=960,height=540",
 				"videoconvert",
-				fmt.Sprintf("video/x-raw,format=%s,width=640,height=360", pixelFormat),
+				fmt.Sprintf("video/x-raw,format=%s,width=960,height=540", pixelFormat),
 			}
 			v.useRealtimeClock = true
 		} else if isAmdGnome {
