@@ -237,7 +237,7 @@ export default function Onboarding() {
       console.error('Failed to skip onboarding:', err)
       router.navigateReplace('projects')
     }
-  }, [router])
+  }, [api, router])
 
   const handleComplete = useCallback(async () => {
     try {
@@ -250,7 +250,7 @@ export default function Onboarding() {
     } else {
       router.navigateReplace('projects')
     }
-  }, [createdProjectId, createdOrgId, router])
+  }, [api, createdProjectId, createdOrgId, router])
 
   const handleSelectExistingOrg = useCallback(() => {
     if (!selectedOrgId) {
