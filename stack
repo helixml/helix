@@ -1326,7 +1326,7 @@ function build-desktop() {
   # Transfer to running sandbox via local registry
   # Skip if SKIP_DESKTOP_TRANSFER is set (called from build-sandbox)
   if [ -z "${SKIP_DESKTOP_TRANSFER:-}" ]; then
-    transfer-desktop-to-sandbox "$DESKTOP_NAME"
+    transfer-desktop-to-sandbox "$DESKTOP_NAME" "$IMAGE_TAG"
   fi
 
   # Write version file AFTER successful transfer
@@ -1341,9 +1341,10 @@ function build-desktop() {
 function transfer-desktop-to-sandbox() {
   local DESKTOP_NAME="$1"
   local IMAGE_NAME="helix-${DESKTOP_NAME}"
+  local IMAGE_TAG_OVERRIDE="${2:-}"  # Optional: pre-calculated image tag from build-desktop
 
   if [ -z "$DESKTOP_NAME" ]; then
-    echo "Usage: transfer-desktop-to-sandbox <name>"
+    echo "Usage: transfer-desktop-to-sandbox <name> [image-tag]"
     return 1
   fi
 
@@ -1409,10 +1410,14 @@ function transfer-desktop-to-sandbox() {
     return 0
   fi
 
-  # Get image hash for versioned tag (content-addressable, survives push/pull)
-  local IMAGE_HASH_FULL=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' | sed 's/sha256://')
-  # Use first 6 chars as tag - avoids Docker showing just hash when tag matches image ID
-  local IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
+  # Get image tag - use pre-calculated value if provided, otherwise compute from image hash
+  local IMAGE_TAG=""
+  if [ -n "$IMAGE_TAG_OVERRIDE" ]; then
+    IMAGE_TAG="$IMAGE_TAG_OVERRIDE"
+  else
+    local IMAGE_HASH_FULL=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' | sed 's/sha256://')
+    IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
+  fi
 
   # Check if sandbox already has this exact image by version tag (skip transfer if so)
   local SANDBOX_HAS_TAG=$(sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker images "${IMAGE_NAME}:${IMAGE_TAG}" --format '{{.ID}}' 2>/dev/null)
