@@ -5,7 +5,6 @@ import {
   Button,
   Menu,
   MenuItem,
-  Alert,
   CircularProgress,
 } from '@mui/material'
 import SettingsIcon from '@mui/icons-material/Settings'
@@ -41,7 +40,6 @@ import type { TypesExternalRepositoryType, TypesGitRepository, TypesAzureDevOps,
 const Projects: FC = () => {
   const account = useAccount()
   const router = useRouter()
-  const { navigate } = router
   const snackbar = useSnackbar()
   const queryClient = useQueryClient()
   const api = useApi()
@@ -563,6 +561,7 @@ const Projects: FC = () => {
       breadcrumbs={[]}
       orgBreadcrumbs={true}
       globalSearch={true}
+      notifications={true}
       organizationId={account.organizationTools.organization?.id}
       topbarContent={currentView === 'projects' ? (
         <CreateProjectButton
@@ -578,8 +577,7 @@ const Projects: FC = () => {
           <Button
             variant="contained"
             color="secondary"
-            size="small"
-            startIcon={<FolderSearch size={16} />}
+            startIcon={<FolderSearch size={20} />}
             onClick={() => {
               if (!requireLogin()) return
               setBrowseProvidersOpen(true)
@@ -590,25 +588,22 @@ const Projects: FC = () => {
           </Button>
           <Button
             variant="outlined"
-            size="small"
-            startIcon={<Link size={16} />}
+            startIcon={<Link size={20} />}
             onClick={() => {
               if (!requireLogin()) return
               setLinkRepoDialogOpen(true)
             }}
-            sx={{ textTransform: 'none', mr: 1 }}
+            sx={{ mr: 1 }}
           >
             Link Manually
           </Button>
           <Button
             variant="outlined"
-            size="small"
-            startIcon={<Plus size={16} />}
+            startIcon={<Plus size={20} />}
             onClick={() => {
               if (!requireLogin()) return
               setCreateRepoDialogOpen(true)
             }}
-            sx={{ textTransform: 'none' }}
           >
             New Empty
           </Button>
