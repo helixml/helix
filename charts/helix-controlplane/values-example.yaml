@@ -278,7 +278,10 @@ controlplane:
 ## Ingress configuration
 ingress:
   enabled: false
-  # Example ingress with TLS:
+
+  # ============================================================
+  # Example: NGINX Ingress with cert-manager TLS
+  # ============================================================
   # className: "nginx"
   # annotations:
   #   nginx.ingress.kubernetes.io/rewrite-target: /
@@ -293,6 +296,58 @@ ingress:
   #   - secretName: helix-tls
   #     hosts:
   #       - helix.mydomain.com
+
+  # ============================================================
+  # Example: GKE with Google-managed certificate
+  # ============================================================
+  # IMPORTANT: GKE managed certificates require a 2-step deployment!
+  #
+  # Prerequisites:
+  # 1. Reserve a global static IP:
+  #    gcloud compute addresses create helix-ip --global
+  # 2. Point your DNS to the reserved IP:
+  #    gcloud compute addresses describe helix-ip --global --format="value(address)"
+  #    # Add A record: helix.mydomain.com -> <IP from above>
+  # 3. Wait for DNS propagation (verify with: dig helix.mydomain.com)
+  #
+  # Step 1: Install WITHOUT managed certificate (creates HTTP load balancer):
+  #   helm install my-helix ./charts/helix-controlplane \
+  #     --set ingress.enabled=true \
+  #     --set ingress.className=gce \
+  #     --set ingress.hosts[0].host=helix.mydomain.com \
+  #     --set ingress.hosts[0].paths[0].path=/ \
+  #     --set ingress.hosts[0].paths[0].pathType=ImplementationSpecific \
+  #     --set 'ingress.annotations.kubernetes\.io/ingress\.global-static-ip-name=helix-ip' \
+  #     --set ingress.gke.managedCertificate.enabled=false
+  #
+  # Step 2: Wait for load balancer IP assignment (5-10 minutes):
+  #   kubectl get ingress -n helix -w
+  #
+  # Step 3: Upgrade to enable HTTPS with managed certificate:
+  #   helm upgrade my-helix ./charts/helix-controlplane --reuse-values \
+  #     --set ingress.gke.managedCertificate.enabled=true
+  #
+  # Step 4: Wait for certificate provisioning (15-30 minutes):
+  #   kubectl describe managedcertificate -n helix
+  #   # Status should change: Provisioning -> Active
+  #
+  # Why 2 steps? GKE managed certificates use HTTP-01 validation, which
+  # requires the load balancer to be serving HTTP traffic first. The
+  # certificate can't provision until the load balancer exists.
+  #
+  # Full values for reference:
+  # className: "gce"
+  # annotations:
+  #   kubernetes.io/ingress.global-static-ip-name: "helix-ip"
+  # hosts:
+  #   - host: helix.mydomain.com
+  #     paths:
+  #       - path: /
+  #         pathType: ImplementationSpecific
+  # gke:
+  #   managedCertificate:
+  #     enabled: true  # Enable in Step 3 after load balancer is ready
+  #     # domains: []  # If empty, uses ingress.hosts[].host automatically
 
 ## Resource configuration
 # We usually recommend not to specify default resources and to leave this as a conscious
