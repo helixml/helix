@@ -504,16 +504,6 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				"videoconvert",
 				"videoscale",
 				"video/x-raw,format=BGRA,width=960,height=540",
-				// videorate prevents pipeline stall on static screens:
-				// PipeWire ScreenCast only produces frames on damage. On static screens,
-				// pipewiresrc gets 2 initial frames then stops. videorate duplicates
-				// the last frame at the target framerate, keeping the pipeline alive.
-				// When real damage occurs, new frames flow through normally.
-				// skip-to-first=true waits for the first real frame before duplicating.
-				// The downstream capsfilter with framerate=30/1 tells videorate what
-				// output rate to target (without it, videorate just passes through).
-				"videorate skip-to-first=true max-rate=30",
-				"video/x-raw,framerate=30/1",
 			}
 			v.useRealtimeClock = true
 		} else if isAmdGnome {
