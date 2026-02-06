@@ -797,6 +797,7 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 
 		// Debug logging
 		"RUST_LOG=info,gst_wayland_display=debug",
+		"GST_DEBUG=vsockenc:5", // TODO: Remove after fixing vsockenc receive thread
 		"SHOW_ACP_DEBUG_LOGS=true",
 
 		// Settings sync daemon port
