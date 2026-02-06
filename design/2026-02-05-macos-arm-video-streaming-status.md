@@ -1,7 +1,7 @@
 # macOS ARM Video Streaming - Status Update
 
 **Date:** 2026-02-06 (updated)
-**Status:** VIDEO STREAMING WORKING - 8.7 FPS with container screen capture via pixel data transfer
+**Status:** VIDEO STREAMING WORKING - 26 FPS with downscale optimization (960x540 via videoconvert+videoscale)
 
 ## Summary
 
@@ -266,11 +266,13 @@ PipeWire ScreenCast (container) → pipewiresrc (SHM buffers) ✅
 
 ### Current Status
 
-- **VIDEO STREAMING WORKING** at 8.7 FPS with terminal activity
+- **VIDEO STREAMING WORKING** at 26.2 FPS with 960x540 downscale optimization
+- 524 frames / 20 seconds sustained with terminal activity
 - Container screen is correctly captured (not VM desktop)
-- 218 frames used pixel data path, 0 used DisplaySurface fallback
+- All frames use pixel data path (HELIX_FLAG_PIXEL_DATA)
 - SPS/PPS properly extracted from VideoToolbox CMFormatDescription
-- Baseline profile, level 4.0, constraint_set3_flag=1 (zero-latency decode)
+- Baseline profile, level 3.1, constraint_set3_flag=1 (zero-latency decode)
+- ~30ms per frame round-trip (2MB send + VideoToolbox encode + response)
 
 ## Success Criteria
 
@@ -280,20 +282,31 @@ PipeWire ScreenCast (container) → pipewiresrc (SHM buffers) ✅
 - ✅ QEMU receives pixel data and encodes via VideoToolbox
 - ✅ vsockenc receives encoded H.264 frames back
 - ✅ h264parse parses stream (SPS/PPS properly included)
-- ✅ Video streaming works without crashes (130 frames / 15s test)
-- ⚠️ 8.7 FPS with terminal activity (bottleneck: 8MB/frame over TCP/SLiRP)
-- ❌ 30-60 FPS with active content (needs bandwidth optimization)
+- ✅ Video streaming works without crashes (524 frames / 20s test)
+- ✅ 26.2 FPS with terminal activity (downscale optimization)
+- ⚠️ Need to test with higher-damage content (vkcube equivalent)
 
-## Performance Bottleneck Analysis
+## Performance History
 
-The current 8.7 FPS is limited by sending 8MB of raw BGRA pixels per frame over TCP through SLiRP:
-- 1920x1080x4 = 8,294,400 bytes per frame
-- At 8.7 FPS = ~72 MB/s sustained throughput needed
-- SLiRP + TCP overhead limits effective bandwidth
+| Date | FPS | Resolution | Bottleneck |
+|------|-----|-----------|------------|
+| 2026-02-05 | 8.7 | 1920x1080 | 8MB/frame over TCP/SLiRP |
+| 2026-02-06 | 6.8 | 1920x1080 | Same bottleneck, confirmed |
+| 2026-02-06 | 26.2 | 960x540 | videoconvert+videoscale before queue |
 
-### Optimization Options (Future Work)
-1. **Downscale before sending**: Reduce to 960x540 = 2MB/frame (4x less data)
-2. **Use NV12 instead of BGRA**: 1920x1080 NV12 = 3.1MB vs 8.3MB BGRA
+### Downscale Optimization (IMPLEMENTED)
+
+Reduced pixel data from 8MB/frame (1920x1080 BGRA) to 2MB/frame (960x540 BGRA):
+- `videoconvert ! videoscale ! video/x-raw,format=BGRA,width=960,height=540` before the leaky queue
+- **CRITICAL**: These elements MUST be placed BEFORE the leaky queue, not after it
+- When placed after the queue, PipeWire buffers are held too long during the
+  videoconvert/videoscale/vsockenc chain, causing PipeWire to stop producing frames
+- When placed before the queue, PipeWire buffers are released quickly during the
+  fast software scale (~1ms), and only the small 960x540 buffer enters the queue
+
+### Further Optimization Options
+1. ✅ **Downscale before sending**: 960x540 = 2MB/frame (4x less data) - DONE
+2. **Use NV12 instead of BGRA**: 960x540 NV12 = 0.78MB vs 2MB BGRA (2.5x more reduction)
 3. **Pre-compress with LZ4/zstd**: Raw pixels compress ~2-4x
 4. **Use virtio-vsock instead of TCP**: Lower overhead than SLiRP user-mode networking
 5. **DMA-BUF zero-copy path**: If virtio-gpu resource IDs can be resolved, skip pixel transfer entirely
