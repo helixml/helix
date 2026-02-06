@@ -19,10 +19,11 @@ The development setup requires 3 repositories under `~/pm/`:
 
 ## Versions
 
-**Current tested configuration:**
+**Current tested configuration (2026-02-06):**
 - **UTM**: v5.0.1+ (main branch, commit `8d34e35b`)
-- **QEMU (UTM's version)**: v10.0.2-utm
-- **QEMU (our fork)**: v10.0.2-utm + 3 helix-frame-export patches (commit `886c4e4797`)
+- **QEMU (UTM's version)**: v10.0.2-utm (Venus branch with Vulkan support)
+- **QEMU (our fork)**: utm-edition-venus + helix-frame-export patches
+- **Video transport**: TCP direct on port 15937 (no socat needed)
 
 When setting up the environment, clone the exact UTM commit to ensure build compatibility:
 ```bash
@@ -49,7 +50,7 @@ This is our fork of UTM's QEMU fork, with custom patches for zero-copy GPU frame
 cd ~/pm
 git clone git@github.com:helixml/qemu-utm.git
 cd qemu-utm
-git checkout utm-edition  # Our branch with helix-frame-export
+git checkout utm-edition  # Our branch (includes upstream utm-edition-venus + helix patches)
 ```
 
 **Remotes:**
@@ -57,17 +58,17 @@ git checkout utm-edition  # Our branch with helix-frame-export
 - `helixml`: git@github.com:helixml/qemu-utm.git (our fork)
 
 **Key patches:**
-- `hw/display/helix/helix-frame-export.m` - IOSurface extraction and VideoToolbox H.264 encoding
-- Custom virtio-gpu-gl-pci integration for Metal texture sharing
-- vsock server for streaming encoded frames to host
+- `hw/display/helix/helix-frame-export.m` - DisplaySurface -> IOSurface -> VideoToolbox H.264 encoding
+- `hw/display/helix/helix-frame-export.h` - Protocol definitions and safe helper declarations
+- `hw/display/virtio-gpu-virgl.c` - DisplaySurface creation hooks + safe accessor function
+- TCP server on port 15937 for streaming encoded frames (guest connects via 10.0.2.2:15937)
 
 ### 3. UTM (Build Scripts - Auto-Cloned)
 
 The official UTM app repository provides build scripts for QEMU with all dependencies.
 
-**You do NOT need to clone this manually** - `./stack build-utm` will auto-clone it for you.
+We need UTM's sysroot (pre-built dependencies like SPICE, virglrenderer, etc.) for building QEMU.
 
-If you want to clone it manually:
 ```bash
 cd ~/pm
 git clone https://github.com/utmapp/UTM.git
@@ -76,15 +77,14 @@ git checkout 8d34e35b  # v5.0.1+ - tested working version
 ```
 
 **Why needed:**
-- `Scripts/build_dependencies.sh` - Builds QEMU with SPICE, GStreamer, virglrenderer, etc.
-- Provides proper build configuration that matches UTM requirements
-- Includes all patches and build flags needed for macOS ARM64
+- Provides `sysroot-macOS-arm64/` with pre-built SPICE, virglrenderer, GStreamer, etc.
+- Contains `pkg-config` and library paths that QEMU's configure needs
+- We do NOT modify UTM itself
 
 **Important:**
 - This is **NOT** a fork - it's the official utmapp/UTM repository
-- We never modify UTM - it's just a build tool dependency
+- The sysroot must be built first (one-time): `cd ~/pm/UTM && Scripts/build_dependencies.sh -p macos -a arm64`
 - Version pinned to `8d34e35b` (v5.0.1+) for reproducibility
-- Auto-managed by `./stack build-utm`
 
 ### 4. Zed (Optional - for custom IDE builds)
 
@@ -137,25 +137,51 @@ pip3 install --break-system-packages --user six pyparsing pyyaml setuptools dist
 
 ```bash
 cd ~/pm/helix
-./stack build-utm
+./for-mac/qemu-helix/build-qemu-standalone.sh
 ```
 
-This command:
-1. Validates all Homebrew and Python dependencies (errors if missing)
-2. Uses `UTM/Scripts/build_dependencies.sh` to build all dependencies including:
-   - ANGLE (from WebKit) for EGL/OpenGL ES support
-   - SPICE server with OpenGL
-   - virglrenderer with Metal backend
-   - GStreamer
-3. Points the script to our `qemu-utm` fork (not upstream)
-4. Builds QEMU with:
-   - SPICE support with `gl=es` option
-   - All helix-frame-export patches
-   - OpenGL ES / Vulkan acceleration
-5. Outputs to `~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib`
+This script does EVERYTHING automatically:
+1. Builds QEMU from `~/pm/qemu-utm` using UTM's sysroot at `~/pm/UTM/sysroot-macOS-arm64/`
+2. Installs to the **correct UTM framework location** (see below)
+3. Fixes library paths with `install_name_tool`
+4. Clears UTM caches
+5. Restarts UTM if running
 
-**Build cache:** Stored in `~/pm/UTM/build-macOS-arm64/` for faster rebuilds
-**Build time:** 30-60 minutes on first build, ~5 minutes on incremental
+**CRITICAL: UTM QEMU Install Path**
+
+UTM loads QEMU from a **framework bundle**, NOT a loose dylib:
+- ✅ **CORRECT:** `/Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu`
+- ❌ **WRONG:** `/Applications/UTM.app/Contents/Frameworks/libqemu-aarch64-softmmu.dylib`
+
+Installing to the wrong location means your code changes won't run. The build script handles this automatically, but if you ever need to install manually:
+
+```bash
+# Build output goes here:
+~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib
+
+# Install to UTM framework:
+sudo cp ~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib \
+     /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu
+
+# Fix library paths (changes absolute sysroot paths to @rpath):
+sudo ~/pm/helix/scripts/fix-qemu-paths.sh
+
+# Restart UTM:
+killall UTM && sleep 2 && open /Applications/UTM.app
+```
+
+**Build cache:** Stored in `~/pm/qemu-utm/build/` (ninja incremental)
+**Build time:** ~5 minutes full rebuild, seconds for incremental changes
+
+### Verify QEMU Install
+
+```bash
+# Check version string in installed binary
+strings /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu | grep "HELIX.*VERSION"
+
+# Check library paths are using @rpath (not absolute sysroot paths)
+otool -L /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu | head -10
+```
 
 ### Build Desktop Images
 
@@ -174,8 +200,9 @@ cd ~/pm/helix
 **qemu-utm** (~/pm/qemu-utm) - Our QEMU fork:
 - Fork of: https://github.com/utmapp/qemu
 - Our fork: https://github.com/helixml/qemu-utm
-- Branch: `utm-edition`
-- Contains our helix-frame-export module (3 commits on top of v10.0.2-utm)
+- Branch: `utm-edition` (based on upstream `origin/utm-edition-venus` which adds Vulkan/Venus support)
+- Contains helix-frame-export module with DisplaySurface + VideoToolbox encoding
+- ~21 commits on top of upstream Venus branch
 - This is the actual QEMU source code we modify
 
 **UTM** (~/pm/UTM) - Official UTM virtualization app:
@@ -200,43 +227,37 @@ This separation allows:
 
 **Current VM Images:**
 
-1. **Primary (ACTIVE)**: `/Volumes/Helix VM/Linux.utm`
-   - Location: External NVMe SSD
-   - Disk: 1TB capacity, 506GB used, 1007GB partition
+1. **Primary (ACTIVE)**: `/Volumes/Big/Linux.utm`
+   - Location: External SSD (`/Volumes/Big/`)
+   - Symlinked from: `~/Library/Containers/com.utmapp.UTM/Data/Documents/Linux.utm`
+   - Disk: 1TB capacity
    - CPUs: 20 cores, RAM: 64GB
-   - **UTM UUID**: `01CECE09-B09D-48A4-BAB6-D046C06E3A68` (use this for utmctl commands)
-   - Config.plist UUID: `17DC4F96-F1A9-4B51-962B-03D85998E0E7` (different from UTM's registration)
-   - Status: Expanded and ready for development, running custom QEMU with helix-frame-export
+   - **UTM UUID**: `17DC4F96-F1A9-4B51-962B-03D85998E0E7`
+   - Status: Running custom QEMU with helix-frame-export, DisplaySurface approach
    - **This is the one to use for all work**
 
-2. **Backup (large)**: `~/Library/Containers/com.utmapp.UTM/Data/Documents/Linux.utm.backup.safe`
-   - Location: Internal disk (UTM container)
-   - Disk: 506GB (rsync copy from external SSD, created 2026-02-04 15:35, completed 16:24)
-   - Status: Fresh backup created after accidental deletion
+2. **Backup**: `~/Library/Containers/com.utmapp.UTM/Data/Documents/Linux.utm.backup.safe`
    - **Do not delete - this is the safety backup**
 
-3. **Original (small)**: `~/Documents/UTM/Linux.utm.small-backup`
-   - Location: Internal disk
-   - Disk: 11GB (original small image before expansion)
-   - Status: Original VM, moved out of the way
-   - **Keep as reference, do not use for development**
-
-**How to control the external SSD VM:**
+**How to control the VM:**
 ```bash
 # List VMs
 /Applications/UTM.app/Contents/MacOS/utmctl list
 
-# Start the external SSD VM
-/Applications/UTM.app/Contents/MacOS/utmctl start 01CECE09-B09D-48A4-BAB6-D046C06E3A68
+# Start VM
+/Applications/UTM.app/Contents/MacOS/utmctl start 17DC4F96-F1A9-4B51-962B-03D85998E0E7
 
-# Stop the VM
-/Applications/UTM.app/Contents/MacOS/utmctl stop 01CECE09-B09D-48A4-BAB6-D046C06E3A68
+# Stop VM
+/Applications/UTM.app/Contents/MacOS/utmctl stop 17DC4F96-F1A9-4B51-962B-03D85998E0E7
 
 # Check status
-/Applications/UTM.app/Contents/MacOS/utmctl status 01CECE09-B09D-48A4-BAB6-D046C06E3A68
+/Applications/UTM.app/Contents/MacOS/utmctl status 17DC4F96-F1A9-4B51-962B-03D85998E0E7
 ```
 
-**Note:** To add the external VM to UTM, use: `open -a UTM "/Volumes/Helix VM/Linux.utm"`
+**SSH into the VM:**
+```bash
+ssh -p 2222 luke@localhost
+```
 
 ### Create Ubuntu VM
 
