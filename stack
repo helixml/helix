@@ -754,8 +754,7 @@ function start() {
   # Configure host networking for Docker-in-Docker
   setup_dev_networking
 
-  # Detect if we're running in Helix-in-Helix mode
-  detect_helix_in_helix
+  # detect_helix_in_helix already called at script startup
 
   echo "🐳 Starting docker compose"
 
@@ -2242,6 +2241,9 @@ function help() {
   echo "  STOP_PGVECTOR=1    - Stop PGVector when stopping"
   echo "  EXPERIMENTAL_DESKTOPS=\"zorin xfce\" - Build experimental desktops in build-sandbox"
 }
+
+# Detect Helix-in-Helix mode for all commands (not just start)
+detect_helix_in_helix
 
 # Show help if no arguments provided
 if [[ $# -eq 0 ]]; then
