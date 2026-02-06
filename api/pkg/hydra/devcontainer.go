@@ -142,13 +142,13 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}
 	defer dockerClient.Close()
 
-	// Ensure docker0 bridge exists when using the main sandbox dockerd.
-	// This is a defensive measure against docker0 mysteriously disappearing.
-	// Only do this for the default socket (main dockerd uses docker0);
+	// Ensure sandbox0 bridge exists when using the main sandbox dockerd.
+	// This is a defensive measure against the sandbox bridge mysteriously disappearing.
+	// Only do this for the default socket (main dockerd uses sandbox0);
 	// session dockerds use their own hydra{N} bridges.
 	if req.DockerSocket == "" {
-		if err := dm.manager.EnsureDocker0Bridge(); err != nil {
-			log.Warn().Err(err).Msg("Failed to ensure docker0 bridge, container networking may fail")
+		if err := dm.manager.EnsureSandboxBridge(); err != nil {
+			log.Warn().Err(err).Str("bridge", SandboxBridgeName).Msg("Failed to ensure sandbox bridge, container networking may fail")
 		}
 	}
 
