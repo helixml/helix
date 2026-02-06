@@ -440,6 +440,11 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 			// Use explicit capabilities instead of "all" for GKE/cloud compatibility
 			env = append(env, "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display")
 		}
+		// Force Mutter to use single-GPU mode to avoid "Failed to initialize accelerated
+		// iGPU/dGPU framebuffer sharing" errors on GKE/cloud nodes that may have both
+		// integrated and discrete GPUs visible in /dev/dri. This ensures RemoteDesktop
+		// input handling works correctly.
+		env = append(env, "MUTTER_DEBUG_MULTI_GPU_FORCE_COPY_MODE=primary-gpu-gpu")
 	}
 
 	// Add BUILDKIT_HOST for shared BuildKit cache support
