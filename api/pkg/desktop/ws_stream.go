@@ -485,12 +485,26 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			// always-copy=true breaks PipeWire's damage-based frame production on virtio-gpu,
 			// causing frames to stop after the initial render. Without it, PipeWire keeps
 			// producing frames on screen damage.
+			//
+			// IMPORTANT: videoconvert + videoscale MUST be placed here (before the queue),
+			// not after it. When placed after the queue, PipeWire buffers are held too long
+			// during the videoconvert/videoscale processing chain, causing PipeWire to
+			// stop producing frames after the initial 2. By converting/scaling immediately
+			// after pipewiresrc, the PipeWire buffer is released quickly (during the fast
+			// software scale), and only the small 960x540 buffer enters the leaky queue.
 			slog.Info("[STREAM] vsockenc detected, using native pipewiresrc with downscale")
 			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true keepalive-time=500", v.nodeID)
 			if v.pipeWireFd > 0 {
 				srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
 			}
-			parts = []string{srcPart}
+			parts = []string{
+				srcPart,
+				// Convert and downscale BEFORE the leaky queue so PipeWire buffers
+				// are released immediately after the fast software scale
+				"videoconvert",
+				"videoscale",
+				"video/x-raw,format=BGRA,width=960,height=540",
+			}
 			v.useRealtimeClock = true
 		} else if isAmdGnome {
 
@@ -603,12 +617,6 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Connection: TCP to 10.0.2.2:15937 (QEMU user-mode networking)
 		// SLiRP forwards guest 10.0.2.2:15937 → host 127.0.0.1:15937
 		parts = append(parts,
-			// Convert format and downscale to reduce bandwidth over TCP/SLiRP
-			// videoconvert handles any pipewiresrc output format → BGRA
-			// videoscale reduces 1920x1080 → 960x540 (4x less pixel data)
-			"videoconvert",
-			"videoscale",
-			"video/x-raw,format=BGRA,width=960,height=540",
 			fmt.Sprintf("vsockenc tcp-host=10.0.2.2 tcp-port=15937 bitrate=%d keyframe-interval=%d",
 				v.config.Bitrate, v.getEffectiveGOPSize()),
 			"h264parse",
