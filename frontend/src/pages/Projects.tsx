@@ -561,6 +561,7 @@ const Projects: FC = () => {
       breadcrumbs={[]}
       orgBreadcrumbs={true}
       globalSearch={true}
+      notifications={true}
       organizationId={account.organizationTools.organization?.id}
       topbarContent={currentView === 'projects' ? (
         <CreateProjectButton

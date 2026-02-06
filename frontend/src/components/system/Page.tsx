@@ -8,6 +8,7 @@ import SearchIcon from '@mui/icons-material/Search'
 
 import AppBar from './AppBar'
 import GlobalSearchDialog from './GlobalSearchDialog'
+import GlobalNotifications from './GlobalNotifications'
 import { TypesResource } from '../../api/api'
 
 import useRouter from '../../hooks/useRouter'
@@ -41,6 +42,8 @@ const Page: React.FC<{
   organizationId?: string,
   globalSearch?: boolean,
   globalSearchResourceTypes?: TypesResource[],
+  // notifications
+  notifications?: boolean,
   children?: ReactNode,
 }> = ({
   topbarContent = null,
@@ -59,6 +62,7 @@ const Page: React.FC<{
   organizationId,
   globalSearch = false,
   globalSearchResourceTypes,
+  notifications = false,
   children,
 }) => {
   const router = useRouter()
@@ -306,6 +310,9 @@ const Page: React.FC<{
                     },
                   }}
                 />
+              )}
+              {notifications && (
+                <GlobalNotifications organizationId={organizationId} />
               )}
               { topbarContent }
             </AppBar>
