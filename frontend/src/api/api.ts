@@ -5122,6 +5122,8 @@ export interface TypesUser {
   id?: string;
   /** if the user must change their password */
   must_change_password?: boolean;
+  onboarding_completed?: boolean;
+  onboarding_completed_at?: string;
   /** bcrypt hash of the password */
   password_hash?: number[];
   /** When running in Helix Code sandbox */
@@ -10506,9 +10508,9 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/spec-tasks
      */
     v1SpecTasksList: (
-      query?: {
-        /** Filter by project ID */
-        project_id?: string;
+      query: {
+        /** Project ID */
+        project_id: string;
         /** Filter by status */
         status?: string;
         /** Filter by user ID */
@@ -11507,6 +11509,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesGuidelinesHistory[], SystemHTTPError>({
         path: `/api/v1/users/me/guidelines-history`,
         method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Mark onboarding as completed for the current user
+     *
+     * @tags Users
+     * @name V1UsersMeOnboardingCreate
+     * @summary Complete onboarding
+     * @request POST:/api/v1/users/me/onboarding
+     * @secure
+     */
+    v1UsersMeOnboardingCreate: (params: RequestParams = {}) =>
+      this.request<TypesUser, SystemHTTPError>({
+        path: `/api/v1/users/me/onboarding`,
+        method: "POST",
         secure: true,
         format: "json",
         ...params,

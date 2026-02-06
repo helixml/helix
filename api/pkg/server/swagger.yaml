@@ -8469,6 +8469,10 @@ definitions:
       must_change_password:
         description: if the user must change their password
         type: boolean
+      onboarding_completed:
+        type: boolean
+      onboarding_completed_at:
+        type: string
       password_hash:
         description: bcrypt hash of the password
         items:
@@ -15657,9 +15661,10 @@ paths:
       description: List spec-driven tasks with optional filtering by project, status,
         or user
       parameters:
-      - description: Filter by project ID
+      - description: Project ID
         in: query
         name: project_id
+        required: true
         type: string
       - description: Filter by status
         in: query
@@ -17119,6 +17124,29 @@ paths:
       security:
       - BearerAuth: []
       summary: Get user guidelines history
+      tags:
+      - Users
+  /api/v1/users/me/onboarding:
+    post:
+      description: Mark onboarding as completed for the current user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.User'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Complete onboarding
       tags:
       - Users
   /api/v1/users/search:

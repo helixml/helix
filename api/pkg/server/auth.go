@@ -742,11 +742,12 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 				Msg("User info retrieved via BFF session")
 
 			response := types.UserResponse{
-				ID:    user.ID,
-				Email: user.Email,
-				Token: "", // No token exposed with BFF pattern
-				Name:  user.FullName,
-				Admin: user.Admin,
+				ID:                  user.ID,
+				Email:               user.Email,
+				Token:               "", // No token exposed with BFF pattern
+				Name:                user.FullName,
+				Admin:               user.Admin,
+				OnboardingCompleted: user.OnboardingCompleted,
 			}
 			writeResponse(w, response, http.StatusOK)
 			return
@@ -822,11 +823,12 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := types.UserResponse{
-		ID:    user.ID,
-		Email: user.Email,
-		Token: accessToken,
-		Name:  user.FullName,
-		Admin: user.Admin,
+		ID:                  user.ID,
+		Email:               user.Email,
+		Token:               accessToken,
+		Name:                user.FullName,
+		Admin:               user.Admin,
+		OnboardingCompleted: user.OnboardingCompleted,
 	}
 	writeResponse(w, response, http.StatusOK)
 }
