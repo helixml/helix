@@ -1,33 +1,59 @@
 # Example values for Google Kubernetes Engine (GKE)
 #
 # Prerequisites:
-# 1. GKE cluster with GPU node pool (NOT Autopilot - requires privileged pods)
-# 2. NVIDIA device plugin installed:
+# 1. GKE Standard cluster with GPU node pool (NOT Autopilot - requires privileged pods)
+# 2. GPU node pool with NVIDIA GPUs (T4, L4, A100, etc.)
+#    # Create GPU node pool:
+#    gcloud container node-pools create gpu-pool \
+#      --cluster=YOUR_CLUSTER \
+#      --region=YOUR_REGION \
+#      --node-locations=YOUR_ZONE \
+#      --machine-type=n1-standard-4 \
+#      --accelerator=type=nvidia-tesla-t4,count=1 \
+#      --num-nodes=1 \
+#      --disk-size=100GB \
+#      --disk-type=pd-ssd
+# 3. NVIDIA device plugin (auto-installed on GKE 1.30+, or install manually):
 #    kubectl apply -f https://raw.githubusercontent.com/GoogleCloudPlatform/container-engine-accelerators/master/nvidia-driver-installer/cos/daemonset-preloaded.yaml
-# 3. Create a secret with the runner token:
+# 4. Create a secret with the runner token:
 #    kubectl create secret generic helix-sandbox-token --from-literal=token=YOUR_TOKEN
 #
-# Install:
+# API URL Configuration:
+# ----------------------
+# If sandbox runs in SAME cluster as control plane:
+#   Use internal service URL (recommended - no TLS issues):
+#   --set sandbox.apiUrl=http://RELEASE_NAME-helix-controlplane.NAMESPACE.svc.cluster.local
+#
+# If sandbox runs in DIFFERENT cluster:
+#   Use external URL with valid TLS certificate:
+#   --set sandbox.apiUrl=https://your-helix-instance.com
+#
+# Install (same cluster as control plane):
+#   helm install helix-sandbox ./charts/helix-sandbox -f values-gke.yaml \
+#     --set sandbox.apiUrl=http://my-helix-controlplane.helix.svc.cluster.local
+#
+# Install (external control plane):
 #   helm install helix-sandbox ./charts/helix-sandbox -f values-gke.yaml \
 #     --set sandbox.apiUrl=https://your-helix-instance.com
 
-replicaCount: 2
+replicaCount: 1
 
 deployment:
-  # StatefulSet recommended for multi-replica (stable sandbox IDs)
-  type: "StatefulSet"
-  podManagementPolicy: "Parallel"
+  # Use Deployment for single replica, StatefulSet for multi-replica
+  # StatefulSet provides stable pod names for sandbox IDs
+  type: "Deployment"
 
+# Enable PDB for multi-replica deployments
 podDisruptionBudget:
-  enabled: true
-  minAvailable: 1
+  enabled: false
+  # minAvailable: 1
 
 sandbox:
-  # Set via --set or create secret
-  # apiUrl: "https://your-helix-instance.com"
+  # Set via --set (see install instructions above)
+  # apiUrl: "http://my-helix-controlplane.helix.svc.cluster.local"
   runnerTokenExistingSecret: "helix-sandbox-token"
   runnerTokenExistingSecretKey: "token"
-  maxSandboxes: 10
+  maxSandboxes: 5
 
 gpu:
   vendor: "nvidia"
@@ -37,7 +63,8 @@ gpu:
     # GKE uses nvidia.com/gpu automatically, no runtime class needed
     runtimeClassName: ""
 
-# GKE T4 GPU nodes (most cost-effective)
+# Target GPU nodes
+# Adjust based on your GPU type (nvidia-tesla-t4, nvidia-l4, nvidia-tesla-a100, etc.)
 nodeSelector:
   cloud.google.com/gke-accelerator: "nvidia-tesla-t4"
 
@@ -48,22 +75,56 @@ tolerations:
 
 resources:
   requests:
-    memory: "8Gi"
-    cpu: "4"
+    memory: "4Gi"
+    cpu: "2"
   limits:
-    memory: "32Gi"
+    memory: "12Gi"  # Leave headroom for desktop containers
 
 persistence:
   dockerStorage:
     enabled: true
-    size: 100Gi
+    size: 50Gi
     # Use SSD for better Docker performance
-    storageClassName: "premium-rwo"
+    # Options: standard-rwo (HDD), premium-rwo (SSD)
+    storageClassName: "standard-rwo"
   hydraData:
     enabled: true
-    size: 50Gi
-    storageClassName: "premium-rwo"
+    size: 20Gi
+    storageClassName: "standard-rwo"
   workspaceData:
     enabled: true
-    size: 200Gi
+    size: 50Gi
     storageClassName: "standard-rwo"
+
+# ============================================================
+# Multi-Replica / High-Availability Configuration
+# ============================================================
+# Uncomment for production deployments with multiple sandboxes:
+#
+# replicaCount: 3
+#
+# deployment:
+#   type: "StatefulSet"
+#   podManagementPolicy: "Parallel"
+#
+# podDisruptionBudget:
+#   enabled: true
+#   minAvailable: 1
+#
+# persistence:
+#   dockerStorage:
+#     size: 100Gi
+#     storageClassName: "premium-rwo"
+#   hydraData:
+#     size: 50Gi
+#     storageClassName: "premium-rwo"
+#   workspaceData:
+#     size: 200Gi
+#     storageClassName: "standard-rwo"
+#
+# resources:
+#   requests:
+#     memory: "8Gi"
+#     cpu: "4"
+#   limits:
+#     memory: "32Gi"
