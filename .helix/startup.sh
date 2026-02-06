@@ -113,6 +113,7 @@ if [[ -n "${HELIX_API_URL:-}" ]]; then
         fi
         echo "✅ outer-api → $OUTER_API_IP (preserves access after inner stack starts)"
         export HELIX_API_URL="http://outer-api:8080"
+        export OUTER_API_IP
     fi
 fi
 
