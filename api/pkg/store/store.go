@@ -13,6 +13,7 @@ import (
 type ListProjectsQuery struct {
 	UserID         string
 	OrganizationID string
+	IncludeStats   bool
 }
 
 type GetJobsQuery struct {
@@ -644,6 +645,9 @@ type Store interface {
 	IncrementPromptUsage(ctx context.Context, promptID string) error
 	SearchPrompts(ctx context.Context, userID, query string, limit int) ([]*types.PromptHistoryEntry, error)
 	UnifiedSearch(ctx context.Context, userID string, req *types.UnifiedSearchRequest) (*types.UnifiedSearchResponse, error)
+
+	// ResourceSearch - fast concurrent search across multiple resource types
+	ResourceSearch(ctx context.Context, req *types.ResourceSearchRequest) (*types.ResourceSearchResponse, error)
 }
 
 type EmbeddingsStore interface {

@@ -57,10 +57,12 @@ type CreateTaskRequest struct {
 // SpecTask represents a task following Kiro's actual spec-driven approach
 // Simple, human-readable artifacts rather than complex nested structures
 type SpecTask struct {
-	ID          string `json:"id" gorm:"primaryKey"`
-	ProjectID   string `json:"project_id" gorm:"index"`
-	Name        string `json:"name"`
-	Description string `json:"description" gorm:"type:text"`
+	ID             string `json:"id" gorm:"primaryKey"`
+	ProjectID      string `json:"project_id" gorm:"index"`
+	UserID         string `json:"user_id" gorm:"index"`         // Owner user ID for search
+	OrganizationID string `json:"organization_id" gorm:"index"` // Organization scope for search
+	Name           string `json:"name" gorm:"index"`            // Indexed for search prefix matching
+	Description    string `json:"description" gorm:"type:text"`
 
 	// Short title for tab display (auto-generated from agent writing short-title.txt)
 	// UserShortTitle takes precedence if set (user override)

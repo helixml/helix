@@ -1433,6 +1433,29 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/auth/session": {
+            "get": {
+                "description": "Returns session info for BFF authentication. The frontend uses this to check if the user is logged in.",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Get current session info",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SessionInfo"
+                        }
+                    },
+                    "401": {
+                        "description": "Not authenticated",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/auth/update": {
             "post": {
                 "security": [
@@ -7175,6 +7198,83 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get token usage metrics for a project (combined across all tasks)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Get project token usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "default": "hourly",
+                        "description": "Aggregation level (5min, hourly, daily)",
+                        "name": "aggregation_level",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start time (RFC3339 format)",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (RFC3339 format)",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AggregatedUsageMetric"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/prompt-history": {
             "get": {
                 "security": [
@@ -8317,6 +8417,45 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/types.GitRepository"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/resource-search": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Search across projects, tasks, sessions, prompts, knowledge, repositories, and apps concurrently",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "search"
+                ],
+                "summary": "Search across resources",
+                "parameters": [
+                    {
+                        "description": "Search request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ResourceSearchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ResourceSearchResponse"
                         }
                     }
                 }
@@ -15494,6 +15633,10 @@ const docTemplate = `{
                 "github_repo": {
                     "type": "string"
                 },
+                "guidelines": {
+                    "description": "Guidelines are project-specific instructions for AI agents\nThese get injected into implementation prompts and help the agent understand\nproject conventions, available tools, and how to use them effectively",
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -19393,6 +19536,10 @@ const docTemplate = `{
                     "description": "Populated by the cron job controller",
                     "type": "string"
                 },
+                "organization_id": {
+                    "description": "Organization scope for search",
+                    "type": "string"
+                },
                 "owner": {
                     "description": "User ID",
                     "type": "string"
@@ -20513,7 +20660,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "auto_join_domain": {
-                    "description": "AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members",
+                    "description": "AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members\nNote: Uniqueness is enforced in application code (updateOrganization handler) rather than DB constraint\nbecause empty strings would conflict with each other in a unique index",
                     "type": "string"
                 },
                 "created_at": {
@@ -20841,6 +20988,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.ProjectMetadata"
                 },
                 "name": {
+                    "description": "Indexed for search prefix matching",
                     "type": "string"
                 },
                 "next_task_number": {
@@ -20870,6 +21018,14 @@ const docTemplate = `{
                 "startup_script": {
                     "description": "Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database",
                     "type": "string"
+                },
+                "stats": {
+                    "description": "Computed",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ProjectStats"
+                        }
+                    ]
                 },
                 "status": {
                     "description": "\"active\", \"archived\", \"completed\"",
@@ -21001,6 +21157,35 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ProjectStats": {
+            "type": "object",
+            "properties": {
+                "active_agent_sessions": {
+                    "type": "integer"
+                },
+                "average_task_completion_hours": {
+                    "type": "number"
+                },
+                "backlog_tasks": {
+                    "type": "integer"
+                },
+                "completed_tasks": {
+                    "type": "integer"
+                },
+                "in_progress_tasks": {
+                    "type": "integer"
+                },
+                "pending_review_tasks": {
+                    "type": "integer"
+                },
+                "planning_tasks": {
+                    "type": "integer"
+                },
+                "total_tasks": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.ProjectUpdateRequest": {
             "type": "object",
             "properties": {
@@ -21096,6 +21281,10 @@ const docTemplate = `{
                 },
                 "next_retry_at": {
                     "description": "When to retry (for exponential backoff)",
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "Organization scope for search",
                     "type": "string"
                 },
                 "pinned": {
@@ -21750,7 +21939,10 @@ const docTemplate = `{
                 "*",
                 "Dataset",
                 "Project",
-                "GitRepository"
+                "GitRepository",
+                "SpecTask",
+                "Session",
+                "Prompt"
             ],
             "x-enum-varnames": [
                 "ResourceTeam",
@@ -21765,8 +21957,71 @@ const docTemplate = `{
                 "ResourceAny",
                 "ResourceTypeDataset",
                 "ResourceProject",
-                "ResourceGitRepository"
+                "ResourceGitRepository",
+                "ResourceSpecTask",
+                "ResourceSession",
+                "ResourcePrompt"
             ]
+        },
+        "types.ResourceSearchRequest": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "types": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Resource"
+                    }
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ResourceSearchResponse": {
+            "type": "object",
+            "properties": {
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ResourceSearchResult"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.ResourceSearchResult": {
+            "type": "object",
+            "properties": {
+                "contents": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "parent_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.Resource"
+                }
+            }
         },
         "types.ResponseFormat": {
             "type": "object",
@@ -22685,6 +22940,26 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SessionInfo": {
+            "type": "object",
+            "properties": {
+                "auth_provider": {
+                    "$ref": "#/definitions/types.AuthProvider"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.SessionMetadata": {
             "type": "object",
             "properties": {
@@ -23333,6 +23608,11 @@ const docTemplate = `{
                     "additionalProperties": true
                 },
                 "name": {
+                    "description": "Indexed for search prefix matching",
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "Organization scope for search",
                     "type": "string"
                 },
                 "original_prompt": {
@@ -23429,6 +23709,10 @@ const docTemplate = `{
                 "use_host_docker": {
                     "description": "Use host Docker socket (requires privileged sandbox)",
                     "type": "boolean"
+                },
+                "user_id": {
+                    "description": "Owner user ID for search",
+                    "type": "string"
                 },
                 "user_short_title": {
                     "description": "User override",
@@ -24003,6 +24287,11 @@ const docTemplate = `{
                     "additionalProperties": true
                 },
                 "name": {
+                    "description": "Indexed for search prefix matching",
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "Organization scope for search",
                     "type": "string"
                 },
                 "original_prompt": {
@@ -24102,6 +24391,10 @@ const docTemplate = `{
                 "use_host_docker": {
                     "description": "Use host Docker socket (requires privileged sandbox)",
                     "type": "boolean"
+                },
+                "user_id": {
+                    "description": "Owner user ID for search",
+                    "type": "string"
                 },
                 "user_short_title": {
                     "description": "User override",
@@ -24567,14 +24860,19 @@ const docTemplate = `{
                 "runner",
                 "oidc",
                 "api_key",
-                "socket"
+                "socket",
+                "session"
             ],
+            "x-enum-comments": {
+                "TokenTypeSession": "BFF session for regular (email/password) auth"
+            },
             "x-enum-varnames": [
                 "TokenTypeNone",
                 "TokenTypeRunner",
                 "TokenTypeOIDC",
                 "TokenTypeAPIKey",
-                "TokenTypeSocket"
+                "TokenTypeSocket",
+                "TokenTypeSession"
             ]
         },
         "types.Tool": {

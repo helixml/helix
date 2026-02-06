@@ -251,7 +251,9 @@ const Home: FC = () => {
 
   return (
     <Page
-      showTopbar={ isBigScreen ? false : true }
+      globalSearch={true}
+      organizationId={account.organizationTools.organization?.id}
+      showTopbar={true}
     >
       <Box
         sx={{

@@ -942,32 +942,7 @@ const SpecTasksPage: FC = () => {
               </IconButton>
             </Tooltip>
           </Stack>
-
-          {/* Project's default agent lozenge - hide on mobile to save space */}
-          {project?.default_helix_app_id && appNamesMap[project.default_helix_app_id] && (
-            <Box sx={{ display: { xs: 'none', md: 'block' } }}>
-              <Tooltip title="Default agent for this project. Click to configure MCPs, skills, and knowledge.">
-                <Chip
-                  label={appNamesMap[project.default_helix_app_id]}
-                  size="small"
-                  onClick={() => {
-                    if (project.default_helix_app_id) {
-                      account.orgNavigate('app', { app_id: project.default_helix_app_id });
-                    }
-                  }}
-                  sx={{
-                    background: 'linear-gradient(145deg, rgba(120, 120, 140, 0.9) 0%, rgba(90, 90, 110, 0.95) 50%, rgba(70, 70, 90, 0.9) 100%)',
-                    color: 'rgba(255, 255, 255, 0.9)',
-                    fontWeight: 500,
-                    fontSize: '0.75rem',
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), 0 1px 3px rgba(0,0,0,0.2)',
-                    cursor: 'pointer',
-                  }}
-                />
-              </Tooltip>
-            </Box>
-          )}
+         
           {/* Hide these buttons on mobile - they'll be in the floating menu */}
           <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 2, alignItems: 'center' }}>
             {!exploratorySessionData ? (

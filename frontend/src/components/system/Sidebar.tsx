@@ -28,7 +28,7 @@ import useSnackbar from '../../hooks/useSnackbar'
 
 import SlideMenuContainer from './SlideMenuContainer'
 import SidebarContextHeader from './SidebarContextHeader'
-import UnifiedSearchBar from '../common/UnifiedSearchBar'
+// import UnifiedSearchBar from '../common/UnifiedSearchBar'
 import { SidebarProvider, useSidebarContext } from '../../contexts/sidebarContext'
 
 
@@ -247,7 +247,7 @@ const SidebarContentInner: React.FC<{
         <SidebarContextHeader />
         <Divider sx={{ width: '100%' }} />
         {/* Global search - available on all pages */}
-        <UnifiedSearchBar compact placeholder="Search..." />
+        {/* <UnifiedSearchBar compact placeholder="Search..." /> */}
         <Divider sx={{ width: '100%' }} />
         <Box
           sx={{

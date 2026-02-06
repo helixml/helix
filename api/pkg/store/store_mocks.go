@@ -4384,6 +4384,21 @@ func (mr *MockStoreMockRecorder) ResetStuckComments(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetStuckComments", reflect.TypeOf((*MockStore)(nil).ResetStuckComments), ctx)
 }
 
+// ResourceSearch mocks base method.
+func (m *MockStore) ResourceSearch(ctx context.Context, req *types.ResourceSearchRequest) (*types.ResourceSearchResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResourceSearch", ctx, req)
+	ret0, _ := ret[0].(*types.ResourceSearchResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResourceSearch indicates an expected call of ResourceSearch.
+func (mr *MockStoreMockRecorder) ResourceSearch(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResourceSearch", reflect.TypeOf((*MockStore)(nil).ResourceSearch), ctx, req)
+}
+
 // SearchPrompts mocks base method.
 func (m *MockStore) SearchPrompts(ctx context.Context, userID, query string, limit int) ([]*types.PromptHistoryEntry, error) {
 	m.ctrl.T.Helper()

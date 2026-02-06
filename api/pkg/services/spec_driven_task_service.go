@@ -119,20 +119,23 @@ func (s *SpecDrivenTaskService) SetAuditLogWaitGroup(wg *sync.WaitGroup) {
 
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
 func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
+	// Fetch project to get organization ID and default agent
+	var project *types.Project
+	if req.ProjectID != "" {
+		var err error
+		project, err = s.store.GetProject(ctx, req.ProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get project: %w", err)
+		}
+	}
+
 	// Determine which agent to use (single agent for entire workflow)
 	// Priority: request.AppID > project.DefaultHelixAppID > error if not found
 	helixAppID := ""
 	if req.AppID != "" {
 		helixAppID = req.AppID
-	} else if req.ProjectID != "" {
-		// Check project's default agent
-		project, err := s.store.GetProject(ctx, req.ProjectID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get project: %w", err)
-		}
-		if project != nil && project.DefaultHelixAppID != "" {
-			helixAppID = project.DefaultHelixAppID
-		}
+	} else if project != nil && project.DefaultHelixAppID != "" {
+		helixAppID = project.DefaultHelixAppID
 	}
 
 	// Validate that the app exists if one is configured
@@ -149,9 +152,17 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		branchMode = types.BranchModeNew
 	}
 
+	// Determine organization ID from project if it belongs to an org
+	organizationID := ""
+	if project != nil {
+		organizationID = project.OrganizationID
+	}
+
 	task := &types.SpecTask{
 		ID:             generateTaskID(),
 		ProjectID:      req.ProjectID,
+		UserID:         req.UserID,
+		OrganizationID: organizationID,
 		Name:           generateTaskNameFromPrompt(req.Prompt),
 		Description:    req.Prompt,
 		Type:           req.Type,

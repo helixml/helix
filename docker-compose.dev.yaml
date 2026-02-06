@@ -79,7 +79,7 @@ services:
       - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE:-}
       # AI Providers management - enable/disable user-facing AI provider API keys management
       # Disabled by default - admins manage providers via admin panel
-      - PROVIDERS_MANAGEMENT_ENABLED=${PROVIDERS_MANAGEMENT_ENABLED:-false}
+      - PROVIDERS_MANAGEMENT_ENABLED=${PROVIDERS_MANAGEMENT_ENABLED:-}
       # Socket configuration for haystack communication
       - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
       - RAG_HAYSTACK_ENABLED=true
