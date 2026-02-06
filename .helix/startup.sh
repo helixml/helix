@@ -99,6 +99,23 @@ echo "Using helix directory: $HELIX_DIR"
 cd "$HELIX_DIR"
 
 # =========================================
+# =========================================
+# Create stable hostname for outer API
+# =========================================
+# The inner compose stack shadows the "api" hostname with its own API service.
+# Resolve the outer API IP now and create an "outer-api" /etc/hosts entry that
+# survives the inner stack startup. Also used by Zed for LLM access.
+if [[ -n "${HELIX_API_URL:-}" ]]; then
+    OUTER_API_IP=$(getent hosts api | awk '{print $1}' | head -1)
+    if [[ -n "$OUTER_API_IP" ]]; then
+        if ! grep -q "outer-api" /etc/hosts 2>/dev/null; then
+            echo "$OUTER_API_IP outer-api" | sudo tee -a /etc/hosts >/dev/null
+        fi
+        echo "✅ outer-api → $OUTER_API_IP (preserves access after inner stack starts)"
+        export HELIX_API_URL="http://outer-api:8080"
+    fi
+fi
+
 # Create .env file for inner Helix
 # =========================================
 # Route inference through the outer Helix using the same API key the agent uses.
