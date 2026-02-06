@@ -578,11 +578,13 @@ func (m *Manager) checkDocker0Exists() bool {
 // EnsureDocker0Bridge checks if docker0 bridge exists and recreates it if missing.
 // This is a defensive measure against docker0 mysteriously disappearing.
 // The main sandbox dockerd uses docker0 with 10.213.0.0/24 subnet.
+// Also reconnects any orphaned veth interfaces that should be on docker0.
 func (m *Manager) EnsureDocker0Bridge() error {
 	// Check if docker0 exists
 	checkCmd := exec.Command("ip", "link", "show", "docker0")
 	if err := checkCmd.Run(); err == nil {
-		// docker0 exists, nothing to do
+		// docker0 exists, but check for orphaned veths and reconnect them
+		m.reconnectOrphanedVeths()
 		return nil
 	}
 
@@ -605,7 +607,63 @@ func (m *Manager) EnsureDocker0Bridge() error {
 	}
 
 	log.Info().Msg("Recreated docker0 bridge with IP 10.213.0.1/24")
+
+	// Reconnect any orphaned veth interfaces to the recreated docker0
+	m.reconnectOrphanedVeths()
+
 	return nil
+}
+
+// reconnectOrphanedVeths finds veth interfaces that have no bridge master and reconnects them to docker0.
+// This handles the case where session dockerd startup deletes docker0 and orphans existing container veths.
+// We identify docker0 veths by checking if their peer (inside a container) is on the 10.213.0.0/24 subnet.
+func (m *Manager) reconnectOrphanedVeths() {
+	// Find all veth interfaces
+	output, err := exec.Command("ip", "-o", "link", "show", "type", "veth").Output()
+	if err != nil {
+		log.Debug().Err(err).Msg("Failed to list veth interfaces")
+		return
+	}
+
+	reconnected := 0
+	for _, line := range strings.Split(string(output), "\n") {
+		if line == "" {
+			continue
+		}
+		// Parse veth name from line like "5: veth7640f86@if2: <BROADCAST,..."
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		vethName := strings.TrimSuffix(strings.Split(parts[1], "@")[0], ":")
+
+		// Skip if it already has a master bridge
+		showCmd := exec.Command("ip", "link", "show", vethName)
+		showOutput, err := showCmd.Output()
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(showOutput), "master ") {
+			continue
+		}
+
+		// Skip non-docker veths (hydra veths use vethb-* naming)
+		if strings.HasPrefix(vethName, "vethb") {
+			continue
+		}
+
+		// This veth has no master - try to reconnect to docker0
+		log.Info().Str("veth", vethName).Msg("Reconnecting orphaned veth to docker0")
+		if err := m.runCommand("ip", "link", "set", vethName, "master", "docker0"); err != nil {
+			log.Warn().Err(err).Str("veth", vethName).Msg("Failed to reconnect veth to docker0")
+		} else {
+			reconnected++
+		}
+	}
+
+	if reconnected > 0 {
+		log.Info().Int("count", reconnected).Msg("Reconnected orphaned veths to docker0")
+	}
 }
 
 // startDockerd starts a new dockerd process
@@ -793,6 +851,12 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 			Str("scope", scopeKey).
 			Str("bridge", bridgeName).
 			Msg("[DEBUG] docker0 was DELETED by session dockerd startup!")
+
+		// Immediately fix docker0 and reconnect orphaned veths
+		// This is a known issue where session dockerd deletes docker0 during startup
+		if err := m.EnsureDocker0Bridge(); err != nil {
+			log.Error().Err(err).Msg("Failed to restore docker0 after session dockerd deleted it")
+		}
 	}
 
 	// Start process monitor goroutine
