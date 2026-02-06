@@ -142,10 +142,29 @@ echo "Building Helix components..."
 echo "  This will build: API, Zed IDE, and Sandbox"
 echo ""
 
-# Build everything, then start the stack in tmux
-./stack build && \
-./stack build-zed release && \
-./stack build-sandbox && \
+# Build API and frontend first
+echo "Step 1/4: Building API and frontend..."
+if ! ./stack build; then
+    echo "❌ Error: Failed to build API/frontend"
+    exit 1
+fi
+
+# Build Zed IDE (may fail on network issues, but we can continue without it)
+echo "Step 2/4: Building Zed IDE..."
+if ! ./stack build-zed release; then
+    echo "⚠ Warning: Zed build failed (possibly network issue). Continuing without fresh Zed build."
+    echo "  The sandbox may use a cached Zed image if available."
+fi
+
+# Build sandbox
+echo "Step 3/4: Building sandbox..."
+if ! ./stack build-sandbox; then
+    echo "❌ Error: Failed to build sandbox"
+    exit 1
+fi
+
+# Start the stack in tmux
+echo "Step 4/4: Starting the stack..."
 ./stack start
 
 echo ""
