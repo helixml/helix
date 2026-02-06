@@ -418,6 +418,10 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 		env = append(env, fmt.Sprintf("GPU_VENDOR=%s", req.GPUVendor))
 	}
 
+	// Enable GStreamer debug logging for vsockenc debugging
+	// TODO: Remove this after vsockenc receive thread issue is fixed
+	env = append(env, "GST_DEBUG=vsockenc:5")
+
 	// Add GPU-specific environment variables
 	switch req.GPUVendor {
 	case "nvidia":
