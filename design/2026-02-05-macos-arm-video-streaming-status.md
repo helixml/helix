@@ -1,7 +1,7 @@
 # macOS ARM Video Streaming - Status Update
 
-**Date:** 2026-02-05 17:45
-**Status:** Build system issues preventing testing
+**Date:** 2026-02-06 (updated)
+**Status:** End-to-end pipeline debugging - SPS/PPS fix pending test
 
 ## Summary
 
@@ -218,15 +218,63 @@ docker compose exec -T sandbox-macos docker logs {CONTAINER_NAME} 2>&1 | grep -E
    docker compose -f docker-compose.dev.yaml exec -T sandbox-macos docker logs {CONTAINER} 2>&1 | grep -E "vsockenc|resource_id|DMA-BUF"
    ```
 
+## End-to-End Debugging (2026-02-06)
+
+### Bugs Found and Fixed
+
+#### 1. Stale TCP Connection Deadlock (FIXED)
+**Problem**: When Docker containers are killed, the TCP connection through SLiRP doesn't get a proper FIN/RST. The QEMU accept thread's `recv()` blocks forever on the dead connection, preventing any new clients from connecting. This makes port 15937 unreachable even from the VM itself.
+
+**Fix**: Added `SO_RCVTIMEO` (30s) and `SO_KEEPALIVE` to client sockets in `vsock_accept_thread()`. Increased listen backlog from 1 to 5. (commit 16ab341bf2 in qemu-utm)
+
+#### 2. Missing SPS/PPS NAL Units (FIXED, pending test)
+**Problem**: VideoToolbox stores SPS/PPS parameter sets in `CMFormatDescription`, NOT in the data buffer. The encoder output callback only converted the AVCC data buffer to Annex B, omitting SPS/PPS. Without SPS/PPS, `h264parse` cannot parse the H.264 stream and buffers indefinitely - resulting in 0 frames reaching appsink despite vsockenc successfully finishing frames.
+
+**Fix**: Extract parameter sets using `CMVideoFormatDescriptionGetH264ParameterSetAtIndex()` and prepend them with Annex B start codes before the slice data for keyframes. (commit ca33601473 in qemu-utm)
+
+#### 3. H.264 Profile Mismatch (FIXED earlier)
+**Problem**: QEMU's VideoToolbox used Main profile, but pipeline caps filter required `constrained-baseline`.
+
+**Fix**: Removed profile constraint from caps filter for vsockenc mode in `ws_stream.go`.
+
+#### 4. vsockenc Threading Issue (FIXED earlier)
+**Problem**: Original vsockenc used a `recv_thread` to read responses and call `finish_frame()` from a non-streaming C thread, which could cause issues with go-gst CGO callbacks.
+
+**Fix**: Made vsockenc synchronous - `handle_frame()` now sends request AND reads response inline, calling `finish_frame()` from the GStreamer streaming thread.
+
+### Data Flow Verification
+
+The end-to-end data path has been verified up to the h264parse stage:
+```
+PipeWire ScreenCast → pipewiresrc (SHM buffers, not DMA-BUF)
+  → queue (leaky=downstream)
+  → vsockenc (TCP to 10.0.2.2:15937) ✅ Connected successfully
+    → QEMU SLiRP → host 127.0.0.1:15937 ✅
+    → helix-frame-export → DisplaySurface pixels → VideoToolbox H.264 ✅
+    → AVCC→Annex B conversion ✅ (but missing SPS/PPS ❌)
+  → vsockenc finish_frame (28KB keyframe, 11KB P-frame) ✅
+  → h264parse (BLOCKED - no SPS/PPS)
+  → appsink (never fires) ❌
+  → Go callback → SharedVideoSource → WebSocket → browser ❌
+```
+
+### Current Status
+
+- vsockenc sends frame requests with resource_id=0 (SHM, not DMA-BUF)
+- QEMU falls back to DisplaySurface pixel copy (CPU, not zero-copy)
+- VideoToolbox encodes frames successfully
+- Awaiting SPS/PPS fix rebuild and test
+
 ## Success Criteria
 
 - ✅ VM starts without crashing
 - ✅ Desktop container starts
-- ✅ vsockenc extracts DmaBuf resource IDs (not 0)
-- ✅ QEMU receives explicit resource IDs
-- ✅ QEMU rejects resource_id=0 with error message
-- ✅ Video streaming works without crashes
-- ✅ 30-60 FPS with active content (vkcube)
+- ⚠️ vsockenc sends resource_id=0 (SHM fallback, not DMA-BUF)
+- ✅ QEMU receives frame requests and encodes via VideoToolbox
+- ✅ vsockenc receives encoded H.264 frames back
+- ❌ h264parse blocks (missing SPS/PPS) - fix pending test
+- ❌ Video streaming works without crashes
+- ❌ 30-60 FPS with active content (vkcube)
 
 ## Performance Notes
 
