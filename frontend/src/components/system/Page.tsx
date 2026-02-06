@@ -8,6 +8,7 @@ import SearchIcon from '@mui/icons-material/Search'
 
 import AppBar from './AppBar'
 import GlobalSearchDialog from './GlobalSearchDialog'
+import { TypesResource } from '../../api/api'
 
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
@@ -39,6 +40,7 @@ const Page: React.FC<{
   // global search parameters
   organizationId?: string,
   globalSearch?: boolean,
+  globalSearchResourceTypes?: TypesResource[],
   children?: ReactNode,
 }> = ({
   topbarContent = null,
@@ -56,6 +58,7 @@ const Page: React.FC<{
   disableContentScroll = false,
   organizationId,
   globalSearch = false,
+  globalSearchResourceTypes,
   children,
 }) => {
   const router = useRouter()
@@ -350,6 +353,7 @@ const Page: React.FC<{
           open={searchDialogOpen}
           onClose={() => setSearchDialogOpen(false)}
           organizationId={organizationId || ''}
+          defaultResourceTypes={globalSearchResourceTypes}
         />
       )}
     </Box>
@@ -357,3 +361,4 @@ const Page: React.FC<{
 }
 
 export default Page
+export { TypesResource }
