@@ -437,7 +437,8 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 			env = append(env, "NVIDIA_VISIBLE_DEVICES=all")
 		}
 		if !hasDriverCaps {
-			env = append(env, "NVIDIA_DRIVER_CAPABILITIES=all")
+			// Use explicit capabilities instead of "all" for GKE/cloud compatibility
+			env = append(env, "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display")
 		}
 	}
 
