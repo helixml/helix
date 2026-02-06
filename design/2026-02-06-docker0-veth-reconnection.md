@@ -26,6 +26,81 @@ Docker 28+ introduced `--ip-forward-no-drop` flag to prevent setting FORWARD pol
 
 ## Architecture
 
+### Full Networking Diagram (Helix-in-Helix)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│ HOST MACHINE                                                                         │
+│                                                                                      │
+│  Host Docker Daemon                                                                  │
+│  └── helix_default network (172.18.0.0/16)                                          │
+│       ├── api (172.18.0.14) ◄──────────────────────────┐                            │
+│       ├── postgres, keycloak, frontend, etc.           │                            │
+│       └── sandbox-nvidia (172.18.0.15) ◄───────────────┼── RevDial WebSocket        │
+│                     │                                  │                            │
+└─────────────────────┼──────────────────────────────────┼────────────────────────────┘
+                      │                                  │
+                      ▼                                  │
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│ SANDBOX CONTAINER (sandbox-nvidia)                     │                            │
+│                                                        │                            │
+│  eth0 ────────────────────────────────────────────────►│ (172.18.0.15)              │
+│    │                                                   │                            │
+│    │  Sandbox's Internal Dockerd                       │                            │
+│    │  └── docker0 bridge (10.213.0.0/24) ◄─────────────┼── THIS IS WHAT GETS DELETED│
+│    │       │                                           │                            │
+│    │       ├── helix-buildkit (10.213.0.2)             │                            │
+│    │       ├── buildx builders (10.213.0.3+)           │                            │
+│    │       └── ubuntu-external-xxx (10.213.0.5) ───────┘                            │
+│    │             │                                                                  │
+│    │             │ eth0: 10.213.0.5 (on docker0)                                    │
+│    │             │ eth1: 10.200.1.254 (on hydra1) ──────┐                           │
+│    │                                                    │                           │
+│    │  Per-Session Hydra Dockerd                         │                           │
+│    │  └── hydra1 bridge (10.200.1.0/24) ◄───────────────┘                           │
+│    │       │                                                                        │
+│    │       └── User's containers via docker-compose                                 │
+│    │            └── 10.112.0.0/12 range (per-session networks)                      │
+│    │                                                                                │
+│    │  Hydra Daemon                                                                  │
+│    │  └── Manages per-session dockerds + bridges                                    │
+│    │                                                                                │
+└────┼────────────────────────────────────────────────────────────────────────────────┘
+     │
+     │  HELIX-IN-HELIX CASE
+     │  (User runs ./stack start inside desktop)
+     ▼
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│ DESKTOP CONTAINER (ubuntu-external-xxx)                                             │
+│                                                                                      │
+│  eth0 (10.213.0.5) ──► docker0 ──► sandbox eth0 ──► host ──► internet              │
+│  eth1 (10.200.1.254) ──► hydra1 ──► per-session dockerd                            │
+│                                                                                      │
+│  When user runs: DOCKER_HOST=unix:///var/run/docker.sock ./stack start              │
+│  └── Containers created on per-session Hydra dockerd                                │
+│       └── helix_default (inner): 10.112.0.0/20                                      │
+│            ├── api (inner): 10.112.0.2                                              │
+│            ├── sandbox (inner): 10.112.0.3 ◄── Can use host Docker via             │
+│            │                                   /var/run/host-docker.sock            │
+│            └── etc.                                                                 │
+│                                                                                      │
+│  Desktop reaches inner containers via:                                              │
+│    curl http://10.112.0.2:8080 (via eth1 → hydra1 → per-session dockerd)           │
+│                                                                                      │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Network Path Summary
+
+| From | To | Path |
+|------|-----|------|
+| Desktop → Internet | `eth0 → docker0 → sandbox eth0 → host → internet` |
+| Desktop → API (control plane) | `eth0 → docker0 → sandbox eth0 → helix_default → api` |
+| Desktop → User containers (docker-compose) | `eth1 → hydra1 → per-session dockerd networks` |
+| Desktop → helix-buildkit | `eth0 → docker0 → helix-buildkit` |
+
+### Simplified View
+
 ```
 Sandbox Container (sandbox-nvidia)
 ├── Main Dockerd (sandbox's native dockerd)
@@ -41,6 +116,31 @@ Sandbox Container (sandbox-nvidia)
 ```
 
 The desktop container runs on the main dockerd (docker0), while user's `docker compose` projects run on per-session Hydra dockerds. The desktop is bridged to the Hydra network via a veth pair for connectivity.
+
+## Practical Implications
+
+When a new session starts and docker0 gets deleted (before restoration), the following containers on the sandbox's main dockerd temporarily lose network connectivity:
+
+1. **helix-buildkit** - The shared BuildKit container for caching Docker builds
+2. **buildx builders** - Docker buildx builder containers
+3. **Desktop container** (ubuntu-external-*, sway-external-*) - The container streaming video to the user
+
+For the desktop container specifically, during the brief outage window (~100ms):
+
+| Interface | Status | Impact |
+|-----------|--------|--------|
+| eth0 (docker0) | **BROKEN** | Internet access lost, API connectivity lost |
+| eth1 (hydra bridge) | Still works | Can still reach per-session dockerd containers |
+
+**Practical impact:**
+- **RevDial connection to the API could drop momentarily** when a new session starts
+- Video streaming may glitch briefly
+- The restoration happens immediately after detection, so it should reconnect automatically
+- Users may see a brief freeze in the video stream if timing is unlucky
+
+**What does NOT break:**
+- Containers on per-session Hydra dockerds (they use hydra bridges, not docker0)
+- Communication between desktop and user's docker-compose projects (via eth1)
 
 ## Solution: Reactive Restoration
 
