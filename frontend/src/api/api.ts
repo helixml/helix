@@ -5165,6 +5165,7 @@ export interface TypesUserResponse {
   email?: string;
   id?: string;
   name?: string;
+  onboarding_completed?: boolean;
   token?: string;
 }
 

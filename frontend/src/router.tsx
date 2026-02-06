@@ -39,6 +39,7 @@ import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
 import PasswordReset from './pages/PasswordReset'
 import PasswordResetComplete from './pages/PasswordResetComplete'
 import DesignDocPage from './pages/DesignDocPage'
+import Onboarding from './pages/Onboarding'
 import useRouter from './hooks/useRouter'
 
 // extend the base router5 route to add metadata and self rendering
@@ -463,6 +464,15 @@ const routes: IApplicationRoute[] = [
     title: 'Design Document',
   },
   render: () => <DesignDocPage />,
+}, {
+  name: 'onboarding',
+  path: '/onboarding',
+  meta: {
+    drawer: false,
+    fullscreen: true,
+    title: 'Get Started',
+  },
+  render: () => <Onboarding />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {
