@@ -1,0 +1,69 @@
+# Example values for Google Kubernetes Engine (GKE)
+#
+# Prerequisites:
+# 1. GKE cluster with GPU node pool (NOT Autopilot - requires privileged pods)
+# 2. NVIDIA device plugin installed:
+#    kubectl apply -f https://raw.githubusercontent.com/GoogleCloudPlatform/container-engine-accelerators/master/nvidia-driver-installer/cos/daemonset-preloaded.yaml
+# 3. Create a secret with the runner token:
+#    kubectl create secret generic helix-sandbox-token --from-literal=token=YOUR_TOKEN
+#
+# Install:
+#   helm install helix-sandbox ./charts/helix-sandbox -f values-gke.yaml \
+#     --set sandbox.apiUrl=https://your-helix-instance.com
+
+replicaCount: 2
+
+deployment:
+  # StatefulSet recommended for multi-replica (stable sandbox IDs)
+  type: "StatefulSet"
+  podManagementPolicy: "Parallel"
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+sandbox:
+  # Set via --set or create secret
+  # apiUrl: "https://your-helix-instance.com"
+  runnerTokenExistingSecret: "helix-sandbox-token"
+  runnerTokenExistingSecretKey: "token"
+  maxSandboxes: 10
+
+gpu:
+  vendor: "nvidia"
+  nvidia:
+    enabled: true
+    count: 1
+    # GKE uses nvidia.com/gpu automatically, no runtime class needed
+    runtimeClassName: ""
+
+# GKE T4 GPU nodes (most cost-effective)
+nodeSelector:
+  cloud.google.com/gke-accelerator: "nvidia-tesla-t4"
+
+tolerations:
+  - key: "nvidia.com/gpu"
+    operator: "Exists"
+    effect: "NoSchedule"
+
+resources:
+  requests:
+    memory: "8Gi"
+    cpu: "4"
+  limits:
+    memory: "32Gi"
+
+persistence:
+  dockerStorage:
+    enabled: true
+    size: 100Gi
+    # Use SSD for better Docker performance
+    storageClassName: "premium-rwo"
+  hydraData:
+    enabled: true
+    size: 50Gi
+    storageClassName: "premium-rwo"
+  workspaceData:
+    enabled: true
+    size: 200Gi
+    storageClassName: "standard-rwo"

@@ -4,6 +4,31 @@
 
 replicaCount: 1
 
+# Deployment configuration
+deployment:
+  # Type: "Deployment" or "StatefulSet"
+  # Use StatefulSet for:
+  # - Multi-replica deployments (stable pod names for sandbox IDs)
+  # - Per-pod persistent volumes (automatic via volumeClaimTemplates)
+  # Use Deployment for:
+  # - Single replica deployments
+  # - Simpler configuration
+  type: "Deployment"
+
+  # StatefulSet-specific: pod management policy
+  # "Parallel" - all pods start/stop simultaneously
+  # "OrderedReady" - pods start/stop one at a time
+  podManagementPolicy: "Parallel"
+
+# Pod Disruption Budget
+# Ensures minimum availability during node maintenance/upgrades
+podDisruptionBudget:
+  enabled: false
+  # Minimum number of pods that must remain available
+  # minAvailable: 1
+  # OR maximum number of pods that can be unavailable
+  # maxUnavailable: 1
+
 image:
   repository: registry.helixml.tech/helix/helix-sandbox
   pullPolicy: IfNotPresent
