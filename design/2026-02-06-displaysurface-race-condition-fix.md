@@ -1,9 +1,10 @@
 # DisplaySurface Race Condition Fix
 
 **Date:** 2026-02-06
-**Status:** ✅ Complete - VM boots successfully, race condition eliminated
+**Status:** 🚧 In Progress - DisplaySurface implementation working, debugging frame export crash
 **QEMU Branch:** utm-edition-venus-helix
 **Commits:** https://github.com/helixml/qemu-utm/tree/utm-edition-venus-helix
+**Latest:** [2cba2fe92e](https://github.com/helixml/qemu-utm/commit/2cba2fe92e)
 
 ## Problem
 
@@ -165,3 +166,56 @@ sudo cp ~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib \
 - Design doc (architecture analysis): `design/2026-02-06-video-architecture-analysis.md` (in stash)
 - QEMU repo: https://github.com/helixml/qemu-utm
 - Branch: utm-edition-venus-helix
+
+---
+
+## Current Status (2026-02-06 11:05 AM)
+
+### ✅ Progress Made
+
+1. **VM boots successfully** with DisplaySurface implementation
+2. **DisplaySurface creation code** in `helix_update_scanout_displaysurface()` compiles and runs
+3. **Safe helper function** `virtio_gpu_get_scanout_surface_data()` isolates DisplaySurface access
+4. **Build pipeline** working correctly with UTM sysroot
+5. **All commits pushed** to [utm-edition-venus-helix](https://github.com/helixml/qemu-utm/tree/utm-edition-venus-helix)
+
+### 🐛 Current Bug
+
+**Symptom:** VM crashes when client sends frame request
+- Test: `python3 /tmp/test_helix_frame_export.py`
+- Result: Connection succeeds, request sent, VM status `started` → `stopped`
+- Client receives: No response (timeout/connection closed)
+
+**Likely Causes:**
+1. DisplaySurface might be NULL (SET_SCANOUT_BLOB never called during boot)
+2. Threading issue (socket handler thread accessing DisplaySurface unsafely)
+3. error_report() itself crashing (macOS-specific issue)
+
+### 📝 Debugging Needed
+
+1. **Verify DisplaySurface creation** - add file logging to confirm SET_SCANOUT_BLOB runs:
+   ```c
+   FILE *f = fopen("/tmp/qemu-helix.log", "a");
+   fprintf(f, "[%s] DisplaySurface created: %p, %ux%u\n", __func__, ds, width, height);
+   fflush(f);
+   fclose(f);
+   ```
+
+2. **Test DisplaySurface hooks without frame export** - just boot and check `/tmp/qemu-helix.log`
+
+3. **Add mutex protection** around scanout access (thread safety)
+
+4. **Check mutter source** - confirm GNOME uses SET_SCANOUT_BLOB vs SET_SCANOUT
+
+### 💡 Alternative Approach If This Fails
+
+If DisplaySurface approach continues crashing, fall back to **periodic snapshot thread**:
+- Dedicated thread copies scanout → buffer every 16ms
+- Frame export reads from buffer (always safe)
+- Accepts occasional stale frames for stability
+- See Option 4 in architecture analysis doc
+
+### Commits
+
+- Initial DisplaySurface: [8a3040914c](https://github.com/helixml/qemu-utm/commit/8a3040914c)
+- Safe helper function: [2cba2fe92e](https://github.com/helixml/qemu-utm/commit/2cba2fe92e)
