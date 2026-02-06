@@ -1964,7 +1964,7 @@ function build-utm() {
 	# Check dependencies
 	if [ ! -d "$PROJECTS_ROOT/qemu-utm" ]; then
 		echo "❌ QEMU fork not found at $PROJECTS_ROOT/qemu-utm"
-		echo "   Clone it first: git clone https://github.com/helixml/qemu-utm $PROJECTS_ROOT/qemu-utm"
+		echo "   Clone: git clone -b utm-edition-venus-helix https://github.com/helixml/qemu-utm $PROJECTS_ROOT/qemu-utm"
 		return 1
 	fi
 
@@ -2044,70 +2044,18 @@ function build-utm() {
 		return 1
 	fi
 
+	# build-qemu-standalone.sh handles everything:
+	# - Build QEMU
+	# - Install to correct framework location in UTM.app
+	# - Fix library paths
+	# - Clear UTM caches
+	# - Restart UTM if running
 	echo ""
-	echo "✅ QEMU build complete!"
-	echo ""
-	echo "📥 Installing QEMU into UTM.app..."
-
-	# QEMU binaries are in the sysroot
-	QEMU_SYSROOT="$PROJECTS_ROOT/UTM/sysroot-macOS-arm64"
-
-	if [ ! -d "$QEMU_SYSROOT/bin" ]; then
-		echo "❌ QEMU binaries not found in sysroot"
-		return 1
-	fi
-
-	# Install to system UTM.app if it exists
-	UTM_APP="/Applications/UTM.app"
-
-	if [ ! -d "$UTM_APP" ]; then
-		echo "⚠️  UTM.app not found at /Applications/UTM.app"
-		echo "   Install UTM first, then run this command again to update its QEMU"
-		echo ""
-		echo "💾 QEMU binaries are available at:"
-		echo "   $QEMU_SYSROOT/bin/qemu-system-aarch64"
-		echo "   $QEMU_SYSROOT/bin/qemu-img"
-		return 0
-	fi
-
-	# Backup original QEMU binaries
-	QEMU_BIN_DIR="$UTM_APP/Contents/MacOS"
-	if [ -f "$QEMU_BIN_DIR/qemu-system-aarch64" ] && [ ! -f "$QEMU_BIN_DIR/qemu-system-aarch64.backup" ]; then
-		echo "💾 Backing up original QEMU binaries..."
-		cp "$QEMU_BIN_DIR/qemu-system-aarch64" "$QEMU_BIN_DIR/qemu-system-aarch64.backup"
-		cp "$QEMU_BIN_DIR/qemu-img" "$QEMU_BIN_DIR/qemu-img.backup" 2>/dev/null || true
-	fi
-
-	# Install our custom QEMU
-	echo "📦 Installing custom QEMU with helix-frame-export..."
-	cp "$QEMU_SYSROOT/bin/qemu-system-aarch64" "$QEMU_BIN_DIR/"
-	cp "$QEMU_SYSROOT/bin/qemu-img" "$QEMU_BIN_DIR/" 2>/dev/null || true
-
-	# Copy required libraries
-	echo "📚 Installing QEMU dependencies..."
-	if [ ! -d "$UTM_APP/Contents/Frameworks" ]; then
-		mkdir -p "$UTM_APP/Contents/Frameworks"
-	fi
-	rsync -a "$QEMU_SYSROOT/lib/" "$UTM_APP/Contents/Frameworks/" 2>/dev/null || {
-		echo "⚠️  Some libraries couldn't be copied (this may be OK)"
-	}
-
-	# Re-sign the app
-	echo "🔏 Re-signing UTM.app..."
-	codesign --force --deep --sign - "$UTM_APP" 2>/dev/null || {
-		echo "⚠️  Code signing failed (this is usually OK for local use)"
-	}
-
-	echo ""
-	echo "✅ QEMU with helix-frame-export installed successfully!"
+	echo "✅ QEMU build and install complete!"
 	echo ""
 	echo "🚀 Next steps:"
-	echo "   1. Start UTM VMs with: /Applications/UTM.app/Contents/MacOS/utmctl start <UUID>"
-	echo "   2. Or use the UTM GUI"
-	echo "   3. Test zero-copy video pipeline with helix sessions"
-	echo ""
-	echo "💡 To restore original QEMU:"
-	echo "   cp $QEMU_BIN_DIR/qemu-system-aarch64.backup $QEMU_BIN_DIR/qemu-system-aarch64"
+	echo "   1. Start VM: /Applications/UTM.app/Contents/MacOS/utmctl start <UUID>"
+	echo "   2. Test: python3 /tmp/test_helix_frame_export.py"
 	echo ""
 }
 
