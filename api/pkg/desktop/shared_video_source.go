@@ -737,11 +737,11 @@ const stallRestartTimeout = 30 * time.Second
 // it doesn't fire when PipeWire's scheduler marks the node as idle.
 //
 // Instead of fighting PipeWire's idle detection, we handle it at the broadcast level:
-// when no new frame arrives from the GStreamer pipeline for 500ms, we re-broadcast the
+// when no new frame arrives from the GStreamer pipeline for 100ms, we re-broadcast the
 // last frame from the GOP buffer. This is cheap (no PipeWire/GStreamer/vsockenc round-trip,
-// just re-sending an already-encoded H.264 frame) and gives clients a steady ~2 FPS
-// on static screens.
-const frameKeepaliveInterval = 500 * time.Millisecond
+// just re-sending an already-encoded H.264 frame of ~300 bytes) and gives clients
+// a steady ~10 FPS on static screens.
+const frameKeepaliveInterval = 100 * time.Millisecond
 
 // maxStallRestarts is the maximum number of pipeline restarts before giving up.
 // This prevents infinite restart loops if the pipeline keeps failing.
