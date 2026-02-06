@@ -500,10 +500,13 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			parts = []string{
 				srcPart,
 				// Convert and downscale BEFORE the leaky queue so PipeWire buffers
-				// are released immediately after the fast software scale
+				// are released immediately after the fast software scale.
+				// NV12 (planar YUV 4:2:0) is 1.5 bytes/pixel vs 4 bytes/pixel for BGRA:
+				//   960x540 NV12 = 777,600 bytes vs BGRA = 2,073,600 bytes (2.65x smaller)
+				// VideoToolbox also natively encodes from NV12, skipping internal BGRA→NV12 conversion.
 				"videoconvert",
 				"videoscale",
-				"video/x-raw,format=BGRA,width=960,height=540",
+				"video/x-raw,format=NV12,width=960,height=540",
 			}
 			v.useRealtimeClock = true
 		} else if isAmdGnome {
@@ -611,8 +614,9 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		//           → QEMU helix-frame-export (IOSurface → VideoToolbox H.264)
 		//           → H.264 NAL units back via TCP → h264parse → appsink
 		//
-		// Downscale from 1920x1080 (8MB/frame) to 960x540 (2MB/frame) before sending
-		// to reduce TCP/SLiRP bandwidth 4x. VideoToolbox encodes at 960x540 on host.
+		// Downscale from 1920x1080 to 960x540 and convert to NV12 before sending.
+		// NV12 at 960x540 = 777KB/frame (vs 8MB at 1080p BGRA = 10x reduction).
+		// VideoToolbox natively encodes from NV12, skipping internal colorspace conversion.
 		//
 		// Connection: TCP to 10.0.2.2:15937 (QEMU user-mode networking)
 		// SLiRP forwards guest 10.0.2.2:15937 → host 127.0.0.1:15937
