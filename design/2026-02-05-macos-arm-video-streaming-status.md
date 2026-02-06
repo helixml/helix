@@ -24,11 +24,37 @@ Code changes in `qemu-utm/hw/display/helix/helix-frame-export.m`:
 1. Added resource validation before `virgl_renderer_transfer_read_iov()` (commit 3f5b75c994)
 2. Reject scanout resources entirely (commit 97620617e1)
 
-## Current Blockers
+## Recent Progress (2026-02-05 18:25)
 
-### ❌ QEMU Build System Issues
+### ✅ Fixed GPU Device Mounting in Hydra
+
+**Problem**: Desktop containers had no `/dev/dri/` devices mounted, preventing video capture.
+
+**Root Cause**: `configureGPU()` in `api/pkg/hydra/devcontainer.go` only handled nvidia/amd/intel GPUs. On macOS with virtio-gpu, it fell through to the default case which did nothing.
+
+**Fix**: Modified default case to mount `/dev/dri/renderD*` and `/dev/dri/card*` devices when available (commit b0599449d).
+
+**Result**:
+- ✅ Desktop containers now have `/dev/dri/card0` and `/dev/dri/renderD128` mounted
+- ✅ Pipeline starts successfully with vsockenc
+- ❌ Still 0 frames sent - likely due to no screen activity in headless GNOME
+
+### 🔍 Next Investigation: Screen Activity Required
+
+GNOME ScreenCast in headless mode is damage-based - it only produces frames when the screen changes. A static desktop produces 0 FPS.
+
+**Need to test with**:
+- vkcube (constant GPU rendering)
+- Terminal with fast output
+- Mouse movement via desktop-bridge input injection
+
+## Previous Blockers (RESOLVED)
+
+### ✅ QEMU Build System Issues (FIXED)
 
 **Problem**: Custom QEMU builds don't install correctly into UTM.app
+
+**Status**: RESOLVED - All library paths fixed recursively, VM boots successfully with patched QEMU.
 
 **Symptoms**:
 1. `./stack build-utm` compiles successfully
