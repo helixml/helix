@@ -603,9 +603,6 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Connection: TCP to 10.0.2.2:15937 (QEMU user-mode networking)
 		// SLiRP forwards guest 10.0.2.2:15937 → host 127.0.0.1:15937
 		parts = append(parts,
-			"videoconvert",
-			"videoscale",
-			"video/x-raw,format=BGRA,width=960,height=540",
 			fmt.Sprintf("vsockenc tcp-host=10.0.2.2 tcp-port=15937 bitrate=%d keyframe-interval=%d",
 				v.config.Bitrate, v.getEffectiveGOPSize()),
 			"h264parse",
