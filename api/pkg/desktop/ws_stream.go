@@ -593,7 +593,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	switch encoder {
 	case "vsock":
 		// macOS/UTM virtio-gpu VideoToolbox encoding via vsock
-		// Pipeline: PipeWire → videoscale (960x540) → vsockenc (sends raw pixels via TCP)
+		// Pipeline: PipeWire → videoconvert → videoscale (960x540) → vsockenc (sends raw pixels via TCP)
 		//           → QEMU helix-frame-export (IOSurface → VideoToolbox H.264)
 		//           → H.264 NAL units back via TCP → h264parse → appsink
 		//
@@ -603,6 +603,12 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Connection: TCP to 10.0.2.2:15937 (QEMU user-mode networking)
 		// SLiRP forwards guest 10.0.2.2:15937 → host 127.0.0.1:15937
 		parts = append(parts,
+			// Convert format and downscale to reduce bandwidth over TCP/SLiRP
+			// videoconvert handles any pipewiresrc output format → BGRA
+			// videoscale reduces 1920x1080 → 960x540 (4x less pixel data)
+			"videoconvert",
+			"videoscale",
+			"video/x-raw,format=BGRA,width=960,height=540",
 			fmt.Sprintf("vsockenc tcp-host=10.0.2.2 tcp-port=15937 bitrate=%d keyframe-interval=%d",
 				v.config.Bitrate, v.getEffectiveGOPSize()),
 			"h264parse",
