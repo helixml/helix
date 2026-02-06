@@ -27,7 +27,7 @@ const (
 //
 // This approach works because:
 // 1. The linked ScreenCast session uses cursor-mode=Embedded (cursor composited into frame)
-// 2. NotifyPointerMotion via RemoteDesktop D-Bus moves the real cursor
+// 2. NotifyPointerMotionRelative via RemoteDesktop D-Bus moves the real cursor
 // 3. Mutter's cursor_changed callback calls maybe_record_frame with the cursor embedded
 // 4. This generates real compositor-level damage → PipeWire produces a new frame
 //
@@ -65,11 +65,19 @@ func (s *Server) runDamageKeepalive(ctx context.Context) {
 			toggle = !toggle
 
 			rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-			err := rdSession.Call(remoteDesktopSessionIface+".NotifyPointerMotion", 0, dx, float64(0)).Err
+			// Mutter 49+ renamed NotifyPointerMotion to NotifyPointerMotionRelative.
+			// Try the new name first, fall back to old name for older Mutter versions.
+			method := remoteDesktopSessionIface + ".NotifyPointerMotionRelative"
+			err := rdSession.Call(method, 0, dx, float64(0)).Err
+			if err != nil {
+				// Try legacy method name (Mutter <49)
+				method = remoteDesktopSessionIface + ".NotifyPointerMotion"
+				err = rdSession.Call(method, 0, dx, float64(0)).Err
+			}
 			if err != nil {
 				failCount++
 				if failCount <= 3 || failCount%100 == 0 {
-					s.logger.Warn("[KEEPALIVE] NotifyPointerMotion failed",
+					s.logger.Warn("[KEEPALIVE] NotifyPointerMotion(Relative) failed",
 						"err", err, "failures", failCount)
 				}
 				continue
