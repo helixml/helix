@@ -24730,6 +24730,9 @@ const docTemplate = `{
                 "kodit_enrichment_provider": {
                     "description": "Kodit enrichment model configuration",
                     "type": "string"
+                },
+                "max_concurrent_desktops": {
+                    "type": "integer"
                 }
             }
         },
@@ -24760,6 +24763,10 @@ const docTemplate = `{
                 "kodit_enrichment_provider": {
                     "description": "Kodit enrichment model configuration (not sensitive, returned as-is)",
                     "type": "string"
+                },
+                "max_concurrent_desktops": {
+                    "description": "Per user",
+                    "type": "integer"
                 },
                 "updated": {
                     "type": "string"

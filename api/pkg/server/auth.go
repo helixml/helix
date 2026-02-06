@@ -545,8 +545,8 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 			r,
 			user.ID,
 			types.AuthProviderRegular,
-			"", // no OIDC access token
-			"", // no OIDC refresh token
+			"",          // no OIDC access token
+			"",          // no OIDC refresh token
 			time.Time{}, // no OIDC token expiry
 		)
 		if err != nil {
