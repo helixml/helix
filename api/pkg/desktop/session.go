@@ -148,7 +148,13 @@ func (s *Server) createSession(ctx context.Context) error {
 	scSession := s.conn.Object(screenCastBus, scSessionPath)
 
 	recordOptions := map[string]dbus.Variant{
-		"cursor-mode": dbus.MakeVariant(uint32(2)), // Metadata - cursor sent as PipeWire metadata, not rendered into video
+		"cursor-mode": dbus.MakeVariant(uint32(1)), // Embedded - cursor composited into frame
+		// Embedded mode is REQUIRED for damage-based keepalive on virtio-gpu (macOS ARM):
+		// PipeWire ScreenCast only produces frames on compositor-level damage.
+		// With Metadata mode, cursor movement only updates metadata without producing frames.
+		// With Embedded mode, cursor movement changes actual frame pixels, generating damage.
+		// The damage keepalive goroutine injects tiny cursor movements to prevent pipeline stall.
+		//
 		// NOTE: Do NOT use is-platform=true here!
 		// While the docs suggest it "bypasses screen sharing optimizations", it actually
 		// forces GNOME to use SHM-only formats instead of DmaBuf with NVIDIA modifiers.
@@ -160,7 +166,7 @@ func (s *Server) createSession(ctx context.Context) error {
 		return fmt.Errorf("RecordMonitor: %w", err)
 	}
 	s.scStreamPath = streamPath
-	s.logger.Info("stream created (cursor as metadata for client-side rendering)", "path", streamPath)
+	s.logger.Info("stream created (cursor embedded for damage-based keepalive)", "path", streamPath)
 
 	// Create a SEPARATE RemoteDesktop + ScreenCast session for cursor monitoring
 	// GNOME only allows ONE linked ScreenCast per RemoteDesktop, so we need a second RD session
