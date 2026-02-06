@@ -1,7 +1,7 @@
 # macOS ARM Video Streaming - Status Update
 
 **Date:** 2026-02-06 (updated)
-**Status:** End-to-end pipeline debugging - SPS/PPS fix pending test
+**Status:** VIDEO STREAMING WORKING - 8.7 FPS with container screen capture via pixel data transfer
 
 ## Summary
 
@@ -227,7 +227,7 @@ docker compose exec -T sandbox-macos docker logs {CONTAINER_NAME} 2>&1 | grep -E
 
 **Fix**: Added `SO_RCVTIMEO` (30s) and `SO_KEEPALIVE` to client sockets in `vsock_accept_thread()`. Increased listen backlog from 1 to 5. (commit 16ab341bf2 in qemu-utm)
 
-#### 2. Missing SPS/PPS NAL Units (FIXED, pending test)
+#### 2. Missing SPS/PPS NAL Units (FIXED)
 **Problem**: VideoToolbox stores SPS/PPS parameter sets in `CMFormatDescription`, NOT in the data buffer. The encoder output callback only converted the AVCC data buffer to Annex B, omitting SPS/PPS. Without SPS/PPS, `h264parse` cannot parse the H.264 stream and buffers indefinitely - resulting in 0 frames reaching appsink despite vsockenc successfully finishing frames.
 
 **Fix**: Extract parameter sets using `CMVideoFormatDescriptionGetH264ParameterSetAtIndex()` and prepend them with Annex B start codes before the slice data for keyframes. (commit ca33601473 in qemu-utm)
@@ -242,39 +242,61 @@ docker compose exec -T sandbox-macos docker logs {CONTAINER_NAME} 2>&1 | grep -E
 
 **Fix**: Made vsockenc synchronous - `handle_frame()` now sends request AND reads response inline, calling `finish_frame()` from the GStreamer streaming thread.
 
-### Data Flow Verification
+#### 5. Wrong Screen Captured - VM Desktop Instead of Container (FIXED)
+**Problem**: vsockenc sends SHM buffers with resource_id=0. QEMU's helix-frame-export read from the VM's DisplaySurface (scanout 0), which shows the VM's main desktop, not the container's screen. The container's actual pixel data from PipeWire ScreenCast was being thrown away.
 
-The end-to-end data path has been verified up to the h264parse stage:
+**Fix**: Added `HELIX_FLAG_PIXEL_DATA` protocol extension. When resource_id=0, vsockenc maps the SHM buffer and sends the raw pixel data (8,294,400 bytes for 1920x1080 BGRA) after the frame request header. QEMU receives the pixel data, creates an IOSurface from it, and encodes that instead of reading from DisplaySurface. (commits 504d20a11f in qemu-utm, 0908db89d in helix)
+
+### Data Flow (Verified End-to-End)
+
 ```
-PipeWire ScreenCast → pipewiresrc (SHM buffers, not DMA-BUF)
-  → queue (leaky=downstream)
-  → vsockenc (TCP to 10.0.2.2:15937) ✅ Connected successfully
-    → QEMU SLiRP → host 127.0.0.1:15937 ✅
-    → helix-frame-export → DisplaySurface pixels → VideoToolbox H.264 ✅
-    → AVCC→Annex B conversion ✅ (but missing SPS/PPS ❌)
-  → vsockenc finish_frame (28KB keyframe, 11KB P-frame) ✅
-  → h264parse (BLOCKED - no SPS/PPS)
-  → appsink (never fires) ❌
-  → Go callback → SharedVideoSource → WebSocket → browser ❌
+PipeWire ScreenCast (container) → pipewiresrc (SHM buffers) ✅
+  → queue (leaky=downstream) ✅
+  → vsockenc (maps SHM buffer, sends 8MB pixel data over TCP) ✅
+    → TCP 10.0.2.2:15937 → QEMU SLiRP → host 127.0.0.1:15937 ✅
+    → helix-frame-export receives pixel data ✅
+    → Creates IOSurface from raw pixels (not DisplaySurface!) ✅
+    → VideoToolbox H.264 encode ✅
+    → SPS/PPS extraction + AVCC→Annex B conversion ✅
+  → vsockenc finish_frame ✅
+  → h264parse ✅
+  → appsink ✅
+  → Go callback → SharedVideoSource → WebSocket → browser ✅
 ```
 
 ### Current Status
 
-- vsockenc sends frame requests with resource_id=0 (SHM, not DMA-BUF)
-- QEMU falls back to DisplaySurface pixel copy (CPU, not zero-copy)
-- VideoToolbox encodes frames successfully
-- Awaiting SPS/PPS fix rebuild and test
+- **VIDEO STREAMING WORKING** at 8.7 FPS with terminal activity
+- Container screen is correctly captured (not VM desktop)
+- 218 frames used pixel data path, 0 used DisplaySurface fallback
+- SPS/PPS properly extracted from VideoToolbox CMFormatDescription
+- Baseline profile, level 4.0, constraint_set3_flag=1 (zero-latency decode)
 
 ## Success Criteria
 
 - ✅ VM starts without crashing
 - ✅ Desktop container starts
-- ⚠️ vsockenc sends resource_id=0 (SHM fallback, not DMA-BUF)
-- ✅ QEMU receives frame requests and encodes via VideoToolbox
+- ✅ vsockenc sends resource_id=0 (SHM) + raw pixel data via HELIX_FLAG_PIXEL_DATA
+- ✅ QEMU receives pixel data and encodes via VideoToolbox
 - ✅ vsockenc receives encoded H.264 frames back
-- ❌ h264parse blocks (missing SPS/PPS) - fix pending test
-- ❌ Video streaming works without crashes
-- ❌ 30-60 FPS with active content (vkcube)
+- ✅ h264parse parses stream (SPS/PPS properly included)
+- ✅ Video streaming works without crashes (130 frames / 15s test)
+- ⚠️ 8.7 FPS with terminal activity (bottleneck: 8MB/frame over TCP/SLiRP)
+- ❌ 30-60 FPS with active content (needs bandwidth optimization)
+
+## Performance Bottleneck Analysis
+
+The current 8.7 FPS is limited by sending 8MB of raw BGRA pixels per frame over TCP through SLiRP:
+- 1920x1080x4 = 8,294,400 bytes per frame
+- At 8.7 FPS = ~72 MB/s sustained throughput needed
+- SLiRP + TCP overhead limits effective bandwidth
+
+### Optimization Options (Future Work)
+1. **Downscale before sending**: Reduce to 960x540 = 2MB/frame (4x less data)
+2. **Use NV12 instead of BGRA**: 1920x1080 NV12 = 3.1MB vs 8.3MB BGRA
+3. **Pre-compress with LZ4/zstd**: Raw pixels compress ~2-4x
+4. **Use virtio-vsock instead of TCP**: Lower overhead than SLiRP user-mode networking
+5. **DMA-BUF zero-copy path**: If virtio-gpu resource IDs can be resolved, skip pixel transfer entirely
 
 ## Performance Notes
 
