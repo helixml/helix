@@ -408,6 +408,10 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 		env = append(env, fmt.Sprintf("GPU_VENDOR=%s", req.GPUVendor))
 	}
 
+	// Enable GStreamer debug logging for vsockenc debugging
+	// TODO: Remove this after vsockenc receive thread issue is fixed
+	env = append(env, "GST_DEBUG=vsockenc:5")
+
 	// Add GPU-specific environment variables
 	switch req.GPUVendor {
 	case "nvidia":
@@ -632,8 +636,32 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 		log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Msg("Configured Intel GPU passthrough")
 
 	default:
-		// Software rendering - no special config needed
-		log.Debug().Msg("No GPU passthrough configured (software rendering)")
+		// Unknown/virtio GPU: mount /dev/dri/* if available (e.g., virtio-gpu on macOS/UTM)
+		driDevices, _ := filepath.Glob("/dev/dri/renderD*")
+		for _, dev := range driDevices {
+			hostConfig.Devices = append(hostConfig.Devices,
+				container.DeviceMapping{
+					PathOnHost:        dev,
+					PathInContainer:   dev,
+					CgroupPermissions: "rwm",
+				},
+			)
+		}
+		cardDevices, _ := filepath.Glob("/dev/dri/card*")
+		for _, dev := range cardDevices {
+			hostConfig.Devices = append(hostConfig.Devices,
+				container.DeviceMapping{
+					PathOnHost:        dev,
+					PathInContainer:   dev,
+					CgroupPermissions: "rwm",
+				},
+			)
+		}
+		if len(driDevices) > 0 || len(cardDevices) > 0 {
+			log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Str("vendor", vendor).Msg("Configured GPU passthrough (unknown/virtio vendor)")
+		} else {
+			log.Debug().Str("vendor", vendor).Msg("No GPU devices found (software rendering)")
+		}
 	}
 }
 
