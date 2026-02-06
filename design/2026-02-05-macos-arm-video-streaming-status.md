@@ -1,7 +1,7 @@
 # macOS ARM Video Streaming - Status Update
 
 **Date:** 2026-02-06 (updated)
-**Status:** VIDEO STREAMING WORKING - 23 FPS on static screens, 26 FPS with active content (cursor-embedded keepalive fix)
+**Status:** VIDEO STREAMING WORKING - 3.7 FPS on static screens (frame keepalive), NV12 format (2.65x bandwidth reduction)
 
 ## Summary
 
@@ -259,19 +259,43 @@ docker compose exec -T sandbox-macos docker logs {CONTAINER_NAME} 2>&1 | grep -E
 ```
 PipeWire buffers are released immediately after the fast software scale (~1ms), and only the small 960x540 BGRA buffer enters the leaky queue. (commit d6ff0e538)
 
-#### 7. Static Screen Stall - PipeWire Produces No Frames (FIXED)
+#### 7. Static Screen Stall - PipeWire Produces No Frames (FIXED - twice)
 **Problem**: PipeWire ScreenCast on GNOME/virtio-gpu is strictly damage-based. On a completely static desktop, the pipeline stalls permanently after an initial burst of 2-8 frames.
 
 **Failed approaches**:
-- `pipewiresrc keepalive-time=500`: Resends last buffer on timeout, but the PipeWire thread loop gets spurious wakeups from other ScreenCast sessions sharing the same connection, resetting the 500ms timer before it fires.
-- GNOME Shell D-Bus Eval (St.Widget visibility toggle, color toggle, `queue_redraw()`): Clutter actor changes don't generate compositor-level (DRM/KMS) damage on virtio-gpu headless mode.
+- `pipewiresrc keepalive-time=500`: Resends last buffer on timeout, but PipeWire's scheduler marks the node as idle and the timer never fires.
+- GNOME Shell D-Bus Eval (`global.stage.queue_redraw()`, `queue_redraw()` on window actors): Clutter actor changes don't generate compositor-level (DRM/KMS) damage on virtio-gpu headless mode.
+- GNOME Shell D-Bus Eval (`imports.ui.main`): GNOME 49 uses ESModules, `imports` keyword triggers parse error.
+- GTK4 window with label toggle: Window content changes don't generate ScreenCast recorder damage on Mutter 49 headless.
 - Pipeline restart every 3 seconds: Workaround that gave 2.3 FPS but with constant keyframe resets.
+- Cursor-embedded keepalive with `NotifyPointerMotionAbsolute`: Worked on older Mutter but Mutter 49 headless doesn't generate compositor damage from cursor position changes (17 initial frames then stall).
+- Cursor keepalive grid cycling (100 unique positions): Same Mutter 49 issue - D-Bus calls succeed but don't generate PipeWire frames.
 
-**Root Cause**: cursor-mode=Metadata (2) means cursor movement only updates PipeWire metadata without producing new video frames. Combined with no screen changes = no frames.
+**Root Cause (Mutter 49)**: Even with cursor-mode=Embedded, cursor position changes via `NotifyPointerMotionAbsolute` don't trigger `maybe_record_frame()` in the ScreenCast recorder on Mutter 49 headless with virtio-gpu. PipeWire goes idle and `keepalive-time` timers don't fire.
 
-**Fix**: Changed linked ScreenCast session to cursor-mode=Embedded (1), so cursor is composited into the video frame. Then the damage keepalive goroutine injects 1px right/left cursor jitter via `NotifyPointerMotion` on the RemoteDesktop D-Bus API every 500ms. Each cursor movement generates real compositor-level damage → PipeWire produces a new frame. (commit b0b3f0b85)
+**Fix (v2 - broadcast-level keepalive)**: Instead of fighting PipeWire/compositor damage, handle it at the Go broadcast layer. When no new frame arrives from the GStreamer pipeline for 500ms, re-broadcast the last frame from the GOP buffer. This is extremely cheap (re-sending a ~300-byte H.264 P-frame vs 777KB raw pixel round-trip) and gives clients steady ~2 FPS on static screens. (commit a624cb295)
 
-**Result**: 23.2 FPS sustained on completely static screens (695 frames / 30s). No pipeline restarts needed.
+**Result**: 3.7 FPS sustained on static screens (110 frames / 30s). No pipeline restarts, no keyframe resets, negligible bandwidth (300 bytes per keepalive frame).
+
+#### 8. NV12 Pixel Format Optimization (IMPLEMENTED)
+**Problem**: BGRA pixel data at 960x540 = 2,073,600 bytes per frame over TCP/SLiRP.
+
+**Fix**: Changed pixel format from BGRA to NV12 (YUV 4:2:0 bi-planar):
+- Guest: `videoconvert ! videoscale ! video/x-raw,format=NV12,width=960,height=540` (commit 44271c135)
+- Host: Added `helix_create_nv12_iosurface()` for bi-planar IOSurface with kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange (commit aff2a98621 in qemu-utm)
+- VideoToolbox natively encodes from NV12, skipping internal BGRA-to-NV12 conversion
+
+**Result**: 777,600 bytes per frame (2.65x reduction from 2,073,600). Bandwidth: 777KB vs 2MB per frame.
+
+#### 9. Mutter 49 RemoteDesktop API Changes (FIXED)
+**Problem**: Ubuntu 25.10 ships Mutter 49 (GNOME 49) which changed the RemoteDesktop D-Bus API.
+
+**Changes discovered**:
+- `NotifyPointerMotion` renamed to `NotifyPointerMotionRelative`
+- `SelectDevices` method removed (devices auto-enabled)
+- `NotifyPointerMotionAbsolute` stream parameter changed from ObjectPath type `o` to string type `s`
+
+**Fixes**: Updated `damage_keepalive.go` to use `NotifyPointerMotionAbsolute` with string type (commits 2bc38c039, 561fa41bd, c33113d83). However, this still doesn't generate frames on Mutter 49 headless, so the broadcast-level keepalive (bug #7 v2) is the actual solution.
 
 #### 8. Ghostty GL Context Exhaustion on virtio-gpu (KNOWN)
 **Problem**: Launching a second ghostty terminal instance fails with "Unable to acquire an OpenGL context for rendering" on virtio-gpu. The limited number of GL contexts are consumed by the existing ghostty instance and GNOME's ScreenCast sessions.
@@ -284,56 +308,63 @@ PipeWire buffers are released immediately after the fast software scale (~1ms), 
 PipeWire ScreenCast (container) → pipewiresrc (SHM buffers) ✅
   → videoconvert (format normalize) ✅
   → videoscale (1920x1080 → 960x540, 4x bandwidth reduction) ✅
+  → capsfilter (NV12, 777KB vs 2MB BGRA) ✅
   → queue (leaky=downstream, max 1 buffer) ✅
-  → vsockenc (maps buffer, sends 2MB pixel data over TCP) ✅
+  → vsockenc (maps buffer, sends 777KB NV12 pixel data over TCP) ✅
     → TCP 10.0.2.2:15937 → QEMU SLiRP → host 127.0.0.1:15937 ✅
-    → helix-frame-export receives pixel data ✅
-    → Creates IOSurface from raw pixels (not DisplaySurface!) ✅
-    → VideoToolbox H.264 encode at 960x540 ✅
+    → helix-frame-export receives NV12 pixel data ✅
+    → Creates bi-planar NV12 IOSurface (Y + UV planes) ✅
+    → VideoToolbox H.264 encode at 960x540 (native NV12 input) ✅
     → SPS/PPS extraction + AVCC→Annex B conversion ✅
   → vsockenc finish_frame ✅
   → h264parse ✅
   → appsink ✅
-  → Go callback → SharedVideoSource → WebSocket → browser ✅
+  → Go callback → SharedVideoSource (frame keepalive) → WebSocket → browser ✅
 ```
 
 ### Current Status
 
-- **VIDEO STREAMING WORKING** at 26.5 FPS with 960x540 downscale optimization
-- 1591 frames / 60 seconds sustained with terminal activity (rock solid)
+- **VIDEO STREAMING WORKING** on Mutter 49 / Ubuntu 25.10 / virtio-gpu
+- NV12 pixel format: 777KB/frame (2.65x reduction from BGRA)
+- 3.7 FPS sustained on static screens (broadcast-level frame keepalive)
+- Keepalive frames: ~300 bytes each (re-sent H.264 P-frames, no raw pixel transfer)
 - Container screen is correctly captured (not VM desktop)
 - All frames use pixel data path (HELIX_FLAG_PIXEL_DATA)
 - SPS/PPS properly extracted from VideoToolbox CMFormatDescription
 - Baseline profile, level 3.1, constraint_set3_flag=1 (zero-latency decode)
-- ~30ms per frame round-trip (2MB send + VideoToolbox encode + response)
-- 1.3 Mbps average bitrate, 5.8 KB average frame size
+- ~14ms per frame round-trip (777KB NV12 send + VideoToolbox encode + response)
+- 102 Kbps average bitrate, 3.4 KB average frame size (static screen with keepalive)
 
 ## Success Criteria
 
 - ✅ VM starts without crashing
 - ✅ Desktop container starts
-- ✅ vsockenc sends resource_id=0 (SHM) + raw pixel data via HELIX_FLAG_PIXEL_DATA
-- ✅ QEMU receives pixel data and encodes via VideoToolbox
+- ✅ vsockenc sends resource_id=0 (SHM) + raw NV12 pixel data via HELIX_FLAG_PIXEL_DATA
+- ✅ QEMU receives NV12 pixel data and creates bi-planar IOSurface
+- ✅ VideoToolbox encodes from native NV12 (no BGRA conversion needed)
 - ✅ vsockenc receives encoded H.264 frames back
 - ✅ h264parse parses stream (SPS/PPS properly included)
-- ✅ Video streaming works without crashes (1591 frames / 60s test)
-- ✅ 26.5 FPS sustained with terminal activity (downscale optimization)
-- ✅ 23.2 FPS sustained on static screens (cursor-embedded keepalive, 695 frames / 30s)
+- ✅ Video streaming works on Mutter 49 headless (Ubuntu 25.10)
+- ✅ 3.7 FPS sustained on static screens (broadcast-level frame keepalive)
+- ⚠️ Active content FPS not yet retested with NV12 (should be higher than BGRA due to less bandwidth)
 - ⚠️ ghostty second instance fails on virtio-gpu (limited GL contexts)
 
 ## Performance History
 
-| Date | FPS | Resolution | Bottleneck |
-|------|-----|-----------|------------|
-| 2026-02-05 | 8.7 | 1920x1080 | 8MB/frame over TCP/SLiRP |
-| 2026-02-06 | 6.8 | 1920x1080 | Same bottleneck, confirmed |
-| 2026-02-06 | 26.2 | 960x540 | videoconvert+videoscale before queue |
-| 2026-02-06 | 23.2 | 960x540 | Static screen: cursor-embedded keepalive (SOLVED) |
+| Date | FPS | Resolution | Format | Bottleneck |
+|------|-----|-----------|--------|------------|
+| 2026-02-05 | 8.7 | 1920x1080 | BGRA | 8MB/frame over TCP/SLiRP |
+| 2026-02-06 | 6.8 | 1920x1080 | BGRA | Same bottleneck, confirmed |
+| 2026-02-06 | 26.2 | 960x540 | BGRA | videoconvert+videoscale before queue |
+| 2026-02-06 | 23.2 | 960x540 | BGRA | Static screen: cursor-embedded keepalive (old Mutter) |
+| 2026-02-06 | 3.7 | 960x540 | NV12 | Static screen: broadcast-level frame keepalive (Mutter 49) |
 
-### Downscale Optimization (IMPLEMENTED)
+### Downscale + NV12 Optimization (IMPLEMENTED)
 
-Reduced pixel data from 8MB/frame (1920x1080 BGRA) to 2MB/frame (960x540 BGRA):
-- `videoconvert ! videoscale ! video/x-raw,format=BGRA,width=960,height=540` before the leaky queue
+Reduced pixel data from 8MB/frame (1920x1080 BGRA) to 777KB/frame (960x540 NV12):
+- `videoconvert ! videoscale ! video/x-raw,format=NV12,width=960,height=540` before the leaky queue
+- NV12 = 1.5 bytes/pixel vs BGRA = 4 bytes/pixel (2.65x reduction at same resolution)
+- Combined with 4x downscale: 8MB → 777KB = 10.3x total reduction
 - **CRITICAL**: These elements MUST be placed BEFORE the leaky queue, not after it
 - When placed after the queue, PipeWire buffers are held too long during the
   videoconvert/videoscale/vsockenc chain, causing PipeWire to stop producing frames
@@ -341,11 +372,12 @@ Reduced pixel data from 8MB/frame (1920x1080 BGRA) to 2MB/frame (960x540 BGRA):
   fast software scale (~1ms), and only the small 960x540 buffer enters the queue
 
 ### Further Optimization Options
-1. ✅ **Downscale before sending**: 960x540 = 2MB/frame (4x less data) - DONE
-2. **Use NV12 instead of BGRA**: 960x540 NV12 = 0.78MB vs 2MB BGRA (2.5x more reduction)
-3. **Pre-compress with LZ4/zstd**: Raw pixels compress ~2-4x
+1. ✅ **Downscale before sending**: 960x540 = 777KB/frame NV12 (10.3x less than 1080p BGRA) - DONE
+2. ✅ **Use NV12 instead of BGRA**: 777KB vs 2MB per frame (2.65x reduction) - DONE
+3. **Pre-compress with LZ4/zstd**: NV12 pixels compress ~2-4x (would reduce to ~200-400KB)
 4. **Use virtio-vsock instead of TCP**: Lower overhead than SLiRP user-mode networking
 5. **DMA-BUF zero-copy path**: If virtio-gpu resource IDs can be resolved, skip pixel transfer entirely
+6. **Frame deduplication in vsockenc**: Skip raw pixel send when frame is identical to previous (reduce static screen bandwidth to near-zero at pipeline level)
 
 ## Performance Notes
 
