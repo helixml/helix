@@ -247,16 +247,35 @@ docker compose exec -T sandbox-macos docker logs {CONTAINER_NAME} 2>&1 | grep -E
 
 **Fix**: Added `HELIX_FLAG_PIXEL_DATA` protocol extension. When resource_id=0, vsockenc maps the SHM buffer and sends the raw pixel data (8,294,400 bytes for 1920x1080 BGRA) after the frame request header. QEMU receives the pixel data, creates an IOSurface from it, and encodes that instead of reading from DisplaySurface. (commits 504d20a11f in qemu-utm, 0908db89d in helix)
 
+#### 6. Pipeline Element Ordering Breaks PipeWire Frame Production (FIXED)
+**Problem**: Adding `videoconvert ! videoscale ! capsfilter` AFTER the leaky queue caused PipeWire to stop producing frames after the initial 2. The pipeline would work for 2 frames then stall permanently, even with active screen damage.
+
+**Root Cause**: When videoconvert/videoscale are placed after the leaky queue, PipeWire buffers are held through the entire videoconvert→videoscale→vsockenc(TCP send) chain. The extended hold time prevents PipeWire from recycling buffers, causing the ScreenCast source to stop producing frames.
+
+**Fix**: Move videoconvert/videoscale BEFORE the leaky queue:
+```
+# BROKEN: pipewiresrc → queue → videoconvert → videoscale → vsockenc (2 frames then stall)
+# FIXED:  pipewiresrc → videoconvert → videoscale → queue → vsockenc (26.5 FPS sustained)
+```
+PipeWire buffers are released immediately after the fast software scale (~1ms), and only the small 960x540 BGRA buffer enters the leaky queue. (commit d6ff0e538)
+
+#### 7. Ghostty GL Context Exhaustion on virtio-gpu (KNOWN)
+**Problem**: Launching a second ghostty terminal instance fails with "Unable to acquire an OpenGL context for rendering" on virtio-gpu. The limited number of GL contexts are consumed by the existing ghostty instance and GNOME's ScreenCast sessions.
+
+**Workaround**: Use GNOME Shell D-Bus virtual keyboard to type into the existing terminal.
+
 ### Data Flow (Verified End-to-End)
 
 ```
 PipeWire ScreenCast (container) → pipewiresrc (SHM buffers) ✅
-  → queue (leaky=downstream) ✅
-  → vsockenc (maps SHM buffer, sends 8MB pixel data over TCP) ✅
+  → videoconvert (format normalize) ✅
+  → videoscale (1920x1080 → 960x540, 4x bandwidth reduction) ✅
+  → queue (leaky=downstream, max 1 buffer) ✅
+  → vsockenc (maps buffer, sends 2MB pixel data over TCP) ✅
     → TCP 10.0.2.2:15937 → QEMU SLiRP → host 127.0.0.1:15937 ✅
     → helix-frame-export receives pixel data ✅
     → Creates IOSurface from raw pixels (not DisplaySurface!) ✅
-    → VideoToolbox H.264 encode ✅
+    → VideoToolbox H.264 encode at 960x540 ✅
     → SPS/PPS extraction + AVCC→Annex B conversion ✅
   → vsockenc finish_frame ✅
   → h264parse ✅
@@ -266,13 +285,14 @@ PipeWire ScreenCast (container) → pipewiresrc (SHM buffers) ✅
 
 ### Current Status
 
-- **VIDEO STREAMING WORKING** at 26.2 FPS with 960x540 downscale optimization
-- 524 frames / 20 seconds sustained with terminal activity
+- **VIDEO STREAMING WORKING** at 26.5 FPS with 960x540 downscale optimization
+- 1591 frames / 60 seconds sustained with terminal activity (rock solid)
 - Container screen is correctly captured (not VM desktop)
 - All frames use pixel data path (HELIX_FLAG_PIXEL_DATA)
 - SPS/PPS properly extracted from VideoToolbox CMFormatDescription
 - Baseline profile, level 3.1, constraint_set3_flag=1 (zero-latency decode)
 - ~30ms per frame round-trip (2MB send + VideoToolbox encode + response)
+- 1.3 Mbps average bitrate, 5.8 KB average frame size
 
 ## Success Criteria
 
@@ -282,9 +302,10 @@ PipeWire ScreenCast (container) → pipewiresrc (SHM buffers) ✅
 - ✅ QEMU receives pixel data and encodes via VideoToolbox
 - ✅ vsockenc receives encoded H.264 frames back
 - ✅ h264parse parses stream (SPS/PPS properly included)
-- ✅ Video streaming works without crashes (524 frames / 20s test)
-- ✅ 26.2 FPS with terminal activity (downscale optimization)
-- ⚠️ Need to test with higher-damage content (vkcube equivalent)
+- ✅ Video streaming works without crashes (1591 frames / 60s test)
+- ✅ 26.5 FPS sustained with terminal activity (downscale optimization)
+- ⚠️ Pipeline doesn't start on static screens (PipeWire ScreenCast damage-based)
+- ⚠️ ghostty second instance fails on virtio-gpu (limited GL contexts)
 
 ## Performance History
 
