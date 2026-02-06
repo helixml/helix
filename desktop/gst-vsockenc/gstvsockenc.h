@@ -63,6 +63,9 @@ struct _GstVsockEnc {
 #define HELIX_MSG_PONG            0x11
 #define HELIX_MSG_ERROR           0xFF
 
+/* Frame request flags */
+#define HELIX_FLAG_PIXEL_DATA     0x01  /* Raw pixel data follows the frame request */
+
 /* Pixel formats (matching DRM formats) */
 #define HELIX_FORMAT_BGRA8888     0x34325241
 #define HELIX_FORMAT_RGBA8888     0x34324241

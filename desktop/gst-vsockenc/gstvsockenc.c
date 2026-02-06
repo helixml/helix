@@ -535,12 +535,49 @@ gst_vsockenc_handle_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *frame)
             break;
     }
 
-    /* Send frame request to host encoder */
+    /*
+     * If buffer is SHM (resource_id=0), send raw pixel data with the request.
+     * The host can't read from GPU resources for container-internal screens,
+     * so we must send the actual pixels.
+     */
+    GstMapInfo map_info;
+    gboolean has_pixel_data = FALSE;
+
+    if (resource_id == 0 &&
+        gst_buffer_map(frame->input_buffer, &map_info, GST_MAP_READ)) {
+        has_pixel_data = TRUE;
+        req.header.flags |= HELIX_FLAG_PIXEL_DATA;
+        req.header.payload_size = sizeof(HelixFrameRequest) - sizeof(HelixMsgHeader) + map_info.size;
+    }
+
+    /* Send frame request header to host encoder */
     written = write(self->socket_fd, &req, sizeof(req));
     if (written != sizeof(req)) {
         GST_ERROR_OBJECT(self, "Failed to write frame request: %s",
                          g_strerror(errno));
+        if (has_pixel_data) gst_buffer_unmap(frame->input_buffer, &map_info);
         return GST_FLOW_ERROR;
+    }
+
+    /* Send pixel data if SHM buffer */
+    if (has_pixel_data) {
+        size_t total_written = 0;
+        while (total_written < map_info.size) {
+            ssize_t w = write(self->socket_fd,
+                              map_info.data + total_written,
+                              map_info.size - total_written);
+            if (w <= 0) {
+                if (w < 0 && errno == EINTR) continue;
+                GST_ERROR_OBJECT(self, "Failed to write pixel data: %s",
+                                 g_strerror(errno));
+                gst_buffer_unmap(frame->input_buffer, &map_info);
+                self->connected = FALSE;
+                return GST_FLOW_ERROR;
+            }
+            total_written += w;
+        }
+        GST_DEBUG_OBJECT(self, "Sent %zu bytes of pixel data", map_info.size);
+        gst_buffer_unmap(frame->input_buffer, &map_info);
     }
 
     self->frame_count++;
