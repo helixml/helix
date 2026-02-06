@@ -7,6 +7,18 @@ metadata:
     {{- include "helix-sandbox.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  {{- if and .Values.deployment .Values.deployment.strategy }}
+  strategy:
+    type: {{ .Values.deployment.strategy.type | default "Recreate" }}
+    {{- if eq .Values.deployment.strategy.type "RollingUpdate" }}
+    rollingUpdate:
+      maxSurge: {{ .Values.deployment.strategy.rollingUpdate.maxSurge | default "25%" }}
+      maxUnavailable: {{ .Values.deployment.strategy.rollingUpdate.maxUnavailable | default "25%" }}
+    {{- end }}
+  {{- else }}
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       {{- include "helix-sandbox.selectorLabels" . | nindent 6 }}
@@ -42,6 +54,18 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if and .Values.gpu .Values.gpu.nvidia .Values.gpu.nvidia.gkeSetup }}
+          # GKE NVIDIA setup: configure library paths and cgroups for nested GPU containers
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              if [ -d "/usr/local/nvidia/lib64" ]; then
+                echo "/usr/local/nvidia/lib64" > /etc/ld.so.conf.d/nvidia-gke.conf
+                ldconfig
+                sed -i 's/#no-cgroups = false/no-cgroups = true/' /etc/nvidia-container-runtime/config.toml 2>/dev/null || true
+              fi
+              exec /entrypoint.sh
+          {{- end }}
           env:
             # =====================================================
             # Core Helix configuration
@@ -115,6 +139,10 @@ spec:
               value: "all"
             - name: NVIDIA_VISIBLE_DEVICES
               value: "all"
+            # GKE/Cloud: NVIDIA libraries are at /usr/local/nvidia/lib64
+            # This path is harmless if it doesn't exist on other systems
+            - name: LD_LIBRARY_PATH
+              value: "/usr/local/nvidia/lib64"
             {{- else if eq $gpuVendor "none" }}
             # Software rendering environment (no GPU)
             - name: LIBGL_ALWAYS_SOFTWARE

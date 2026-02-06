@@ -62,6 +62,8 @@ gpu:
     count: 1
     # GKE uses nvidia.com/gpu automatically, no runtime class needed
     runtimeClassName: ""
+    # Enable GKE-specific setup for nested GPU containers (Docker-in-Docker)
+    gkeSetup: true
 
 # Target GPU nodes
 # Adjust based on your GPU type (nvidia-tesla-t4, nvidia-l4, nvidia-tesla-a100, etc.)

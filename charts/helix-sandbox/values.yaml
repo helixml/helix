@@ -15,6 +15,12 @@ deployment:
   # - Simpler configuration
   type: "Deployment"
 
+  # Deployment strategy (only for type: "Deployment")
+  # Use "Recreate" for single-GPU setups where RollingUpdate can't schedule
+  # a new pod until the old one releases the GPU
+  strategy:
+    type: "Recreate"
+
   # StatefulSet-specific: pod management policy
   # "Parallel" - all pods start/stop simultaneously
   # "OrderedReady" - pods start/stop one at a time
@@ -114,6 +120,10 @@ gpu:
     # Runtime class name for OpenShift/Kubernetes
     # OpenShift typically uses "nvidia" or custom runtime class
     runtimeClassName: ""
+    # GKE-specific setup for nested GPU containers
+    # Enables library path configuration and cgroup fixes for Docker-in-Docker
+    # Set to true when running on Google Kubernetes Engine
+    gkeSetup: false
 
   # AMD-specific configuration
   amd:
