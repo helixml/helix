@@ -722,7 +722,47 @@ func (s *SharedVideoSource) start() error {
 	return startErr
 }
 
-// broadcastFrames reads frames from the pipeline and sends to all subscribed clients
+// stallRestartTimeout is the duration after which the pipeline is restarted if no frames arrive.
+// On virtio-gpu (macOS ARM / UTM), PipeWire ScreenCast stops producing frames on static screens
+// after an initial burst. Restarting the pipeline reconnects to PipeWire and gets a fresh burst.
+const stallRestartTimeout = 3 * time.Second
+
+// maxStallRestarts is the maximum number of pipeline restarts before giving up.
+// This prevents infinite restart loops if the pipeline keeps failing.
+const maxStallRestarts = 100
+
+// restartPipeline stops the current GStreamer pipeline and creates a new one.
+// Used when PipeWire ScreenCast stalls on static screens (no damage = no frames).
+// Each restart reconnects to PipeWire and produces a fresh burst of initial frames.
+func (s *SharedVideoSource) restartPipeline() (*GstPipeline, error) {
+	// Stop old pipeline
+	if s.pipeline != nil {
+		s.pipeline.Stop()
+	}
+
+	// Clear GOP buffer since new pipeline starts with a keyframe
+	s.gopBufferMu.Lock()
+	s.gopBuffer = nil
+	s.gopBufferMu.Unlock()
+
+	// Create and start new pipeline
+	newPipeline, err := NewGstPipelineWithOptions(s.pipelineStr, s.pipelineOpts)
+	if err != nil {
+		return nil, fmt.Errorf("create pipeline: %w", err)
+	}
+
+	if err = newPipeline.Start(s.ctx); err != nil {
+		return nil, fmt.Errorf("start pipeline: %w", err)
+	}
+
+	s.pipeline = newPipeline
+	return newPipeline, nil
+}
+
+// broadcastFrames reads frames from the pipeline and sends to all subscribed clients.
+// Includes stall detection: if no frames arrive for stallRestartTimeout (3 seconds),
+// the pipeline is restarted to force PipeWire ScreenCast to reconnect and produce
+// fresh initial frames. This handles the virtio-gpu static screen stall issue.
 func (s *SharedVideoSource) broadcastFrames() {
 	defer s.wg.Done()
 
@@ -730,12 +770,59 @@ func (s *SharedVideoSource) broadcastFrames() {
 	errorCh := s.pipeline.Errors()
 	var frameCount uint64
 	var keyframeCount uint64
+	var restartCount int
+
+	// Stall detection timer - fires when no frames arrive for stallRestartTimeout
+	stallTimer := time.NewTimer(stallRestartTimeout)
+	defer stallTimer.Stop()
 
 	for {
 		select {
 		case <-s.ctx.Done():
 			fmt.Printf("[SHARED_VIDEO] Broadcast stopped (context cancelled) for node %d\n", s.nodeID)
 			return
+
+		case <-stallTimer.C:
+			// No frames for stallRestartTimeout - pipeline is stalled
+			// Only restart if we have clients (no point restarting for nobody)
+			s.clientsMu.RLock()
+			clientCount := len(s.clients)
+			s.clientsMu.RUnlock()
+
+			if clientCount == 0 {
+				// No clients - just reset timer and wait
+				stallTimer.Reset(stallRestartTimeout)
+				continue
+			}
+
+			if restartCount >= maxStallRestarts {
+				fmt.Printf("[SHARED_VIDEO] Max stall restarts (%d) reached for node %d, giving up\n",
+					maxStallRestarts, s.nodeID)
+				stallTimer.Reset(stallRestartTimeout)
+				continue
+			}
+
+			restartCount++
+			fmt.Printf("[SHARED_VIDEO] Pipeline stall detected for node %d (no frames for %v, restart #%d)\n",
+				s.nodeID, stallRestartTimeout, restartCount)
+
+			newPipeline, err := s.restartPipeline()
+			if err != nil {
+				fmt.Printf("[SHARED_VIDEO] Pipeline restart failed for node %d: %s\n", s.nodeID, err)
+				stallTimer.Reset(stallRestartTimeout)
+				continue
+			}
+
+			// Switch to new pipeline's channels
+			frameCh = newPipeline.Frames()
+			errorCh = newPipeline.Errors()
+			stallTimer.Reset(stallRestartTimeout)
+
+			if restartCount <= 3 || restartCount%10 == 0 {
+				fmt.Printf("[SHARED_VIDEO] Pipeline restarted for node %d (restart #%d)\n",
+					s.nodeID, restartCount)
+			}
+
 		case pipelineErr := <-errorCh:
 			// Pipeline error (e.g., GPU OOM) - broadcast to all clients
 			fmt.Printf("[SHARED_VIDEO] Pipeline error for node %d: %s\n", s.nodeID, pipelineErr.Error())
@@ -743,12 +830,41 @@ func (s *SharedVideoSource) broadcastFrames() {
 			return
 		case frame, ok := <-frameCh:
 			if !ok {
-				// Pipeline stopped
+				// Pipeline stopped - try restart if stall detection is active
+				s.clientsMu.RLock()
+				hasClients := len(s.clients) > 0
+				s.clientsMu.RUnlock()
+
+				if hasClients && restartCount < maxStallRestarts {
+					restartCount++
+					fmt.Printf("[SHARED_VIDEO] Pipeline channel closed for node %d, attempting restart #%d\n",
+						s.nodeID, restartCount)
+					newPipeline, err := s.restartPipeline()
+					if err != nil {
+						fmt.Printf("[SHARED_VIDEO] Pipeline restart after close failed for node %d: %s\n",
+							s.nodeID, err)
+						return
+					}
+					frameCh = newPipeline.Frames()
+					errorCh = newPipeline.Errors()
+					stallTimer.Reset(stallRestartTimeout)
+					continue
+				}
+
 				fmt.Printf("[SHARED_VIDEO] Pipeline channel closed for node %d\n", s.nodeID)
 				return
 			}
 
 			frameCount++
+
+			// Reset stall timer - we got a frame, pipeline is alive
+			if !stallTimer.Stop() {
+				select {
+				case <-stallTimer.C:
+				default:
+				}
+			}
+			stallTimer.Reset(stallRestartTimeout)
 
 			// Maintain GOP buffer for mid-stream joins
 			// On keyframe: reset buffer and start fresh GOP
