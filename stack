@@ -1317,6 +1317,11 @@ function build-desktop() {
   echo "✅ ${DESKTOP_NAME} container built successfully"
   echo "📦 Image hash: ${IMAGE_HASH_FULL} (tag: ${IMAGE_TAG})"
 
+  # Always write version file (even if image unchanged, fixes stale version files)
+  mkdir -p sandbox-images
+  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
+  echo "📦 Version file: ${IMAGE_TAG}"
+
   # Check if image actually changed
   if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ]; then
     echo "✅ Image unchanged - skipping transfer"
@@ -1329,10 +1334,6 @@ function build-desktop() {
     transfer-desktop-to-sandbox "$DESKTOP_NAME" "$IMAGE_TAG"
   fi
 
-  # Write version file AFTER successful transfer
-  mkdir -p sandbox-images
-  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
-  echo "📦 Version file updated: ${IMAGE_TAG}"
 }
 
 # Generic transfer function - transfers any desktop image to sandbox's dockerd
