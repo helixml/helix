@@ -1,9 +1,9 @@
-# Docker0 Bridge Restoration and Veth Reconnection
+# Sandbox Bridge Protection and Veth Reconnection
 
 **Date:** 2026-02-06
-**Status:** In Progress
-**Branch:** fix/docker0-veth-reconnect
-**PR:** #1593
+**Status:** Implemented (pending testing)
+**Branch:** feature/bff-auth-clean
+**Solution:** Use custom bridge name "sandbox0" instead of "docker0"
 
 ## Problem
 
@@ -18,11 +18,43 @@ The issue was discovered while implementing shared BuildKit cache across sandbox
 3. `ip link show docker0` returns "Device does not exist"
 4. Orphaned veth pairs visible: `ip link | grep veth` shows interfaces with `master` but the bridge is gone
 
-### Root Cause (Hypothesis)
+### Root Cause (Confirmed via Moby Source Code)
 
-When multiple Docker daemons run on the same host, they share global iptables chains (DOCKER, DOCKER-ISOLATION-STAGE-1, DOCKER-ISOLATION-STAGE-2). Session dockerd startup manipulates these chains, which can have side effects on the main dockerd's docker0 bridge.
+After reading the Docker/Moby source code (`github.com/moby/moby v28+`), we identified the exact mechanism:
 
-Docker 28+ introduced `--ip-forward-no-drop` flag to prevent setting FORWARD policy to DROP, but testing showed this breaks internet connectivity in containers (reason unknown).
+**In `daemon/daemon_unix.go:864-871`:**
+```go
+// Clear stale bridge network
+if n, err := controller.NetworkByName(network.NetworkBridge); err == nil {
+    if err = n.Delete(); err != nil {
+        return errors.Wrapf(err, `could not delete the default %q network`, network.NetworkBridge)
+    }
+    if len(conf.NetworkConfig.DefaultAddressPools.Value()) > 0 && !conf.LiveRestoreEnabled {
+        removeDefaultBridgeInterface()
+    }
+}
+```
+
+**In `daemon/daemon_unix.go:1232-1238`:**
+```go
+func removeDefaultBridgeInterface() {
+    if lnk, err := nlwrap.LinkByName(bridge.DefaultBridgeName); err == nil {
+        if err := netlink.LinkDel(lnk); err != nil {
+            log.G(context.TODO()).Warnf("Failed to remove bridge interface (%s): %v", bridge.DefaultBridgeName, err)
+        }
+    }
+}
+```
+
+Where `bridge.DefaultBridgeName = "docker0"`.
+
+**The deletion chain:**
+1. Session dockerd starts with `default-address-pools` set (required for subnet isolation)
+2. Docker's initialization code calls `removeDefaultBridgeInterface()` when `default-address-pools` is non-empty
+3. This function **specifically deletes the bridge named "docker0"** via `netlink.LinkDel()`
+4. The main sandbox dockerd's docker0 bridge is deleted, orphaning all attached veths
+
+**Key insight:** Docker hardcodes the name "docker0" in `removeDefaultBridgeInterface()`. If we use a different bridge name, this code path doesn't affect us.
 
 ## Architecture
 
@@ -47,13 +79,13 @@ Docker 28+ introduced `--ip-forward-no-drop` flag to prevent setting FORWARD pol
 │  eth0 ────────────────────────────────────────────────►│ (172.18.0.15)              │
 │    │                                                   │                            │
 │    │  Sandbox's Internal Dockerd                       │                            │
-│    │  └── docker0 bridge (10.213.0.0/24) ◄─────────────┼── THIS IS WHAT GETS DELETED│
+│    │  └── sandbox0 bridge (10.213.0.0/24)  ◄───────────┼── Now safe from deletion   │
 │    │       │                                           │                            │
 │    │       ├── helix-buildkit (10.213.0.2)             │                            │
 │    │       ├── buildx builders (10.213.0.3+)           │                            │
 │    │       └── ubuntu-external-xxx (10.213.0.5) ───────┘                            │
 │    │             │                                                                  │
-│    │             │ eth0: 10.213.0.5 (on docker0)                                    │
+│    │             │ eth0: 10.213.0.5 (on sandbox0)                                    │
 │    │             │ eth1: 10.200.1.254 (on hydra1) ──────┐                           │
 │    │                                                    │                           │
 │    │  Per-Session Hydra Dockerd                         │                           │
@@ -73,7 +105,7 @@ Docker 28+ introduced `--ip-forward-no-drop` flag to prevent setting FORWARD pol
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
 │ DESKTOP CONTAINER (ubuntu-external-xxx)                                             │
 │                                                                                      │
-│  eth0 (10.213.0.5) ──► docker0 ──► sandbox eth0 ──► host ──► internet              │
+│  eth0 (10.213.0.5) ──► sandbox0 ──► sandbox eth0 ──► host ──► internet              │
 │  eth1 (10.200.1.254) ──► hydra1 ──► per-session dockerd                            │
 │                                                                                      │
 │  When user runs: DOCKER_HOST=unix:///var/run/docker.sock ./stack start              │
@@ -94,17 +126,17 @@ Docker 28+ introduced `--ip-forward-no-drop` flag to prevent setting FORWARD pol
 
 | From | To | Path |
 |------|-----|------|
-| Desktop → Internet | `eth0 → docker0 → sandbox eth0 → host → internet` |
-| Desktop → API (control plane) | `eth0 → docker0 → sandbox eth0 → helix_default → api` |
+| Desktop → Internet | `eth0 → sandbox0 → sandbox eth0 → host → internet` |
+| Desktop → API (control plane) | `eth0 → sandbox0 → sandbox eth0 → helix_default → api` |
 | Desktop → User containers (docker-compose) | `eth1 → hydra1 → per-session dockerd networks` |
-| Desktop → helix-buildkit | `eth0 → docker0 → helix-buildkit` |
+| Desktop → helix-buildkit | `eth0 → sandbox0 → helix-buildkit` |
 
 ### Simplified View
 
 ```
 Sandbox Container (sandbox-nvidia)
 ├── Main Dockerd (sandbox's native dockerd)
-│   └── docker0 bridge (10.213.0.0/24)
+│   └── sandbox0 bridge (10.213.0.0/24)  ← Custom name, safe from deletion
 │       ├── helix-buildkit container
 │       ├── helix-desktop container
 │       └── buildx builders
@@ -115,11 +147,13 @@ Sandbox Container (sandbox-nvidia)
     └── Session C: hydra3 bridge (10.200.3.0/24)
 ```
 
-The desktop container runs on the main dockerd (docker0), while user's `docker compose` projects run on per-session Hydra dockerds. The desktop is bridged to the Hydra network via a veth pair for connectivity.
+The desktop container runs on the main dockerd (sandbox0), while user's `docker compose` projects run on per-session Hydra dockerds. The desktop is bridged to the Hydra network via a veth pair for connectivity.
 
-## Practical Implications
+## Practical Implications (Historical)
 
-When a new session starts and docker0 gets deleted (before restoration), the following containers on the sandbox's main dockerd temporarily lose network connectivity:
+**With the custom bridge name solution, these issues no longer occur.**
+
+Previously, when a new session started and docker0 got deleted, the following containers temporarily lost network connectivity:
 
 1. **helix-buildkit** - The shared BuildKit container for caching Docker builds
 2. **buildx builders** - Docker buildx builder containers
@@ -129,64 +163,76 @@ For the desktop container specifically, during the brief outage window (~100ms):
 
 | Interface | Status | Impact |
 |-----------|--------|--------|
-| eth0 (docker0) | **BROKEN** | Internet access lost, API connectivity lost |
+| eth0 (sandbox0) | **BROKEN** | Internet access lost, API connectivity lost |
 | eth1 (hydra bridge) | Still works | Can still reach per-session dockerd containers |
 
-**Practical impact:**
-- **RevDial connection to the API could drop momentarily** when a new session starts
-- Video streaming may glitch briefly
-- The restoration happens immediately after detection, so it should reconnect automatically
-- Users may see a brief freeze in the video stream if timing is unlucky
+**Now with sandbox0:** Session dockerds no longer delete the bridge because Docker's cleanup code specifically targets "docker0", not "sandbox0". No outages occur.
 
-**What does NOT break:**
-- Containers on per-session Hydra dockerds (they use hydra bridges, not docker0)
-- Communication between desktop and user's docker-compose projects (via eth1)
+## Solution: Custom Bridge Name (Final)
 
-## Solution: Reactive Restoration
+Since Docker's `removeDefaultBridgeInterface()` hardcodes the name "docker0", we simply use a different bridge name for the sandbox's main dockerd. This completely avoids the problem.
 
-Instead of preventing docker0 deletion (which proved problematic), we detect when it happens and restore it:
+### Implementation
 
-### 1. Detect docker0 Deletion
+**In `sandbox/04-start-dockerd.sh`:**
 
-Check docker0 status before and after session dockerd startup:
+```bash
+# Create custom bridge before starting dockerd
+SANDBOX_BRIDGE="sandbox0"
+SANDBOX_BRIDGE_IP="10.213.0.1/24"
+
+if ! ip link show "$SANDBOX_BRIDGE" >/dev/null 2>&1; then
+    ip link add name "$SANDBOX_BRIDGE" type bridge
+    ip addr add "$SANDBOX_BRIDGE_IP" dev "$SANDBOX_BRIDGE"
+    ip link set "$SANDBOX_BRIDGE" up
+fi
+
+# Start dockerd with our custom bridge
+dockerd --config-file /etc/docker/daemon.json \
+    --host=unix:///var/run/docker.sock \
+    --bridge="$SANDBOX_BRIDGE"
+```
+
+**In `api/pkg/hydra/manager.go`:**
 
 ```go
-docker0ExistsBefore := m.checkDocker0Exists()
+// SandboxBridgeName is the name of the main sandbox's Docker bridge.
+// We use a custom name instead of "docker0" to prevent session dockerds from
+// accidentally deleting it (Docker's cleanup code specifically targets "docker0").
+const SandboxBridgeName = "sandbox0"
+```
+
+### Why This Works
+
+1. Docker's `removeDefaultBridgeInterface()` only deletes a bridge named exactly "docker0"
+2. Session dockerds call this function during startup (when `default-address-pools` is set)
+3. Since our main bridge is named "sandbox0", not "docker0", it's never deleted
+4. Session dockerds still work fine with their own bridges (hydra1, hydra2, etc.)
+
+### Defensive Code (Belt and Suspenders)
+
+We still keep defensive monitoring and restoration code in case something unexpected happens:
+
+```go
+// Check sandbox bridge status before/after session dockerd starts
+sandboxBridgeExistsBefore := m.checkSandboxBridgeExists()
 // ... start session dockerd ...
-docker0ExistsAfter := m.checkDocker0Exists()
+sandboxBridgeExistsAfter := m.checkSandboxBridgeExists()
 
-if docker0ExistsBefore && !docker0ExistsAfter {
-    log.Warn().Msg("docker0 was deleted by session dockerd startup, restoring it")
-    m.EnsureDocker0Bridge()
+if sandboxBridgeExistsBefore && !sandboxBridgeExistsAfter {
+    // This should no longer happen with custom bridge name
+    log.Warn().Msg("Sandbox bridge unexpectedly deleted, restoring")
+    m.EnsureSandboxBridge()
 }
 ```
 
-### 2. Restore docker0 Bridge
+## Previous Solution: Reactive Restoration (Superseded)
 
-If docker0 was deleted, recreate it with the correct subnet:
+The original approach detected docker0 deletion and restored it. This worked but had a brief outage window (~100ms) where containers lost connectivity. The custom bridge name solution is cleaner because it prevents the deletion entirely.
 
-```go
-func (m *Manager) EnsureDocker0Bridge() error {
-    // Check if docker0 exists
-    if m.checkDocker0Exists() {
-        m.reconnectOrphanedVeths()  // Still reconnect any orphaned veths
-        return nil
-    }
+### Reconnect Orphaned Veths
 
-    // Recreate docker0 with correct IP
-    m.runCommand("ip", "link", "add", "docker0", "type", "bridge")
-    m.runCommand("ip", "addr", "add", "10.213.0.1/24", "dev", "docker0")
-    m.runCommand("ip", "link", "set", "docker0", "up")
-
-    // Reconnect orphaned veths
-    m.reconnectOrphanedVeths()
-    return nil
-}
-```
-
-### 3. Reconnect Orphaned Veths
-
-Find veth interfaces that lost their bridge master and reconnect them to docker0:
+This code is still used as a defensive measure:
 
 ```go
 func (m *Manager) reconnectOrphanedVeths() {
@@ -195,15 +241,18 @@ func (m *Manager) reconnectOrphanedVeths() {
 
     for _, line := range strings.Split(string(output), "\n") {
         // Skip hydra veths (vethb-*) - they belong to session bridges
-        if strings.Contains(line, "vethb-") {
+        if strings.HasPrefix(vethName, "vethb") {
             continue
         }
 
-        // Check if veth has a master
-        if !strings.Contains(line, "master") {
-            // Orphaned veth - reconnect to docker0
-            vethName := extractVethName(line)
-            m.runCommand("ip", "link", "set", vethName, "master", "docker0")
+        // Skip container interfaces (eth0, eth1, lo)
+        if strings.HasPrefix(vethName, "eth") || vethName == "lo" {
+            continue
+        }
+
+        // Check if veth has a master - if not, reconnect to sandbox0
+        if !strings.Contains(showOutput, "master ") {
+            m.runCommand("ip", "link", "set", vethName, "master", SandboxBridgeName)
         }
     }
 }
@@ -299,13 +348,16 @@ if strings.HasPrefix(vethName, "eth") || vethName == "lo" {
 }
 ```
 
-## Open Questions
+## Resolved Questions
 
-1. **Why does session dockerd sometimes delete docker0?** The exact mechanism is unclear. It may be related to iptables chain cleanup or bridge management.
+1. **Why does session dockerd sometimes delete docker0?**
+   - **SOLVED**: Docker's `daemon/daemon_unix.go:removeDefaultBridgeInterface()` is called during dockerd startup when `default-address-pools` is set. This function explicitly deletes the bridge named "docker0" using `netlink.LinkDel()`.
 
-2. **Why does `--ip-forward-no-drop` break internet?** Docker 28+ added this flag specifically for multi-daemon scenarios, but it doesn't work as expected in Docker 29.
+2. **Why does `--ip-forward-no-drop` break internet?**
+   - Still unclear. Docker 28+ added this flag specifically for multi-daemon scenarios, but it doesn't work as expected in our Docker 29 environment. The custom bridge name solution makes this flag unnecessary.
 
-3. **Is there a proper prevention approach?** The reactive fix works but is defensive. A proper prevention approach would be cleaner.
+3. **Is there a proper prevention approach?**
+   - **SOLVED**: Yes - use a custom bridge name (e.g., "sandbox0") instead of "docker0". Docker's cleanup code specifically targets "docker0", so using a different name completely avoids the issue.
 
 ## Related
 

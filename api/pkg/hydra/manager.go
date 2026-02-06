@@ -569,54 +569,59 @@ func (m *Manager) deleteBridge(bridgeName string) {
 	}
 }
 
-// checkDocker0Exists returns true if docker0 bridge exists
-func (m *Manager) checkDocker0Exists() bool {
-	cmd := exec.Command("ip", "link", "show", "docker0")
+// SandboxBridgeName is the name of the main sandbox's Docker bridge.
+// We use a custom name instead of "docker0" to prevent session dockerds from
+// accidentally deleting it (Docker's cleanup code specifically targets "docker0").
+const SandboxBridgeName = "sandbox0"
+
+// checkSandboxBridgeExists returns true if the main sandbox bridge exists
+func (m *Manager) checkSandboxBridgeExists() bool {
+	cmd := exec.Command("ip", "link", "show", SandboxBridgeName)
 	return cmd.Run() == nil
 }
 
-// EnsureDocker0Bridge checks if docker0 bridge exists and recreates it if missing.
-// This is a defensive measure against docker0 mysteriously disappearing.
-// The main sandbox dockerd uses docker0 with 10.213.0.0/24 subnet.
-// Also reconnects any orphaned veth interfaces that should be on docker0.
-func (m *Manager) EnsureDocker0Bridge() error {
-	// Check if docker0 exists
-	checkCmd := exec.Command("ip", "link", "show", "docker0")
+// EnsureSandboxBridge checks if the sandbox bridge exists and recreates it if missing.
+// This is a defensive measure against the bridge mysteriously disappearing.
+// The main sandbox dockerd uses sandbox0 with 10.213.0.0/24 subnet.
+// Also reconnects any orphaned veth interfaces that should be on sandbox0.
+func (m *Manager) EnsureSandboxBridge() error {
+	// Check if sandbox0 exists
+	checkCmd := exec.Command("ip", "link", "show", SandboxBridgeName)
 	if err := checkCmd.Run(); err == nil {
-		// docker0 exists, but check for orphaned veths and reconnect them
+		// sandbox0 exists, but check for orphaned veths and reconnect them
 		m.reconnectOrphanedVeths()
 		return nil
 	}
 
-	// docker0 is missing - recreate it
-	log.Warn().Msg("docker0 bridge is missing, recreating it")
+	// sandbox0 is missing - recreate it
+	log.Warn().Str("bridge", SandboxBridgeName).Msg("Sandbox bridge is missing, recreating it")
 
 	// Create the bridge
-	if err := m.runCommand("ip", "link", "add", "docker0", "type", "bridge"); err != nil {
-		return fmt.Errorf("failed to create docker0 bridge: %w", err)
+	if err := m.runCommand("ip", "link", "add", SandboxBridgeName, "type", "bridge"); err != nil {
+		return fmt.Errorf("failed to create sandbox bridge %s: %w", SandboxBridgeName, err)
 	}
 
 	// Set the IP address (10.213.0.1/24 per sandbox daemon.json default-address-pools)
-	if err := m.runCommand("ip", "addr", "add", "10.213.0.1/24", "dev", "docker0"); err != nil {
-		log.Warn().Err(err).Msg("Failed to add IP to docker0 (may already exist)")
+	if err := m.runCommand("ip", "addr", "add", "10.213.0.1/24", "dev", SandboxBridgeName); err != nil {
+		log.Warn().Err(err).Str("bridge", SandboxBridgeName).Msg("Failed to add IP to sandbox bridge (may already exist)")
 	}
 
 	// Bring up the bridge
-	if err := m.runCommand("ip", "link", "set", "docker0", "up"); err != nil {
-		return fmt.Errorf("failed to bring up docker0: %w", err)
+	if err := m.runCommand("ip", "link", "set", SandboxBridgeName, "up"); err != nil {
+		return fmt.Errorf("failed to bring up sandbox bridge %s: %w", SandboxBridgeName, err)
 	}
 
-	log.Info().Msg("Recreated docker0 bridge with IP 10.213.0.1/24")
+	log.Info().Str("bridge", SandboxBridgeName).Msg("Recreated sandbox bridge with IP 10.213.0.1/24")
 
-	// Reconnect any orphaned veth interfaces to the recreated docker0
+	// Reconnect any orphaned veth interfaces to the recreated sandbox0
 	m.reconnectOrphanedVeths()
 
 	return nil
 }
 
-// reconnectOrphanedVeths finds veth interfaces that have no bridge master and reconnects them to docker0.
-// This handles the case where session dockerd startup deletes docker0 and orphans existing container veths.
-// We identify docker0 veths by checking if their peer (inside a container) is on the 10.213.0.0/24 subnet.
+// reconnectOrphanedVeths finds veth interfaces that have no bridge master and reconnects them to sandbox0.
+// This handles the case where session dockerd startup might orphan existing container veths.
+// We identify sandbox veths by checking if their peer (inside a container) is on the 10.213.0.0/24 subnet.
 func (m *Manager) reconnectOrphanedVeths() {
 	// Find all veth interfaces
 	output, err := exec.Command("ip", "-o", "link", "show", "type", "veth").Output()
@@ -654,23 +659,23 @@ func (m *Manager) reconnectOrphanedVeths() {
 
 		// Skip container interfaces like eth0, eth1, lo - these are NOT orphaned veths
 		// The sandbox's eth0 appears as a veth from `ip link show type veth` but it's the
-		// container's external interface to the host Docker network and must NOT be attached to docker0
+		// container's external interface to the host Docker network and must NOT be attached to sandbox0
 		if strings.HasPrefix(vethName, "eth") || vethName == "lo" {
 			log.Debug().Str("veth", vethName).Msg("Skipping container interface (not an orphaned veth)")
 			continue
 		}
 
-		// This veth has no master - try to reconnect to docker0
-		log.Info().Str("veth", vethName).Msg("Reconnecting orphaned veth to docker0")
-		if err := m.runCommand("ip", "link", "set", vethName, "master", "docker0"); err != nil {
-			log.Warn().Err(err).Str("veth", vethName).Msg("Failed to reconnect veth to docker0")
+		// This veth has no master - try to reconnect to sandbox0
+		log.Info().Str("veth", vethName).Str("bridge", SandboxBridgeName).Msg("Reconnecting orphaned veth to sandbox bridge")
+		if err := m.runCommand("ip", "link", "set", vethName, "master", SandboxBridgeName); err != nil {
+			log.Warn().Err(err).Str("veth", vethName).Str("bridge", SandboxBridgeName).Msg("Failed to reconnect veth to sandbox bridge")
 		} else {
 			reconnected++
 		}
 	}
 
 	if reconnected > 0 {
-		log.Info().Int("count", reconnected).Msg("Reconnected orphaned veths to docker0")
+		log.Info().Int("count", reconnected).Str("bridge", SandboxBridgeName).Msg("Reconnected orphaned veths to sandbox bridge")
 	}
 }
 
@@ -781,14 +786,15 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	// Clean up stale socket
 	os.Remove(socketPath)
 
-	// DEBUG: Check docker0 status before starting session dockerd
-	// This helps diagnose if session dockerd is deleting the main dockerd's docker0
-	docker0ExistsBefore := m.checkDocker0Exists()
+	// DEBUG: Check sandbox bridge status before starting session dockerd
+	// This helps diagnose if session dockerd is somehow affecting the main dockerd's bridge
+	sandboxBridgeExistsBefore := m.checkSandboxBridgeExists()
 	log.Info().
-		Bool("docker0_exists", docker0ExistsBefore).
+		Bool("sandbox_bridge_exists", sandboxBridgeExistsBefore).
+		Str("sandbox_bridge", SandboxBridgeName).
 		Str("scope", scopeKey).
-		Str("bridge", bridgeName).
-		Msg("[DEBUG] docker0 status BEFORE starting session dockerd")
+		Str("session_bridge", bridgeName).
+		Msg("[DEBUG] Sandbox bridge status BEFORE starting session dockerd")
 
 	// Start dockerd with our custom bridge
 	// --bridge specifies the bridge interface to use instead of docker0
@@ -850,25 +856,28 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 
 	inst.Status = StatusRunning
 
-	// DEBUG: Check docker0 status after session dockerd is ready
-	// Session dockerd startup can delete docker0 as a side effect of iptables chain management
-	docker0ExistsAfter := m.checkDocker0Exists()
+	// DEBUG: Check sandbox bridge status after session dockerd is ready
+	// With the custom bridge name (sandbox0), session dockerds should no longer affect it
+	sandboxBridgeExistsAfter := m.checkSandboxBridgeExists()
 	log.Info().
-		Bool("docker0_exists_before", docker0ExistsBefore).
-		Bool("docker0_exists_after", docker0ExistsAfter).
+		Bool("sandbox_bridge_exists_before", sandboxBridgeExistsBefore).
+		Bool("sandbox_bridge_exists_after", sandboxBridgeExistsAfter).
+		Str("sandbox_bridge", SandboxBridgeName).
 		Str("scope", scopeKey).
-		Str("bridge", bridgeName).
-		Msg("[DEBUG] docker0 status AFTER session dockerd started")
+		Str("session_bridge", bridgeName).
+		Msg("[DEBUG] Sandbox bridge status AFTER session dockerd started")
 
-	if docker0ExistsBefore && !docker0ExistsAfter {
+	if sandboxBridgeExistsBefore && !sandboxBridgeExistsAfter {
+		// This should no longer happen with the custom bridge name, but keep defensive code
 		log.Warn().
 			Str("scope", scopeKey).
-			Str("bridge", bridgeName).
-			Msg("docker0 was deleted by session dockerd startup, restoring it")
+			Str("session_bridge", bridgeName).
+			Str("sandbox_bridge", SandboxBridgeName).
+			Msg("Sandbox bridge was unexpectedly deleted by session dockerd startup, restoring it")
 
-		// Restore docker0 bridge - this reconnects orphaned veth pairs from the desktop container
-		if err := m.EnsureDocker0Bridge(); err != nil {
-			log.Error().Err(err).Msg("Failed to restore docker0 after session dockerd deleted it")
+		// Restore sandbox bridge - this reconnects orphaned veth pairs from desktop containers
+		if err := m.EnsureSandboxBridge(); err != nil {
+			log.Error().Err(err).Str("bridge", SandboxBridgeName).Msg("Failed to restore sandbox bridge after session dockerd deleted it")
 		}
 	}
 
