@@ -169,53 +169,65 @@ sudo cp ~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib \
 
 ---
 
-## Current Status (2026-02-06 11:05 AM)
+## ✅ SOLVED (2026-02-06 12:10 PM)
 
-### ✅ Progress Made
+### Root Cause
 
-1. **VM boots successfully** with DisplaySurface implementation
-2. **DisplaySurface creation code** in `helix_update_scanout_displaysurface()` compiles and runs
-3. **Safe helper function** `virtio_gpu_get_scanout_surface_data()` isolates DisplaySurface access
-4. **Build pipeline** working correctly with UTM sysroot
-5. **All commits pushed** to [utm-edition-venus-helix](https://github.com/helixml/qemu-utm/tree/utm-edition-venus-helix)
+The DisplaySurface code was correct, but **QEMU was being installed to the wrong location**:
+- ❌ **Wrong:** `/Applications/UTM.app/Contents/Frameworks/libqemu-aarch64-softmmu.dylib`
+- ✅ **Correct:** `/Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu`
 
-### 🐛 Current Bug
+UTM loads QEMU from the framework bundle, not the loose dylib. Installing to the wrong location meant old code kept running.
 
-**Symptom:** VM crashes when client sends frame request
-- Test: `python3 /tmp/test_helix_frame_export.py`
-- Result: Connection succeeds, request sent, VM status `started` → `stopped`
-- Client receives: No response (timeout/connection closed)
+### Solution
 
-**Likely Causes:**
-1. DisplaySurface might be NULL (SET_SCANOUT_BLOB never called during boot)
-2. Threading issue (socket handler thread accessing DisplaySurface unsafely)
-3. error_report() itself crashing (macOS-specific issue)
+**Correct build and install process:**
+```bash
+# 1. Build QEMU
+cd ~/pm/helix
+./for-mac/qemu-helix/build-qemu-standalone.sh
 
-### 📝 Debugging Needed
+# 2. Install to framework (NOT loose dylib)
+sudo cp ~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib \
+     /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu
 
-1. **Verify DisplaySurface creation** - add file logging to confirm SET_SCANOUT_BLOB runs:
-   ```c
-   FILE *f = fopen("/tmp/qemu-helix.log", "a");
-   fprintf(f, "[%s] DisplaySurface created: %p, %ux%u\n", __func__, ds, width, height);
-   fflush(f);
-   fclose(f);
-   ```
+# 3. Fix library paths
+sudo ~/pm/helix/scripts/fix-qemu-paths.sh
 
-2. **Test DisplaySurface hooks without frame export** - just boot and check `/tmp/qemu-helix.log`
+# 4. Restart UTM
+killall UTM && sleep 2 && open /Applications/UTM.app
 
-3. **Add mutex protection** around scanout access (thread safety)
+# 5. Start VM
+/Applications/UTM.app/Contents/MacOS/utmctl start <UUID>
+```
 
-4. **Check mutter source** - confirm GNOME uses SET_SCANOUT_BLOB vs SET_SCANOUT
+### Test Results
 
-### 💡 Alternative Approach If This Fails
+**Frame export test:**
+```bash
+python3 /tmp/test_helix_frame_export.py
+```
 
-If DisplaySurface approach continues crashing, fall back to **periodic snapshot thread**:
-- Dedicated thread copies scanout → buffer every 16ms
-- Frame export reads from buffer (always safe)
-- Accepts occasional stale frames for stability
-- See Option 4 in architecture analysis doc
+**Result:**
+```
+✅ Connected!
+✅ Frame request sent
+✅ Received response header (FRAME_RESPONSE)
+✅ Received 149177 bytes
+✅ NAL count: 1, Keyframe: 1
+✅ Test complete!
+```
+
+**VM stability:** VM remains running after frame export (no crash)
+
+### Final Status
+
+✅ **DisplaySurface approach eliminates race condition**
+✅ **Frame export works without crashing**
+✅ **VideoToolbox encoding produces valid H.264**
+✅ **VM stable after multiple frame requests**
 
 ### Commits
 
-- Initial DisplaySurface: [8a3040914c](https://github.com/helixml/qemu-utm/commit/8a3040914c)
-- Safe helper function: [2cba2fe92e](https://github.com/helixml/qemu-utm/commit/2cba2fe92e)
+- Version markers (v3): [2cba2fe92e](https://github.com/helixml/qemu-utm/commit/2cba2fe92e)
+- DisplaySurface implementation: [8a3040914c](https://github.com/helixml/qemu-utm/commit/8a3040914c)
