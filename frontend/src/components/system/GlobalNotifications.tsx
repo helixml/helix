@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect, useCallback } from 'react'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
 import Badge from '@mui/material/Badge'
@@ -26,11 +26,42 @@ interface TaskNotification {
   description: string
 }
 
+interface SeenNotificationsData {
+  taskIds: string[]
+  timestamp: number
+}
+
 const REVIEW_STATUSES = [
   TypesSpecTaskStatus.TaskStatusSpecReview,
   TypesSpecTaskStatus.TaskStatusImplementationReview,
   TypesSpecTaskStatus.TaskStatusPullRequest,
 ]
+
+const STORAGE_KEY = 'helix_seen_notifications'
+const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000
+
+const getSeenNotifications = (): SeenNotificationsData | null => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    if (!stored) return null
+    const data: SeenNotificationsData = JSON.parse(stored)
+    if (Date.now() - data.timestamp > EIGHT_HOURS_MS) {
+      localStorage.removeItem(STORAGE_KEY)
+      return null
+    }
+    return data
+  } catch {
+    return null
+  }
+}
+
+const setSeenNotifications = (taskIds: string[]) => {
+  const data: SeenNotificationsData = {
+    taskIds,
+    timestamp: Date.now(),
+  }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+}
 
 const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({
   organizationId,
@@ -39,6 +70,10 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({
   const lightTheme = useLightTheme()
   const api = useApi()
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null)
+  const [seenTaskIds, setSeenTaskIds] = useState<Set<string>>(() => {
+    const stored = getSeenNotifications()
+    return stored ? new Set(stored.taskIds) : new Set()
+  })
 
   const { data: projects = [] } = useListProjects(organizationId, {
     enabled: true,
@@ -84,9 +119,27 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({
   }, [taskQueries, projects])
 
   const totalCount = notifications.length
+  const currentTaskIds = useMemo(() => new Set(notifications.map(n => n.taskId)), [notifications])
+  
+  const hasNewNotifications = useMemo(() => {
+    if (currentTaskIds.size === 0) return false
+    for (const taskId of currentTaskIds) {
+      if (!seenTaskIds.has(taskId)) return true
+    }
+    return false
+  }, [currentTaskIds, seenTaskIds])
+
+  const markAsSeen = useCallback(() => {
+    if (currentTaskIds.size > 0) {
+      const allSeen = new Set([...seenTaskIds, ...currentTaskIds])
+      setSeenTaskIds(allSeen)
+      setSeenNotifications(Array.from(allSeen))
+    }
+  }, [currentTaskIds, seenTaskIds])
 
   const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     setAnchorEl(event.currentTarget)
+    markAsSeen()
   }
 
   const handleClose = () => {
@@ -116,12 +169,16 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({
       >
         <Badge
           badgeContent={totalCount}
-          color="error"
+          color={hasNewNotifications ? 'error' : 'default'}
           sx={{
             '& .MuiBadge-badge': {
               fontSize: '0.65rem',
               height: 16,
               minWidth: 16,
+              ...(!hasNewNotifications && {
+                backgroundColor: 'rgba(255,255,255,0.3)',
+                color: 'rgba(0,0,0,0.7)',
+              }),
             },
           }}
         >
