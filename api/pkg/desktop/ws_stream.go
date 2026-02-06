@@ -536,16 +536,18 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				srcPart,
 				// Scale FIRST, then convert format. This is critical for performance:
 				// PipeWire delivers BGRx at 1920x1080 (8.3MB/frame). If we videoconvert
-				// first, we process 2M pixels. By scaling to 960x540 first (just dropping
-				// pixels in BGRx, very fast), videoconvert only processes 500K pixels = 4x less work.
-				// The intermediate capsfilter forces videoscale to output at target resolution
-				// before videoconvert touches the data.
-				// method=0 = nearest-neighbor (fastest for 2x downscale, just picks every other pixel)
-				// dither=0 = no dithering, chroma-mode=0 = full chroma (fastest conversion)
-				"videoscale method=0",
-				"video/x-raw,width=960,height=540",
-				"videoconvert dither=0 chroma-mode=0",
-				fmt.Sprintf("video/x-raw,format=%s,width=960,height=540", pixelFormat),
+				// first, we process 2M pixels. By scaling first, videoconvert processes
+				// fewer pixels. The intermediate capsfilter forces videoscale to output
+				// at target resolution before videoconvert touches the data.
+				//
+				// The encode resolution controls TCP payload to the host encoder:
+				//   960x540 NV12 = 777KB/frame → ~40 FPS (SLiRP TCP limited to ~31 MB/s)
+				//   640x360 NV12 = 346KB/frame → ~60 FPS target (half the TCP bandwidth)
+				// TODO: Make this configurable via HELIX_ENCODE_RESOLUTION env var
+				"videoscale",
+				"video/x-raw,width=640,height=360",
+				"videoconvert",
+				fmt.Sprintf("video/x-raw,format=%s,width=640,height=360", pixelFormat),
 			}
 			v.useRealtimeClock = true
 		} else if isAmdGnome {
