@@ -16,20 +16,38 @@ spec:
       storage: {{ .Values.persistence.dockerStorage.size }}
 {{- end }}
 ---
-{{- if .Values.persistence.sandboxConfig.enabled }}
+{{- if .Values.persistence.hydraData.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "helix-sandbox.fullname" . }}-config
+  name: {{ include "helix-sandbox.fullname" . }}-hydra
   labels:
     {{- include "helix-sandbox.labels" . | nindent 4 }}
 spec:
   accessModes:
-    {{- toYaml .Values.persistence.sandboxConfig.accessModes | nindent 4 }}
-  {{- if .Values.persistence.sandboxConfig.storageClassName }}
-  storageClassName: {{ .Values.persistence.sandboxConfig.storageClassName | quote }}
+    {{- toYaml .Values.persistence.hydraData.accessModes | nindent 4 }}
+  {{- if .Values.persistence.hydraData.storageClassName }}
+  storageClassName: {{ .Values.persistence.hydraData.storageClassName | quote }}
   {{- end }}
   resources:
     requests:
-      storage: {{ .Values.persistence.sandboxConfig.size }}
+      storage: {{ .Values.persistence.hydraData.size }}
+{{- end }}
+---
+{{- if .Values.persistence.workspaceData.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "helix-sandbox.fullname" . }}-workspace
+  labels:
+    {{- include "helix-sandbox.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.workspaceData.accessModes | nindent 4 }}
+  {{- if .Values.persistence.workspaceData.storageClassName }}
+  storageClassName: {{ .Values.persistence.workspaceData.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.workspaceData.size }}
 {{- end }}

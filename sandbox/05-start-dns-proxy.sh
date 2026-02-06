@@ -30,9 +30,24 @@ for i in $(seq 1 $MAX_WAIT); do
     sleep 1
 done
 
+# Determine upstream DNS server
+# Priority: 1) DNS_UPSTREAM env var, 2) K8s DNS from /etc/resolv.conf, 3) Docker DNS fallback
+if [ -n "$DNS_UPSTREAM" ]; then
+    UPSTREAM_DNS="$DNS_UPSTREAM"
+    echo "📌 Using DNS_UPSTREAM env var: $UPSTREAM_DNS"
+elif grep -q "nameserver" /etc/resolv.conf; then
+    # Use the first nameserver from /etc/resolv.conf (typically K8s DNS)
+    UPSTREAM_DNS=$(grep "nameserver" /etc/resolv.conf | head -1 | awk '{print $2}'):53
+    echo "📌 Using K8s DNS from resolv.conf: $UPSTREAM_DNS"
+else
+    # Fallback to Docker's embedded DNS (works in local dev)
+    UPSTREAM_DNS="127.0.0.11:53"
+    echo "📌 Using Docker DNS fallback: $UPSTREAM_DNS"
+fi
+
 # Start dns-proxy bound to the sandbox docker0 gateway specifically
 # This leaves 10.200.X.1:53 addresses free for Hydra's per-session DNS servers
-dns-proxy -listen "${DOCKER0_GATEWAY}:53" -upstream "127.0.0.11:53" &
+dns-proxy -listen "${DOCKER0_GATEWAY}:53" -upstream "$UPSTREAM_DNS" &
 DNS_PROXY_PID=$!
 echo "✅ DNS proxy started (PID: $DNS_PROXY_PID)"
 
@@ -41,7 +56,7 @@ sleep 0.5
 
 # Verify it's running
 if kill -0 $DNS_PROXY_PID 2>/dev/null; then
-    echo "✅ DNS proxy is running on ${DOCKER0_GATEWAY}:53 → 127.0.0.11:53"
+    echo "✅ DNS proxy is running on ${DOCKER0_GATEWAY}:53 → ${UPSTREAM_DNS}"
 else
     echo "❌ DNS proxy failed to start"
     exit 1
