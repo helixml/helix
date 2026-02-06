@@ -50,7 +50,7 @@ This is our fork of UTM's QEMU fork, with custom patches for zero-copy GPU frame
 cd ~/pm
 git clone git@github.com:helixml/qemu-utm.git
 cd qemu-utm
-git checkout utm-edition  # Our branch (includes upstream utm-edition-venus + helix patches)
+git checkout utm-edition-venus-helix  # Our branch (upstream venus + helix patches)
 ```
 
 **Remotes:**
@@ -200,7 +200,7 @@ cd ~/pm/helix
 **qemu-utm** (~/pm/qemu-utm) - Our QEMU fork:
 - Fork of: https://github.com/utmapp/qemu
 - Our fork: https://github.com/helixml/qemu-utm
-- Branch: `utm-edition` (based on upstream `origin/utm-edition-venus` which adds Vulkan/Venus support)
+- Branch: `utm-edition-venus-helix` (based on upstream `origin/utm-edition-venus` which adds Vulkan/Venus support)
 - Contains helix-frame-export module with DisplaySurface + VideoToolbox encoding
 - ~21 commits on top of upstream Venus branch
 - This is the actual QEMU source code we modify
