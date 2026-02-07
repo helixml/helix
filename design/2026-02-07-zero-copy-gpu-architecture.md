@@ -396,6 +396,17 @@ ssh -p 2222 luke@localhost
 ssh helix-vm
 ```
 
+**Helix repo in VM**: `~/helix` (branch `feature/macos-arm-desktop-port`)
+```bash
+ssh helix-vm "cd ~/helix && git pull"  # Update from GitHub
+```
+
+**Docker** installed at `/usr/bin/docker` (Docker 29.2.1).
+Build the helix-ubuntu image from the VM:
+```bash
+ssh helix-vm "cd ~/helix && docker build -f Dockerfile.ubuntu-helix -t helix-ubuntu:latest ."
+```
+
 **Go 1.25** installed at `/usr/local/go/bin/go` (matches helix go.mod).
 
 **GDM disabled** for the DRM lease approach to work:
