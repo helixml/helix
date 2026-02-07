@@ -283,9 +283,15 @@ func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, wi
 
 	// 6. Send lease FD to client via SCM_RIGHTS
 	connectorName := fmt.Sprintf("Virtual-%d", scanoutIdx+1)
+	// The scanout ID for QEMU subscribe is scanoutIdx+1, not scanoutIdx.
+	// This is because the kernel virtio-gpu driver's SET_SCANOUT command
+	// uses an output index that is offset by 1 from the QEMU req_state index
+	// used by ENABLE_SCANOUT. The subscriber must use the kernel's scanout ID
+	// to match the frames that QEMU captures on resource_flush.
+	qemuScanoutID := scanoutIdx + 1
 	resp := leaseResponse{
 		Status:    0,
-		ScanoutID: scanoutIdx,
+		ScanoutID: qemuScanoutID,
 	}
 	copy(resp.ConnectorName[:], connectorName)
 

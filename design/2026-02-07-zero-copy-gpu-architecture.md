@@ -130,9 +130,10 @@ pipeline unchanged. The container Dockerfile conditionally includes these compon
 | DRM lease with planes | ✅ VERIFIED | Need UNIVERSAL_PLANES cap set before lease creation |
 | QEMU auto-encode on page flip | ✅ VERIFIED | **124.6 FPS** with drm-flipper continuous page flips |
 | H.264 → TCP subscriber | ✅ VERIFIED | 1256 frames in 10s, 282B P-frames, 6.2KB keyframes |
-| Mutter modeset on lease FD | ⚠️ IN PROGRESS | logind-stub session OK, udev card entry with seat tag added, "No GPUs found" being debugged |
-| Container scanout integration | ⚠️ IN PROGRESS | All scripts/binaries in place, gnome-shell starts but GUdev GPU enumeration fails |
-| H.264 → WebSocket end-to-end | ⬜ NOT TESTED | Blocked by gnome-shell GPU detection in container |
+| Mutter modeset on lease FD | ✅ VERIFIED | logind-stub session OK, GUdev tag index fix, Mutter renders via atomic modesetting |
+| Container scanout integration | ✅ VERIFIED | gnome-shell --display-server works in container with DRM lease |
+| GNOME → QEMU H.264 in container | ✅ VERIFIED | 88KB keyframe received via SUBSCRIBE(scanout_id) from container's GNOME desktop |
+| H.264 → WebSocket end-to-end | ⬜ NOT TESTED | Need to integrate desktop-bridge scanout mode with full Helix stack |
 
 ### RESOLVED: QEMU Double-Init Bug
 
@@ -167,34 +168,46 @@ BEFORE creating the DRM lease. This puts the CRTC in an active state (mode set,
 connector enabled, framebuffer attached). When Mutter gets the lease, it sees
 `CRTC active: 1, mode: 1920x1080` and successfully inherits the display.
 
-### Current Blocker: Mutter "No GPUs found" in Container
+### RESOLVED: Mutter "No GPUs found" in Container
 
-gnome-shell in `--display-server` mode uses GUdev to enumerate DRM card devices.
-It looks for card devices with `seat` tag in the udev database. We create the entry
-at `/run/udev/data/c226:0` with `G:seat`, `Q:seat`, `E:DEVTYPE=drm_minor`,
-`E:ID_SEAT=seat0`, but Mutter still reports "No GPUs found".
+**Problem**: gnome-shell in `--display-server` mode uses GUdev to enumerate DRM card
+devices. It calls `g_udev_enumerator_add_match_tag("seat")` which uses libudev's
+`udev_enumerate_add_match_tag()`. This function uses a **reverse tag index** at
+`/run/udev/tags/<tag_name>/` rather than checking each device's tags.
 
-**Progress so far**:
-1. ✅ "Failed to find any matching session" → fixed by adding all required Session properties to logind-stub
-2. ✅ "Failed to connect to system bus" → fixed by adding system D-Bus daemon init + policy file
-3. ❌ "No GPUs found" → udev card device entry created but GUdev enumeration still fails
+We were creating the udev database entry at `/run/udev/data/c226:0` with `G:seat`
+and `Q:seat` tags, but NOT the tag index directories. `udevadm info` could read
+the device properties correctly, but enumeration returned 0 devices.
 
-**What the real system's udev entry looks like** (from host VM `/run/udev/data/c226:0`):
-```
-S:dri/by-path/pci-0000:00:02.0-card
-E:ID_PATH=pci-0000:00:02.0
-E:ID_FOR_SEAT=drm-pci-0000_00_02_0
-G:seat
-Q:seat
-V:1
+**Fix**: Create tag index directories in addition to the database entry:
+```bash
+# In detect-render-node.sh
+mkdir -p /run/udev/tags/seat /run/udev/tags/mutter-device-preferred-primary
+touch /run/udev/tags/seat/c226:0
+touch /run/udev/tags/mutter-device-preferred-primary/c226:0
 ```
 
-**Next steps**:
-- Check if GUdev requires the `S:dri/by-path/...` symlink entry
-- Check if `/sys/class/drm/card0` sysfs entries are properly visible inside container
-- Try `G_UDEV_DEBUG=1` or similar to trace what GUdev is looking for
-- Alternative: use the already-proven headless mode inside container, capture via PipeWire,
-  encode with vsockenc (sends to QEMU VideoToolbox), bypassing the DRM lease approach entirely
+After this fix, Mutter successfully finds the GPU:
+```
+Added device '/dev/dri/card0' (virtio_gpu) using atomic mode setting.
+Created gbm renderer for '/dev/dri/card0'
+GPU /dev/dri/card0 selected primary given udev rule
+Using Wayland display name 'wayland-0'
+```
+
+### RESOLVED: Scanout ID Off-by-One
+
+**Problem**: helix-drm-manager allocates scanout index N (from pool [1..15]) and
+sends `ENABLE_SCANOUT(N)` to QEMU. But the kernel's `SET_SCANOUT` command uses
+`scanout_id = N+1`. This causes desktop-bridge to subscribe to the wrong scanout.
+
+**Observation**: Consistent +1 offset across all observed scanout allocations:
+- Pool index 13 → kernel SET_SCANOUT scanout_id=14
+- Pool index 14 → kernel SET_SCANOUT scanout_id=15
+- (Pattern confirmed across all 5 observed allocations)
+
+**Fix**: helix-drm-manager returns `scanoutIdx + 1` as the ScanoutID in the lease
+response. This ensures desktop-bridge subscribes to the correct QEMU scanout.
 
 ### Desktop-Bridge Scanout Mode
 

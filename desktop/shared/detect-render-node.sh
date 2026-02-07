@@ -210,6 +210,14 @@ detect_render_node() {
                 # GUdev uses Q: tags for g_udev_device_get_current_tags()
                 printf "E:DEVTYPE=drm_minor\nE:ID_SEAT=seat0\nE:ID_FOR_SEAT=drm-pci-helix\nG:seat\nG:mutter-device-preferred-primary\nQ:seat\nQ:mutter-device-preferred-primary\nV:1\n" | sudo tee "$CARD_UDEV_FILE" > /dev/null
                 echo "[render-node] Created udev card device entry: $CARD_UDEV_FILE"
+
+                # Create tag index directories for libudev enumeration
+                # libudev's udev_enumerate_add_match_tag() uses /run/udev/tags/<tag>/<devid>
+                # as a reverse index, NOT the G:/Q: entries in the database file
+                sudo mkdir -p /run/udev/tags/seat /run/udev/tags/mutter-device-preferred-primary
+                sudo touch "/run/udev/tags/seat/c${CARD_MAJOR_DEC}:${CARD_MINOR_DEC}"
+                sudo touch "/run/udev/tags/mutter-device-preferred-primary/c${CARD_MAJOR_DEC}:${CARD_MINOR_DEC}"
+                echo "[render-node] Created udev tag index for seat enumeration"
             fi
         fi
     fi
