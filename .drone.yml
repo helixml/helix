@@ -1605,6 +1605,84 @@ steps:
     depends_on:
       - clone-dependencies
 
+  # Step 3b: Run Zed WebSocket E2E test
+  # Builds a lightweight runtime image with the pre-built Zed binary and runs
+  # the multi-phase E2E test (thread creation, follow-ups, thread transitions).
+  # Runs in parallel with build-desktops since it only needs the Zed binary.
+  - name: zed-e2e-test
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      ANTHROPIC_API_KEY:
+        from_secret: anthropic_api_key
+    commands:
+      - apk add --no-cache flock
+      - |
+        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
+        ZED_SOURCE="/drone/src/cache/zed-source"
+
+        # Verify Zed binary exists from build-zed step
+        if [ ! -f "zed-build/zed" ]; then
+          echo "ERROR: Zed binary not found - build-zed step must run first"
+          exit 1
+        fi
+
+        # Copy pre-built binary into Zed source tree for Docker context
+        cp zed-build/zed "$${ZED_SOURCE}/zed-prebuilt"
+
+        # Build runtime-only E2E image (skips Rust compilation)
+        # Uses a Dockerfile that just sets up runtime deps + copies the binary
+        cat > "$${ZED_SOURCE}/Dockerfile.e2e-runtime" << 'DOCKERFILE'
+        FROM ubuntu:25.10
+        ENV DEBIAN_FRONTEND=noninteractive
+        RUN apt-get update && apt-get install -y --no-install-recommends \
+            libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 libvulkan1 \
+            libx11-xcb1 libxcb-shape0 libxcb-xfixes0 \
+            libxcb-randr0 libxcb-render0 \
+            libxcb-shm0 libxcb-glx0 libxcb-xkb1 \
+            libxcb1 libx11-6 \
+            libfontconfig1 libfreetype6 \
+            libssl3t64 libsqlite3-0 libzstd1 ca-certificates \
+            libasound2t64 \
+            libatk1.0-0t64 libgtk-3-0t64 \
+            xvfb x11-utils dbus \
+            mesa-vulkan-drivers \
+            python3 python3-websockets \
+            && rm -rf /var/lib/apt/lists/*
+        COPY zed-prebuilt /usr/local/bin/zed
+        RUN chmod +x /usr/local/bin/zed
+        COPY crates/external_websocket_sync/e2e-test/run_e2e.sh /test/run_e2e.sh
+        RUN chmod +x /test/run_e2e.sh
+        ENV DISPLAY=:99
+        ENV VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+        ENV LIBGL_ALWAYS_SOFTWARE=1
+        ENV ZED_ALLOW_EMULATED_GPU=1
+        ENV ZED_ALLOW_ROOT=true
+        WORKDIR /test
+        RUN mkdir -p /test/project && echo "# Test Project" > /test/project/README.md
+        ENTRYPOINT ["/test/run_e2e.sh"]
+        DOCKERFILE
+
+        echo "Building E2E runtime image..."
+        docker build -t zed-ws-e2e:$${ZED_COMMIT} \
+          -f "$${ZED_SOURCE}/Dockerfile.e2e-runtime" \
+          "$${ZED_SOURCE}"
+
+        echo "Running E2E test..."
+        docker run --rm \
+          -e ANTHROPIC_API_KEY="$${ANTHROPIC_API_KEY}" \
+          -e TEST_TIMEOUT=240 \
+          zed-ws-e2e:$${ZED_COMMIT}
+
+        echo "✅ Zed WebSocket E2E test passed"
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+      - name: sandbox-build-cache
+        path: /drone/src/cache
+    depends_on:
+      - build-zed
+
   # Step 4: Build and push desktop images to registry
   - name: build-desktops
     image: docker:cli
@@ -1688,7 +1766,7 @@ steps:
     depends_on:
       - build-desktops
 
-  # Step 6: Push to registry
+  # Step 6: Push to registry (gated on E2E test passing)
   - name: push-sandbox
     image: docker:cli
     environment:
@@ -1723,3 +1801,4 @@ steps:
         path: /var/run/docker.sock
     depends_on:
       - build-sandbox
+      - zed-e2e-test

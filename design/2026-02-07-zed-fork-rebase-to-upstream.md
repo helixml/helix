@@ -197,5 +197,5 @@ The fork approach is the only option for these features.
 6. **Add Qwen Code ACP test** - Test with Qwen Code agent using Together AI
 7. **Test session resume** - Kill and restart Zed, verify thread state restored
 8. **Update Helix build scripts** - Point `./stack build-zed` at new fork/branch
-9. **CI integration** - Add Docker E2E test to Drone pipeline
-10. **Helix multi-thread session support** - spectasks need to track multiple Zed thread IDs per session
+9. ~~**CI integration**~~ DONE - Added `zed-e2e-test` step to build-sandbox Drone pipeline. Builds runtime-only Docker image with pre-built Zed binary, runs multi-phase E2E test. Gates `push-sandbox` on E2E passing.
+10. ~~**Helix multi-thread session support**~~ DONE - Added `GetSpecTaskZedThreadByZedThreadID` store method, wired `trackSpecTaskZedThread` into both handleThreadCreated paths, activity tracking in handleMessageCompleted.

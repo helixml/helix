@@ -475,6 +475,7 @@ type Store interface {
 	CreateSpecTaskZedThread(ctx context.Context, zedThread *types.SpecTaskZedThread) error
 	GetSpecTaskZedThread(ctx context.Context, id string) (*types.SpecTaskZedThread, error)
 	GetSpecTaskZedThreadByWorkSession(ctx context.Context, workSessionID string) (*types.SpecTaskZedThread, error)
+	GetSpecTaskZedThreadByZedThreadID(ctx context.Context, zedThreadID string) (*types.SpecTaskZedThread, error)
 	UpdateSpecTaskZedThread(ctx context.Context, zedThread *types.SpecTaskZedThread) error
 	DeleteSpecTaskZedThread(ctx context.Context, id string) error
 	ListSpecTaskZedThreads(ctx context.Context, specTaskID string) ([]*types.SpecTaskZedThread, error)

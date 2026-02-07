@@ -2977,6 +2977,21 @@ func (mr *MockStoreMockRecorder) GetSpecTaskZedThread(ctx, id any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTaskZedThread", reflect.TypeOf((*MockStore)(nil).GetSpecTaskZedThread), ctx, id)
 }
 
+// GetSpecTaskZedThreadByZedThreadID mocks base method.
+func (m *MockStore) GetSpecTaskZedThreadByZedThreadID(ctx context.Context, zedThreadID string) (*types.SpecTaskZedThread, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSpecTaskZedThreadByZedThreadID", ctx, zedThreadID)
+	ret0, _ := ret[0].(*types.SpecTaskZedThread)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSpecTaskZedThreadByZedThreadID indicates an expected call of GetSpecTaskZedThreadByZedThreadID.
+func (mr *MockStoreMockRecorder) GetSpecTaskZedThreadByZedThreadID(ctx, zedThreadID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTaskZedThreadByZedThreadID", reflect.TypeOf((*MockStore)(nil).GetSpecTaskZedThreadByZedThreadID), ctx, zedThreadID)
+}
+
 // GetSpecTaskZedThreadByWorkSession mocks base method.
 func (m *MockStore) GetSpecTaskZedThreadByWorkSession(ctx context.Context, workSessionID string) (*types.SpecTaskZedThread, error) {
 	m.ctrl.T.Helper()
