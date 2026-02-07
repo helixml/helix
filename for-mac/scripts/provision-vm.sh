@@ -170,6 +170,7 @@ package_upgrade: false
 packages:
   - docker.io
   - docker-compose-v2
+  - docker-buildx
   - curl
   - git
   - htop
@@ -407,8 +408,8 @@ fi
 
 if ! step_done "build_desktop_image"; then
     log "Building helix-ubuntu desktop Docker image (this will take a while)..."
-    # Use tee to show progress while preserving exit code via pipefail
-    run_ssh "set -o pipefail; cd ~/helix && docker build -f Dockerfile.ubuntu-helix -t helix-ubuntu:latest . 2>&1 | tail -20" || {
+    # BuildKit is required for --mount=type=cache in the Dockerfile
+    run_ssh "set -o pipefail; cd ~/helix && DOCKER_BUILDKIT=1 docker build -f Dockerfile.ubuntu-helix -t helix-ubuntu:latest . 2>&1 | tail -20" || {
         log "WARNING: Desktop image build failed (can retry later with: ssh helix-vm 'cd ~/helix && docker build -f Dockerfile.ubuntu-helix -t helix-ubuntu:latest .')"
     }
     # Verify the image was actually created
