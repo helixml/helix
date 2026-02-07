@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -70,10 +71,24 @@ func main() {
 	logger.Info("logind-stub started", "pid", stubCmd.Process.Pid)
 	time.Sleep(2 * time.Second)
 
-	// Step 4: Set up environment for gnome-shell
+	// Step 4: Start a D-Bus session bus for gnome-shell
 	xdgRuntime := os.Getenv("XDG_RUNTIME_DIR")
 	if xdgRuntime == "" {
 		xdgRuntime = "/run/user/1000"
+	}
+
+	// Launch dbus-daemon for session bus
+	logger.Info("Starting D-Bus session bus...")
+	dbusCmd := exec.Command("dbus-daemon", "--session", "--print-address", "--fork",
+		"--address=unix:path="+xdgRuntime+"/bus")
+	dbusOutput, err := dbusCmd.Output()
+	var dbusAddr string
+	if err != nil {
+		logger.Warn("dbus-daemon failed, falling back to existing bus", "err", err)
+		dbusAddr = os.Getenv("DBUS_SESSION_BUS_ADDRESS")
+	} else {
+		dbusAddr = strings.TrimSpace(string(dbusOutput))
+		logger.Info("D-Bus session bus started", "addr", dbusAddr)
 	}
 
 	env := os.Environ()
@@ -83,6 +98,7 @@ func main() {
 		"XDG_SESSION_DESKTOP=gnome",
 		"MUTTER_DEBUG_FORCE_KMS_MODE=simple",
 		"XDG_RUNTIME_DIR="+xdgRuntime,
+		"DBUS_SESSION_BUS_ADDRESS="+dbusAddr,
 	)
 
 	// Step 5: Launch gnome-shell
