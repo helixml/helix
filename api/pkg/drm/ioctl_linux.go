@@ -95,7 +95,21 @@ type drmModeRevokeLease struct {
 	LesseeID uint32
 }
 
-// openDRM opens the DRM device and acquires master.
+// DRM client capability constants
+const (
+	// DRM_CLIENT_CAP_UNIVERSAL_PLANES = 2
+	drmClientCapUniversalPlanes = 2
+	// DRM_IOCTL_SET_CLIENT_CAP = _IOW('d', 0x0d, struct drm_set_client_cap)
+	// struct drm_set_client_cap { uint64 capability, uint64 value }
+	ioctlSetClientCap = 0x4010640d
+)
+
+type drmSetClientCap struct {
+	Capability uint64
+	Value      uint64
+}
+
+// openDRM opens the DRM device, acquires master, and sets capabilities.
 func openDRM(path string) (*os.File, error) {
 	f, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
@@ -105,6 +119,21 @@ func openDRM(path string) (*os.File, error) {
 		f.Close()
 		return nil, err
 	}
+
+	// Enable universal planes so plane format info is available in leases.
+	// Without this, DRM_IOCTL_MODE_GETPLANE returns no formats, and Mutter
+	// can't create framebuffers ("Plane has no advertised formats").
+	cap := drmSetClientCap{
+		Capability: drmClientCapUniversalPlanes,
+		Value:      1,
+	}
+	_, _, errno := unix.Syscall(unix.SYS_IOCTL, f.Fd(), ioctlSetClientCap,
+		uintptr(unsafe.Pointer(&cap)))
+	if errno != 0 {
+		// Non-fatal - log and continue
+		fmt.Fprintf(os.Stderr, "DRM_CLIENT_CAP_UNIVERSAL_PLANES failed: %v\n", errno)
+	}
+
 	return f, nil
 }
 

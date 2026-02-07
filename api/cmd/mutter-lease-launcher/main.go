@@ -103,9 +103,10 @@ func main() {
 		"XDG_RUNTIME_DIR="+xdgRuntime,
 		"DBUS_SESSION_BUS_ADDRESS="+dbusAddr,
 	)
-	if mutterDebug != "" {
-		env = append(env, "MUTTER_DEBUG="+mutterDebug)
+	if mutterDebug == "" {
+		mutterDebug = "kms"  // Default to KMS debug for development
 	}
+	env = append(env, "MUTTER_DEBUG="+mutterDebug)
 
 	// Step 5: Launch gnome-shell
 	logger.Info("Launching gnome-shell --display-server...")
