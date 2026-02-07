@@ -130,8 +130,9 @@ pipeline unchanged. The container Dockerfile conditionally includes these compon
 | DRM lease with planes | ✅ VERIFIED | Need UNIVERSAL_PLANES cap set before lease creation |
 | QEMU auto-encode on page flip | ✅ VERIFIED | **124.6 FPS** with drm-flipper continuous page flips |
 | H.264 → TCP subscriber | ✅ VERIFIED | 1256 frames in 10s, 282B P-frames, 6.2KB keyframes |
-| Mutter modeset on lease FD | ⚠️ PARTIAL | Works in containers (full GNOME session), not bare VM |
-| H.264 → WebSocket end-to-end | ⬜ NOT TESTED | Needs desktop-bridge integration |
+| Mutter modeset on lease FD | ⚠️ IN PROGRESS | logind-stub session OK, udev card entry with seat tag added, "No GPUs found" being debugged |
+| Container scanout integration | ⚠️ IN PROGRESS | All scripts/binaries in place, gnome-shell starts but GUdev GPU enumeration fails |
+| H.264 → WebSocket end-to-end | ⬜ NOT TESTED | Blocked by gnome-shell GPU detection in container |
 
 ### RESOLVED: QEMU Double-Init Bug
 
@@ -166,11 +167,34 @@ BEFORE creating the DRM lease. This puts the CRTC in an active state (mode set,
 connector enabled, framebuffer attached). When Mutter gets the lease, it sees
 `CRTC active: 1, mode: 1920x1080` and successfully inherits the display.
 
-**Remaining issue**: gnome-shell needs the full GNOME desktop session infrastructure
-(gsettings, dconf, etc.) to create a Wayland socket and start rendering. Running
-gnome-shell bare in the VM (without the container's startup-app.sh) stalls during
-initialization. This is NOT an issue for the real Helix deployment where gnome-shell
-runs inside Docker containers with the full desktop stack.
+### Current Blocker: Mutter "No GPUs found" in Container
+
+gnome-shell in `--display-server` mode uses GUdev to enumerate DRM card devices.
+It looks for card devices with `seat` tag in the udev database. We create the entry
+at `/run/udev/data/c226:0` with `G:seat`, `Q:seat`, `E:DEVTYPE=drm_minor`,
+`E:ID_SEAT=seat0`, but Mutter still reports "No GPUs found".
+
+**Progress so far**:
+1. ✅ "Failed to find any matching session" → fixed by adding all required Session properties to logind-stub
+2. ✅ "Failed to connect to system bus" → fixed by adding system D-Bus daemon init + policy file
+3. ❌ "No GPUs found" → udev card device entry created but GUdev enumeration still fails
+
+**What the real system's udev entry looks like** (from host VM `/run/udev/data/c226:0`):
+```
+S:dri/by-path/pci-0000:00:02.0-card
+E:ID_PATH=pci-0000:00:02.0
+E:ID_FOR_SEAT=drm-pci-0000_00_02_0
+G:seat
+Q:seat
+V:1
+```
+
+**Next steps**:
+- Check if GUdev requires the `S:dri/by-path/...` symlink entry
+- Check if `/sys/class/drm/card0` sysfs entries are properly visible inside container
+- Try `G_UDEV_DEBUG=1` or similar to trace what GUdev is looking for
+- Alternative: use the already-proven headless mode inside container, capture via PipeWire,
+  encode with vsockenc (sends to QEMU VideoToolbox), bypassing the DRM lease approach entirely
 
 ### Desktop-Bridge Scanout Mode
 
@@ -386,6 +410,13 @@ Key commits:
 - `ad297fe80` - feat: Scanout video mode for macOS ARM desktop streaming (scanout_source.go)
 - `fb82665e4` - fix: Use dbus-run-session for gnome-shell in mutter-lease-launcher
 - `b7d8ec6e3` - feat: Integrate scanout mode into Helix container stack
+- `3b2e56bfd` - feat: drm-flipper test tool, 124.6 FPS H.264 pipeline verified
+- `426a59937` - fix: Coordinate scanout ID between mutter-lease-launcher and desktop-bridge
+- `99036e00a` - fix: Match virtio-pci driver name for virtio-gpu in containers
+- `9873537ad` - fix: Add system D-Bus setup for logind-stub in containers
+- `07784f8de` - fix: Add all required session properties to logind-stub
+- `e5f24fb33` - fix: Add udev card device entry with seat tag for Mutter display-server
+- `cb35e0a4b` - fix: Add Q: current tags to udev card entry for GUdev compatibility
 
 ## VM Setup Notes
 
