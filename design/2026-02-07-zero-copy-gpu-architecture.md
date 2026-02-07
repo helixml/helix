@@ -241,8 +241,13 @@ Each scanout fires resource_flush independently on page flip (damage-based).
 QEMU reads GPU memory via Metal IOSurface and encodes with VideoToolbox.
 
 ### Steps
-1. [x] Verify QEMU max_outputs parameter
-2. [ ] Add max_outputs=16 to UTM VM config
+1. [x] Verify QEMU max_outputs parameter (VIRTIO_GPU_MAX_SCANOUTS=16)
+2. [~] Add max_outputs=16 to UTM VM config
+   - UTM plist `AdditionalArguments` key confirmed in source (string array)
+   - `-global virtio-gpu-gl-pci.max_outputs=16` should work
+   - BUT: UTM doesn't seem to pass AdditionalArguments to QEMU
+   - VM SSH became unreachable after multiple restart cycles (needs user intervention)
+   - Alternative: modify UTM source to hardcode max_outputs or add it to Display config
 3. [ ] Verify guest sees 16 DRM connectors
 4. [ ] Test Mutter on a non-primary connector from inside container
 5. [ ] Modify helix-frame-export to watch multiple scanouts
