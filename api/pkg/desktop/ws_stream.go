@@ -1051,7 +1051,10 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 				avgSend := totalSendTime / time.Duration(logFrameCount)
 				encoderLatMs := float64(v.encoderLatencyUs.Load()) / 1000.0
 				// Get pipeline frame stats to track drops
-				pipelineReceived, pipelineDropped := v.sharedSource.GetFrameStats()
+				var pipelineReceived, pipelineDropped uint64
+				if v.sharedSource != nil {
+					pipelineReceived, pipelineDropped = v.sharedSource.GetFrameStats()
+				}
 
 				// Calculate frame timing stats
 				var avgIntervalMs int64
