@@ -523,11 +523,14 @@ function build-runner-image() {
 
 function build-zed() {
   # ====================================================================
-  # Build Zed inside Ubuntu 22.04 container for glibc 2.35 compatibility
+  # Build Zed inside Docker with BuildKit cache mounts
   # ====================================================================
-  # This produces a binary that works on Ubuntu 22.04+ (including 25.04)
-  # Building in Docker ensures consistent, portable binaries regardless
-  # of the host OS version.
+  # Uses `docker build` with --mount=type=cache for persistent caching of:
+  #   - Cargo registry and git deps
+  #   - Rustup toolchain
+  #   - Build artifacts (incremental compilation)
+  #
+  # The binary is extracted via --output without keeping a large image.
   # ====================================================================
   echo "🔨 Building Zed with External WebSocket Thread Sync (Docker build)..."
 
@@ -563,7 +566,6 @@ function build-zed() {
   fi
 
   # Create output directory and ensure we own it
-  # (Docker bind mounts may have created it as root on fresh installs)
   mkdir -p "$ZED_OUTPUT_DIR"
   if [ ! -w "$ZED_OUTPUT_DIR" ]; then
     echo "⚠️  $ZED_OUTPUT_DIR exists but is not writable"
@@ -571,100 +573,55 @@ function build-zed() {
     sudo chown -R "$USER:$USER" "$ZED_OUTPUT_DIR"
   fi
 
-  echo "🐳 Building Zed inside Ubuntu 25.10 container..."
+  echo "🐳 Building Zed via docker build with BuildKit cache mounts..."
   echo "   Source: $ZED_SOURCE_DIR"
   echo "   Output: $ZED_OUTPUT_DIR"
   echo "   Mode: $BUILD_TYPE"
 
-  # Build the builder image if needed
-  if ! docker image inspect zed-builder:ubuntu25 &> /dev/null; then
-    echo "📦 Building zed-builder:ubuntu25 image (first time only, ~2-3 min)..."
-    docker build -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
-    if [ $? -ne 0 ]; then
-      echo "❌ Failed to build zed-builder:ubuntu25 image"
-      return 1
-    fi
+  # Create temporary .dockerignore to exclude build artifacts from context
+  # Without this, Docker would try to send 200GB+ of target/ as build context
+  local DOCKERIGNORE="$ZED_SOURCE_DIR/.dockerignore"
+  local DOCKERIGNORE_EXISTED=false
+  if [ -f "$DOCKERIGNORE" ]; then
+    DOCKERIGNORE_EXISTED=true
+  fi
+  cat > "$DOCKERIGNORE" << 'EIGNORE'
+target/
+target-ubuntu25/
+.git/
+EIGNORE
+
+  echo "🚀 Starting Docker build (cached after first run)..."
+
+  # Build using Dockerfile.zed-build with the Zed source as context
+  # --output extracts just the binary from the scratch final stage
+  # --build-arg passes the build type (dev or release)
+  # BuildKit cache mounts in the Dockerfile handle cargo/rustup/target caching
+  docker build \
+    --provenance=false \
+    -f "$DIR/Dockerfile.zed-build" \
+    --build-arg "BUILD_TYPE=$BUILD_TYPE" \
+    --output "type=local,dest=$ZED_OUTPUT_DIR" \
+    "$ZED_SOURCE_DIR"
+
+  local BUILD_EXIT=$?
+
+  # Clean up temporary .dockerignore (unless it existed before)
+  if [ "$DOCKERIGNORE_EXISTED" = "false" ]; then
+    rm -f "$DOCKERIGNORE"
   fi
 
-  # Setup cargo + rustup cache for faster rebuilds
-  # Note: We mount registry and git separately to avoid shadowing /root/.cargo/bin
-  # Rustup cache stores the toolchain (1.91.1 + wasm32-wasip2 target) so it doesn't re-download
-  # Use /buildkit-cache if available (persistent across dev containers), otherwise fall back to $HOME
-  if [ -d "/buildkit-cache" ] && [ -w "/buildkit-cache" ]; then
-    local CARGO_CACHE="/buildkit-cache/cargo"
-    local RUSTUP_CACHE="/buildkit-cache/rustup"
-    echo "📦 Using persistent cache at /buildkit-cache (shared across dev containers)"
-  else
-    local CARGO_CACHE="$HOME/.cargo-docker-cache"
-    local RUSTUP_CACHE="$HOME/.rustup-docker-cache"
-    echo "📦 Using local cache at $CARGO_CACHE (not persistent across containers)"
-  fi
-  mkdir -p "$CARGO_CACHE/registry" "$CARGO_CACHE/git" "$RUSTUP_CACHE"
-
-  # Build command based on type
-  # Use a separate target directory to avoid conflicts with host builds
-  local BUILD_CMD
-  local BINARY_PATH
-  local TARGET_DIR="target-ubuntu25"
-  if [ "$BUILD_TYPE" = "release" ]; then
-    echo "🔨 Building in release mode (optimized, stripped, slower build)..."
-    BUILD_CMD="CARGO_TARGET_DIR=$TARGET_DIR RUSTFLAGS='-C link-arg=-s' cargo build --release --features external_websocket_sync"
-    BINARY_PATH="$TARGET_DIR/release/zed"
-  else
-    echo "🔨 Building in dev mode (fast incremental builds with debug symbols)..."
-    BUILD_CMD="CARGO_TARGET_DIR=$TARGET_DIR cargo build --features external_websocket_sync"
-    BINARY_PATH="$TARGET_DIR/debug/zed"
-  fi
-
-  # Get absolute path to Zed source
-  local ZED_ABS_PATH
-  ZED_ABS_PATH=$(cd "$ZED_SOURCE_DIR" && pwd)
-
-  # Get absolute path to output directory
-  local OUTPUT_ABS_PATH
-  OUTPUT_ABS_PATH=$(cd "$ZED_OUTPUT_DIR" && pwd)
-
-  echo "🚀 Starting Docker build (this may take a while on first run)..."
-
-  # Run build inside container
-  # Mount:
-  #   - Zed source at /zed
-  #   - Cargo registry cache at /root/.cargo/registry (crates index and sources)
-  #   - Cargo git cache at /root/.cargo/git (git dependencies)
-  #   - Rustup cache at /root/.rustup (toolchain 1.91.1 + wasm32-wasip2 target)
-  #   - Output directory at /output
-  # Note: We don't mount the entire /root/.cargo to avoid shadowing the cargo binary
-  docker run --rm \
-    -v "$ZED_ABS_PATH:/zed" \
-    -v "$CARGO_CACHE/registry:/root/.cargo/registry" \
-    -v "$CARGO_CACHE/git:/root/.cargo/git" \
-    -v "$RUSTUP_CACHE:/root/.rustup" \
-    -v "$OUTPUT_ABS_PATH:/output" \
-    -w /zed \
-    zed-builder:ubuntu25 \
-    bash -c "$BUILD_CMD && cp $BINARY_PATH /output/zed.new && chmod +x /output/zed.new"
-
-  if [ $? -ne 0 ]; then
+  if [ $BUILD_EXIT -ne 0 ]; then
     echo "❌ Docker build failed"
     return 1
   fi
 
-  # Atomic rename (works even if old binary is in use)
-  if [ -f "$ZED_OUTPUT_DIR/zed" ]; then
-    mv "$ZED_OUTPUT_DIR/zed" "$ZED_OUTPUT_DIR/zed.old" 2>/dev/null || true
-  fi
-  mv "$ZED_OUTPUT_DIR/zed.new" "$ZED_OUTPUT_DIR/zed"
-  rm -f "$ZED_OUTPUT_DIR/zed.old" 2>/dev/null || true
-
-  # Verify the binary
+  # Verify the binary (--output writes it as ./zed-build/zed)
   local BINARY_SIZE=$(du -h "$ZED_OUTPUT_DIR/zed" | cut -f1)
 
   echo "✅ Zed binary built successfully"
   echo "📦 Binary size: $BINARY_SIZE"
 
-
-
-  # Note: Release builds are already stripped via RUSTFLAGS during compilation
   if [ "$BUILD_TYPE" = "release" ]; then
     echo "✅ Binary built with symbols stripped (via linker flags)"
   fi
@@ -1356,7 +1313,14 @@ function transfer-desktop-to-sandbox() {
   local SANDBOX_CONTAINER_NAME="$SANDBOX_CONTAINER"
   if [[ "$HELIX_IN_HELIX" == "true" ]]; then
     SANDBOX_DOCKER_HOST="$DOCKER_HOST_OUTER"
-    SANDBOX_CONTAINER_NAME="helix-inner-sandbox-${USER:-dev}"
+    # Get actual container name from compose (includes project name prefix)
+    SANDBOX_CONTAINER_NAME=$(DOCKER_HOST="$DOCKER_HOST_OUTER" \
+      COMPOSE_PROFILES="${OUTER_SANDBOX_PROFILE:-code-nvidia}" \
+      docker compose -f docker-compose.dev.yaml ps -q "$SANDBOX_SERVICE" 2>/dev/null)
+    if [ -z "$SANDBOX_CONTAINER_NAME" ]; then
+      echo "⚠️  Inner sandbox container not found on host Docker, skipping transfer"
+      return 0
+    fi
     echo "🎮 Helix-in-Helix mode: Using host Docker for sandbox ($SANDBOX_CONTAINER_NAME)"
   fi
 
@@ -1371,8 +1335,8 @@ function transfer-desktop-to-sandbox() {
 
   # Check if sandbox container is running
   if [[ "$HELIX_IN_HELIX" == "true" ]]; then
-    # In Helix-in-Helix mode, check on host Docker
-    if ! sandbox_docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${SANDBOX_CONTAINER_NAME}$"; then
+    # In Helix-in-Helix mode, already resolved container ID above
+    if ! sandbox_docker inspect "$SANDBOX_CONTAINER_NAME" >/dev/null 2>&1; then
       echo "ℹ️  Sandbox container not running on host Docker, skipping image transfer"
       return 0
     fi
@@ -1724,31 +1688,38 @@ function build-sandbox() {
 
   if [[ "$HELIX_IN_HELIX" == "true" ]]; then
     # In Helix-in-Helix mode, restart sandbox on Host Docker
-    local INNER_SANDBOX_NAME="helix-inner-sandbox-${USER:-dev}"
-    echo "🎮 Helix-in-Helix: Restarting inner sandbox ($INNER_SANDBOX_NAME) on Host Docker..."
-
-    # Stop and remove old inner sandbox container on Host Docker
-    DOCKER_HOST="$DOCKER_HOST_OUTER" docker rm -f "$INNER_SANDBOX_NAME" 2>/dev/null || true
+    echo "🎮 Helix-in-Helix: Restarting inner sandbox on Host Docker..."
 
     # Start inner sandbox on Host Docker using compose
+    # Use --force-recreate to pick up new image without removing the network
     DOCKER_HOST="$DOCKER_HOST_OUTER" \
     COMPOSE_PROFILES="${OUTER_SANDBOX_PROFILE:-code-nvidia}" \
-    docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
+    docker compose -f docker-compose.dev.yaml up -d --force-recreate "$SANDBOX_SERVICE"
 
-    echo "✅ Inner sandbox rebuilt and restarted on Host Docker"
+    # Get the actual container name created by compose (includes project name prefix)
+    local INNER_SANDBOX_NAME
+    INNER_SANDBOX_NAME=$(DOCKER_HOST="$DOCKER_HOST_OUTER" \
+      COMPOSE_PROFILES="${OUTER_SANDBOX_PROFILE:-code-nvidia}" \
+      docker compose -f docker-compose.dev.yaml ps -q "$SANDBOX_SERVICE" 2>/dev/null)
 
-    # Wait for inner sandbox's nested dockerd to be ready
-    echo "⏳ Waiting for inner sandbox dockerd..."
-    local TIMEOUT=60
-    local ELAPSED=0
-    until DOCKER_HOST="$DOCKER_HOST_OUTER" docker exec "$INNER_SANDBOX_NAME" docker info >/dev/null 2>&1; do
-      if [ $ELAPSED -ge $TIMEOUT ]; then
-        echo "⚠️  Inner sandbox dockerd not ready after ${TIMEOUT}s"
-        break
-      fi
-      sleep 1
-      ELAPSED=$((ELAPSED + 1))
-    done
+    if [ -z "$INNER_SANDBOX_NAME" ]; then
+      echo "⚠️  Could not find inner sandbox container"
+    else
+      echo "✅ Inner sandbox container: $INNER_SANDBOX_NAME"
+
+      # Wait for inner sandbox's nested dockerd to be ready
+      echo "⏳ Waiting for inner sandbox dockerd..."
+      local TIMEOUT=60
+      local ELAPSED=0
+      until DOCKER_HOST="$DOCKER_HOST_OUTER" docker exec "$INNER_SANDBOX_NAME" docker info >/dev/null 2>&1; do
+        if [ $ELAPSED -ge $TIMEOUT ]; then
+          echo "⚠️  Inner sandbox dockerd not ready after ${TIMEOUT}s"
+          break
+        fi
+        sleep 1
+        ELAPSED=$((ELAPSED + 1))
+      done
+    fi
   else
     echo "🔄 Restarting sandbox container ($SANDBOX_SERVICE) with updated image..."
     docker compose -f docker-compose.dev.yaml rm -f "$SANDBOX_SERVICE"
