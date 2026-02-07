@@ -797,7 +797,7 @@ if [ "${TARGETARCH}" = "amd64" ]; then
 
     echo "=== Zerocopy setup complete ==="
 elif [ "${TARGETARCH}" = "arm64" ]; then
-    echo "=== arm64: Installing vsockenc plugin for VideoToolbox delegation ==="
+    echo "=== arm64: Installing vsockenc + zerocopy plugins ==="
     LIB_DIR="/usr/lib/aarch64-linux-gnu"
     mkdir -p ${LIB_DIR}/gstreamer-1.0
 
@@ -808,6 +808,15 @@ elif [ "${TARGETARCH}" = "arm64" ]; then
         echo "vsockenc plugin installed - video encoding will use host VideoToolbox"
     else
         echo "WARNING: vsockenc plugin build failed or missing"
+    fi
+
+    # Install zerocopy plugin (DMA-BUF passthrough for virtio-gpu zero-copy)
+    if [ -f /tmp/zerocopy-arm64.so ] && file /tmp/zerocopy-arm64.so | grep -q "shared object"; then
+        cp /tmp/zerocopy-arm64.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+        chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+        echo "pipewirezerocopysrc plugin installed - DMA-BUF passthrough for virtio-gpu"
+    else
+        echo "WARNING: zerocopy plugin is placeholder or missing, skipping"
     fi
 else
     echo "=== Unknown arch ${TARGETARCH}, skipping zerocopy ==="
