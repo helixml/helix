@@ -197,6 +197,18 @@ detect_render_node() {
                 echo "G:mutter-device-preferred-primary" | sudo tee "$UDEV_DB_FILE" > /dev/null
                 echo "[render-node] Created udev database entry for Mutter: $UDEV_DB_FILE"
             fi
+
+            # For the card device: create udev entry with 'seat' tag and DEVTYPE
+            # Mutter's display-server mode enumerates card* devices with 'seat' tag
+            if [ -n "$detected_card" ] && [ -c "$detected_card" ]; then
+                CARD_MAJOR=$(stat -c %t "$detected_card")
+                CARD_MINOR=$(stat -c %T "$detected_card")
+                CARD_MAJOR_DEC=$((16#$CARD_MAJOR))
+                CARD_MINOR_DEC=$((16#$CARD_MINOR))
+                CARD_UDEV_FILE="/run/udev/data/c${CARD_MAJOR_DEC}:${CARD_MINOR_DEC}"
+                printf "E:DEVTYPE=drm_minor\nE:ID_SEAT=seat0\nG:seat\nG:mutter-device-preferred-primary\n" | sudo tee "$CARD_UDEV_FILE" > /dev/null
+                echo "[render-node] Created udev database entry for card device: $CARD_UDEV_FILE"
+            fi
         fi
     fi
 
