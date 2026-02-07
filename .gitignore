@@ -99,3 +99,4 @@ qemu-utm/
 # Go binaries built locally (not the source directories in api/cmd/)
 /logind-stub
 /mutter-lease-launcher
+desktop-bridge
