@@ -151,6 +151,16 @@ perspective) rather than the actual scanout index.
    scanouts with matching resource_ids
 3. Use a different capture mechanism that doesn't depend on SET_SCANOUT tracking
 
+**Current investigation**: Added `helix_debug_log()` to virtio-gpu-virgl.c that
+logs SET_SCANOUT, SET_SCANOUT_BLOB, and resource_flush calls to the helix debug
+log file. This will show exactly what scanout_id and resource_id the guest kernel
+sends when Mutter renders to the leased connector. QEMU rebuilt with this logging
+(commit `7eec31cbbc` in qemu-utm).
+
+**Next step**: Run Mutter with the leased connector and check the helix-debug.log
+to see if SET_SCANOUT is called with scanout_id=1 or scanout_id=0. If it's 0,
+the kernel's DRM lease layer is renumbering CRTCs and we need to fix the mapping.
+
 ### Issues Discovered & Fixed
 
 1. **DRM_FB_helper CPU hog on reboot**: Enabled scanouts persist across guest reboot.
@@ -314,6 +324,8 @@ VideoMode detection in ws_stream.go:
 - `9cfd078e36` - fix: Add scanout message type constants to header
 - `8af26aae47` - fix: Handle ENABLE_SCANOUT in server thread dispatch
 - `ea91ab699c` - feat: Multi-client TCP server with per-scanout auto-encoding
+- `7116968c86` - fix: Reset enabled_output_bitmask on guest reboot
+- `7eec31cbbc` - debug: SET_SCANOUT and resource_flush logging to helix-debug.log
 
 ## Helix Commits (feature/macos-arm-desktop-port)
 
