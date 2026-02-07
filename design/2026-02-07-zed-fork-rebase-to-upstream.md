@@ -1,7 +1,7 @@
 # Zed Fork Rebase to Fresh Upstream
 
 **Date:** 2026-02-07
-**Status:** Port complete, E2E test passing on BOTH forks with real LLM inference (Anthropic API)
+**Status:** Port complete, multi-thread E2E test passing with real LLM inference (Anthropic API). Main branch updated.
 
 ## Summary
 
@@ -25,6 +25,7 @@ Ported all Helix-specific Zed changes from the old fork (`~/pm/zed`, branch `mai
 4. `463b1cc` - Fix E2E test infrastructure: Docker caching, headless Zed startup
 5. `bc52393` - Fix model configuration race and E2E test settings
 6. `5fe75be` - Fix WebSocket event forwarding for thread_service-created threads
+7. `746a9c4` - Add multi-thread E2E test: follow-ups and thread transitions
 
 ## What Was Ported (725 lines across 17 files + new crate)
 
@@ -191,8 +192,10 @@ The fork approach is the only option for these features.
 1. ~~**Fix model configuration in E2E test**~~ DONE - Pre-authenticate providers + fix model ID
 2. ~~**Get E2E test passing with real LLM inference**~~ DONE on both forks - Full protocol flow validated
 3. ~~**Fix new fork event forwarding**~~ DONE - Thread display notification handler was a no-op; now subscribes to AcpThread events directly from AgentPanel
-4. **Add Qwen Code ACP test** - Test with Qwen Code agent using Together AI
-5. **Test session resume** - Kill and restart Zed, verify thread state restored
-6. **Add multiple thread test** - Test creating multiple threads in sequence
-7. **Update Helix build scripts** - Point `./stack build-zed` at new fork/branch
-8. **CI integration** - Add Docker E2E test to Drone pipeline
+4. ~~**Add multi-thread E2E test**~~ DONE - 3-phase test: new thread, follow-up, thread transition. Validates multi-thread tracking for spectasks.
+5. ~~**Update helixml/zed main**~~ DONE - Force-pushed helix-fork as new main branch
+6. **Add Qwen Code ACP test** - Test with Qwen Code agent using Together AI
+7. **Test session resume** - Kill and restart Zed, verify thread state restored
+8. **Update Helix build scripts** - Point `./stack build-zed` at new fork/branch
+9. **CI integration** - Add Docker E2E test to Drone pipeline
+10. **Helix multi-thread session support** - spectasks need to track multiple Zed thread IDs per session
