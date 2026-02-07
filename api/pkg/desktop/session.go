@@ -120,6 +120,16 @@ func (s *Server) createSession(ctx context.Context) error {
 	// Small delay to let the session fully initialize
 	time.Sleep(100 * time.Millisecond)
 
+	// In scanout mode, skip ScreenCast session entirely.
+	// Video comes from QEMU TCP (not PipeWire ScreenCast).
+	// Input works via RemoteDesktop without ScreenCast linking.
+	// Absolute mouse positioning won't work without a ScreenCast stream,
+	// but relative mouse + keyboard work fine via RemoteDesktop alone.
+	if getVideoMode("") == VideoModeScanout {
+		s.logger.Info("scanout mode: skipping ScreenCast session (video from QEMU TCP)")
+		return nil
+	}
+
 	// Create linked ScreenCast session - this is REQUIRED for NotifyPointerMotionAbsolute to work
 	s.logger.Info("creating linked ScreenCast session...", "session_id", sessionID)
 	scObj := s.conn.Object(screenCastBus, screenCastPath)

@@ -46,6 +46,12 @@ const (
 //
 // Overhead: one D-Bus method call every 500ms = negligible.
 func (s *Server) runDamageKeepalive(ctx context.Context) {
+	// In scanout mode, PipeWire ScreenCast isn't used - skip damage keepalive.
+	if getVideoMode("") == VideoModeScanout {
+		s.logger.Info("[KEEPALIVE] Scanout mode: damage keepalive disabled (no PipeWire ScreenCast)")
+		<-ctx.Done()
+		return
+	}
 	s.logger.Info("[KEEPALIVE] Starting cursor-based damage keepalive for PipeWire ScreenCast")
 
 	ticker := time.NewTicker(damageKeepaliveInterval)
