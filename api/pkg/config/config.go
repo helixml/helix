@@ -38,9 +38,6 @@ type ServerConfig struct {
 	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
 	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
 
-	// AI Providers management - controls if users can add their own AI provider API keys
-	ProvidersManagementEnabled bool `envconfig:"PROVIDERS_MANAGEMENT_ENABLED" default:"true"`
-
 	// License key for deployment identification
 	LicenseKey string `envconfig:"LICENSE_KEY"`
 	// Launchpad URL for version pings
