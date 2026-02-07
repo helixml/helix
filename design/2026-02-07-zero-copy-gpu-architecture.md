@@ -148,14 +148,35 @@ so desktop-bridge knows which container's stream it belongs to.
 
 ### Desktop-bridge changes
 
-Currently: receives H.264 from TCP:15937 via vsockenc GStreamer element
-With scanouts: receives H.264 from TCP:15937 tagged with scanout index
+**Video mode selection** (backward compatible with NVIDIA/AMD):
 
-The TCP protocol already has `session_id` in `HelixMsgHeader` which can map to scanout index.
-Desktop-bridge needs to:
-1. Request a scanout from helix-drm-manager instead of starting PipeWire ScreenCast
-2. Receive H.264 frames from QEMU keyed by scanout index
-3. Forward to WebSocket clients as before
+```
+VideoMode detection in ws_stream.go:
+  if HELIX_VIDEO_MODE=scanout → scanout mode (macOS virtio-gpu)
+  else if isMacOSVirtioGpu   → scanout mode (auto-detected)
+  else if isNvidiaGnome       → zerocopy mode (CUDA DMA-BUF)
+  else if isSway              → shm mode (wlroots)
+  else if isAmdGnome          → zerocopy mode (EGL DMA-BUF)
+```
+
+**Scanout mode flow** (new, macOS ARM only):
+1. desktop-bridge detects macOS/virtio-gpu environment
+2. Connects to `/run/helix-drm.sock`, requests DRM lease
+3. Gets scanout ID and lease FD
+4. Connects to QEMU `10.0.2.2:15937`, sends `SUBSCRIBE(scanout_id)`
+5. Receives pre-encoded H.264 frames from QEMU (zero-copy on host)
+6. Forwards H.264 directly to WebSocket clients
+7. No GStreamer, no PipeWire, no in-container encoding
+
+**PipeWire mode flow** (existing, NVIDIA/AMD):
+- Unchanged. PipeWire ScreenCast → pipewiresrc/pipewirezerocopysrc → nvenc/vaapi → WebSocket
+- This path is NOT affected by the scanout changes
+
+**Integration points:**
+- `ws_stream.go`: Add `VideoModeScanout` alongside existing modes
+- `scanout_stream.go` (new): Implements scanout TCP receiver
+- Container startup: When scanout mode, skip PipeWire ScreenCast setup
+- PipeWire still needed for audio even in scanout mode
 
 ## QEMU Commits (helixml/qemu-utm, branch utm-edition-venus-helix)
 
@@ -167,10 +188,11 @@ Desktop-bridge needs to:
 - `4d51b7f989` - fix: Move scanout helpers to virtio-gpu-base.c
 - `9cfd078e36` - fix: Add scanout message type constants to header
 - `8af26aae47` - fix: Handle ENABLE_SCANOUT in server thread dispatch
+- `ea91ab699c` - feat: Multi-client TCP server with per-scanout auto-encoding
 
 ## Helix Commits (feature/macos-arm-desktop-port)
 
-Key commits from this session:
+Key commits:
 - `4b1da106f` - feat: Zero-copy GPU path - extract virtio-gpu resource IDs from DMA-BUF
 - `a169355f6` - feat: Build pipewirezerocopysrc for ARM64
 - `74ad04545` - fix: Install pipewirezerocopysrc plugin on ARM64
@@ -178,6 +200,9 @@ Key commits from this session:
 - `1e62082fd` - fix: Fall back to NV12 over TCP (Mutter rejects DMA-BUF on virtio-gpu)
 - `4df3a2f44` - feat: Add HELIX_MSG_ENABLE_SCANOUT protocol
 - `ce98ed774` - milestone: DRM lease VERIFIED
+- `346bcbdc4` - feat: helix-drm-manager daemon - DRM lease manager for container desktops
+- `3b2fa865f` - feat: Add SUBSCRIBE protocol for scanout-keyed H.264 streaming
+- `8ece70cae` - feat: scanout-stream-test tool for end-to-end validation
 
 ## VM Setup Notes
 
