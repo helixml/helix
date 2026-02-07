@@ -526,7 +526,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			if encoder == "openh264" || encoder == "x264" {
 				pixelFormat = "I420"
 			}
-			slog.Info("[STREAM] macOS ARM virtio-gpu detected, using native pipewiresrc",
+			slog.Info("[STREAM] macOS ARM virtio-gpu detected, using native pipewiresrc with downscale",
 				"encoder", encoder, "format", pixelFormat)
 			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true keepalive-time=500", v.nodeID)
 			if v.pipeWireFd > 0 {
@@ -534,12 +534,15 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			}
 			parts = []string{
 				srcPart,
-				// Convert BGRx to NV12 at native resolution (no downscaling).
+				// Scale to 960x540 then convert to NV12 before sending to host.
+				// Full 1080p NV12 (3.1MB/frame) drops to 15 FPS due to SLiRP TCP
+				// throughput limits. At 960x540 NV12 (777KB/frame) we get 41 FPS.
 				// videoconvert MUST be before the queue so PipeWire buffers are
-				// released quickly. NV12 at 1920x1080 = 3.1MB/frame sent to host
-				// for VideoToolbox encoding at full resolution.
+				// released quickly.
+				"videoscale",
+				"video/x-raw,width=960,height=540",
 				"videoconvert",
-				fmt.Sprintf("video/x-raw,format=%s", pixelFormat),
+				fmt.Sprintf("video/x-raw,format=%s,width=960,height=540", pixelFormat),
 			}
 			v.useRealtimeClock = true
 		} else if isAmdGnome {
@@ -643,12 +646,12 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	switch encoder {
 	case "vsock":
 		// macOS/UTM virtio-gpu VideoToolbox encoding via vsock
-		// Pipeline: PipeWire → videoconvert (NV12) → vsockenc (sends raw pixels via TCP)
+		// Pipeline: PipeWire → videoscale (960x540) → videoconvert (NV12) → vsockenc (sends raw pixels via TCP)
 		//           → QEMU helix-frame-export (IOSurface → VideoToolbox H.264)
 		//           → H.264 NAL units back via TCP → h264parse → appsink
 		//
-		// Convert BGRx to NV12 at native resolution before sending to host.
-		// NV12 at 1920x1080 = 3.1MB/frame. VideoToolbox encodes at full resolution.
+		// Downscale to 960x540 and convert to NV12 before sending to host.
+		// NV12 at 960x540 = 777KB/frame (41 FPS). Full 1080p = 3.1MB/frame (15 FPS).
 		// VideoToolbox natively encodes from NV12, skipping internal colorspace conversion.
 		//
 		// Connection: TCP to 10.0.2.2:15937 (QEMU user-mode networking)
