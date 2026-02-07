@@ -4731,6 +4731,8 @@ export interface TypesSystemSettingsRequest {
   kodit_enrichment_model?: string;
   /** Kodit enrichment model configuration */
   kodit_enrichment_provider?: string;
+  max_concurrent_desktops?: number;
+  providers_management_enabled?: boolean;
 }
 
 export interface TypesSystemSettingsResponse {
@@ -4745,6 +4747,9 @@ export interface TypesSystemSettingsResponse {
   kodit_enrichment_model_set?: boolean;
   /** Kodit enrichment model configuration (not sensitive, returned as-is) */
   kodit_enrichment_provider?: string;
+  /** Per user */
+  max_concurrent_desktops?: number;
+  providers_management_enabled?: boolean;
   updated?: string;
 }
 
