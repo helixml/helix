@@ -40,3 +40,7 @@ func revokeLease(f *os.File, lesseeID uint32) error {
 func reprobeConnector(scanoutIdx uint32) error {
 	return fmt.Errorf("DRM ioctls only supported on Linux")
 }
+
+func activateCrtc(f *os.File, connectorID, crtcID, width, height uint32) error {
+	return fmt.Errorf("DRM ioctls only supported on Linux")
+}
