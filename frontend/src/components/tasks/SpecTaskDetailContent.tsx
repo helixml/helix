@@ -2004,6 +2004,51 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   overflow: "hidden",
                 }}
               >
+                {zedThreadsData?.zed_threads && zedThreadsData.zed_threads.length > 0 && (
+                  <Box
+                    sx={{
+                      px: 1.5,
+                      py: 0.5,
+                      borderBottom: "1px solid",
+                      borderColor: "divider",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Select
+                      size="small"
+                      variant="standard"
+                      value={selectedThreadSessionId || "planning"}
+                      onChange={(e) => {
+                        const val = e.target.value as string;
+                        setSelectedThreadSessionId(val === "planning" ? null : val);
+                      }}
+                      sx={{
+                        fontSize: "0.875rem",
+                        fontWeight: 500,
+                        color: "text.secondary",
+                        minWidth: 100,
+                        "&:before": { display: "none" },
+                        "&:after": { display: "none" },
+                        "& .MuiSelect-select": { py: 0 },
+                      }}
+                    >
+                      <MenuItem value="planning">Planning</MenuItem>
+                      {zedThreadsData.zed_threads.map((thread) => {
+                        const sessionId = thread.work_session?.helix_session_id;
+                        if (!sessionId) return null;
+                        const label = thread.work_session?.name
+                          || thread.work_session?.implementation_task_title
+                          || thread.zed_thread_id
+                          || "Thread";
+                        return (
+                          <MenuItem key={sessionId} value={sessionId}>
+                            {label}
+                          </MenuItem>
+                        );
+                      })}
+                    </Select>
+                  </Box>
+                )}
                 <EmbeddedSessionView
                   ref={sessionViewRef}
                   sessionId={activeSessionId}
