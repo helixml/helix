@@ -726,3 +726,82 @@ func (suite *PostgresStoreTestSuite) TestSpecTaskSubscriptionFilter_Matches() {
 	var nilFilter *SpecTaskSubscriptionFilter
 	suite.True(nilFilter.Matches(task))
 }
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSpecTaskZedThreadByZedThreadID() {
+	project := suite.createTestProject()
+	suite.T().Cleanup(func() {
+		_ = suite.db.DeleteProject(context.Background(), project.ID)
+	})
+
+	// Create a SpecTask
+	specTask := &types.SpecTask{
+		ID:             "task-" + system.GenerateUUID(),
+		ProjectID:      project.ID,
+		Name:           "Test Task for ZedThread lookup",
+		Type:           "feature",
+		Priority:       types.SpecTaskPriorityMedium,
+		Status:         types.TaskStatusImplementation,
+		OriginalPrompt: "Implement something",
+		CreatedBy:      "test-user",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	err := suite.db.CreateSpecTask(suite.ctx, specTask)
+	suite.Require().NoError(err)
+
+	// Create a Helix session for the work session
+	helixSession := types.Session{
+		ID:      system.GenerateSessionID(),
+		Name:    "Test Session",
+		Owner:   "test-user",
+		Type:    types.SessionTypeText,
+		Mode:    types.SessionModeInference,
+		Created: time.Now(),
+		Updated: time.Now(),
+	}
+	_, err = suite.db.CreateSession(suite.ctx, helixSession)
+	suite.Require().NoError(err)
+
+	// Create a work session
+	workSession := &types.SpecTaskWorkSession{
+		SpecTaskID:     specTask.ID,
+		HelixSessionID: helixSession.ID,
+		Name:           "Work session for thread test",
+		Phase:          types.SpecTaskPhaseImplementation,
+		Status:         types.SpecTaskWorkSessionStatusActive,
+	}
+	err = suite.db.CreateSpecTaskWorkSession(suite.ctx, workSession)
+	suite.Require().NoError(err)
+
+	// Create a ZedThread with a known ZedThreadID
+	zedThreadID := "acp-thread-" + system.GenerateUUID()
+	now := time.Now()
+	zedThread := &types.SpecTaskZedThread{
+		WorkSessionID:  workSession.ID,
+		SpecTaskID:     specTask.ID,
+		ZedThreadID:    zedThreadID,
+		Status:         types.SpecTaskZedStatusActive,
+		LastActivityAt: &now,
+	}
+	err = suite.db.CreateSpecTaskZedThread(suite.ctx, zedThread)
+	suite.Require().NoError(err)
+	suite.NotEmpty(zedThread.ID)
+
+	// Test: Look up by ZedThreadID (the ACP thread ID, not the DB primary key)
+	found, err := suite.db.GetSpecTaskZedThreadByZedThreadID(suite.ctx, zedThreadID)
+	suite.NoError(err)
+	suite.Equal(zedThread.ID, found.ID)
+	suite.Equal(zedThreadID, found.ZedThreadID)
+	suite.Equal(workSession.ID, found.WorkSessionID)
+	suite.Equal(specTask.ID, found.SpecTaskID)
+	suite.Equal(types.SpecTaskZedStatusActive, found.Status)
+
+	// Test: WorkSession preload works
+	suite.NotNil(found.WorkSession)
+	suite.Equal(workSession.ID, found.WorkSession.ID)
+
+	// Test: Not found returns error
+	_, err = suite.db.GetSpecTaskZedThreadByZedThreadID(suite.ctx, "non-existent-thread-id")
+	suite.Error(err)
+	suite.Contains(err.Error(), "spec task zed thread not found for zed thread ID")
+}
