@@ -128,38 +128,51 @@ pipeline unchanged. The container Dockerfile conditionally includes these compon
 | Mutter → logind-stub D-Bus | ✅ VERIFIED | TakeDevice(226,0) returns lease FD, Mutter creates GBM renderer |
 | Mutter sets mode on lease | ✅ VERIFIED | Virtual-2 goes enabled=enabled, mode 1920x1080@75 |
 | DRM lease with planes | ✅ VERIFIED | Need UNIVERSAL_PLANES cap set before lease creation |
-| QEMU auto-encode on page flip | ❌ NOT WORKING | helix_scanout_frame_ready() not called - see gap below |
-| H.264 → WebSocket end-to-end | ⬜ NOT TESTED | Blocked by QEMU capture |
+| QEMU auto-encode on page flip | ✅ VERIFIED | H.264 frames flow at ~10 FPS for static, ~55 FPS expected for active |
+| H.264 → TCP subscriber | ✅ VERIFIED | sub_test receives H.264 frames from scanout 0 and 1 |
+| Mutter modeset on lease FD | ❌ NOT WORKING | Mutter doesn't do drmModeSetCrtc - see Mutter issue below |
+| H.264 → WebSocket end-to-end | ⬜ NOT TESTED | Needs desktop-bridge integration |
 
-### Critical Gap: QEMU Doesn't See Leased Scanout Rendering
+### RESOLVED: QEMU Double-Init Bug
 
-**Problem**: `virgl_cmd_resource_flush()` matches resources to scanouts via
-`g->parent_obj.scanout[i].resource_id`. This is set by `virgl_cmd_set_scanout()`.
-But Mutter rendering to a leased connector may not trigger `SET_SCANOUT` on the
-correct scanout index. The resource_id for scanout 1 stays 0, so resource_flush
-never matches, and `helix_update_scanout_displaysurface()` is never called.
+**Problem**: `helix_scanout_frame_ready()` was called but always saw `active_clients=0`.
 
-**Root cause**: The virtio-gpu driver doesn't track which scanout a DRM lease
-maps to. When Mutter does `drmModeSetCrtc()` on the lease FD, the kernel's
-DRM lease layer translates CRTC IDs, but the virtio-gpu frontend may issue
-SET_SCANOUT with scanout_id=0 (the only one it knows about from the lease FD's
-perspective) rather than the actual scanout index.
+**Root cause**: QEMU calls `helix_frame_export_init()` twice during boot (once for
+initial display, once after display resize). The second call created a new
+`HelixFrameExport` struct and replaced `g_helix_export`, but the TCP server thread
+kept running with the old struct. Subscribers connected to the old TCP server
+were invisible to the new `g_helix_export`.
 
-**Possible fixes**:
-1. In QEMU, track which resources are bound to which CRTCs, and map CRTC→scanout
-2. Make `helix_update_scanout_displaysurface()` check ALL active CRTCs, not just
-   scanouts with matching resource_ids
-3. Use a different capture mechanism that doesn't depend on SET_SCANOUT tracking
+**Fix**: If `g_helix_export` is already valid on second init, just update the
+`virtio_gpu` pointer and return. The existing TCP server and client list are preserved.
+(QEMU commit `3c65cca992`)
 
-**Current investigation**: Added `helix_debug_log()` to virtio-gpu-virgl.c that
-logs SET_SCANOUT, SET_SCANOUT_BLOB, and resource_flush calls to the helix debug
-log file. This will show exactly what scanout_id and resource_id the guest kernel
-sends when Mutter renders to the leased connector. QEMU rebuilt with this logging
-(commit `7eec31cbbc` in qemu-utm).
+### RESOLVED: Kernel SET_SCANOUT Theory Was Wrong
 
-**Next step**: Run Mutter with the leased connector and check the helix-debug.log
-to see if SET_SCANOUT is called with scanout_id=1 or scanout_id=0. If it's 0,
-the kernel's DRM lease layer is renumbering CRTCs and we need to fix the mapping.
+Investigation confirmed that DRM leases do NOT renumber the scanout_id.
+The kernel virtio-gpu driver sends SET_SCANOUT with the correct scanout_id
+(uses `output->index` which is set during initialization and never changes).
+The `resource_flush → scanout matching` works correctly when SET_SCANOUT is called.
+
+### Current Issue: Mutter Doesn't Do Modeset on Lease FD
+
+**Symptoms**: Mutter says "Queue mode set" but never actually calls drmModeSetCrtc.
+The connector stays `enabled=disabled`. gnome-shell appears to exit shortly after init.
+
+**"Plane has no advertised formats"**: Investigation shows this is NOT the cause.
+Mutter has a fallback chain: IN_FORMATS property → drm_plane->formats[] → hardcoded
+XRGB8888/XBGR8888. The message is just a debug log, not an error.
+
+**Possible causes**:
+1. GNOME Shell (not Mutter) crashes or exits before the modeset fires
+2. The lease FD doesn't support some ioctl that Mutter needs
+3. The KMS thread exits before processing the queued mode set
+
+**Workaround for testing**: Use `modetest -s 45:1920x1080@XR24` to do the modeset
+directly. This works and generates H.264 frames on scanout 1 at ~10 FPS.
+
+**Next step**: Debug why gnome-shell exits. May need to use a simpler compositor
+(like weston or cage) for DRM lease rendering instead of full GNOME Shell.
 
 ### Issues Discovered & Fixed
 
