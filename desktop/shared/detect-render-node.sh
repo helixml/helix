@@ -206,8 +206,10 @@ detect_render_node() {
                 CARD_MAJOR_DEC=$((16#$CARD_MAJOR))
                 CARD_MINOR_DEC=$((16#$CARD_MINOR))
                 CARD_UDEV_FILE="/run/udev/data/c${CARD_MAJOR_DEC}:${CARD_MINOR_DEC}"
-                printf "E:DEVTYPE=drm_minor\nE:ID_SEAT=seat0\nG:seat\nG:mutter-device-preferred-primary\n" | sudo tee "$CARD_UDEV_FILE" > /dev/null
-                echo "[render-node] Created udev database entry for card device: $CARD_UDEV_FILE"
+                # G: = persistent tags, Q: = current tags, E: = properties
+                # GUdev uses Q: tags for g_udev_device_get_current_tags()
+                printf "E:DEVTYPE=drm_minor\nE:ID_SEAT=seat0\nE:ID_FOR_SEAT=drm-pci-helix\nG:seat\nG:mutter-device-preferred-primary\nQ:seat\nQ:mutter-device-preferred-primary\nV:1\n" | sudo tee "$CARD_UDEV_FILE" > /dev/null
+                echo "[render-node] Created udev card device entry: $CARD_UDEV_FILE"
             fi
         fi
     fi
