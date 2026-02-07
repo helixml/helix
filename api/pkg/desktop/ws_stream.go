@@ -41,6 +41,11 @@ const (
 	// - AMD/Intel: DMA-BUF via EGL for zero-copy
 	// Requires gst-plugin-pipewire-zerocopy to be installed
 	VideoModePlugin VideoMode = "zerocopy"
+
+	// VideoModeScanout receives pre-encoded H.264 directly from QEMU via TCP.
+	// Used on macOS ARM where QEMU captures virtio-gpu scanouts and encodes
+	// with VideoToolbox. Bypasses PipeWire and GStreamer entirely.
+	VideoModeScanout VideoMode = "scanout"
 )
 
 // getVideoMode returns the configured video mode from the stream config
@@ -53,6 +58,8 @@ func getVideoMode(configOverride string) VideoMode {
 		return VideoModePlugin
 	case "shm":
 		return VideoModeSHM
+	case "scanout":
+		return VideoModeScanout
 	default:
 		// Default to zerocopy (custom pipewirezerocopysrc plugin)
 		return VideoModePlugin
@@ -203,6 +210,9 @@ type VideoStreamer struct {
 	// Cursor tracking
 	cursorUpdateCount uint64 // Number of cursor updates sent
 
+	// Scanout source (macOS ARM - H.264 from QEMU TCP, no GStreamer)
+	scanoutSource *ScanoutSource
+
 	// Multi-player presence
 	sessionClient *ConnectedClient // This client's registration in the session
 }
@@ -243,6 +253,11 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 
 	ctx, v.cancel = context.WithCancel(ctx)
 	v.startTime = time.Now()
+
+	// Scanout mode: receive H.264 from QEMU TCP (macOS ARM, no GStreamer)
+	if v.videoMode == VideoModeScanout {
+		return v.startScanoutMode(ctx)
+	}
 
 	// Determine encoder based on available hardware
 	encoder := v.selectEncoder()
@@ -330,6 +345,60 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 	}
 
 	// Read frames from appsink and send to WebSocket
+	go v.readFramesAndSend(ctx)
+
+	// Handle ping/pong
+	go v.heartbeat(ctx)
+
+	return nil
+}
+
+// startScanoutMode starts the scanout video path (macOS ARM).
+// Receives pre-encoded H.264 from QEMU via TCP instead of PipeWire/GStreamer.
+func (v *VideoStreamer) startScanoutMode(ctx context.Context) error {
+	v.logger.Info("starting scanout mode (QEMU H.264 via TCP)",
+		"resolution", fmt.Sprintf("%dx%d", v.config.Width, v.config.Height))
+
+	v.scanoutSource = NewScanoutSource(v.logger)
+
+	// Start the scanout source (requests DRM lease, connects to QEMU, subscribes)
+	if err := v.scanoutSource.Start(ctx, 0); err != nil {
+		return fmt.Errorf("start scanout source: %w", err)
+	}
+
+	// Wire up frame and error channels
+	v.frameCh = v.scanoutSource.FrameCh()
+	v.errorCh = v.scanoutSource.ErrorCh()
+
+	v.running.Store(true)
+
+	// Send StreamInit to client
+	if err := v.sendStreamInit(); err != nil {
+		v.logger.Error("failed to send StreamInit", "err", err)
+	}
+
+	// Send ConnectionComplete
+	if err := v.sendConnectionComplete(); err != nil {
+		v.logger.Error("failed to send ConnectionComplete", "err", err)
+	}
+
+	// Register for multi-player presence
+	if v.config.SessionID != "" {
+		userName := v.config.UserName
+		if userName == "" {
+			userName = "User"
+		}
+		v.sessionClient = GetSessionRegistry().RegisterClient(
+			v.config.SessionID,
+			v.config.UserID,
+			userName,
+			v.config.AvatarURL,
+			v.ws,
+			&v.wsMu,
+		)
+	}
+
+	// Read frames from scanout source and send to WebSocket
 	go v.readFramesAndSend(ctx)
 
 	// Handle ping/pong
@@ -1477,6 +1546,12 @@ func (v *VideoStreamer) Stop() {
 
 	if v.cancel != nil {
 		v.cancel()
+	}
+
+	// Stop scanout source if in scanout mode
+	if v.scanoutSource != nil {
+		v.scanoutSource.Stop()
+		v.logger.Info("scanout source stopped")
 	}
 
 	// Unsubscribe from shared video source
