@@ -39,7 +39,6 @@ type ServerConfig struct {
 	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
 
 	// AI Providers management - controls if users can add their own AI provider API keys
-	// Disabled by default for enterprise customers who don't want users adding external API keys
 	ProvidersManagementEnabled bool `envconfig:"PROVIDERS_MANAGEMENT_ENABLED" default:"true"`
 
 	// License key for deployment identification

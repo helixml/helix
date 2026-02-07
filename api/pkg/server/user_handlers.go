@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -342,7 +343,10 @@ func (apiServer *HelixAPIServer) completeOnboarding(rw http.ResponseWriter, r *h
 		return
 	}
 
-	existingUser, err := apiServer.Store.GetUser(r.Context(), &store.GetUserQuery{ID: user.ID})
+	// Detach context cancellation
+	ctx := context.WithoutCancel(r.Context())
+
+	existingUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: user.ID})
 	if err != nil {
 		log.Error().Err(err).Str("user_id", user.ID).Msg("failed to get user")
 		http.Error(rw, "Failed to get user", http.StatusInternalServerError)
@@ -352,7 +356,7 @@ func (apiServer *HelixAPIServer) completeOnboarding(rw http.ResponseWriter, r *h
 	existingUser.OnboardingCompleted = true
 	existingUser.OnboardingCompletedAt = time.Now()
 
-	updatedUser, err := apiServer.Store.UpdateUser(r.Context(), existingUser)
+	updatedUser, err := apiServer.Store.UpdateUser(ctx, existingUser)
 	if err != nil {
 		log.Error().Err(err).Str("user_id", user.ID).Msg("failed to update user onboarding status")
 		http.Error(rw, "Failed to update onboarding status", http.StatusInternalServerError)

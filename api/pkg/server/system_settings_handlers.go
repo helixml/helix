@@ -75,6 +75,7 @@ func (apiServer *HelixAPIServer) updateSystemSettings(rw http.ResponseWriter, r 
 		Bool("hf_token_updated", req.HuggingFaceToken != nil).
 		Bool("kodit_model_updated", req.KoditEnrichmentProvider != nil || req.KoditEnrichmentModel != nil).
 		Bool("max_concurrent_desktops_updated", req.MaxConcurrentDesktops != nil).
+		Bool("providers_management_enabled_updated", req.ProvidersManagementEnabled != nil).
 		Msg("system settings updated by admin")
 
 	// Push updated settings to all connected runners

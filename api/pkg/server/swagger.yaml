@@ -7834,6 +7834,8 @@ definitions:
         type: string
       max_concurrent_desktops:
         type: integer
+      providers_management_enabled:
+        type: boolean
     type: object
   types.SystemSettingsResponse:
     properties:
@@ -7859,6 +7861,8 @@ definitions:
       max_concurrent_desktops:
         description: Per user
         type: integer
+      providers_management_enabled:
+        type: boolean
       updated:
         type: string
     type: object

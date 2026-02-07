@@ -24733,6 +24733,9 @@ const docTemplate = `{
                 },
                 "max_concurrent_desktops": {
                     "type": "integer"
+                },
+                "providers_management_enabled": {
+                    "type": "boolean"
                 }
             }
         },
@@ -24767,6 +24770,9 @@ const docTemplate = `{
                 "max_concurrent_desktops": {
                     "description": "Per user",
                     "type": "integer"
+                },
+                "providers_management_enabled": {
+                    "type": "boolean"
                 },
                 "updated": {
                     "type": "string"

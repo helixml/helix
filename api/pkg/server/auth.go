@@ -773,6 +773,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to validate user token: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+
 	default:
 		// OIDC-based auth (keycloak, oidc, or any future OIDC provider)
 		// First check for stale Helix JWTs - this can happen when AUTH_PROVIDER

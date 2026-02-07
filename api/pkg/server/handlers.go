@@ -286,8 +286,14 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		DeploymentID:                           deploymentID,
 		License:                                licenseInfo,
 		OrganizationsCreateEnabledForNonAdmins: apiServer.Cfg.Organizations.CreateEnabledForNonAdmins,
-		ProvidersManagementEnabled:             apiServer.Cfg.ProvidersManagementEnabled,
 	}
+
+	systemSettings, err := apiServer.Store.GetSystemSettings(ctx)
+	if err != nil {
+		return types.ServerConfigForFrontend{}, system.NewHTTPError500(err.Error())
+	}
+	// Override the config with the system settings
+	config.ProvidersManagementEnabled = systemSettings.ProvidersManagementEnabled
 
 	return config, nil
 }
