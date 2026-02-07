@@ -61,6 +61,18 @@ func getVideoMode(configOverride string) VideoMode {
 	case "scanout":
 		return VideoModeScanout
 	default:
+		// Check HELIX_VIDEO_MODE env var for auto-detection
+		// (set by detect-render-node.sh for macOS ARM virtio-gpu)
+		if envMode := os.Getenv("HELIX_VIDEO_MODE"); envMode != "" {
+			switch strings.ToLower(envMode) {
+			case "scanout":
+				return VideoModeScanout
+			case "shm":
+				return VideoModeSHM
+			case "native", "dmabuf":
+				return VideoModeNative
+			}
+		}
 		// Default to zerocopy (custom pipewirezerocopysrc plugin)
 		return VideoModePlugin
 	}

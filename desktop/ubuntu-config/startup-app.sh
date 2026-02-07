@@ -274,12 +274,34 @@ gow_log "[start] Virtual monitor: ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMES
 gsettings set org.gnome.mutter experimental-features "['variable-refresh-rate', 'triple-buffering']"
 gow_log "[start] Enabled mutter experimental features: variable-refresh-rate, triple-buffering"
 
-# Start GNOME Shell in headless mode with virtual monitor
-# --headless: No display output - captured via pipewiresrc from ScreenCast
-# --unsafe-mode: Allow desktop-bridge to use org.gnome.Shell.Screenshot D-Bus API
-# --virtual-monitor WxH@R: Creates virtual display at specified resolution
-gow_log "[start] Starting GNOME Shell in HEADLESS mode (PipeWire capture)"
-gnome-shell --headless --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}
+# Start GNOME Shell - mode depends on GPU type
+if [ "\$HELIX_SCANOUT_MODE" = "1" ]; then
+    # macOS ARM scanout mode: use DRM display-server instead of headless
+    # gnome-shell renders to a real DRM connector via a DRM lease from helix-drm-manager.
+    # QEMU captures the scanout and encodes H.264 with VideoToolbox.
+    # The logind-stub provides the lease FD to Mutter via D-Bus TakeDevice.
+    gow_log "[start] Starting GNOME Shell in DISPLAY-SERVER mode (DRM scanout)"
+
+    # Start logind-stub with the DRM lease
+    # The lease FD is inherited from the container startup via HELIX_LEASE_FD env var
+    if [ -n "\$HELIX_LEASE_FD" ]; then
+        /usr/local/bin/logind-stub --lease-fd=\$HELIX_LEASE_FD &
+        LOGIND_PID=\$!
+        gow_log "[start] logind-stub started (pid=\$LOGIND_PID, lease_fd=\$HELIX_LEASE_FD)"
+        sleep 1
+    else
+        # No lease FD - request one from helix-drm-manager
+        gow_log "[start] No HELIX_LEASE_FD set, using mutter-lease-launcher..."
+        exec /usr/local/bin/mutter-lease-launcher
+    fi
+
+    gnome-shell --display-server --wayland --no-x11 --unsafe-mode
+else
+    # Standard mode: headless with virtual monitor (NVIDIA/AMD/Intel)
+    # Captured via PipeWire ScreenCast → GStreamer → nvenc/vaapi → WebSocket
+    gow_log "[start] Starting GNOME Shell in HEADLESS mode (PipeWire capture)"
+    gnome-shell --headless --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}
+fi
 GNOME_EOF
 
 chmod +x $XDG_RUNTIME_DIR/start_gnome

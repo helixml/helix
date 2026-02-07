@@ -677,6 +677,14 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 				},
 			)
 		}
+		// For virtio-gpu (macOS ARM): bind-mount helix-drm-manager socket
+		// so containers can request DRM leases for scanout-based video capture
+		drmSock := "/run/helix-drm.sock"
+		if _, err := os.Stat(drmSock); err == nil {
+			hostConfig.Binds = append(hostConfig.Binds,
+				drmSock+":"+drmSock)
+			log.Debug().Str("socket", drmSock).Msg("Mounted helix-drm-manager socket for scanout mode")
+		}
 		if len(driDevices) > 0 || len(cardDevices) > 0 {
 			log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Str("vendor", vendor).Msg("Configured GPU passthrough (unknown/virtio vendor)")
 		} else {

@@ -35,7 +35,11 @@ detect_render_node() {
             ;;
         virtio)
             target_driver="virtio_gpu"
-            echo "[render-node] virtio-gpu mode (macOS/UTM VideoToolbox encoding via vsock)"
+            # On macOS ARM, QEMU captures virtio-gpu scanouts directly and encodes
+            # with VideoToolbox. Desktop-bridge receives pre-encoded H.264 via TCP.
+            export HELIX_SCANOUT_MODE=1
+            export HELIX_VIDEO_MODE=scanout
+            echo "[render-node] virtio-gpu scanout mode (macOS ARM H.264 via QEMU)"
             ;;
         none|"")
             echo "[render-node] Software rendering mode (GPU_VENDOR=${gpu_vendor:-unset})"
