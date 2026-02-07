@@ -135,7 +135,7 @@ pipeline unchanged. The container Dockerfile conditionally includes these compon
 | GNOME → QEMU H.264 in container | ✅ VERIFIED | 88KB keyframe received via SUBSCRIBE(scanout_id) from container's GNOME desktop |
 | GNOME → H.264 sustained | ✅ VERIFIED | 41 frames in 12.2s (3.4 FPS) during overview toggle, 74KB keyframe + 0.5-17KB P-frames |
 | desktop-bridge scanout mode | ✅ VERIFIED | ScreenCast skipped, RemoteDesktop for input, video from QEMU TCP |
-| H.264 → WebSocket end-to-end | ✅ VERIFIED | 420-byte P-frames at 4.1 FPS over WebSocket from container GNOME desktop |
+| H.264 → WebSocket end-to-end | ✅ VERIFIED | 84 video frames in 25.3s (3.3 FPS). 74KB IDR keyframe + 420B P-frames on static desktop |
 
 ### RESOLVED: QEMU Double-Init Bug
 
@@ -230,9 +230,11 @@ This is backward compatible - existing NVIDIA/AMD PipeWire paths are unchanged.
 | drm-flipper (60 FPS page flips) | **124.6** | 282B P / 6.2KB I | Full pipeline verified |
 | Static VM console (scanout 0) | 5.0 | 236-248B P / 6.8KB I | Damage-based, no active rendering |
 | modetest test pattern | 9.8 | 224-254B P / 6.9KB I | Static after initial pattern |
+| **Container GNOME → WebSocket** | **3.3** | 420B P / 74KB I | Full E2E: 84 frames in 25.3s. Static desktop with cursor blink |
+| Container GNOME overview animation | ~7-8 | 11-17KB P | During GNOME overview toggle burst |
 
-Expected with real GNOME desktop rendering: **55-75 FPS** at 1920x1080 (based on drm-flipper
-results and virtio-gpu refresh rate of 75 Hz).
+Expected with active desktop (typing, window movement): **15-30 FPS** based on damage frequency.
+Expected with vkcube/games: **55-60 FPS** at 1920x1080 (constant GPU damage).
 
 ### Issues Discovered & Fixed
 
