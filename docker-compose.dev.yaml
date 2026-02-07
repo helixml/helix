@@ -557,9 +557,12 @@ services:
       - hydra-storage:/hydra-data
       - /run/udev:/run/udev:rw
       - /var/run/sandbox:/var/run/sandbox:rw
+      # DRM lease manager socket (helix-drm-manager systemd service on VM host)
+      # Required for scanout mode: containers request DRM leases through this socket
+      - /run/helix-drm.sock:/run/helix-drm.sock:rw
       # Dev bind-mounts for hot reload (Zed + desktop configs)
       # Note: Config dirs are :rw because GOW entrypoint does chmod +x on startup.sh
-      - ./zed-build:/helix-dev/zed-build:ro
+      - ./zed-build:/helix-dev/zed-build:rw
       - ./desktop/sway-config:/helix-dev/sway-config:rw
       - ./desktop/zorin-config:/helix-dev/zorin-config:rw
       - ./desktop/ubuntu-config:/helix-dev/ubuntu-config:rw
