@@ -562,7 +562,7 @@ services:
       - /run/helix-drm.sock:/run/helix-drm.sock:rw
       # Dev bind-mounts for hot reload (Zed + desktop configs)
       # Note: Config dirs are :rw because GOW entrypoint does chmod +x on startup.sh
-      - ./zed-build:/helix-dev/zed-build:rw
+      - ./zed-build:/helix-dev/zed-build:ro
       - ./desktop/sway-config:/helix-dev/sway-config:rw
       - ./desktop/zorin-config:/helix-dev/zorin-config:rw
       - ./desktop/ubuntu-config:/helix-dev/ubuntu-config:rw
