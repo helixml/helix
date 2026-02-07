@@ -16,6 +16,7 @@
 #include <arpa/inet.h>
 #include <linux/vm_sockets.h>
 #include <libdrm/drm.h>
+#include <drm/virtgpu_drm.h>
 #include <xf86drm.h>
 #include <sys/ioctl.h>
 #include <fcntl.h>
@@ -51,6 +52,11 @@ static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE(
     GST_PAD_ALWAYS,
     GST_STATIC_CAPS(
         "video/x-raw, "
+        "format = (string) { BGRx, BGRA, RGBx, RGBA, NV12 }, "
+        "width = (int) [ 1, 8192 ], "
+        "height = (int) [ 1, 8192 ], "
+        "framerate = (fraction) [ 0/1, MAX ]; "
+        "video/x-raw(memory:DMABuf), "
         "format = (string) { BGRx, BGRA, RGBx, RGBA, NV12 }, "
         "width = (int) [ 1, 8192 ], "
         "height = (int) [ 1, 8192 ], "
@@ -170,6 +176,7 @@ gst_vsockenc_init(GstVsockEnc *self)
     self->bitrate = DEFAULT_BITRATE;
     self->keyframe_interval = DEFAULT_KEYFRAME_INTERVAL;
     self->socket_fd = -1;
+    self->drm_fd = -1;
     self->connected = FALSE;
     self->frame_count = 0;
     self->running = FALSE;
@@ -183,6 +190,10 @@ gst_vsockenc_finalize(GObject *object)
 {
     GstVsockEnc *self = GST_VSOCKENC(object);
 
+    if (self->drm_fd >= 0) {
+        close(self->drm_fd);
+        self->drm_fd = -1;
+    }
     g_free(self->socket_path);
     g_free(self->tcp_host);
     g_mutex_clear(&self->lock);
@@ -370,13 +381,45 @@ gst_vsockenc_disconnect(GstVsockEnc *self)
     self->connected = FALSE;
 }
 
-/* Extract virtio-gpu resource ID from DMA-BUF fd */
+/* Open and cache the DRM device fd for resource ID lookups.
+ * Must be called once before gst_vsockenc_get_resource_id(). */
+static gboolean
+gst_vsockenc_open_drm(GstVsockEnc *self)
+{
+    if (self->drm_fd >= 0)
+        return TRUE;
+
+    self->drm_fd = open("/dev/dri/renderD128", O_RDWR);
+    if (self->drm_fd < 0) {
+        self->drm_fd = open("/dev/dri/card0", O_RDWR);
+        if (self->drm_fd < 0) {
+            GST_WARNING_OBJECT(self, "Failed to open DRM device: %s",
+                               g_strerror(errno));
+            return FALSE;
+        }
+    }
+    GST_INFO_OBJECT(self, "Opened DRM device fd=%d", self->drm_fd);
+    return TRUE;
+}
+
+/* Extract virtio-gpu resource ID from DMA-BUF fd.
+ *
+ * The chain is:
+ *   DMA-BUF fd  →  DRM_IOCTL_PRIME_FD_TO_HANDLE  →  GEM handle (per-process local)
+ *   GEM handle  →  DRM_IOCTL_VIRTGPU_RESOURCE_INFO  →  res_handle (virtio-gpu resource ID)
+ *
+ * The resource ID is the same one that QEMU/virglrenderer uses on the host.
+ * QEMU can read pixel data from it via virgl_renderer_transfer_read_iov().
+ *
+ * IMPORTANT: GEM handles are NOT resource IDs! They are per-process local
+ * identifiers. The VIRTGPU_RESOURCE_INFO ioctl is required to get the
+ * actual virtio-gpu resource ID that maps to the host-side backing store.
+ */
 static guint32
 gst_vsockenc_get_resource_id(GstVsockEnc *self, GstBuffer *buffer)
 {
     GstMemory *mem;
     gint dmabuf_fd;
-    guint32 resource_id = 0;
 
     mem = gst_buffer_peek_memory(buffer, 0);
     if (!gst_is_dmabuf_memory(mem)) {
@@ -390,43 +433,50 @@ gst_vsockenc_get_resource_id(GstVsockEnc *self, GstBuffer *buffer)
         return 0;
     }
 
-    /* Convert DMA-BUF fd to GEM handle, then get resource ID */
-    /* With virtio-gpu, we need to go through the DRM subsystem */
+    if (!gst_vsockenc_open_drm(self))
+        return 0;
 
-    /* Open the DRM device (virtio-gpu) */
-    int drm_fd = open("/dev/dri/renderD128", O_RDWR);
-    if (drm_fd < 0) {
-        /* Try card0 as fallback */
-        drm_fd = open("/dev/dri/card0", O_RDWR);
-        if (drm_fd < 0) {
-            GST_WARNING_OBJECT(self, "Failed to open DRM device");
-            return 0;
-        }
-    }
-
-    /* Import DMA-BUF to get GEM handle */
+    /* Step 1: Import DMA-BUF fd to get per-process GEM handle */
     struct drm_prime_handle prime_handle = {
         .fd = dmabuf_fd,
         .flags = 0,
         .handle = 0,
     };
 
-    if (ioctl(drm_fd, DRM_IOCTL_PRIME_FD_TO_HANDLE, &prime_handle) < 0) {
-        GST_WARNING_OBJECT(self, "Failed to get GEM handle from DMA-BUF: %s",
-                           g_strerror(errno));
-        close(drm_fd);
+    if (ioctl(self->drm_fd, DRM_IOCTL_PRIME_FD_TO_HANDLE, &prime_handle) < 0) {
+        GST_WARNING_OBJECT(self, "PRIME_FD_TO_HANDLE failed (fd=%d): %s",
+                           dmabuf_fd, g_strerror(errno));
         return 0;
     }
 
-    /* For virtio-gpu, the GEM handle IS the resource ID
-     * (the kernel driver uses them interchangeably) */
-    resource_id = prime_handle.handle;
+    /* Step 2: Get virtio-gpu resource ID from GEM handle.
+     * This is the globally unique ID that QEMU/virglrenderer uses. */
+    struct drm_virtgpu_resource_info res_info = {
+        .bo_handle = prime_handle.handle,
+        .res_handle = 0,
+        .size = 0,
+        .blob_mem = 0,
+    };
 
-    GST_DEBUG_OBJECT(self, "DMA-BUF fd %d -> GEM handle/resource ID %u",
-                     dmabuf_fd, resource_id);
+    if (ioctl(self->drm_fd, DRM_IOCTL_VIRTGPU_RESOURCE_INFO, &res_info) < 0) {
+        GST_WARNING_OBJECT(self, "VIRTGPU_RESOURCE_INFO failed (gem=%u): %s",
+                           prime_handle.handle, g_strerror(errno));
+        /* Close the GEM handle to avoid leaking it */
+        struct drm_gem_close gem_close = { .handle = prime_handle.handle };
+        ioctl(self->drm_fd, DRM_IOCTL_GEM_CLOSE, &gem_close);
+        return 0;
+    }
 
-    close(drm_fd);
-    return resource_id;
+    GST_INFO_OBJECT(self, "DMA-BUF fd=%d -> GEM handle=%u -> resource_id=%u (size=%u, blob_mem=%u)",
+                    dmabuf_fd, prime_handle.handle, res_info.res_handle,
+                    res_info.size, res_info.blob_mem);
+
+    /* Close the GEM handle - we only needed it to look up the resource ID.
+     * The DMA-BUF fd keeps the underlying resource alive. */
+    struct drm_gem_close gem_close = { .handle = prime_handle.handle };
+    ioctl(self->drm_fd, DRM_IOCTL_GEM_CLOSE, &gem_close);
+
+    return res_info.res_handle;
 }
 
 /*

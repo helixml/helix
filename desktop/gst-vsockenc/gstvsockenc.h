@@ -36,6 +36,7 @@ struct _GstVsockEnc {
     /* State */
     GstVideoCodecState *input_state;
     gint socket_fd;
+    gint drm_fd;            /* Cached DRM device fd for resource ID lookups */
     gboolean connected;
     GMutex lock;
     GCond cond;
