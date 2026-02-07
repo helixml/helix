@@ -294,6 +294,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	}
 	// Override the config with the system settings
 	config.ProvidersManagementEnabled = systemSettings.ProvidersManagementEnabled
+	config.MaxConcurrentDesktops = systemSettings.MaxConcurrentDesktops
 
 	return config, nil
 }

@@ -22592,6 +22592,9 @@ const docTemplate = `{
                 "license": {
                     "$ref": "#/definitions/types.FrontendLicenseInfo"
                 },
+                "max_concurrent_desktops": {
+                    "type": "integer"
+                },
                 "organizations_create_enabled_for_non_admins": {
                     "type": "boolean"
                 },
