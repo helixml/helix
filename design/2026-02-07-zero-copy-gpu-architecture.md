@@ -154,25 +154,37 @@ The kernel virtio-gpu driver sends SET_SCANOUT with the correct scanout_id
 (uses `output->index` which is set during initialization and never changes).
 The `resource_flush → scanout matching` works correctly when SET_SCANOUT is called.
 
-### Current Issue: Mutter Doesn't Do Modeset on Lease FD
+### RESOLVED: Mutter Needs Pre-activated CRTC
 
-**Symptoms**: Mutter says "Queue mode set" but never actually calls drmModeSetCrtc.
-The connector stays `enabled=disabled`. gnome-shell appears to exit shortly after init.
+**Problem**: Mutter can't do the first modeset on an inactive CRTC through a DRM lease.
+The `drmModeGetPlane()` through the lease FD returns 0 formats for the IN_FORMATS
+property (expected - lease doesn't expose it). Mutter falls back to legacy format
+enumeration, but still can't complete the modeset on a cold CRTC.
 
-**"Plane has no advertised formats"**: Investigation shows this is NOT the cause.
-Mutter has a fallback chain: IN_FORMATS property → drm_plane->formats[] → hardcoded
-XRGB8888/XBGR8888. The message is just a debug log, not an error.
+**Fix**: `helix-drm-manager` now does an initial `drmModeSetCrtc` with a dumb buffer
+BEFORE creating the DRM lease. This puts the CRTC in an active state (mode set,
+connector enabled, framebuffer attached). When Mutter gets the lease, it sees
+`CRTC active: 1, mode: 1920x1080` and successfully inherits the display.
 
-**Possible causes**:
-1. GNOME Shell (not Mutter) crashes or exits before the modeset fires
-2. The lease FD doesn't support some ioctl that Mutter needs
-3. The KMS thread exits before processing the queued mode set
+**Remaining issue**: gnome-shell needs the full GNOME desktop session infrastructure
+(gsettings, dconf, etc.) to create a Wayland socket and start rendering. Running
+gnome-shell bare in the VM (without the container's startup-app.sh) stalls during
+initialization. This is NOT an issue for the real Helix deployment where gnome-shell
+runs inside Docker containers with the full desktop stack.
 
-**Workaround for testing**: Use `modetest -s 45:1920x1080@XR24` to do the modeset
-directly. This works and generates H.264 frames on scanout 1 at ~10 FPS.
+### Desktop-Bridge Scanout Mode
 
-**Next step**: Debug why gnome-shell exits. May need to use a simpler compositor
-(like weston or cage) for DRM lease rendering instead of full GNOME Shell.
+Added `VideoModeScanout` to desktop-bridge (`api/pkg/desktop/scanout_source.go`).
+When `HELIX_VIDEO_MODE=scanout` or `?videoMode=scanout` is set:
+
+1. Bypasses PipeWire and GStreamer entirely
+2. Requests DRM lease from helix-drm-manager (gets scanout ID)
+3. Connects to QEMU TCP 10.0.2.2:15937
+4. Sends SUBSCRIBE(scanout_id)
+5. Receives pre-encoded H.264 frames from QEMU's VideoToolbox encoder
+6. Forwards to WebSocket clients using the existing binary protocol
+
+This is backward compatible - existing NVIDIA/AMD PipeWire paths are unchanged.
 
 ### Issues Discovered & Fixed
 
