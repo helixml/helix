@@ -106,12 +106,16 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # DISABLED FOR ARM64-ONLY BUILD:     cargo build --release && \
 # DISABLED FOR ARM64-ONLY BUILD:     cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
 # DISABLED FOR ARM64-ONLY BUILD:
-# ARM64 build stage - vsockenc GStreamer plugin (delegates encoding to host VideoToolbox)
+# ARM64 build stage - vsockenc + pipewirezerocopysrc GStreamer plugins
+# vsockenc: delegates H.264 encoding to host VideoToolbox via TCP
+# pipewirezerocopysrc: DMA-BUF passthrough for virtio-gpu zero-copy capture
 FROM --platform=linux/arm64 ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env-arm64
 WORKDIR /build
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
     meson \
     ninja-build \
     pkg-config \
@@ -119,8 +123,24 @@ RUN apt-get update && apt-get install -y \
     g++ \
     libgstreamer1.0-dev \
     libgstreamer-plugins-base1.0-dev \
+    libgstreamer-plugins-bad1.0-dev \
+    gstreamer1.0-plugins-base \
+    libgstreamer-plugins-bad1.0-0 \
+    libpipewire-0.3-dev \
+    libspa-0.2-dev \
+    libegl1-mesa-dev \
     libdrm-dev \
+    libclang-dev \
+    libinput-dev \
+    libxkbcommon-dev \
+    libwayland-dev \
+    libudev-dev \
+    libgbm-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Copy vsockenc plugin source
 COPY desktop/gst-vsockenc ./gst-vsockenc/
@@ -134,8 +154,15 @@ RUN cd gst-vsockenc && \
 # Extract the built plugin to known location
 RUN find /install -name "libgstvsockenc.so" -exec cp {} /libgstvsockenc.so \;
 
-# Placeholder zerocopy (not used on ARM64)
-RUN touch /libgstpipewirezerocopy.so
+# Copy pipewirezerocopysrc plugin source
+COPY desktop/wayland-display-core ./wayland-display-core/
+COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
+
+# Build pipewirezerocopysrc (DMA-BUF passthrough for virtio-gpu zero-copy)
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    cd gst-pipewire-zerocopy && \
+    cargo build --release && \
+    cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
 
 # ====================================================================
 # CUDA libraries stage - extract libnvrtc for GStreamer cudascale (amd64 only)
