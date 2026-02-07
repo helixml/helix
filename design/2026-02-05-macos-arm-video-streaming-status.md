@@ -365,14 +365,15 @@ PipeWire ScreenCast (container) → pipewiresrc (SHM buffers) ✅
 | 2026-02-06 | 43.3 | 960x540 | NV12 | videoscale-first order (best 540p) |
 | 2026-02-06 | 40.9 | 960x540 | NV12 | nearest-neighbor (no improvement) |
 | 2026-02-06 | 38.9 | 640x360 | NV12 | Lower res = same FPS (not TCP-limited) |
-| 2026-02-07 | 41 | 1920x1080 | NV12 | Full resolution, no downscaling |
+| 2026-02-07 | 15 | 1920x1080 | NV12 | Full resolution - TCP-limited (3.1MB/frame) |
+| 2026-02-07 | 41 | 960x540 | NV12 | Restored downscaling (best config) |
 
 ### Key Optimization Findings
 
 1. **NV12 format** (IMPLEMENTED): 1.5 bytes/pixel vs BGRA 4 bytes/pixel. VideoToolbox natively encodes NV12.
 2. **videoconvert before queue** (CRITICAL): Must be BEFORE the leaky queue, not after. PipeWire buffers held too long after the queue → stalls after 2 frames.
 3. **vsockenc pipelining** (IMPLEMENTED): Overlaps sending frame N+1 with host encoding frame N. TCP_NODELAY + 1MB send buffer. Reduces latency variance but didn't increase FPS.
-4. **Resolution doesn't affect FPS**: Tested 640x360 (38.9), 960x540 (43.3), 1920x1080 (41). The bottleneck is PipeWire/Mutter frame production rate on virtio-gpu (~43 FPS ceiling), not TCP throughput or CPU processing.
+4. **Resolution matters above 1MB/frame**: 640x360 (38.9) and 960x540 (43.3) are similar (both <1MB), but 1920x1080 (15 FPS, 3.1MB/frame) is TCP-limited. SLiRP TCP per-frame latency ~67ms at 3.1MB kills FPS. Sweet spot is 960x540 NV12 (777KB/frame).
 5. **Scaling algorithm doesn't matter**: Nearest-neighbor (40.9) vs bilinear (43.3) - ARM NEON already fast enough.
 
 ### Remaining Bottleneck
