@@ -80,6 +80,10 @@ func (s *Server) connectDBus(ctx context.Context) error {
 // getMonitorConnector returns the connector name of the first active monitor.
 // In headless mode this is "Meta-0", in DRM scanout mode it's the real connector
 // (e.g., "Virtual-2"). Falls back to "Meta-0" if the query fails.
+//
+// Uses GetResources (legacy API) instead of GetCurrentState because GetCurrentState
+// returns complex nested D-Bus structs that godbus can't reliably deserialize.
+// GetResources returns simpler flat arrays including output connector names.
 func (s *Server) getMonitorConnector() string {
 	if s.conn == nil {
 		return "Meta-0"
@@ -87,56 +91,71 @@ func (s *Server) getMonitorConnector() string {
 
 	dcObj := s.conn.Object(displayConfigBus, displayConfigPath)
 
-	// GetCurrentState returns (serial, monitors, logical_monitors, properties)
-	// monitors is an array of (monitor_spec, modes, properties)
-	// monitor_spec is (connector, vendor, product, serial)
-	var result []interface{}
-	err := dcObj.Call(displayConfigIface+".GetCurrentState", 0).Store(&result)
-	if err != nil {
-		s.logger.Debug("GetCurrentState failed, falling back to Meta-0", "err", err)
+	// GetResources returns (serial, crtcs, outputs, modes, max_screen_width, max_screen_height)
+	// outputs[i] is (id, winsys_id, current_crtc, possible_crtcs, name, modes, clones, properties)
+	// We want outputs[i].name (index 4) for connected outputs.
+	call := dcObj.Call(displayConfigIface+".GetResources", 0)
+	if call.Err != nil {
+		s.logger.Debug("GetResources failed, falling back to Meta-0", "err", call.Err)
 		return "Meta-0"
 	}
 
-	if len(result) < 2 {
-		s.logger.Debug("GetCurrentState returned insufficient data, falling back to Meta-0")
+	// GetResources returns 6 values. Body[2] is the outputs array.
+	if len(call.Body) < 3 {
+		s.logger.Debug("GetResources returned insufficient data, falling back to Meta-0")
 		return "Meta-0"
 	}
 
-	// Extract monitors array — result[1] is the monitors array
-	// Each monitor is a struct with fields: (connector string, vendor string, product string, serial string)
-	// The D-Bus type is a(ssss)... but godbus deserializes it variably.
-	// Try to extract the connector name from the first monitor.
-	monitors, ok := result[1].([][]interface{})
+	// outputs is [][]interface{} — each output is a tuple
+	outputs, ok := call.Body[2].([][]interface{})
 	if !ok {
-		s.logger.Debug("could not parse monitors from GetCurrentState, falling back to Meta-0",
-			"type", fmt.Sprintf("%T", result[1]))
+		s.logger.Debug("could not parse outputs from GetResources, falling back to Meta-0",
+			"type", fmt.Sprintf("%T", call.Body[2]))
 		return "Meta-0"
 	}
 
-	if len(monitors) == 0 {
-		s.logger.Debug("no monitors found, falling back to Meta-0")
-		return "Meta-0"
+	// Find the first connected output (current_crtc != -1)
+	for _, output := range outputs {
+		if len(output) < 5 {
+			continue
+		}
+		name, ok := output[4].(string)
+		if !ok || name == "" {
+			continue
+		}
+		// current_crtc is output[2] — if it's not -1, the output is active
+		var currentCRTC int64
+		switch v := output[2].(type) {
+		case int64:
+			currentCRTC = v
+		case int32:
+			currentCRTC = int64(v)
+		case uint32:
+			currentCRTC = int64(v)
+		default:
+			continue
+		}
+		if currentCRTC >= 0 {
+			s.logger.Info("detected active monitor connector", "connector", name, "crtc", currentCRTC)
+			return name
+		}
 	}
 
-	// First monitor's spec is monitors[0][0] which is the (connector, vendor, product, serial) tuple
-	monitorSpec, ok := monitors[0][0].([]interface{})
-	if !ok {
-		s.logger.Debug("could not parse monitor spec, falling back to Meta-0",
-			"type", fmt.Sprintf("%T", monitors[0][0]))
-		return "Meta-0"
+	// No active output found — try the first output regardless of CRTC
+	for _, output := range outputs {
+		if len(output) < 5 {
+			continue
+		}
+		name, ok := output[4].(string)
+		if !ok || name == "" {
+			continue
+		}
+		s.logger.Info("using first available monitor connector", "connector", name)
+		return name
 	}
 
-	if len(monitorSpec) == 0 {
-		return "Meta-0"
-	}
-
-	connector, ok := monitorSpec[0].(string)
-	if !ok || connector == "" {
-		return "Meta-0"
-	}
-
-	s.logger.Info("detected monitor connector", "connector", connector)
-	return connector
+	s.logger.Debug("no outputs found in GetResources, falling back to Meta-0")
+	return "Meta-0"
 }
 
 // createSession creates linked RemoteDesktop and ScreenCast sessions.
