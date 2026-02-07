@@ -71,6 +71,24 @@ func (m *DefaultQuotaManager) getOrgQuotas(ctx context.Context, orgID string) (*
 
 	quotas.ActiveConcurrentDesktops = m.getActiveConcurrentDesktopsByOrg(ctx, wallet.OrgID)
 
+	projectsCount, err := m.store.GetProjectsCount(ctx, &store.GetProjectsCountQuery{OrganizationID: wallet.OrgID})
+	if err != nil {
+		return nil, err
+	}
+	quotas.Projects = int(projectsCount)
+
+	repositoriesCount, err := m.store.GetRepositoriesCount(ctx, &store.GetRepositoriesCountQuery{OrganizationID: wallet.OrgID})
+	if err != nil {
+		return nil, err
+	}
+	quotas.Repositories = int(repositoriesCount)
+
+	specTasksCount, err := m.store.GetSpecTasksCount(ctx, &store.GetSpecTasksCountQuery{OrganizationID: wallet.OrgID})
+	if err != nil {
+		return nil, err
+	}
+	quotas.SpecTasks = int(specTasksCount)
+
 	quotas.UserID = wallet.UserID
 	quotas.OrganizationID = wallet.OrgID
 
@@ -113,6 +131,25 @@ func (m *DefaultQuotaManager) getUserQuotas(ctx context.Context, userID string) 
 	quotas.OrganizationID = wallet.OrgID
 
 	quotas.ActiveConcurrentDesktops = m.getActiveConcurrentDesktopsByUser(ctx, wallet.OrgID)
+
+	projectsCount, err := m.store.GetProjectsCount(ctx, &store.GetProjectsCountQuery{UserID: wallet.UserID})
+	if err != nil {
+		return nil, err
+	}
+	quotas.Projects = int(projectsCount)
+
+	repositoriesCount, err := m.store.GetRepositoriesCount(ctx, &store.GetRepositoriesCountQuery{UserID: wallet.UserID})
+	if err != nil {
+		return nil, err
+	}
+
+	quotas.Repositories = int(repositoriesCount)
+
+	specTasksCount, err := m.store.GetSpecTasksCount(ctx, &store.GetSpecTasksCountQuery{UserID: wallet.UserID})
+	if err != nil {
+		return nil, err
+	}
+	quotas.SpecTasks = int(specTasksCount)
 
 	return quotas, nil
 }
