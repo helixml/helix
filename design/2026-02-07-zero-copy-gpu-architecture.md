@@ -257,6 +257,12 @@ QEMU reads GPU memory via Metal IOSurface and encodes with VideoToolbox.
      a. Extend helix-frame-export TCP protocol: HELIX_MSG_ENABLE_SCANOUT
      b. Guest sends "enable scanout N at WxH" → QEMU sets req_state[N] and hotplugs
      c. Container's Mutter sees new connected connector and uses it
+4b. [x] On-demand scanout hotplug VERIFIED
+   - Guest sends HELIX_MSG_ENABLE_SCANOUT(scanout=1, 1920x1080) via TCP:15937
+   - QEMU enables scanout, triggers VIRTIO_GPU_EVENT_DISPLAY config interrupt
+   - Guest reprobe (`echo 1 > /sys/class/drm/card0-Virtual-2/status`): connected!
+   - Virtual-2 shows as connected with 26 modes (same as Virtual-1)
+   - Auto-reprobe needs work (manual `echo 1 > status` required for now)
 5. [ ] Test Mutter on a dynamically-connected secondary connector
 5. [ ] Modify helix-frame-export to watch multiple scanouts
 6. [ ] Map session IDs to scanout indices
