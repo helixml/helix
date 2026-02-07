@@ -76,6 +76,9 @@ func (s *PostgresStore) UpdateSystemSettings(ctx context.Context, req *types.Sys
 	if req.ProvidersManagementEnabled != nil {
 		settings.ProvidersManagementEnabled = *req.ProvidersManagementEnabled
 	}
+	if req.EnforceQuotas != nil {
+		settings.EnforceQuotas = *req.EnforceQuotas
+	}
 
 	settings.Updated = time.Now()
 

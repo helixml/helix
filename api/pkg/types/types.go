@@ -1018,6 +1018,7 @@ type ServerConfigForFrontend struct {
 	License                                *FrontendLicenseInfo `json:"license,omitempty"`
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
 	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
+	MaxConcurrentDesktops                  int                  `json:"max_concurrent_desktops"`
 }
 
 // a short version of a session that we keep for the dashboard
@@ -1900,6 +1901,7 @@ type KeyPair struct {
 
 // DesktopAgent represents a Zed editor instance configuration
 type DesktopAgent struct {
+	OrganizationID string `json:"organization_id"` // Organization ID
 	// Session ID - the Helix session this desktop agent serves
 	SessionID string `json:"session_id"`
 	// User ID for security validation and access control

@@ -11,6 +11,8 @@ import (
 )
 
 type QuotaManager interface {
+	GetQuotas(ctx context.Context, req *types.QuotaRequest) (*types.QuotaResponse, error)
+	LimitReached(ctx context.Context, req *types.QuotaLimitReachedRequest) (*types.QuotaLimitReachedResponse, error)
 }
 
 type DefaultQuotaManager struct {
@@ -43,10 +45,26 @@ func (m *DefaultQuotaManager) getOrgQuotas(ctx context.Context, orgID string) (*
 
 	var quotas *types.QuotaResponse
 
-	if wallet.StripeSubscriptionID != "" && wallet.SubscriptionStatus == stripe.SubscriptionStatusActive {
+	// If quota enforcement is disabled, return -1 for all quotas
+	systemSettings, err := m.store.GetSystemSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	switch {
+	// Quotas disabled
+	case systemSettings.EnforceQuotas:
+		quotas = &types.QuotaResponse{
+			MaxConcurrentDesktops: -1,
+			MaxProjects:           -1,
+			MaxRepositories:       -1,
+			MaxSpecTasks:          -1,
+		}
+	// Active subscription
+	case wallet.StripeSubscriptionID != "" && wallet.SubscriptionStatus == stripe.SubscriptionStatusActive:
 		// Paid plan limits
 		quotas = m.getProQuotas()
-	} else {
+	default:
 		// Free plan limits
 		quotas = m.getFreeQuotas()
 	}
@@ -68,10 +86,25 @@ func (m *DefaultQuotaManager) getUserQuotas(ctx context.Context, userID string) 
 
 	var quotas *types.QuotaResponse
 
-	if wallet.StripeSubscriptionID != "" && wallet.SubscriptionStatus == stripe.SubscriptionStatusActive {
+	// If quota enforcement is disabled, return -1 for all quotas
+	systemSettings, err := m.store.GetSystemSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	switch {
+	// Quotas disabled
+	case systemSettings.EnforceQuotas:
+		quotas = &types.QuotaResponse{
+			MaxConcurrentDesktops: -1,
+			MaxProjects:           -1,
+			MaxRepositories:       -1,
+			MaxSpecTasks:          -1,
+		}
+	case wallet.StripeSubscriptionID != "" && wallet.SubscriptionStatus == stripe.SubscriptionStatusActive:
 		// Paid plan limits
 		quotas = m.getProQuotas()
-	} else {
+	default:
 		// Free plan limits
 		quotas = m.getFreeQuotas()
 	}
@@ -79,7 +112,7 @@ func (m *DefaultQuotaManager) getUserQuotas(ctx context.Context, userID string) 
 	quotas.UserID = wallet.UserID
 	quotas.OrganizationID = wallet.OrgID
 
-	quotas.ActiveConcurrentDesktops = m.getActiveConcurrentDesktopsByOrg(ctx, wallet.OrgID)
+	quotas.ActiveConcurrentDesktops = m.getActiveConcurrentDesktopsByUser(ctx, wallet.OrgID)
 
 	return quotas, nil
 }

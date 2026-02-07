@@ -308,6 +308,7 @@ const (
 	ResourceSpecTask              Resource = "SpecTask"
 	ResourceSession               Resource = "Session"
 	ResourcePrompt                Resource = "Prompt"
+	ResourceDesktop               Resource = "Desktop"
 )
 
 type Action string

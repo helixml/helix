@@ -30,6 +30,7 @@ import (
 	"github.com/helixml/helix/api/pkg/openai/logger"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/quota"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/searxng"
@@ -541,10 +542,13 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	anthropicProxy := anthropic.New(cfg, postgresStore, dynamicInfoProvider, logStores...)
 
+	quotaManager := quota.NewDefaultQuotaManager(postgresStore, cfg, gse)
+
 	server, err := server.NewServer(
 		cfg,
 		postgresStore,
 		ps,
+		quotaManager,
 		providerManager,
 		dynamicInfoProvider,
 		helixInference,
