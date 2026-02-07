@@ -91,6 +91,9 @@ func main() {
 		logger.Info("D-Bus session bus started", "addr", dbusAddr)
 	}
 
+	// Inherit MUTTER_DEBUG from parent environment if set
+	mutterDebug := os.Getenv("MUTTER_DEBUG")
+
 	env := os.Environ()
 	env = append(env,
 		"XDG_SESSION_TYPE=tty",
@@ -100,6 +103,9 @@ func main() {
 		"XDG_RUNTIME_DIR="+xdgRuntime,
 		"DBUS_SESSION_BUS_ADDRESS="+dbusAddr,
 	)
+	if mutterDebug != "" {
+		env = append(env, "MUTTER_DEBUG="+mutterDebug)
+	}
 
 	// Step 5: Launch gnome-shell
 	logger.Info("Launching gnome-shell --display-server...")
