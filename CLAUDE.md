@@ -1,5 +1,16 @@
 # Helix Development Rules
 
+## 🎯 Communication Style
+
+**Tone: Skeptical Staff Engineer / CTO**
+
+- Stop being sycophantic - no "You're absolutely right", "That's a great point", or excessive praise
+- Treat the user like a grown-up who might be wrong
+- Challenge assumptions when something seems off
+- Be direct and objective about technical trade-offs
+- Focus on facts and problem-solving, not validation
+- If uncertain, investigate to find the truth rather than confirming beliefs
+
 **Current year: 2026** - When searching for browser API support, documentation, or library versions, include "2026" in searches to get current information.
 
 See also: `.cursor/rules/*.mdc`
@@ -25,6 +36,19 @@ See also: `.cursor/rules/*.mdc`
   4. Never use `git checkout -f` unless you've verified the working tree is clean or matches
 - **To create orphan branches safely**: create a new temp directory with `git init`, create the orphan branch there, then push to the target repo as a remote
 
+### Destructive Filesystem Commands
+- **NEVER** run `rm -rf` without **EXPLICIT USER CONSENT** — always ask first before deleting anything
+- **NEVER** delete backups, VM images, or any files larger than 1GB without asking user
+- **NEVER** run destructive commands on directories you haven't verified are empty or disposable
+- **NEVER** assume a file/directory is safe to delete — always ask user first
+- **ALWAYS** use `mv` to a temp location instead of `rm` when uncertain
+- **ALWAYS** verify disk space and paths before copy operations that could fill disk
+- **Examples of forbidden commands without user consent:**
+  - `rm -rf <any-path>` — ask user first
+  - `rm <backup-file>` — ask user first
+  - `dd if=/dev/zero of=<any-file>` — ask user first
+  - Any command that overwrites or deletes user data
+
 ### Commit Practices
 - **Commit and push frequently** — after every self-contained change (feature, fix, cleanup)
 - **Update design docs** — when completing roadmap items, update the design doc to reflect progress
@@ -38,6 +62,10 @@ See also: `.cursor/rules/*.mdc`
 ### Sessions
 - **NEVER** run `spectask stop --all` without explicit user permission — user may have active sessions you can't see
 - **NEVER** stop sessions you didn't create in the current conversation — always ask first
+
+### Workflow
+- **NEVER** ask if the user wants to take a break — just keep working
+- **NEVER** ask "should I continue?" or similar — assume yes and proceed
 
 ### Stack Commands
 - **NEVER** run `./stack start` — user runs this (needs interactive terminal)
@@ -84,6 +112,37 @@ cd frontend && yarn build
 sed -i '/^FRONTEND_URL=/d' .env
 docker compose -f docker-compose.dev.yaml up -d api
 ```
+
+### UTM Virtual Machines
+
+**See `design/2026-02-04-macos-dev-environment-setup.md` for complete repository setup and build instructions.**
+
+- **Control VMs with utmctl** — Don't wait for user to start VMs manually
+  ```bash
+  # utmctl is in /Applications/UTM.app/Contents/MacOS/utmctl (or ~/pm/helix/UTM/build/...)
+  utmctl list                    # List all VMs
+  utmctl start <UUID>            # Start a VM
+  utmctl stop <UUID>             # Stop a VM
+  utmctl status <UUID>           # Check VM status
+  ```
+- **Expanding VM disks**:
+  ```bash
+  # 1. Expand the qcow2 file (VM must be stopped)
+  qemu-img resize /path/to/vm.qcow2 1T
+
+  # 2. Start the VM and expand the partition inside
+  sudo growpart /dev/vda 2
+  sudo resize2fs /dev/vda2
+  df -h  # Verify new space
+  ```
+- **QEMU build requirements**: Custom QEMU builds must include SPICE support (`--enable-spice`) or UTM will fail with "-spice: invalid option"
+- **Building and installing QEMU into UTM**: NEVER modify UTM source code. Instead, rebuild our QEMU fork and install the binary into UTM.app:
+  ```bash
+  cd ~/pm/helix
+  ./for-mac/qemu-helix/build-qemu-standalone.sh  # Builds QEMU and installs into UTM.app
+  ```
+  The script uses the UTM sysroot at `~/pm/UTM/sysroot-macOS-arm64` for dependencies.
+  QEMU source is at `~/pm/qemu-utm` (branch `helix-frame-export`).
 
 ### Docker
 # ⛔⛔⛔ CRITICAL - READ THIS BEFORE TOUCHING DOCKER ⛔⛔⛔

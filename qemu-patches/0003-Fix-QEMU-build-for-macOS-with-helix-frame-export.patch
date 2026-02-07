@@ -1,0 +1,78 @@
+From 886c4e479746e0967d616c53afd2b0c80cc6a540 Mon Sep 17 00:00:00 2001
+From: Luke Marsden <me@lukemarsden.net>
+Date: Wed, 4 Feb 2026 07:19:06 +0000
+Subject: [PATCH 3/3] Fix QEMU build for macOS with helix-frame-export
+
+- Add version guard for virgl_borrow_texture_for_scanout() function
+  (only needed when VIRGL_VERSION_MAJOR < 1)
+- Add manual virglrenderer dependency in helix meson.build with
+  fallback to explicit include paths
+- Resolves compilation errors with virglrenderer API mismatches
+
+Successfully builds qemu-system-aarch64 with zero-copy VideoToolbox
+encoding support on macOS ARM64.
+
+Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
+---
+ hw/display/helix/meson.build  | 17 ++++++++++++++---
+ hw/display/virtio-gpu-virgl.c |  2 ++
+ 2 files changed, 16 insertions(+), 3 deletions(-)
+
+diff --git a/hw/display/helix/meson.build b/hw/display/helix/meson.build
+index 1564d47c76..5797debea9 100644
+--- a/hw/display/helix/meson.build
++++ b/hw/display/helix/meson.build
+@@ -21,6 +21,19 @@ if host_machine.system() == 'darwin'
+   metal = dependency('Metal', required: true)
+   foundation = dependency('Foundation', required: true)
+ 
++  # virglrenderer for accessing GPU textures
++  # Try to find via pkg-config, fallback to manual include path
++  virglrenderer = dependency('virglrenderer', required: false)
++  if not virglrenderer.found()
++    # Manually add virglrenderer include path
++    virglrenderer_inc = include_directories('/Users/luke/pm/helix/UTM/sysroot-macOS-arm64/include/virgl')
++    virglrenderer_lib = declare_dependency(
++      include_directories: virglrenderer_inc,
++      link_args: ['-L/Users/luke/pm/helix/UTM/sysroot-macOS-arm64/lib', '-lvirglrenderer']
++    )
++    virglrenderer = virglrenderer_lib
++  endif
++
+   helix_frame_export_ss = ss.source_set()
+   helix_frame_export_ss.add(files('helix-frame-export.m'))
+   helix_frame_export_ss.add(videotoolbox)
+@@ -29,9 +42,7 @@ if host_machine.system() == 'darwin'
+   helix_frame_export_ss.add(iosurface)
+   helix_frame_export_ss.add(metal)
+   helix_frame_export_ss.add(foundation)
+-
+-  # Also need virglrenderer
+-  helix_frame_export_ss.add(virgl)
++  helix_frame_export_ss.add(virglrenderer)
+ 
+   hw_display_modules += {'helix-frame-export': helix_frame_export_ss}
+ endif
+diff --git a/hw/display/virtio-gpu-virgl.c b/hw/display/virtio-gpu-virgl.c
+index 0b60414762..f0b34761a0 100644
+--- a/hw/display/virtio-gpu-virgl.c
++++ b/hw/display/virtio-gpu-virgl.c
+@@ -400,6 +400,7 @@ static void virgl_cmd_resource_flush(VirtIOGPU *g,
+     }
+ }
+ 
++#if VIRGL_VERSION_MAJOR < 1
+ static GLuint virgl_borrow_texture_for_scanout(uint32_t id, bool *y_0_top,
+                                                uint32_t *width,
+                                                uint32_t *height,
+@@ -433,6 +434,7 @@ static GLuint virgl_borrow_texture_for_scanout(uint32_t id, bool *y_0_top,
+ 
+     return info.tex_id;
+ }
++#endif
+ 
+ #if VIRGL_VERSION_MAJOR >= 1
+ static GLuint virgl_borrow_d3d_info_for_scanout(uint32_t id, bool *y_0_top,
+-- 
+2.50.1 (Apple Git-155)
+

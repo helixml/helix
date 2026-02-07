@@ -11,7 +11,9 @@ dependencies = [
     "httpx>=0.27.2",
     "protobuf>=5.28.3",
     "sentencepiece>=0.2.0",
-    "torch==2.5.1+cu124",
+    # Platform-specific PyTorch: CUDA on x86_64, CPU on ARM64
+    "torch==2.5.1+cu124; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "torch>=2.5.1; sys_platform == 'linux' and platform_machine == 'aarch64'",
     "transformers>=4.46.3",
     "uvicorn>=0.32.1",
 ]
@@ -25,7 +27,10 @@ dev = [
 ]
 
 [tool.uv.sources]
-torch = { index = "pytorch-cu124" }
+# Use CUDA wheel index on x86_64 only
+torch = [
+    { index = "pytorch-cu124", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+]
 
 [[tool.uv.index]]
 name = "pytorch-cu124"

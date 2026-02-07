@@ -419,6 +419,10 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 		env = append(env, fmt.Sprintf("GPU_VENDOR=%s", req.GPUVendor))
 	}
 
+	// Enable GStreamer debug logging for vsockenc debugging
+	// TODO: Remove this after vsockenc receive thread issue is fixed
+	env = append(env, "GST_DEBUG=vsockenc:5")
+
 	// Add GPU-specific environment variables
 	switch req.GPUVendor {
 	case "nvidia":
@@ -440,6 +444,20 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 			// Use explicit capabilities instead of "all" for GKE/cloud compatibility
 			env = append(env, "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display")
 		}
+	}
+
+	// For virtio-gpu (macOS ARM): set scanout mode environment variables
+	// These tell detect-render-node.sh and desktop-bridge to use the
+	// DRM lease → QEMU VideoToolbox H.264 pipeline instead of PipeWire.
+	drmSock := "/run/helix-drm.sock"
+	if _, err := os.Stat(drmSock); err == nil {
+		env = append(env,
+			"GPU_VENDOR=virtio",
+			"HELIX_SCANOUT_MODE=1",
+			"HELIX_VIDEO_MODE=scanout",
+			"XDG_RUNTIME_DIR=/run/user/1000",
+		)
+		log.Debug().Str("socket", drmSock).Msg("DRM manager socket found, setting scanout env vars")
 	}
 
 	// Add BUILDKIT_HOST for shared BuildKit cache support
@@ -653,8 +671,40 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 		log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Msg("Configured Intel GPU passthrough")
 
 	default:
-		// Software rendering - no special config needed
-		log.Debug().Msg("No GPU passthrough configured (software rendering)")
+		// Unknown/virtio GPU: mount /dev/dri/* if available (e.g., virtio-gpu on macOS/UTM)
+		driDevices, _ := filepath.Glob("/dev/dri/renderD*")
+		for _, dev := range driDevices {
+			hostConfig.Devices = append(hostConfig.Devices,
+				container.DeviceMapping{
+					PathOnHost:        dev,
+					PathInContainer:   dev,
+					CgroupPermissions: "rwm",
+				},
+			)
+		}
+		cardDevices, _ := filepath.Glob("/dev/dri/card*")
+		for _, dev := range cardDevices {
+			hostConfig.Devices = append(hostConfig.Devices,
+				container.DeviceMapping{
+					PathOnHost:        dev,
+					PathInContainer:   dev,
+					CgroupPermissions: "rwm",
+				},
+			)
+		}
+		// For virtio-gpu (macOS ARM): bind-mount helix-drm-manager socket
+		// so containers can request DRM leases for scanout-based video capture
+		drmSock := "/run/helix-drm.sock"
+		if _, err := os.Stat(drmSock); err == nil {
+			hostConfig.Binds = append(hostConfig.Binds,
+				drmSock+":"+drmSock)
+			log.Debug().Str("socket", drmSock).Msg("Mounted helix-drm-manager socket for scanout mode")
+		}
+		if len(driDevices) > 0 || len(cardDevices) > 0 {
+			log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Str("vendor", vendor).Msg("Configured GPU passthrough (unknown/virtio vendor)")
+		} else {
+			log.Debug().Str("vendor", vendor).Msg("No GPU devices found (software rendering)")
+		}
 	}
 }
 
