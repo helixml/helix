@@ -332,11 +332,15 @@ VideoMode detection in ws_stream.go:
 - Unchanged. PipeWire ScreenCast → pipewiresrc/pipewirezerocopysrc → nvenc/vaapi → WebSocket
 - This path is NOT affected by the scanout changes
 
-**Integration points:**
-- `ws_stream.go`: Add `VideoModeScanout` alongside existing modes
-- `scanout_stream.go` (new): Implements scanout TCP receiver
-- Container startup: When scanout mode, skip PipeWire ScreenCast setup
-- PipeWire still needed for audio even in scanout mode
+**Integration points (all implemented):**
+- `ws_stream.go`: `VideoModeScanout` auto-detected via `HELIX_VIDEO_MODE` env var
+- `scanout_source.go`: TCP reader for QEMU H.264 frames, implements `VideoFrame` channel
+- `detect-render-node.sh`: Exports `HELIX_SCANOUT_MODE=1` and `HELIX_VIDEO_MODE=scanout` for virtio-gpu
+- `startup-app.sh`: Branches gnome-shell launch: `--display-server` (scanout) vs `--headless` (standard)
+- `start-desktop-bridge.sh`: Passes `HELIX_VIDEO_MODE` to desktop-bridge
+- `devcontainer.go`: Bind-mounts `/run/helix-drm.sock` into virtio-gpu containers
+- `Dockerfile.ubuntu-helix`: Builds `logind-stub` and `mutter-lease-launcher` for ARM64
+- PipeWire still started for audio even in scanout mode
 
 ## QEMU Commits (helixml/qemu-utm, branch utm-edition-venus-helix)
 
@@ -351,6 +355,8 @@ VideoMode detection in ws_stream.go:
 - `ea91ab699c` - feat: Multi-client TCP server with per-scanout auto-encoding
 - `7116968c86` - fix: Reset enabled_output_bitmask on guest reboot
 - `7eec31cbbc` - debug: SET_SCANOUT and resource_flush logging to helix-debug.log
+- `3c65cca992` - fix: Prevent double-init from orphaning TCP server clients
+- `4f9d92a605` - debug: Add fe pointer comparison logging to subscribe handler
 
 ## Helix Commits (feature/macos-arm-desktop-port)
 
@@ -365,6 +371,10 @@ Key commits:
 - `346bcbdc4` - feat: helix-drm-manager daemon - DRM lease manager for container desktops
 - `3b2fa865f` - feat: Add SUBSCRIBE protocol for scanout-keyed H.264 streaming
 - `8ece70cae` - feat: scanout-stream-test tool for end-to-end validation
+- `b6cf15441` - feat: CRTC pre-activation for DRM lease compatibility with Mutter
+- `ad297fe80` - feat: Scanout video mode for macOS ARM desktop streaming (scanout_source.go)
+- `fb82665e4` - fix: Use dbus-run-session for gnome-shell in mutter-lease-launcher
+- `b7d8ec6e3` - feat: Integrate scanout mode into Helix container stack
 
 ## VM Setup Notes
 
