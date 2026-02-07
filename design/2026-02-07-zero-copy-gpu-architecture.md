@@ -263,15 +263,20 @@ QEMU reads GPU memory via Metal IOSurface and encodes with VideoToolbox.
    - Guest reprobe (`echo 1 > /sys/class/drm/card0-Virtual-2/status`): connected!
    - Virtual-2 shows as connected with 26 modes (same as Virtual-1)
    - Auto-reprobe needs work (manual `echo 1 > status` required for now)
-5. [~] Test rendering on a secondary connector
-   - modetest can see Virtual-2 as connected with 26 modes
-   - BUT: setting a mode fails with "Permission denied" - GDM holds DRM master
-   - DRM master problem: only one process can be DRM master per /dev/dri/card
-   - Options:
-     a. DRM lease: give specific connectors to containers (Linux 4.15+, may work)
-     b. Use logind to get a separate session per container
-     c. Bypass GDM: stop GDM, run container Mutters directly as DRM master
-     d. Multi-card: investigate if virtio-gpu can expose multiple /dev/dri/card devices
+5. [x] DRM lease approach VERIFIED
+   - Disabled GDM (`systemctl disable gdm`) - not needed, console output on Virtual-1 is fine
+   - DRM_IOCTL_SET_MASTER works after GDM is stopped
+   - DRM_IOCTL_MODE_CREATE_LEASE works! Created lease for connector 45 + CRTC 51
+   - Lease FD is a new DRM master controlling only the leased resources
+   - Multiple containers can each get their own lease (no conflicts)
+   - Mutter does NOT need forking - it supports DRM devices via logind/FD
+6. [ ] Build helix-drm-manager daemon
+   - Runs in VM, becomes DRM master on card0
+   - Listens on Unix socket for lease requests
+   - Creates DRM leases (connector + CRTC) and passes FD via SCM_RIGHTS
+   - Container startup requests a lease, receives FD, passes to Mutter
+7. [ ] Test Mutter with lease FD on Virtual-2
+8. [ ] Wire up QEMU scanout capture for leased connectors
 5. [ ] Modify helix-frame-export to watch multiple scanouts
 6. [ ] Map session IDs to scanout indices
 7. [ ] Hydra allocates scanout index per container
