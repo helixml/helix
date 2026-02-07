@@ -1,289 +1,203 @@
 # Zero-Copy GPU Video Capture Architecture
 
 **Date:** 2026-02-07
-**Status:** Design investigation
+**Status:** In progress - DRM lease approach verified, building helix-drm-manager
 
-## The Question
-
-Why can SPICE capture frames efficiently from virtio-gpu, but we're struggling with 15 FPS sending raw pixels over TCP?
-
-## How SPICE Does It
-
-SPICE reads directly from the **scanout** - the virtual monitor's framebuffer. Here's the chain:
+## Architecture
 
 ```
-Guest Mutter compositor
-  → renders frame to GPU texture (virtio-gpu resource)
-  → page flip: sets resource as "scanout" for virtual monitor
-  → virtio-gpu sends RESOURCE_FLUSH command to QEMU
-  → QEMU's virtio-gpu-virgl.c:virgl_cmd_resource_flush()
-    → virgl_renderer_transfer_read_iov(resource_id, ...)
-    → reads pixels from GPU resource into CPU DisplaySurface
-    → dpy_gfx_update() notifies display backends (SPICE, Cocoa, etc.)
-    → SPICE encodes and sends to client
+macOS Host
+  QEMU (virtio-gpu-gl-pci, max_outputs=16)
+    helix-frame-export.m
+      - Watches resource_flush per scanout (damage-based)
+      - scanout N flush -> Metal IOSurface -> VideoToolbox H.264
+      - Returns H.264 NAL units via TCP:15937
+      - Handles HELIX_MSG_ENABLE_SCANOUT to hotplug connectors
+
+Linux VM (Ubuntu 25.10, aarch64)
+  /dev/dri/card0 (virtio-gpu, 16 connectors: Virtual-1..16)
+  Virtual-1: linux console (no GDM - disabled)
+  Virtual-2..16: available for container desktops
+
+  helix-drm-manager daemon
+    - Sole DRM master on /dev/dri/card0
+    - Listens on /run/helix-drm.sock (Unix socket)
+    - On container start:
+      1. Allocates free scanout index (1-15)
+      2. Sends HELIX_MSG_ENABLE_SCANOUT to QEMU (TCP:15937)
+      3. Triggers connector reprobe in guest kernel
+      4. Creates DRM lease (connector + CRTC + plane)
+      5. Passes lease FD to container via SCM_RIGHTS
+    - On container stop:
+      1. Sends HELIX_MSG_DISABLE_SCANOUT to QEMU
+      2. Releases scanout index for reuse
+
+  Container A (Docker)
+    Mutter (receives lease FD for Virtual-2)
+      - Page flip on Virtual-2 -> virtio-gpu resource_flush
+      - QEMU captures scanout 1 -> VideoToolbox H.264
+      - desktop-bridge receives H.264 -> WebSocket to browser
+
+  Container B (Docker)
+    Mutter (receives lease FD for Virtual-3)
+      - Page flip on Virtual-3 -> virtio-gpu resource_flush
+      - QEMU captures scanout 2 -> VideoToolbox H.264
 ```
 
-Key point: **QEMU already gets notified on every frame** via `resource_flush`. It already reads the pixels via `virgl_renderer_transfer_read_iov()`. There's no TCP, no PipeWire, no GStreamer involved. The GPU resource ID is known because it's the scanout resource.
+## Key Benefits
 
-We actually had this working at **55 FPS** (commit `cc418f5f4` - "DisplaySurface approach"). The helix-frame-export.m code hooks into `virgl_cmd_resource_flush()` and calls `helix_update_scanout_displaysurface()` to capture every frame.
+- **Zero CPU copies**: Mutter renders to GPU -> QEMU reads Metal IOSurface -> VideoToolbox encodes
+- **Damage-based**: Only encodes on page flip. Static screen = 0 frames captured, ~2 FPS broadcast keepalive
+- **No PipeWire**: Video capture bypasses PipeWire entirely. PipeWire still used for audio
+- **No TCP pixel transfer**: Only resource IDs over TCP, not 3.1MB pixel data per frame
+- **Expected FPS**: 55+ (based on earlier DisplaySurface approach at 55 FPS)
+- **Resolution**: Full native 1920x1080 (or whatever the container's Mutter is configured for)
 
-## Why We Switched Away From DisplaySurface
+## Verified Steps
 
-The DisplaySurface approach captures the **VM's scanout** - the VM's own display. But our desktop containers run inside Docker inside the VM, each with their own headless Mutter. Those headless Mutters do NOT render to the VM's scanout. They render to offscreen PipeWire ScreenCast buffers.
+### 1. QEMU max_outputs=16
 
+- Bumped `VIRTIO_GPU_MAX_SCANOUTS` from 16 to 32 in qemu-utm fork
+- Changed default `max_outputs` from 1 to 16
+- Fixed static assertion (`sizeof(virtio_gpu_resp_display_info)`: 408 -> 792)
+- Built via `./for-mac/qemu-helix/build-qemu-standalone.sh`
+- Guest sees 16 DRM connectors (`[drm] number of scanouts: 16`)
+- **DO NOT modify UTM source** - just patch QEMU binary into UTM.app
+
+### 2. On-demand scanout hotplug
+
+- Added `HELIX_MSG_ENABLE_SCANOUT` (0x20) and `HELIX_MSG_DISABLE_SCANOUT` (0x21) to protocol
+- Protocol defined in both `gstvsockenc.h` (helix repo) and `helix-frame-export.h` (qemu-utm repo)
+- QEMU handler: `helix_enable_scanout()` in `virtio-gpu-base.c`
+  - Sets `req_state[scanout_id].width/height`
+  - Sets `enabled_output_bitmask`
+  - Triggers `VIRTIO_GPU_EVENT_DISPLAY` config interrupt
+- Made `virtio_gpu_notify_event()` non-static for helix access
+- Guest reprobe required: `echo 1 > /sys/class/drm/card0-Virtual-N/status`
+- Tested: Virtual-2 goes from disconnected to connected with 26 modes
+
+### 3. DRM lease
+
+- GDM disabled (`systemctl disable gdm`) - VM console on Virtual-1 is sufficient
+- After GDM gone, `DRM_IOCTL_SET_MASTER` succeeds
+- `DRM_IOCTL_MODE_CREATE_LEASE` works: leased connector 45 + CRTC 51, got lessee_id=1
+- Lease FD is an independent DRM master controlling only leased resources
+- Multiple containers can each have their own lease (no DRM master conflicts)
+- Mutter does NOT need forking - it accepts DRM devices via logind/FD
+
+### 4. DMA-BUF path (FAILED - not needed with scanout approach)
+
+- PipeWire ScreenCast on Mutter with virtio-gpu headless does NOT export DMA-BUF
+- Tested: `pipewirezerocopysrc buffer-type=dmabuf-passthrough` -> "no more input formats"
+- Root cause: Mutter on virtio-gpu only offers SHM (MemFd) for ScreenCast, not DMA-BUF
+- The vsockenc VIRTGPU_RESOURCE_INFO code is correct but can't be exercised without DMA-BUF
+- **This approach is abandoned in favor of multiple scanouts**
+
+## Remaining Implementation
+
+### helix-drm-manager daemon (Go, runs in VM)
+
+Location: `api/cmd/helix-drm-manager/main.go`
+
+**Responsibilities:**
+1. Open `/dev/dri/card0`, call `DRM_IOCTL_SET_MASTER`
+2. Listen on `/run/helix-drm.sock` (Unix socket)
+3. Maintain pool of available scanout indices (1-15)
+4. On lease request from container:
+   - Allocate next free scanout index
+   - Connect to QEMU TCP:15937, send `HELIX_MSG_ENABLE_SCANOUT`
+   - Wait for `HELIX_MSG_SCANOUT_RESP`
+   - Trigger connector reprobe: `echo 1 > /sys/class/drm/card0-Virtual-{N+1}/status`
+   - Create DRM lease: `DRM_IOCTL_MODE_CREATE_LEASE(connector_id, crtc_id)`
+   - Send lease FD to container via `SCM_RIGHTS` on Unix socket
+5. On container disconnect:
+   - Send `HELIX_MSG_DISABLE_SCANOUT` to QEMU
+   - Release scanout index
+
+**DRM ioctl constants (arm64 Linux):**
 ```
-VM display (scanout 0) ← shows VM's login screen / desktop manager
-  └── Docker container 1
-       └── Mutter --headless --virtual-monitor 1920x1080
-            └── renders to offscreen GPU buffers (NOT scanout)
-            └── PipeWire ScreenCast provides frames to subscribers
-  └── Docker container 2
-       └── Mutter --headless --virtual-monitor 1920x1080
-            └── same - offscreen, no scanout
+DRM_IOCTL_SET_MASTER = _IO('d', 0x1e) = 0x641e
+DRM_IOCTL_DROP_MASTER = _IO('d', 0x1f) = 0x641f
+DRM_IOCTL_MODE_CREATE_LEASE = _IOWR('d', 0xc6, 24)
 ```
 
-So we built the PipeWire → vsockenc → TCP pipeline to get frames out of containers. But this copies 3.1MB of NV12 pixels over SLiRP TCP for every frame, limiting us to ~15 FPS.
+**Connector ID mapping:**
+- Virtual-1: connector_id=38 (scanout 0, VM console)
+- Virtual-2: connector_id=45 (scanout 1)
+- Virtual-3: connector_id=52 (scanout 2)
+- Pattern: connector_id = 38 + (scanout_index * 7)
+- CRTC IDs: 37, 44, 51, 58, 65, 72, ... (pattern: 37 + scanout_index * 7)
 
-## Your Idea: Multiple Scanouts
+### Container startup changes
 
-**"Can't we make many of those, one per desktop?"**
+In `desktop/ubuntu-config/startup-app.sh` (or a new script):
+1. Connect to `/run/helix-drm.sock`
+2. Request a DRM lease (send scanout request, receive lease FD via SCM_RIGHTS)
+3. Configure Mutter to use the lease FD instead of `--headless --virtual-monitor`
+4. Mutter env vars: `GDK_BACKEND=drm`, `MUTTER_DEBUG_FORCE_KMS=1`, or pass lease FD via logind
 
-This is the right architectural insight. virtio-gpu supports multiple scanouts (virtual displays). If each container's Mutter rendered to its own scanout, QEMU could capture directly from GPU memory - no TCP needed.
+### QEMU helix-frame-export changes
 
-### How virtio-gpu scanouts work
+Currently: only captures scanout 0 (VM display) via `helix_update_scanout_displaysurface()`
+Needed: capture ALL active scanouts independently
 
-```
-virtio-gpu device (QEMU)
-  ├── scanout 0: 1920x1080 → UTM window (or headless)
-  ├── scanout 1: 1920x1080 → headless (no window)
-  ├── scanout 2: 1920x1080 → headless (no window)
-  └── ...up to max_outputs (default 1, configurable)
-```
+The `virgl_cmd_resource_flush()` callback already iterates `for (i = 0; i < max_outputs; i++)` and
+calls `helix_update_scanout_displaysurface(g, i, rf.resource_id)` per scanout. Each scanout can have
+its own VideoToolbox encoder session. The H.264 output needs to be tagged with the scanout index
+so desktop-bridge knows which container's stream it belongs to.
 
-Each scanout is a virtual monitor. In the guest, it appears as a DRM connector:
-- `/dev/dri/card0`: connector-0 (scanout 0), connector-1 (scanout 1), etc.
+### Desktop-bridge changes
 
-When the guest sets a framebuffer on a connector and does a page flip, the `resource_flush` command tells QEMU which resource to read from. QEMU can read it via `virgl_renderer_transfer_read_iov()` without any guest cooperation needed.
+Currently: receives H.264 from TCP:15937 via vsockenc GStreamer element
+With scanouts: receives H.264 from TCP:15937 tagged with scanout index
 
-### The challenge: containers sharing one GPU
-
-The VM has one virtio-gpu. All containers share it via `/dev/dri/card0`. Currently:
-- The VM's own display manager uses scanout 0 (connector-0)
-- Containers use `--headless` mode (no connector at all)
-
-For the multi-scanout approach:
-1. Configure QEMU with `max_outputs=N` (e.g., 8)
-2. Each container gets assigned a DRM connector (connector-1, connector-2, etc.)
-3. Container's Mutter uses that connector instead of `--headless`
-4. QEMU captures from the corresponding scanout
-5. No UTM windows needed - just don't attach a display to those scanouts
-
-### Implementation steps
-
-**QEMU side:**
-1. Increase `max_outputs` in virtio-gpu config
-2. In `helix-frame-export.m`, watch all scanouts (not just scanout 0)
-3. Each scanout gets its own encoder session
-4. Map session IDs to scanout indices
-
-**Guest side:**
-1. Container startup detects available DRM connectors
-2. Mutter uses `--headless` with a real DRM connector instead of virtual-monitor
-3. Or: use `gnome-shell` without `--headless`, pointed at a specific connector
-
-**Desktop-bridge side:**
-1. Tell QEMU which scanout maps to which session via the existing TCP protocol
+The TCP protocol already has `session_id` in `HelixMsgHeader` which can map to scanout index.
+Desktop-bridge needs to:
+1. Request a scanout from helix-drm-manager instead of starting PipeWire ScreenCast
 2. Receive H.264 frames from QEMU keyed by scanout index
-3. Forward to WebSocket clients
+3. Forward to WebSocket clients as before
 
-## Alternative: Fix the Resource ID Path (Simpler)
+## QEMU Commits (helixml/qemu-utm, branch utm-edition-venus-helix)
 
-Instead of multiple scanouts, we could fix the current architecture to use resource IDs:
+- `f18edbc` - feat: Increase max scanouts to 32, default to 16
+- `b91ef275f3` - fix: Update static assertion for 32 scanouts (408 -> 792 bytes)
+- `3b2de2f062` - feat: Enable all scanouts at startup (REVERTED - kills GDM)
+- `08f4b9bcd7` - Revert enable all scanouts at startup
+- `bd644b1e35` - feat: HELIX_MSG_ENABLE_SCANOUT handler
+- `4d51b7f989` - fix: Move scanout helpers to virtio-gpu-base.c
+- `9cfd078e36` - fix: Add scanout message type constants to header
+- `8af26aae47` - fix: Handle ENABLE_SCANOUT in server thread dispatch
 
-### Current broken flow
+## Helix Commits (feature/macos-arm-desktop-port)
 
-```
-PipeWire ScreenCast → pipewiresrc (SHM buffers, NOT DMA-BUF)
-  → videoconvert (CPU: BGRx → NV12)
-  → vsockenc: resource_id=0, sends 3.1MB pixels over TCP
-  → QEMU: receives pixels, creates IOSurface, encodes
-```
+Key commits from this session:
+- `4b1da106f` - feat: Zero-copy GPU path - extract virtio-gpu resource IDs from DMA-BUF
+- `a169355f6` - feat: Build pipewirezerocopysrc for ARM64
+- `74ad04545` - fix: Install pipewirezerocopysrc plugin on ARM64
+- `94e0990dc` - fix: DmaBuf passthrough caps
+- `1e62082fd` - fix: Fall back to NV12 over TCP (Mutter rejects DMA-BUF on virtio-gpu)
+- `4df3a2f44` - feat: Add HELIX_MSG_ENABLE_SCANOUT protocol
+- `ce98ed774` - milestone: DRM lease VERIFIED
 
-### Why it's SHM instead of DMA-BUF
+## VM Setup Notes
 
-1. Mutter ScreenCast CAN export DMA-BUF on virtio-gpu
-2. But PipeWire negotiates LINEAR modifier (0x0) for virtio-gpu
-3. Our pipewirezerocopysrc plugin rejects LINEAR as "not GPU-tiled"
-4. Falls back to SHM (MemFd)
-
-This is a conservative check designed for NVIDIA (where LINEAR means software fallback). On virtio-gpu, LINEAR is the ONLY modifier - it's still GPU memory, just not tiled.
-
-### Fixed flow (if we accept LINEAR DMA-BUF)
-
-```
-PipeWire ScreenCast → pipewiresrc (DMA-BUF, LINEAR modifier)
-  → vsockenc: extracts DMA-BUF FD
-    → DRM_IOCTL_PRIME_FD_TO_HANDLE → GEM handle (per-process local)
-    → DRM_IOCTL_VIRTGPU_RESOURCE_INFO → resource_id (virtio-gpu global)
-    → sends resource_id (4 bytes) over TCP, NO pixel data
-  → QEMU helix-frame-export.m:
-    → virgl_renderer_resource_get_info_ext(resource_id) → Metal texture
-    → Metal texture → IOSurface (zero-copy, GPU memory)
-    → VideoToolbox encodes directly from IOSurface
+The VM needs GDM disabled for the DRM lease approach to work:
+```bash
+sudo systemctl disable gdm
+sudo systemctl stop gdm
 ```
 
-**Key: the QEMU side already has true zero-copy.** It uses `virgl_renderer_resource_get_info_ext()`
-to get the Metal texture handle, then extracts the IOSurface backing store. VideoToolbox encodes
-directly from GPU memory. No `virgl_renderer_transfer_read_iov()` (CPU copy) needed.
+This should be done in the VM image build (not just the dev VM). The VM display
+(Virtual-1) shows the Linux console, which can be accessed via SPICE in UTM if
+needed. In production, we can expose SPICE access via the Helix app settings.
 
-This is confirmed in `qemu-utm/hw/display/helix/helix-frame-export.m` lines 286-320.
+## Performance History (TCP pixel approach - being replaced)
 
-### Bug in current code
+| Resolution | Format | FPS | Notes |
+|-----------|--------|-----|-------|
+| 1920x1080 | BGRA | 8.7 | 8MB/frame over TCP |
+| 960x540 | NV12 | 43 | 777KB/frame, best TCP config |
+| 1920x1080 | NV12 | 15 | 3.1MB/frame, TCP-limited |
+| 640x360 | NV12 | 39 | Resolution doesn't help below 1MB |
 
-The vsockenc code at `gstvsockenc.c:421` has:
-```c
-/* For virtio-gpu, the GEM handle IS the resource ID */
-resource_id = prime_handle.handle;  // WRONG!
-```
-
-**GEM handles are NOT resource IDs.** They're per-process local identifiers. The correct code needs a second ioctl:
-
-```c
-// Step 1: DMA-BUF fd → GEM handle
-struct drm_prime_handle prime = { .fd = dmabuf_fd };
-ioctl(drm_fd, DRM_IOCTL_PRIME_FD_TO_HANDLE, &prime);
-
-// Step 2: GEM handle → virtio-gpu resource ID (MISSING!)
-struct drm_virtgpu_resource_info info = { .bo_handle = prime.handle };
-ioctl(drm_fd, DRM_IOCTL_VIRTGPU_RESOURCE_INFO, &info);
-resource_id = info.res_handle;  // THIS is the real resource ID
-```
-
-The `drm_virtgpu_resource_info` struct is defined in `virtgpu_drm.h`:
-```c
-struct drm_virtgpu_resource_info {
-    __u32 bo_handle;   // Input: GEM handle
-    __u32 res_handle;  // Output: virtio-gpu resource ID
-    __u32 size;
-    __u32 blob_mem;
-};
-```
-
-### But there's still the DMA-BUF problem
-
-Even with the correct ioctl, pipewiresrc currently delivers **SHM buffers** on virtio-gpu (because LINEAR modifier is rejected). To get DMA-BUF:
-
-Option A: Use native `pipewiresrc` without `always-copy` and request DMA-BUF caps:
-```
-pipewiresrc ! video/x-raw(memory:DMABuf) ! vsockenc
-```
-
-Option B: Fix pipewirezerocopysrc to accept LINEAR modifier on virtio-gpu.
-
-Option C: Skip PipeWire entirely and use the scanout approach.
-
-## Comparison
-
-| Approach | FPS | Complexity | Pixel copies | Notes |
-|----------|-----|-----------|-------------|-------|
-| Current: SHM → TCP pixels | 15 | Low (working) | 2 (CPU convert, TCP transfer) | 3.1MB NV12 per frame over TCP |
-| DMA-BUF resource ID | 60? | Medium | 0 (true zero-copy) | Metal texture → IOSurface → VideoToolbox |
-| Multiple scanouts | 55+ | High | 0 (true zero-copy) | Each container gets own DRM connector |
-| Scanout 0 capture (old) | 55 | N/A | 0 | **NOT VIABLE** - captures VM display, not container desktop |
-
-## Recommendation
-
-**Phase 1: Fix the DMA-BUF resource ID path** (medium effort)
-1. Make pipewiresrc deliver DMA-BUF on virtio-gpu (accept LINEAR modifier)
-2. Fix vsockenc to use `DRM_IOCTL_VIRTGPU_RESOURCE_INFO` for correct resource_id
-3. Fix QEMU helix-frame-export to handle resource_id != 0 via `virgl_renderer_transfer_read_iov()`
-4. This eliminates 3.1MB TCP transfer per frame
-
-**Phase 2: Multiple scanouts** (future, if needed)
-- More architecturally clean
-- Each container gets dedicated GPU output
-- QEMU captures directly on page flip
-- No PipeWire involved at all
-- But requires QEMU, guest kernel, and Mutter configuration changes
-
-## Validated Claims
-
-1. **DRM_IOCTL_VIRTGPU_RESOURCE_INFO**: Confirmed in Mesa source (`vn_renderer_virtgpu.c:664-678`). `bo_handle` is input GEM handle, `res_handle` is output resource ID.
-2. **DRM_IOCTL_GEM_CLOSE**: Required after PRIME import to avoid leaking GEM handles. Mesa always closes them after use.
-3. **QEMU zero-copy path**: `helix-frame-export.m` already uses `virgl_renderer_resource_get_info_ext()` → Metal texture → IOSurface. This is true zero-copy, no `virgl_renderer_transfer_read_iov()` needed.
-4. **GEM handle != resource_id**: Confirmed by existence of `VIRTGPU_RESOURCE_INFO` ioctl and Mesa's explicit two-step usage pattern.
-
-## Tested and Failed
-
-1. **DMA-BUF with LINEAR modifier via pipewirezerocopysrc**: PipeWire returns "no more input formats". Mutter on virtio-gpu headless does NOT support DMA-BUF export for ScreenCast - only SHM (MemFd). Tested 2026-02-07.
-
-2. **Native pipewiresrc without videoconvert**: Delivers SHM buffers. vsockenc falls back to sending raw 8.3MB BGRA over TCP (~12 FPS).
-
-## Current Approach: Multiple Scanouts (In Progress)
-
-### QEMU Configuration
-Current: `-device virtio-gpu-gl-pci` (max_outputs=1, one Virtual-1 connector)
-Target: `-device virtio-gpu-gl-pci,max_outputs=16` (16 connectors available)
-
-Guest sees DRM connectors at `/sys/class/drm/card0-Virtual-{1..16}`.
-Each container's Mutter runs against a dedicated connector.
-
-### Architecture
-```
-QEMU (max_outputs=16)
-  ├── scanout 0: VM display (GDM/login, or unused)
-  ├── scanout 1: Container A's Mutter → resource_flush → helix-frame-export → H.264
-  ├── scanout 2: Container B's Mutter → resource_flush → helix-frame-export → H.264
-  └── ...
-```
-
-Each scanout fires resource_flush independently on page flip (damage-based).
-QEMU reads GPU memory via Metal IOSurface and encodes with VideoToolbox.
-
-### Steps
-1. [x] Verify QEMU max_outputs parameter (VIRTIO_GPU_MAX_SCANOUTS=16)
-2. [x] Add max_outputs=16 to QEMU
-   - Bumped VIRTIO_GPU_MAX_SCANOUTS from 16 to 32 in qemu-utm fork
-   - Changed default max_outputs from 1 to 16 in qemu-utm fork
-   - Built and installed via `./for-mac/qemu-helix/build-qemu-standalone.sh`
-   - DO NOT modify UTM source - just patch QEMU binary into UTM.app
-3. [x] Verify guest sees 16 DRM connectors
-   - `[drm] number of scanouts: 16` confirmed in dmesg
-   - Virtual-1 = connected (VM display), Virtual-2..16 = disconnected
-   - Need to "connect" secondary connectors from QEMU side (set display mode)
-4. [ ] Enable scanouts on-demand (NOT at boot - 16 connected displays kills GDM)
-   - Enabling all 16 at boot caused GDM to try configuring 16 displays → VM unresponsive
-   - Need on-demand connect/disconnect via:
-     a. Extend helix-frame-export TCP protocol: HELIX_MSG_ENABLE_SCANOUT
-     b. Guest sends "enable scanout N at WxH" → QEMU sets req_state[N] and hotplugs
-     c. Container's Mutter sees new connected connector and uses it
-4b. [x] On-demand scanout hotplug VERIFIED
-   - Guest sends HELIX_MSG_ENABLE_SCANOUT(scanout=1, 1920x1080) via TCP:15937
-   - QEMU enables scanout, triggers VIRTIO_GPU_EVENT_DISPLAY config interrupt
-   - Guest reprobe (`echo 1 > /sys/class/drm/card0-Virtual-2/status`): connected!
-   - Virtual-2 shows as connected with 26 modes (same as Virtual-1)
-   - Auto-reprobe needs work (manual `echo 1 > status` required for now)
-5. [x] DRM lease approach VERIFIED
-   - Disabled GDM (`systemctl disable gdm`) - not needed, console output on Virtual-1 is fine
-   - DRM_IOCTL_SET_MASTER works after GDM is stopped
-   - DRM_IOCTL_MODE_CREATE_LEASE works! Created lease for connector 45 + CRTC 51
-   - Lease FD is a new DRM master controlling only the leased resources
-   - Multiple containers can each get their own lease (no conflicts)
-   - Mutter does NOT need forking - it supports DRM devices via logind/FD
-6. [ ] Build helix-drm-manager daemon
-   - Runs in VM, becomes DRM master on card0
-   - Listens on Unix socket for lease requests
-   - Creates DRM leases (connector + CRTC) and passes FD via SCM_RIGHTS
-   - Container startup requests a lease, receives FD, passes to Mutter
-7. [ ] Test Mutter with lease FD on Virtual-2
-8. [ ] Wire up QEMU scanout capture for leased connectors
-5. [ ] Modify helix-frame-export to watch multiple scanouts
-6. [ ] Map session IDs to scanout indices
-7. [ ] Hydra allocates scanout index per container
-
-## Open Questions
-
-1. Can a Docker container do DRM modesetting on a specific connector? Needs /dev/dri/card0 access and possibly DRM master.
-2. Does Mutter support running on a secondary connector without being DRM master? (logind seat mechanism)
-3. How does gnome-shell select which connector to use? `--virtual-monitor` is headless-only. For real connectors, it auto-detects via DRM.
-4. With Venus (Vulkan) vs virgl (OpenGL), does the resource info path differ?
+Expected with scanout approach: **55+ FPS at full 1920x1080** (no TCP pixel transfer)
