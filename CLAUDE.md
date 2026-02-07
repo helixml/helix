@@ -136,6 +136,13 @@ docker compose -f docker-compose.dev.yaml up -d api
   df -h  # Verify new space
   ```
 - **QEMU build requirements**: Custom QEMU builds must include SPICE support (`--enable-spice`) or UTM will fail with "-spice: invalid option"
+- **Building and installing QEMU into UTM**: NEVER modify UTM source code. Instead, rebuild our QEMU fork and install the binary into UTM.app:
+  ```bash
+  cd ~/pm/helix
+  ./for-mac/qemu-helix/build-qemu-standalone.sh  # Builds QEMU and installs into UTM.app
+  ```
+  The script uses the UTM sysroot at `~/pm/UTM/sysroot-macOS-arm64` for dependencies.
+  QEMU source is at `~/pm/qemu-utm` (branch `helix-frame-export`).
 
 ### Docker
 # ⛔⛔⛔ CRITICAL - READ THIS BEFORE TOUCHING DOCKER ⛔⛔⛔
