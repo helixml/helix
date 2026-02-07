@@ -1,0 +1,207 @@
+# Zero-Copy GPU Video Capture Architecture
+
+**Date:** 2026-02-07
+**Status:** Design investigation
+
+## The Question
+
+Why can SPICE capture frames efficiently from virtio-gpu, but we're struggling with 15 FPS sending raw pixels over TCP?
+
+## How SPICE Does It
+
+SPICE reads directly from the **scanout** - the virtual monitor's framebuffer. Here's the chain:
+
+```
+Guest Mutter compositor
+  → renders frame to GPU texture (virtio-gpu resource)
+  → page flip: sets resource as "scanout" for virtual monitor
+  → virtio-gpu sends RESOURCE_FLUSH command to QEMU
+  → QEMU's virtio-gpu-virgl.c:virgl_cmd_resource_flush()
+    → virgl_renderer_transfer_read_iov(resource_id, ...)
+    → reads pixels from GPU resource into CPU DisplaySurface
+    → dpy_gfx_update() notifies display backends (SPICE, Cocoa, etc.)
+    → SPICE encodes and sends to client
+```
+
+Key point: **QEMU already gets notified on every frame** via `resource_flush`. It already reads the pixels via `virgl_renderer_transfer_read_iov()`. There's no TCP, no PipeWire, no GStreamer involved. The GPU resource ID is known because it's the scanout resource.
+
+We actually had this working at **55 FPS** (commit `cc418f5f4` - "DisplaySurface approach"). The helix-frame-export.m code hooks into `virgl_cmd_resource_flush()` and calls `helix_update_scanout_displaysurface()` to capture every frame.
+
+## Why We Switched Away From DisplaySurface
+
+The DisplaySurface approach captures the **VM's scanout** - the VM's own display. But our desktop containers run inside Docker inside the VM, each with their own headless Mutter. Those headless Mutters do NOT render to the VM's scanout. They render to offscreen PipeWire ScreenCast buffers.
+
+```
+VM display (scanout 0) ← shows VM's login screen / desktop manager
+  └── Docker container 1
+       └── Mutter --headless --virtual-monitor 1920x1080
+            └── renders to offscreen GPU buffers (NOT scanout)
+            └── PipeWire ScreenCast provides frames to subscribers
+  └── Docker container 2
+       └── Mutter --headless --virtual-monitor 1920x1080
+            └── same - offscreen, no scanout
+```
+
+So we built the PipeWire → vsockenc → TCP pipeline to get frames out of containers. But this copies 3.1MB of NV12 pixels over SLiRP TCP for every frame, limiting us to ~15 FPS.
+
+## Your Idea: Multiple Scanouts
+
+**"Can't we make many of those, one per desktop?"**
+
+This is the right architectural insight. virtio-gpu supports multiple scanouts (virtual displays). If each container's Mutter rendered to its own scanout, QEMU could capture directly from GPU memory - no TCP needed.
+
+### How virtio-gpu scanouts work
+
+```
+virtio-gpu device (QEMU)
+  ├── scanout 0: 1920x1080 → UTM window (or headless)
+  ├── scanout 1: 1920x1080 → headless (no window)
+  ├── scanout 2: 1920x1080 → headless (no window)
+  └── ...up to max_outputs (default 1, configurable)
+```
+
+Each scanout is a virtual monitor. In the guest, it appears as a DRM connector:
+- `/dev/dri/card0`: connector-0 (scanout 0), connector-1 (scanout 1), etc.
+
+When the guest sets a framebuffer on a connector and does a page flip, the `resource_flush` command tells QEMU which resource to read from. QEMU can read it via `virgl_renderer_transfer_read_iov()` without any guest cooperation needed.
+
+### The challenge: containers sharing one GPU
+
+The VM has one virtio-gpu. All containers share it via `/dev/dri/card0`. Currently:
+- The VM's own display manager uses scanout 0 (connector-0)
+- Containers use `--headless` mode (no connector at all)
+
+For the multi-scanout approach:
+1. Configure QEMU with `max_outputs=N` (e.g., 8)
+2. Each container gets assigned a DRM connector (connector-1, connector-2, etc.)
+3. Container's Mutter uses that connector instead of `--headless`
+4. QEMU captures from the corresponding scanout
+5. No UTM windows needed - just don't attach a display to those scanouts
+
+### Implementation steps
+
+**QEMU side:**
+1. Increase `max_outputs` in virtio-gpu config
+2. In `helix-frame-export.m`, watch all scanouts (not just scanout 0)
+3. Each scanout gets its own encoder session
+4. Map session IDs to scanout indices
+
+**Guest side:**
+1. Container startup detects available DRM connectors
+2. Mutter uses `--headless` with a real DRM connector instead of virtual-monitor
+3. Or: use `gnome-shell` without `--headless`, pointed at a specific connector
+
+**Desktop-bridge side:**
+1. Tell QEMU which scanout maps to which session via the existing TCP protocol
+2. Receive H.264 frames from QEMU keyed by scanout index
+3. Forward to WebSocket clients
+
+## Alternative: Fix the Resource ID Path (Simpler)
+
+Instead of multiple scanouts, we could fix the current architecture to use resource IDs:
+
+### Current broken flow
+
+```
+PipeWire ScreenCast → pipewiresrc (SHM buffers, NOT DMA-BUF)
+  → videoconvert (CPU: BGRx → NV12)
+  → vsockenc: resource_id=0, sends 3.1MB pixels over TCP
+  → QEMU: receives pixels, creates IOSurface, encodes
+```
+
+### Why it's SHM instead of DMA-BUF
+
+1. Mutter ScreenCast CAN export DMA-BUF on virtio-gpu
+2. But PipeWire negotiates LINEAR modifier (0x0) for virtio-gpu
+3. Our pipewirezerocopysrc plugin rejects LINEAR as "not GPU-tiled"
+4. Falls back to SHM (MemFd)
+
+This is a conservative check designed for NVIDIA (where LINEAR means software fallback). On virtio-gpu, LINEAR is the ONLY modifier - it's still GPU memory, just not tiled.
+
+### Fixed flow (if we accept LINEAR DMA-BUF)
+
+```
+PipeWire ScreenCast → pipewiresrc (DMA-BUF, LINEAR modifier)
+  → vsockenc: extracts DMA-BUF FD
+    → DRM_IOCTL_PRIME_FD_TO_HANDLE → GEM handle
+    → DRM_IOCTL_VIRTGPU_RESOURCE_INFO → resource_id  ← THIS STEP IS MISSING
+    → sends resource_id (4 bytes) over TCP, NO pixel data
+  → QEMU: virgl_renderer_transfer_read_iov(resource_id)
+    → reads pixels directly from GPU memory
+    → creates IOSurface, encodes with VideoToolbox
+```
+
+### Bug in current code
+
+The vsockenc code at `gstvsockenc.c:421` has:
+```c
+/* For virtio-gpu, the GEM handle IS the resource ID */
+resource_id = prime_handle.handle;  // WRONG!
+```
+
+**GEM handles are NOT resource IDs.** They're per-process local identifiers. The correct code needs a second ioctl:
+
+```c
+// Step 1: DMA-BUF fd → GEM handle
+struct drm_prime_handle prime = { .fd = dmabuf_fd };
+ioctl(drm_fd, DRM_IOCTL_PRIME_FD_TO_HANDLE, &prime);
+
+// Step 2: GEM handle → virtio-gpu resource ID (MISSING!)
+struct drm_virtgpu_resource_info info = { .bo_handle = prime.handle };
+ioctl(drm_fd, DRM_IOCTL_VIRTGPU_RESOURCE_INFO, &info);
+resource_id = info.res_handle;  // THIS is the real resource ID
+```
+
+The `drm_virtgpu_resource_info` struct is defined in `virtgpu_drm.h`:
+```c
+struct drm_virtgpu_resource_info {
+    __u32 bo_handle;   // Input: GEM handle
+    __u32 res_handle;  // Output: virtio-gpu resource ID
+    __u32 size;
+    __u32 blob_mem;
+};
+```
+
+### But there's still the DMA-BUF problem
+
+Even with the correct ioctl, pipewiresrc currently delivers **SHM buffers** on virtio-gpu (because LINEAR modifier is rejected). To get DMA-BUF:
+
+Option A: Use native `pipewiresrc` without `always-copy` and request DMA-BUF caps:
+```
+pipewiresrc ! video/x-raw(memory:DMABuf) ! vsockenc
+```
+
+Option B: Fix pipewirezerocopysrc to accept LINEAR modifier on virtio-gpu.
+
+Option C: Skip PipeWire entirely and use the scanout approach.
+
+## Comparison
+
+| Approach | FPS | Complexity | Pixel copies |
+|----------|-----|-----------|-------------|
+| Current: SHM → TCP pixels | 15 | Low (working) | 2 (SHM→NV12, TCP→IOSurface) |
+| DMA-BUF resource ID | 60? | Medium | 1 (GPU→IOSurface via virgl) |
+| Multiple scanouts | 55+ | High | 1 (GPU→IOSurface via virgl) |
+| Scanout 0 capture (old) | 55 | Low (was working) | 1 (GPU→IOSurface via virgl) |
+
+## Recommendation
+
+**Phase 1: Fix the DMA-BUF resource ID path** (medium effort)
+1. Make pipewiresrc deliver DMA-BUF on virtio-gpu (accept LINEAR modifier)
+2. Fix vsockenc to use `DRM_IOCTL_VIRTGPU_RESOURCE_INFO` for correct resource_id
+3. Fix QEMU helix-frame-export to handle resource_id != 0 via `virgl_renderer_transfer_read_iov()`
+4. This eliminates 3.1MB TCP transfer per frame
+
+**Phase 2: Multiple scanouts** (future, if needed)
+- More architecturally clean
+- Each container gets dedicated GPU output
+- QEMU captures directly on page flip
+- No PipeWire involved at all
+- But requires QEMU, guest kernel, and Mutter configuration changes
+
+## Open Questions
+
+1. Does `virgl_renderer_transfer_read_iov()` with a PipeWire ScreenCast resource work? The resource might not be a scanout - it's an offscreen buffer allocated by Mutter for ScreenCast.
+2. Does pipewiresrc actually negotiate DMA-BUF on virtio-gpu if we ask for it? Or does Mutter only offer SHM?
+3. Can QEMU read from any virtio-gpu resource, or only from scanout resources?
+4. With Venus (Vulkan) vs virgl (OpenGL), does the resource read path differ?
