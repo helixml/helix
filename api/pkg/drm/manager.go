@@ -226,16 +226,19 @@ func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, wi
 	// 4. Wait briefly for connector to become connected
 	time.Sleep(500 * time.Millisecond)
 
-	// 5. Create DRM lease
+	// 5. Create DRM lease (connector + CRTC + planes)
 	connectorID := m.connectorIDForScanout(scanoutIdx)
 	crtcID := m.crtcIDForScanout(scanoutIdx)
+	primaryPlaneID, cursorPlaneID := m.planeIDsForScanout(scanoutIdx)
 
 	m.logger.Info("creating DRM lease",
 		"scanout_idx", scanoutIdx,
 		"connector_id", connectorID,
-		"crtc_id", crtcID)
+		"crtc_id", crtcID,
+		"primary_plane", primaryPlaneID,
+		"cursor_plane", cursorPlaneID)
 
-	objectIDs := []uint32{connectorID, crtcID}
+	objectIDs := []uint32{connectorID, crtcID, primaryPlaneID, cursorPlaneID}
 	leaseFD, lesseeID, err := createLease(m.drmFile, objectIDs)
 	if err != nil {
 		m.logger.Error("create lease failed", "err", err)
@@ -361,6 +364,17 @@ func (m *Manager) crtcIDForScanout(scanoutIdx uint32) uint32 {
 	}
 	// Fallback: use the pattern from design doc
 	return 37 + scanoutIdx*7
+}
+
+// planeIDsForScanout returns the primary and cursor plane IDs for a scanout.
+// virtio-gpu creates 2 planes per CRTC: primary (type=1) and cursor (type=2).
+// Pattern: primary = base + scanout * 7, cursor = base + 1 + scanout * 7
+func (m *Manager) planeIDsForScanout(scanoutIdx uint32) (primaryPlaneID, cursorPlaneID uint32) {
+	// The plane IDs follow the pattern: 33 + N*7 (primary), 34 + N*7 (cursor)
+	// This matches the connector/CRTC pattern but offset by -4
+	primaryPlaneID = 33 + scanoutIdx*7
+	cursorPlaneID = 34 + scanoutIdx*7
+	return
 }
 
 func (m *Manager) enableScanoutInQEMU(scanoutIdx, width, height uint32) error {
