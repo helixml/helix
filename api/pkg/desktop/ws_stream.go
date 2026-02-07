@@ -528,19 +528,16 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
 			}
 
-			if encoder == "vsock" {
-				// Zero-copy path: pass raw PipeWire buffers (DMA-BUF or SHM) to vsockenc.
-				// No videoconvert, no videoscale - vsockenc handles both cases:
-				//   DMA-BUF: extracts resource_id, QEMU reads from GPU memory (zero-copy)
-				//   SHM:     sends raw pixel data over TCP (fallback, ~15 FPS at 1080p)
-				parts = []string{srcPart}
-			} else {
-				// Software encoder path: need videoconvert to target format
-				parts = []string{
-					srcPart,
-					"videoconvert",
-					fmt.Sprintf("video/x-raw,format=%s", pixelFormat),
-				}
+			// Convert BGRx to NV12 at native resolution. PipeWire on virtio-gpu
+			// currently delivers SHM buffers (not DMA-BUF), so we must convert.
+			// NV12 at 1080p = 3.1MB/frame (~15 FPS over TCP).
+			// When DMA-BUF is available, vsockenc will extract the resource_id
+			// and skip pixel transfer entirely (zero-copy via Metal IOSurface).
+			// videoconvert MUST be before the queue so PipeWire buffers release quickly.
+			parts = []string{
+				srcPart,
+				"videoconvert",
+				fmt.Sprintf("video/x-raw,format=%s", pixelFormat),
 			}
 			v.useRealtimeClock = true
 		} else if isAmdGnome {
