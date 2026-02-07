@@ -434,6 +434,11 @@ func (v *VideoStreamer) startScanoutMode(ctx context.Context) error {
 		)
 	}
 
+	// Start cursor monitoring (GNOME Shell extension sends cursor name via Unix socket)
+	if os.Getenv("HELIX_DISABLE_CURSOR_MONITORING") != "1" {
+		go v.monitorCursor(ctx)
+	}
+
 	// Read frames from shared source and send to WebSocket
 	go v.readFramesAndSend(ctx)
 
