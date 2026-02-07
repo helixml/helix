@@ -34,6 +34,7 @@ detect_render_node() {
             target_driver="i915"
             ;;
         virtio)
+            # virtio-gpu can show as "virtio_gpu" or "virtio-pci" depending on sysfs
             target_driver="virtio_gpu"
             # On macOS ARM, QEMU captures virtio-gpu scanouts directly and encodes
             # with VideoToolbox. Desktop-bridge receives pre-encoded H.264 via TCP.
@@ -68,7 +69,14 @@ detect_render_node() {
 
                 if [ -L "$driver_link" ]; then
                     driver=$(readlink "$driver_link" | grep -o '[^/]*$')
+                    # Match driver name (virtio-gpu can appear as "virtio-pci" in containers)
+                    local match=false
                     if [ "$driver" = "$target_driver" ]; then
+                        match=true
+                    elif [ "$target_driver" = "virtio_gpu" ] && [ "$driver" = "virtio-pci" ]; then
+                        match=true
+                    fi
+                    if [ "$match" = "true" ]; then
                         detected_node="$render_node"
                         echo "[render-node] Found $gpu_vendor GPU at $render_node (driver: $driver)"
 
