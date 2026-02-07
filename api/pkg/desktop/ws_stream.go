@@ -506,27 +506,29 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		isAmdGnome := !isSway && !isNvidiaGnome && !isMacOSVirtioGpu
 
 		if isMacOSVirtioGpu {
-			// macOS ARM / UTM virtio-gpu: use pipewirezerocopysrc with DMA-BUF passthrough.
-			// This requests DMA-BUF with LINEAR modifier from PipeWire/Mutter.
-			// vsockenc extracts the virtio-gpu resource_id from the DMA-BUF FD
-			// and sends just the resource_id (4 bytes) to QEMU. QEMU reads pixels
-			// directly from GPU memory via Metal IOSurface (true zero-copy).
+			// macOS ARM / UTM virtio-gpu: Mutter does NOT export DMA-BUF for ScreenCast
+			// on virtio-gpu (tested: "no more input formats" with LINEAR modifier).
+			// Fall back to native pipewiresrc with NV12 conversion over TCP.
 			//
-			// If PipeWire delivers SHM instead of DMA-BUF, vsockenc falls back to
-			// sending raw pixel data over TCP (~15 FPS at 1080p).
-			slog.Info("[STREAM] macOS ARM virtio-gpu detected, using pipewirezerocopysrc DmaBuf passthrough",
-				"encoder", encoder)
-
-			srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=pipewire buffer-type=dmabuf-passthrough keepalive-time=500",
-				v.nodeID)
-			if v.pipeWireFd > 0 {
-				srcPart += fmt.Sprintf(" pipewire-fd=%d", v.pipeWireFd)
+			// TODO: Zero-copy path needs either:
+			// 1. Mutter patch to export DMA-BUF on virtio-gpu ScreenCast
+			// 2. Multiple scanout approach (bypass PipeWire entirely)
+			// 3. pipewirezerocopysrc with SHM + VIRTGPU_RESOURCE_INFO on the SHM fd
+			pixelFormat := "NV12"
+			if encoder == "openh264" || encoder == "x264" {
+				pixelFormat = "I420"
 			}
-
-			// No videoconvert needed - vsockenc accepts BGRx DMA-BUF directly
-			// and QEMU handles format conversion on the host side.
-			// If we get SHM fallback, vsockenc sends raw BGRx pixels.
-			parts = []string{srcPart}
+			slog.Info("[STREAM] macOS ARM virtio-gpu detected, using native pipewiresrc with NV12",
+				"encoder", encoder, "format", pixelFormat)
+			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true keepalive-time=500", v.nodeID)
+			if v.pipeWireFd > 0 {
+				srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
+			}
+			parts = []string{
+				srcPart,
+				"videoconvert",
+				fmt.Sprintf("video/x-raw,format=%s", pixelFormat),
+			}
 			v.useRealtimeClock = true
 		} else if isAmdGnome {
 
