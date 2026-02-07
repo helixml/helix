@@ -3807,6 +3807,7 @@ export interface TypesServerConfigForFrontend {
   google_analytics_frontend?: string;
   latest_version?: string;
   license?: TypesFrontendLicenseInfo;
+  max_concurrent_desktops?: number;
   organizations_create_enabled_for_non_admins?: boolean;
   /** Controls if users can add their own AI provider API keys */
   providers_management_enabled?: boolean;
@@ -4727,6 +4728,7 @@ export interface TypesSyncAllResponse {
 }
 
 export interface TypesSystemSettingsRequest {
+  enforce_quotas?: boolean;
   huggingface_token?: string;
   kodit_enrichment_model?: string;
   /** Kodit enrichment model configuration */
@@ -4737,6 +4739,7 @@ export interface TypesSystemSettingsRequest {
 
 export interface TypesSystemSettingsResponse {
   created?: string;
+  enforce_quotas?: boolean;
   /** Sensitive fields are masked */
   huggingface_token_set?: boolean;
   /** "database", "environment", or "none" */

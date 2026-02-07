@@ -138,6 +138,21 @@ const SystemSettingsTable: FC = () => {
     }
   }
 
+  const handleToggleEnforceQuotas = async (enabled: boolean) => {
+    try {
+      await updateSettings.mutateAsync({
+        enforce_quotas: enabled,
+      })
+      snackbar.success(`Quota enforcement ${enabled ? 'enabled' : 'disabled'}`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
   const handleClearKoditSettings = async () => {
     try {
       await updateSettings.mutateAsync({
@@ -426,6 +441,37 @@ const SystemSettingsTable: FC = () => {
                     <Switch
                       checked={settings?.providers_management_enabled ?? false}
                       onChange={(e) => handleToggleProvidersManagement(e.target.checked)}
+                      disabled={saving}
+                    />
+                  </TableCell>
+                </TableRow>
+
+                {/* Enforce Quotas Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Enforce Quotas
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Enforce usage quotas and limits for users and organizations
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={settings?.enforce_quotas ? 'Enabled' : 'Disabled'}
+                      color={settings?.enforce_quotas ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2">
+                      {settings?.enforce_quotas ? 'Enabled' : 'Disabled'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Switch
+                      checked={settings?.enforce_quotas ?? false}
+                      onChange={(e) => handleToggleEnforceQuotas(e.target.checked)}
                       disabled={saving}
                     />
                   </TableCell>

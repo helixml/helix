@@ -33,6 +33,7 @@ import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../types'
 import { CodeAgentRuntime, generateAgentName } from '../contexts/apps'
 import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker'
 import BrowseProvidersDialog from '../components/project/BrowseProvidersDialog'
+import { SELECTED_ORG_STORAGE_KEY } from '../utils/localStorage'
 
 const RECOMMENDED_MODELS = [
   'claude-opus-4-6',
@@ -244,6 +245,9 @@ export default function Onboarding() {
       await api.getApiClient().v1UsersMeOnboardingCreate()
     } catch (err) {
       console.error('Failed to mark onboarding complete:', err)
+    }
+    if (createdOrgId) {
+      localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrgId)
     }
     if (createdProjectId && createdOrgId) {
       router.navigateReplace('org_projects', { org_id: createdOrgId })
@@ -1109,7 +1113,7 @@ export default function Onboarding() {
                 fontSize: '0.88rem',
               }}
             >
-              Let's set up for success :wink:
+              Let's set up for success 😉
             </Typography>
           </Box>
         </Fade>
