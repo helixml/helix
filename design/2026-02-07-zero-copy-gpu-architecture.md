@@ -263,7 +263,15 @@ QEMU reads GPU memory via Metal IOSurface and encodes with VideoToolbox.
    - Guest reprobe (`echo 1 > /sys/class/drm/card0-Virtual-2/status`): connected!
    - Virtual-2 shows as connected with 26 modes (same as Virtual-1)
    - Auto-reprobe needs work (manual `echo 1 > status` required for now)
-5. [ ] Test Mutter on a dynamically-connected secondary connector
+5. [~] Test rendering on a secondary connector
+   - modetest can see Virtual-2 as connected with 26 modes
+   - BUT: setting a mode fails with "Permission denied" - GDM holds DRM master
+   - DRM master problem: only one process can be DRM master per /dev/dri/card
+   - Options:
+     a. DRM lease: give specific connectors to containers (Linux 4.15+, may work)
+     b. Use logind to get a separate session per container
+     c. Bypass GDM: stop GDM, run container Mutters directly as DRM master
+     d. Multi-card: investigate if virtio-gpu can expose multiple /dev/dri/card devices
 5. [ ] Modify helix-frame-export to watch multiple scanouts
 6. [ ] Map session IDs to scanout indices
 7. [ ] Hydra allocates scanout index per container
