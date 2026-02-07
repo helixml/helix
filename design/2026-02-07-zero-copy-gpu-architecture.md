@@ -1,48 +1,153 @@
 # Zero-Copy GPU Video Capture Architecture
 
 **Date:** 2026-02-07
-**Status:** In progress - DRM lease approach verified, building helix-drm-manager
+**Status:** In progress - core components verified, wiring up end-to-end
 
 ## Architecture
 
 ```
-macOS Host
-  QEMU (virtio-gpu-gl-pci, max_outputs=16)
-    helix-frame-export.m
-      - Watches resource_flush per scanout (damage-based)
-      - scanout N flush -> Metal IOSurface -> VideoToolbox H.264
-      - Returns H.264 NAL units via TCP:15937
-      - Handles HELIX_MSG_ENABLE_SCANOUT to hotplug connectors
-
-Linux VM (Ubuntu 25.10, aarch64)
-  /dev/dri/card0 (virtio-gpu, 16 connectors: Virtual-1..16)
-  Virtual-1: linux console (no GDM - disabled)
-  Virtual-2..16: available for container desktops
-
-  helix-drm-manager daemon
-    - Sole DRM master on /dev/dri/card0
-    - Listens on /run/helix-drm.sock (Unix socket)
-    - On container start:
-      1. Allocates free scanout index (1-15)
-      2. Sends HELIX_MSG_ENABLE_SCANOUT to QEMU (TCP:15937)
-      3. Triggers connector reprobe in guest kernel
-      4. Creates DRM lease (connector + CRTC + plane)
-      5. Passes lease FD to container via SCM_RIGHTS
-    - On container stop:
-      1. Sends HELIX_MSG_DISABLE_SCANOUT to QEMU
-      2. Releases scanout index for reuse
-
-  Container A (Docker)
-    Mutter (receives lease FD for Virtual-2)
-      - Page flip on Virtual-2 -> virtio-gpu resource_flush
-      - QEMU captures scanout 1 -> VideoToolbox H.264
-      - desktop-bridge receives H.264 -> WebSocket to browser
-
-  Container B (Docker)
-    Mutter (receives lease FD for Virtual-3)
-      - Page flip on Virtual-3 -> virtio-gpu resource_flush
-      - QEMU captures scanout 2 -> VideoToolbox H.264
+┌─────────────────────────────────────────────────────────────┐
+│ macOS Host                                                   │
+│                                                              │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ QEMU (virtio-gpu-gl-pci, max_outputs=16)            │    │
+│  │                                                      │    │
+│  │  helix-frame-export.m (v6-multi-scanout)             │    │
+│  │    TCP:15937 (127.0.0.1, forwarded via SLiRP)        │    │
+│  │    ├─ Accepts multiple TCP clients concurrently      │    │
+│  │    ├─ SUBSCRIBE(scanout_id) → client gets H.264 push│    │
+│  │    ├─ ENABLE_SCANOUT(id,w,h) → hotplug connector    │    │
+│  │    ├─ Per-scanout VideoToolbox encoder sessions      │    │
+│  │    └─ On resource_flush for scanout N:               │    │
+│  │         1. Read GPU resource → IOSurface             │    │
+│  │         2. VideoToolbox H.264 encode (zero-copy)     │    │
+│  │         3. Push H.264 to all clients subscribed to N │    │
+│  └─────────┬───────────────────────────────────────────┘    │
+│             │ SLiRP: guest 10.0.2.2:15937 → host 127.0.0.1 │
+│             │                                                │
+│  Browser ←──WebSocket──← Helix API ←──RevDial──← Container  │
+└─────────────┼───────────────────────────────────────────────┘
+              │
+┌─────────────┼───────────────────────────────────────────────┐
+│ Linux VM    │ (Ubuntu 25.10, aarch64)                        │
+│             │                                                │
+│  /dev/dri/card0 (virtio-gpu, 16 connectors: Virtual-1..16)  │
+│  Virtual-1: linux console (no GDM - disabled)               │
+│  Virtual-2..16: available for container desktops             │
+│                                                              │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ helix-drm-manager daemon (/usr/local/bin/)           │    │
+│  │   /run/helix-drm.sock (Unix socket)                  │    │
+│  │   Sole DRM master on /dev/dri/card0                  │    │
+│  │                                                      │    │
+│  │   On lease request from container:                   │    │
+│  │     1. Allocate free scanout index (1-15)            │    │
+│  │     2. TCP→QEMU: ENABLE_SCANOUT(idx, 1920, 1080)    │    │
+│  │     3. echo 1 > /sys/class/drm/card0-Virtual-N/status│   │
+│  │     4. DRM_IOCTL_MODE_CREATE_LEASE(connector, crtc)  │    │
+│  │     5. Send lease FD to container via SCM_RIGHTS     │    │
+│  │     → Returns: {scanout_id, connector_name, lease_fd}│    │
+│  └──────────┬──────────────────────────────────────────┘    │
+│             │                                                │
+│  ┌──────────┼──────────────────────────────────────────┐    │
+│  │ Container A (Docker)                                 │    │
+│  │                                                      │    │
+│  │  startup-app.sh (modified for scanout mode):         │    │
+│  │    1. Connect to /run/helix-drm.sock                 │    │
+│  │    2. Request lease → get scanout_id + lease FD      │    │
+│  │    3. Start D-Bus system bus inside container        │    │
+│  │    4. Start logind-stub --lease-fd=N                 │    │
+│  │    5. Start gnome-shell --display-server --wayland   │    │
+│  │       → Mutter calls TakeDevice(226, minor)          │    │
+│  │       → logind-stub returns lease FD                 │    │
+│  │       → Mutter uses lease FD as DRM device           │    │
+│  │       → Mutter renders to Virtual-N connector        │    │
+│  │       → Page flip → virtio-gpu resource_flush        │    │
+│  │                                                      │    │
+│  │  desktop-bridge (scanout mode):                      │    │
+│  │    1. TCP connect to 10.0.2.2:15937 (QEMU)          │    │
+│  │    2. Send SUBSCRIBE(scanout_id)                     │    │
+│  │    3. Receive pre-encoded H.264 from QEMU            │    │
+│  │    4. Forward to WebSocket clients                   │    │
+│  │    → No GStreamer, no PipeWire for video              │    │
+│  │    → PipeWire still used for AUDIO only              │    │
+│  │                                                      │    │
+│  │  Zed IDE, Qwen Code, dev tools (unchanged)          │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
 ```
+
+### Connection Inventory
+
+| From | To | Protocol | Purpose |
+|------|-----|----------|---------|
+| helix-drm-manager | QEMU | TCP 10.0.2.2:15937 | ENABLE/DISABLE_SCANOUT |
+| container startup | helix-drm-manager | Unix /run/helix-drm.sock | Request DRM lease (SCM_RIGHTS) |
+| desktop-bridge | QEMU | TCP 10.0.2.2:15937 | SUBSCRIBE + receive H.264 |
+| Mutter | logind-stub | D-Bus system bus | TakeDevice → lease FD |
+| logind-stub | (inherited) | FD inheritance | Lease FD from startup script |
+| desktop-bridge | Helix API | RevDial WebSocket | H.264 → browser |
+| desktop-bridge | Mutter | D-Bus session bus | Screenshot, window mgmt |
+
+### What Runs Where
+
+| Component | Runs In | Binary | Built By |
+|-----------|---------|--------|----------|
+| helix-frame-export | QEMU (macOS host) | qemu-aarch64-softmmu | build-qemu-standalone.sh |
+| helix-drm-manager | VM (systemd service) | /usr/local/bin/helix-drm-manager | go build |
+| logind-stub | Container | /usr/local/bin/logind-stub | go build (in desktop image) |
+| gnome-shell | Container | /usr/bin/gnome-shell | apt (GNOME 49) |
+| desktop-bridge | Container | /usr/local/bin/desktop-bridge | go build (in desktop image) |
+
+### Backward Compatibility (NVIDIA/AMD)
+
+The scanout mode is ONLY used on macOS ARM (virtio-gpu). Detection:
+
+```go
+// In ws_stream.go
+isMacOSVirtioGpu := !isSway && checkGstElement("vsockenc")
+if isMacOSVirtioGpu && os.Getenv("HELIX_VIDEO_MODE") != "pipewire" {
+    // Scanout mode: subscribe to QEMU for H.264
+    return startScanoutStream(...)
+} else {
+    // PipeWire mode: existing GStreamer pipeline (NVIDIA/AMD)
+    return startPipeWireStream(...)
+}
+```
+
+On NVIDIA/AMD: No helix-drm-manager, no logind-stub, no scanout. PipeWire ScreenCast
+pipeline unchanged. The container Dockerfile conditionally includes these components.
+
+### Verification Status
+
+| Connection | Status | Notes |
+|-----------|--------|-------|
+| helix-drm-manager → QEMU TCP | ✅ VERIFIED | ENABLE_SCANOUT works, connector goes connected |
+| Container → helix-drm-manager | ✅ VERIFIED | Lease FD received via SCM_RIGHTS |
+| desktop-bridge → QEMU TCP | ✅ VERIFIED | SUBSCRIBE works, gets SUBSCRIBE_RESP |
+| Mutter → logind-stub D-Bus | ⬜ NOT TESTED | logind-stub registers OK, but TakeDevice not tested with Mutter |
+| QEMU auto-encode on page flip | ⬜ NOT TESTED | Code written, needs Mutter rendering to a connector |
+| H.264 → WebSocket end-to-end | ⬜ NOT TESTED | Needs all above working |
+
+### Open Concerns
+
+1. **Container D-Bus system bus**: Each container needs its own D-Bus system bus for
+   logind-stub. Start `dbus-daemon --system --config-file=...` inside the container.
+   This is separate from the session bus (already working for Mutter D-Bus services).
+
+2. **Container /dev/dri access**: The container needs /dev/dri/card0 bind-mounted for
+   Mutter to discover DRM devices via udev. The lease FD controls access permissions.
+
+3. **FD inheritance**: The startup script gets the lease FD from helix-drm-manager and
+   must pass it to logind-stub. The FD must stay open (not be garbage-collected).
+   Solution: startup script gets FD, execs logind-stub which inherits it.
+
+4. **Mutter connector selection**: When Mutter gets the lease FD from logind-stub via
+   TakeDevice, it sees only the leased connector+CRTC. It should automatically use
+   that connector. Need to verify Mutter doesn't reject single-connector leases.
+
+5. **/run/helix-drm.sock mount**: The Unix socket must be bind-mounted into each
+   container. Add to Docker run: `-v /run/helix-drm.sock:/run/helix-drm.sock`.
 
 ## Key Benefits
 
