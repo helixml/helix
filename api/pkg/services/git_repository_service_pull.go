@@ -172,31 +172,34 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 		Str("remote", ShortHash(remoteCommit)).
 		Msg("Comparing local and upstream branches")
 
-	// If local has commits not in remote, we have divergence
+	// If local has commits not in remote, the upstream was likely force-pushed
+	// or the histories are unrelated. Since the base branch is pull-only (we never
+	// push local changes to it), force-update to match upstream.
 	if ahead > 0 {
-		return &BranchDivergenceError{
-			BranchName:   branchName,
-			LocalAhead:   ahead,
-			LocalBehind:  behind,
-			LocalCommit:  localCommit,
-			RemoteCommit: remoteCommit,
-		}
+		log.Warn().
+			Str("repo_id", gitRepo.ID).
+			Str("branch", branchName).
+			Int("local_ahead", ahead).
+			Int("local_behind", behind).
+			Str("old_commit", ShortHash(localCommit)).
+			Str("new_commit", ShortHash(remoteCommit)).
+			Msg("Base branch diverged from upstream (likely force-pushed), force-updating to match upstream")
 	}
 
-	// Fast-forward: local is behind, no local-only commits
-	// Update local branch to point to remote commit
+	// Update local branch to point to remote commit (fast-forward or force-update)
 	err = updateBranchRef(ctx, gitRepo.LocalPath, branchName, remoteCommit)
 	if err != nil {
-		return fmt.Errorf("failed to fast-forward local branch: %w", err)
+		return fmt.Errorf("failed to update local branch: %w", err)
 	}
 
 	log.Info().
 		Str("repo_id", gitRepo.ID).
 		Str("branch", branchName).
 		Int("commits_synced", behind).
+		Bool("force_updated", ahead > 0).
 		Str("old_commit", ShortHash(localCommit)).
 		Str("new_commit", ShortHash(remoteCommit)).
-		Msg("Fast-forwarded base branch to upstream")
+		Msg("Updated base branch to upstream")
 
 	return nil
 }
