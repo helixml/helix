@@ -282,20 +282,14 @@ if [ "\$HELIX_SCANOUT_MODE" = "1" ]; then
     # The logind-stub provides the lease FD to Mutter via D-Bus TakeDevice.
     gow_log "[start] Starting GNOME Shell in DISPLAY-SERVER mode (DRM scanout)"
 
-    # Start logind-stub with the DRM lease
-    # The lease FD is inherited from the container startup via HELIX_LEASE_FD env var
-    if [ -n "\$HELIX_LEASE_FD" ]; then
-        /usr/local/bin/logind-stub --lease-fd=\$HELIX_LEASE_FD &
-        LOGIND_PID=\$!
-        gow_log "[start] logind-stub started (pid=\$LOGIND_PID, lease_fd=\$HELIX_LEASE_FD)"
-        sleep 1
-    else
-        # No lease FD - request one from helix-drm-manager
-        gow_log "[start] No HELIX_LEASE_FD set, using mutter-lease-launcher..."
-        exec /usr/local/bin/mutter-lease-launcher
-    fi
-
-    gnome-shell --display-server --wayland --no-x11 --unsafe-mode
+    # mutter-lease-launcher handles the DRM lease + logind-stub + gnome-shell flow.
+    # It replaces the gnome-shell command as the final blocking process.
+    # Note: mutter-lease-launcher starts its own dbus-run-session internally,
+    # but that's fine since the outer dbus-run-session from startup-app.sh
+    # just provides the session bus address. The inner one creates gnome-shell's
+    # own session.
+    gow_log "[start] Starting mutter-lease-launcher for DRM scanout..."
+    /usr/local/bin/mutter-lease-launcher
 else
     # Standard mode: headless with virtual monitor (NVIDIA/AMD/Intel)
     # Captured via PipeWire ScreenCast → GStreamer → nvenc/vaapi → WebSocket

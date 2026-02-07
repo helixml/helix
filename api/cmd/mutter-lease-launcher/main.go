@@ -44,10 +44,14 @@ func main() {
 		"connector", lease.ConnectorName,
 		"lease_fd", lease.LeaseFD)
 
-	// Step 2: Stop real logind and wait for D-Bus name to be released
-	logger.Info("Stopping systemd-logind...")
-	exec.Command("systemctl", "stop", "systemd-logind").Run()
-	time.Sleep(3 * time.Second)
+	// Step 2: Stop real logind if running (not present in containers)
+	if err := exec.Command("systemctl", "is-active", "--quiet", "systemd-logind").Run(); err == nil {
+		logger.Info("Stopping systemd-logind...")
+		exec.Command("systemctl", "stop", "systemd-logind").Run()
+		time.Sleep(3 * time.Second)
+	} else {
+		logger.Info("systemd-logind not running (container mode)")
+	}
 
 	// Step 3: Start logind stub with lease FD
 	// Go's exec.Command sets CLOEXEC on all FDs. Use ExtraFiles to pass the lease FD.
@@ -123,8 +127,16 @@ func main() {
 		env = append(env, "MUTTER_DEBUG="+mutterDebug)
 	}
 
-	gnomeCmd := exec.Command("dbus-run-session", "--",
-		"gnome-shell", "--display-server", "--wayland", "--no-x11", "--unsafe-mode")
+	// If already inside a dbus-run-session (e.g., container startup), don't nest
+	var gnomeCmd *exec.Cmd
+	if os.Getenv("DBUS_SESSION_BUS_ADDRESS") != "" {
+		logger.Info("Using existing D-Bus session bus")
+		gnomeCmd = exec.Command("gnome-shell", "--display-server", "--wayland", "--no-x11", "--unsafe-mode")
+	} else {
+		logger.Info("Creating new D-Bus session via dbus-run-session")
+		gnomeCmd = exec.Command("dbus-run-session", "--",
+			"gnome-shell", "--display-server", "--wayland", "--no-x11", "--unsafe-mode")
+	}
 	gnomeCmd.Stdout = os.Stdout
 	gnomeCmd.Stderr = os.Stderr
 	gnomeCmd.Env = env
@@ -164,7 +176,9 @@ func main() {
 		wpCmd.Process.Kill()
 	}
 
-	// Restart real logind
-	exec.Command("systemctl", "start", "systemd-logind").Run()
+	// Restart real logind if we stopped it (not in containers)
+	if err := exec.Command("systemctl", "is-system-running").Run(); err == nil {
+		exec.Command("systemctl", "start", "systemd-logind").Run()
+	}
 	logger.Info("Done")
 }
