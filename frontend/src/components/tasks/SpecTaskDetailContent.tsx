@@ -1363,14 +1363,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         "& .MuiSelect-select": { py: 0 },
                       }}
                     >
-                      <MenuItem value="planning">Planning</MenuItem>
-                      {zedThreadsData.zed_threads.map((thread) => {
+                      <MenuItem value="planning">Main thread</MenuItem>
+                      {zedThreadsData.zed_threads.map((thread, index) => {
                         const sessionId = thread.work_session?.helix_session_id;
                         if (!sessionId) return null;
                         const label = thread.work_session?.name
                           || thread.work_session?.implementation_task_title
-                          || thread.zed_thread_id
-                          || "Thread";
+                          || `Thread ${index + 2}`;
                         return (
                           <MenuItem key={sessionId} value={sessionId}>
                             {label}
@@ -2032,14 +2031,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         "& .MuiSelect-select": { py: 0 },
                       }}
                     >
-                      <MenuItem value="planning">Planning</MenuItem>
-                      {zedThreadsData.zed_threads.map((thread) => {
+                      <MenuItem value="planning">Main thread</MenuItem>
+                      {zedThreadsData.zed_threads.map((thread, index) => {
                         const sessionId = thread.work_session?.helix_session_id;
                         if (!sessionId) return null;
                         const label = thread.work_session?.name
                           || thread.work_session?.implementation_task_title
-                          || thread.zed_thread_id
-                          || "Thread";
+                          || `Thread ${index + 2}`;
                         return (
                           <MenuItem key={sessionId} value={sessionId}>
                             {label}
