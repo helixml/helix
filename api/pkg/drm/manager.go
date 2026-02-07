@@ -226,19 +226,21 @@ func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, wi
 	// 4. Wait briefly for connector to become connected
 	time.Sleep(500 * time.Millisecond)
 
-	// 5. Create DRM lease (connector + CRTC + planes)
+	// 5. Create DRM lease (connector + CRTC)
+	// Note: planes are NOT included because virtio-gpu requires
+	// DRM_CLIENT_CAP_UNIVERSAL_PLANES to expose them, and creating
+	// a lease with non-existent plane IDs returns ENOSPC.
+	// Mutter uses legacy mode setting (drmModeSetCrtc) which works
+	// without explicit planes in the lease.
 	connectorID := m.connectorIDForScanout(scanoutIdx)
 	crtcID := m.crtcIDForScanout(scanoutIdx)
-	primaryPlaneID, cursorPlaneID := m.planeIDsForScanout(scanoutIdx)
 
 	m.logger.Info("creating DRM lease",
 		"scanout_idx", scanoutIdx,
 		"connector_id", connectorID,
-		"crtc_id", crtcID,
-		"primary_plane", primaryPlaneID,
-		"cursor_plane", cursorPlaneID)
+		"crtc_id", crtcID)
 
-	objectIDs := []uint32{connectorID, crtcID, primaryPlaneID, cursorPlaneID}
+	objectIDs := []uint32{connectorID, crtcID}
 	leaseFD, lesseeID, err := createLease(m.drmFile, objectIDs)
 	if err != nil {
 		m.logger.Error("create lease failed", "err", err)
