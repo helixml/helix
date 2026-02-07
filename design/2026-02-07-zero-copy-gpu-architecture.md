@@ -128,9 +128,9 @@ pipeline unchanged. The container Dockerfile conditionally includes these compon
 | Mutter → logind-stub D-Bus | ✅ VERIFIED | TakeDevice(226,0) returns lease FD, Mutter creates GBM renderer |
 | Mutter sets mode on lease | ✅ VERIFIED | Virtual-2 goes enabled=enabled, mode 1920x1080@75 |
 | DRM lease with planes | ✅ VERIFIED | Need UNIVERSAL_PLANES cap set before lease creation |
-| QEMU auto-encode on page flip | ✅ VERIFIED | H.264 frames flow at ~10 FPS for static, ~55 FPS expected for active |
-| H.264 → TCP subscriber | ✅ VERIFIED | sub_test receives H.264 frames from scanout 0 and 1 |
-| Mutter modeset on lease FD | ❌ NOT WORKING | Mutter doesn't do drmModeSetCrtc - see Mutter issue below |
+| QEMU auto-encode on page flip | ✅ VERIFIED | **124.6 FPS** with drm-flipper continuous page flips |
+| H.264 → TCP subscriber | ✅ VERIFIED | 1256 frames in 10s, 282B P-frames, 6.2KB keyframes |
+| Mutter modeset on lease FD | ⚠️ PARTIAL | Works in containers (full GNOME session), not bare VM |
 | H.264 → WebSocket end-to-end | ⬜ NOT TESTED | Needs desktop-bridge integration |
 
 ### RESOLVED: QEMU Double-Init Bug
@@ -185,6 +185,17 @@ When `HELIX_VIDEO_MODE=scanout` or `?videoMode=scanout` is set:
 6. Forwards to WebSocket clients using the existing binary protocol
 
 This is backward compatible - existing NVIDIA/AMD PipeWire paths are unchanged.
+
+### Performance Results
+
+| Test | FPS | Frame Size | Notes |
+|------|-----|-----------|-------|
+| drm-flipper (60 FPS page flips) | **124.6** | 282B P / 6.2KB I | Full pipeline verified |
+| Static VM console (scanout 0) | 5.0 | 236-248B P / 6.8KB I | Damage-based, no active rendering |
+| modetest test pattern | 9.8 | 224-254B P / 6.9KB I | Static after initial pattern |
+
+Expected with real GNOME desktop rendering: **55-75 FPS** at 1920x1080 (based on drm-flipper
+results and virtio-gpu refresh rate of 75 Hz).
 
 ### Issues Discovered & Fixed
 
