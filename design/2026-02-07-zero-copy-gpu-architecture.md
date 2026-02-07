@@ -123,13 +123,20 @@ This is a conservative check designed for NVIDIA (where LINEAR means software fa
 ```
 PipeWire ScreenCast → pipewiresrc (DMA-BUF, LINEAR modifier)
   → vsockenc: extracts DMA-BUF FD
-    → DRM_IOCTL_PRIME_FD_TO_HANDLE → GEM handle
-    → DRM_IOCTL_VIRTGPU_RESOURCE_INFO → resource_id  ← THIS STEP IS MISSING
+    → DRM_IOCTL_PRIME_FD_TO_HANDLE → GEM handle (per-process local)
+    → DRM_IOCTL_VIRTGPU_RESOURCE_INFO → resource_id (virtio-gpu global)
     → sends resource_id (4 bytes) over TCP, NO pixel data
-  → QEMU: virgl_renderer_transfer_read_iov(resource_id)
-    → reads pixels directly from GPU memory
-    → creates IOSurface, encodes with VideoToolbox
+  → QEMU helix-frame-export.m:
+    → virgl_renderer_resource_get_info_ext(resource_id) → Metal texture
+    → Metal texture → IOSurface (zero-copy, GPU memory)
+    → VideoToolbox encodes directly from IOSurface
 ```
+
+**Key: the QEMU side already has true zero-copy.** It uses `virgl_renderer_resource_get_info_ext()`
+to get the Metal texture handle, then extracts the IOSurface backing store. VideoToolbox encodes
+directly from GPU memory. No `virgl_renderer_transfer_read_iov()` (CPU copy) needed.
+
+This is confirmed in `qemu-utm/hw/display/helix/helix-frame-export.m` lines 286-320.
 
 ### Bug in current code
 
@@ -177,12 +184,12 @@ Option C: Skip PipeWire entirely and use the scanout approach.
 
 ## Comparison
 
-| Approach | FPS | Complexity | Pixel copies |
-|----------|-----|-----------|-------------|
-| Current: SHM → TCP pixels | 15 | Low (working) | 2 (SHM→NV12, TCP→IOSurface) |
-| DMA-BUF resource ID | 60? | Medium | 1 (GPU→IOSurface via virgl) |
-| Multiple scanouts | 55+ | High | 1 (GPU→IOSurface via virgl) |
-| Scanout 0 capture (old) | 55 | Low (was working) | 1 (GPU→IOSurface via virgl) |
+| Approach | FPS | Complexity | Pixel copies | Notes |
+|----------|-----|-----------|-------------|-------|
+| Current: SHM → TCP pixels | 15 | Low (working) | 2 (CPU convert, TCP transfer) | 3.1MB NV12 per frame over TCP |
+| DMA-BUF resource ID | 60? | Medium | 0 (true zero-copy) | Metal texture → IOSurface → VideoToolbox |
+| Multiple scanouts | 55+ | High | 0 (true zero-copy) | Each container gets own DRM connector |
+| Scanout 0 capture (old) | 55 | N/A | 0 | **NOT VIABLE** - captures VM display, not container desktop |
 
 ## Recommendation
 
@@ -199,9 +206,16 @@ Option C: Skip PipeWire entirely and use the scanout approach.
 - No PipeWire involved at all
 - But requires QEMU, guest kernel, and Mutter configuration changes
 
+## Validated Claims
+
+1. **DRM_IOCTL_VIRTGPU_RESOURCE_INFO**: Confirmed in Mesa source (`vn_renderer_virtgpu.c:664-678`). `bo_handle` is input GEM handle, `res_handle` is output resource ID.
+2. **DRM_IOCTL_GEM_CLOSE**: Required after PRIME import to avoid leaking GEM handles. Mesa always closes them after use.
+3. **QEMU zero-copy path**: `helix-frame-export.m` already uses `virgl_renderer_resource_get_info_ext()` → Metal texture → IOSurface. This is true zero-copy, no `virgl_renderer_transfer_read_iov()` needed.
+4. **GEM handle != resource_id**: Confirmed by existence of `VIRTGPU_RESOURCE_INFO` ioctl and Mesa's explicit two-step usage pattern.
+
 ## Open Questions
 
-1. Does `virgl_renderer_transfer_read_iov()` with a PipeWire ScreenCast resource work? The resource might not be a scanout - it's an offscreen buffer allocated by Mutter for ScreenCast.
-2. Does pipewiresrc actually negotiate DMA-BUF on virtio-gpu if we ask for it? Or does Mutter only offer SHM?
-3. Can QEMU read from any virtio-gpu resource, or only from scanout resources?
-4. With Venus (Vulkan) vs virgl (OpenGL), does the resource read path differ?
+1. Does pipewiresrc actually negotiate DMA-BUF on virtio-gpu if we don't put videoconvert in the way? Or does Mutter only offer SHM? (Testing now)
+2. Does `virgl_renderer_resource_get_info_ext()` work on PipeWire ScreenCast buffers (offscreen GPU allocations), or only on scanout resources?
+3. If the ScreenCast buffer IS a Metal texture on the host, does its IOSurface have the right format for VideoToolbox (NV12/BGRA)?
+4. With Venus (Vulkan) vs virgl (OpenGL), does the resource info path differ?
