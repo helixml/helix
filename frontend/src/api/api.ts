@@ -3492,6 +3492,20 @@ export enum TypesQuestionSetExecutionStatus {
   QuestionSetExecutionStatusError = "error",
 }
 
+export interface TypesQuotaResponse {
+  active_concurrent_desktops?: number;
+  max_concurrent_desktops?: number;
+  max_projects?: number;
+  max_repositories?: number;
+  max_spec_tasks?: number;
+  /** If applicable */
+  organization_id?: string;
+  projects?: number;
+  repositories?: number;
+  spec_tasks?: number;
+  user_id?: string;
+}
+
 export interface TypesRAGSettings {
   /** the amount of overlap between chunks - will default to 32 bytes */
   chunk_overflow?: number;
@@ -3575,6 +3589,7 @@ export enum TypesResource {
   ResourceSpecTask = "SpecTask",
   ResourceSession = "Session",
   ResourcePrompt = "Prompt",
+  ResourceDesktop = "Desktop",
 }
 
 export interface TypesResourceSearchRequest {
@@ -9382,6 +9397,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesQuestionSetExecution, any>({
         path: `/api/v1/question-sets/${questionSetId}/executions/${id}`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get quotas for the user. Returns current usage and limits for desktops, projects, repositories, and spec tasks. Optionally pass org_id query parameter to get organization quotas.
+     *
+     * @tags quotas
+     * @name V1QuotasList
+     * @summary Get quotas
+     * @request GET:/api/v1/quotas
+     * @secure
+     */
+    v1QuotasList: (
+      query?: {
+        /** Organization ID to get quotas for */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesQuotaResponse, any>({
+        path: `/api/v1/quotas`,
         method: "GET",
         query: query,
         secure: true,

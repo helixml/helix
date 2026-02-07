@@ -5721,6 +5721,30 @@ definitions:
     - QuestionSetExecutionStatusRunning
     - QuestionSetExecutionStatusSuccess
     - QuestionSetExecutionStatusError
+  types.QuotaResponse:
+    properties:
+      active_concurrent_desktops:
+        type: integer
+      max_concurrent_desktops:
+        type: integer
+      max_projects:
+        type: integer
+      max_repositories:
+        type: integer
+      max_spec_tasks:
+        type: integer
+      organization_id:
+        description: If applicable
+        type: string
+      projects:
+        type: integer
+      repositories:
+        type: integer
+      spec_tasks:
+        type: integer
+      user_id:
+        type: string
+    type: object
   types.RAGSettings:
     properties:
       chunk_overflow:
@@ -5849,6 +5873,7 @@ definitions:
     - SpecTask
     - Session
     - Prompt
+    - Desktop
     type: string
     x-enum-varnames:
     - ResourceTeam
@@ -5867,6 +5892,7 @@ definitions:
     - ResourceSpecTask
     - ResourceSession
     - ResourcePrompt
+    - ResourceDesktop
   types.ResourceSearchRequest:
     properties:
       limit:
@@ -7827,6 +7853,8 @@ definitions:
     type: object
   types.SystemSettingsRequest:
     properties:
+      enforce_quotas:
+        type: boolean
       huggingface_token:
         type: string
       kodit_enrichment_model:
@@ -7843,6 +7871,8 @@ definitions:
     properties:
       created:
         type: string
+      enforce_quotas:
+        type: boolean
       huggingface_token_set:
         description: Sensitive fields are masked
         type: boolean
@@ -14075,6 +14105,26 @@ paths:
       summary: Get question set execution results
       tags:
       - question-sets
+  /api/v1/quotas:
+    get:
+      description: Get quotas for the user. Returns current usage and limits for desktops,
+        projects, repositories, and spec tasks. Optionally pass org_id query parameter
+        to get organization quotas.
+      parameters:
+      - description: Organization ID to get quotas for
+        in: query
+        name: org_id
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.QuotaResponse'
+      security:
+      - BearerAuth: []
+      summary: Get quotas
+      tags:
+      - quotas
   /api/v1/repositories/without-projects:
     get:
       description: Get all repositories that don't have an associated project

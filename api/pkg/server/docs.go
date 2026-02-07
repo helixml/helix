@@ -8386,6 +8386,36 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/quotas": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get quotas for the user. Returns current usage and limits for desktops, projects, repositories, and spec tasks. Optionally pass org_id query parameter to get organization quotas.",
+                "tags": [
+                    "quotas"
+                ],
+                "summary": "Get quotas",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID to get quotas for",
+                        "name": "org_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.QuotaResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/repositories/without-projects": {
             "get": {
                 "security": [
@@ -21811,6 +21841,42 @@ const docTemplate = `{
                 "QuestionSetExecutionStatusError"
             ]
         },
+        "types.QuotaResponse": {
+            "type": "object",
+            "properties": {
+                "active_concurrent_desktops": {
+                    "type": "integer"
+                },
+                "max_concurrent_desktops": {
+                    "type": "integer"
+                },
+                "max_projects": {
+                    "type": "integer"
+                },
+                "max_repositories": {
+                    "type": "integer"
+                },
+                "max_spec_tasks": {
+                    "type": "integer"
+                },
+                "organization_id": {
+                    "description": "If applicable",
+                    "type": "string"
+                },
+                "projects": {
+                    "type": "integer"
+                },
+                "repositories": {
+                    "type": "integer"
+                },
+                "spec_tasks": {
+                    "type": "integer"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.RAGSettings": {
             "type": "object",
             "properties": {
@@ -21980,7 +22046,8 @@ const docTemplate = `{
                 "GitRepository",
                 "SpecTask",
                 "Session",
-                "Prompt"
+                "Prompt",
+                "Desktop"
             ],
             "x-enum-varnames": [
                 "ResourceTeam",
@@ -21998,7 +22065,8 @@ const docTemplate = `{
                 "ResourceGitRepository",
                 "ResourceSpecTask",
                 "ResourceSession",
-                "ResourcePrompt"
+                "ResourcePrompt",
+                "ResourceDesktop"
             ]
         },
         "types.ResourceSearchRequest": {
@@ -24724,6 +24792,9 @@ const docTemplate = `{
         "types.SystemSettingsRequest": {
             "type": "object",
             "properties": {
+                "enforce_quotas": {
+                    "type": "boolean"
+                },
                 "huggingface_token": {
                     "type": "string"
                 },
@@ -24747,6 +24818,9 @@ const docTemplate = `{
             "properties": {
                 "created": {
                     "type": "string"
+                },
+                "enforce_quotas": {
+                    "type": "boolean"
                 },
                 "huggingface_token_set": {
                     "description": "Sensitive fields are masked",
