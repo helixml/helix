@@ -9,9 +9,11 @@ Ported all Helix-specific Zed changes from the old fork (`~/pm/zed`, branch `mai
 
 ## Key Locations
 
-- **Old fork:** `/prod/home/luke/pm/zed` (origin: `git@github.com:helixml/zed`)
-- **New upstream copy:** `/prod/home/luke/pm/zed-upstream` (origin: `https://github.com/zed-industries/zed.git`)
-- **Working branch:** `helix-fork` (3 commits on top of upstream `main` at `79f38fe`)
+- **Old fork:** `/prod/home/luke/pm/zed` (origin: `git@github.com:helixml/zed`, branch `main`)
+- **New fork:** `/prod/home/luke/pm/zed-upstream` (branch `helix-fork`, pushed to `helixml/zed`)
+  - Remotes: `origin` = `https://github.com/zed-industries/zed.git` (upstream, read-only), `helix` = `git@github.com:helixml/zed.git` (push via SSH)
+  - Push with: `git push helix helix-fork`
+- **GitHub:** `helixml/zed` has both `main` (old fork) and `helix-fork` (new clean port) branches
 - **Helix repo:** `/prod/home/luke/pm/helix` (this repo)
 - **E2E test files:** Both `~/pm/zed/crates/external_websocket_sync/e2e-test/` and `~/pm/zed-upstream/crates/external_websocket_sync/e2e-test/`
 
@@ -20,6 +22,7 @@ Ported all Helix-specific Zed changes from the old fork (`~/pm/zed`, branch `mai
 1. `4cae6d9` - Port Helix fork changes to fresh upstream Zed
 2. `54296a7` - Add WebSocket protocol spec, mock server, and test infrastructure
 3. `b063ae0` - Add E2E test infrastructure with Docker container
+4. `463b1cc` - Fix E2E test infrastructure: Docker caching, headless Zed startup
 
 ## What Was Ported (725 lines across 17 files + new crate)
 
