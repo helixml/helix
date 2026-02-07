@@ -68,6 +68,9 @@ struct _GstVsockEnc {
 #define HELIX_MSG_CONFIG_RESP     0x05
 #define HELIX_MSG_PING            0x10
 #define HELIX_MSG_PONG            0x11
+#define HELIX_MSG_ENABLE_SCANOUT  0x20  /* Enable a scanout (connect DRM connector) */
+#define HELIX_MSG_DISABLE_SCANOUT 0x21  /* Disable a scanout (disconnect DRM connector) */
+#define HELIX_MSG_SCANOUT_RESP    0x22  /* Response to enable/disable scanout */
 #define HELIX_MSG_ERROR           0xFF
 
 /* Frame request flags */
@@ -128,6 +131,25 @@ typedef struct {
     guint8  realtime;
     guint8  reserved[5];
 } __attribute__((packed)) HelixConfigRequest;
+
+/* Enable scanout request - guest → QEMU
+ * Tells QEMU to "connect" a specific DRM connector with given resolution.
+ * Container's Mutter then sees the connector and can render to it. */
+typedef struct {
+    HelixMsgHeader header;
+    guint32 scanout_id;     /* Scanout index (1-15, 0 = VM display) */
+    guint32 width;          /* Display width (e.g. 1920) */
+    guint32 height;         /* Display height (e.g. 1080) */
+    guint32 refresh_rate;   /* Refresh rate in Hz (e.g. 60) */
+} __attribute__((packed)) HelixEnableScanoutRequest;
+
+/* Scanout response - QEMU → guest */
+typedef struct {
+    HelixMsgHeader header;
+    guint32 scanout_id;
+    guint32 success;        /* 1 = enabled, 0 = failed */
+    gchar   connector[64];  /* DRM connector name (e.g. "Virtual-2") */
+} __attribute__((packed)) HelixScanoutResponse;
 
 /* Error response */
 typedef struct {
