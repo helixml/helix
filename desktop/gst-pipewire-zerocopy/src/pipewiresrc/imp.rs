@@ -478,6 +478,7 @@ impl ObjectImpl for PipeWireZeroCopySrc {
             "buffer-type" => match s.buffer_type {
                 BufferType::Shm => "shm",
                 BufferType::DmaBuf => "dmabuf",
+                BufferType::DmaBufPassthrough => "dmabuf-passthrough",
             }
             .to_value(),
             _ => unreachable!(),
@@ -956,7 +957,10 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 });
                 let mem = unsafe {
                     allocator.alloc(duped_fd, size)
-                };
+                }.map_err(|e| {
+                    eprintln!("[PIPEWIRESRC] DmaBuf passthrough: alloc failed: {:?}", e);
+                    gst::FlowError::Error
+                })?;
 
                 let mut buf = gst::Buffer::new();
                 {
