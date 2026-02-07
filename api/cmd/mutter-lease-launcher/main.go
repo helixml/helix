@@ -57,13 +57,25 @@ func main() {
 		logger.Info("Wrote scanout ID file", "path", scanoutFile, "scanout_id", lease.ScanoutID)
 	}
 
-	// Step 2: Stop real logind if running (not present in containers)
+	// Step 2: Stop real logind if running, or start system D-Bus in containers
 	if err := exec.Command("systemctl", "is-active", "--quiet", "systemd-logind").Run(); err == nil {
 		logger.Info("Stopping systemd-logind...")
 		exec.Command("systemctl", "stop", "systemd-logind").Run()
 		time.Sleep(3 * time.Second)
 	} else {
 		logger.Info("systemd-logind not running (container mode)")
+		// In containers, start a system D-Bus daemon for logind-stub
+		if _, err := os.Stat("/var/run/dbus/system_bus_socket"); os.IsNotExist(err) {
+			logger.Info("Starting system D-Bus daemon for container...")
+			os.MkdirAll("/var/run/dbus", 0755)
+			dbusCmd := exec.Command("dbus-daemon", "--system", "--fork")
+			if err := dbusCmd.Run(); err != nil {
+				logger.Warn("Failed to start system dbus-daemon", "err", err)
+			} else {
+				logger.Info("System D-Bus daemon started")
+				time.Sleep(500 * time.Millisecond)
+			}
+		}
 	}
 
 	// Step 3: Start logind stub with lease FD
