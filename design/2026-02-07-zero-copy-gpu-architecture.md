@@ -213,9 +213,45 @@ Option C: Skip PipeWire entirely and use the scanout approach.
 3. **QEMU zero-copy path**: `helix-frame-export.m` already uses `virgl_renderer_resource_get_info_ext()` → Metal texture → IOSurface. This is true zero-copy, no `virgl_renderer_transfer_read_iov()` needed.
 4. **GEM handle != resource_id**: Confirmed by existence of `VIRTGPU_RESOURCE_INFO` ioctl and Mesa's explicit two-step usage pattern.
 
+## Tested and Failed
+
+1. **DMA-BUF with LINEAR modifier via pipewirezerocopysrc**: PipeWire returns "no more input formats". Mutter on virtio-gpu headless does NOT support DMA-BUF export for ScreenCast - only SHM (MemFd). Tested 2026-02-07.
+
+2. **Native pipewiresrc without videoconvert**: Delivers SHM buffers. vsockenc falls back to sending raw 8.3MB BGRA over TCP (~12 FPS).
+
+## Current Approach: Multiple Scanouts (In Progress)
+
+### QEMU Configuration
+Current: `-device virtio-gpu-gl-pci` (max_outputs=1, one Virtual-1 connector)
+Target: `-device virtio-gpu-gl-pci,max_outputs=16` (16 connectors available)
+
+Guest sees DRM connectors at `/sys/class/drm/card0-Virtual-{1..16}`.
+Each container's Mutter runs against a dedicated connector.
+
+### Architecture
+```
+QEMU (max_outputs=16)
+  ├── scanout 0: VM display (GDM/login, or unused)
+  ├── scanout 1: Container A's Mutter → resource_flush → helix-frame-export → H.264
+  ├── scanout 2: Container B's Mutter → resource_flush → helix-frame-export → H.264
+  └── ...
+```
+
+Each scanout fires resource_flush independently on page flip (damage-based).
+QEMU reads GPU memory via Metal IOSurface and encodes with VideoToolbox.
+
+### Steps
+1. [x] Verify QEMU max_outputs parameter
+2. [ ] Add max_outputs=16 to UTM VM config
+3. [ ] Verify guest sees 16 DRM connectors
+4. [ ] Test Mutter on a non-primary connector from inside container
+5. [ ] Modify helix-frame-export to watch multiple scanouts
+6. [ ] Map session IDs to scanout indices
+7. [ ] Hydra allocates scanout index per container
+
 ## Open Questions
 
-1. Does pipewiresrc actually negotiate DMA-BUF on virtio-gpu if we don't put videoconvert in the way? Or does Mutter only offer SHM? (Testing now)
-2. Does `virgl_renderer_resource_get_info_ext()` work on PipeWire ScreenCast buffers (offscreen GPU allocations), or only on scanout resources?
-3. If the ScreenCast buffer IS a Metal texture on the host, does its IOSurface have the right format for VideoToolbox (NV12/BGRA)?
+1. Can a Docker container do DRM modesetting on a specific connector? Needs /dev/dri/card0 access and possibly DRM master.
+2. Does Mutter support running on a secondary connector without being DRM master? (logind seat mechanism)
+3. How does gnome-shell select which connector to use? `--virtual-monitor` is headless-only. For real connectors, it auto-detects via DRM.
 4. With Venus (Vulkan) vs virgl (OpenGL), does the resource info path differ?
