@@ -10,6 +10,13 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
+// D-Bus constants for GNOME Mutter DisplayConfig.
+const (
+	displayConfigBus   = "org.gnome.Mutter.DisplayConfig"
+	displayConfigPath  = "/org/gnome/Mutter/DisplayConfig"
+	displayConfigIface = "org.gnome.Mutter.DisplayConfig"
+)
+
 // D-Bus constants for GNOME Mutter.
 const (
 	remoteDesktopBus          = "org.gnome.Mutter.RemoteDesktop"
@@ -70,6 +77,68 @@ func (s *Server) connectDBus(ctx context.Context) error {
 	return fmt.Errorf("failed to connect after 60 attempts: %w", err)
 }
 
+// getMonitorConnector returns the connector name of the first active monitor.
+// In headless mode this is "Meta-0", in DRM scanout mode it's the real connector
+// (e.g., "Virtual-2"). Falls back to "Meta-0" if the query fails.
+func (s *Server) getMonitorConnector() string {
+	if s.conn == nil {
+		return "Meta-0"
+	}
+
+	dcObj := s.conn.Object(displayConfigBus, displayConfigPath)
+
+	// GetCurrentState returns (serial, monitors, logical_monitors, properties)
+	// monitors is an array of (monitor_spec, modes, properties)
+	// monitor_spec is (connector, vendor, product, serial)
+	var result []interface{}
+	err := dcObj.Call(displayConfigIface+".GetCurrentState", 0).Store(&result)
+	if err != nil {
+		s.logger.Debug("GetCurrentState failed, falling back to Meta-0", "err", err)
+		return "Meta-0"
+	}
+
+	if len(result) < 2 {
+		s.logger.Debug("GetCurrentState returned insufficient data, falling back to Meta-0")
+		return "Meta-0"
+	}
+
+	// Extract monitors array — result[1] is the monitors array
+	// Each monitor is a struct with fields: (connector string, vendor string, product string, serial string)
+	// The D-Bus type is a(ssss)... but godbus deserializes it variably.
+	// Try to extract the connector name from the first monitor.
+	monitors, ok := result[1].([][]interface{})
+	if !ok {
+		s.logger.Debug("could not parse monitors from GetCurrentState, falling back to Meta-0",
+			"type", fmt.Sprintf("%T", result[1]))
+		return "Meta-0"
+	}
+
+	if len(monitors) == 0 {
+		s.logger.Debug("no monitors found, falling back to Meta-0")
+		return "Meta-0"
+	}
+
+	// First monitor's spec is monitors[0][0] which is the (connector, vendor, product, serial) tuple
+	monitorSpec, ok := monitors[0][0].([]interface{})
+	if !ok {
+		s.logger.Debug("could not parse monitor spec, falling back to Meta-0",
+			"type", fmt.Sprintf("%T", monitors[0][0]))
+		return "Meta-0"
+	}
+
+	if len(monitorSpec) == 0 {
+		return "Meta-0"
+	}
+
+	connector, ok := monitorSpec[0].(string)
+	if !ok || connector == "" {
+		return "Meta-0"
+	}
+
+	s.logger.Info("detected monitor connector", "connector", connector)
+	return connector
+}
+
 // createSession creates linked RemoteDesktop and ScreenCast sessions.
 // Both sessions must be created and linked for input injection to work properly.
 func (s *Server) createSession(ctx context.Context) error {
@@ -120,13 +189,18 @@ func (s *Server) createSession(ctx context.Context) error {
 	// Small delay to let the session fully initialize
 	time.Sleep(100 * time.Millisecond)
 
+	// Detect the monitor connector name. In headless mode this is "Meta-0",
+	// in DRM scanout mode it's the real connector (e.g., "Virtual-2").
+	s.monitorName = s.getMonitorConnector()
+	monitorName := s.monitorName
+
 	// Create linked ScreenCast session - this is REQUIRED for NotifyPointerMotionAbsolute to work.
 	// Even in scanout mode (where video comes from QEMU TCP, not PipeWire), we still need
 	// a linked ScreenCast session because Mutter's NotifyPointerMotionAbsolute and
 	// NotifyTouchDown look up the stream from session->screen_cast_session to get the
 	// monitor's coordinate space. Without it, Mutter returns "No screen cast active" error
 	// and absolute mouse positioning + touch are completely broken.
-	s.logger.Info("creating linked ScreenCast session...", "session_id", sessionID)
+	s.logger.Info("creating linked ScreenCast session...", "session_id", sessionID, "monitor", monitorName)
 	scObj := s.conn.Object(screenCastBus, screenCastPath)
 	options := map[string]dbus.Variant{
 		"remote-desktop-session-id": dbus.MakeVariant(sessionID),
@@ -148,8 +222,8 @@ func (s *Server) createSession(ctx context.Context) error {
 	}
 	s.scSessionPath = scSessionPath
 
-	// Record the virtual monitor Meta-0
-	s.logger.Info("recording virtual monitor Meta-0...")
+	// Record the monitor for the linked ScreenCast session
+	s.logger.Info("recording monitor...", "monitor", monitorName)
 	scSession := s.conn.Object(screenCastBus, scSessionPath)
 
 	recordOptions := map[string]dbus.Variant{
@@ -167,8 +241,8 @@ func (s *Server) createSession(ctx context.Context) error {
 	}
 
 	var streamPath dbus.ObjectPath
-	if err := scSession.Call(screenCastSessionIface+".RecordMonitor", 0, "Meta-0", recordOptions).Store(&streamPath); err != nil {
-		return fmt.Errorf("RecordMonitor: %w", err)
+	if err := scSession.Call(screenCastSessionIface+".RecordMonitor", 0, monitorName, recordOptions).Store(&streamPath); err != nil {
+		return fmt.Errorf("RecordMonitor(%s): %w", monitorName, err)
 	}
 	s.scStreamPath = streamPath
 	s.logger.Info("stream created (cursor embedded for damage-based keepalive)", "path", streamPath)
@@ -224,7 +298,7 @@ func (s *Server) createSession(ctx context.Context) error {
 				"cursor-mode": dbus.MakeVariant(uint32(2)), // Metadata
 			}
 			var cursorStreamPath dbus.ObjectPath
-			if err := cursorScSession.Call(screenCastSessionIface+".RecordMonitor", 0, "Meta-0", cursorRecordOptions).Store(&cursorStreamPath); err != nil {
+			if err := cursorScSession.Call(screenCastSessionIface+".RecordMonitor", 0, s.monitorName, cursorRecordOptions).Store(&cursorStreamPath); err != nil {
 				s.logger.Warn("failed to record on cursor session", "err", err)
 				s.cursorScSessionPath = "" // Clear so we don't try to use it
 			} else {
@@ -301,7 +375,7 @@ func (s *Server) createScreenshotSession(ctx context.Context) error {
 	}
 
 	var streamPath dbus.ObjectPath
-	if err := scSession.Call(screenCastSessionIface+".RecordMonitor", 0, "Meta-0", recordOptions).Store(&streamPath); err != nil {
+	if err := scSession.Call(screenCastSessionIface+".RecordMonitor", 0, s.monitorName, recordOptions).Store(&streamPath); err != nil {
 		return fmt.Errorf("screenshot RecordMonitor: %w", err)
 	}
 	s.ssScStreamPath = streamPath
@@ -372,7 +446,7 @@ func (s *Server) createNoCursorScreenshotSession(ctx context.Context) error {
 	}
 
 	var streamPath dbus.ObjectPath
-	if err := scSession.Call(screenCastSessionIface+".RecordMonitor", 0, "Meta-0", recordOptions).Store(&streamPath); err != nil {
+	if err := scSession.Call(screenCastSessionIface+".RecordMonitor", 0, s.monitorName, recordOptions).Store(&streamPath); err != nil {
 		return fmt.Errorf("no-cursor screenshot RecordMonitor: %w", err)
 	}
 	s.ssNoCursorScStreamPath = streamPath
@@ -456,7 +530,7 @@ func (s *Server) createVideoSession(ctx context.Context) error {
 	}
 
 	var streamPath dbus.ObjectPath
-	if err := scSession.Call(screenCastSessionIface+".RecordMonitor", 0, "Meta-0", recordOptions).Store(&streamPath); err != nil {
+	if err := scSession.Call(screenCastSessionIface+".RecordMonitor", 0, s.monitorName, recordOptions).Store(&streamPath); err != nil {
 		return fmt.Errorf("video RecordMonitor: %w", err)
 	}
 	s.videoScStreamPath = streamPath

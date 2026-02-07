@@ -98,6 +98,10 @@ type Server struct {
 	screenWidth  int
 	screenHeight int
 
+	// Monitor connector name for ScreenCast RecordMonitor calls.
+	// "Meta-0" in headless mode, real connector (e.g., "Virtual-2") in DRM scanout mode.
+	monitorName string
+
 	// Display scale factor for Sway (from HELIX_ZOOM_LEVEL, default: 1.0)
 	// With scale 2.0, physical 3840x2160 becomes logical 1920x1080
 	// GNOME handles scaling internally so this is only used for Sway
