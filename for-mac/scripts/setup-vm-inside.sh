@@ -71,25 +71,41 @@ fi
 if command -v zfs &>/dev/null; then
     echo "ZFS version: $(zfs --version | head -1)"
 
-    # Create ZFS pool on the VM disk if not already done
-    if ! zpool list helix 2>/dev/null; then
-        echo ""
-        echo "No ZFS pool found. To create one for Docker storage with dedup:"
-        echo ""
-        echo "  # Option 1: Use a file-backed vdev (simple, for development)"
-        echo "  sudo truncate -s 100G /var/lib/helix-zfs.img"
-        echo "  sudo zpool create helix /var/lib/helix-zfs.img"
-        echo "  sudo zfs create -o dedup=on -o compression=lz4 helix/workspaces"
-        echo ""
-        echo "  # Option 2: Use a separate disk/partition (production)"
-        echo "  sudo zpool create helix /dev/vdbX"
-        echo "  sudo zfs create -o dedup=on -o compression=lz4 helix/workspaces"
-        echo ""
-        echo "Then configure HELIX_SANDBOX_DATA=/helix/workspaces in .env"
+    # Create ZFS pool on the dedicated data disk
+    # The provision-vm.sh creates a second virtio disk at /dev/vdc for this
+    if ! sudo zpool list helix 2>/dev/null; then
+        # Find the data disk (second virtio disk, not the root disk)
+        ZFS_DEV=""
+        for dev in /dev/vdc /dev/vdb; do
+            if [ -b "$dev" ] && ! mount | grep -q "$dev"; then
+                ZFS_DEV="$dev"
+                break
+            fi
+        done
+
+        if [ -n "$ZFS_DEV" ]; then
+            echo "Creating ZFS pool on $ZFS_DEV..."
+            sudo zpool create -f helix "$ZFS_DEV"
+            sudo zfs create -o dedup=on -o compression=lz4 -o atime=off helix/workspaces
+            sudo zfs create -o compression=lz4 -o atime=off helix/docker
+            echo "ZFS pool created with dedup workspaces"
+
+            # Move Docker to ZFS for compression benefits
+            if [ ! -L /var/lib/docker ] && [ -d /var/lib/docker ]; then
+                sudo systemctl stop docker 2>/dev/null || true
+                sudo mv /var/lib/docker /var/lib/docker.ext4-backup
+                sudo ln -s /helix/docker /var/lib/docker
+                sudo systemctl start docker 2>/dev/null || true
+                echo "Docker storage moved to ZFS"
+            fi
+        else
+            echo "No unmounted disk found for ZFS. If using provision-vm.sh,"
+            echo "the second disk should be at /dev/vdc."
+        fi
     else
         echo "ZFS pool 'helix' exists:"
-        zpool list helix
-        zfs list -r helix 2>/dev/null | head -5
+        sudo zpool list helix
+        sudo zfs list -r helix 2>/dev/null | head -5
     fi
 fi
 

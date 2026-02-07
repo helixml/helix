@@ -32,7 +32,8 @@ set -euo pipefail
 
 VM_NAME="helix-desktop"
 VM_DIR="${HOME}/.helix/vm/${VM_NAME}"
-DISK_SIZE="256G"
+DISK_SIZE="32G"       # Root disk (OS, Docker images, build cache)
+ZFS_DISK_SIZE="128G"  # ZFS disk (workspaces with dedup - thin-provisioned qcow2)
 CPUS=8
 MEMORY_MB=16384
 SSH_PORT="${HELIX_VM_SSH_PORT:-2223}"  # Use 2223 during provisioning to avoid conflicts
@@ -53,6 +54,7 @@ RESUME=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --disk-size) DISK_SIZE="$2"; shift 2 ;;
+        --zfs-size) ZFS_DISK_SIZE="$2"; shift 2 ;;
         --cpus) CPUS="$2"; shift 2 ;;
         --memory) MEMORY_MB="$2"; shift 2 ;;
         --resume) RESUME=true; shift ;;
@@ -109,15 +111,17 @@ fi
 # =============================================================================
 
 if ! step_done "disk"; then
-    log "Creating ${DISK_SIZE} qcow2 disk image..."
-    qemu-img create -f qcow2 "${VM_DIR}/disk.qcow2" "$DISK_SIZE"
-
-    # Expand the cloud image onto our disk
-    log "Importing cloud image into disk..."
-    # Use virt-resize if available, otherwise copy and resize
+    log "Creating root disk (${DISK_SIZE})..."
     cp "${VM_DIR}/${UBUNTU_IMG}" "${VM_DIR}/disk.qcow2.tmp"
     qemu-img resize "${VM_DIR}/disk.qcow2.tmp" "$DISK_SIZE"
     mv "${VM_DIR}/disk.qcow2.tmp" "${VM_DIR}/disk.qcow2"
+
+    # Create ZFS data disk (thin-provisioned qcow2 - only uses actual data size on host)
+    # This disk holds workspaces with ZFS dedup to minimize disk usage on the Mac.
+    # A 128GB virtual disk with 17x dedup ratio could hold ~2TB of workspaces
+    # while only using ~7GB of actual host disk space.
+    log "Creating ZFS data disk (${ZFS_DISK_SIZE} virtual, thin-provisioned)..."
+    qemu-img create -f qcow2 "${VM_DIR}/zfs-data.qcow2" "$ZFS_DISK_SIZE"
 
     # Copy EFI vars template
     cp "$EFI_VARS_TEMPLATE" "${VM_DIR}/efi_vars.fd"
@@ -208,18 +212,18 @@ instance-id: helix-vm-$(date +%s)
 local-hostname: helix-vm
 METADATA
 
-    # Create seed ISO using hdiutil (macOS native)
-    # Cloud-init expects a volume labeled "cidata"
-    log "Creating cloud-init seed ISO..."
-    if command -v mkisofs &>/dev/null; then
-        mkisofs -output "${VM_DIR}/seed.iso" -volid cidata -joliet -rock "$SEED_DIR"
-    else
-        # Use hdiutil on macOS
-        hdiutil makehybrid -o "${VM_DIR}/seed.iso" \
-            -hfs -joliet -iso \
-            -default-volume-name cidata \
-            "$SEED_DIR"
+    # Create FAT12 seed disk for cloud-init (ISO doesn't work reliably on UEFI)
+    log "Creating cloud-init seed disk (FAT12 with label CIDATA)..."
+    if ! command -v mformat &>/dev/null || ! command -v mcopy &>/dev/null; then
+        log "ERROR: mtools required. Install with: brew install mtools"
+        exit 1
     fi
+    SEED_DISK="${VM_DIR}/seed-fat.img"
+    rm -f "$SEED_DISK"
+    dd if=/dev/zero of="$SEED_DISK" bs=1k count=2048 2>/dev/null
+    mformat -i "$SEED_DISK" -v CIDATA -t 2 -h 64 -s 32 ::
+    mcopy -i "$SEED_DISK" "${SEED_DIR}/user-data" "::user-data"
+    mcopy -i "$SEED_DISK" "${SEED_DIR}/meta-data" "::meta-data"
 
     mark_step "cloudinit"
 fi
@@ -242,22 +246,10 @@ if ! step_done "boot_setup"; then
     log "Booting VM with QEMU for provisioning..."
     log "(This uses homebrew QEMU - no GPU, headless mode)"
 
-    # Create a FAT seed disk for cloud-init (more reliable than ISO on UEFI)
-    # cloud-init NoCloud looks for a filesystem labeled "cidata"
     SEED_DISK="${VM_DIR}/seed-fat.img"
-    if [ ! -f "$SEED_DISK" ]; then
-        if ! command -v mformat &>/dev/null || ! command -v mcopy &>/dev/null; then
-            log "ERROR: mtools required for FAT seed disk. Install with: brew install mtools"
-            exit 1
-        fi
-        dd if=/dev/zero of="$SEED_DISK" bs=1k count=2048 2>/dev/null
-        mformat -i "$SEED_DISK" -v CIDATA -t 2 -h 64 -s 32 ::
-        mcopy -i "$SEED_DISK" "${VM_DIR}/seed/user-data" "::user-data"
-        mcopy -i "$SEED_DISK" "${VM_DIR}/seed/meta-data" "::meta-data"
-        log "Created FAT seed disk with cloud-init data"
-    fi
 
     # Start QEMU in background
+    # Disks: vda=root (ext4), vdb=cloud-init seed, vdc=ZFS data
     qemu-system-aarch64 \
         -machine virt,accel=hvf \
         -cpu host \
@@ -267,6 +259,7 @@ if ! step_done "boot_setup"; then
         -drive if=pflash,format=raw,file="${VM_DIR}/efi_vars.fd" \
         -drive file="${VM_DIR}/disk.qcow2",format=qcow2,if=virtio \
         -drive file="${SEED_DISK}",format=raw,if=virtio,readonly=on \
+        -drive file="${VM_DIR}/zfs-data.qcow2",format=qcow2,if=virtio \
         -device virtio-net-pci,netdev=net0 \
         -netdev user,id=net0,hostfwd=tcp::${SSH_PORT}-:22 \
         -smbios type=1,serial=ds=nocloud \
@@ -320,6 +313,53 @@ if ! step_done "install_zfs"; then
     mark_step "install_zfs"
 fi
 
+if ! step_done "setup_zfs_pool"; then
+    log "Creating ZFS pool on /dev/vdc with dedup + lz4 compression..."
+    # /dev/vdc is the third virtio disk (zfs-data.qcow2)
+    # The qcow2 is thin-provisioned: 128GB virtual but only uses actual data size on Mac disk.
+    # With ZFS dedup ratios of 10-17x (measured on production), this can hold 1-2TB of
+    # workspace data while using <10GB of actual host disk space.
+    run_ssh "
+        # Check if pool already exists
+        if sudo zpool list helix 2>/dev/null; then
+            echo 'ZFS pool helix already exists'
+        else
+            # Create pool on the data disk
+            sudo zpool create -f helix /dev/vdc
+            echo 'ZFS pool created on /dev/vdc'
+        fi
+
+        # Create workspaces dataset with dedup + compression
+        if ! sudo zfs list helix/workspaces 2>/dev/null; then
+            sudo zfs create -o dedup=on -o compression=lz4 -o atime=off helix/workspaces
+            echo 'Created helix/workspaces dataset (dedup=on, compression=lz4)'
+        fi
+
+        # Create Docker storage dataset (no dedup - Docker layers benefit from compression only)
+        if ! sudo zfs list helix/docker 2>/dev/null; then
+            sudo zfs create -o compression=lz4 -o atime=off helix/docker
+            echo 'Created helix/docker dataset (compression=lz4, no dedup)'
+        fi
+
+        # Configure Docker to use ZFS storage driver on the ZFS dataset
+        sudo mkdir -p /helix/docker
+        # Move Docker data to ZFS if currently on ext4
+        if [ ! -L /var/lib/docker ] && [ -d /var/lib/docker ]; then
+            sudo systemctl stop docker 2>/dev/null || true
+            sudo mv /var/lib/docker /var/lib/docker.ext4-backup
+            sudo ln -s /helix/docker /var/lib/docker
+            sudo systemctl start docker 2>/dev/null || true
+            echo 'Docker storage moved to ZFS (/helix/docker)'
+        fi
+
+        # Show pool status
+        sudo zpool status helix
+        sudo zfs list -r helix
+        echo 'ZFS setup complete'
+    "
+    mark_step "setup_zfs_pool"
+fi
+
 if ! step_done "install_go"; then
     log "Installing Go ${GO_VERSION}..."
     run_ssh "curl -L -o /tmp/go.tar.gz 'https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz' && \
@@ -367,7 +407,16 @@ fi
 
 if ! step_done "build_desktop_image"; then
     log "Building helix-ubuntu desktop Docker image (this will take a while)..."
-    run_ssh "cd ~/helix && docker build -f Dockerfile.ubuntu-helix -t helix-ubuntu:latest . 2>&1 | tail -10"
+    # Use tee to show progress while preserving exit code via pipefail
+    run_ssh "set -o pipefail; cd ~/helix && docker build -f Dockerfile.ubuntu-helix -t helix-ubuntu:latest . 2>&1 | tail -20" || {
+        log "WARNING: Desktop image build failed (can retry later with: ssh helix-vm 'cd ~/helix && docker build -f Dockerfile.ubuntu-helix -t helix-ubuntu:latest .')"
+    }
+    # Verify the image was actually created
+    if run_ssh "docker images helix-ubuntu:latest --format '{{.Size}}'" 2>/dev/null | grep -q .; then
+        log "Desktop image built successfully"
+    else
+        log "WARNING: Desktop image not available (build may have failed or disk space insufficient)"
+    fi
     mark_step "build_desktop_image"
 fi
 
@@ -404,6 +453,9 @@ GPU_VENDOR=virtio
 
 # Desktop image
 HELIX_DESKTOP_IMAGE=helix-ubuntu:latest
+
+# Workspace storage on ZFS with dedup (saves disk space on Mac)
+HELIX_SANDBOX_DATA=/helix/workspaces
 ENVEOF"
     mark_step "setup_compose"
 fi
@@ -413,6 +465,9 @@ fi
 # =============================================================================
 
 if ! step_done "shutdown"; then
+    log "Zeroing free space for qcow2 compaction (reduces host disk usage)..."
+    run_ssh "sudo fstrim -av 2>/dev/null || true" 2>/dev/null || true
+
     log "Shutting down provisioning VM..."
     run_ssh "sudo shutdown -h now" 2>/dev/null || true
     sleep 5
@@ -438,9 +493,11 @@ if ! step_done "utm_bundle"; then
 
     mkdir -p "${UTM_DIR}/Data"
 
-    # Copy disk image to UTM bundle
+    # Copy disk images to UTM bundle
     DISK_UUID=$(uuidgen)
+    ZFS_DISK_UUID=$(uuidgen)
     cp "${VM_DIR}/disk.qcow2" "${UTM_DIR}/Data/${DISK_UUID}.qcow2"
+    cp "${VM_DIR}/zfs-data.qcow2" "${UTM_DIR}/Data/${ZFS_DISK_UUID}.qcow2"
     cp "${VM_DIR}/efi_vars.fd" "${UTM_DIR}/Data/efi_vars.fd"
 
     # Generate VM UUID
@@ -478,6 +535,20 @@ if ! step_done "utm_bundle"; then
             <string>${DISK_UUID}</string>
             <key>ImageName</key>
             <string>${DISK_UUID}.qcow2</string>
+            <key>ImageType</key>
+            <string>Disk</string>
+            <key>Interface</key>
+            <string>VirtIO</string>
+            <key>InterfaceVersion</key>
+            <integer>1</integer>
+            <key>ReadOnly</key>
+            <false/>
+        </dict>
+        <dict>
+            <key>Identifier</key>
+            <string>${ZFS_DISK_UUID}</string>
+            <key>ImageName</key>
+            <string>${ZFS_DISK_UUID}.qcow2</string>
             <key>ImageType</key>
             <string>Disk</string>
             <key>Interface</key>
