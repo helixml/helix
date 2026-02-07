@@ -71,6 +71,8 @@ struct _GstVsockEnc {
 #define HELIX_MSG_ENABLE_SCANOUT  0x20  /* Enable a scanout (connect DRM connector) */
 #define HELIX_MSG_DISABLE_SCANOUT 0x21  /* Disable a scanout (disconnect DRM connector) */
 #define HELIX_MSG_SCANOUT_RESP    0x22  /* Response to enable/disable scanout */
+#define HELIX_MSG_SUBSCRIBE       0x30  /* Subscribe to scanout stream (auto-encode) */
+#define HELIX_MSG_SUBSCRIBE_RESP  0x31  /* Subscription confirmed */
 #define HELIX_MSG_ERROR           0xFF
 
 /* Frame request flags */
