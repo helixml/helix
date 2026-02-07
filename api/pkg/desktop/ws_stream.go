@@ -506,39 +506,27 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		isAmdGnome := !isSway && !isNvidiaGnome && !isMacOSVirtioGpu
 
 		if isMacOSVirtioGpu {
-			// macOS ARM / UTM virtio-gpu: use native pipewiresrc WITHOUT always-copy.
-			// always-copy=true breaks PipeWire's damage-based frame production on virtio-gpu.
+			// macOS ARM / UTM virtio-gpu: use pipewirezerocopysrc with DMA-BUF passthrough.
+			// This requests DMA-BUF with LINEAR modifier from PipeWire/Mutter.
+			// vsockenc extracts the virtio-gpu resource_id from the DMA-BUF FD
+			// and sends just the resource_id (4 bytes) to QEMU. QEMU reads pixels
+			// directly from GPU memory via Metal IOSurface (true zero-copy).
 			//
-			// For vsockenc: pass PipeWire buffers directly WITHOUT videoconvert.
-			// vsockenc extracts the virtio-gpu resource ID from DMA-BUF and sends
-			// just the ID to QEMU. QEMU reads pixels directly from GPU memory via
-			// virgl_renderer_transfer_read_iov() - no TCP pixel transfer needed.
-			// If the buffer is SHM (not DMA-BUF), vsockenc falls back to sending
-			// raw pixel data over TCP.
-			//
-			// For software encoders (openh264/x264): still need videoconvert.
-			pixelFormat := "NV12"
-			if encoder == "openh264" || encoder == "x264" {
-				pixelFormat = "I420"
-			}
-			slog.Info("[STREAM] macOS ARM virtio-gpu detected, using native pipewiresrc",
+			// If PipeWire delivers SHM instead of DMA-BUF, vsockenc falls back to
+			// sending raw pixel data over TCP (~15 FPS at 1080p).
+			slog.Info("[STREAM] macOS ARM virtio-gpu detected, using pipewirezerocopysrc DmaBuf passthrough",
 				"encoder", encoder)
-			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true keepalive-time=500", v.nodeID)
+
+			srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d capture-source=pipewire buffer-type=dmabuf-passthrough keepalive-time=500",
+				v.nodeID)
 			if v.pipeWireFd > 0 {
-				srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
+				srcPart += fmt.Sprintf(" pipewire-fd=%d", v.pipeWireFd)
 			}
 
-			// Convert BGRx to NV12 at native resolution. PipeWire on virtio-gpu
-			// currently delivers SHM buffers (not DMA-BUF), so we must convert.
-			// NV12 at 1080p = 3.1MB/frame (~15 FPS over TCP).
-			// When DMA-BUF is available, vsockenc will extract the resource_id
-			// and skip pixel transfer entirely (zero-copy via Metal IOSurface).
-			// videoconvert MUST be before the queue so PipeWire buffers release quickly.
-			parts = []string{
-				srcPart,
-				"videoconvert",
-				fmt.Sprintf("video/x-raw,format=%s", pixelFormat),
-			}
+			// No videoconvert needed - vsockenc accepts BGRx DMA-BUF directly
+			// and QEMU handles format conversion on the host side.
+			// If we get SHM fallback, vsockenc sends raw BGRx pixels.
+			parts = []string{srcPart}
 			v.useRealtimeClock = true
 		} else if isAmdGnome {
 
