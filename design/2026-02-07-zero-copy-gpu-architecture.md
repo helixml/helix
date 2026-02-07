@@ -242,12 +242,13 @@ QEMU reads GPU memory via Metal IOSurface and encodes with VideoToolbox.
 
 ### Steps
 1. [x] Verify QEMU max_outputs parameter (VIRTIO_GPU_MAX_SCANOUTS=16)
-2. [~] Add max_outputs=16 to UTM VM config
-   - UTM plist `AdditionalArguments` key confirmed in source (string array)
-   - `-global virtio-gpu-gl-pci.max_outputs=16` should work
-   - BUT: UTM doesn't seem to pass AdditionalArguments to QEMU
-   - VM SSH became unreachable after multiple restart cycles (needs user intervention)
-   - Alternative: modify UTM source to hardcode max_outputs or add it to Display config
+2. [x] Add max_outputs=16 to QEMU and UTM
+   - Bumped VIRTIO_GPU_MAX_SCANOUTS from 16 to 32 in qemu-utm fork
+   - Changed default max_outputs from 1 to 16 in qemu-utm fork
+   - Modified UTM Swift source to pass max_outputs=16 for virtio-gpu devices
+   - UTM AdditionalArguments plist approach did NOT work (UTM ignores them)
+   - Instead: added max_outputs property directly in displayArguments builder
+   - Rebuilding UTM to apply changes
 3. [ ] Verify guest sees 16 DRM connectors
 4. [ ] Test Mutter on a non-primary connector from inside container
 5. [ ] Modify helix-frame-export to watch multiple scanouts
