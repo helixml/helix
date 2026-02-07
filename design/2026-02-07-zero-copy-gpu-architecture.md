@@ -125,29 +125,49 @@ pipeline unchanged. The container Dockerfile conditionally includes these compon
 | helix-drm-manager → QEMU TCP | ✅ VERIFIED | ENABLE_SCANOUT works, connector goes connected |
 | Container → helix-drm-manager | ✅ VERIFIED | Lease FD received via SCM_RIGHTS |
 | desktop-bridge → QEMU TCP | ✅ VERIFIED | SUBSCRIBE works, gets SUBSCRIBE_RESP |
-| Mutter → logind-stub D-Bus | ⬜ NOT TESTED | logind-stub registers OK, but TakeDevice not tested with Mutter |
-| QEMU auto-encode on page flip | ⬜ NOT TESTED | Code written, needs Mutter rendering to a connector |
-| H.264 → WebSocket end-to-end | ⬜ NOT TESTED | Needs all above working |
+| Mutter → logind-stub D-Bus | ✅ VERIFIED | TakeDevice(226,0) returns lease FD, Mutter creates GBM renderer |
+| Mutter sets mode on lease | ✅ VERIFIED | Virtual-2 goes enabled=enabled, mode 1920x1080@75 |
+| DRM lease with planes | ✅ VERIFIED | Need UNIVERSAL_PLANES cap set before lease creation |
+| QEMU auto-encode on page flip | ❌ NOT WORKING | helix_scanout_frame_ready() not called - see gap below |
+| H.264 → WebSocket end-to-end | ⬜ NOT TESTED | Blocked by QEMU capture |
 
-### Open Concerns
+### Critical Gap: QEMU Doesn't See Leased Scanout Rendering
 
-1. **Container D-Bus system bus**: Each container needs its own D-Bus system bus for
-   logind-stub. Start `dbus-daemon --system --config-file=...` inside the container.
-   This is separate from the session bus (already working for Mutter D-Bus services).
+**Problem**: `virgl_cmd_resource_flush()` matches resources to scanouts via
+`g->parent_obj.scanout[i].resource_id`. This is set by `virgl_cmd_set_scanout()`.
+But Mutter rendering to a leased connector may not trigger `SET_SCANOUT` on the
+correct scanout index. The resource_id for scanout 1 stays 0, so resource_flush
+never matches, and `helix_update_scanout_displaysurface()` is never called.
 
-2. **Container /dev/dri access**: The container needs /dev/dri/card0 bind-mounted for
-   Mutter to discover DRM devices via udev. The lease FD controls access permissions.
+**Root cause**: The virtio-gpu driver doesn't track which scanout a DRM lease
+maps to. When Mutter does `drmModeSetCrtc()` on the lease FD, the kernel's
+DRM lease layer translates CRTC IDs, but the virtio-gpu frontend may issue
+SET_SCANOUT with scanout_id=0 (the only one it knows about from the lease FD's
+perspective) rather than the actual scanout index.
 
-3. **FD inheritance**: The startup script gets the lease FD from helix-drm-manager and
-   must pass it to logind-stub. The FD must stay open (not be garbage-collected).
-   Solution: startup script gets FD, execs logind-stub which inherits it.
+**Possible fixes**:
+1. In QEMU, track which resources are bound to which CRTCs, and map CRTC→scanout
+2. Make `helix_update_scanout_displaysurface()` check ALL active CRTCs, not just
+   scanouts with matching resource_ids
+3. Use a different capture mechanism that doesn't depend on SET_SCANOUT tracking
 
-4. **Mutter connector selection**: When Mutter gets the lease FD from logind-stub via
-   TakeDevice, it sees only the leased connector+CRTC. It should automatically use
-   that connector. Need to verify Mutter doesn't reject single-connector leases.
+### Issues Discovered & Fixed
 
-5. **/run/helix-drm.sock mount**: The Unix socket must be bind-mounted into each
-   container. Add to Docker run: `-v /run/helix-drm.sock:/run/helix-drm.sock`.
+1. **DRM_FB_helper CPU hog on reboot**: Enabled scanouts persist across guest reboot.
+   Fixed by resetting `enabled_output_bitmask=1` in `virtio_gpu_base_reset()`.
+
+2. **DRM lease ENOSPC with planes**: `DRM_CLIENT_CAP_UNIVERSAL_PLANES` must be set
+   on the master FD BEFORE creating leases with plane objects. Without it, plane IDs
+   don't exist and `MODE_CREATE_LEASE` returns ENOSPC.
+
+3. **Mutter "Plane has no advertised formats"**: Even with planes in the lease,
+   Mutter reports no formats. This doesn't prevent mode setting but may affect
+   rendering quality.
+
+4. **FD inheritance across exec**: Go's `exec.Command` sets CLOEXEC on all FDs.
+   Must use `ExtraFiles` to pass the lease FD to child processes.
+
+5. **logind D-Bus Seat property type**: Must use `(so)` struct type, not `[2]interface{}`.
 
 ## Key Benefits
 
