@@ -90,6 +90,8 @@ func main() {
 
 	// Step 4: Set up XDG runtime directory (xdgRuntime already set above)
 	os.MkdirAll(xdgRuntime, 0700)
+	// Fix ownership to match current user (avoids dbus complaints about UID mismatch)
+	os.Chown(xdgRuntime, os.Getuid(), os.Getgid())
 
 	// Step 5: Start PipeWire (needed for gnome-shell to complete init)
 	logger.Info("Starting PipeWire...")
