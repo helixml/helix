@@ -582,16 +582,80 @@ Apple's recommended zero-copy encoding path for Apple Silicon:
 
 | File | Purpose |
 |------|---------|
-| `app.go` | Main app struct, VM lifecycle |
-| `vm.go` | VMManager - QEMU process control |
+| `main.go` | Wails entry point, macOS menu, systray integration |
+| `app.go` | Main app struct, VM lifecycle, ZFS/settings/tray methods |
+| `vm.go` | VMManager - QEMU process control with virtio-gpu + vsock |
+| `utm.go` | UTMManager - utmctl CLI integration for VM control |
 | `video.go` | VideoEncoder - encoding stats/state |
-| `video_server.go` | WebSocket server for H.264 streaming |
+| `websocket.go` | WebSocket server for H.264 streaming (port 8765) |
+| `encoder.go` | VideoToolbox H.264 encoder (Obj-C via cgo) |
+| `vsock.go` | vsock frame exchange server (guest frame requests) |
+| `virgl.go` | virglrenderer integration (resource ID → IOSurface) |
+| `settings.go` | AppSettings persistence (~/.helix/settings.json) |
+| `zfs.go` | ZFS stats collector via SSH (dedup ratio, compression, pool usage) |
+| `tray.go` | macOS menu bar icon (getlantern/systray) |
+| `tray_icon.go` | Generated 22x22 hexagon PNG for menu bar |
+| `frontend/index.html` | Sidebar + content layout with SVG nav icons |
+| `frontend/src/style.css` | Helix dark theme (matches web UI design tokens) |
+| `frontend/src/main.js` | Sidebar navigation, Home/VM/Storage/Settings views |
 
 ### Dependencies
 
-- **UTM Framework**: QEMU fork + CocoaSpice + virglrenderer
-- **GStreamer**: For vtenc_h264 if using GStreamer pipeline
-- **VideoToolbox**: Apple's hardware encoder framework
+- **Wails v2**: Go ↔ WebView bridge with macOS native features
+- **getlantern/systray**: macOS menu bar icon
+- **QEMU**: Custom build with helix-frame-export (bundled in Helix.app)
+- **VideoToolbox**: Apple's hardware encoder framework (system framework)
+
+### End-to-End Build Process
+
+**Full build from source:**
+```bash
+# 1. Build custom QEMU with helix-frame-export
+cd ~/pm/helix
+./for-mac/qemu-helix/build-qemu-standalone.sh  # → installs into UTM.app
+
+# 2. Build the Wails desktop app
+cd for-mac
+wails build                                      # → build/bin/Helix.app
+
+# 3. Bundle QEMU into Helix.app (future: automated in wails build)
+# Copy qemu-aarch64-softmmu + 14 dylibs + EFI firmware into Helix.app/Contents/Frameworks/
+```
+
+**Development workflow:**
+```bash
+cd for-mac
+wails dev    # Hot-reload: Go changes rebuild, frontend via Vite HMR
+```
+
+### End-to-End Integration Flow
+
+```
+User launches Helix.app
+  → systray icon appears in macOS menu bar
+  → Wails window opens with sidebar UI
+  → Home view shows "Start VM" placeholder
+
+User clicks Start VM (or uses tray menu):
+  → app.StartVM() → VMManager.Start() → spawns qemu-system-aarch64
+  → QEMU boots Ubuntu ARM64 VM with:
+    - virtio-gpu-gl-pci (virgl3d GPU acceleration)
+    - vhost-vsock-pci (host↔guest communication)
+    - port forwarding: SSH(2222), API(8080), Video(8765)
+  → VM runs Docker → helix-sandbox → helix-ubuntu containers
+  → ZFSCollector starts polling via SSH every 10s
+
+VM running:
+  → Home view loads iframe to http://localhost:8080 (Helix web UI)
+  → VM view shows live stats (CPU, memory, uptime, encoding FPS)
+  → Storage view shows ZFS dedup ratio and disk usage
+  → Settings persist to ~/.helix/settings.json
+
+Video streaming path:
+  Guest: PipeWire ScreenCast → DMA-BUF → vsockenc/pipewiresrc
+  Host: VsockServer → IOSurface → VideoToolbox H.264 → WebSocket
+  Browser: WebSocket → MSE/WebCodecs → <video>
+```
 
 ## Frame Export Mechanism (Guest → Host)
 
@@ -1078,6 +1142,50 @@ func (u *UTMManager) GetIP() (string, error) {
 - Link to admin panel for user management (when network access enabled)
 - Warning about security implications when enabling network access
 
+### Desktop App UI Architecture (Docker Desktop-style)
+
+**Implemented**: Sidebar + content layout matching Helix web UI branding.
+
+**Layout:**
+```
+┌─────────────────────────────────────────┐
+│ ⬡ Helix                       [─][□][×]│
+├────────┬────────────────────────────────┤
+│ SIDEBAR│  MAIN CONTENT                  │
+│        │                                │
+│ Home   │  [WebView: Helix UI iframe]    │
+│ VM     │  or                            │
+│ Storage│  [Dashboard / Settings / etc]  │
+│ Settngs│                                │
+│        │                                │
+│ ──────│                                │
+│ ● VM OK│                                │
+│ 3 sess.│                                │
+└────────┴────────────────────────────────┘
+```
+
+**Views:**
+1. **Home** — Embedded iframe showing `http://localhost:8080` (Helix web UI) when VM is running. Placeholder with hexagon logo when stopped.
+2. **VM** — Status card (state, CPU, memory, uptime, sessions), video encoding stats (FPS, clients, frames), Start/Stop buttons, SSH/API quick actions with copy.
+3. **Storage** — ZFS dedup ratio hero banner, pool usage with progress bars, disk breakdown (root, ZFS, host actual after dedup). Data polled every 10s via SSH.
+4. **Settings** — VM config (CPUs, memory, disk path), network ports (SSH, API, video), save/reset with toast notification.
+
+**Design tokens** (matching `frontend/src/themes.tsx`):
+- Background: `#121214` (primary), `#1e1e24` (panels)
+- Borders: `#282838`
+- Teal accent: `#00d5ff` (active states, links)
+- Magenta accent: `#EF2EC6` (highlights)
+- Gradient: `#00c8ff → #6f00ff` (progress bars)
+- Glass-effect sidebar with `backdrop-filter: blur(20px)`
+
+**System tray** (getlantern/systray):
+- Helix hexagon icon in macOS menu bar
+- Menu: status line, Open Helix, Start/Stop VM, Quit
+- Wails window hides to tray on close (`HideWindowOnClose: true`)
+- Systray runs on main goroutine (macOS requirement), Wails in a goroutine
+
+**QEMU bundling strategy:** Bundle `qemu-aarch64-softmmu` + ~14 dylibs + EFI firmware directly into Helix.app (~900MB). No full UTM UI needed.
+
 ## Open Questions
 
 1. ~~**UTM embedding**: Can UTM be used as a framework, or do we need to fork/extract components?~~ **RESOLVED** - See UTM Embedding Options above
@@ -1095,10 +1203,14 @@ func (u *UTMManager) GetIP() (string, error) {
 | `vsock.go` | ✅ Complete | vsock server for frame requests from guest |
 | `virgl.go` | ✅ Complete | virglrenderer lookup interface (resource ID → IOSurface) |
 | `utm.go` | ✅ Complete | UTM VM control via utmctl/ScriptingBridge |
-| `app.go` | ✅ Complete | Main app with VsockServer + VideoToolboxEncoder integration |
+| `app.go` | ✅ Complete | Main app with VsockServer + VideoToolboxEncoder + ZFS stats + settings |
 | `video.go` | ✅ Complete | Video encoding stats/state |
 | `websocket.go` | ✅ Complete | WebSocket server for browser streaming |
 | `vm.go` | ✅ Complete | VM manager interface |
+| `settings.go` | ✅ Complete | AppSettings struct + JSON persistence at ~/.helix/settings.json |
+| `zfs.go` | ✅ Complete | ZFS stats collector via SSH (pool size, dedup ratio, compression) |
+| `tray.go` | ✅ Complete | macOS menu bar icon using getlantern/systray |
+| `tray_icon.go` | ✅ Complete | Generates 22x22 hexagon PNG for menu bar (template image) |
 
 ### Guest Components (desktop/gst-vsockenc/) ✅ COMPLETE
 
@@ -1134,7 +1246,12 @@ Host (macOS):
 **Host (macOS ARM):**
 ```bash
 cd helix/for-mac
-go build -v .      # Requires macOS with Wails dependencies
+# Install frontend dependencies and build
+cd frontend && npm install && npm run build && cd ..
+# Build Go app (requires macOS with Wails CLI: go install github.com/wailsapp/wails/v2/cmd/wails@latest)
+wails build        # Production build → build/bin/Helix.app
+# Or for development with hot-reload:
+wails dev          # Opens app with Vite dev server
 ```
 
 **Guest (Linux, inside dev container):**
@@ -2023,3 +2140,19 @@ func selectEncoder(vendor string) string {
 3. **Verify PipeWire ScreenCast** captures frames from GNOME
 4. **Test with x264enc** (software encoding) as baseline
 5. **Design vsockenc GStreamer element** (Rust plugin)
+
+## In-Place Upgrades (Future)
+
+Once the `install.sh` approach is working, support in-place upgrades by re-running `install.sh`:
+
+**Requirements:**
+1. **Publish ARM64 Docker images** — helix-ubuntu, helix-sandbox images must be published for linux/arm64
+2. **Publish host-level VM binary** — The QEMU + Helix.app bundle needs a download location (GitHub releases or CDN)
+3. **install.sh handles upgrades** — Re-running `install.sh` should:
+   - Pull latest ARM64 Docker images into the VM
+   - Update the host-level Helix.app binary (QEMU + Wails frontend)
+   - Preserve user data (VM disk, settings, ZFS pools)
+   - Handle version migration if config format changes
+4. **Version check** — App should check for updates and prompt user (or auto-update)
+
+**Key insight:** The install.sh approach makes upgrades much simpler since we can just re-run the script. The main challenge is ensuring ARM images are published alongside amd64 images in CI (multi-arch manifests).

@@ -12,6 +12,13 @@ import (
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+// TrayStatus holds status info for the system tray tooltip
+type TrayStatus struct {
+	VMState      string `json:"vm_state"`
+	SessionCount int    `json:"session_count"`
+	APIReady     bool   `json:"api_ready"`
+}
+
 // App struct holds the application state
 type App struct {
 	ctx             context.Context
@@ -20,6 +27,8 @@ type App struct {
 	videoServer     *VideoServer
 	vtEncoder       *VideoToolboxEncoder // Hardware H.264 encoder
 	vsockServer     *VsockServer         // vsock server for guest frame requests
+	settings        *SettingsManager
+	zfsCollector    *ZFSCollector
 }
 
 // NewApp creates a new App application struct
@@ -29,10 +38,14 @@ func NewApp() *App {
 	// Create VideoToolbox hardware encoder (5 Mbps bitrate)
 	vtEncoder := NewVideoToolboxEncoder(1920, 1080, 60, 5000000)
 
+	settings := NewSettingsManager()
+
 	app := &App{
-		vm:        NewVMManager(),
-		encoder:   encoder,
-		vtEncoder: vtEncoder,
+		vm:           NewVMManager(),
+		encoder:      encoder,
+		vtEncoder:    vtEncoder,
+		settings:     settings,
+		zfsCollector: NewZFSCollector(settings.Get().SSHPort),
 	}
 
 	// WebSocket server for browser clients (port 8765)
@@ -81,6 +94,9 @@ func (a *App) startup(ctx context.Context) {
 		log.Printf("Failed to start vsock server: %v", err)
 	}
 
+	// Start ZFS stats collector
+	a.zfsCollector.Start()
+
 	log.Println("Helix Desktop started")
 }
 
@@ -100,6 +116,11 @@ func (a *App) shutdown(ctx context.Context) {
 	// Stop vsock server
 	if a.vsockServer != nil {
 		a.vsockServer.Stop()
+	}
+
+	// Stop ZFS collector
+	if a.zfsCollector != nil {
+		a.zfsCollector.Stop()
 	}
 
 	// Stop VM if running
@@ -266,6 +287,48 @@ func (a *App) GetSystemInfo() map[string]interface{} {
 		"cpus":     runtime.NumCPU(),
 		"goroot":   runtime.GOROOT(),
 		"platform": fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
+	}
+}
+
+// GetZFSStats returns the latest ZFS pool statistics
+func (a *App) GetZFSStats() ZFSStats {
+	return a.zfsCollector.GetStats()
+}
+
+// GetDiskUsage returns disk usage breakdown
+func (a *App) GetDiskUsage() DiskUsage {
+	return a.zfsCollector.GetDiskUsage()
+}
+
+// GetSettings returns the current application settings
+func (a *App) GetSettings() AppSettings {
+	return a.settings.Get()
+}
+
+// SaveSettings persists the application settings
+func (a *App) SaveSettings(s AppSettings) error {
+	if err := a.settings.Save(s); err != nil {
+		return err
+	}
+
+	// Apply settings to VM config
+	config := a.vm.GetConfig()
+	config.CPUs = s.VMCPUs
+	config.MemoryMB = s.VMMemoryMB
+	config.SSHPort = s.SSHPort
+	config.APIPort = s.APIPort
+	config.VideoPort = s.VideoPort
+	config.DiskPath = s.VMDiskPath
+	return a.vm.SetConfig(config)
+}
+
+// GetTrayStatus returns status info for the system tray
+func (a *App) GetTrayStatus() TrayStatus {
+	status := a.vm.GetStatus()
+	return TrayStatus{
+		VMState:      string(status.State),
+		SessionCount: status.Sessions,
+		APIReady:     status.APIReady,
 	}
 }
 

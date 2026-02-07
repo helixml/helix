@@ -3,11 +3,47 @@
 <head>
     <meta charset="UTF-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-    <title>Helix Desktop</title>
+    <title>Helix</title>
     <link rel="stylesheet" href="./src/style.css"/>
 </head>
 <body>
-<div id="app"></div>
+<div id="app">
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header" style="--wails-draggable: drag;">
+            <div class="sidebar-logo">
+                <svg class="helix-icon" viewBox="0 0 24 24" width="20" height="20">
+                    <polygon points="12,2 22,8 22,16 12,22 2,16 2,8" fill="none" stroke="currentColor" stroke-width="2"/>
+                </svg>
+                <span class="sidebar-title">Helix</span>
+            </div>
+            <div class="sidebar-status" id="sidebarStatus"></div>
+        </div>
+        <div class="sidebar-nav">
+            <button class="nav-item active" data-view="home" id="navHome">
+                <svg viewBox="0 0 20 20" width="18" height="18"><path d="M10 2L2 8v10h6v-6h4v6h6V8L10 2z" fill="currentColor"/></svg>
+                <span>Home</span>
+            </button>
+            <button class="nav-item" data-view="vm" id="navVM">
+                <svg viewBox="0 0 20 20" width="18" height="18"><path d="M3 4h14a1 1 0 011 1v8a1 1 0 01-1 1H3a1 1 0 01-1-1V5a1 1 0 011-1zm4 12h6m-3-2v2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span>VM</span>
+            </button>
+            <button class="nav-item" data-view="storage" id="navStorage">
+                <svg viewBox="0 0 20 20" width="18" height="18"><path d="M4 5h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1zm0 6h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2a1 1 0 011-1z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="6" cy="7" r="1" fill="currentColor"/><circle cx="6" cy="13" r="1" fill="currentColor"/></svg>
+                <span>Storage</span>
+            </button>
+            <button class="nav-item" data-view="settings" id="navSettings">
+                <svg viewBox="0 0 20 20" width="18" height="18"><path d="M10 13a3 3 0 100-6 3 3 0 000 6z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M17 10a7 7 0 01-.4 2.3l1.5 1.2-1.4 2.4-1.8-.5a7 7 0 01-2 1.2L12.5 18h-2.8l-.4-1.4a7 7 0 01-2-1.2l-1.8.5-1.4-2.4 1.5-1.2a7 7 0 010-4.6L4.1 6.5l1.4-2.4 1.8.5a7 7 0 012-1.2L9.7 2h2.8l.4 1.4a7 7 0 012 1.2l1.8-.5 1.4 2.4-1.5 1.2A7 7 0 0117 10z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+                <span>Settings</span>
+            </button>
+        </div>
+        <div class="sidebar-footer">
+            <div class="sidebar-vm-status" id="sidebarVMStatus"></div>
+        </div>
+    </nav>
+    <main class="content" id="content">
+        <!-- Views rendered here by main.js -->
+    </main>
+</div>
 <script src="./src/main.js" type="module"></script>
 </body>
 </html>

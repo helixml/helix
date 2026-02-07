@@ -6,25 +6,35 @@ export function CheckDependencies():Promise<Record<string, boolean>>;
 
 export function GetClientCount():Promise<number>;
 
+export function GetDiskUsage():Promise<main.DiskUsage>;
+
 export function GetEncoderStats():Promise<main.EncoderStats>;
 
 export function GetHelixURL():Promise<string>;
 
 export function GetSSHCommand():Promise<string>;
 
+export function GetSettings():Promise<main.AppSettings>;
+
 export function GetStreamURL(arg1:string):Promise<string>;
 
 export function GetSystemInfo():Promise<Record<string, any>>;
 
+export function GetTrayStatus():Promise<main.TrayStatus>;
+
 export function GetVMConfig():Promise<main.VMConfig>;
 
 export function GetVMStatus():Promise<main.VMStatus>;
+
+export function GetZFSStats():Promise<main.ZFSStats>;
 
 export function IsVMImageReady():Promise<boolean>;
 
 export function OpenHelixUI():Promise<void>;
 
 export function OpenSession(arg1:string):Promise<void>;
+
+export function SaveSettings(arg1:main.AppSettings):Promise<void>;
 
 export function SetVMConfig(arg1:main.VMConfig):Promise<void>;
 

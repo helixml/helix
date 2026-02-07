@@ -10,12 +10,28 @@ export function GetClientCount() {
   return window['go']['main']['App']['GetClientCount']();
 }
 
+export function GetDiskUsage() {
+  return window['go']['main']['App']['GetDiskUsage']();
+}
+
 export function GetEncoderStats() {
   return window['go']['main']['App']['GetEncoderStats']();
 }
 
 export function GetHelixURL() {
   return window['go']['main']['App']['GetHelixURL']();
+}
+
+export function GetSettings() {
+  return window['go']['main']['App']['GetSettings']();
+}
+
+export function GetTrayStatus() {
+  return window['go']['main']['App']['GetTrayStatus']();
+}
+
+export function GetZFSStats() {
+  return window['go']['main']['App']['GetZFSStats']();
 }
 
 export function GetSSHCommand() {
@@ -52,6 +68,10 @@ export function OpenSession(arg1) {
 
 export function SetVMConfig(arg1) {
   return window['go']['main']['App']['SetVMConfig'](arg1);
+}
+
+export function SaveSettings(arg1) {
+  return window['go']['main']['App']['SaveSettings'](arg1);
 }
 
 export function SetupVM() {

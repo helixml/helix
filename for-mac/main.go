@@ -19,52 +19,64 @@ func main() {
 	// Create an instance of the app structure
 	app := NewApp()
 
+	// Create the system tray manager
+	tray := NewTrayManager(app)
+
 	// Create the application menu
 	appMenu := createMenu(app)
 
-	// Create application with options
-	err := wails.Run(&options.App{
-		Title:             "Helix for Mac",
-		Width:             1200,
-		Height:            800,
-		MinWidth:          800,
-		MinHeight:         600,
-		DisableResize:     false,
-		Fullscreen:        false,
-		Frameless:         false,
-		StartHidden:       false,
-		HideWindowOnClose: false,
-		BackgroundColour:  &options.RGBA{R: 27, G: 38, B: 54, A: 255},
-		Menu:              appMenu,
-		AssetServer: &assetserver.Options{
-			Assets: assets,
-		},
-		OnStartup:  app.startup,
-		OnShutdown: app.shutdown,
-		Bind: []interface{}{
-			app,
-		},
-		Mac: &mac.Options{
-			TitleBar: &mac.TitleBar{
-				TitlebarAppearsTransparent: true,
-				HideTitle:                  false,
-				HideTitleBar:               false,
-				FullSizeContent:            true,
-				UseToolbar:                 true,
-				HideToolbarSeparator:       true,
-			},
-			About: &mac.AboutInfo{
-				Title:   "Helix for Mac",
-				Message: "GPU-accelerated AI development environment\n\nVersion 0.1.0\n\n© 2026 Helix ML",
-			},
-			WebviewIsTransparent: false,
-			WindowIsTranslucent:  false,
-		},
-	})
+	// Run systray on the main thread, start Wails when tray is ready.
+	// On macOS, systray.Run must be called from the main goroutine.
+	tray.Run(func() {
+		// Tray is ready — start Wails in a goroutine
+		go func() {
+			err := wails.Run(&options.App{
+				Title:             "Helix",
+				Width:             1200,
+				Height:            800,
+				MinWidth:          800,
+				MinHeight:         600,
+				DisableResize:     false,
+				Fullscreen:        false,
+				Frameless:         false,
+				StartHidden:       false,
+				HideWindowOnClose: true, // Keep running in tray when window is closed
+				BackgroundColour:  &options.RGBA{R: 18, G: 18, B: 20, A: 255}, // #121214
+				Menu:              appMenu,
+				AssetServer: &assetserver.Options{
+					Assets: assets,
+				},
+				OnStartup:  app.startup,
+				OnShutdown: app.shutdown,
+				Bind: []interface{}{
+					app,
+				},
+				Mac: &mac.Options{
+					TitleBar: &mac.TitleBar{
+						TitlebarAppearsTransparent: true,
+						HideTitle:                  false,
+						HideTitleBar:               false,
+						FullSizeContent:            true,
+						UseToolbar:                 true,
+						HideToolbarSeparator:       true,
+					},
+					About: &mac.AboutInfo{
+						Title:   "Helix",
+						Message: "GPU-accelerated AI development environment\n\nVersion 0.1.0\n\n\u00a9 2026 Helix ML",
+					},
+					WebviewIsTransparent: false,
+					WindowIsTranslucent:  false,
+				},
+			})
 
-	if err != nil {
-		log.Fatal("Error:", err.Error())
-	}
+			if err != nil {
+				log.Fatal("Error:", err.Error())
+			}
+		}()
+	}, func() {
+		// Tray exiting — clean up
+		log.Println("System tray exiting")
+	})
 }
 
 func createMenu(app *App) *menu.Menu {
