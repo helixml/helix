@@ -233,6 +233,8 @@ This is backward compatible - existing NVIDIA/AMD PipeWire paths are unchanged.
 | **Container GNOME → WebSocket** | **3.3** | 420B P / 74KB I | Full E2E: 84 frames in 25.3s. Static desktop with cursor blink |
 | Container GNOME overview animation | ~7-8 | 11-17KB P | During GNOME overview toggle burst |
 
+| **3x parallel containers** | **10.1 total** | 2.5-5.5KB avg | 3 GNOME desktops via WebSocket, ghostty terminal damage, 292 kb/s total |
+
 Expected with active desktop (typing, window movement): **15-30 FPS** based on damage frequency.
 Expected with vkcube/games: **55-60 FPS** at 1920x1080 (constant GPU damage).
 
