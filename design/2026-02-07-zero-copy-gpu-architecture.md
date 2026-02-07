@@ -181,7 +181,16 @@ Key commits from this session:
 
 ## VM Setup Notes
 
-The VM needs GDM disabled for the DRM lease approach to work:
+**SSH access** (port forwarded from guest:22 to host:2222):
+```bash
+ssh -p 2222 luke@localhost
+# Or with ~/.ssh/config entry "helix-vm":
+ssh helix-vm
+```
+
+**Go 1.25** installed at `/usr/local/go/bin/go` (matches helix go.mod).
+
+**GDM disabled** for the DRM lease approach to work:
 ```bash
 sudo systemctl disable gdm
 sudo systemctl stop gdm
