@@ -1,7 +1,7 @@
 # macOS ARM Video Streaming - Status Update
 
-**Date:** 2026-02-06 (updated)
-**Status:** VIDEO STREAMING WORKING - 10.2 FPS on static screens (broadcast frame keepalive), NV12 format (2.65x bandwidth reduction)
+**Date:** 2026-02-07 (updated)
+**Status:** VIDEO STREAMING WORKING - 41 FPS with active content (hardware VideoToolbox encoding), 10 FPS static screens (broadcast keepalive)
 
 ## Summary
 
@@ -306,17 +306,16 @@ PipeWire buffers are released immediately after the fast software scale (~1ms), 
 
 ```
 PipeWire ScreenCast (container) → pipewiresrc (SHM buffers) ✅
-  → videoconvert (format normalize) ✅
-  → videoscale (1920x1080 → 960x540, 4x bandwidth reduction) ✅
-  → capsfilter (NV12, 777KB vs 2MB BGRA) ✅
+  → videoconvert (BGRx → NV12) ✅
+  → capsfilter (NV12 at native 1920x1080) ✅
   → queue (leaky=downstream, max 1 buffer) ✅
-  → vsockenc (maps buffer, sends 777KB NV12 pixel data over TCP) ✅
+  → vsockenc (pipelined: sends 3.1MB NV12 pixel data over TCP) ✅
     → TCP 10.0.2.2:15937 → QEMU SLiRP → host 127.0.0.1:15937 ✅
     → helix-frame-export receives NV12 pixel data ✅
     → Creates bi-planar NV12 IOSurface (Y + UV planes) ✅
-    → VideoToolbox H.264 encode at 960x540 (native NV12 input) ✅
+    → VideoToolbox H.264 encode at 1920x1080 (native NV12 input) ✅
     → SPS/PPS extraction + AVCC→Annex B conversion ✅
-  → vsockenc finish_frame ✅
+  → vsockenc finish_frame (pipelined - overlaps with next send) ✅
   → h264parse ✅
   → appsink ✅
   → Go callback → SharedVideoSource (frame keepalive) → WebSocket → browser ✅
@@ -325,15 +324,17 @@ PipeWire ScreenCast (container) → pipewiresrc (SHM buffers) ✅
 ### Current Status
 
 - **VIDEO STREAMING WORKING** on Mutter 49 / Ubuntu 25.10 / virtio-gpu
-- NV12 pixel format: 777KB/frame (2.65x reduction from BGRA)
-- 10.2 FPS sustained on static screens (broadcast-level frame keepalive, 100ms interval)
-- Keepalive frames: ~850 bytes avg each (re-sent H.264 P-frames, no raw pixel transfer)
+- **41 FPS** with active content (vkcube), zero gaps >100ms
+- **10 FPS** sustained on static screens (broadcast-level frame keepalive)
+- Full 1920x1080 resolution, NV12 format (3.1MB/frame)
+- Pipelined vsockenc: overlaps sending frame N+1 with host encoding frame N
+- TCP_NODELAY + 1MB send buffer for low-latency TCP
 - Container screen is correctly captured (not VM desktop)
 - All frames use pixel data path (HELIX_FLAG_PIXEL_DATA)
 - SPS/PPS properly extracted from VideoToolbox CMFormatDescription
 - Baseline profile, level 3.1, constraint_set3_flag=1 (zero-latency decode)
-- ~14ms per frame round-trip (777KB NV12 send + VideoToolbox encode + response)
-- 69.6 Kbps average bitrate, 850 bytes average frame size (static screen with keepalive)
+- ~4.9 Mbps average bitrate with active content (avg 14.5KB H.264 per frame)
+- FPS ceiling is PipeWire/Mutter frame production rate on virtio-gpu (~43 FPS), not TCP or CPU
 
 ## Success Criteria
 
@@ -345,39 +346,46 @@ PipeWire ScreenCast (container) → pipewiresrc (SHM buffers) ✅
 - ✅ vsockenc receives encoded H.264 frames back
 - ✅ h264parse parses stream (SPS/PPS properly included)
 - ✅ Video streaming works on Mutter 49 headless (Ubuntu 25.10)
-- ✅ 10.2 FPS sustained on static screens (broadcast-level frame keepalive, 307 frames / 30s)
-- ⚠️ Active content FPS not yet retested with NV12 (should be higher than BGRA due to less bandwidth)
+- ✅ 41 FPS with active content (vkcube) - hardware VideoToolbox encoding
+- ✅ 10 FPS sustained on static screens (broadcast-level frame keepalive)
+- ✅ >30 FPS reliably (user requirement met)
 - ⚠️ ghostty second instance fails on virtio-gpu (limited GL contexts)
 
 ## Performance History
 
-| Date | FPS | Resolution | Format | Bottleneck |
-|------|-----|-----------|--------|------------|
+| Date | FPS | Resolution | Format | Notes |
+|------|-----|-----------|--------|-------|
 | 2026-02-05 | 8.7 | 1920x1080 | BGRA | 8MB/frame over TCP/SLiRP |
 | 2026-02-06 | 6.8 | 1920x1080 | BGRA | Same bottleneck, confirmed |
 | 2026-02-06 | 26.2 | 960x540 | BGRA | videoconvert+videoscale before queue |
-| 2026-02-06 | 23.2 | 960x540 | BGRA | Static screen: cursor-embedded keepalive (old Mutter) |
-| 2026-02-06 | 10.2 | 960x540 | NV12 | Static screen: broadcast-level frame keepalive (Mutter 49) |
+| 2026-02-06 | 23.2 | 960x540 | BGRA | Static screen: cursor-embedded keepalive |
+| 2026-02-06 | 10.2 | 960x540 | NV12 | Static screen: broadcast-level keepalive |
+| 2026-02-06 | 41.7 | 960x540 | NV12 | Active content (vkcube), pre-pipelining |
+| 2026-02-06 | 38.6 | 960x540 | NV12 | vsockenc pipelining (no FPS gain) |
+| 2026-02-06 | 43.3 | 960x540 | NV12 | videoscale-first order (best 540p) |
+| 2026-02-06 | 40.9 | 960x540 | NV12 | nearest-neighbor (no improvement) |
+| 2026-02-06 | 38.9 | 640x360 | NV12 | Lower res = same FPS (not TCP-limited) |
+| 2026-02-07 | 41 | 1920x1080 | NV12 | Full resolution, no downscaling |
 
-### Downscale + NV12 Optimization (IMPLEMENTED)
+### Key Optimization Findings
 
-Reduced pixel data from 8MB/frame (1920x1080 BGRA) to 777KB/frame (960x540 NV12):
-- `videoconvert ! videoscale ! video/x-raw,format=NV12,width=960,height=540` before the leaky queue
-- NV12 = 1.5 bytes/pixel vs BGRA = 4 bytes/pixel (2.65x reduction at same resolution)
-- Combined with 4x downscale: 8MB → 777KB = 10.3x total reduction
-- **CRITICAL**: These elements MUST be placed BEFORE the leaky queue, not after it
-- When placed after the queue, PipeWire buffers are held too long during the
-  videoconvert/videoscale/vsockenc chain, causing PipeWire to stop producing frames
-- When placed before the queue, PipeWire buffers are released quickly during the
-  fast software scale (~1ms), and only the small 960x540 buffer enters the queue
+1. **NV12 format** (IMPLEMENTED): 1.5 bytes/pixel vs BGRA 4 bytes/pixel. VideoToolbox natively encodes NV12.
+2. **videoconvert before queue** (CRITICAL): Must be BEFORE the leaky queue, not after. PipeWire buffers held too long after the queue → stalls after 2 frames.
+3. **vsockenc pipelining** (IMPLEMENTED): Overlaps sending frame N+1 with host encoding frame N. TCP_NODELAY + 1MB send buffer. Reduces latency variance but didn't increase FPS.
+4. **Resolution doesn't affect FPS**: Tested 640x360 (38.9), 960x540 (43.3), 1920x1080 (41). The bottleneck is PipeWire/Mutter frame production rate on virtio-gpu (~43 FPS ceiling), not TCP throughput or CPU processing.
+5. **Scaling algorithm doesn't matter**: Nearest-neighbor (40.9) vs bilinear (43.3) - ARM NEON already fast enough.
+
+### Remaining Bottleneck
+
+PipeWire confirms `maxFramerate 60/1` and `framerate 0/1` (variable/damage-based). Mutter SHOULD deliver 60 FPS with constant damage (vkcube), but we observe ~41-43 FPS. The gap is likely due to:
+- Combined TCP send time + host VideoToolbox encoding time partially overlapping via pipelining
+- Mutter/virtio-gpu headless vsync behavior
 
 ### Further Optimization Options
-1. ✅ **Downscale before sending**: 960x540 = 777KB/frame NV12 (10.3x less than 1080p BGRA) - DONE
-2. ✅ **Use NV12 instead of BGRA**: 777KB vs 2MB per frame (2.65x reduction) - DONE
-3. **Pre-compress with LZ4/zstd**: NV12 pixels compress ~2-4x (would reduce to ~200-400KB)
-4. **Use virtio-vsock instead of TCP**: Lower overhead than SLiRP user-mode networking
-5. **DMA-BUF zero-copy path**: If virtio-gpu resource IDs can be resolved, skip pixel transfer entirely
-6. **Frame deduplication in vsockenc**: Skip raw pixel send when frame is identical to previous (reduce static screen bandwidth to near-zero at pipeline level)
+1. **Use virtio-vsock instead of TCP**: Lower overhead than SLiRP user-mode networking
+2. **DMA-BUF zero-copy path**: If virtio-gpu resource IDs can be resolved, skip pixel transfer entirely
+3. **Deeper pipelining**: Allow 2+ frames in flight to fully overlap send with encode
+4. **Pre-compress with LZ4/zstd**: NV12 pixels compress ~2-4x
 
 ## Performance Notes
 
