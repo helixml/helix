@@ -810,7 +810,7 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                 .build(),
             OutputMode::DmaBuf => VideoCapsBuilder::new()
                 .features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF])
-                .format(VideoFormat::DmaDrm)
+                .format_list(formats) // Use standard pixel formats, not DmaDrm
                 .build(),
             OutputMode::System => VideoCapsBuilder::new().format_list(formats).build(),
         };
@@ -1063,14 +1063,11 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                     .framerate(fps)
                     .build(),
                 OutputMode::DmaBuf => {
-                    let drm_fmt = state
-                        .drm_format_string
-                        .clone()
-                        .unwrap_or_else(|| "XR24".to_string());
+                    // Use standard pixel format with DMABuf feature (not DmaDrm)
+                    // so downstream elements (vsockenc) can match caps
                     VideoCapsBuilder::new()
                         .features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF])
-                        .format(VideoFormat::DmaDrm)
-                        .field("drm-format", &drm_fmt)
+                        .format(actual_format)
                         .width(width as i32)
                         .height(height as i32)
                         .framerate(fps)
