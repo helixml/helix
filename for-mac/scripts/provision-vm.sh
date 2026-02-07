@@ -32,7 +32,7 @@ set -euo pipefail
 
 VM_NAME="helix-desktop"
 VM_DIR="${HOME}/.helix/vm/${VM_NAME}"
-DISK_SIZE="32G"       # Root disk (OS, Docker images, build cache)
+DISK_SIZE="128G"      # Root disk (OS, Docker images, build cache, inner Docker volumes)
 ZFS_DISK_SIZE="128G"  # ZFS disk (workspaces with dedup - thin-provisioned qcow2)
 CPUS=8
 MEMORY_MB=16384
