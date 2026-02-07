@@ -168,9 +168,7 @@ package_update: true
 package_upgrade: false
 
 packages:
-  - docker.io
-  - docker-compose-v2
-  - docker-buildx
+  - ca-certificates
   - curl
   - git
   - htop
@@ -182,6 +180,13 @@ packages:
   - openssh-server
 
 runcmd:
+  # Install Docker CE from official repository (includes buildx + compose)
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  - chmod a+r /etc/apt/keyrings/docker.asc
+  - echo "deb [arch=arm64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   - systemctl enable docker
   - systemctl start docker
   - usermod -aG docker ${VM_USER}
@@ -406,17 +411,30 @@ SVCEOF"
     mark_step "build_drm_manager"
 fi
 
+if ! step_done "clone_deps"; then
+    log "Cloning Zed and Qwen Code repositories..."
+    # Zed IDE fork (needed for external_websocket_sync)
+    run_ssh "git clone https://github.com/helixml/zed.git ~/zed 2>/dev/null || (cd ~/zed && git pull)" || true
+    # Qwen Code agent
+    run_ssh "git clone https://github.com/helixml/qwen-code.git ~/qwen-code 2>/dev/null || (cd ~/qwen-code && git pull)" || true
+    mark_step "clone_deps"
+fi
+
 if ! step_done "build_desktop_image"; then
-    log "Building helix-ubuntu desktop Docker image (this will take a while)..."
-    # BuildKit is required for --mount=type=cache in the Dockerfile
-    run_ssh "set -o pipefail; cd ~/helix && DOCKER_BUILDKIT=1 docker build -f Dockerfile.ubuntu-helix -t helix-ubuntu:latest . 2>&1 | tail -20" || {
-        log "WARNING: Desktop image build failed (can retry later with: ssh helix-vm 'cd ~/helix && docker build -f Dockerfile.ubuntu-helix -t helix-ubuntu:latest .')"
+    log "Building full desktop stack (Zed + Qwen Code + helix-ubuntu image)..."
+    log "This builds Zed (Rust), Qwen Code (Node.js), and the GNOME desktop image."
+    log "First run takes 30-60 minutes. Subsequent builds use Docker cache."
+    # PROJECTS_ROOT tells ./stack where to find zed/ and qwen-code/ repos
+    # SKIP_DESKTOP_TRANSFER=1 skips pushing to local registry (no sandbox running)
+    run_ssh "cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 DOCKER_BUILDKIT=1 bash stack build-ubuntu 2>&1 | tail -30" || {
+        log "WARNING: Desktop image build failed."
+        log "Retry manually: ssh helix-vm 'cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 bash stack build-ubuntu'"
     }
     # Verify the image was actually created
     if run_ssh "docker images helix-ubuntu:latest --format '{{.Size}}'" 2>/dev/null | grep -q .; then
-        log "Desktop image built successfully"
+        log "Desktop image built successfully: $(run_ssh 'docker images helix-ubuntu:latest --format "{{.Size}}"' 2>/dev/null)"
     else
-        log "WARNING: Desktop image not available (build may have failed or disk space insufficient)"
+        log "WARNING: Desktop image not available. Build may have failed — check logs above."
     fi
     mark_step "build_desktop_image"
 fi

@@ -467,6 +467,34 @@ This should be done in the VM image build (not just the dev VM). The VM display
 (Virtual-1) shows the Linux console, which can be accessed via SPICE in UTM if
 needed. In production, we can expose SPICE access via the Helix app settings.
 
+## Roadmap: Production VM Image
+
+### Current approach: Build everything from source in VM
+The provisioning script (`for-mac/scripts/provision-vm.sh`) builds all dependencies
+from source inside the VM, including the helix-ubuntu Docker image. This works but
+is slow and requires cloning Zed, Qwen Code, and building large Rust/Go projects.
+
+### Target approach: Official Helix install + ARM64 registry images
+1. **ARM64 Drone CI agent**: Set up an ARM64 build agent (Mac Mini or Ampere cloud)
+   to produce `linux/arm64` Docker images alongside the existing `linux/amd64` builds.
+   Currently only the CLI binary is cross-compiled for arm64 — Docker images are amd64 only.
+
+2. **Multi-arch Docker images**: Publish `helix-ubuntu`, `helix-sway`, `helix-sandbox`
+   as multi-arch manifests (`linux/amd64` + `linux/arm64`) to the registry.
+
+3. **Official install script**: Use the standard Helix install script
+   (`curl | bash` or docker-compose) to set up the control plane + sandbox in the VM.
+   The desktop images would be pulled from the registry, not built locally.
+
+4. **macOS ARM overlay**: Layer only the VM-specific components on top:
+   - `helix-drm-manager` (Go binary, systemd service) — manages DRM leases for scanout
+   - ZFS 2.4.0 with dedup on a dedicated virtual disk — workspace storage efficiency
+   - GDM disabled — required for DRM lease approach
+   - Custom QEMU on macOS host side (not in the VM)
+
+This would reduce VM provisioning from ~30 minutes (building everything) to ~5 minutes
+(pull pre-built images + install helix-drm-manager).
+
 ## Performance History (TCP pixel approach - being replaced)
 
 | Resolution | Format | FPS | Notes |
