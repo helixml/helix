@@ -1,7 +1,7 @@
 # Zed Fork Rebase to Fresh Upstream
 
 **Date:** 2026-02-07
-**Status:** Port complete, E2E test container functional, model configuration issue remaining
+**Status:** Port complete, E2E test passing on old fork (real LLM inference), new fork event forwarding needs debugging
 
 ## Summary
 
@@ -23,6 +23,7 @@ Ported all Helix-specific Zed changes from the old fork (`~/pm/zed`, branch `mai
 2. `54296a7` - Add WebSocket protocol spec, mock server, and test infrastructure
 3. `b063ae0` - Add E2E test infrastructure with Docker container
 4. `463b1cc` - Fix E2E test infrastructure: Docker caching, headless Zed startup
+5. `bc52393` - Fix model configuration race and E2E test settings
 
 ## What Was Ported (725 lines across 17 files + new crate)
 
@@ -95,21 +96,14 @@ Ported all Helix-specific Zed changes from the old fork (`~/pm/zed`, branch `mai
 - `ZED_ALLOW_EMULATED_GPU=1` to suppress software rendering warning
 - `.dockerignore` essential to exclude `target/` (15GB+) and `.git/`
 
-**Blocking issue: Model not selected**
-- Screenshot shows Zed with agent panel open, "Select a Model" button visible
-- The `settings.json` with `agent.default_model` is written but model isn't applied
-- Root cause: `NativeAgentConnection::new_thread()` at `agent.rs:1014-1018` fetches `registry.default_model()` which returns `None` because:
-  1. Anthropic provider authentication is async (background task via `authenticate_all_language_model_providers`)
-  2. The `update_active_language_model_from_settings()` handler depends on authenticated providers
-  3. Thread creation happens before auth completes
-- This issue exists in BOTH the old fork and the new fork - it's not a port regression
-- In production Helix, this works because Helix's API proxy handles LLM inference (model config on Helix side)
-- The Anthropic API key must be set via `ANTHROPIC_API_KEY` env var (Zed reads it from env, not settings.json for security)
-
-**Fix approach needed:**
-- Option A: Ensure provider authentication completes before thread creation (await auth task)
-- Option B: Add retry logic in thread_service - if model is None, wait and retry
-- Option C: Use `handle_models_updated_event()` pattern from `agent.rs:613-636` which sets model on existing threads when it becomes available, but delay `thread.send()` until model is set
+**Model configuration race (FIXED)**
+- Root cause: `NativeAgentConnection::new_thread()` checks `registry.default_model()` which returns `None` because provider authentication hadn't completed
+- Two sub-issues found and fixed:
+  1. **Auth timing**: Providers need `authenticate()` called before `NativeAgent::new()` (which calls `refresh_list()`). Fixed by pre-authenticating all providers in `create_new_thread_sync()` before `server.connect()`
+  2. **Model ID mismatch**: Settings used `claude-sonnet-4-5` but Zed's internal ID is `claude-sonnet-4-5-latest` (with `-latest` suffix). Fixed in `run_e2e.sh`
+- Also needed: `ca-certificates` package in runtime Docker stage for TLS API calls
+- Also needed: `language_models.anthropic.api_url` in settings.json (same pattern as Helix's `zed_config.go`)
+- Fix approach used: Pre-authenticate providers + explicitly call `select_default_model()` in thread_service.rs before creating the NativeAgent connection
 
 ### Mock Helix WebSocket Server (Rust, for unit tests)
 - **File:** `crates/external_websocket_sync/src/mock_helix_server.rs` (1,737 lines)
@@ -193,11 +187,11 @@ The fork approach is the only option for these features.
 
 ## Next Steps
 
-1. **Fix model configuration in E2E test** - Either wait for auth, retry, or use handle_models_updated pattern
-2. **Get E2E test passing with real LLM inference** - Anthropic API key → model selected → response generated
-3. **Add Qwen Code ACP test** - Test with Qwen Code agent using Together AI
-4. **Test session resume** - Kill and restart Zed, verify thread state restored
-5. **Port E2E fixes to new fork**
-6. **Update helixml/zed fork** - Push `helix-fork` branch
+1. ~~**Fix model configuration in E2E test**~~ DONE - Pre-authenticate providers + fix model ID
+2. ~~**Get E2E test passing with real LLM inference**~~ DONE on old fork - Full protocol flow validated
+3. **Fix new fork event forwarding** - `message_added` and `message_completed` not reaching WebSocket in new fork (ThreadView subscription issue)
+4. **Add Qwen Code ACP test** - Test with Qwen Code agent using Together AI
+5. **Test session resume** - Kill and restart Zed, verify thread state restored
+6. **Add multiple thread test** - Test creating multiple threads in sequence
 7. **Update Helix build scripts** - Point `./stack build-zed` at new fork/branch
 8. **CI integration** - Add Docker E2E test to Drone pipeline
