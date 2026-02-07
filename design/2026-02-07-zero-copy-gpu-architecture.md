@@ -251,7 +251,13 @@ QEMU reads GPU memory via Metal IOSurface and encodes with VideoToolbox.
    - `[drm] number of scanouts: 16` confirmed in dmesg
    - Virtual-1 = connected (VM display), Virtual-2..16 = disconnected
    - Need to "connect" secondary connectors from QEMU side (set display mode)
-4. [ ] Test Mutter on a non-primary connector from inside container
+4. [ ] Enable scanouts on-demand (NOT at boot - 16 connected displays kills GDM)
+   - Enabling all 16 at boot caused GDM to try configuring 16 displays → VM unresponsive
+   - Need on-demand connect/disconnect via:
+     a. Extend helix-frame-export TCP protocol: HELIX_MSG_ENABLE_SCANOUT
+     b. Guest sends "enable scanout N at WxH" → QEMU sets req_state[N] and hotplugs
+     c. Container's Mutter sees new connected connector and uses it
+5. [ ] Test Mutter on a dynamically-connected secondary connector
 5. [ ] Modify helix-frame-export to watch multiple scanouts
 6. [ ] Map session IDs to scanout indices
 7. [ ] Hydra allocates scanout index per container
