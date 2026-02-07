@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -63,15 +66,41 @@ func (s *ScanoutSource) Start(ctx context.Context, scanoutID uint32) error {
 
 	ctx, s.cancel = context.WithCancel(ctx)
 
-	// If no scanout ID provided, request a DRM lease
+	// Determine scanout ID:
+	// 1. From explicit argument (if > 0)
+	// 2. From HELIX_SCANOUT_ID env var
+	// 3. From file written by mutter-lease-launcher ($XDG_RUNTIME_DIR/helix-scanout-id)
+	// 4. Request a new DRM lease (last resort)
 	if scanoutID == 0 {
+		if envID := os.Getenv("HELIX_SCANOUT_ID"); envID != "" {
+			if n, err := strconv.Atoi(envID); err == nil && n > 0 {
+				scanoutID = uint32(n)
+				s.logger.Info("Using scanout ID from env", "scanout_id", scanoutID)
+			}
+		}
+	}
+	if scanoutID == 0 {
+		xdgRuntime := os.Getenv("XDG_RUNTIME_DIR")
+		if xdgRuntime == "" {
+			xdgRuntime = "/run/user/1000"
+		}
+		scanoutFile := xdgRuntime + "/helix-scanout-id"
+		if data, err := os.ReadFile(scanoutFile); err == nil {
+			if n, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && n > 0 {
+				scanoutID = uint32(n)
+				s.logger.Info("Using scanout ID from file", "scanout_id", scanoutID, "file", scanoutFile)
+			}
+		}
+	}
+	if scanoutID == 0 {
+		// Last resort: request a DRM lease to get a scanout ID
 		client := drmmanager.NewClient(s.drmSocket)
 		lease, err := client.RequestLease(1920, 1080)
 		if err != nil {
 			return fmt.Errorf("request DRM lease: %w", err)
 		}
 		scanoutID = lease.ScanoutID
-		s.logger.Info("DRM lease acquired",
+		s.logger.Info("DRM lease acquired for scanout ID",
 			"scanout_id", scanoutID,
 			"connector", lease.ConnectorName)
 	}

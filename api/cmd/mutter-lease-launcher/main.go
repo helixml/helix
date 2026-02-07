@@ -44,6 +44,19 @@ func main() {
 		"connector", lease.ConnectorName,
 		"lease_fd", lease.LeaseFD)
 
+	// Write scanout ID to file so desktop-bridge can read it
+	// (desktop-bridge needs to know which QEMU scanout to subscribe to)
+	xdgRuntime := os.Getenv("XDG_RUNTIME_DIR")
+	if xdgRuntime == "" {
+		xdgRuntime = "/run/user/1000"
+	}
+	scanoutFile := xdgRuntime + "/helix-scanout-id"
+	if err := os.WriteFile(scanoutFile, []byte(fmt.Sprintf("%d", lease.ScanoutID)), 0644); err != nil {
+		logger.Warn("Failed to write scanout ID file", "err", err, "path", scanoutFile)
+	} else {
+		logger.Info("Wrote scanout ID file", "path", scanoutFile, "scanout_id", lease.ScanoutID)
+	}
+
 	// Step 2: Stop real logind if running (not present in containers)
 	if err := exec.Command("systemctl", "is-active", "--quiet", "systemd-logind").Run(); err == nil {
 		logger.Info("Stopping systemd-logind...")
@@ -75,11 +88,7 @@ func main() {
 	logger.Info("logind-stub started", "pid", stubCmd.Process.Pid)
 	time.Sleep(2 * time.Second)
 
-	// Step 4: Set up XDG runtime directory
-	xdgRuntime := os.Getenv("XDG_RUNTIME_DIR")
-	if xdgRuntime == "" {
-		xdgRuntime = "/run/user/1000"
-	}
+	// Step 4: Set up XDG runtime directory (xdgRuntime already set above)
 	os.MkdirAll(xdgRuntime, 0700)
 
 	// Step 5: Start PipeWire (needed for gnome-shell to complete init)
