@@ -149,8 +149,18 @@ func (s *ScanoutSource) FrameCh() <-chan VideoFrame {
 	return s.frameCh
 }
 
+// Frames implements FrameSource interface.
+func (s *ScanoutSource) Frames() <-chan VideoFrame {
+	return s.frameCh
+}
+
 // ErrorCh returns the channel for receiving errors.
 func (s *ScanoutSource) ErrorCh() <-chan error {
+	return s.errorCh
+}
+
+// Errors implements FrameSource interface.
+func (s *ScanoutSource) Errors() <-chan error {
 	return s.errorCh
 }
 

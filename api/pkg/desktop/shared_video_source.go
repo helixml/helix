@@ -36,29 +36,45 @@ const (
 	MaxGracePeriod     = 300 * time.Second // Maximum allowed grace period (5 minutes)
 )
 
-// SharedVideoSource manages a single GStreamer pipeline that broadcasts to multiple clients.
+// FrameSource is an abstraction over video frame producers.
+// Both GstPipeline (PipeWire/GStreamer) and ScanoutSource (QEMU TCP) implement this.
+type FrameSource interface {
+	Frames() <-chan VideoFrame
+	Errors() <-chan error
+	Stop()
+}
+
+// SharedVideoSource manages a single frame source that broadcasts to multiple clients.
 // All clients connected to the same session share this source, preventing the issue where
 // multiple pipewirezerocopysrc instances compete for the same PipeWire node.
 //
+// Supports two modes:
+// - GStreamer pipeline mode: creates and manages a GstPipeline (PipeWire capture + encoding)
+// - External source mode: receives pre-encoded frames from a FrameSource (e.g., ScanoutSource)
+//
 // Key features:
-// - ONE pipeline per session (identified by PipeWire node ID)
+// - ONE source per session (identified by node ID)
 // - Broadcasts encoded H.264 frames to all subscribers
-// - Caches the last keyframe for mid-stream joins
+// - Caches the last keyframe (GOP buffer) for mid-stream joins
+// - Re-sends last frame every 100ms on static screens (keepalive)
 // - Automatically stops when the last client disconnects
-// - Propagates pipeline errors (e.g., GPU OOM) to all clients
+// - Propagates source errors to all clients
 type SharedVideoSource struct {
 	// Immutable after creation
 	nodeID       uint32
 	pipelineStr  string
 	pipelineOpts GstPipelineOptions
 
-	// Pipeline state
+	// Pipeline state (GStreamer mode)
 	pipeline  *GstPipeline
 	running   atomic.Bool
 	startOnce sync.Once
 	stopOnce  sync.Once
 	startErr  error
 	startMu   sync.Mutex // Protects startOnce/startErr
+
+	// External frame source (scanout mode) — if set, pipeline is not used
+	externalSource FrameSource
 
 	// Client management
 	clients   map[uint64]*sharedVideoClient
@@ -215,6 +231,49 @@ func (r *SharedVideoSourceRegistry) GetOrCreate(nodeID uint32, pipelineStr strin
 	r.sources[nodeID] = source
 	fmt.Printf("[SHARED_VIDEO] Created new source for node %d\n", nodeID)
 	return source
+}
+
+// GetOrCreateWithSource returns an existing SharedVideoSource for the node, or creates one
+// backed by an external FrameSource (e.g., ScanoutSource for QEMU TCP H.264).
+// The FrameSource must already be started — SharedVideoSource will read from its channels.
+func (r *SharedVideoSourceRegistry) GetOrCreateWithSource(nodeID uint32, source FrameSource) *SharedVideoSource {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Case 1: Active source exists - reuse it
+	if existing, exists := r.sources[nodeID]; exists {
+		existing.clientsMu.RLock()
+		clientCount := len(existing.clients)
+		existing.clientsMu.RUnlock()
+		fmt.Printf("[SHARED_VIDEO] Reusing existing external source for node %d (clients: %d)\n",
+			nodeID, clientCount)
+		return existing
+	}
+
+	// Case 2: Source is in pending stop - cancel and reuse
+	if pending, exists := r.pendingStops[nodeID]; exists {
+		pending.timer.Stop()
+		close(pending.cancelCh)
+		r.sources[nodeID] = pending.source
+		delete(r.pendingStops, nodeID)
+		r.cancelledStops.Add(1)
+		fmt.Printf("[SHARED_VIDEO] Cancelled pending stop for external source node %d\n", nodeID)
+		return pending.source
+	}
+
+	// Case 3: Create new with external source
+	ctx, cancel := context.WithCancel(context.Background())
+	svs := &SharedVideoSource{
+		nodeID:         nodeID,
+		externalSource: source,
+		clients:        make(map[uint64]*sharedVideoClient),
+		ctx:            ctx,
+		cancel:         cancel,
+	}
+
+	r.sources[nodeID] = svs
+	fmt.Printf("[SHARED_VIDEO] Created new external source for node %d\n", nodeID)
+	return svs
 }
 
 // ScheduleStop schedules a source for deferred stop after the grace period.
@@ -694,28 +753,33 @@ func (s *SharedVideoSource) start() error {
 
 	var startErr error
 	s.startOnce.Do(func() {
-		fmt.Printf("[SHARED_VIDEO] Starting pipeline for node %d\n", s.nodeID)
-		fmt.Printf("[SHARED_VIDEO] Pipeline: %s\n", s.pipelineStr)
+		if s.externalSource != nil {
+			// External source mode (e.g., ScanoutSource) — no GStreamer pipeline
+			fmt.Printf("[SHARED_VIDEO] Starting external source for node %d\n", s.nodeID)
+			s.running.Store(true)
+			s.wg.Add(1)
+			go s.broadcastFrames()
+		} else {
+			// GStreamer pipeline mode
+			fmt.Printf("[SHARED_VIDEO] Starting pipeline for node %d\n", s.nodeID)
+			fmt.Printf("[SHARED_VIDEO] Pipeline: %s\n", s.pipelineStr)
 
-		// Create GStreamer pipeline
-		var err error
-		s.pipeline, err = NewGstPipelineWithOptions(s.pipelineStr, s.pipelineOpts)
-		if err != nil {
-			startErr = fmt.Errorf("create pipeline: %w", err)
-			return
+			var err error
+			s.pipeline, err = NewGstPipelineWithOptions(s.pipelineStr, s.pipelineOpts)
+			if err != nil {
+				startErr = fmt.Errorf("create pipeline: %w", err)
+				return
+			}
+
+			if err = s.pipeline.Start(s.ctx); err != nil {
+				startErr = fmt.Errorf("start pipeline: %w", err)
+				return
+			}
+
+			s.running.Store(true)
+			s.wg.Add(1)
+			go s.broadcastFrames()
 		}
-
-		// Start the pipeline
-		if err = s.pipeline.Start(s.ctx); err != nil {
-			startErr = fmt.Errorf("start pipeline: %w", err)
-			return
-		}
-
-		s.running.Store(true)
-
-		// Start broadcaster goroutine
-		s.wg.Add(1)
-		go s.broadcastFrames()
 	})
 
 	s.startErr = startErr
@@ -782,8 +846,16 @@ func (s *SharedVideoSource) restartPipeline() (*GstPipeline, error) {
 func (s *SharedVideoSource) broadcastFrames() {
 	defer s.wg.Done()
 
-	frameCh := s.pipeline.Frames()
-	errorCh := s.pipeline.Errors()
+	// Get frame/error channels from the appropriate source
+	var frameCh <-chan VideoFrame
+	var errorCh <-chan error
+	if s.externalSource != nil {
+		frameCh = s.externalSource.Frames()
+		errorCh = s.externalSource.Errors()
+	} else {
+		frameCh = s.pipeline.Frames()
+		errorCh = s.pipeline.Errors()
+	}
 	var frameCount uint64
 	var keyframeCount uint64
 	var keepaliveCount uint64
@@ -862,7 +934,7 @@ func (s *SharedVideoSource) broadcastFrames() {
 			s.clientsMu.RUnlock()
 
 		case <-stallTimer.C:
-			// No frames for stallRestartTimeout - pipeline is stalled
+			// No frames for stallRestartTimeout - source is stalled
 			// Only restart if we have clients (no point restarting for nobody)
 			s.clientsMu.RLock()
 			clientCount := len(s.clients)
@@ -870,6 +942,13 @@ func (s *SharedVideoSource) broadcastFrames() {
 
 			if clientCount == 0 {
 				// No clients - just reset timer and wait
+				stallTimer.Reset(stallRestartTimeout)
+				continue
+			}
+
+			// External sources (scanout) can't be restarted — keepalive handles static screens.
+			// Only GStreamer pipelines support restart.
+			if s.externalSource != nil {
 				stallTimer.Reset(stallRestartTimeout)
 				continue
 			}
@@ -909,10 +988,16 @@ func (s *SharedVideoSource) broadcastFrames() {
 			return
 		case frame, ok := <-frameCh:
 			if !ok {
-				// Pipeline stopped - try restart if stall detection is active
+				// Source stopped - try restart for GStreamer pipelines only
 				s.clientsMu.RLock()
 				hasClients := len(s.clients) > 0
 				s.clientsMu.RUnlock()
+
+				if s.externalSource != nil {
+					// External sources (scanout) close when disconnected — no restart
+					fmt.Printf("[SHARED_VIDEO] External source channel closed for node %d\n", s.nodeID)
+					return
+				}
 
 				if hasClients && restartCount < maxStallRestarts {
 					restartCount++
@@ -1105,6 +1190,9 @@ func (s *SharedVideoSource) stop() {
 		s.running.Store(false)
 		s.cancel()
 
+		if s.externalSource != nil {
+			s.externalSource.Stop()
+		}
 		if s.pipeline != nil {
 			s.pipeline.Stop()
 		}

@@ -367,20 +367,34 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 
 // startScanoutMode starts the scanout video path (macOS ARM).
 // Receives pre-encoded H.264 from QEMU via TCP instead of PipeWire/GStreamer.
+// Uses SharedVideoSource for frame broadcasting, GOP buffer (mid-stream joins),
+// and keepalive (re-sends last frame on static screens).
 func (v *VideoStreamer) startScanoutMode(ctx context.Context) error {
 	v.logger.Info("starting scanout mode (QEMU H.264 via TCP)",
 		"resolution", fmt.Sprintf("%dx%d", v.config.Width, v.config.Height))
 
-	v.scanoutSource = NewScanoutSource(v.logger)
-
-	// Start the scanout source (requests DRM lease, connects to QEMU, subscribes)
-	if err := v.scanoutSource.Start(ctx, 0); err != nil {
+	// Create and start the scanout source (requests DRM lease, connects to QEMU)
+	scanoutSrc := NewScanoutSource(v.logger)
+	if err := scanoutSrc.Start(ctx, 0); err != nil {
 		return fmt.Errorf("start scanout source: %w", err)
 	}
+	v.scanoutSource = scanoutSrc
 
-	// Wire up frame and error channels
-	v.frameCh = v.scanoutSource.FrameCh()
-	v.errorCh = v.scanoutSource.ErrorCh()
+	// Use SharedVideoSource for broadcast, GOP buffer, and keepalive.
+	// All clients viewing this scanout share ONE TCP connection to QEMU.
+	v.sharedSource = GetSharedVideoRegistry().GetOrCreateWithSource(v.nodeID, scanoutSrc)
+
+	// Subscribe to receive frames from the shared source
+	var err error
+	v.frameCh, v.errorCh, v.sharedClientID, err = v.sharedSource.Subscribe()
+	if err != nil {
+		return fmt.Errorf("subscribe to shared scanout source: %w", err)
+	}
+
+	v.logger.Info("subscribed to shared scanout source",
+		"node_id", v.nodeID,
+		"client_id", v.sharedClientID,
+		"total_clients", v.sharedSource.GetClientCount())
 
 	v.running.Store(true)
 
@@ -410,7 +424,7 @@ func (v *VideoStreamer) startScanoutMode(ctx context.Context) error {
 		)
 	}
 
-	// Read frames from scanout source and send to WebSocket
+	// Read frames from shared source and send to WebSocket
 	go v.readFramesAndSend(ctx)
 
 	// Handle ping/pong
