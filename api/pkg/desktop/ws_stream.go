@@ -511,12 +511,12 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			// causing frames to stop after the initial render. Without it, PipeWire keeps
 			// producing frames on screen damage.
 			//
-			// IMPORTANT: videoconvert + videoscale MUST be placed here (before the queue),
+			// IMPORTANT: videoconvert MUST be placed here (before the queue),
 			// not after it. When placed after the queue, PipeWire buffers are held too long
-			// during the videoconvert/videoscale processing chain, causing PipeWire to
-			// stop producing frames after the initial 2. By converting/scaling immediately
-			// after pipewiresrc, the PipeWire buffer is released quickly (during the fast
-			// software scale), and only the small 960x540 buffer enters the leaky queue.
+			// during the videoconvert processing, causing PipeWire to stop producing
+			// frames after the initial 2. By converting immediately after pipewiresrc,
+			// the PipeWire buffer is released quickly and only the NV12 buffer enters
+			// the leaky queue.
 			//
 			// Format depends on encoder:
 			// - vsockenc: NV12 (VideoToolbox natively encodes from NV12)
@@ -526,7 +526,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			if encoder == "openh264" || encoder == "x264" {
 				pixelFormat = "I420"
 			}
-			slog.Info("[STREAM] macOS ARM virtio-gpu detected, using native pipewiresrc with downscale",
+			slog.Info("[STREAM] macOS ARM virtio-gpu detected, using native pipewiresrc",
 				"encoder", encoder, "format", pixelFormat)
 			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true keepalive-time=500", v.nodeID)
 			if v.pipeWireFd > 0 {
@@ -534,20 +534,12 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			}
 			parts = []string{
 				srcPart,
-				// Scale FIRST, then convert format. This is critical for performance:
-				// PipeWire delivers BGRx at 1920x1080 (8.3MB/frame). If we videoconvert
-				// first, we process 2M pixels. By scaling to 960x540 first, videoconvert
-				// only processes 500K pixels = 4x less work.
-				// The intermediate capsfilter forces videoscale to output at target
-				// resolution before videoconvert touches the data.
-				//
-				// Benchmarked: FPS is ~43 regardless of resolution (640x360 = 38.9 FPS,
-				// 960x540 = 43.3 FPS). The bottleneck is PipeWire/Mutter frame production
-				// on virtio-gpu, not our processing pipeline or TCP throughput.
-				"videoscale",
-				"video/x-raw,width=960,height=540",
+				// Convert BGRx to NV12 at native resolution (no downscaling).
+				// videoconvert MUST be before the queue so PipeWire buffers are
+				// released quickly. NV12 at 1920x1080 = 3.1MB/frame sent to host
+				// for VideoToolbox encoding at full resolution.
 				"videoconvert",
-				fmt.Sprintf("video/x-raw,format=%s,width=960,height=540", pixelFormat),
+				fmt.Sprintf("video/x-raw,format=%s", pixelFormat),
 			}
 			v.useRealtimeClock = true
 		} else if isAmdGnome {
@@ -651,12 +643,12 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	switch encoder {
 	case "vsock":
 		// macOS/UTM virtio-gpu VideoToolbox encoding via vsock
-		// Pipeline: PipeWire → videoscale (960x540) → videoconvert (NV12) → vsockenc (sends raw pixels via TCP)
+		// Pipeline: PipeWire → videoconvert (NV12) → vsockenc (sends raw pixels via TCP)
 		//           → QEMU helix-frame-export (IOSurface → VideoToolbox H.264)
 		//           → H.264 NAL units back via TCP → h264parse → appsink
 		//
-		// Downscale from 1920x1080 to 960x540 THEN convert to NV12 before sending.
-		// NV12 at 960x540 = 777KB/frame (vs 8MB at 1080p BGRA = 10x reduction).
+		// Convert BGRx to NV12 at native resolution before sending to host.
+		// NV12 at 1920x1080 = 3.1MB/frame. VideoToolbox encodes at full resolution.
 		// VideoToolbox natively encodes from NV12, skipping internal colorspace conversion.
 		//
 		// Connection: TCP to 10.0.2.2:15937 (QEMU user-mode networking)
