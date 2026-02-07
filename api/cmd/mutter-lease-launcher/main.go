@@ -4,7 +4,8 @@
 // 1. Connects to helix-drm-manager and gets a DRM lease FD
 // 2. Stops real systemd-logind
 // 3. Starts the logind-stub with the lease FD
-// 4. Launches gnome-shell --display-server
+// 4. Starts PipeWire (needed for gnome-shell initialization)
+// 5. Launches gnome-shell --display-server inside dbus-run-session
 //
 // Usage: sudo mutter-lease-launcher [--drm-socket /run/helix-drm.sock]
 package main
@@ -15,7 +16,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -71,46 +71,60 @@ func main() {
 	logger.Info("logind-stub started", "pid", stubCmd.Process.Pid)
 	time.Sleep(2 * time.Second)
 
-	// Step 4: Start a D-Bus session bus for gnome-shell
+	// Step 4: Set up XDG runtime directory
 	xdgRuntime := os.Getenv("XDG_RUNTIME_DIR")
 	if xdgRuntime == "" {
 		xdgRuntime = "/run/user/1000"
 	}
+	os.MkdirAll(xdgRuntime, 0700)
 
-	// Launch dbus-daemon for session bus
-	logger.Info("Starting D-Bus session bus...")
-	dbusCmd := exec.Command("dbus-daemon", "--session", "--print-address", "--fork",
-		"--address=unix:path="+xdgRuntime+"/bus")
-	dbusOutput, err := dbusCmd.Output()
-	var dbusAddr string
-	if err != nil {
-		logger.Warn("dbus-daemon failed, falling back to existing bus", "err", err)
-		dbusAddr = os.Getenv("DBUS_SESSION_BUS_ADDRESS")
+	// Step 5: Start PipeWire (needed for gnome-shell to complete init)
+	logger.Info("Starting PipeWire...")
+	pipewireCmd := exec.Command("pipewire")
+	pipewireCmd.Stdout = os.Stdout
+	pipewireCmd.Stderr = os.Stderr
+	pipewireCmd.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+xdgRuntime)
+	if err := pipewireCmd.Start(); err != nil {
+		logger.Warn("PipeWire start failed (non-fatal)", "err", err)
 	} else {
-		dbusAddr = strings.TrimSpace(string(dbusOutput))
-		logger.Info("D-Bus session bus started", "addr", dbusAddr)
+		logger.Info("PipeWire started", "pid", pipewireCmd.Process.Pid)
 	}
+	time.Sleep(500 * time.Millisecond)
+
+	// Start WirePlumber
+	wpCmd := exec.Command("wireplumber")
+	wpCmd.Stdout = os.Stdout
+	wpCmd.Stderr = os.Stderr
+	wpCmd.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+xdgRuntime)
+	if err := wpCmd.Start(); err != nil {
+		logger.Warn("WirePlumber start failed (non-fatal)", "err", err)
+	} else {
+		logger.Info("WirePlumber started", "pid", wpCmd.Process.Pid)
+	}
+	time.Sleep(500 * time.Millisecond)
+
+	// Step 6: Launch gnome-shell inside dbus-run-session
+	// This is critical - gnome-shell needs dbus-run-session to create proper
+	// D-Bus services (ScreenCast, DisplayConfig, etc.)
+	logger.Info("Launching gnome-shell via dbus-run-session...")
 
 	// Inherit MUTTER_DEBUG from parent environment if set
 	mutterDebug := os.Getenv("MUTTER_DEBUG")
 
 	env := os.Environ()
 	env = append(env,
-		"XDG_SESSION_TYPE=tty",
+		"XDG_SESSION_TYPE=wayland",
 		"XDG_CURRENT_DESKTOP=GNOME",
 		"XDG_SESSION_DESKTOP=gnome",
-		"MUTTER_DEBUG_FORCE_KMS_MODE=simple",
+		"DESKTOP_SESSION=gnome",
 		"XDG_RUNTIME_DIR="+xdgRuntime,
-		"DBUS_SESSION_BUS_ADDRESS="+dbusAddr,
 	)
-	if mutterDebug == "" {
-		mutterDebug = "kms"  // Default to KMS debug for development
+	if mutterDebug != "" {
+		env = append(env, "MUTTER_DEBUG="+mutterDebug)
 	}
-	env = append(env, "MUTTER_DEBUG="+mutterDebug)
 
-	// Step 5: Launch gnome-shell
-	logger.Info("Launching gnome-shell --display-server...")
-	gnomeCmd := exec.Command("gnome-shell", "--display-server", "--wayland", "--no-x11")
+	gnomeCmd := exec.Command("dbus-run-session", "--",
+		"gnome-shell", "--display-server", "--wayland", "--no-x11", "--unsafe-mode")
 	gnomeCmd.Stdout = os.Stdout
 	gnomeCmd.Stderr = os.Stderr
 	gnomeCmd.Env = env
@@ -121,6 +135,16 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("gnome-shell started", "pid", gnomeCmd.Process.Pid)
+
+	// Wait for Wayland socket
+	logger.Info("Waiting for Wayland socket...")
+	for i := 0; i < 30; i++ {
+		if _, err := os.Stat(xdgRuntime + "/wayland-0"); err == nil {
+			logger.Info("Wayland socket ready!")
+			break
+		}
+		time.Sleep(time.Second)
+	}
 
 	// Wait for signals
 	sig := make(chan os.Signal, 1)
@@ -133,6 +157,12 @@ func main() {
 	gnomeCmd.Wait()
 	stubCmd.Process.Signal(syscall.SIGTERM)
 	stubCmd.Wait()
+	if pipewireCmd.Process != nil {
+		pipewireCmd.Process.Kill()
+	}
+	if wpCmd.Process != nil {
+		wpCmd.Process.Kill()
+	}
 
 	// Restart real logind
 	exec.Command("systemctl", "start", "systemd-logind").Run()
