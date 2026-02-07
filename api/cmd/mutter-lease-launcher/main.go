@@ -43,20 +43,25 @@ func main() {
 		"connector", lease.ConnectorName,
 		"lease_fd", lease.LeaseFD)
 
-	// Step 2: Stop real logind
+	// Step 2: Stop real logind and wait for D-Bus name to be released
 	logger.Info("Stopping systemd-logind...")
 	exec.Command("systemctl", "stop", "systemd-logind").Run()
-	time.Sleep(time.Second)
+	time.Sleep(3 * time.Second)
 
 	// Step 3: Start logind stub with lease FD
-	// The lease FD is inherited by the child process
-	logger.Info("Starting logind-stub...", "lease_fd", lease.LeaseFD)
+	// Go's exec.Command sets CLOEXEC on all FDs. Use ExtraFiles to pass the lease FD.
+	// ExtraFiles[0] becomes FD 3 in the child (after stdin=0, stdout=1, stderr=2).
+	leaseFile := os.NewFile(uintptr(lease.LeaseFD), "drm-lease")
+	childFD := 3 // ExtraFiles[0] maps to FD 3
+
+	logger.Info("Starting logind-stub...",
+		"parent_lease_fd", lease.LeaseFD,
+		"child_fd", childFD)
 	stubCmd := exec.Command("/usr/local/bin/logind-stub",
-		fmt.Sprintf("--lease-fd=%d", lease.LeaseFD))
+		fmt.Sprintf("--lease-fd=%d", childFD))
 	stubCmd.Stdout = os.Stdout
 	stubCmd.Stderr = os.Stderr
-	// Keep the lease FD open in the child
-	stubCmd.ExtraFiles = nil // FDs are inherited by default when not set
+	stubCmd.ExtraFiles = []*os.File{leaseFile}
 
 	if err := stubCmd.Start(); err != nil {
 		logger.Error("Failed to start logind-stub", "err", err)
@@ -66,12 +71,18 @@ func main() {
 	time.Sleep(2 * time.Second)
 
 	// Step 4: Set up environment for gnome-shell
+	xdgRuntime := os.Getenv("XDG_RUNTIME_DIR")
+	if xdgRuntime == "" {
+		xdgRuntime = "/run/user/1000"
+	}
+
 	env := os.Environ()
 	env = append(env,
 		"XDG_SESSION_TYPE=tty",
 		"XDG_CURRENT_DESKTOP=GNOME",
 		"XDG_SESSION_DESKTOP=gnome",
 		"MUTTER_DEBUG_FORCE_KMS_MODE=simple",
+		"XDG_RUNTIME_DIR="+xdgRuntime,
 	)
 
 	// Step 5: Launch gnome-shell

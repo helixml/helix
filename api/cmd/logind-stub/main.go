@@ -22,6 +22,7 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
@@ -208,15 +209,23 @@ func main() {
 	}
 	defer conn.Close()
 
-	// Request the logind bus name
-	reply, err := conn.RequestName("org.freedesktop.login1",
-		dbus.NameFlagDoNotQueue|dbus.NameFlagReplaceExisting)
-	if err != nil {
-		logger.Error("Failed to request name", "err", err)
-		os.Exit(1)
+	// Request the logind bus name - retry if real logind hasn't released it yet
+	var reply dbus.RequestNameReply
+	for retries := 0; retries < 10; retries++ {
+		reply, err = conn.RequestName("org.freedesktop.login1",
+			dbus.NameFlagDoNotQueue|dbus.NameFlagReplaceExisting|dbus.NameFlagAllowReplacement)
+		if err != nil {
+			logger.Error("Failed to request name", "err", err)
+			os.Exit(1)
+		}
+		if reply == dbus.RequestNameReplyPrimaryOwner {
+			break
+		}
+		logger.Info("Name not yet available, retrying...", "reply", reply, "attempt", retries+1)
+		time.Sleep(time.Second)
 	}
 	if reply != dbus.RequestNameReplyPrimaryOwner {
-		logger.Error("Name already taken", "reply", reply)
+		logger.Error("Failed to acquire name after retries", "reply", reply)
 		os.Exit(1)
 	}
 	logger.Info("Acquired org.freedesktop.login1 bus name")
@@ -237,10 +246,16 @@ func main() {
 	conn.Export(session, sessionPath, "org.freedesktop.login1.Session")
 
 	// Export session properties
+	// Seat must be D-Bus type (so) - a struct of (string, object_path)
+	seatTuple := struct {
+		ID   string
+		Path dbus.ObjectPath
+	}{"seat0", "/org/freedesktop/login1/seat/seat0"}
+
 	sessionProps := map[string]interface{}{
 		"Active": true,
 		"Id":     "auto",
-		"Seat":   [2]interface{}{"seat0", dbus.ObjectPath("/org/freedesktop/login1/seat/seat0")},
+		"Seat":   seatTuple,
 		"Type":   "tty",
 		"VTNr":   uint32(1),
 	}
@@ -257,9 +272,14 @@ func main() {
 	seat := &LoginSeat{}
 	conn.Export(seat, seatPath, "org.freedesktop.login1.Seat")
 
+	activeSessionTuple := struct {
+		ID   string
+		Path dbus.ObjectPath
+	}{"auto", sessionPath}
+
 	seatProps := map[string]interface{}{
 		"Id":              "seat0",
-		"ActiveSession":   [2]interface{}{"auto", sessionPath},
+		"ActiveSession":   activeSessionTuple,
 		"CanGraphical":    true,
 	}
 	conn.Export(
