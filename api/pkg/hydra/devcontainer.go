@@ -683,6 +683,15 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 		if _, err := os.Stat(drmSock); err == nil {
 			hostConfig.Binds = append(hostConfig.Binds,
 				drmSock+":"+drmSock)
+			// Set scanout mode environment variables for the container.
+			// These tell detect-render-node.sh and desktop-bridge to use the
+			// DRM lease → QEMU VideoToolbox H.264 pipeline instead of PipeWire.
+			env = append(env,
+				"GPU_VENDOR=virtio",
+				"HELIX_SCANOUT_MODE=1",
+				"HELIX_VIDEO_MODE=scanout",
+				"XDG_RUNTIME_DIR=/run/user/1000",
+			)
 			log.Debug().Str("socket", drmSock).Msg("Mounted helix-drm-manager socket for scanout mode")
 		}
 		if len(driDevices) > 0 || len(cardDevices) > 0 {
