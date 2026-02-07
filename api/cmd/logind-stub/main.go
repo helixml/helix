@@ -252,12 +252,37 @@ func main() {
 		Path dbus.ObjectPath
 	}{"seat0", "/org/freedesktop/login1/seat/seat0"}
 
+	userTuple := struct {
+		UID  uint32
+		Path dbus.ObjectPath
+	}{1000, "/org/freedesktop/login1/user/_1000"}
+
 	sessionProps := map[string]interface{}{
-		"Active": true,
-		"Id":     "auto",
-		"Seat":   seatTuple,
-		"Type":   "tty",
-		"VTNr":   uint32(1),
+		"Id":                     "auto",
+		"User":                   userTuple,
+		"Name":                   "retro",
+		"Timestamp":              uint64(time.Now().UnixMicro()),
+		"TimestampMonotonic":     uint64(0),
+		"VTNr":                   uint32(1),
+		"Seat":                   seatTuple,
+		"TTY":                    "",
+		"Display":                "",
+		"Remote":                 false,
+		"RemoteHost":             "",
+		"RemoteUser":             "",
+		"Service":                "helix",
+		"Desktop":                "gnome",
+		"Scope":                  "session-auto.scope",
+		"Leader":                 uint32(os.Getpid()),
+		"Audit":                  uint32(0),
+		"Type":                   "tty",
+		"Class":                  "user",
+		"Active":                 true,
+		"State":                  "active",
+		"IdleHint":               false,
+		"IdleSinceHint":          uint64(0),
+		"IdleSinceHintMonotonic": uint64(0),
+		"LockedHint":             false,
 	}
 	conn.Export(
 		&propHandler{props: map[string]map[string]interface{}{
