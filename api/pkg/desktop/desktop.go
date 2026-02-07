@@ -228,12 +228,17 @@ func (s *Server) Run(ctx context.Context) error {
 
 		if isScanoutMode {
 			// Scanout mode: video comes from QEMU TCP, not PipeWire ScreenCast.
-			// Start RemoteDesktop session directly (no linked ScreenCast).
-			s.logger.Info("scanout mode: starting RemoteDesktop session (input only)")
-			rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-			if err := rdSession.Call(remoteDesktopSessionIface+".Start", 0).Err; err != nil {
-				s.logger.Warn("failed to start RemoteDesktop session in scanout mode", "err", err)
-				// Non-fatal - input won't work but video still will
+			// We still need the linked ScreenCast session for absolute mouse positioning —
+			// Mutter's NotifyPointerMotionAbsolute requires an active screen cast stream
+			// to map coordinates to the correct monitor.
+			s.logger.Info("scanout mode: starting RemoteDesktop+ScreenCast session (input coordinates)")
+			if err := s.startSession(ctx); err != nil {
+				s.logger.Warn("failed to start linked session in scanout mode, absolute mouse may not work", "err", err)
+				// Try starting RemoteDesktop alone as fallback (keyboard + relative mouse will work)
+				rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+				if err := rdSession.Call(remoteDesktopSessionIface+".Start", 0).Err; err != nil {
+					s.logger.Warn("failed to start RemoteDesktop session in scanout mode", "err", err)
+				}
 			}
 			s.primeKeyboardInput()
 
@@ -243,7 +248,8 @@ func (s *Server) Run(ctx context.Context) error {
 			defer s.inputListener.Close()
 			defer os.Remove(s.inputSocketPath)
 
-			s.logger.Info("scanout mode: RemoteDesktop input ready, video via QEMU TCP")
+			s.logger.Info("scanout mode: input ready (absolute+relative), video via QEMU TCP",
+				"stream_path", s.scStreamPath)
 		} else {
 			// Standard mode: PipeWire ScreenCast for video capture
 

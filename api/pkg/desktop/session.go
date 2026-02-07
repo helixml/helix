@@ -120,17 +120,12 @@ func (s *Server) createSession(ctx context.Context) error {
 	// Small delay to let the session fully initialize
 	time.Sleep(100 * time.Millisecond)
 
-	// In scanout mode, skip ScreenCast session entirely.
-	// Video comes from QEMU TCP (not PipeWire ScreenCast).
-	// Input works via RemoteDesktop without ScreenCast linking.
-	// Absolute mouse positioning won't work without a ScreenCast stream,
-	// but relative mouse + keyboard work fine via RemoteDesktop alone.
-	if getVideoMode("") == VideoModeScanout {
-		s.logger.Info("scanout mode: skipping ScreenCast session (video from QEMU TCP)")
-		return nil
-	}
-
-	// Create linked ScreenCast session - this is REQUIRED for NotifyPointerMotionAbsolute to work
+	// Create linked ScreenCast session - this is REQUIRED for NotifyPointerMotionAbsolute to work.
+	// Even in scanout mode (where video comes from QEMU TCP, not PipeWire), we still need
+	// a linked ScreenCast session because Mutter's NotifyPointerMotionAbsolute and
+	// NotifyTouchDown look up the stream from session->screen_cast_session to get the
+	// monitor's coordinate space. Without it, Mutter returns "No screen cast active" error
+	// and absolute mouse positioning + touch are completely broken.
 	s.logger.Info("creating linked ScreenCast session...", "session_id", sessionID)
 	scObj := s.conn.Object(screenCastBus, screenCastPath)
 	options := map[string]dbus.Variant{
@@ -177,6 +172,14 @@ func (s *Server) createSession(ctx context.Context) error {
 	}
 	s.scStreamPath = streamPath
 	s.logger.Info("stream created (cursor embedded for damage-based keepalive)", "path", streamPath)
+
+	// In scanout mode, skip cursor monitoring session — there's no PipeWire video consumer
+	// so cursor metadata streaming is unnecessary. The linked ScreenCast above is sufficient
+	// for NotifyPointerMotionAbsolute coordinate mapping.
+	if getVideoMode("") == VideoModeScanout {
+		s.logger.Info("scanout mode: linked ScreenCast created for input coordinates, skipping cursor monitoring")
+		return nil
+	}
 
 	// Create a SEPARATE RemoteDesktop + ScreenCast session for cursor monitoring
 	// GNOME only allows ONE linked ScreenCast per RemoteDesktop, so we need a second RD session
