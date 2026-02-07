@@ -133,6 +133,7 @@ pipeline unchanged. The container Dockerfile conditionally includes these compon
 | Mutter modeset on lease FD | ✅ VERIFIED | logind-stub session OK, GUdev tag index fix, Mutter renders via atomic modesetting |
 | Container scanout integration | ✅ VERIFIED | gnome-shell --display-server works in container with DRM lease |
 | GNOME → QEMU H.264 in container | ✅ VERIFIED | 88KB keyframe received via SUBSCRIBE(scanout_id) from container's GNOME desktop |
+| GNOME → H.264 sustained | ✅ VERIFIED | 41 frames in 12.2s (3.4 FPS) during overview toggle, 74KB keyframe + 0.5-17KB P-frames |
 | H.264 → WebSocket end-to-end | ⬜ NOT TESTED | Need to integrate desktop-bridge scanout mode with full Helix stack |
 
 ### RESOLVED: QEMU Double-Init Bug
@@ -195,19 +196,17 @@ GPU /dev/dri/card0 selected primary given udev rule
 Using Wayland display name 'wayland-0'
 ```
 
-### RESOLVED: Scanout ID Off-by-One
+### RESOLVED: Scanout ID Off-by-One (was a red herring)
 
-**Problem**: helix-drm-manager allocates scanout index N (from pool [1..15]) and
-sends `ENABLE_SCANOUT(N)` to QEMU. But the kernel's `SET_SCANOUT` command uses
-`scanout_id = N+1`. This causes desktop-bridge to subscribe to the wrong scanout.
+**Observation**: With stale scanout allocations (from leaked test containers), the
+kernel's SET_SCANOUT scanout_id appeared to be pool_index + 1. This was caused by
+corrupted state from 15 leaked scanout allocations, NOT an actual off-by-one.
 
-**Observation**: Consistent +1 offset across all observed scanout allocations:
-- Pool index 13 → kernel SET_SCANOUT scanout_id=14
-- Pool index 14 → kernel SET_SCANOUT scanout_id=15
-- (Pattern confirmed across all 5 observed allocations)
+**With a clean restart**: pool index 1 → ENABLE_SCANOUT(1) → kernel SET_SCANOUT
+scanout_id=1. **No offset needed.** The ScanoutID returned by helix-drm-manager
+is the same as the pool index (scanoutIdx), and matches the QEMU scanout ID.
 
-**Fix**: helix-drm-manager returns `scanoutIdx + 1` as the ScanoutID in the lease
-response. This ensures desktop-bridge subscribes to the correct QEMU scanout.
+**Lesson**: Always test with clean state. Leaked DRM leases corrupt the mapping.
 
 ### Desktop-Bridge Scanout Mode
 
