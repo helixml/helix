@@ -1,7 +1,7 @@
 # Zed Fork Rebase to Fresh Upstream
 
 **Date:** 2026-02-07
-**Status:** Port complete, E2E test passing on old fork (real LLM inference), new fork event forwarding needs debugging
+**Status:** Port complete, E2E test passing on BOTH forks with real LLM inference (Anthropic API)
 
 ## Summary
 
@@ -24,6 +24,7 @@ Ported all Helix-specific Zed changes from the old fork (`~/pm/zed`, branch `mai
 3. `b063ae0` - Add E2E test infrastructure with Docker container
 4. `463b1cc` - Fix E2E test infrastructure: Docker caching, headless Zed startup
 5. `bc52393` - Fix model configuration race and E2E test settings
+6. `5fe75be` - Fix WebSocket event forwarding for thread_service-created threads
 
 ## What Was Ported (725 lines across 17 files + new crate)
 
@@ -188,8 +189,8 @@ The fork approach is the only option for these features.
 ## Next Steps
 
 1. ~~**Fix model configuration in E2E test**~~ DONE - Pre-authenticate providers + fix model ID
-2. ~~**Get E2E test passing with real LLM inference**~~ DONE on old fork - Full protocol flow validated
-3. **Fix new fork event forwarding** - `message_added` and `message_completed` not reaching WebSocket in new fork (ThreadView subscription issue)
+2. ~~**Get E2E test passing with real LLM inference**~~ DONE on both forks - Full protocol flow validated
+3. ~~**Fix new fork event forwarding**~~ DONE - Thread display notification handler was a no-op; now subscribes to AcpThread events directly from AgentPanel
 4. **Add Qwen Code ACP test** - Test with Qwen Code agent using Together AI
 5. **Test session resume** - Kill and restart Zed, verify thread state restored
 6. **Add multiple thread test** - Test creating multiple threads in sequence
