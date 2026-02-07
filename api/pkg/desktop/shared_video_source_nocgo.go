@@ -40,6 +40,11 @@ func (r *SharedVideoSourceRegistry) GetOrCreate(nodeID uint32, pipelineStr strin
 	return nil
 }
 
+// GetExisting returns nil for non-CGO builds.
+func (r *SharedVideoSourceRegistry) GetExisting(nodeID uint32) *SharedVideoSource {
+	return nil
+}
+
 // GetOrCreateWithSource returns nil for non-CGO builds.
 func (r *SharedVideoSourceRegistry) GetOrCreateWithSource(nodeID uint32, source FrameSource) *SharedVideoSource {
 	fmt.Printf("[SHARED_VIDEO] GetOrCreateWithSource stub called (no CGO)\n")

@@ -373,16 +373,26 @@ func (v *VideoStreamer) startScanoutMode(ctx context.Context) error {
 	v.logger.Info("starting scanout mode (QEMU H.264 via TCP)",
 		"resolution", fmt.Sprintf("%dx%d", v.config.Width, v.config.Height))
 
-	// Create and start the scanout source (requests DRM lease, connects to QEMU)
-	scanoutSrc := NewScanoutSource(v.logger)
-	if err := scanoutSrc.Start(ctx, 0); err != nil {
-		return fmt.Errorf("start scanout source: %w", err)
+	// Check if a SharedVideoSource already exists for this node (another client already connected).
+	// Only create a new ScanoutSource for the first client — subsequent clients reuse the
+	// existing shared source. Creating multiple ScanoutSources would open multiple TCP
+	// connections to QEMU and consume multiple DRM leases, causing frame routing confusion.
+	registry := GetSharedVideoRegistry()
+	existing := registry.GetExisting(v.nodeID)
+	if existing != nil {
+		// Reuse existing shared source — no new ScanoutSource needed
+		v.sharedSource = existing
+		v.logger.Info("reusing existing scanout source (shared)")
+	} else {
+		// First client — create and start the scanout source
+		scanoutSrc := NewScanoutSource(v.logger)
+		if err := scanoutSrc.Start(ctx, 0); err != nil {
+			return fmt.Errorf("start scanout source: %w", err)
+		}
+		v.scanoutSource = scanoutSrc
+		v.sharedSource = registry.GetOrCreateWithSource(v.nodeID, scanoutSrc)
+		v.logger.Info("scanout source created (first client)")
 	}
-	v.scanoutSource = scanoutSrc
-
-	// Use SharedVideoSource for broadcast, GOP buffer, and keepalive.
-	// All clients viewing this scanout share ONE TCP connection to QEMU.
-	v.sharedSource = GetSharedVideoRegistry().GetOrCreateWithSource(v.nodeID, scanoutSrc)
 
 	// Subscribe to receive frames from the shared source
 	var err error

@@ -233,6 +233,21 @@ func (r *SharedVideoSourceRegistry) GetOrCreate(nodeID uint32, pipelineStr strin
 	return source
 }
 
+// GetExisting returns an existing SharedVideoSource for the node, or nil if none exists.
+// Also returns sources in the pending-stop grace period (they will be reactivated on Subscribe).
+func (r *SharedVideoSourceRegistry) GetExisting(nodeID uint32) *SharedVideoSource {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if source, exists := r.sources[nodeID]; exists {
+		return source
+	}
+	if pending, exists := r.pendingStops[nodeID]; exists {
+		return pending.source
+	}
+	return nil
+}
+
 // GetOrCreateWithSource returns an existing SharedVideoSource for the node, or creates one
 // backed by an external FrameSource (e.g., ScanoutSource for QEMU TCP H.264).
 // The FrameSource must already be started — SharedVideoSource will read from its channels.
