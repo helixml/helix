@@ -481,16 +481,16 @@ func (s *Server) handleWSStream(w http.ResponseWriter, r *http.Request) {
 			"standalone_node_id", s.videoNodeID)
 	}
 
-	// For Sway: nodeID can be 0 because pipewirezerocopysrc uses ext-image-copy-capture
-	// directly via native Wayland protocols (bypasses PipeWire entirely).
-	// The plugin detects Sway via XDG_CURRENT_DESKTOP and uses the appropriate capture method.
-	if nodeID == 0 && s.compositorType != "sway" {
+	// Scanout mode: nodeID is irrelevant - H.264 comes from QEMU TCP, not PipeWire.
+	// Sway: nodeID can be 0 because pipewirezerocopysrc uses ext-image-copy-capture.
+	if nodeID == 0 && getVideoMode("") == VideoModeScanout {
+		s.logger.Info("scanout mode: video from QEMU TCP (no PipeWire node needed)")
+		nodeID = 1 // Dummy value - VideoStreamer will use scanout source instead
+	} else if nodeID == 0 && s.compositorType != "sway" {
 		s.logger.Error("cannot stream video: no PipeWire node ID available (GNOME requires portal)")
 		http.Error(w, "Video streaming not available - no screen capture session", http.StatusServiceUnavailable)
 		return
-	}
-
-	if nodeID == 0 {
+	} else if nodeID == 0 {
 		// Sway: use dummy node ID (pipewirezerocopysrc will ignore it and use ext-image-copy-capture)
 		s.logger.Info("Sway mode: using ext-image-copy-capture (no PipeWire node needed)")
 		nodeID = 1 // Dummy value - ignored by pipewirezerocopysrc for Sway

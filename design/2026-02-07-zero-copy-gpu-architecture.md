@@ -134,7 +134,8 @@ pipeline unchanged. The container Dockerfile conditionally includes these compon
 | Container scanout integration | ✅ VERIFIED | gnome-shell --display-server works in container with DRM lease |
 | GNOME → QEMU H.264 in container | ✅ VERIFIED | 88KB keyframe received via SUBSCRIBE(scanout_id) from container's GNOME desktop |
 | GNOME → H.264 sustained | ✅ VERIFIED | 41 frames in 12.2s (3.4 FPS) during overview toggle, 74KB keyframe + 0.5-17KB P-frames |
-| H.264 → WebSocket end-to-end | ⬜ NOT TESTED | Need to integrate desktop-bridge scanout mode with full Helix stack |
+| desktop-bridge scanout mode | ⚠️ IN PROGRESS | ScreenCast skip implemented, desktop-bridge starts with input only. Rebuilding image. |
+| H.264 → WebSocket end-to-end | ⬜ NOT TESTED | Awaiting rebuilt image with scanout-mode desktop-bridge |
 
 ### RESOLVED: QEMU Double-Init Bug
 
