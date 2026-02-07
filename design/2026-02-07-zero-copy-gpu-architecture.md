@@ -247,7 +247,10 @@ QEMU reads GPU memory via Metal IOSurface and encodes with VideoToolbox.
    - Changed default max_outputs from 1 to 16 in qemu-utm fork
    - Built and installed via `./for-mac/qemu-helix/build-qemu-standalone.sh`
    - DO NOT modify UTM source - just patch QEMU binary into UTM.app
-3. [ ] Verify guest sees 16 DRM connectors
+3. [x] Verify guest sees 16 DRM connectors
+   - `[drm] number of scanouts: 16` confirmed in dmesg
+   - Virtual-1 = connected (VM display), Virtual-2..16 = disconnected
+   - Need to "connect" secondary connectors from QEMU side (set display mode)
 4. [ ] Test Mutter on a non-primary connector from inside container
 5. [ ] Modify helix-frame-export to watch multiple scanouts
 6. [ ] Map session IDs to scanout indices
