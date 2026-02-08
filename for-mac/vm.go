@@ -207,7 +207,9 @@ func (vm *VMManager) runVM(ctx context.Context) {
 
 		// GPU: virtio-gpu with virgl3d for OpenGL acceleration
 		// This accelerates rendering inside the VM (GNOME, Zed, etc.)
-		"-device", "virtio-gpu-gl-pci,id=gpu0",
+		// EDID enabled with 5K preferred resolution so 5120x2880 is available as a DRM mode.
+		// Containers requesting lower resolutions still get their exact mode (1080p, 4K, etc.)
+		"-device", "virtio-gpu-gl-pci,id=gpu0,edid=on,xres=5120,yres=2880",
 
 		// Serial console for debugging (no VNC needed)
 		"-serial", "mon:stdio",
