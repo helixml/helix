@@ -2241,11 +2241,90 @@ The cursor-based damage keepalive (`runDamageKeepalive`) is disabled in scanout 
   - Fixed mutter-lease-launcher: hardcoded `RequestLease(1920, 1080)`, now reads GAMESCOPE_WIDTH/HEIGHT
   - Fixed GRUB kernel cmdline: `video=Virtual-1:1920x1080` to prevent console running at 5K
   - Frontend default bitrate scaled with resolution: ~4 bits/pixel (59 Mbps at 5K, 33 Mbps at 4K)
-- [x] Frame export performance optimization (triple-copy → single-copy)
-  - **Before**: GPU → temp malloc → DisplaySurface → new IOSurface (3×59MB at 5K = 177MB/frame)
-  - **After**: GPU → cached IOSurface via `virgl_renderer_transfer_read_iov()` (1×59MB, no malloc)
-  - Cached IOSurface reused across frames (created once per resolution)
-  - QEMU CPU usage at 5K was 87.6% due to memory bandwidth (3.5 GB/sec of memcpy)
-  - Expected improvement: ~3x frame rate from eliminating unnecessary copies
-- [ ] Further performance investigation: virglrenderer GPU readback is still 59 MB/frame at 5K.
-  Consider dirty region tracking (SPICE does 32×32 block comparison) or lower resolution as practical default.
+- [x] Frame export performance optimization (zero-copy via Metal texture IOSurface)
+  - **Root cause found**: Guest was using `llvmpipe` (software rendering) because DRM render node
+    `/dev/dri/renderD128` had group `clock` (DinD GID mismatch), not `video`. Mesa couldn't open
+    the render node and fell back to CPU-based software rendering. This was the primary cause of
+    QEMU using 193% CPU and 37 GB RAM at 5K.
+  - **GPU permission fix**: `Dockerfile.ubuntu-helix` 15-detect-gpu init script now fixes permissions
+    whenever group isn't `video` or `render` (not just when group is `root`)
+  - **Zero-copy path implemented** (matches SPICE's architecture):
+    1. Metal texture handle captured at SET_SCANOUT time via `helix_set_scanout_metal_texture()`
+       (called from `virtio-gpu-virgl.c` line 555, same point SPICE captures it)
+    2. IOSurface extracted from Metal texture once (`[texture iosurface]`)
+    3. On each frame: IOSurface passed directly to VideoToolbox (zero CPU copies)
+    4. Fallback: CPU readback via `virgl_renderer_transfer_read_iov()` into cached IOSurface
+  - **Old triple-copy path removed**: `helix_update_scanout_displaysurface()` stripped of
+    malloc + transfer_read_iov + memcpy (111 lines deleted), now just calls `helix_scanout_frame_ready()`
+  - **SPICE comparison** (how SPICE does it for reference):
+    - `qemu_spice_gl_scanout_texture()` captures `native.handle` (Metal texture) at SET_SCANOUT
+    - `spice_iosurface_blit_metal()` does GPU-to-GPU blit from Metal texture to IOSurface-backed FBO
+    - We skip the blit — Metal texture's IOSurface goes directly to VideoToolbox
+  - Key files changed: `qemu-utm/hw/display/helix/helix-frame-export.{h,m}`,
+    `qemu-utm/hw/display/virtio-gpu-virgl.c`, `qemu-utm/hw/display/virtio-gpu-base.c`
+
+### 5K Resolution Fixes (multiple issues found and fixed)
+
+1. **UTM plist format**: `AdditionalArguments` uses bare `<string>` elements, NOT `<dict>` wrappers.
+   UTM's `QEMUArgument` struct uses `String(from: decoder)` / `string.encode(to: encoder)` — single
+   value encoding, not keyed container. Source: `UTM/Configuration/QEMUArgument.swift:37-43`.
+   ```xml
+   <!-- CORRECT -->
+   <array><string>-global</string><string>virtio-gpu-gl-pci.edid=on</string></array>
+   <!-- WRONG (causes "data couldn't be read" error) -->
+   <array><dict><key>String</key><string>-global</string></dict></array>
+   ```
+
+2. **EDID only applied to scanout 0**: `virtio-gpu-base.c` line 37-38 had
+   `g->req_state[i].width = (i == 0) ? g->conf.xres : 0` — only scanout 0 got the 5K EDID.
+   Fixed to apply xres/yres to ALL scanouts. Also fixed line 254-255 (device realize).
+
+3. **mutter-lease-launcher hardcoded 1080p**: `RequestLease(1920, 1080)` ignored
+   `GAMESCOPE_WIDTH`/`GAMESCOPE_HEIGHT`. Fixed to read from env vars.
+
+4. **Console at 5K**: EDID preferred mode applied to VT1 console, making it painfully slow.
+   Fixed with `video=Virtual-1:1920x1080` kernel parameter in GRUB. Applied to dev VM and
+   both provisioning scripts (`provision-vm.sh`, `create-helix-base-vm.sh`).
+
+5. **Frontend bitrate too low**: Default was 10 Mbps for all resolutions >= 4K.
+   Fixed to scale ~4 bits/pixel: 1080p=8 Mbps, 4K=33 Mbps, 5K=59 Mbps. Max 80 Mbps.
+   Code: `frontend/src/lib/helix-stream/component/settings_menu.ts:getDefaultBitrateForResolution()`
+
+6. **GPU permissions in DinD**: `/dev/dri/renderD128` had group `clock` (host GID mismatch).
+   Container init script only fixed group `root`, not unknown groups. **This caused llvmpipe
+   software rendering** — the primary performance bottleneck. Fixed in `Dockerfile.ubuntu-helix`.
+
+### Build & Test Workflow (macOS ARM)
+
+**QEMU rebuild cycle** (changes to `qemu-utm/hw/display/helix/`):
+```bash
+# On Mac host:
+./for-mac/qemu-helix/build-qemu-standalone.sh  # ~2 min, installs to UTM.app, restarts UTM
+# Open VM in UTM, start it
+open "/Volumes/Big/Linux.utm"
+utmctl start <UUID>
+```
+
+**Desktop image rebuild cycle** (changes to Go code, Dockerfile, desktop scripts):
+```bash
+# On VM via SSH:
+cd ~/helix && git pull && ./stack build-ubuntu
+# Then start a NEW session (existing containers keep old image)
+```
+
+**Key paths**:
+- QEMU source: `~/pm/qemu-utm` (branch `utm-edition-venus-helix`)
+- QEMU helix module: `qemu-utm/hw/display/helix/helix-frame-export.{h,m}`
+- QEMU virtio-gpu hooks: `qemu-utm/hw/display/virtio-gpu-virgl.c`, `virtio-gpu-base.c`
+- UTM VM config: `/Volumes/Big/Linux.utm/config.plist`
+- UTM sysroot: `~/pm/UTM/sysroot-macOS-arm64`
+- VM SSH: `ssh -p 2222 luke@localhost`
+
+### TODO
+
+- [ ] Verify zero-copy Metal IOSurface path is active (check logs for "captured Metal texture → IOSurface")
+- [ ] Verify GPU hardware rendering works after permission fix (Zed should NOT show llvmpipe)
+- [ ] Measure FPS and CPU usage at 5K with GPU rendering + zero-copy encoding
+- [ ] If Metal textures don't have IOSurface backing, investigate virglrenderer Metal backend
+  texture creation (may need to create textures from IOSurface for zero-copy to work)
+- [ ] Consider building prod VM images (provision-vm.sh + setup-vm-inside.sh → qcow2 + UTM bundle)
