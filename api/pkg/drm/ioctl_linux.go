@@ -397,14 +397,30 @@ func getPreferredMode(f *os.File, connectorID, width, height uint32) (drmModeMod
 		return drmModeModeInfo{}, fmt.Errorf("GETCONNECTOR modes: %w", errno)
 	}
 
-	// Find matching mode or use first (preferred)
+	// Find exact match first
 	for _, m := range modes {
 		if uint32(m.Hdisplay) == width && uint32(m.Vdisplay) == height {
 			return m, nil
 		}
 	}
-	// Fall back to first mode
-	return modes[0], nil
+
+	// No exact match — find the closest mode by total pixel count.
+	// Prefer modes that are equal or larger to avoid downscaling.
+	targetPixels := int64(width) * int64(height)
+	bestMode := modes[0]
+	bestDiff := int64(1<<62)
+	for _, m := range modes {
+		modePixels := int64(m.Hdisplay) * int64(m.Vdisplay)
+		diff := modePixels - targetPixels
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff < bestDiff {
+			bestDiff = diff
+			bestMode = m
+		}
+	}
+	return bestMode, nil
 }
 
 // reprobeConnector triggers a kernel reprobe of a DRM connector.
