@@ -22,10 +22,11 @@ launch_terminal() {
     # Remaining args are the command
     # Ghostty options: --title, --working-directory, -e for command
     # CRITICAL: --gtk-single-instance=false prevents D-Bus activation which loses our -e args
-    # LIBGL_ALWAYS_SOFTWARE=1: Ghostty disables GLES (GDK_DISABLE=gles-api) and needs
-    # OpenGL 3.3+ core. virgl only exposes GL 2.1, so force llvmpipe (GL 4.5) for Ghostty.
-    # Mutter compositing still uses virgl via direct GBM/DRM access.
-    LIBGL_ALWAYS_SOFTWARE=1 ghostty --gtk-single-instance=false --title="$title" --working-directory="$working_dir" -e "$@" &
+    # MESA_GL_VERSION_OVERRIDE: Ghostty disables GLES (GDK_DISABLE=gles-api) and needs
+    # OpenGL 3.3+ core. virgl under-reports as GL 2.1 but actually supports 4.5 features
+    # (host Metal has full capability). Override lets Ghostty use hardware virgl instead of
+    # falling back to llvmpipe software rendering.
+    MESA_GL_VERSION_OVERRIDE=4.5 MESA_GLSL_VERSION_OVERRIDE=450 ghostty --gtk-single-instance=false --title="$title" --working-directory="$working_dir" -e "$@" &
 }
 
 # =========================================

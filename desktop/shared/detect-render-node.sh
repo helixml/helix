@@ -40,6 +40,11 @@ detect_render_node() {
             # with VideoToolbox. Desktop-bridge receives pre-encoded H.264 via TCP.
             export HELIX_SCANOUT_MODE=1
             export HELIX_VIDEO_MODE=scanout
+            # virgl under-reports GL version as 2.1 but the host Metal backend
+            # supports full GL 4.5 features. Override so apps like Ghostty (which
+            # need GL 3.3+ core) use hardware virgl instead of llvmpipe fallback.
+            export MESA_GL_VERSION_OVERRIDE=4.5
+            export MESA_GLSL_VERSION_OVERRIDE=450
             echo "[render-node] virtio-gpu scanout mode (macOS ARM H.264 via QEMU)"
             ;;
         none|"")
