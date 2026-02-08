@@ -22,6 +22,7 @@ import TotalCost from '../usage/TotalCost'
 import TotalRequests from '../usage/TotalRequests'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import { useGetConfig } from '../../services/userService'
+import QuotaListView from '../quota/QuotaListView'
 
 // Extended wallet interface to include subscription fields
 interface ExtendedWallet {
@@ -165,7 +166,7 @@ const OrgBilling: FC = () => {
                 </Grid>
               </Grid>
             )}
-
+          
             {/* Billing Section */}
             {paymentsActive && (
               <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
@@ -286,6 +287,12 @@ const OrgBilling: FC = () => {
                 </Typography>
               </Box>
             )}
+
+            {/* Quotas Section */}
+            <Box sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+              <Typography variant="h6" sx={{ mb: 2 }}>Quotas</Typography>
+              <QuotaListView orgId={orgId} />
+            </Box>
           </Box>
         </Box>
       </Container>
