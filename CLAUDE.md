@@ -142,7 +142,7 @@ docker compose -f docker-compose.dev.yaml up -d api
   ./for-mac/qemu-helix/build-qemu-standalone.sh  # Builds QEMU and installs into UTM.app
   ```
   The script uses the UTM sysroot at `~/pm/UTM/sysroot-macOS-arm64` for dependencies.
-  QEMU source is at `~/pm/qemu-utm` (branch `helix-frame-export`).
+  QEMU source is at `~/pm/qemu-utm` (branch `utm-edition-venus-helix`).
 
 ### Docker
 # ⛔⛔⛔ CRITICAL - READ THIS BEFORE TOUCHING DOCKER ⛔⛔⛔
@@ -455,18 +455,36 @@ docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT id, name FR
 
 ## Testing CLI Commands
 
+### Where Commands Run
+
+The Helix stack runs **inside the UTM VM**, not on the macOS host. All `spectask` commands, `docker compose` commands, and database queries must be run inside the VM via SSH (`ssh -p 2222 luke@127.0.0.1`). The only things that run on the macOS host are: UTM/QEMU, the QEMU build scripts, and `utmctl`.
+
 ### Helix CLI (spectask subcommand)
 
-Build the CLI first:
+Build the CLI on the macOS host, then deploy to the VM:
 ```bash
+# For macOS host usage (limited - can reach API via port forward)
 cd api && CGO_ENABLED=0 go build -o /tmp/helix . && cd ..
+
+# For VM usage (required for most operations)
+cd api && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/helix-linux . && cd ..
+scp -P 2222 /tmp/helix-linux luke@127.0.0.1:/tmp/helix
 ```
 
-Set up environment:
+Set up environment (inside the VM):
 ```bash
-source .env.userkey
-export HELIX_URL="http://localhost:8080"
-# HELIX_API_KEY is already set from .env.userkey
+# Create .env.usercreds if it doesn't exist
+# Get API key from: docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT token FROM api_keys WHERE owner_type='user' LIMIT 1;"
+# Get project ID from: docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT id, name FROM projects LIMIT 5;"
+cat > ~/.env.usercreds << 'EOF'
+HELIX_API_KEY=hl-xxxxx
+HELIX_URL=http://localhost:8080
+HELIX_PROJECT=prj_xxxxx
+HELIX_UBUNTU_AGENT=app_ubuntu01
+EOF
+
+# Export the variables
+set -a && source ~/.env.usercreds && set +a
 ```
 
 **Session Management:**
@@ -515,17 +533,22 @@ export HELIX_URL="http://localhost:8080"
 ```
 
 ### Sandbox Service Names
-The sandbox service name depends on GPU type:
-- `sandbox-nvidia` - Systems with NVIDIA GPU
-- `sandbox` - Systems without GPU (uses software encoding)
+The sandbox service name depends on the environment:
+- `sandbox-nvidia` - Linux servers with NVIDIA GPU
+- `sandbox` - Linux servers without GPU (uses software encoding)
+- `sandbox-macos` - macOS UTM VM (the container name is `helix-sandbox-macos-1`)
 
-Use the correct service name when running docker compose exec commands:
+Use the correct service name when running docker compose exec commands (inside the VM):
 ```bash
-# NVIDIA GPU systems
-docker compose exec -T sandbox-nvidia docker images | grep helix-
+# NVIDIA GPU systems (Linux servers)
+docker compose -f docker-compose.dev.yaml exec -T sandbox-nvidia docker images | grep helix-
 
-# Non-GPU systems
-docker compose exec -T sandbox docker images | grep helix-
+# Non-GPU systems (Linux servers)
+docker compose -f docker-compose.dev.yaml exec -T sandbox docker images | grep helix-
+
+# macOS UTM VM — use the container name directly
+docker exec helix-sandbox-macos-1 docker images | grep helix-
+docker exec helix-sandbox-macos-1 docker ps --format '{{.Names}} {{.Status}}'
 ```
 
 ### Image Versions
@@ -671,6 +694,106 @@ docker compose exec -T sandbox-nvidia docker logs {CONTAINER_NAME} 2>&1 | grep "
 # Force zerocopy mode in benchmark
 /tmp/helix spectask benchmark ses_xxx --video-mode zerocopy --duration 30
 ```
+
+## End-to-End Multi-Desktop Streaming Test
+
+This test verifies the full Helix stack by starting multiple desktop sessions and streaming video from all of them in parallel. It tests the container video pipeline (PipeWire → GStreamer → H.264 → WebSocket), not the QEMU scanout path.
+
+### Prerequisites
+
+1. **VM must be running** — the entire Helix stack (API, sandbox, postgres, etc.) runs inside the UTM VM
+2. **Helix CLI must be compiled for Linux arm64** — the macOS CLI won't work inside the VM
+3. **API credentials** — need a valid `hl-` prefixed API key
+
+### Step 1: Build and Deploy CLI to VM
+
+```bash
+# Cross-compile the Helix CLI for Linux arm64 (run on macOS host)
+cd ~/pm/helix/api && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/helix-linux . && cd ..
+
+# Copy to VM (SSH port 2222 is forwarded from the UTM VM)
+scp -P 2222 /tmp/helix-linux luke@127.0.0.1:/tmp/helix
+```
+
+### Step 2: Find Credentials
+
+All commands from here run **inside the VM via SSH**, NOT on the macOS host.
+
+```bash
+# SSH into the VM
+ssh -p 2222 luke@127.0.0.1
+
+# Find a user API key from the database
+docker exec helix-postgres-1 psql -U postgres -d postgres -c \
+  "SELECT token FROM api_keys WHERE owner_type='user' LIMIT 1;"
+
+# Find a project ID
+docker exec helix-postgres-1 psql -U postgres -d postgres -c \
+  "SELECT id, name FROM projects LIMIT 5;"
+
+# Set environment variables (replace with actual values)
+export HELIX_API_KEY='hl-xxxxx'
+export HELIX_URL='http://localhost:8080'
+```
+
+### Step 3: Start Multiple Desktop Sessions
+
+```bash
+# List available agents (need one with external assistant support)
+/tmp/helix spectask list-agents
+
+# Start 3 sessions (replace PROJECT_ID and AGENT_ID with actual values)
+/tmp/helix spectask start --project PROJECT_ID --agent AGENT_ID -n "Stream test 1"
+/tmp/helix spectask start --project PROJECT_ID --agent AGENT_ID -n "Stream test 2"
+/tmp/helix spectask start --project PROJECT_ID --agent AGENT_ID -n "Stream test 3"
+
+# Note the session IDs from the output (ses_01xxx format)
+# Wait ~20 seconds for GNOME to initialize in all containers
+sleep 20
+```
+
+### Step 4: Stream Video from All Sessions in Parallel
+
+```bash
+# Stream all 3 for 30 seconds each (run in parallel with &)
+/tmp/helix spectask stream ses_01xxx --duration 30 > /tmp/stream1.log 2>&1 &
+/tmp/helix spectask stream ses_01yyy --duration 30 > /tmp/stream2.log 2>&1 &
+/tmp/helix spectask stream ses_01zzz --duration 30 > /tmp/stream3.log 2>&1 &
+wait
+
+# Check results
+cat /tmp/stream1.log
+cat /tmp/stream2.log
+cat /tmp/stream3.log
+```
+
+### What to Look For
+
+- **StreamInit received**: Confirms WebSocket connection and video pipeline negotiation
+- **Video frames > 0**: Confirms H.264 frames are being produced and delivered
+- **FPS > 0**: Static desktop gives ~10 FPS, active content gives higher
+- **All 3 streams running simultaneously**: Confirms the stack handles concurrent sessions
+- **VM stays responsive**: SSH should remain accessible during the test
+
+### Common Issues
+
+- **0 video frames**: PipeWire/GStreamer pipeline not started yet. Wait longer (30s+) for GNOME ScreenCast to initialize. Check container logs for errors.
+- **SSH timeout during test**: VM may be OOM. 3 desktop containers + Docker overhead can exhaust the 65GB VM allocation. Try with 2 sessions instead of 3.
+- **"Sandbox not connected"**: The session's container was stopped. Start a fresh session with `spectask start`.
+- **QEMU crash (no QEMU process on host)**: Check `~/Library/Logs/DiagnosticReports/QEMULauncher-*.ips` for crash reports. Restart VM: quit UTM (`pkill -9 UTM`), reopen (`open -a UTM`), start VM (`utmctl start UUID`).
+
+### Running from Claude Code (via SSH)
+
+When running this test from Claude Code on the macOS host, SSH into the VM for each command:
+
+```bash
+# Pattern for running commands inside the VM from the macOS host
+ssh -p 2222 -o StrictHostKeyChecking=no luke@127.0.0.1 \
+  "export HELIX_API_KEY='hl-xxx' && export HELIX_URL='http://localhost:8080' && \
+   /tmp/helix spectask list"
+```
+
+**Important**: Do NOT use `run_in_background` with `&` in the SSH command — use one or the other, not both, or output will be empty.
 
 ## CLI Development
 
