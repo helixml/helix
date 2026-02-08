@@ -34,6 +34,7 @@ import { CodeAgentRuntime, generateAgentName } from '../contexts/apps'
 import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker'
 import BrowseProvidersDialog from '../components/project/BrowseProvidersDialog'
 import { SELECTED_ORG_STORAGE_KEY } from '../utils/localStorage'
+import { useCreateOrg } from '../services/orgService'
 
 const RECOMMENDED_MODELS = [
   'claude-opus-4-6',
@@ -127,8 +128,9 @@ export default function Onboarding() {
   const [orgMode, setOrgMode] = useState<'select' | 'create'>('select')
   const [selectedOrgId, setSelectedOrgId] = useState<string>('')
   const [orgDisplayName, setOrgDisplayName] = useState('')
-  const [creatingOrg, setCreatingOrg] = useState(false)
   const [createdOrgId, setCreatedOrgId] = useState<string>('')
+  const [createdOrgName, setCreatedOrgName] = useState<string>('')
+  const createOrgMutation = useCreateOrg()
 
   // Step 2: Project + Agent
   const [projectName, setProjectName] = useState('')
@@ -177,7 +179,7 @@ export default function Onboarding() {
     if (hasExistingOrgs) {
       setOrgMode('select')
       if (!selectedOrgId && existingOrgs[0]?.id) {
-        setSelectedOrgId(existingOrgs[0].name || existingOrgs[0].id)
+        setSelectedOrgId(existingOrgs[0].id)
       }
     } else {
       setOrgMode('create')
@@ -206,16 +208,12 @@ export default function Onboarding() {
   useEffect(() => {
     if (activeStep !== 2 || !createdOrgId) return
 
-    const orgId = account.organizationTools.organizations.find(
-      o => o.name === createdOrgId || o.id === createdOrgId
-    )?.id || ''
-
     api.get<IApp[]>('/api/v1/apps', {
-      params: { organization_id: orgId },
+      params: { organization_id: createdOrgId },
     }, { snackbar: true }).then(result => {
       setOrgApps(result || [])
     })
-  }, [activeStep, createdOrgId, account.organizationTools.organizations])
+  }, [activeStep, createdOrgId])
 
   // Auto-generate agent name when model or runtime changes
   useEffect(() => {
@@ -246,50 +244,51 @@ export default function Onboarding() {
     } catch (err) {
       console.error('Failed to mark onboarding complete:', err)
     }
-    if (createdOrgId) {
-      localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrgId)
+    if (createdOrgName) {
+      localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrgName)
     }
-    if (createdProjectId && createdOrgId) {
-      router.navigateReplace('org_projects', { org_id: createdOrgId })
+    if (createdProjectId && createdOrgName) {
+      router.navigateReplace('org_projects', { org_id: createdOrgName })
     } else {
       router.navigateReplace('projects')
     }
-  }, [api, createdProjectId, createdOrgId, router])
+  }, [api, createdProjectId, createdOrgName, router])
 
   const handleSelectExistingOrg = useCallback(() => {
     if (!selectedOrgId) {
       snackbar.error('Please select an organization')
       return
     }
-    setCreatedOrgId(selectedOrgId)
+    const org = existingOrgs.find(o => o.id === selectedOrgId)
+    if (!org?.id) {
+      snackbar.error('Could not find the selected organization')
+      return
+    }
+    setCreatedOrgId(org.id)
+    setCreatedOrgName(org.name || org.id)
     markComplete(1)
-  }, [selectedOrgId, markComplete, snackbar])
+  }, [selectedOrgId, existingOrgs, markComplete, snackbar])
 
   const handleCreateOrg = useCallback(async () => {
     if (!orgDisplayName.trim()) {
       snackbar.error('Please enter an organization name')
       return
     }
-    setCreatingOrg(true)
     try {
-      const result = await account.organizationTools.createOrganization({
+      const newOrg = await createOrgMutation.mutateAsync({
         display_name: orgDisplayName.trim(),
       })
-      if (result) {
+      if (newOrg?.id) {
+        setCreatedOrgId(newOrg.id)
+        setCreatedOrgName(newOrg.name || newOrg.id)
         await account.organizationTools.loadOrganizations()
-        const orgs = account.organizationTools.organizations
-        const newOrg = orgs[orgs.length - 1]
-        if (newOrg?.id) {
-          setCreatedOrgId(newOrg.name || newOrg.id)
-        }
         markComplete(1)
       }
     } catch (err) {
       console.error('Failed to create org:', err)
-    } finally {
-      setCreatingOrg(false)
+      snackbar.error('Failed to create organization')
     }
-  }, [orgDisplayName, account.organizationTools, markComplete, snackbar])
+  }, [orgDisplayName, createOrgMutation, account.organizationTools, markComplete, snackbar])
 
   const handleBrowseSelectRepository = useCallback((repo: TypesRepositoryInfo, providerTypeOrCreds: string, oauthConnectionId?: string) => {
     let providerType = providerTypeOrCreds
@@ -338,12 +337,16 @@ export default function Onboarding() {
       return
     }
 
+    if (!createdOrgId) {
+      snackbar.error('No valid organization selected. Please go back and set up your organization first.')
+      return
+    }
+
+    const orgId = createdOrgId
+
     setCreatingProject(true)
     try {
       const apiClient = api.getApiClient()
-      const orgId = createdOrgId
-        ? account.organizationTools.organizations.find(o => o.name === createdOrgId || o.id === createdOrgId)?.id
-        : undefined
 
       // Create or use existing agent
       let agentId = ''
@@ -631,7 +634,7 @@ export default function Onboarding() {
                       }}
                     >
                       {existingOrgs.map((org) => (
-                        <MenuItem key={org.id} value={org.name || org.id} sx={{ fontSize: '0.82rem' }}>
+                        <MenuItem key={org.id} value={org.id} sx={{ fontSize: '0.82rem' }}>
                           {org.display_name || org.name}
                         </MenuItem>
                       ))}
@@ -664,11 +667,11 @@ export default function Onboarding() {
                   <Button
                     variant="contained"
                     onClick={handleCreateOrg}
-                    disabled={creatingOrg || !orgDisplayName.trim()}
+                    disabled={createOrgMutation.isPending || !orgDisplayName.trim()}
                     sx={btnSx}
-                    startIcon={creatingOrg ? <CircularProgress size={14} sx={{ color: '#000' }} /> : <BusinessIcon sx={{ fontSize: 16 }} />}
+                    startIcon={createOrgMutation.isPending ? <CircularProgress size={14} sx={{ color: '#000' }} /> : <BusinessIcon sx={{ fontSize: 16 }} />}
                   >
-                    {creatingOrg ? 'Creating...' : 'Create organization'}
+                    {createOrgMutation.isPending ? 'Creating...' : 'Create organization'}
                   </Button>
                 </>
               )}
@@ -991,7 +994,7 @@ export default function Onboarding() {
                 variant="contained"
                 onClick={handleCreateProject}
                 disabled={
-                  creatingProject || creatingAgent || !projectName.trim() ||
+                  creatingProject || creatingAgent || !projectName.trim() || !createdOrgId ||
                   (repoMode === 'external' && !linkedExternalRepo) ||
                   (agentMode === 'select' && !selectedAgentId) ||
                   (agentMode === 'create' && !selectedModel)
