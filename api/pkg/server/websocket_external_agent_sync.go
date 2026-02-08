@@ -715,12 +715,10 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		Msg("✅ [HELIX] Created initial interaction and stored mapping")
 
 	// Check if this external agent belongs to a spectask session
-	// Look up the original helix session via the agent session mapping
-	apiServer.contextMappingsMutex.RLock()
-	originalHelixSessionID, hasOriginal := apiServer.externalAgentSessionMapping[sessionID]
-	apiServer.contextMappingsMutex.RUnlock()
-	if hasOriginal {
-		originalSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), originalHelixSessionID)
+	// The sessionID (agent connection ID) is the Helix session ID when it starts with "ses_"
+	// Look up that session to get its SpecTaskID
+	if strings.HasPrefix(sessionID, "ses_") {
+		originalSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), sessionID)
 		if err == nil && originalSession != nil && originalSession.Metadata.SpecTaskID != "" {
 			// Set the SpecTaskID on the new session too
 			createdSession.Metadata.SpecTaskID = originalSession.Metadata.SpecTaskID
@@ -728,6 +726,28 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 			_, _ = apiServer.Controller.Options.Store.UpdateSession(context.Background(), *createdSession)
 
 			go apiServer.trackSpecTaskZedThread(context.Background(), createdSession, acpThreadID, title)
+
+			log.Info().
+				Str("original_session_id", sessionID).
+				Str("new_session_id", createdSession.ID).
+				Str("spec_task_id", originalSession.Metadata.SpecTaskID).
+				Str("acp_thread_id", acpThreadID).
+				Msg("✅ [HELIX] Linked new user-initiated thread to spec task")
+		}
+	} else {
+		// Fallback: check the agent session mapping (for non-ses_ agent IDs)
+		apiServer.contextMappingsMutex.RLock()
+		originalHelixSessionID, hasOriginal := apiServer.externalAgentSessionMapping[sessionID]
+		apiServer.contextMappingsMutex.RUnlock()
+		if hasOriginal {
+			originalSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), originalHelixSessionID)
+			if err == nil && originalSession != nil && originalSession.Metadata.SpecTaskID != "" {
+				createdSession.Metadata.SpecTaskID = originalSession.Metadata.SpecTaskID
+				createdSession.Metadata.ZedThreadID = contextID
+				_, _ = apiServer.Controller.Options.Store.UpdateSession(context.Background(), *createdSession)
+
+				go apiServer.trackSpecTaskZedThread(context.Background(), createdSession, acpThreadID, title)
+			}
 		}
 	}
 
