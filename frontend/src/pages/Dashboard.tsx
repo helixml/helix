@@ -43,6 +43,7 @@ import { TypesWorkloadSummary, TypesDashboardRunner } from "../api/api";
 import ProviderEndpointsTable from "../components/dashboard/ProviderEndpointsTable";
 import OAuthProvidersTable from "../components/dashboard/OAuthProvidersTable";
 import HelixModelsTable from "../components/dashboard/HelixModelsTable";
+import PricingTable from "../components/dashboard/PricingTable";
 import SchedulingDecisionsTable from "../components/dashboard/SchedulingDecisionsTable";
 import GlobalSchedulingVisualization from "../components/dashboard/GlobalSchedulingVisualization";
 import SystemSettingsTable from "../components/dashboard/SystemSettingsTable";
@@ -644,6 +645,16 @@ const Dashboard: FC = () => {
                         }}
                     >
                         <HelixModelsTable />
+                    </Box>
+                )}
+
+                {tab === "pricing" && account.admin && (
+                    <Box
+                        sx={{
+                            width: "100%",
+                        }}
+                    >
+                        <PricingTable />
                     </Box>
                 )}
 
