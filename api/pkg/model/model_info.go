@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -53,6 +54,7 @@ func NewBaseModelInfoProvider() (*BaseModelInfoProvider, error) {
 			ProviderModelID:     model.Endpoint.ProviderModelID,
 			Name:                model.Name,
 			Slug:                model.Slug,
+			Permaslug:           model.Permaslug,
 			Author:              model.Author,
 			Description:         model.Description,
 			InputModalities:     model.InputModalities,
@@ -106,17 +108,24 @@ func (p *BaseModelInfoProvider) GetModelInfo(_ context.Context, request *ModelIn
 
 	slug := fmt.Sprintf("%s/%s", provider, modelName)
 
-	// Lookup by slug or model name
+	var trimmedSlug string
+
+	if provider == "anthropic" {
+		trimmedSlug = trimAnthropicDateSuffix(slug)
+	}
+
 	for _, model := range p.data {
 		if model.Name == modelName {
 			return &model, nil
 		}
 
-		if model.Slug == slug {
+		if model.Slug == slug || model.Permaslug == slug {
 			return &model, nil
 		}
 
-		// Check if the provider URL matches
+		if trimmedSlug != "" && (model.Slug == trimmedSlug || model.Permaslug == trimmedSlug) {
+			return &model, nil
+		}
 	}
 
 	return nil, fmt.Errorf("model info not found for model: %s (%s)", modelName, slug)
@@ -151,4 +160,10 @@ func (p *BaseModelInfoProvider) getProvider(baseURL string) (string, bool) {
 	}
 
 	return "", false
+}
+
+var anthropicDateSuffixRe = regexp.MustCompile(`-\d{8}$`)
+
+func trimAnthropicDateSuffix(slug string) string {
+	return anthropicDateSuffixRe.ReplaceAllString(slug, "")
 }
