@@ -370,9 +370,10 @@ if [ "${TARGETARCH}" = "arm64" ]; then
     echo "=== LibreOffice installed as OnlyOffice alternative ==="
 else
     echo "=== Installing OnlyOffice Desktop Editors ==="
+    apt-get update
+    apt-get install -y --no-install-recommends wget
     cd /tmp
     wget --progress=dot:giga https://download.onlyoffice.com/install/desktop/editors/linux/onlyoffice-desktopeditors_amd64.deb
-    apt-get update
     dpkg -i onlyoffice-desktopeditors_amd64.deb || apt-get install -f -y
     rm onlyoffice-desktopeditors_amd64.deb
     apt-get clean
