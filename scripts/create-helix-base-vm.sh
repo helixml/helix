@@ -253,6 +253,11 @@ autoinstall:
     - curtin in-target --target=/target -- mkdir -p /helix/workspaces
     - curtin in-target --target=/target -- chown helix:helix /helix/workspaces
 
+    # Limit VM console (Virtual-1) to 1080p - EDID advertises 5K as preferred but
+    # only DRM lease connectors (Virtual-2+) need high resolution
+    - curtin in-target --target=/target -- sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="[^"]*"/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash console=tty0 video=Virtual-1:1920x1080"/' /etc/default/grub
+    - curtin in-target --target=/target -- update-grub
+
     # Cleanup
     - curtin in-target --target=/target -- apt-get clean
     - curtin in-target --target=/target -- rm -rf /var/lib/apt/lists/*

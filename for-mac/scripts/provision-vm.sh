@@ -192,6 +192,10 @@ runcmd:
   - usermod -aG docker ${VM_USER}
   - systemctl disable gdm || true
   - systemctl stop gdm || true
+  # Limit Virtual-1 (VM console) to 1080p so the text console isn't painfully slow at 5K.
+  # EDID advertises 5K as preferred mode, but only DRM lease connectors (Virtual-2+) need it.
+  - sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="[^"]*"/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash console=tty0 video=Virtual-1:1920x1080"/' /etc/default/grub
+  - update-grub
   - growpart /dev/vda 1 || growpart /dev/vda 2 || true
   - resize2fs /dev/vda1 || resize2fs /dev/vda2 || true
   - touch /var/lib/cloud/instance/provision-ready
