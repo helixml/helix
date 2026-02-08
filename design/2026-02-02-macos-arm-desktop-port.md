@@ -2156,3 +2156,73 @@ Once the `install.sh` approach is working, support in-place upgrades by re-runni
 4. **Version check** — App should check for updates and prompt user (or auto-update)
 
 **Key insight:** The install.sh approach makes upgrades much simpler since we can just re-run the script. The main challenge is ensuring ARM images are published alongside amd64 images in CI (multi-arch manifests).
+
+## Scanout Mode Integration Notes (2026-02-08)
+
+### Key Fixes Applied
+
+1. **DRM socket mount**: `/run/helix-drm.sock` must be bind-mounted into the `sandbox-macos` Docker Compose service. Without it, desktop containers can't request DRM leases.
+
+2. **Monitor connector detection**: In DRM scanout mode, Mutter uses real DRM connectors (e.g., `Virtual-5`, `Virtual-14`) instead of headless `Meta-0`. desktop-bridge queries `org.gnome.Mutter.DisplayConfig.GetResources()` to detect the actual connector name. `GetCurrentState()` doesn't work with godbus (complex nested structs cause `dbus.Store: length mismatch`).
+
+3. **ScreenCast session required for input**: Even in scanout mode where video comes from QEMU TCP (not PipeWire), a linked ScreenCast session is required. Mutter's `NotifyPointerMotionAbsolute` and `NotifyTouchDown` look up the stream from `session->screen_cast_session` for coordinate mapping. Without it, absolute mouse and touch silently fail.
+
+4. **SharedVideoSource for scanout**: Scanout frames now go through `SharedVideoSource` (same as PipeWire path) for:
+   - GOP buffer (keyframe catchup for mid-stream joins)
+   - Frame keepalive (re-send last frame every 100ms on static screens)
+   - Single QEMU TCP connection shared across all WebSocket clients
+   - `FrameSource` interface abstracts over `GstPipeline` and `ScanoutSource`
+
+5. **Cursor monitoring**: The `monitorCursor()` goroutine must be started in scanout mode too. The GNOME Shell extension (`helix-cursor@helix.ml`) sends cursor shape changes via Unix socket regardless of video mode.
+
+6. **Resolution plumbing**: `ScanoutSource` reads `GAMESCOPE_WIDTH`/`GAMESCOPE_HEIGHT` env vars for DRM lease requests instead of hardcoding 1080p.
+
+### EDID for 5K Resolution
+
+QEMU's virtio-gpu default mode list doesn't include 5120x2880. Enabled via EDID:
+- UTM config: `-global virtio-gpu-gl-pci.edid=on -global virtio-gpu-gl-pci.xres=5120 -global virtio-gpu-gl-pci.yres=2880`
+- Wails app: `virtio-gpu-gl-pci,id=gpu0,edid=on,xres=5120,yres=2880`
+
+EDID only adds modes to the available list — doesn't allocate framebuffers. Containers requesting 1080p still get 1080p (exact mode match in `getPreferredMode`). Requires VM restart to take effect.
+
+### VideoToolbox Bitrate Scaling
+
+`helix-frame-export.c` scales bitrate with pixel count (~4 bits/pixel):
+- 1080p: 8 Mbps
+- 4K (3840x2160): ~33 Mbps
+- 5K (5120x2880): ~59 Mbps
+
+Running on localhost so bandwidth is not a concern.
+
+### Virtio-GPU Connector Limits
+
+`VIRTIO_GPU_MAX_SCANOUTS` is 16 (hardcoded in virtio-gpu protocol spec, both QEMU and guest kernel). This gives 15 usable scanouts (index 0 = VM console). Bumping to 64 requires patching both QEMU and guest kernel headers since the `pmodes` array in the virtio config space is fixed-size.
+
+### Cursor Pipeline (Independent of Video)
+
+Cursor works identically in scanout and PipeWire modes:
+1. GNOME Shell extension detects cursor type via hotspot fingerprinting (Helix-Invisible transparent theme)
+2. Sends CSS cursor name over `/run/user/1000/helix-cursor.sock`
+3. desktop-bridge `monitorCursorPipeWire()` reads socket, sends `StreamMsgCursorName` (0x51) over WebSocket
+4. Frontend renders SVG cursor overlay
+
+### Input Pipeline (Independent of Video)
+
+All input goes through D-Bus RemoteDesktop session:
+- Keyboard: `NotifyKeyboardKeycode` / `NotifyKeyboardKeysym` (no stream path needed)
+- Mouse buttons: `NotifyPointerButton` (no stream path needed)
+- Relative mouse: `NotifyPointerMotionRelative` (no stream path needed)
+- **Absolute mouse**: `NotifyPointerMotionAbsolute` (needs stream path from linked ScreenCast)
+- **Touch**: `NotifyTouchDown/Motion/Up` (needs stream path from linked ScreenCast)
+- Scroll: `NotifyPointerAxis` with FINGER source for smooth trackpad scrolling
+
+### Damage Keepalive
+
+The cursor-based damage keepalive (`runDamageKeepalive`) is disabled in scanout mode (video doesn't come from PipeWire). Static screen keepalive is handled by `SharedVideoSource.broadcastFrames()` which re-sends the last H.264 frame every 100ms from the GOP buffer.
+
+### TODO
+
+- [ ] Show scanout usage in Helix for Mac UI (X/15 displays in use)
+- [ ] Bump `VIRTIO_GPU_MAX_SCANOUTS` to 64 (requires QEMU + kernel patch)
+- [ ] Plumb agent-configured bitrate through to VideoToolbox encoder via `HELIX_MSG_CONFIG_REQ`
+- [ ] Test 5K resolution end-to-end after VM restart with EDID
