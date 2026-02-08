@@ -14,6 +14,22 @@ import (
 	drmmanager "github.com/helixml/helix/api/pkg/drm"
 )
 
+// getScreenDimensions reads display resolution from environment variables.
+func getScreenDimensions() (uint32, uint32) {
+	w, h := uint32(1920), uint32(1080)
+	if s := os.Getenv("GAMESCOPE_WIDTH"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v > 0 {
+			w = uint32(v)
+		}
+	}
+	if s := os.Getenv("GAMESCOPE_HEIGHT"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v > 0 {
+			h = uint32(v)
+		}
+	}
+	return w, h
+}
+
 const (
 	defaultQEMUAddr  = "10.0.2.2:15937"
 	defaultDRMSocket = "/run/helix-drm.sock"
@@ -30,6 +46,10 @@ type ScanoutSource struct {
 	qemuAddr  string
 	drmSocket string
 
+	// Display resolution for DRM lease requests
+	width  uint32
+	height uint32
+
 	mu        sync.Mutex
 	conn      net.Conn
 	scanoutID uint32
@@ -42,13 +62,18 @@ type ScanoutSource struct {
 }
 
 // NewScanoutSource creates a new scanout H.264 source.
+// Resolution is read from GAMESCOPE_WIDTH/GAMESCOPE_HEIGHT env vars (default: 1920x1080).
 func NewScanoutSource(logger *slog.Logger) *ScanoutSource {
 	qemuAddr := defaultQEMUAddr
 	drmSocket := defaultDRMSocket
+	w, h := getScreenDimensions()
+	logger.Info("scanout source resolution", "width", w, "height", h)
 	return &ScanoutSource{
 		logger:    logger,
 		qemuAddr:  qemuAddr,
 		drmSocket: drmSocket,
+		width:     w,
+		height:    h,
 		frameCh:   make(chan VideoFrame, 16),
 		errorCh:   make(chan error, 1),
 	}
@@ -95,7 +120,7 @@ func (s *ScanoutSource) Start(ctx context.Context, scanoutID uint32) error {
 	if scanoutID == 0 {
 		// Last resort: request a DRM lease to get a scanout ID
 		client := drmmanager.NewClient(s.drmSocket)
-		lease, err := client.RequestLease(1920, 1080)
+		lease, err := client.RequestLease(s.width, s.height)
 		if err != nil {
 			return fmt.Errorf("request DRM lease: %w", err)
 		}
