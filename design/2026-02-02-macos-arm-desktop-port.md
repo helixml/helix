@@ -1,8 +1,8 @@
 # macOS ARM Desktop Port - Architecture Design
 
 **Date**: 2026-02-02
-**Last Updated**: 2026-02-04 07:25 UTC
-**Status**: Phase 2 Complete - Modified QEMU Built and Patched into UTM.app
+**Last Updated**: 2026-02-08 22:00 UTC
+**Status**: Custom QEMU Working with Venus/Vulkan + Frame Export TCP Server Active
 
 ## Executive Summary
 
@@ -43,10 +43,28 @@ Port Helix desktop streaming to macOS ARM64 (Apple Silicon). Use UTM/QEMU VM wit
   - Fixed virtio-gpu-virgl.c API compatibility (added version guards)
   - Binary: libqemu-aarch64-softmmu.dylib (29MB) with helix symbols verified
   - Pushed to GitHub: https://github.com/helixml/qemu-utm (utm-edition branch)
-- ✅ **UTM.app patched with modified QEMU** - Replaced binary and re-signed
-  - Location: ~/pm/helix/UTM/build/Build/Products/Release/UTM.app
-  - Ad-hoc signed for local testing
-- ⏳ Next: Test end-to-end zero-copy pipeline with vsockenc → helix-frame-export → VideoToolbox
+- ✅ **UTM.app patched with modified QEMU** - Replaced binary in /Applications/UTM.app
+  - **CRITICAL**: Use UTM 5.0.1 beta from GitHub releases (NOT App Store 4.7.5 which lacks MoltenVK)
+  - Download: https://github.com/utmapp/UTM/releases (5.0.1 beta)
+  - Our custom QEMU is patched INTO the installed UTM.app, no separate UTM build/fork needed
+  - Run `./for-mac/qemu-helix/build-qemu-standalone.sh` to rebuild and patch
+  - Script: `scripts/fix-qemu-paths.sh` rewrites dylib paths to framework format for UTM 5.0.1
+  - **Sysroot update**: When upgrading UTM, update sysroot libs from new UTM frameworks:
+    Copy `/Applications/UTM.app/Contents/Frameworks/FOO.framework/Versions/A/FOO`
+    to `~/pm/UTM/sysroot-macOS-arm64/lib/libFOO.dylib` for each dependency
+- ✅ **GPU permission fix for DinD** - `/dev/dri/renderD128` group `clock` → `video` in `15-detect-gpu.sh`
+- ✅ **MESA_GL_VERSION_OVERRIDE=4.5** - virgl under-reports GL 2.1 but host Metal supports GL 4.5. Override lets Ghostty/apps use hardware virgl instead of llvmpipe
+- ✅ **UTM 5.0.1 beta installed** - Official release from GitHub, NOT custom build. Has MoltenVK bundled.
+- ✅ **Venus/Vulkan CONFIRMED WORKING** - `Virtio-GPU Venus (Apple M3 Ultra)` via MoltenVK. Vulkan 1.4.307.
+- ✅ **UTM global preferences set** - `QEMURendererBackend=2` (ANGLE Metal), `QEMUVulkanDriver=2` (MoltenVK)
+- ✅ **Custom QEMU rebuilt for UTM 5.0.1** - Built from `utm-edition-venus-helix` branch (correct base matching stock UTM 5.0.1)
+- ✅ **Boot failure root cause found and fixed**: `VIRTIO_GPU_MAX_SCANOUTS` was changed from 16 to 32, which changed the `virtio_gpu_resp_display_info` struct size from 408 to 792 bytes, causing a virtio protocol mismatch with the guest kernel (expects 16 scanouts). Reverted to 16.
+- ✅ **Frame export TCP server confirmed working**: Port 15937 listening, FLUSH events flowing (`helix_scanout_frame_ready` called on every frame). Metal texture zero-copy path available via `virgl_renderer_resource_get_info_ext` with `VIRGL_NATIVE_HANDLE_METAL_TEXTURE`.
+- ✅ **Library path fix for UTM 5.0.1**: `fix-qemu-paths.sh` rewritten to handle UTM 5.0.1's framework format (`FOO.framework/Versions/A/FOO` instead of `libFOO.dylib`)
+- ✅ **Correct QEMU base branch identified**: UTM 5.0.1 ships `utm-edition-venus` branch (contains Metal texture, CGL, IOSurface code), NOT the `v10.0.2-utm` tag. Our `utm-edition-venus-helix` branch is the correct fork.
+- ✅ **H.264 frame export verified via TCP client**: Python test client connected to port 15937, sent SUBSCRIBE message, received H.264 frames at ~4.8 FPS on static desktop. First frame 9746 bytes (keyframe with SPS/PPS NAL units), subsequent P-frames 350-421 bytes.
+- ✅ **max_outputs set to 16**: Supports 16 independent scanouts for multi-session display capture. Stock UTM default is 1, but we need 16 for container-per-scanout mapping. `VIRTIO_GPU_MAX_SCANOUTS` stays at protocol-compatible 16 (matching guest kernel struct sizes).
+- **NEXT**: Test multi-session frame capture — verify multiple containers can each get a dedicated scanout with independent H.264 encoding. Integrate TCP frame client into for-mac Wails app.
 
 **Remaining Work:**
 1. ~~Integrate vsockenc into helix-ubuntu desktop image build~~ ✅ Done (helix-ubuntu:169abe)
@@ -196,12 +214,111 @@ strings libqemu-aarch64-softmmu.dylib | grep "helix:"
 
 ### Repository
 
-Modified QEMU source: https://github.com/helixml/qemu-utm (utm-edition branch)
+Modified QEMU source: https://github.com/helixml/qemu-utm (utm-edition-venus-helix branch)
 
 **Key commits**:
 - `4237f5099b`: Initial helix-frame-export integration (copied from for-mac/qemu-helix)
 - `dda666bc6d`: Renamed helix-frame-export.c → .m for Objective-C compilation
 - `886c4e4797`: Fixed build issues (virglrenderer deps + API compatibility)
+- `e13b9133e7`: Revert VIRTIO_GPU_MAX_SCANOUTS to 16 for protocol compatibility
+
+### How We Got Custom QEMU Working with UTM 5.0.1 (2026-02-08)
+
+This documents the exact process and pitfalls for getting our patched QEMU binary working inside stock UTM 5.0.1 beta.
+
+#### Step 1: Identify the Correct QEMU Base Branch
+
+**Critical finding**: UTM 5.0.1 ships QEMU built from the `utm-edition-venus` branch, NOT the `v10.0.2-utm` tag.
+
+We proved this by running `strings` on the stock QEMU binary inside UTM.app and finding:
+- `SCANOUT_TEXTURE_NATIVE_TYPE_METAL` — only exists in utm-edition-venus
+- CGL, IOSurface symbols — Metal texture export code from utm-edition-venus patches
+- Venus protocol strings — MoltenVK Vulkan support
+
+The `v10.0.2-utm` tag lacks these 26+ patches and **cannot compile** against UTM 5.0.1's sysroot (missing symbols like `qemu_egl_init_dpy`).
+
+**Our branch**: `utm-edition-venus-helix` = `origin/utm-edition-venus` + 47 helix patches (frame export, multi-scanout, debug logging).
+
+#### Step 2: Build QEMU Against UTM 5.0.1 Sysroot
+
+The sysroot at `~/pm/UTM/sysroot-macOS-arm64` must match the UTM version. When upgrading UTM, update sysroot libs:
+
+```bash
+# Extract framework libraries from UTM.app into sysroot as dylibs
+for fw in /Applications/UTM.app/Contents/Frameworks/*.framework; do
+  name=$(basename "$fw" .framework)
+  lib="$fw/Versions/A/$name"
+  if [ -f "$lib" ]; then
+    cp "$lib" ~/pm/UTM/sysroot-macOS-arm64/lib/lib${name}.dylib
+  fi
+done
+```
+
+Build script: `./for-mac/qemu-helix/build-qemu-standalone.sh`
+
+#### Step 3: Fix Library Paths for UTM 5.0.1 Framework Format
+
+UTM 5.0.1 bundles dependencies as macOS frameworks (`FOO.framework/Versions/A/FOO`) not flat dylibs (`libFOO.dylib`). Our QEMU links against `@rpath/libFOO.dylib` but UTM.app only has `@rpath/FOO.framework/Versions/A/FOO`.
+
+Script `scripts/fix-qemu-paths.sh` rewrites all `@rpath/libFOO.X.dylib` references to `@rpath/FOO.X.framework/Versions/A/FOO.X` using `install_name_tool -change`.
+
+This runs automatically as part of `build-qemu-standalone.sh`.
+
+#### Step 4: Critical — VIRTIO_GPU_MAX_SCANOUTS Must Be 16
+
+**Root cause of boot failure**: We accidentally changed `VIRTIO_GPU_MAX_SCANOUTS` from 16 to 32 in `include/standard-headers/linux/virtio_gpu.h`. This changed the size of `virtio_gpu_resp_display_info` from 408 bytes to 792 bytes, causing a **virtio protocol mismatch** with the guest Linux kernel (which expects exactly 16 scanouts × 24 bytes + 24-byte header = 408 bytes).
+
+Symptom: QEMU at 100% CPU, no display output, no SSH, no BIOS visible. The guest kernel's virtio-gpu driver rejects the malformed response.
+
+**Rule**: `VIRTIO_GPU_MAX_SCANOUTS` MUST match the guest kernel's compiled value (16). Changing it would require patching the Linux kernel, which we don't want to do.
+
+The separate `max_outputs` property (in `VIRTIO_GPU_BASE_PROPERTIES`) controls how many display connectors the guest sees. This is safe to change and we set it to 16 (stock UTM default is 1).
+
+#### Step 5: Install and Re-sign
+
+```bash
+# Copy built QEMU into UTM.app (done by build-qemu-standalone.sh)
+cp build/libqemu-aarch64-softmmu.dylib \
+   /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu
+
+# Re-sign (ad-hoc)
+codesign --force --deep --sign - /Applications/UTM.app
+
+# Clear UTM caches
+rm -rf ~/Library/Caches/com.utmapp.UTM
+```
+
+#### Step 6: VM Configuration (config.plist)
+
+Key VM settings in `/Volumes/Big/Linux.utm/config.plist`:
+```xml
+<key>AdditionalArguments</key>
+<array>
+    <string>-global</string>
+    <string>virtio-gpu-gl-pci.edid=on</string>
+    <string>-global</string>
+    <string>virtio-gpu-gl-pci.xres=5120</string>
+    <string>-global</string>
+    <string>virtio-gpu-gl-pci.yres=2880</string>
+</array>
+```
+
+UTM global preferences (set once):
+```bash
+defaults write com.utmapp.UTM QEMURendererBackend -int 2   # ANGLE (Metal)
+defaults write com.utmapp.UTM QEMUVulkanDriver -int 2      # MoltenVK
+```
+
+#### Verified Working Configuration
+
+- **UTM**: 5.0.1 beta from GitHub releases
+- **QEMU branch**: `utm-edition-venus-helix` (helixml/qemu-utm)
+- **VIRTIO_GPU_MAX_SCANOUTS**: 16 (protocol-compatible)
+- **max_outputs**: 16 (16 display connectors for multi-session)
+- **Venus/Vulkan**: Working — `Virtio-GPU Venus (Apple M3 Ultra)`, Vulkan 1.4.307
+- **OpenGL (virgl)**: Working — GL 4.5 with `MESA_GL_VERSION_OVERRIDE=4.5`
+- **Frame export TCP server**: Port 15937, H.264 frames flowing at ~4.8 FPS (static desktop)
+- **Guest OS**: Ubuntu 25.10 ARM64
 
 ## Architecture
 
@@ -315,13 +432,14 @@ UTM defaults to `virtio-gpu-gl-pci` for Linux VMs with ANGLE Metal backend + Ven
 
 **Reference**: [UTM Graphics Architecture](https://github.com/utmapp/UTM/blob/main/Documentation/Graphics.md), [Venus + MoltenVK Issue](https://github.com/utmapp/UTM/issues/4551)
 
-### Venus/Vulkan Known Limitations (2026-02-03)
+### Venus/Vulkan Status (2026-02-08)
 
-**Status**: Venus is **experimental** in UTM 5.0+. Testing on Ubuntu 25.10 ARM64 VM reveals:
+**Status**: Venus/Vulkan is **fully working** on UTM 5.0.1 with custom QEMU (`utm-edition-venus-helix` branch).
 
 - **OpenGL (virgl) works**: `glxinfo` shows virgl renderer, `glxgears` gets ~52 FPS (vsync)
-- **Vulkan (Venus) partially broken**: `vulkaninfo` shows `VK_ERROR_INCOMPATIBLE_DRIVER (-9)` from `libvulkan_virtio.so`, falls back to llvmpipe software rendering
-- **GNOME can fall back**: While modern mutter prefers Vulkan, it can use OpenGL backend when Vulkan unavailable
+- **Vulkan (Venus) WORKING**: `vulkaninfo` shows `Virtio-GPU Venus (Apple M3 Ultra)`, Vulkan 1.4.307 via MoltenVK
+- **Custom QEMU boots successfully** with Venus/Vulkan + helix-frame-export active
+- **Frame export TCP server** listening on port 15937, FLUSH events flowing on every frame
 
 **UTM 5.0 Release Notes state**:
 - Apple CoreGL backend does **NOT** support Vulkan
