@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -31,10 +32,17 @@ func main() {
 
 	logger.Info("=== Mutter Lease Launcher ===")
 
-	// Step 1: Get DRM lease
-	logger.Info("Requesting DRM lease...")
+	// Step 1: Get DRM lease at the configured resolution
+	width, height := 1920, 1080
+	if w, err := strconv.Atoi(os.Getenv("GAMESCOPE_WIDTH")); err == nil && w > 0 {
+		width = w
+	}
+	if h, err := strconv.Atoi(os.Getenv("GAMESCOPE_HEIGHT")); err == nil && h > 0 {
+		height = h
+	}
+	logger.Info("Requesting DRM lease...", "width", width, "height", height)
 	client := drmmanager.NewClient(drmSocket)
-	lease, err := client.RequestLease(1920, 1080)
+	lease, err := client.RequestLease(uint32(width), uint32(height))
 	if err != nil {
 		logger.Error("Failed to get lease", "err", err)
 		os.Exit(1)
