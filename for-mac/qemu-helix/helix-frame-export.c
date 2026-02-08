@@ -346,8 +346,13 @@ static int handle_frame_request(HelixFrameExport *fe,
         fe->width != (int32_t)req->width ||
         fe->height != (int32_t)req->height) {
 
+        /* Scale bitrate with pixel count: 8 Mbps at 1080p, ~20 Mbps at 4K, ~40 Mbps at 5K */
+        int64_t pixels = (int64_t)req->width * (int64_t)req->height;
+        int32_t bitrate = (int32_t)(pixels * 4); /* ~4 bits per pixel */
+        if (bitrate < 8000000) bitrate = 8000000;
+
         int ret = create_encoder_session(fe, req->width, req->height,
-                                          8000000,  /* 8 Mbps default */
+                                          bitrate,
                                           true);    /* realtime */
         if (ret != 0) {
             return HELIX_ERR_INTERNAL;
