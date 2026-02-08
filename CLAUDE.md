@@ -119,7 +119,7 @@ docker compose -f docker-compose.dev.yaml up -d api
 
 - **Control VMs with utmctl** — Don't wait for user to start VMs manually
   ```bash
-  # utmctl is in /Applications/UTM.app/Contents/MacOS/utmctl (or ~/pm/helix/UTM/build/...)
+  # utmctl is in /Applications/UTM.app/Contents/MacOS/utmctl
   utmctl list                    # List all VMs
   utmctl start <UUID>            # Start a VM
   utmctl stop <UUID>             # Stop a VM
