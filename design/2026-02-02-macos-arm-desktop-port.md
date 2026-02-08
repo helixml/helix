@@ -2235,5 +2235,17 @@ The cursor-based damage keepalive (`runDamageKeepalive`) is disabled in scanout 
   - `HelixScanoutEncoder` struct gains `bitrate` field, `create_scanout_encoder()` accepts bitrate param
   - Default bitrate auto-scales from resolution (~4 bits/pixel, minimum 5 Mbps)
 - ~~Bump `VIRTIO_GPU_MAX_SCANOUTS` to 64~~ — Deferred (requires kernel patch, not worth the effort)
-- [ ] Test 5K resolution end-to-end after VM restart with EDID
-- [ ] Rebuild QEMU with bitrate changes (`./for-mac/qemu-helix/build-qemu-standalone.sh`)
+- [x] Test 5K resolution end-to-end after VM restart with EDID
+  - Fixed UTM plist format: AdditionalArguments uses bare `<string>` elements, not `<dict>` wrappers
+  - Fixed QEMU virtio-gpu-base.c: EDID xres/yres was only applied to scanout 0, now applies to all scanouts
+  - Fixed mutter-lease-launcher: hardcoded `RequestLease(1920, 1080)`, now reads GAMESCOPE_WIDTH/HEIGHT
+  - Fixed GRUB kernel cmdline: `video=Virtual-1:1920x1080` to prevent console running at 5K
+  - Frontend default bitrate scaled with resolution: ~4 bits/pixel (59 Mbps at 5K, 33 Mbps at 4K)
+- [x] Frame export performance optimization (triple-copy → single-copy)
+  - **Before**: GPU → temp malloc → DisplaySurface → new IOSurface (3×59MB at 5K = 177MB/frame)
+  - **After**: GPU → cached IOSurface via `virgl_renderer_transfer_read_iov()` (1×59MB, no malloc)
+  - Cached IOSurface reused across frames (created once per resolution)
+  - QEMU CPU usage at 5K was 87.6% due to memory bandwidth (3.5 GB/sec of memcpy)
+  - Expected improvement: ~3x frame rate from eliminating unnecessary copies
+- [ ] Further performance investigation: virglrenderer GPU readback is still 59 MB/frame at 5K.
+  Consider dirty region tracking (SPICE does 32×32 block comparison) or lower resolution as practical default.
