@@ -33,15 +33,10 @@ type ServerConfig struct {
 	Kodit              Kodit
 	SSL                SSL
 	Organizations      Organizations
-	ExternalAgents     ExternalAgents
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
 	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
-
-	// AI Providers management - controls if users can add their own AI provider API keys
-	// Disabled by default for enterprise customers who don't want users adding external API keys
-	ProvidersManagementEnabled bool `envconfig:"PROVIDERS_MANAGEMENT_ENABLED" default:"true"`
 
 	// License key for deployment identification
 	LicenseKey string `envconfig:"LICENSE_KEY"`
@@ -496,6 +491,21 @@ type SubscriptionQuotas struct {
 			Strict           bool `envconfig:"SUBSCRIPTION_QUOTAS_INFERENCE_PRO_STRICT" default:"true"`
 		}
 	}
+	Projects struct {
+		Enabled bool `envconfig:"PROJECTS_ENABLED" default:"true" description:"Enable project quotas"`
+		Free    struct {
+			MaxConcurrentDesktops int `envconfig:"PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS" default:"2"`
+			MaxProjects           int `envconfig:"PROJECTS_FREE_MAX_PROJECTS" default:"3"`
+			MaxRepositories       int `envconfig:"PROJECTS_FREE_MAX_REPOSITORIES" default:"3"`
+			MaxSpecTasks          int `envconfig:"PROJECTS_FREE_MAX_SPEC_TASKS" default:"500"` // Non-archived/done
+		}
+		Pro struct {
+			MaxConcurrentDesktops int `envconfig:"PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS" default:"5"`
+			MaxProjects           int `envconfig:"PROJECTS_PRO_MAX_PROJECTS" default:"20"`
+			MaxRepositories       int `envconfig:"PROJECTS_PRO_MAX_REPOSITORIES" default:"20"`
+			MaxSpecTasks          int `envconfig:"PROJECTS_PRO_MAX_SPEC_TASKS" default:"10000"` // Non-archived/done
+		}
+	}
 }
 
 type GitHub struct {
@@ -566,10 +576,4 @@ type SSL struct {
 
 type Organizations struct {
 	CreateEnabledForNonAdmins bool `envconfig:"ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS" default:"true"`
-}
-
-type ExternalAgents struct {
-	// MaxConcurrentSessions is the maximum number of desktop sessions that can be created concurrently.
-	// Each session uses GPU resources (VRAM for video encoding).
-	MaxConcurrentLobbies int `envconfig:"EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES" default:"10" description:"Maximum number of concurrent desktop sessions (GPU streaming sessions)."`
 }

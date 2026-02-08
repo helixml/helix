@@ -162,6 +162,9 @@ type User struct {
 
 	SB          bool `json:"sb"`
 	Deactivated bool `json:"deactivated"`
+
+	OnboardingCompleted   bool      `json:"onboarding_completed"`
+	OnboardingCompletedAt time.Time `json:"onboarding_completed_at"`
 }
 
 type UserSearchResponse struct {
@@ -305,6 +308,7 @@ const (
 	ResourceSpecTask              Resource = "SpecTask"
 	ResourceSession               Resource = "Session"
 	ResourcePrompt                Resource = "Prompt"
+	ResourceDesktop               Resource = "Desktop"
 )
 
 type Action string

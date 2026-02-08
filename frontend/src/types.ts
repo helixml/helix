@@ -147,6 +147,7 @@ export interface IKeycloakUser {
   email: string,
   token: string,
   name: string,
+  onboarding_completed?: boolean,
 }
 
 export interface IUserConfig {

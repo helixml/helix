@@ -40,7 +40,6 @@ func (s *ProviderHandlersSuite) SetupTest() {
 
 	cfg := &config.ServerConfig{}
 	cfg.RAG.PGVector.Provider = string(types.ProviderOpenAI)
-	cfg.ProvidersManagementEnabled = true // Enable provider management to avoid early-return path
 
 	s.store = store.NewMockStore(ctrl)
 	s.openAiClient = openai.NewMockClient(ctrl)
@@ -64,6 +63,8 @@ func (s *ProviderHandlersSuite) SetupTest() {
 }
 
 func (s *ProviderHandlersSuite) TestListProviders() {
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{ProvidersManagementEnabled: true}, nil)
+
 	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{
 		{
 			Name:           "openai",
@@ -139,6 +140,8 @@ func (s *ProviderHandlersSuite) TestListProviders() {
 }
 
 func (s *ProviderHandlersSuite) TestListProviders_NoModelInfo() {
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{ProvidersManagementEnabled: true}, nil)
+
 	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{
 		{
 			Name:           "openai",

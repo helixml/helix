@@ -216,6 +216,17 @@ const Layout: FC<{
     }
   }
 
+  // Fullscreen mode: render children without any chrome (sidebar, drawer, banners)
+  if (router.meta.fullscreen) {
+    return (
+      <>
+        {children}
+        <Snackbar />
+        <GlobalLoading />
+      </>
+    )
+  }
+
   return (
     <>
       <Collapse in={showVersionBanner && hasNewVersion}>

@@ -43,6 +43,36 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 	return nil
 }
 
+func (s *PostgresStore) GetSpecTasksCount(ctx context.Context, query *GetSpecTasksCountQuery) (int64, error) {
+	if query.UserID == "" && query.OrganizationID == "" {
+		return 0, fmt.Errorf("user ID or organization ID is required")
+	}
+
+	q := s.gdb.WithContext(ctx).Model(&types.SpecTask{})
+
+	if query.OrganizationID != "" {
+		q = q.Where("organization_id = ?", query.OrganizationID)
+	} else {
+		q = q.Where("user_id = ?", query.UserID)
+	}
+
+	if !query.IncludeArchived {
+		q = q.Where("archived = ?", false)
+	}
+
+	if !query.IncludeDone {
+		q = q.Where("status != ?", types.TaskStatusDone)
+	}
+
+	var count int64
+
+	err := q.Count(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("error getting spec tasks count: %w", err)
+	}
+	return count, nil
+}
+
 // GetSpecTask retrieves a spec-driven task by ID
 func (s *PostgresStore) GetSpecTask(ctx context.Context, id string) (*types.SpecTask, error) {
 	if id == "" {

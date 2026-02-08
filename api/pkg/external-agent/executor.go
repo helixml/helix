@@ -87,8 +87,9 @@ type ZedThreadInfo struct {
 
 // ZedSession represents a single Zed session
 type ZedSession struct {
-	ProjectID      string    `json:"project_id"` // Project ID
-	SessionID      string    `json:"session_id"` // Session ID (Helix session this agent serves)
+	OrganizationID string    `json:"organization_id"` // Organization ID
+	ProjectID      string    `json:"project_id"`      // Project ID
+	SessionID      string    `json:"session_id"`      // Session ID (Helix session this agent serves)
 	UserID         string    `json:"user_id"`
 	Status         string    `json:"status"`
 	StartTime      time.Time `json:"start_time"`

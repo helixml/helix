@@ -8386,6 +8386,36 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/quotas": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get quotas for the user. Returns current usage and limits for desktops, projects, repositories, and spec tasks. Optionally pass org_id query parameter to get organization quotas.",
+                "tags": [
+                    "quotas"
+                ],
+                "summary": "Get quotas",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID to get quotas for",
+                        "name": "org_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.QuotaResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/repositories/without-projects": {
             "get": {
                 "security": [
@@ -10894,9 +10924,10 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Filter by project ID",
+                        "description": "Project ID",
                         "name": "project_id",
-                        "in": "query"
+                        "in": "query",
+                        "required": true
                     },
                     {
                         "type": "string",
@@ -13117,6 +13148,43 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/me/onboarding": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Mark onboarding as completed for the current user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Complete onboarding",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
@@ -21773,6 +21841,42 @@ const docTemplate = `{
                 "QuestionSetExecutionStatusError"
             ]
         },
+        "types.QuotaResponse": {
+            "type": "object",
+            "properties": {
+                "active_concurrent_desktops": {
+                    "type": "integer"
+                },
+                "max_concurrent_desktops": {
+                    "type": "integer"
+                },
+                "max_projects": {
+                    "type": "integer"
+                },
+                "max_repositories": {
+                    "type": "integer"
+                },
+                "max_spec_tasks": {
+                    "type": "integer"
+                },
+                "organization_id": {
+                    "description": "If applicable",
+                    "type": "string"
+                },
+                "projects": {
+                    "type": "integer"
+                },
+                "repositories": {
+                    "type": "integer"
+                },
+                "spec_tasks": {
+                    "type": "integer"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.RAGSettings": {
             "type": "object",
             "properties": {
@@ -21942,7 +22046,8 @@ const docTemplate = `{
                 "GitRepository",
                 "SpecTask",
                 "Session",
-                "Prompt"
+                "Prompt",
+                "Desktop"
             ],
             "x-enum-varnames": [
                 "ResourceTeam",
@@ -21960,7 +22065,8 @@ const docTemplate = `{
                 "ResourceGitRepository",
                 "ResourceSpecTask",
                 "ResourceSession",
-                "ResourcePrompt"
+                "ResourcePrompt",
+                "ResourceDesktop"
             ]
         },
         "types.ResourceSearchRequest": {
@@ -22553,6 +22659,9 @@ const docTemplate = `{
                 },
                 "license": {
                     "$ref": "#/definitions/types.FrontendLicenseInfo"
+                },
+                "max_concurrent_desktops": {
+                    "type": "integer"
                 },
                 "organizations_create_enabled_for_non_admins": {
                     "type": "boolean"
@@ -24683,6 +24792,9 @@ const docTemplate = `{
         "types.SystemSettingsRequest": {
             "type": "object",
             "properties": {
+                "enforce_quotas": {
+                    "type": "boolean"
+                },
                 "huggingface_token": {
                     "type": "string"
                 },
@@ -24692,6 +24804,12 @@ const docTemplate = `{
                 "kodit_enrichment_provider": {
                     "description": "Kodit enrichment model configuration",
                     "type": "string"
+                },
+                "max_concurrent_desktops": {
+                    "type": "integer"
+                },
+                "providers_management_enabled": {
+                    "type": "boolean"
                 }
             }
         },
@@ -24700,6 +24818,9 @@ const docTemplate = `{
             "properties": {
                 "created": {
                     "type": "string"
+                },
+                "enforce_quotas": {
+                    "type": "boolean"
                 },
                 "huggingface_token_set": {
                     "description": "Sensitive fields are masked",
@@ -24722,6 +24843,13 @@ const docTemplate = `{
                 "kodit_enrichment_provider": {
                     "description": "Kodit enrichment model configuration (not sensitive, returned as-is)",
                     "type": "string"
+                },
+                "max_concurrent_desktops": {
+                    "description": "Per user",
+                    "type": "integer"
+                },
+                "providers_management_enabled": {
+                    "type": "boolean"
                 },
                 "updated": {
                     "type": "string"
@@ -25604,6 +25732,12 @@ const docTemplate = `{
                     "description": "if the user must change their password",
                     "type": "boolean"
                 },
+                "onboarding_completed": {
+                    "type": "boolean"
+                },
+                "onboarding_completed_at": {
+                    "type": "string"
+                },
                 "password_hash": {
                     "description": "bcrypt hash of the password",
                     "type": "array",
@@ -25699,6 +25833,9 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "onboarding_completed": {
+                    "type": "boolean"
                 },
                 "token": {
                     "type": "string"

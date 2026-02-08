@@ -16,6 +16,23 @@ type ListProjectsQuery struct {
 	IncludeStats   bool
 }
 
+type GetProjectsCountQuery struct {
+	UserID         string
+	OrganizationID string
+}
+
+type GetRepositoriesCountQuery struct {
+	UserID         string
+	OrganizationID string
+}
+
+type GetSpecTasksCountQuery struct {
+	UserID          string
+	OrganizationID  string
+	IncludeArchived bool
+	IncludeDone     bool
+}
+
 type GetJobsQuery struct {
 	Owner     string          `json:"owner"`
 	OwnerType types.OwnerType `json:"owner_type"`
@@ -437,6 +454,7 @@ type Store interface {
 
 	// spec-driven tasks
 	CreateSpecTask(ctx context.Context, task *types.SpecTask) error
+	GetSpecTasksCount(ctx context.Context, query *GetSpecTasksCountQuery) (int64, error)
 	GetSpecTask(ctx context.Context, id string) (*types.SpecTask, error)
 	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
 	DeleteSpecTask(ctx context.Context, id string) error
@@ -551,6 +569,7 @@ type Store interface {
 	CreateProject(ctx context.Context, project *types.Project) (*types.Project, error)
 	GetProject(ctx context.Context, projectID string) (*types.Project, error)
 	ListProjects(ctx context.Context, query *ListProjectsQuery) ([]*types.Project, error)
+	GetProjectsCount(ctx context.Context, query *GetProjectsCountQuery) (int64, error)
 	UpdateProject(ctx context.Context, project *types.Project) error
 	DeleteProject(ctx context.Context, projectID string) error
 	SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error
@@ -567,6 +586,7 @@ type Store interface {
 	ListProjectRepositories(ctx context.Context, q *types.ListProjectRepositoriesQuery) ([]*types.ProjectRepository, error)
 	GetProjectsForRepository(ctx context.Context, repositoryID string) ([]string, error)
 	GetRepositoriesForProject(ctx context.Context, projectID string) ([]string, error)
+	GetRepositoriesCount(ctx context.Context, query *GetRepositoriesCountQuery) (int64, error)
 	// IncrementProjectTaskNumber atomically increments NextTaskNumber and returns the new value
 	// Used to assign unique task numbers for human-readable design doc paths
 	// DEPRECATED: Use IncrementGlobalTaskNumber for new tasks

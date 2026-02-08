@@ -112,15 +112,14 @@ export interface ICreateAgentParams {
   image?: string;
   systemPrompt?: string;
   knowledge?: IKnowledgeSource[];
-  agentType?: IAgentType; // Agent type: 'helix_basic', 'helix_agent', or 'zed_external'
+  agentType?: IAgentType;
 
-  // Code agent runtime for zed_external agents
   codeAgentRuntime?: CodeAgentRuntime;
 
-  // Default model for basic chat mode (non-agent mode)
   model?: string;
 
-  // Models and providers for agent mode
+  organizationId?: string;
+
   reasoningModelProvider: string;
   reasoningModel: string;
   reasoningModelEffort: string;
@@ -202,7 +201,7 @@ export const useAppsContext = (): IAppsContext => {
       const effectiveModel = params.model || params.generationModel || '';
 
       const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
-        organization_id: account.organizationTools.organization?.id || '',
+        organization_id: params.organizationId || account.organizationTools.organization?.id || '',
         config: {
           helix: {
             external_url: '',

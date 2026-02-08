@@ -43,6 +43,26 @@ func (s *PostgresStore) UpdateProject(ctx context.Context, project *types.Projec
 	return nil
 }
 
+func (s *PostgresStore) GetProjectsCount(ctx context.Context, query *GetProjectsCountQuery) (int64, error) {
+	if query.UserID == "" && query.OrganizationID == "" {
+		return 0, fmt.Errorf("user ID or organization ID is required")
+	}
+
+	var count int64
+	q := s.gdb.WithContext(ctx).Model(&types.Project{})
+	if query.UserID != "" {
+		q = q.Where("user_id = ?", query.UserID)
+	}
+	if query.OrganizationID != "" {
+		q = q.Where("organization_id = ?", query.OrganizationID)
+	}
+	err := q.Count(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("error getting projects count: %w", err)
+	}
+	return count, nil
+}
+
 // ListProjects lists all projects for a given user
 func (s *PostgresStore) ListProjects(ctx context.Context, req *ListProjectsQuery) ([]*types.Project, error) {
 	if req.UserID == "" && req.OrganizationID == "" {

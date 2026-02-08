@@ -434,6 +434,21 @@ export const useAccountContext = (): IAccountContext => {
     }
   }, [user])
 
+  // Redirect to onboarding if user hasn't completed it and has no orgs
+  useEffect(() => {
+    if (!initialized || !user) return
+    // Don't redirect if already on onboarding page
+    if (router.name === 'onboarding') return
+    // Don't redirect if onboarding is already completed
+    if (user.onboarding_completed) return
+    // Don't redirect if user already has organizations (not a fresh account)
+    if (organizationTools.organizations.length > 0) return
+    // Wait for organizations to be loaded before deciding
+    if (organizationTools.loading) return
+
+    router.navigateReplace('onboarding')
+  }, [initialized, user, router.name, organizationTools.organizations.length, organizationTools.loading])
+
   return {
     initialized,
     user,

@@ -251,18 +251,11 @@ func (h *HelixAuthenticator) ValidateUserToken(ctx context.Context, accessToken 
 		user.Admin = true
 	}
 
-	return &types.User{
-		ID:          user.ID,
-		Username:    user.Username,
-		Email:       user.Email,
-		FullName:    user.FullName,
-		Token:       accessToken,
-		TokenType:   types.TokenTypeNone,
-		Type:        types.OwnerTypeUser,
-		Admin:       user.Admin,
-		SB:          user.SB,
-		Deactivated: user.Deactivated,
-	}, nil
+	user.Token = accessToken
+	user.TokenType = types.TokenTypeNone
+	user.Type = types.OwnerTypeUser
+
+	return user, nil
 }
 
 func (h *HelixAuthenticator) GenerateUserToken(_ context.Context, user *types.User) (string, error) {
