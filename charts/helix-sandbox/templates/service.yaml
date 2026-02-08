@@ -1,3 +1,4 @@
+{{- if .Values.service.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -10,11 +11,6 @@ metadata:
   {{- end }}
 spec:
   type: {{ .Values.service.type }}
-  ports:
-    # WebSocket streaming port
-    - port: {{ .Values.service.web.port }}
-      targetPort: web
-      protocol: TCP
-      name: web
   selector:
     {{- include "helix-sandbox.selectorLabels" . | nindent 4 }}
+{{- end }}

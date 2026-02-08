@@ -1,24 +1,14 @@
-{{- if or (not .Values.deployment) (eq (default "Deployment" .Values.deployment.type) "Deployment") }}
+{{- if eq .Values.deployment.type "StatefulSet" }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "helix-sandbox.fullname" . }}
   labels:
     {{- include "helix-sandbox.labels" . | nindent 4 }}
 spec:
+  serviceName: {{ include "helix-sandbox.fullname" . }}-headless
   replicas: {{ .Values.replicaCount }}
-  {{- if and .Values.deployment .Values.deployment.strategy }}
-  strategy:
-    type: {{ .Values.deployment.strategy.type | default "Recreate" }}
-    {{- if eq .Values.deployment.strategy.type "RollingUpdate" }}
-    rollingUpdate:
-      maxSurge: {{ .Values.deployment.strategy.rollingUpdate.maxSurge | default "25%" }}
-      maxUnavailable: {{ .Values.deployment.strategy.rollingUpdate.maxUnavailable | default "25%" }}
-    {{- end }}
-  {{- else }}
-  strategy:
-    type: Recreate
-  {{- end }}
+  podManagementPolicy: {{ .Values.deployment.podManagementPolicy | default "Parallel" }}
   selector:
     matchLabels:
       {{- include "helix-sandbox.selectorLabels" . | nindent 6 }}
@@ -86,14 +76,11 @@ spec:
               {{- else }}
               value: {{ .Values.sandbox.runnerToken | quote }}
               {{- end }}
+            # StatefulSet: use pod name as unique sandbox instance ID
             - name: SANDBOX_INSTANCE_ID
-              {{- if .Values.sandbox.instanceId }}
-              value: {{ .Values.sandbox.instanceId | quote }}
-              {{- else }}
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-              {{- end }}
             - name: MAX_SANDBOXES
               value: {{ .Values.sandbox.maxSandboxes | quote }}
 
@@ -235,7 +222,6 @@ spec:
             {{- toYaml $resources | nindent 12 }}
 
           # Health check: verify nested dockerd is running
-          # The sandbox doesn't expose ports (uses RevDial for outbound connection)
           livenessProbe:
             exec:
               command:
@@ -257,27 +243,6 @@ spec:
             failureThreshold: 3
 
       volumes:
-        - name: docker-storage
-          {{- if .Values.persistence.dockerStorage.enabled }}
-          persistentVolumeClaim:
-            claimName: {{ include "helix-sandbox.fullname" . }}-docker
-          {{- else }}
-          emptyDir: {}
-          {{- end }}
-        - name: hydra-data
-          {{- if .Values.persistence.hydraData.enabled }}
-          persistentVolumeClaim:
-            claimName: {{ include "helix-sandbox.fullname" . }}-hydra
-          {{- else }}
-          emptyDir: {}
-          {{- end }}
-        - name: workspace-data
-          {{- if .Values.persistence.workspaceData.enabled }}
-          persistentVolumeClaim:
-            claimName: {{ include "helix-sandbox.fullname" . }}-workspace
-          {{- else }}
-          emptyDir: {}
-          {{- end }}
         - name: tmp-sockets
           emptyDir: {}
         - name: hydra-socket
@@ -307,4 +272,61 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+
+  # VolumeClaimTemplates for per-pod persistent storage
+  volumeClaimTemplates:
+    - metadata:
+        name: docker-storage
+        labels:
+          {{- include "helix-sandbox.labels" . | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.dockerStorage.accessModes | nindent 10 }}
+        {{- if .Values.persistence.dockerStorage.storageClassName }}
+        storageClassName: {{ .Values.persistence.dockerStorage.storageClassName | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.dockerStorage.size }}
+    - metadata:
+        name: hydra-data
+        labels:
+          {{- include "helix-sandbox.labels" . | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.hydraData.accessModes | nindent 10 }}
+        {{- if .Values.persistence.hydraData.storageClassName }}
+        storageClassName: {{ .Values.persistence.hydraData.storageClassName | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.hydraData.size }}
+    - metadata:
+        name: workspace-data
+        labels:
+          {{- include "helix-sandbox.labels" . | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.workspaceData.accessModes | nindent 10 }}
+        {{- if .Values.persistence.workspaceData.storageClassName }}
+        storageClassName: {{ .Values.persistence.workspaceData.storageClassName | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.workspaceData.size }}
+{{- end }}
+---
+{{- if eq .Values.deployment.type "StatefulSet" }}
+# Headless service required for StatefulSet DNS
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helix-sandbox.fullname" . }}-headless
+  labels:
+    {{- include "helix-sandbox.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    {{- include "helix-sandbox.selectorLabels" . | nindent 4 }}
 {{- end }}

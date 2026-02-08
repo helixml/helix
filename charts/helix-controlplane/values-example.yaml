@@ -278,7 +278,10 @@ controlplane:
 ## Ingress configuration
 ingress:
   enabled: false
-  # Example ingress with TLS:
+
+  # ============================================================
+  # Example: NGINX Ingress with cert-manager TLS
+  # ============================================================
   # className: "nginx"
   # annotations:
   #   nginx.ingress.kubernetes.io/rewrite-target: /
@@ -293,6 +296,74 @@ ingress:
   #   - secretName: helix-tls
   #     hosts:
   #       - helix.mydomain.com
+
+  # ============================================================
+  # Example: GKE with cert-manager (RECOMMENDED)
+  # ============================================================
+  # cert-manager with DNS-01 challenge is more reliable than GKE managed
+  # certificates because it doesn't require the load balancer to exist first.
+  #
+  # Prerequisites:
+  # 1. Install cert-manager: https://cert-manager.io/docs/installation/
+  # 2. Configure Cloud DNS issuer: https://cert-manager.io/docs/configuration/acme/dns01/google/
+  # 3. Reserve a global static IP:
+  #    gcloud compute addresses create helix-ip --global
+  # 4. Point your DNS to the reserved IP
+  #
+  # className: "gce"
+  # annotations:
+  #   kubernetes.io/ingress.global-static-ip-name: "helix-ip"
+  #   cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  # hosts:
+  #   - host: helix.mydomain.com
+  #     paths:
+  #       - path: /
+  #         pathType: ImplementationSpecific
+  # tls:
+  #   - secretName: helix-tls
+  #     hosts:
+  #       - helix.mydomain.com
+
+  # ============================================================
+  # Example: GKE with Google-managed certificate (simpler setup)
+  # ============================================================
+  # Simpler than cert-manager but takes longer to provision (~20-30 min).
+  # Single helm install - just wait for certificate to provision.
+  #
+  # Prerequisites:
+  # 1. Reserve a global static IP:
+  #    gcloud compute addresses create helix-ip --global
+  # 2. Point your DNS to the reserved IP BEFORE installing:
+  #    gcloud compute addresses describe helix-ip --global --format="value(address)"
+  #    # Add A record: helix.mydomain.com -> <IP from above>
+  # 3. Wait for DNS propagation (verify with: dig helix.mydomain.com)
+  #
+  # Install:
+  #   helm install my-helix ./charts/helix-controlplane \
+  #     --set ingress.enabled=true \
+  #     --set ingress.className=gce \
+  #     --set ingress.hosts[0].host=helix.mydomain.com \
+  #     --set ingress.hosts[0].paths[0].path=/ \
+  #     --set ingress.hosts[0].paths[0].pathType=ImplementationSpecific \
+  #     --set 'ingress.annotations.kubernetes\.io/ingress\.global-static-ip-name=helix-ip' \
+  #     --set ingress.gke.managedCertificate.enabled=true
+  #
+  # Monitor progress:
+  #   kubectl get ingress -n helix -w                    # Wait for IP (5-10 min)
+  #   kubectl get managedcertificate -n helix -w         # Wait for Active (15-20 min)
+  #
+  # className: "gce"
+  # annotations:
+  #   kubernetes.io/ingress.global-static-ip-name: "helix-ip"
+  # hosts:
+  #   - host: helix.mydomain.com
+  #     paths:
+  #       - path: /
+  #         pathType: ImplementationSpecific
+  # gke:
+  #   managedCertificate:
+  #     enabled: true
+  #     # domains: []  # If empty, uses ingress.hosts[].host automatically
 
 ## Resource configuration
 # We usually recommend not to specify default resources and to leave this as a conscious
