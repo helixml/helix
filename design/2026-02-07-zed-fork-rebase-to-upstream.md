@@ -278,6 +278,34 @@ Added a new constructor that bypasses the connection/loading path:
 - **Labels:** "Main thread" for `planning_session_id`, additional threads by name or "Thread N"
 - **PR:** #1596 on helixml/helix
 
+## E2E UI State Query (2026-02-08)
+
+### Problem
+The existing E2E test only validates WebSocket protocol events (`thread_created`, `message_completed`). These events come from `thread_service.rs` which works independently of the UI layer. If `from_existing_thread` is broken, the protocol events still flow correctly but the agent panel never displays the thread — a silent regression.
+
+### Solution: `query_ui_state` command (commit `a83ddc0`)
+Added a new WebSocket command that lets the mock server query the agent panel's actual UI state:
+
+- **Mock sends:** `{"type": "query_ui_state", "data": {"query_id": "q1"}}`
+- **Zed responds:** `{"event_type": "ui_state_response", "data": {"query_id": "q1", "active_view": "agent_thread", "thread_id": "...", "entry_count": 5}}`
+
+The mock server queries after each phase:
+1. After Phase 1 completion → verify `active_view == "agent_thread"`, correct `thread_id`, `entry_count >= 2`
+2. After Phase 2 completion → verify same `thread_id` (follow-up), `entry_count` increased
+3. After Phase 3 completion → verify DIFFERENT `thread_id` (new thread switched)
+
+### Architecture
+Uses the same global callback pattern as `ThreadDisplayNotification`:
+- `external_websocket_sync.rs`: `GLOBAL_UI_STATE_QUERY_CALLBACK` + `request_ui_state_query()`
+- `agent_panel.rs`: callback handler inspects `self.active_view`, reads thread state, sends `UiStateResponse`
+- `websocket_sync.rs`: `query_ui_state` command handler dispatches to callback
+
+### Python concurrency fix
+The mock server message loop (`async for message in websocket`) is sequential. Sending `query_ui_state` and waiting for the response in the same iteration would deadlock. Fixed by spawning phase advancement as `asyncio.create_task()` so the message loop stays unblocked to receive `ui_state_response`.
+
+### Go handler compatibility
+Verified the Helix Go handler (`websocket_external_agent_sync.go`) has a `default` case in the event type switch that logs a warning and returns `nil`. The `ui_state_response` events are safely ignored in production.
+
 ## Next Steps
 
 1. ~~**Fix model configuration in E2E test**~~ DONE
@@ -290,3 +318,5 @@ Added a new constructor that bypasses the connection/loading path:
 8. **Test session resume** - Kill and restart Zed, verify thread state restored
 9. ~~**CI integration**~~ DONE
 10. ~~**Helix multi-thread session support**~~ DONE
+11. ~~**Add UI state query to E2E test**~~ DONE (commit `a83ddc0`)
+12. **Rewrite E2E mock server in Go** — Better concurrency model (goroutines vs asyncio), consistent with Helix codebase language, easier to maintain
