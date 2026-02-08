@@ -343,11 +343,134 @@ thread_service → AcpThread.send().await → read entries → send_websocket_ev
 - New fork E2E test after fix: Protocol events PASS (message_added, message_completed for all 3 phases)
 - UI state queries partially pass (active_view=agent_thread works, but thread_id mismatch and entry_count=0 for phases 1-2 due to subscribe_in still not delivering bridge events to UI)
 
-### Remaining Issue: UI Live Updates
-The `subscribe_in` problem also affects the Zed UI — thread entries pushed by the bridge don't trigger UI updates (list sync, scroll, etc.). The user sees a "frozen snapshot" of the thread. This requires either:
-1. Using App-level subscribe with manual window dispatch (attempted, works for callback delivery but complex)
-2. Polling the AcpThread entries on a timer for UI updates
-3. Fixing GPUI to deliver events from cx.spawn() to subscribe_in subscribers
+### UI Freeze Fix (commit `55882e8`)
+
+Two fixes for the frozen thread display:
+
+1. **Channel-based event forwarding**: Use windowless `cx.subscribe` (on `Context<AcpServerView>`) to catch ALL thread events including bridge events. Forward through `tokio::sync::mpsc::unbounded_channel<()>` to a `cx.spawn_in(window, ...)` task that has window context. Inside the task, sync entries to `entry_view_state` and `list_state`. Key: `synced_count` tracks already-synced entries to avoid duplicates.
+
+2. **Focus panel ordering**: Moved `workspace.focus_panel::<AgentPanel>()` AFTER `set_active_view()` in the `ThreadDisplayNotification` handler. Previously, `focus_panel` triggered `set_active(true)` which saw `Uninitialized` and called `new_agent_thread()` creating a spurious default thread. Then `set_active_view` replaced it. The UI state query between these two operations returned the wrong thread_id.
+
+**Key code pattern** (`crates/agent_ui/src/acp/thread_view.rs:444-490`):
+```rust
+// Windowless subscribe catches bridge events
+let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+cx.subscribe(&thread, move |_this, _thread, _event, _cx| {
+    let _ = event_tx.send(());
+});
+
+// Window-context task processes events
+cx.spawn_in(window, async move |this, cx| {
+    let mut synced_count = initial_entry_count;
+    while event_rx.recv().await.is_some() {
+        while event_rx.try_recv().is_ok() {} // batch
+        this.update_in(cx, |this, window, cx| {
+            // sync entries synced_count..total to entry_view_state + list_state
+        }).ok();
+    }
+}).detach();
+```
+
+**Agent panel handler** (`crates/agent_ui/src/agent_panel.rs:667-719`):
+```
+// CORRECT ORDER:
+this.update_in(cx, ...) → from_existing_thread → set_active_view  // FIRST
+workspace.focus_panel::<AgentPanel>()                               // SECOND
+```
+
+### E2E Test Results After Both Fixes
+All 3 phases pass protocol + UI state:
+- Phase 1: `thread_id` correct, `entry_count=2` ✅
+- Phase 2: same `thread_id`, `entry_count=4` ✅
+- Phase 3: different `thread_id`, `entry_count=2` ✅
+
+## Known Issues (2026-02-08, post UI freeze fix)
+
+### 1. Thread NOT Persisted to ThreadStore ("View All" doesn't show it)
+The `from_existing_thread` method creates an `AcpServerView` wrapping the headless thread, but does NOT register it in the `ThreadStore` (history). In the old flow, `new_agent_thread()` → `open_thread()` → `push_recently_opened_entry()` handled this. Since we moved `focus_panel` AFTER `set_active_view`, the `new_agent_thread` path is no longer triggered (because `set_active` sees `AgentThread` not `Uninitialized`).
+
+**Fix needed**: Explicitly register the thread in `ThreadStore` in `from_existing_thread` or in the `ThreadDisplayNotification` handler. Look for `push_recently_opened_entry` or `AcpThreadHistory::push_recently_opened_entry` patterns.
+
+### 2. WebSocket Updates Only at Completion (Not Streaming/Incremental)
+The `thread_service.rs` fix sends `message_added` + `message_completed` AFTER `send_task.await` completes. This means ALL assistant content arrives in a single `message_added` event at the end, not incrementally. The old fork sent `message_added` after each `NewEntry`/`EntryUpdated` event via `handle_thread_event`.
+
+**Impact**: The Helix session text box shows no progress until the entire LLM turn finishes. Previously it updated after each tool call.
+
+**Fix needed**: Add intermediate `message_added` WebSocket events during the LLM response. Options:
+1. Have the channel-based event forwarder in `from_existing_thread` also send WebSocket events
+2. Subscribe to AcpThread events in `thread_service.rs` and forward them incrementally
+3. Use the `App::subscribe` pattern (fires without window context) specifically for WebSocket forwarding
+
+Option 2 is cleanest: `thread_service.rs` already has the thread entity. Add a GPUI `App::subscribe` on the AcpThread to send `message_added` events as entries arrive, and send `message_completed` at the end.
+
+**Key architectural insight**: `App::subscribe` (not `subscribe_in`) DOES fire for events from `cx.spawn()` — we confirmed this in testing. It just can't call `handle_thread_event` because that needs window context. But `send_websocket_event` does NOT need window context, so `App::subscribe` is perfect for WebSocket forwarding.
+
+### 3. "Welcome to Zed AI" Onboarding Still Shows
+The E2E settings set `"show_onboarding": false` but the onboarding/upsell screen still appears. Need to check:
+- `AgentPanelOnboarding` / `OnboardingUpsell` in `agent_ui`
+- Whether `show_onboarding` setting name changed in the rebase
+- Whether additional settings are needed (e.g., `OnboardingUpsell::set_dismissed(true, cx)`)
+
+## Commits on helixml/zed main (latest first)
+
+| Commit | Description |
+|--------|-------------|
+| `55882e8` | fix: UI freeze fix (channel forwarding + focus_panel ordering) |
+| `cc037db` | fix: WebSocket events from thread_service instead of UI subscription |
+| `a83ddc0` | feat: query_ui_state command for E2E UI verification |
+| `e0cc99f` | fix: implement from_existing_thread for AcpServerView |
+| `cf72593` | fix: restore thread auto-open and disable restricted mode |
+
+## Commits on helixml/helix feature/multi-thread-dropdown (latest first)
+
+| Commit | Description |
+|--------|-------------|
+| `008f481` | fix: update zed to 55882e8 with UI freeze fix |
+| `917d22f` | fix: update zed to cc037db with WebSocket event flow fix |
+| `b543f01` | feat: add UI state query to E2E test, update zed commit |
+| `63f96c5` | docs: update design doc with post-rebase thread sync fix context |
+
+## Key Architecture Knowledge
+
+### GPUI Subscription Behavior
+- `cx.subscribe_in(&entity, window, handler)` — only fires when event is emitted within a window context. Bridge events from `cx.spawn()` are SILENTLY DROPPED.
+- `cx.subscribe(&entity, handler)` on `Context<T>` — fires regardless of context, but callback doesn't get `&mut Window`
+- `App::subscribe(&entity, handler)` — fires regardless of context, callback gets `&mut App` (can call `send_websocket_event` but not UI methods)
+- Solution for UI: windowless subscribe → channel → `cx.spawn_in(window)` for window context
+- Solution for WebSocket: `App::subscribe` directly
+
+### Thread Creation Flow (NativeAgent)
+```
+NativeAgentConnection::new_thread()
+  → NativeAgent::new_session()
+    → Thread::new() — creates agent::Thread
+    → register_session() — creates AcpThread, stores both in sessions HashMap
+  → Returns Entity<AcpThread>
+
+NativeAgentConnection::prompt()
+  → run_turn() — gets (thread, acp_thread) from sessions HashMap
+    → thread.send() — calls LLM, returns event receiver
+    → handle_thread_events() — spawns cx.spawn() that forwards ThreadEvent → AcpThread
+```
+
+### Event Bridge (agent.rs:993-1086)
+```
+ThreadEvent::AgentText → acp_thread.push_assistant_content_block() → cx.emit(NewEntry)
+ThreadEvent::Stop → return Ok(PromptResponse)
+```
+
+### Entry Sync Pattern (for UI list rendering)
+```rust
+entry_view_state.update(cx, |view_state, cx| {
+    view_state.sync_entry(index, &thread, window, cx);  // needs Window
+});
+list_state.splice_focusable(range, focus_handles);
+```
+
+### AcpThreadHistory / ThreadStore
+- `push_recently_opened_entry(HistoryEntryId::AcpThread(session_id), cx)` — adds to history
+- Used by "View All" to show thread list
+- Called in normal `open_thread` flow but NOT in `from_existing_thread`
 
 ## Next Steps
 
@@ -356,11 +479,14 @@ The `subscribe_in` problem also affects the Zed UI — thread entries pushed by 
 3. ~~**Fix new fork event forwarding**~~ DONE (via `from_existing_thread`)
 4. ~~**Add multi-thread E2E test**~~ DONE
 5. ~~**Update helixml/zed main**~~ DONE
-6. ~~**Fix WebSocket event flow regression**~~ DONE (commit `cc037db` — send events from thread_service directly)
-6b. **Fix UI live updates** — subscribe_in doesn't deliver bridge events; need App-level subscribe or polling
+6. ~~**Fix WebSocket event flow regression**~~ DONE (commit `cc037db`)
+6b. ~~**Fix UI live updates**~~ DONE (commit `55882e8` — channel-based forwarding)
 7. **Add Qwen Code ACP test** - Test with Qwen Code agent using Together AI
 8. **Test session resume** - Kill and restart Zed, verify thread state restored
 9. ~~**CI integration**~~ DONE
 10. ~~**Helix multi-thread session support**~~ DONE
 11. ~~**Add UI state query to E2E test**~~ DONE (commit `a83ddc0`)
-12. **Rewrite E2E mock server in Go** — Better concurrency model (goroutines vs asyncio), consistent with Helix codebase language, easier to maintain
+12. **Rewrite E2E mock server in Go** — Better concurrency model
+13. **Fix thread persistence** — Register headless threads in ThreadStore (push_recently_opened_entry)
+14. **Fix streaming WebSocket updates** — Send message_added incrementally via App::subscribe, not just at completion
+15. **Fix "Welcome to Zed AI" onboarding** — Check show_onboarding setting or OnboardingUpsell::set_dismissed
