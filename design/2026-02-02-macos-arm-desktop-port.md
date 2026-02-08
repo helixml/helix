@@ -1,8 +1,8 @@
 # macOS ARM Desktop Port - Architecture Design
 
 **Date**: 2026-02-02
-**Last Updated**: 2026-02-08 22:00 UTC
-**Status**: Custom QEMU Working with Venus/Vulkan + Frame Export TCP Server Active
+**Last Updated**: 2026-02-09
+**Status**: Custom QEMU working with Venus/Vulkan + single-scanout frame export. Multi-scanout blocked by UTM/SPICE limitation.
 
 ## Executive Summary
 
@@ -63,8 +63,9 @@ Port Helix desktop streaming to macOS ARM64 (Apple Silicon). Use UTM/QEMU VM wit
 - ✅ **Library path fix for UTM 5.0.1**: `fix-qemu-paths.sh` rewritten to handle UTM 5.0.1's framework format (`FOO.framework/Versions/A/FOO` instead of `libFOO.dylib`)
 - ✅ **Correct QEMU base branch identified**: UTM 5.0.1 ships `utm-edition-venus` branch (contains Metal texture, CGL, IOSurface code), NOT the `v10.0.2-utm` tag. Our `utm-edition-venus-helix` branch is the correct fork.
 - ✅ **H.264 frame export verified via TCP client**: Python test client connected to port 15937, sent SUBSCRIBE message, received H.264 frames at ~4.8 FPS on static desktop. First frame 9746 bytes (keyframe with SPS/PPS NAL units), subsequent P-frames 350-421 bytes.
-- ✅ **max_outputs set to 16**: Supports 16 independent scanouts for multi-session display capture. Stock UTM default is 1, but we need 16 for container-per-scanout mapping. `VIRTIO_GPU_MAX_SCANOUTS` stays at protocol-compatible 16 (matching guest kernel struct sizes).
-- **NEXT**: Test multi-session frame capture — verify multiple containers can each get a dedicated scanout with independent H.264 encoding. Integrate TCP frame client into for-mac Wails app.
+- ❌ **max_outputs > 1 does NOT work**: UTM's SPICE+Metal display backend cannot handle multiple GL display channels. With max_outputs > 1, `graphic_console_init` creates multiple SPICE display channels that cause the VM to hang at 100% CPU before UEFI can even render. Stock UTM also defaults to max_outputs=1. Reverted to 1.
+- **ARCHITECTURE CHANGE**: Multi-session frame capture cannot use multiple virtio-gpu scanouts. Need alternative approach — virtual framebuffers in the frame export layer, or a single scanout with compositing, or separate QEMU instances per session.
+- **NEXT**: Design alternative multi-session architecture. Integrate TCP frame client into for-mac Wails app.
 
 **Remaining Work:**
 1. ~~Integrate vsockenc into helix-ubuntu desktop image build~~ ✅ Done (helix-ubuntu:169abe)
@@ -272,20 +273,18 @@ Symptom: QEMU at 100% CPU, no display output, no SSH, no BIOS visible. The guest
 
 **Rule**: `VIRTIO_GPU_MAX_SCANOUTS` MUST match the guest kernel's compiled value (16). Changing it would require patching the Linux kernel, which we don't want to do.
 
-The separate `max_outputs` property (in `VIRTIO_GPU_BASE_PROPERTIES`) controls how many display connectors the guest sees. This is safe to change and we set it to 16 (stock UTM default is 1).
+The separate `max_outputs` property (in `VIRTIO_GPU_BASE_PROPERTIES`) controls how many display connectors the guest sees. **However, max_outputs > 1 does NOT work on UTM/macOS** — UTM's SPICE+Metal display backend hangs when `graphic_console_init` creates multiple GL display channels. Stock UTM also defaults to max_outputs=1. We keep it at 1.
 
-#### Step 5: Install and Re-sign
+#### Step 5: Install (No Re-signing Needed)
 
 ```bash
-# Copy built QEMU into UTM.app (done by build-qemu-standalone.sh)
-cp build/libqemu-aarch64-softmmu.dylib \
-   /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework/Versions/A/qemu-aarch64-softmmu
+# Just run the build script — it copies the binary and clears caches
+./for-mac/qemu-helix/build-qemu-standalone.sh
 
-# Re-sign (ad-hoc)
-codesign --force --deep --sign - /Applications/UTM.app
-
-# Clear UTM caches
-rm -rf ~/Library/Caches/com.utmapp.UTM
+# ⚠️ DO NOT re-sign UTM.app! Running `codesign --force --deep --sign -`
+# destroys the com.apple.security.hypervisor entitlement, causing
+# HV_DENIED errors. The build script only replaces the QEMU framework
+# binary, which doesn't require re-signing the outer app.
 ```
 
 #### Step 6: VM Configuration (config.plist)
@@ -314,7 +313,7 @@ defaults write com.utmapp.UTM QEMUVulkanDriver -int 2      # MoltenVK
 - **UTM**: 5.0.1 beta from GitHub releases
 - **QEMU branch**: `utm-edition-venus-helix` (helixml/qemu-utm)
 - **VIRTIO_GPU_MAX_SCANOUTS**: 16 (protocol-compatible)
-- **max_outputs**: 16 (16 display connectors for multi-session)
+- **max_outputs**: 1 (UTM/SPICE limitation — max_outputs > 1 hangs the VM)
 - **Venus/Vulkan**: Working — `Virtio-GPU Venus (Apple M3 Ultra)`, Vulkan 1.4.307
 - **OpenGL (virgl)**: Working — GL 4.5 with `MESA_GL_VERSION_OVERRIDE=4.5`
 - **Frame export TCP server**: Port 15937, H.264 frames flowing at ~4.8 FPS (static desktop)
