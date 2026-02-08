@@ -41,7 +41,7 @@ See also: `.cursor/rules/*.mdc`
 
 ### Stack Commands
 - **NEVER** run `./stack start` — user runs this (needs interactive terminal)
-- ✅ OK: `./stack build`, `build-zed`, `build-sway`, `build-ubuntu`, `build-sandbox`, `update_openapi`
+- ✅ OK: `./stack build`, `build-zed`, `build-ubuntu`, `build-sandbox`, `update_openapi`
 
 ### Hot Reloading
 - **API**: Uses [Air](https://github.com/air-verse/air) — Go changes auto-rebuild
@@ -92,7 +92,7 @@ docker compose -f docker-compose.dev.yaml up -d api
 - **NEVER** use `--no-cache` — trust Docker cache
 - **NEVER** run ANY cache-clearing commands — the cache is correct, you are wrong
 - **NEVER** run commands that slow down future builds — trust the build system
-- **IF DISK IS FULL**: Delete old helix-ubuntu/helix-sway IMAGE TAGS (not build cache!), delete dangling volumes, or ask user. NEVER touch build cache.
+- **IF DISK IS FULL**: Delete old helix-ubuntu IMAGE TAGS (not build cache!), delete dangling volumes, or ask user. NEVER touch build cache.
 - **ALWAYS** use `docker-compose.dev.yaml` in development — never use the prod compose file (`docker-compose.yaml`). Mixing prod and dev breaks things because the API has a static IP address in dev that's needed to plumb through to dev containers. If you accidentally start services with the wrong compose file, video streaming and other features will break.
   ```bash
   # ✅ CORRECT - always use dev compose file
@@ -119,8 +119,8 @@ docker compose -f docker-compose.dev.yaml up -d api
 ```
 helix-sandbox (outer container)
 ├── hydra (Go, dev container lifecycle, Docker isolation)
-└── helix-sway / helix-ubuntu (desktop images, pulled from local registry)
-    ├── Desktop environment (Sway or GNOME)
+└── helix-ubuntu (desktop images, pulled from local registry)
+    ├── Desktop environment (GNOME)
     ├── Zed IDE
     ├── Qwen Code agent
     ├── Go streaming server (api/pkg/desktop/) - WebSocket H.264 streaming
@@ -132,13 +132,12 @@ helix-sandbox (outer container)
 | Changed | Command | Notes |
 |---------|---------|-------|
 | Hydra (`api/pkg/hydra/`) | `./stack build-sandbox` | Hydra binary runs IN sandbox, NOT API |
-| Desktop image (helix-sway) | `./stack build-sway` | Pushes to local registry, updates `sandbox-images/helix-sway.version` |
 | Desktop image (helix-ubuntu) | `./stack build-ubuntu` | Pushes to local registry, updates `sandbox-images/helix-ubuntu.version` |
-| Desktop bridge (`api/pkg/desktop/`, `api/cmd/desktop-bridge/`) | `./stack build-ubuntu` or `./stack build-sway` | desktop-bridge binary runs IN desktop container (MCP server, video streaming). NOT API-side code |
-| Zerocopy plugin (`desktop/gst-pipewire-zerocopy/`) | `./stack build-ubuntu` or `./stack build-sway` | Rust plugin built inside desktop image |
+| Desktop bridge (`api/pkg/desktop/`, `api/cmd/desktop-bridge/`) | `./stack build-ubuntu` | desktop-bridge binary runs IN desktop container (MCP server, video streaming). NOT API-side code |
+| Zerocopy plugin (`desktop/gst-pipewire-zerocopy/`) | `./stack build-ubuntu` | Rust plugin built inside desktop image |
 | Sandbox scripts | `./stack build-sandbox` | Dockerfile.sandbox changes |
-| Zed IDE | `./stack build-zed && ./stack build-sway` | Zed binary → desktop image |
-| Qwen Code | `cd ../qwen-code && git commit -am "msg" && cd ../helix && ./stack build-sway` | Needs git commit |
+| Zed IDE | `./stack build-zed` | Zed binary → desktop image |
+| Qwen Code | `cd ../qwen-code && git commit -am "msg" && cd ../helix && ./stack build-ubuntu` | Needs git commit |
 | Zed config generation (`api/pkg/external-agent/zed_config.go`) | No rebuild needed | API-side code, hot reloads via Air. Start NEW session to fetch updated config |
 | Settings-sync-daemon (`api/cmd/settings-sync-daemon/`) | `./stack build-ubuntu` | Daemon binary runs IN desktop container. Start NEW session after rebuild |
 
@@ -149,7 +148,6 @@ helix-sandbox (outer container)
 ./stack build-zed
 
 # 2. Build desktop images (pushes to local registry, includes streaming + zerocopy plugin)
-./stack build-sway
 ./stack build-ubuntu
 
 # 3. Build sandbox (only if Hydra or sandbox scripts changed)
@@ -161,7 +159,7 @@ helix-sandbox (outer container)
 
 ### Verify Build
 
-**IMPORTANT:** After running `./stack build-ubuntu` or `./stack build-sway`, ALWAYS verify the image is ready before testing:
+**IMPORTANT:** After running `./stack build-ubuntu`, ALWAYS verify the image is ready before testing:
 
 ```bash
 # 1. Check version file matches what was built
@@ -187,6 +185,50 @@ docker compose exec -T sandbox-nvidia docker pull registry:5000/helix-ubuntu:$(c
 - GORM AutoMigrate only — no SQL migration files
 - Use gomock, not testify/mock
 - **NO FALLBACKS**: Pick one approach that works and stick to it. Fallback code paths are rarely tested and add complexity. If something doesn't work, fix it properly instead of adding a fallback.
+
+For unit tests, use the test suite pattern, exmaple:
+
+```golang
+type AppAccessGrantSuite struct {
+	suite.Suite
+
+	ctrl  *gomock.Controller
+	store *store.MockStore
+
+	authCtx context.Context
+	userID  string
+
+	orgID string
+
+	server *HelixAPIServer
+}
+
+func TestAppAccessGrantSuite(t *testing.T) {
+	suite.Run(t, new(AppAccessGrantSuite))
+}
+
+func (suite *AppAccessGrantSuite) SetupTest() {
+	ctrl := gomock.NewController(suite.T())
+	suite.ctrl = ctrl
+	suite.store = store.NewMockStore(ctrl)
+
+	cfg := &config.ServerConfig{}
+
+	suite.orgID = "org_id_test"
+	suite.userID = "user_id_test"
+
+	suite.authCtx = setRequestUser(context.Background(), types.User{
+		ID:       suite.userID,
+		Email:    "foo@email.com",
+		FullName: "Foo Bar",
+	})
+
+	suite.server = &HelixAPIServer{
+		Cfg:   cfg,
+		Store: suite.store,
+	}
+}
+```
 
 ### TypeScript/React
 
@@ -472,7 +514,6 @@ docker compose exec -T sandbox docker images | grep helix-
 ### Image Versions
 ```bash
 # Check desktop image versions
-cat sandbox-images/helix-sway.version
 cat sandbox-images/helix-ubuntu.version
 
 # Verify image is available in sandbox's dockerd
@@ -496,9 +537,9 @@ Both desktops use `desktop-bridge` which logs to stdout (visible in `docker logs
 
 ```bash
 # Find container name:
-docker compose exec -T sandbox-nvidia docker ps --format "{{.Names}}" | grep -E "ubuntu-external|sway-external"
+docker compose exec -T sandbox-nvidia docker ps --format "{{.Names}}" | grep -E "ubuntu-external"
 
-# View logs (both Ubuntu and Sway use the same pattern now)
+# View logs the same pattern now)
 docker compose exec -T sandbox-nvidia docker logs {CONTAINER} 2>&1 | grep -E "PIPEWIRE|zerocopy|desktop-bridge"
 
 # Other log files:
@@ -509,7 +550,7 @@ docker compose exec -T sandbox-nvidia docker exec {CONTAINER} cat /tmp/settings-
 
 **Step 1: Find the container name**
 ```bash
-docker compose exec -T sandbox-nvidia docker ps --format "{{.Names}}" | grep ubuntu-external
+docker compose exec -T sandbox-nvidia docker ps --format "{{.Names}}" | grep helix-ubuntu
 ```
 
 **Step 2: Check docker logs (contains pipewirezerocopysrc logs)**

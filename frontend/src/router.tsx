@@ -84,21 +84,6 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
         <Home />
     ),
   }, {
-    // Legacy home route - redirect to projects for backward compatibility
-    name: namePrefix + 'home',
-    path: routePrefix + '/home',
-    meta: {
-      drawer: false,
-      orgRouteAware: true,
-    },
-    render: () => {
-      const { navigateReplace } = useRouter()
-      React.useEffect(() => {
-        navigateReplace(namePrefix + 'projects')
-      }, [])
-      return null
-    },
-  }, {
     name: namePrefix + 'new',
     path: routePrefix + '/new',
     meta: {
@@ -188,21 +173,6 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     render: () => (
       <SpecTasksPage />
     ),
-  }, {
-    // Legacy /projects route - redirect to root for backward compatibility
-    name: namePrefix + 'projects-legacy',
-    path: routePrefix + '/projects',
-    meta: {
-      drawer: false,
-      orgRouteAware: true,
-    },
-    render: () => {
-      const { navigateReplace } = useRouter()
-      React.useEffect(() => {
-        navigateReplace(namePrefix + 'projects')
-      }, [])
-      return null
-    },
   }, {
     name: namePrefix + 'project-specs',
     path: routePrefix + '/projects/:id/specs',

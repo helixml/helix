@@ -196,5 +196,40 @@ func (m *DefaultQuotaManager) getActiveConcurrentDesktopsByOrg(ctx context.Conte
 }
 
 func (m *DefaultQuotaManager) LimitReached(ctx context.Context, req *types.QuotaLimitReachedRequest) (*types.QuotaLimitReachedResponse, error) {
-	return &types.QuotaLimitReachedResponse{LimitReached: false, Limit: 0}, nil
+	quotas, err := m.GetQuotas(ctx, &types.QuotaRequest{
+		UserID:         req.UserID,
+		OrganizationID: req.OrganizationID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var current, limit int
+
+	switch req.Resource {
+	case types.ResourceDesktop:
+		current = quotas.ActiveConcurrentDesktops
+		limit = quotas.MaxConcurrentDesktops
+	case types.ResourceProject:
+		current = quotas.Projects
+		limit = quotas.MaxProjects
+	case types.ResourceGitRepository:
+		current = quotas.Repositories
+		limit = quotas.MaxRepositories
+	case types.ResourceSpecTask:
+		current = quotas.SpecTasks
+		limit = quotas.MaxSpecTasks
+	default:
+		return &types.QuotaLimitReachedResponse{LimitReached: false, Limit: 0}, nil
+	}
+
+	// -1 means unlimited (quotas disabled or unlimited tier)
+	if limit < 0 {
+		return &types.QuotaLimitReachedResponse{LimitReached: false, Limit: limit}, nil
+	}
+
+	return &types.QuotaLimitReachedResponse{
+		LimitReached: current >= limit,
+		Limit:        limit,
+	}, nil
 }

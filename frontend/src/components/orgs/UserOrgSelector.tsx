@@ -268,7 +268,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         router.navigate(useRouteName, useParams)
       }
     } else {
-      const routeName = isDefault ? 'home' : 'org_home'
+      const routeName = isDefault ? 'projects' : 'org_projects'
       const useParams = isDefault ? {} : { org_id: orgSlug }
       router.navigate(routeName, useParams)
     }
