@@ -440,11 +440,13 @@ echo "**** Fixing GPU device permissions ****"
 for gpu_dev in /dev/dri/card* /dev/dri/renderD*; do
     if [ -c "$gpu_dev" ]; then
         current_group=$(stat -c "%G" "$gpu_dev")
-        if [ "$current_group" = "root" ]; then
+        # Fix permissions if group is root OR an unknown/mismatched group
+        # (Docker-in-Docker maps host GIDs which may not exist in container)
+        if [ "$current_group" = "root" ] || [ "$current_group" = "UNKNOWN" ] || ! getent group "$current_group" >/dev/null 2>&1 || [ "$current_group" != "video" -a "$current_group" != "render" ]; then
             if getent group video >/dev/null 2>&1; then
                 chgrp video "$gpu_dev"
                 chmod 660 "$gpu_dev"
-                echo "Changed $gpu_dev to video group"
+                echo "Changed $gpu_dev group from '$current_group' to video"
             else
                 chmod 666 "$gpu_dev"
                 echo "Made $gpu_dev world-accessible (no video group)"
