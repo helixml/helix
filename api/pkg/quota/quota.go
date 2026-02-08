@@ -53,7 +53,7 @@ func (m *DefaultQuotaManager) getOrgQuotas(ctx context.Context, orgID string) (*
 
 	switch {
 	// Quotas disabled
-	case systemSettings.EnforceQuotas:
+	case !systemSettings.EnforceQuotas:
 		quotas = &types.QuotaResponse{
 			MaxConcurrentDesktops: -1,
 			MaxProjects:           -1,
@@ -112,7 +112,7 @@ func (m *DefaultQuotaManager) getUserQuotas(ctx context.Context, userID string) 
 
 	switch {
 	// Quotas disabled
-	case systemSettings.EnforceQuotas:
+	case !systemSettings.EnforceQuotas:
 		quotas = &types.QuotaResponse{
 			MaxConcurrentDesktops: -1,
 			MaxProjects:           -1,
@@ -128,9 +128,8 @@ func (m *DefaultQuotaManager) getUserQuotas(ctx context.Context, userID string) 
 	}
 
 	quotas.UserID = wallet.UserID
-	quotas.OrganizationID = wallet.OrgID
 
-	quotas.ActiveConcurrentDesktops = m.getActiveConcurrentDesktopsByUser(ctx, wallet.OrgID)
+	quotas.ActiveConcurrentDesktops = m.getActiveConcurrentDesktopsByUser(ctx, wallet.UserID)
 
 	projectsCount, err := m.store.GetProjectsCount(ctx, &store.GetProjectsCountQuery{UserID: wallet.UserID})
 	if err != nil {
