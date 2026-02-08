@@ -187,15 +187,106 @@ Zed's extension API (WIT v0.8.0) is WASM-sandboxed for language tooling only:
 
 The fork approach is the only option for these features.
 
+## Post-Rebase Thread Sync Fix (2026-02-08)
+
+### Problem: Thread auto-open and live updates broken after rebase
+
+After force-pushing the rebased fork to `helixml/zed` main, three issues appeared:
+
+1. **Agent sidebar doesn't open on active thread** — The `ThreadDisplayNotification` handler in the rebased code only subscribed to `Stopped` events for WebSocket forwarding, never displayed the thread in the UI
+2. **Frozen snapshot when clicking thread** — No `AcpServerView` wrapping the thread entity meant no event subscriptions for UI rendering
+3. **WebSocket sync to Helix regressed** — Only `Stopped` events were forwarded; `NewEntry`, `EntryUpdated`, `TitleUpdated` were lost
+4. **Restricted mode enabled by default** — Upstream Zed's `trust_all_worktrees: false` default blocked MCP servers and project settings
+
+### Root cause: Architectural mismatch
+
+The old fork had `AcpThreadView::from_existing_thread()` (~170 lines) that directly wrapped an existing `Entity<AcpThread>` into a view. The rebased fork restructured the UI — `AcpThreadView` is now always wrapped inside `AcpServerView` (which manages connection state). The `from_existing_thread` method was dropped during the port because `AcpServerView` normally requires going through `agent.connect()` → `initial_state()` → async loading → `ServerState::Connected`.
+
+**Why `open_thread()` doesn't work:** `open_thread()` creates a NEW `AcpServerView` which calls `agent.connect()` creating a new `NativeAgent` instance. The thread created by `thread_service` (WebSocket handler) lives in a DIFFERENT `NativeAgent` instance. The new connection can't find it via `load_session()` or `resume_session()`. This is exactly the problem the old fork's `from_existing_thread` solved.
+
+### Fix: `AcpServerView::from_existing_thread()` (commit `e0cc99f`)
+
+Added a new constructor that bypasses the connection/loading path:
+
+**`crates/agent_ui/src/acp/thread_view.rs`:**
+- `HeadlessConnection` — No-op `AgentConnection` impl for `ConnectedServerState`. Returns errors for `new_thread()`, `prompt()`, etc. since headless threads are driven by WebSocket, not user input.
+- `AcpServerView::from_existing_thread()` — Takes existing `Entity<AcpThread>`, creates `EntryViewState`, syncs existing entries into `ListState`, subscribes to thread events via `Self::handle_thread_event` (on `AcpServerView` for both UI updates and WebSocket forwarding), creates `AcpThreadView::new()` wrapping the entity, sets `ServerState::Connected` immediately.
+
+**`crates/agent_ui/src/agent_panel.rs`:**
+- `ThreadDisplayNotification` handler now:
+  1. Focuses the agent panel
+  2. Checks for duplicate (already showing this thread)
+  3. Creates `AcpServerView::from_existing_thread()` wrapping `notification.thread_entity`
+  4. Sets it as active view via `set_active_view(ActiveView::AgentThread { thread_view }, true, ...)`
+
+**`assets/settings/default.json`:**
+- Changed `trust_all_worktrees: false` → `true` to disable restricted mode
+
+### What's different from old fork's `from_existing_thread`
+
+| Aspect | Old fork | New fork |
+|--------|----------|----------|
+| **View type** | `AcpThreadView` directly | `AcpServerView` wrapping `AcpThreadView` |
+| **ActiveView variant** | `ExternalAgentThread { thread_view: Entity<AcpThreadView> }` | `AgentThread { thread_view: Entity<AcpServerView> }` |
+| **Connection** | N/A (view was standalone) | `HeadlessConnection` no-op impl |
+| **Title editor** | Created if thread supports titles | `None` (skipped) |
+| **Mode/model selectors** | Created from connection | `None` (HeadlessConnection returns None for these) |
+| **`AgentDiff::set_active_thread`** | Called | NOT called (potential issue for diff viewer) |
+| **Event handler** | `AcpThreadView::handle_thread_event` | `AcpServerView::handle_thread_event` (same events, different struct) |
+
+### Potential issues (NOT YET TESTED)
+
+1. **Missing `AgentDiff::set_active_thread` call** — May affect diff viewer for headless threads
+2. **No title/mode/model selectors** — UI will be more limited for headless threads (but old fork had same limitation since connection doesn't support these)
+3. **Subscription ownership** — Thread event subscriptions are created on `AcpServerView` context but stored in `AcpThreadView._subscriptions`. This matches the normal path in `initial_state()`, but hasn't been tested.
+
+### Key commits
+
+| Commit | Repo | Description |
+|--------|------|-------------|
+| `a57d7eb6` | helixml/zed (`old-fork-backup` branch) | Last working old fork version |
+| `5fe75bea` | helixml/zed | First rebased version (force-pushed to main) |
+| `cf72593a` | helixml/zed | First fix attempt: `open_thread()` approach (BROKEN — creates wrong connection) |
+| `e0cc99ff` | helixml/zed | Proper fix: `from_existing_thread()` on AcpServerView |
+
+### Git locations
+
+- **Old fork backup:** `helixml/zed` branch `old-fork-backup` (commit `a57d7eb6`)
+- **Current main:** `helixml/zed` branch `main` (commit `e0cc99ff`)
+- **Local repos:** `/prod/home/luke/pm/zed` (main, has both old and new history), `/prod/home/luke/pm/zed-upstream` (helix-fork branch)
+
+## Other Fixes in This Session (2026-02-08)
+
+### Helix API: PROVIDERS_MANAGEMENT_ENABLED crash
+- **File:** `docker-compose.dev.yaml` line 82
+- **Problem:** `${PROVIDERS_MANAGEMENT_ENABLED:-}` resolves to empty string, Go's `envconfig` can't parse `""` as bool
+- **Fix:** Changed to `${PROVIDERS_MANAGEMENT_ENABLED:-true}` to match Go config default
+
+### Helix API: Git sync auto-force-update for force-pushed upstreams
+- **File:** `api/pkg/services/git_repository_service_pull.go`
+- **Problem:** `SyncBaseBranch` returned `BranchDivergenceError` when `ahead > 0`, blocking tasks when upstream was force-pushed (e.g., the Zed repo rebase)
+- **Fix:** Base branch is pull-only, so local-ahead commits are always stale. Changed to force-update local to match upstream with a warning log instead of an error.
+
+### Helix CI: Zed build with `--locked` flag
+- **File:** `.drone.yml` line 1584
+- **Problem:** Rust 1.93 tries to update `Cargo.lock` but Zed source is mounted read-only (`:ro`) in CI
+- **Fix:** Added `--locked` to `cargo build` command. Also fixed `Cargo.lock` in helixml/zed (missing `agent_settings` dependency).
+
+### Frontend: Thread dropdown for spec task chat panel
+- **Files:** `frontend/src/services/specTaskService.ts`, `frontend/src/components/tasks/SpecTaskDetailContent.tsx`
+- **Feature:** Dropdown selector in chat panel header to switch between Zed threads (when user creates new threads due to context limits)
+- **Labels:** "Main thread" for `planning_session_id`, additional threads by name or "Thread N"
+- **PR:** #1596 on helixml/helix
+
 ## Next Steps
 
-1. ~~**Fix model configuration in E2E test**~~ DONE - Pre-authenticate providers + fix model ID
-2. ~~**Get E2E test passing with real LLM inference**~~ DONE on both forks - Full protocol flow validated
-3. ~~**Fix new fork event forwarding**~~ DONE - Thread display notification handler was a no-op; now subscribes to AcpThread events directly from AgentPanel
-4. ~~**Add multi-thread E2E test**~~ DONE - 3-phase test: new thread, follow-up, thread transition. Validates multi-thread tracking for spectasks.
-5. ~~**Update helixml/zed main**~~ DONE - Force-pushed helix-fork as new main branch
-6. **Add Qwen Code ACP test** - Test with Qwen Code agent using Together AI
-7. **Test session resume** - Kill and restart Zed, verify thread state restored
-8. **Update Helix build scripts** - Point `./stack build-zed` at new fork/branch
-9. ~~**CI integration**~~ DONE - Added `zed-e2e-test` step to build-sandbox Drone pipeline. Builds runtime-only Docker image with pre-built Zed binary, runs multi-phase E2E test. Gates `push-sandbox` on E2E passing.
-10. ~~**Helix multi-thread session support**~~ DONE - Added `GetSpecTaskZedThreadByZedThreadID` store method, wired `trackSpecTaskZedThread` into both handleThreadCreated paths, activity tracking in handleMessageCompleted.
+1. ~~**Fix model configuration in E2E test**~~ DONE
+2. ~~**Get E2E test passing with real LLM inference**~~ DONE
+3. ~~**Fix new fork event forwarding**~~ DONE (via `from_existing_thread`)
+4. ~~**Add multi-thread E2E test**~~ DONE
+5. ~~**Update helixml/zed main**~~ DONE
+6. **TEST: Verify `from_existing_thread` works end-to-end** — Build with `./stack build-zed && ./stack build-ubuntu`, start new session, confirm: (a) agent sidebar opens on active thread, (b) live updates visible in Zed UI, (c) WebSocket events flow to Helix session
+7. **Add Qwen Code ACP test** - Test with Qwen Code agent using Together AI
+8. **Test session resume** - Kill and restart Zed, verify thread state restored
+9. ~~**CI integration**~~ DONE
+10. ~~**Helix multi-thread session support**~~ DONE
