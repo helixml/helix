@@ -45,9 +45,10 @@ const QuotaListView: FC<QuotaListViewProps> = ({ orgId }) => {
     ]
 
     return items.map((item) => {
-      const percentage = item.max > 0 ? (item.used / item.max) * 100 : 0
-      const isNearLimit = percentage >= 80
-      const isAtLimit = percentage >= 100
+      const isUnlimited = item.max === -1
+      const percentage = isUnlimited ? 0 : item.max > 0 ? (item.used / item.max) * 100 : 0
+      const isNearLimit = !isUnlimited && percentage >= 80
+      const isAtLimit = !isUnlimited && percentage >= 100
 
       const progressColor = isAtLimit
         ? theme.palette.error.main
@@ -61,7 +62,7 @@ const QuotaListView: FC<QuotaListViewProps> = ({ orgId }) => {
           <Row>
             <Cell grow>
               <Typography
-                variant="body1"
+                variant="body2"
                 sx={{
                   fontWeight: 500,
                   color: theme.palette.text.primary,
@@ -77,7 +78,7 @@ const QuotaListView: FC<QuotaListViewProps> = ({ orgId }) => {
             <Box sx={{ flexGrow: 1 }}>
               <LinearProgress
                 variant="determinate"
-                value={Math.min(percentage, 100)}
+                value={isUnlimited ? 0 : Math.min(percentage, 100)}
                 sx={{
                   height: 8,
                   borderRadius: 4,
@@ -104,7 +105,7 @@ const QuotaListView: FC<QuotaListViewProps> = ({ orgId }) => {
                 fontWeight: isNearLimit || isAtLimit ? 600 : 400,
               }}
             >
-              {item.used} / {item.max}
+              {item.used} / {isUnlimited ? '∞' : item.max}
             </Typography>
           </Box>
         ),
