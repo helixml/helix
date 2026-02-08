@@ -229,6 +229,7 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	}
 
 	vm.cmd = exec.CommandContext(ctx, qemuPath, args...)
+	vm.cmd.Env = vm.buildQEMUEnv()
 	vm.cmd.Stdout = os.Stdout
 	vm.cmd.Stderr = os.Stderr
 	vm.cmd.Stdin = os.Stdin // Allow serial console interaction
@@ -392,4 +393,21 @@ func (vm *VMManager) GetVsockCID() uint32 {
 // GetSSHCommand returns the SSH command to connect to the VM
 func (vm *VMManager) GetSSHCommand() string {
 	return fmt.Sprintf("ssh -p %d helix@localhost", vm.config.SSHPort)
+}
+
+// buildQEMUEnv returns the environment variables for the QEMU process.
+// Sets VK_DRIVER_FILES to use KosmicKrisp (Mesa Vulkan) instead of MoltenVK.
+// KosmicKrisp produces dramatically better rendering quality under concurrent
+// GNOME sessions with virglrenderer's Venus Vulkan path.
+func (vm *VMManager) buildQEMUEnv() []string {
+	env := os.Environ()
+
+	// Use KosmicKrisp Vulkan driver from UTM's bundle.
+	// The ICD JSON uses relative paths to resolve the framework library.
+	icdPath := "/Applications/UTM.app/Contents/Resources/vulkan/icd.d/kosmickrisp_mesa_icd.json"
+	if _, err := os.Stat(icdPath); err == nil {
+		env = append(env, "VK_DRIVER_FILES="+icdPath)
+	}
+
+	return env
 }
