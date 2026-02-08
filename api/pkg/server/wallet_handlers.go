@@ -192,6 +192,7 @@ func (s *HelixAPIServer) createTopUp(_ http.ResponseWriter, req *http.Request) (
 	return s.Stripe.GetTopUpSessionURL(params)
 }
 
+// lookupOrg looks up an organization by ID or name
 func (s *HelixAPIServer) lookupOrg(ctx context.Context, orgStr string) (*types.Organization, error) {
 	query := &store.GetOrganizationQuery{}
 

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -15,12 +16,28 @@ import (
 // @Router /api/v1/quotas [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getQuotasHandler(rw http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
 
 	orgID := req.URL.Query().Get("org_id") // Optional
 
+	org, err := s.lookupOrg(req.Context(), orgID)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("failed to lookup org: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	if orgID != "" {
+		// Authorize org membe
+		_, err := s.authorizeOrgMember(req.Context(), user, org.ID)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusForbidden)
+			return
+		}
+	}
+
 	quotas, err := s.quotaManager.GetQuotas(req.Context(), &types.QuotaRequest{
-		UserID:         getID(req),
-		OrganizationID: orgID,
+		UserID:         user.ID,
+		OrganizationID: org.ID,
 	})
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)

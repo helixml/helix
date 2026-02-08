@@ -27,8 +27,10 @@ type GetRepositoriesCountQuery struct {
 }
 
 type GetSpecTasksCountQuery struct {
-	UserID         string
-	OrganizationID string
+	UserID          string
+	OrganizationID  string
+	IncludeArchived bool
+	IncludeDone     bool
 }
 
 type GetJobsQuery struct {

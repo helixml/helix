@@ -138,7 +138,6 @@ func NewServer(
 	cfg *config.ServerConfig,
 	store store.Store,
 	ps pubsub.PubSub,
-	quotaManager quota.QuotaManager,
 	providerManager manager.ProviderManager,
 	modelInfoProvider model.ModelInfoProvider,
 	inferenceServer *openai.InternalHelixServer,
@@ -232,6 +231,8 @@ func NewServer(
 		Connman:                       connectionManager,
 		GPUVendor:                     os.Getenv("GPU_VENDOR"), // "nvidia", "amd", "intel", or ""
 	})
+
+	quotaManager := quota.NewDefaultQuotaManager(store, cfg, externalAgentExecutor)
 
 	// Initialize external agent runner connection manager
 	externalAgentRunnerManager := NewExternalAgentRunnerManager()

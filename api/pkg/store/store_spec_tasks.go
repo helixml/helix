@@ -56,6 +56,14 @@ func (s *PostgresStore) GetSpecTasksCount(ctx context.Context, query *GetSpecTas
 		q = q.Where("user_id = ?", query.UserID)
 	}
 
+	if !query.IncludeArchived {
+		q = q.Where("archived = ?", false)
+	}
+
+	if !query.IncludeDone {
+		q = q.Where("status != ?", types.TaskStatusDone)
+	}
+
 	var count int64
 
 	err := q.Count(&count).Error
