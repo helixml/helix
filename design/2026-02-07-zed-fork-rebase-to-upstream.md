@@ -1,7 +1,7 @@
 # Zed Fork Rebase to Fresh Upstream
 
 **Date:** 2026-02-07
-**Status:** Port complete. Streaming, thread persistence, onboarding, multi-thread dropdown fixed. Remaining: disable built-in agents, Qwen Code ACP testing.
+**Status:** Port complete. All fixes applied. Built-in agents disabled. Qwen Code ACP verified working. ACP beta features enabled. Remaining: rebuild Zed, test session resume end-to-end.
 
 ## Summary
 
@@ -524,7 +524,22 @@ Analyzed compatibility between Zed's `agent-client-protocol = "0.9.4"` (schema c
 
 Three built-in agents (Claude Code, Codex, Gemini CLI) appear as hardcoded menu items in `agent_panel.rs:2490-2584`. They are NOT filtered by the existing `external_agents()` filter (that filter at lines 2585-2595 only removes them from the CUSTOM agents list to avoid duplication).
 
-**Fix needed**: Wrap the three hardcoded `.item()` blocks with `#[cfg(not(feature = "external_websocket_sync"))]` so they don't appear in Helix builds.
+**Fixed** in commit `3ae2f1e`: Wrapped the three hardcoded `.item()` blocks with `#[cfg(not(feature = "external_websocket_sync"))]` using `.map()` pattern.
+
+### ACP Beta Feature Flag (2026-02-08)
+
+The ACP session management features (list, load, resume) are gated behind `AcpBetaFeatureFlag` in Zed. This flag uses the default `FeatureFlag` trait: `enabled_for_staff() = true`, `enabled_for_all() = false`. In release builds (which our `./stack build-zed` produces), `cfg!(debug_assertions)` is false, so the flag evaluates to false — blocking all session management features.
+
+**Fix** (commit `4e87001`): Override `enabled_for_all()` to return `true` in `feature_flags/src/flags.rs`. This enables session list/load/resume for all users in all build modes.
+
+### Qwen Code End-to-End Verification (2026-02-08)
+
+Verified Qwen Code works end-to-end with the rebased Zed:
+- **Settings-sync-daemon**: Correctly generates `agent_servers.qwen` with `"type": "custom"` (required by rebased Zed's tagged enum deserialization)
+- **ACP protocol**: Qwen Code v1 with camelCase JSON is fully compatible with Zed's schema v0.10.8 (both use `#[serde(rename_all = "camelCase")]`)
+- **Session capabilities**: Qwen advertises `loadSession: true`, `sessionCapabilities.list: {}` — Zed's new `resume` field is `Option<T>` and safely absent
+- **End-to-end test**: Session `ses_01kgyrs0dwefcp50rhbe3swv2b` — thread created, planning message processed by Qwen, AI response completed, `message_completed` sent back successfully
+- **No code changes needed** in either the Qwen Code fork or the settings-sync-daemon
 
 ## Next Steps
 
@@ -545,7 +560,8 @@ Three built-in agents (Claude Code, Codex, Gemini CLI) appear as hardcoded menu 
 14. ~~**Fix streaming WebSocket updates**~~ DONE (commit `01c0c11` — cx.subscribe in thread_service.rs)
 15. ~~**Fix "Welcome to Zed AI" onboarding**~~ DONE (commit `01c0c11` — OnboardingUpsell::set_dismissed)
 16. ~~**Fix multi-thread dropdown**~~ DONE — Removed uniqueIndex on SpecTaskWorkSession.HelixSessionID
-17. **Disable built-in agents** — Wrap Claude Code/Codex/Gemini menu items with cfg(not(feature = "external_websocket_sync"))
-18. **Fix Qwen Code configuration** — Ensure Qwen Code appears as selectable agent in Zed
-19. **Test Qwen Code ACP** — Verify session list, resume, prompt with updated Zed
-20. **Test Qwen session resume** — Kill Zed, restart, verify Qwen thread state restored
+17. ~~**Disable built-in agents**~~ DONE (commit `3ae2f1e`) — Wrapped Claude Code/Codex/Gemini menu items with `cfg(not(feature = "external_websocket_sync"))`
+18. ~~**Qwen Code configuration verified**~~ DONE — No changes needed. Settings-sync-daemon generates correct `agent_servers.qwen` with `"type": "custom"` format. ACP protocol v1 with camelCase JSON is compatible between Zed (schema v0.10.8) and Qwen Code.
+19. ~~**Test Qwen Code ACP**~~ DONE — Started qwen_code session (`ses_01kgyrs0dwefcp50rhbe3swv2b`), verified thread created, message sent to Qwen, AI response completed successfully, `message_completed` sent back. Full round-trip works.
+20. ~~**Enable ACP beta feature flag**~~ DONE (commit `4e87001`) — `AcpBetaFeatureFlag.enabled_for_all()` returns `true`. Without this, session list/load/resume were gated behind staff-only access in release builds, blocking Qwen session persistence.
+21. **Test Qwen session resume** — Rebuild Zed with ACP beta enabled, then: start session → create Qwen thread → kill Zed → restart Zed → verify session list shows previous session → resume session
