@@ -541,6 +541,68 @@ Verified Qwen Code works end-to-end with the rebased Zed:
 - **End-to-end test**: Session `ses_01kgyrs0dwefcp50rhbe3swv2b` — thread created, planning message processed by Qwen, AI response completed, `message_completed` sent back successfully
 - **No code changes needed** in either the Qwen Code fork or the settings-sync-daemon
 
+## SpecTaskID Session Metadata Fix (2026-02-08)
+
+### Problem
+`spec_task_work_sessions` and `spec_task_zed_threads` tables always had 0 rows, so the multi-thread dropdown never appeared.
+
+### Root Causes
+1. **`session_handlers.go:306`**: `user.SpecTaskID` (available from API key auth) was never copied to `session.Metadata.SpecTaskID` when creating sessions via the chat API
+2. **`websocket_external_agent_sync.go:720`**: The PRIORITY 3 path in `handleThreadCreated` used `externalAgentSessionMapping[sessionID]` which was never populated. Since `sessionID` for `ses_*` connections IS the Helix session ID, the lookup should go directly to the session store.
+
+### Fix (commit `70c2dc9`)
+1. Added `SpecTaskID: user.SpecTaskID` to `SessionMetadata{}` in `session_handlers.go`
+2. Changed PRIORITY 3 to look up `GetSession(sessionID)` directly when `sessionID` starts with `ses_`
+
+## E2E Phase 4: "Entity Released" Regression Fix (2026-02-08)
+
+### Problem
+When Helix sends a `chat_message` targeting a thread that is NOT currently visible in the Zed agent panel, the thread load fails with: `"Thread load failed: Failed to load thread: entity released"`. But if the user manually clicks on the correct thread first, it works.
+
+### Reproduction in E2E Test
+After the existing 3 phases (Phase 1: create Thread A, Phase 2: follow-up on Thread A, Phase 3: create Thread B), Thread B is now visible. Add **Phase 4**: send a follow-up message back to Thread A's `acp_thread_id`. This reproduces the exact scenario: Thread A exists but is not currently displayed.
+
+**Expected behavior**: Thread A should receive the message, the agent panel should switch back to displaying Thread A, and `message_completed` should be sent with `req-phase4`.
+
+**Current behavior (broken)**: `thread_load_error` event sent back with "entity released" because `load_thread_from_agent()` creates a new agent connection which can't resolve the existing thread entity.
+
+### Root Cause Analysis
+When `handle_follow_up_message()` is called with a `WeakEntity<AcpThread>` from `get_thread()`:
+
+1. If the thread IS in `THREAD_REGISTRY` → the registry holds a strong `Entity<AcpThread>` → `WeakEntity::update()` succeeds ✅
+2. If the thread is NOT in `THREAD_REGISTRY` → `get_thread()` returns `None` → falls through to `load_thread_from_agent()` → creates new agent connection → `load_session()` → `open_thread()` → uses `WeakEntity<Agent>` in spawned task → can fail with "entity released" if the Agent entity is released
+
+But threads created by `thread_service` ARE registered in `THREAD_REGISTRY` (strong reference). So `get_thread()` should return `Some(WeakEntity)` and the weak reference should be upgradeable.
+
+**Key question**: Is the entity being released between `get_thread()` returning the `WeakEntity` and `handle_follow_up_message()` trying to use it? The `THREAD_REGISTRY` holds the strong reference, so this shouldn't happen unless something clears the registry.
+
+**Alternative hypothesis**: The `Entity<AcpThread>` from Phase 1 may have been dropped by GPUI's entity cleanup when the agent panel switched to Phase 3's thread view. Even though `THREAD_REGISTRY` holds a strong `Entity<AcpThread>`, GPUI might release the entity's internal state independently of Rust reference counting. This needs investigation by checking if GPUI entity IDs are reused or cleaned up.
+
+### Fix Strategy
+1. **In `thread_service.rs`**: When `get_thread()` returns `Some(WeakEntity)` but the weak reference can't be upgraded (entity released), fall back to `load_thread_from_agent()` instead of failing immediately
+2. **In `load_thread_from_agent()`**: If the native agent's `open_thread()` fails with "entity released", try creating a fresh thread via `new_thread()` and migrate the session data
+3. **Alternative**: Before switching threads in `ThreadDisplayNotification` handler, keep the old thread's strong reference alive in a secondary store
+
+### E2E Test Phase 4 Design
+
+```
+Phase 3 completes → Thread B is visible → UI state query confirms Thread B active
+
+Phase 4: Send chat_message with acp_thread_id=Thread_A, request_id="req-phase4"
+  Expected:
+    - message_completed with request_id="req-phase4" and acp_thread_id=Thread_A
+    - NO thread_load_error event
+    - UI state query shows Thread A is now active again
+  If broken:
+    - thread_load_error event with "entity released"
+    - No message_completed for req-phase4
+```
+
+### Validation additions
+- `phase4_completions`: Exactly 1 `message_completed` with `request_id="req-phase4"` on Thread A
+- No `thread_load_error` events in the entire test run
+- UI state after Phase 4: `thread_id == thread_ids[0]` (switched back to Thread A)
+
 ## Next Steps
 
 1. ~~**Fix model configuration in E2E test**~~ DONE
@@ -556,6 +618,8 @@ Verified Qwen Code works end-to-end with the rebased Zed:
 10. ~~**Helix multi-thread session support**~~ DONE
 11. ~~**Add UI state query to E2E test**~~ DONE (commit `a83ddc0`)
 12. **Rewrite E2E mock server in Go** — Better concurrency model
+22. ~~**Fix SpecTaskID not set in session metadata**~~ DONE (commit `70c2dc9`) — Added `SpecTaskID: user.SpecTaskID` to session metadata + fixed PRIORITY 3 lookup
+23. ~~**Fix "entity released" regression**~~ DONE (commit `fb96f34`) — Added E2E Phase 4 (send to non-visible thread), added `notify_thread_display` for follow-up to non-visible threads, added `ThreadLoadError` for follow-up failures
 13. ~~**Fix thread persistence**~~ DONE (commit `01c0c11` — NativeAgentSessionList in ThreadDisplayNotification handler)
 14. ~~**Fix streaming WebSocket updates**~~ DONE (commit `01c0c11` — cx.subscribe in thread_service.rs)
 15. ~~**Fix "Welcome to Zed AI" onboarding**~~ DONE (commit `01c0c11` — OnboardingUpsell::set_dismissed)
