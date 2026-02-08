@@ -306,6 +306,49 @@ The mock server message loop (`async for message in websocket`) is sequential. S
 ### Go handler compatibility
 Verified the Helix Go handler (`websocket_external_agent_sync.go`) has a `default` case in the event type switch that logs a warning and returns `nil`. The `ui_state_response` events are safely ignored in production.
 
+## WebSocket Event Flow Fix (2026-02-08, commit `cc037db`)
+
+### Root Cause: GPUI subscribe_in vs cx.spawn() window context
+
+The rebased fork's NativeAgentConnection bridge emits `AcpThreadEvent` from `cx.spawn()` tasks that lack a window context. GPUI's `subscribe_in` wraps callbacks in `window_handle.update()` which silently fails when no window context is available. This means assistant entry events emitted by the bridge never reach the `AcpServerView::handle_thread_event` subscriber.
+
+**Old fork architecture (working):**
+```
+thread_service → AcpThread.send() → NativeAgentConnection bridge
+                                      ↓ cx.spawn() (no window)
+                                    AcpThread.push_assistant_content_block()
+                                      ↓ cx.emit(NewEntry)
+                                    AcpThreadView.handle_thread_event [subscribe_in]
+                                      ↓ (WORKED because old fork had different
+                                         subscription ownership pattern)
+                                    send_websocket_event(MessageAdded)
+```
+
+**New fork architecture (broken, then fixed):**
+```
+thread_service → AcpThread.send() → NativeAgentConnection bridge
+                                      ↓ cx.spawn() (no window)
+                                    AcpThread.push_assistant_content_block()
+                                      ↓ cx.emit(NewEntry)
+                                    AcpServerView.handle_thread_event [subscribe_in]
+                                      ✗ SILENTLY DROPPED (no window context)
+
+FIX: thread_service sends WebSocket events directly after send completes:
+thread_service → AcpThread.send().await → read entries → send_websocket_event()
+```
+
+### Verification
+- Old fork E2E test: PASSES (LLM responds, events flow)
+- New fork E2E test before fix: FAILS (LLM responds, events never reach WebSocket)
+- New fork E2E test after fix: Protocol events PASS (message_added, message_completed for all 3 phases)
+- UI state queries partially pass (active_view=agent_thread works, but thread_id mismatch and entry_count=0 for phases 1-2 due to subscribe_in still not delivering bridge events to UI)
+
+### Remaining Issue: UI Live Updates
+The `subscribe_in` problem also affects the Zed UI — thread entries pushed by the bridge don't trigger UI updates (list sync, scroll, etc.). The user sees a "frozen snapshot" of the thread. This requires either:
+1. Using App-level subscribe with manual window dispatch (attempted, works for callback delivery but complex)
+2. Polling the AcpThread entries on a timer for UI updates
+3. Fixing GPUI to deliver events from cx.spawn() to subscribe_in subscribers
+
 ## Next Steps
 
 1. ~~**Fix model configuration in E2E test**~~ DONE
@@ -313,7 +356,8 @@ Verified the Helix Go handler (`websocket_external_agent_sync.go`) has a `defaul
 3. ~~**Fix new fork event forwarding**~~ DONE (via `from_existing_thread`)
 4. ~~**Add multi-thread E2E test**~~ DONE
 5. ~~**Update helixml/zed main**~~ DONE
-6. **TEST: Verify `from_existing_thread` works end-to-end** — Build with `./stack build-zed && ./stack build-ubuntu`, start new session, confirm: (a) agent sidebar opens on active thread, (b) live updates visible in Zed UI, (c) WebSocket events flow to Helix session
+6. ~~**Fix WebSocket event flow regression**~~ DONE (commit `cc037db` — send events from thread_service directly)
+6b. **Fix UI live updates** — subscribe_in doesn't deliver bridge events; need App-level subscribe or polling
 7. **Add Qwen Code ACP test** - Test with Qwen Code agent using Together AI
 8. **Test session resume** - Kill and restart Zed, verify thread state restored
 9. ~~**CI integration**~~ DONE
