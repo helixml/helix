@@ -1,7 +1,7 @@
 # Zed Fork Rebase to Fresh Upstream
 
 **Date:** 2026-02-07
-**Status:** Port complete, multi-thread E2E test passing with real LLM inference (Anthropic API). Main branch updated.
+**Status:** Port complete. Streaming, thread persistence, onboarding, multi-thread dropdown fixed. Remaining: disable built-in agents, Qwen Code ACP testing.
 
 ## Summary
 
@@ -472,6 +472,60 @@ list_state.splice_focusable(range, focus_handles);
 - Used by "View All" to show thread list
 - Called in normal `open_thread` flow but NOT in `from_existing_thread`
 
+## Streaming WebSocket Updates Fix (2026-02-08, commit `01c0c11`)
+
+### Problem
+WebSocket `message_added` events only arrived AFTER the entire LLM turn completed. The Helix session chat showed no progress during inference.
+
+### Fix
+Added `cx.subscribe()` (windowless) in `thread_service.rs` BEFORE `thread.send()` in both `create_new_thread_sync` and `handle_follow_up_message`. The subscription catches `NewEntry` and `EntryUpdated` events during streaming and sends `message_added` events incrementally. A final cumulative `message_added` + `message_completed` is still sent after `send_task.await` as a safety net.
+
+Key insight: `cx.subscribe()` (on `Context<T>`, not `subscribe_in`) fires for events emitted from `cx.spawn()` without window context. `send_websocket_event()` doesn't need window context.
+
+### Thread Persistence Fix (same commit)
+Added `NativeAgentSessionList::new(thread_store, cx)` in the `ThreadDisplayNotification` handler to set up `acp_history.set_session_list()`. Made `NativeAgentSessionList::new()` public in `agent.rs`.
+
+### Onboarding Fix (same commit)
+Added `OnboardingUpsell::set_dismissed(true, cx)` in the `ThreadDisplayNotification` handler to prevent "Welcome to Zed AI" overlay on external threads.
+
+### E2E Streaming Validation
+Updated `run_e2e.sh` mock server to validate that `message_added` events arrive BEFORE `message_completed` in each phase.
+
+## Multi-Thread Dropdown Bug Fix (2026-02-08)
+
+### Problem
+The thread dropdown in the Helix spec task chat UI never appeared. Zero `spec_task_zed_threads` records existed in the database despite multiple threads being created in Zed.
+
+### Root Cause
+`SpecTaskWorkSession.HelixSessionID` had a `uniqueIndex` constraint (`gorm:"not null;size:255;uniqueIndex"`). Since all Zed threads for a spec task share the same planning session, the second call to `CreateSpecTaskWorkSession` with the same `HelixSessionID` failed with a unique constraint violation. The error was logged in a background goroutine and silently swallowed.
+
+### Fix
+Changed `uniqueIndex` to `index` in `api/pkg/types/spec_task_multi_session.go`:
+```go
+// Before:
+HelixSessionID string `json:"helix_session_id" gorm:"not null;size:255;uniqueIndex"`
+// After:
+HelixSessionID string `json:"helix_session_id" gorm:"not null;size:255;index"`
+```
+Also dropped and recreated the PostgreSQL index to remove the unique constraint.
+
+### ACP Protocol Compatibility Analysis (2026-02-08)
+
+Analyzed compatibility between Zed's `agent-client-protocol = "0.9.4"` (schema crate v0.10.8) and Qwen Code's ACP implementation.
+
+**Result: COMPATIBLE** — Both sides use camelCase JSON serialization:
+- Zed's schema crate uses `#[serde(rename_all = "camelCase")]` on all ACP types
+- Qwen Code uses camelCase field names in TypeScript
+- All JSON-RPC method names match exactly
+- Session list, new session, load session, prompt, cancel all compatible
+- MCP server configuration compatible
+
+### Built-in Agent Disabling
+
+Three built-in agents (Claude Code, Codex, Gemini CLI) appear as hardcoded menu items in `agent_panel.rs:2490-2584`. They are NOT filtered by the existing `external_agents()` filter (that filter at lines 2585-2595 only removes them from the CUSTOM agents list to avoid duplication).
+
+**Fix needed**: Wrap the three hardcoded `.item()` blocks with `#[cfg(not(feature = "external_websocket_sync"))]` so they don't appear in Helix builds.
+
 ## Next Steps
 
 1. ~~**Fix model configuration in E2E test**~~ DONE
@@ -487,6 +541,11 @@ list_state.splice_focusable(range, focus_handles);
 10. ~~**Helix multi-thread session support**~~ DONE
 11. ~~**Add UI state query to E2E test**~~ DONE (commit `a83ddc0`)
 12. **Rewrite E2E mock server in Go** — Better concurrency model
-13. **Fix thread persistence** — Register headless threads in ThreadStore (push_recently_opened_entry)
-14. **Fix streaming WebSocket updates** — Send message_added incrementally via App::subscribe, not just at completion
-15. **Fix "Welcome to Zed AI" onboarding** — Check show_onboarding setting or OnboardingUpsell::set_dismissed
+13. ~~**Fix thread persistence**~~ DONE (commit `01c0c11` — NativeAgentSessionList in ThreadDisplayNotification handler)
+14. ~~**Fix streaming WebSocket updates**~~ DONE (commit `01c0c11` — cx.subscribe in thread_service.rs)
+15. ~~**Fix "Welcome to Zed AI" onboarding**~~ DONE (commit `01c0c11` — OnboardingUpsell::set_dismissed)
+16. ~~**Fix multi-thread dropdown**~~ DONE — Removed uniqueIndex on SpecTaskWorkSession.HelixSessionID
+17. **Disable built-in agents** — Wrap Claude Code/Codex/Gemini menu items with cfg(not(feature = "external_websocket_sync"))
+18. **Fix Qwen Code configuration** — Ensure Qwen Code appears as selectable agent in Zed
+19. **Test Qwen Code ACP** — Verify session list, resume, prompt with updated Zed
+20. **Test Qwen session resume** — Kill Zed, restart, verify Qwen thread state restored
