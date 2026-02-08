@@ -238,6 +238,91 @@ This is backward compatible - existing NVIDIA/AMD PipeWire paths are unchanged.
 Expected with active desktop (typing, window movement): **15-30 FPS** based on damage frequency.
 Expected with vkcube/games: **55-60 FPS** at 1920x1080 (constant GPU damage).
 
+### Multi-Desktop Stability & Performance (2026-02-08)
+
+**Test: 3 concurrent GNOME desktop sessions at 1080p, streaming H.264 via WebSocket**
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| VM stability | ✅ Stable | Load ~14.7, 9.6GB of 51GB RAM used |
+| QEMU CPU usage | 460% | virglrenderer command translation is the bottleneck |
+| QEMU RSS | 32GB | Shared across all scanouts + virglrenderer |
+| GPU utilization | 47% active, 495mW | NOT the bottleneck |
+| Metal shader failures | 222 in 3 min | Not fatal at 1080p, causes artifacts |
+| Guest iowait | 37.6% | Disk contention between containers |
+
+**5K resolution (5120x2880): UNSTABLE with multiple sessions**
+
+Two crash modes discovered:
+1. **VTEncoderXPCServ memory limit**: macOS limits VideoToolbox's XPC service to 1GB RSS.
+   At 5K, encoding buffers exceed this → `EXC_RESOURCE` kill → VM hangs.
+   Log: `VTEncoderXPCServ [77678] crossed memory high watermark (1000 MB)`
+2. **Metal shader compilation failures**: 3 concurrent GNOME sessions overwhelm the
+   Metal shader compiler. ~401 failures/min at 5K. Eventually deadlocks QEMU.
+
+**Resolution**: Default agent resolution to 1080p (via app's `external_agent_config.resolution`).
+QEMU EDID still advertises 5K max — individual sessions can request higher if needed.
+
+**Remaining bottleneck**: virglrenderer CPU-side command translation. Each guest Vulkan/GL
+call goes through Venus → virglrenderer → Metal (MoltenVK). This is purely CPU-bound.
+The GPU is only 47% utilized — the translation layer can't feed it fast enough.
+
+### Zero-Copy Frame Path: CONFIRMED Working
+
+The QEMU frame export code (`helix-frame-export.m`) uses true zero-copy on the hot path:
+
+```
+Guest page flip → resource_flush → helix_scanout_frame_ready()
+  → Retrieve Metal texture's IOSurface (cached at SET_SCANOUT time)
+  → CVPixelBufferCreateWithIOSurface() — wraps same GPU memory, no copy
+  → VideoToolbox H.264 encode (hardware, zero-copy Metal texture access)
+  → Send H.264 NAL units over TCP to subscribers
+```
+
+**Git history of optimization** (QEMU commits, Feb 8 2026):
+- `3c3343508d` — Eliminated triple-copy (3× 59MB → 1× 59MB per frame at 5K)
+- `814e59d757` — Zero-copy via Metal texture IOSurface (0 copies when Metal available)
+- `d0d82ba8d2` — Capture Metal texture at SET_SCANOUT (same point as SPICE display)
+- `67a016d816` — Remove duplicate CPU readback path
+
+Fallback (single CPU readback) only used if Metal texture is unavailable, which shouldn't
+happen on macOS with virtio-gpu-gl.
+
+### Encoding Artifacts Investigation
+
+**Symptom**: Visible encoding artifacts and flickering on GNOME desktop at 5K.
+
+**Likely cause**: Race condition on shared IOSurface. The Metal texture's IOSurface is
+written to by virglrenderer (guest rendering) and simultaneously read by VideoToolbox
+(encoding). There's no GPU synchronization fence between "guest finishes rendering" and
+"encoder reads the surface." This produces tearing/corruption in encoded frames.
+
+**Possible fixes**:
+1. Insert a Metal fence (`MTLFence` or `MTLEvent`) between rendering and encoding
+2. Double-buffer: alternate between two IOSurfaces per scanout
+3. Use `IOSurfaceLock()` to serialize access (but adds latency)
+
+### Vulkan Driver: MoltenVK vs KosmicKrisp
+
+UTM supports two Vulkan drivers for the Venus path:
+- **MoltenVK** (current): Mature, widely tested, translates Vulkan → Metal
+- **KosmicKrisp**: Mesa-based Vulkan driver, requires macOS 15+ (Sequoia)
+
+This is a **global UTM setting**, not per-VM. To switch:
+```bash
+# Switch to KosmicKrisp
+defaults write com.utm.app QEMUVulkanDriver -int 3
+
+# Switch back to MoltenVK
+defaults write com.utm.app QEMUVulkanDriver -int 2
+```
+
+Both are pre-bundled in UTM. The setting controls which ICD JSON file is pointed to by
+`VK_DRIVER_FILES` environment variable when QEMU launches. VM restart required after change.
+
+**KosmicKrisp may help** with the shader compilation failures since it uses a different
+Metal shader generation path. Worth testing.
+
 ### Issues Discovered & Fixed
 
 1. **DRM_FB_helper CPU hog on reboot**: Enabled scanouts persist across guest reboot.
