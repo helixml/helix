@@ -267,26 +267,101 @@ QEMU EDID still advertises 5K max — individual sessions can request higher if 
 call goes through Venus → virglrenderer → Metal (MoltenVK). This is purely CPU-bound.
 The GPU is only 47% utilized — the translation layer can't feed it fast enough.
 
-### Zero-Copy Frame Path: CONFIRMED Working
+### Zero-Copy Frame Path: NOT WORKING — CPU Fallback Active
 
-The QEMU frame export code (`helix-frame-export.m`) uses true zero-copy on the hot path:
+**Status (2026-02-08):** Despite the Metal texture capture code being present, the
+zero-copy path is NEVER taken. Every frame uses the CPU fallback path via
+`virgl_renderer_transfer_read_iov()`. This is confirmed by the helix-debug.log:
 
 ```
-Guest page flip → resource_flush → helix_scanout_frame_ready()
-  → Retrieve Metal texture's IOSurface (cached at SET_SCANOUT time)
-  → CVPixelBufferCreateWithIOSurface() — wraps same GPU memory, no copy
-  → VideoToolbox H.264 encode (hardware, zero-copy Metal texture access)
-  → Send H.264 NAL units over TCP to subscribers
+[FRAME_READY] scanout 2: metal_texture=0x0 metal_iosurface=0x0 (zero_copy=NO (CPU fallback))
+[FRAME_READY] CPU fallback: created cached IOSurface for scanout 2: 5120x2880
 ```
 
-**Git history of optimization** (QEMU commits, Feb 8 2026):
+**At 5K (5120x2880), each CPU readback copies 59MB per frame.** This is the real cause of
+the extreme CPU usage in QEMU at 5K, NOT virglrenderer command translation.
+
+#### Root Cause: `console_has_gl()` Returns False
+
+The Metal texture capture code in `virtio-gpu-virgl.c:533` is guarded by a GL display check:
+
+```c
+// virtio-gpu-virgl.c:503 — this returns early, skipping Metal texture code
+if (!console_has_gl(g->parent_obj.scanout[ss.scanout_id].con)) {
+    g->parent_obj.scanout[ss.scanout_id].resource_id = ss.resource_id;
+    return;  // EARLY RETURN — Metal texture path at line 533 never reached
+}
+```
+
+`console_has_gl()` checks if `con->gl != NULL` (see `ui/console.c:552`). This pointer is
+ONLY set by `qemu_console_set_display_gl_ctx()`. The virtio-gpu scanout consoles are created
+by `graphic_console_init()` which leaves `gl = NULL`.
+
+**SPICE gets Metal textures because it explicitly registers a GL display context:**
+```c
+// spice-display.c:1674
+qemu_console_set_display_gl_ctx(con, &ssd->dgc);  // Makes console_has_gl() return true
+```
+
+**Helix frame export has NO display listener registration.** It intercepts frames at a
+lower level (resource_flush) but never gets Metal textures because the GL display path
+is skipped.
+
+#### Fix Plan: Register Helix as a GL Display Listener
+
+The fix mirrors exactly what SPICE does. We need three things:
+
+**1. DisplayGLCtxOps (stub GL context management)**
+```c
+static const DisplayGLCtxOps helix_gl_ctx_ops = {
+    .dpy_gl_ctx_is_compatible_dcl = helix_gl_is_compatible_dcl,
+    .dpy_gl_ctx_create       = helix_gl_ctx_create,       // stub
+    .dpy_gl_ctx_destroy      = helix_gl_ctx_destroy,      // stub
+    .dpy_gl_ctx_make_current = helix_gl_ctx_make_current, // stub
+};
+```
+
+**2. DisplayChangeListenerOps (receives Metal texture on scanout)**
+```c
+static const DisplayChangeListenerOps helix_dcl_ops = {
+    .dpy_name = "helix-frame-export",
+    .dpy_gl_scanout_texture = helix_dpy_gl_scanout_texture,  // captures Metal texture
+    .dpy_gl_update = helix_dpy_gl_update,                    // triggers frame encode
+    // other ops are NULL (no rendering needed)
+};
+```
+
+**3. Registration on each scanout console**
+```c
+// For each scanout, register a display change listener and GL context:
+qemu_console_set_display_gl_ctx(con, &helix_dgc);  // makes console_has_gl() → true
+register_displaychangelistener(&helix_dcl);          // receives texture callbacks
+```
+
+**Key functions in the call chain:**
+- `console_has_gl()` — `ui/console.c:552` — checks `con->gl != NULL`
+- `qemu_console_set_display_gl_ctx()` — `ui/console.c:665` — sets `con->gl`
+- `dpy_gl_scanout_texture()` — `ui/console.c:1058` — dispatches to all listeners
+- `register_displaychangelistener()` — `ui/console.c:707` — adds listener to console
+
+**Files to modify:**
+- `hw/display/helix/helix-frame-export.m` — Add display listener + GL ctx registration
+- `hw/display/helix/helix-frame-export.h` — Add DisplayGLCtx/DCL structs to HelixFrameExport
+- `hw/display/virtio-gpu-virgl.c` — May need to call helix registration after console init
+
+**Expected result:** Metal texture IOSurface available on every scanout, eliminating
+59MB CPU readback per frame. At 1080p, this saves ~8MB/frame. At 5K, saves ~59MB/frame.
+
+#### Git history of (incomplete) optimization attempts
 - `3c3343508d` — Eliminated triple-copy (3× 59MB → 1× 59MB per frame at 5K)
-- `814e59d757` — Zero-copy via Metal texture IOSurface (0 copies when Metal available)
-- `d0d82ba8d2` — Capture Metal texture at SET_SCANOUT (same point as SPICE display)
+- `814e59d757` — Added zero-copy via Metal texture IOSurface capture code
+- `d0d82ba8d2` — Capture Metal texture at SET_SCANOUT (same code path as SPICE)
 - `67a016d816` — Remove duplicate CPU readback path
+- `3a9f7737f6` — Added snapshot-on-flush (IOSurface copy before encode) — but this
+  code is never reached because the Metal texture is never captured
 
-Fallback (single CPU readback) only used if Metal texture is unavailable, which shouldn't
-happen on macOS with virtio-gpu-gl.
+**The Metal texture capture code IS correct** — it's just never executed because
+`console_has_gl()` gates the entire GL scanout path.
 
 ### Encoding Artifacts Investigation
 
@@ -346,7 +421,7 @@ Both are pre-bundled in UTM. The setting controls which ICD JSON file is pointed
 
 ## Key Benefits
 
-- **Zero CPU copies**: Mutter renders to GPU -> QEMU reads Metal IOSurface -> VideoToolbox encodes
+- **Zero CPU copies (PLANNED, not yet working)**: Mutter renders to GPU -> QEMU reads Metal IOSurface -> VideoToolbox encodes
 - **Damage-based**: Only encodes on page flip. Static screen = 0 frames captured, ~2 FPS broadcast keepalive
 - **No PipeWire**: Video capture bypasses PipeWire entirely. PipeWire still used for audio
 - **No TCP pixel transfer**: Only resource IDs over TCP, not 3.1MB pixel data per frame
