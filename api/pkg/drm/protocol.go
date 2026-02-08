@@ -11,12 +11,13 @@ import (
 const (
 	helixMsgMagic = 0x52465848 // 'HXFR' little-endian
 
+	msgFrameResponse  = 0x02
+	msgConfigReq      = 0x04
 	msgEnableScanout  = 0x20
 	msgDisableScanout = 0x21
 	msgScanoutResp    = 0x22
 	msgSubscribe      = 0x30
 	msgSubscribeResp  = 0x31
-	msgFrameResponse  = 0x02
 	msgError          = 0xFF
 )
 
@@ -76,6 +77,48 @@ func writeDisableScanout(w io.Writer, scanoutID uint32) error {
 		Magic:       helixMsgMagic,
 		MsgType:     msgDisableScanout,
 		PayloadSize: 4,
+	}
+	if err := binary.Write(w, binary.LittleEndian, hdr); err != nil {
+		return fmt.Errorf("write header: %w", err)
+	}
+	if err := binary.Write(w, binary.LittleEndian, payload); err != nil {
+		return fmt.Errorf("write payload: %w", err)
+	}
+	return nil
+}
+
+// configReqPayload matches HelixConfigRequest (after header).
+// Must match helix-frame-export.h struct layout.
+type configReqPayload struct {
+	Width        uint32
+	Height       uint32
+	Bitrate      uint32 // Target bitrate in bits/sec
+	FramerateNum uint32
+	FramerateDen uint32
+	Profile      uint8 // H.264 profile (66=baseline, 77=main, 100=high)
+	Level        uint8 // H.264 level * 10 (e.g., 40 = level 4.0)
+	Realtime     uint8
+	Reserved     [5]byte
+}
+
+// WriteConfigRequest sends a CONFIG_REQ message to QEMU to configure the
+// VideoToolbox encoder for a specific scanout. The bitrate is in bits/sec
+// (e.g., 5000000 = 5 Mbps). Width/height of 0 means keep current resolution.
+func WriteConfigRequest(w io.Writer, bitrateKbps int, width, height uint32) error {
+	payload := configReqPayload{
+		Width:        width,
+		Height:       height,
+		Bitrate:      uint32(bitrateKbps * 1000), // kbps → bps
+		FramerateNum: 60,
+		FramerateDen: 1,
+		Profile:      66, // Baseline
+		Level:        40, // 4.0
+		Realtime:     1,
+	}
+	hdr := helixMsgHeader{
+		Magic:       helixMsgMagic,
+		MsgType:     msgConfigReq,
+		PayloadSize: 28, // sizeof(configReqPayload)
 	}
 	if err := binary.Write(w, binary.LittleEndian, hdr); err != nil {
 		return fmt.Errorf("write header: %w", err)

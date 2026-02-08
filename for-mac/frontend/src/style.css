@@ -585,6 +585,73 @@ body {
     color: var(--text-secondary);
 }
 
+/* ---- Scanout Display Stats ---- */
+
+.scanout-usage {
+    text-align: center;
+    padding: 8px 0;
+}
+
+.scanout-count {
+    font-variant-numeric: tabular-nums;
+}
+
+.scanout-active {
+    font-size: 32px;
+    font-weight: 700;
+}
+
+.scanout-active.teal {
+    color: var(--teal);
+}
+
+.scanout-sep {
+    font-size: 20px;
+    color: var(--text-faded);
+    margin: 0 4px;
+}
+
+.scanout-max {
+    font-size: 20px;
+    color: var(--text-secondary);
+}
+
+.scanout-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+.display-list {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.display-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: var(--bg-input);
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.display-name {
+    color: var(--text-primary);
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 12px;
+}
+
+.display-res {
+    margin-left: auto;
+    color: var(--text-faded);
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 11px;
+}
+
 /* ---- Error / Empty States ---- */
 
 .error-msg {

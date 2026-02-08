@@ -50,6 +50,9 @@ type ScanoutSource struct {
 	width  uint32
 	height uint32
 
+	// Encoder bitrate in kbps (0 = auto-scale from resolution)
+	bitrateKbps int
+
 	mu        sync.Mutex
 	conn      net.Conn
 	scanoutID uint32
@@ -76,6 +79,27 @@ func NewScanoutSource(logger *slog.Logger) *ScanoutSource {
 		height:    h,
 		frameCh:   make(chan VideoFrame, 16),
 		errorCh:   make(chan error, 1),
+	}
+}
+
+// SetBitrate configures the target encoder bitrate in kbps.
+// Must be called before Start(). If called after Start(), sends a CONFIG_REQ
+// to QEMU to reconfigure the encoder on the fly.
+func (s *ScanoutSource) SetBitrate(bitrateKbps int) {
+	s.mu.Lock()
+	s.bitrateKbps = bitrateKbps
+	conn := s.conn
+	running := s.running
+	width := s.width
+	height := s.height
+	s.mu.Unlock()
+
+	if running && conn != nil && bitrateKbps > 0 {
+		if err := drmmanager.WriteConfigRequest(conn, bitrateKbps, width, height); err != nil {
+			s.logger.Error("failed to send CONFIG_REQ", "bitrate_kbps", bitrateKbps, "err", err)
+		} else {
+			s.logger.Info("sent CONFIG_REQ to QEMU", "bitrate_kbps", bitrateKbps)
+		}
 	}
 }
 
@@ -160,6 +184,15 @@ func (s *ScanoutSource) Start(ctx context.Context, scanoutID uint32) error {
 	s.logger.Info("subscribed to QEMU scanout",
 		"scanout_id", respScanout,
 		"qemu_addr", s.qemuAddr)
+
+	// Send CONFIG_REQ if bitrate was set before Start()
+	if s.bitrateKbps > 0 {
+		if err := drmmanager.WriteConfigRequest(conn, s.bitrateKbps, s.width, s.height); err != nil {
+			s.logger.Warn("failed to send initial CONFIG_REQ", "bitrate_kbps", s.bitrateKbps, "err", err)
+		} else {
+			s.logger.Info("sent initial CONFIG_REQ", "bitrate_kbps", s.bitrateKbps)
+		}
+	}
 
 	s.running = true
 

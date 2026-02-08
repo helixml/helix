@@ -2222,7 +2222,18 @@ The cursor-based damage keepalive (`runDamageKeepalive`) is disabled in scanout 
 
 ### TODO
 
-- [ ] Show scanout usage in Helix for Mac UI (X/15 displays in use)
-- [ ] Bump `VIRTIO_GPU_MAX_SCANOUTS` to 64 (requires QEMU + kernel patch)
-- [ ] Plumb agent-configured bitrate through to VideoToolbox encoder via `HELIX_MSG_CONFIG_REQ`
+- [x] Show scanout usage in Helix for Mac UI (X/15 displays in use)
+  - Added `for-mac/drm_stats.go` — ScanoutCollector polls DRM connector status via SSH every 5s
+  - Added `GetScanoutStats()` Wails binding in app.go
+  - Frontend shows active/total displays with progress bar and per-display details in VM view
+- [x] Plumb per-session bitrate from JS frontend through to VideoToolbox encoder via `HELIX_MSG_CONFIG_REQ`
+  - Frontend already sends bitrate in WebSocket init JSON (`bitrate` field, kbps)
+  - Added `WriteConfigRequest()` to Go protocol (`api/pkg/drm/protocol.go`)
+  - Added `SetBitrate(kbps)` to `ScanoutSource` — sends CONFIG_REQ to QEMU TCP
+  - `startScanoutMode()` passes `v.config.Bitrate` to ScanoutSource before Start()
+  - QEMU `client_handler_thread()` now handles `HELIX_MSG_CONFIG_REQ` — reconfigures per-scanout encoder
+  - `HelixScanoutEncoder` struct gains `bitrate` field, `create_scanout_encoder()` accepts bitrate param
+  - Default bitrate auto-scales from resolution (~4 bits/pixel, minimum 5 Mbps)
+- ~~Bump `VIRTIO_GPU_MAX_SCANOUTS` to 64~~ — Deferred (requires kernel patch, not worth the effort)
 - [ ] Test 5K resolution end-to-end after VM restart with EDID
+- [ ] Rebuild QEMU with bitrate changes (`./for-mac/qemu-helix/build-qemu-standalone.sh`)

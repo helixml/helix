@@ -21,14 +21,15 @@ type TrayStatus struct {
 
 // App struct holds the application state
 type App struct {
-	ctx             context.Context
-	vm              *VMManager
-	encoder         *VideoEncoder
-	videoServer     *VideoServer
-	vtEncoder       *VideoToolboxEncoder // Hardware H.264 encoder
-	vsockServer     *VsockServer         // vsock server for guest frame requests
-	settings        *SettingsManager
-	zfsCollector    *ZFSCollector
+	ctx              context.Context
+	vm               *VMManager
+	encoder          *VideoEncoder
+	videoServer      *VideoServer
+	vtEncoder        *VideoToolboxEncoder // Hardware H.264 encoder
+	vsockServer      *VsockServer         // vsock server for guest frame requests
+	settings         *SettingsManager
+	zfsCollector     *ZFSCollector
+	scanoutCollector *ScanoutCollector
 }
 
 // NewApp creates a new App application struct
@@ -41,11 +42,12 @@ func NewApp() *App {
 	settings := NewSettingsManager()
 
 	app := &App{
-		vm:           NewVMManager(),
-		encoder:      encoder,
-		vtEncoder:    vtEncoder,
-		settings:     settings,
-		zfsCollector: NewZFSCollector(settings.Get().SSHPort),
+		vm:               NewVMManager(),
+		encoder:          encoder,
+		vtEncoder:        vtEncoder,
+		settings:         settings,
+		zfsCollector:     NewZFSCollector(settings.Get().SSHPort),
+		scanoutCollector: NewScanoutCollector(settings.Get().SSHPort),
 	}
 
 	// WebSocket server for browser clients (port 8765)
@@ -97,6 +99,9 @@ func (a *App) startup(ctx context.Context) {
 	// Start ZFS stats collector
 	a.zfsCollector.Start()
 
+	// Start scanout stats collector
+	a.scanoutCollector.Start()
+
 	log.Println("Helix Desktop started")
 }
 
@@ -121,6 +126,11 @@ func (a *App) shutdown(ctx context.Context) {
 	// Stop ZFS collector
 	if a.zfsCollector != nil {
 		a.zfsCollector.Stop()
+	}
+
+	// Stop scanout collector
+	if a.scanoutCollector != nil {
+		a.scanoutCollector.Stop()
 	}
 
 	// Stop VM if running
@@ -320,6 +330,11 @@ func (a *App) SaveSettings(s AppSettings) error {
 	config.VideoPort = s.VideoPort
 	config.DiskPath = s.VMDiskPath
 	return a.vm.SetConfig(config)
+}
+
+// GetScanoutStats returns DRM scanout/display usage statistics
+func (a *App) GetScanoutStats() ScanoutStats {
+	return a.scanoutCollector.GetStats()
 }
 
 // GetTrayStatus returns status info for the system tray

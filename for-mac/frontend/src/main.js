@@ -16,6 +16,7 @@ import {
     GetDiskUsage,
     GetSettings,
     SaveSettings,
+    GetScanoutStats,
 } from '../wailsjs/go/main/App';
 import { EventsOn } from '../wailsjs/runtime/runtime';
 
@@ -33,6 +34,7 @@ let state = {
     helixURL: '',
     zfsStats: {},
     diskUsage: {},
+    scanoutStats: {},
     settings: {},
 };
 
@@ -91,16 +93,18 @@ async function pollStats() {
         updateSidebarStatus();
 
         if (state.vmStatus.state === 'running') {
-            const [stats, clients, zfs, disk] = await Promise.all([
+            const [stats, clients, zfs, disk, scanout] = await Promise.all([
                 GetEncoderStats(),
                 GetClientCount(),
                 GetZFSStats(),
                 GetDiskUsage(),
+                GetScanoutStats(),
             ]);
             state.encoderStats = stats;
             state.clientCount = clients;
             state.zfsStats = zfs;
             state.diskUsage = disk;
+            state.scanoutStats = scanout;
 
             // Update current view if it shows live data
             if (state.currentView === 'vm' || state.currentView === 'storage') {
@@ -283,6 +287,8 @@ function renderVMView() {
                 </div>
             </div>
 
+            ${renderScanoutCard()}
+
             <div class="card">
                 <div class="card-header">
                     <h2>Quick Actions</h2>
@@ -352,6 +358,59 @@ function attachVMHandlers() {
             showToast('API endpoint copied');
         });
     }
+}
+
+// ---- Scanout Display Card ----
+
+function renderScanoutCard() {
+    const sc = state.scanoutStats;
+    const hasData = sc.total_connectors > 0;
+    const active = sc.active_displays || 0;
+    const max = sc.max_scanouts || 15;
+    const usagePct = Math.round((active / max) * 100);
+
+    if (!hasData && state.vmStatus.state !== 'running') {
+        return '';
+    }
+
+    return `
+        <div class="card">
+            <div class="card-header">
+                <h2>Displays</h2>
+                <span class="card-badge" style="color: var(--text-faded);">DRM Scanout</span>
+            </div>
+            <div class="card-body">
+                ${hasData ? `
+                    <div class="scanout-usage">
+                        <div class="scanout-count">
+                            <span class="scanout-active teal">${active}</span>
+                            <span class="scanout-sep">/</span>
+                            <span class="scanout-max">${max}</span>
+                        </div>
+                        <div class="scanout-label">displays in use</div>
+                    </div>
+                    <div class="progress-bar" style="margin: 12px 0;">
+                        <div class="progress-fill ${usagePct > 90 ? 'warning' : 'teal'}" style="width: ${usagePct}%;"></div>
+                    </div>
+                    ${sc.displays && sc.displays.length > 0 ? `
+                        <div class="display-list">
+                            ${sc.displays.filter(d => d.connected).map(d => `
+                                <div class="display-item">
+                                    <span class="status-indicator running"></span>
+                                    <span class="display-name">${d.name}</span>
+                                    ${d.width > 0 ? `<span class="display-res">${d.width}x${d.height}</span>` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                ` : `
+                    <div class="empty-state">
+                        ${sc.error ? `Unable to fetch display stats: ${sc.error}` : 'Loading display stats...'}
+                    </div>
+                `}
+            </div>
+        </div>
+    `;
 }
 
 // ---- Storage View ----

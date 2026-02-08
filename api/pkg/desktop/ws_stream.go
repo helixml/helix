@@ -386,12 +386,17 @@ func (v *VideoStreamer) startScanoutMode(ctx context.Context) error {
 	} else {
 		// First client — create and start the scanout source
 		scanoutSrc := NewScanoutSource(v.logger)
+		// Set encoder bitrate from client's requested bitrate (kbps)
+		if v.config.Bitrate > 0 {
+			scanoutSrc.SetBitrate(v.config.Bitrate)
+		}
 		if err := scanoutSrc.Start(ctx, 0); err != nil {
 			return fmt.Errorf("start scanout source: %w", err)
 		}
 		v.scanoutSource = scanoutSrc
 		v.sharedSource = registry.GetOrCreateWithSource(v.nodeID, scanoutSrc)
-		v.logger.Info("scanout source created (first client)")
+		v.logger.Info("scanout source created (first client)",
+			"bitrate_kbps", v.config.Bitrate)
 	}
 
 	// Subscribe to receive frames from the shared source
