@@ -302,15 +302,21 @@ written to by virglrenderer (guest rendering) and simultaneously read by VideoTo
 2. Double-buffer: alternate between two IOSurfaces per scanout
 3. Use `IOSurfaceLock()` to serialize access (but adds latency)
 
-### Vulkan Driver: MoltenVK vs KosmicKrisp
+### Vulkan Driver: KosmicKrisp (RECOMMENDED over MoltenVK)
 
 UTM supports two Vulkan drivers for the Venus path:
-- **MoltenVK** (current): Mature, widely tested, translates Vulkan → Metal
-- **KosmicKrisp**: Mesa-based Vulkan driver, requires macOS 15+ (Sequoia)
+- **MoltenVK**: Mature, widely tested, translates Vulkan → Metal. Suffers from massive
+  shader compilation failures under concurrent GNOME sessions (401+ failures/min).
+- **KosmicKrisp** ✅: Mesa-based Vulkan driver, requires macOS 15+ (Sequoia).
+  **Dramatically better rendering quality** — eliminates most MoltenVK shader artifacts.
+
+**Test result (2026-02-08)**: Switching from MoltenVK to KosmicKrisp at 1080p eliminated
+the severe rendering artifacts and flickering. Only slight encoder artifacts remain
+(attributed to the IOSurface race condition, not the Vulkan driver).
 
 This is a **global UTM setting**, not per-VM. To switch:
 ```bash
-# Switch to KosmicKrisp
+# Switch to KosmicKrisp (RECOMMENDED)
 defaults write com.utm.app QEMUVulkanDriver -int 3
 
 # Switch back to MoltenVK
@@ -319,9 +325,6 @@ defaults write com.utm.app QEMUVulkanDriver -int 2
 
 Both are pre-bundled in UTM. The setting controls which ICD JSON file is pointed to by
 `VK_DRIVER_FILES` environment variable when QEMU launches. VM restart required after change.
-
-**KosmicKrisp may help** with the shader compilation failures since it uses a different
-Metal shader generation path. Worth testing.
 
 ### Issues Discovered & Fixed
 
