@@ -326,30 +326,29 @@ log "Step 7: Signing app bundle (ad-hoc)..."
 
 ENTITLEMENTS="${FOR_MAC_DIR}/build/darwin/entitlements.plist"
 
-# Sign inside-out: frameworks → main app → QEMU dylib last
-# QEMU must be signed AFTER the app bundle because --deep strips inner entitlements.
-# QEMU needs its own entitlements since it runs as a separate process (exec.Command).
+# Sign inside-out WITHOUT --deep:
+#   1. Frameworks first
+#   2. QEMU binaries (with entitlements)
+#   3. App bundle LAST (creates the seal)
+# NEVER use --deep then re-sign inner components — it breaks the seal and
+# macOS kills the app with SIGKILL (Code Signature Invalid).
 
 for fw_dir in "$FRAMEWORKS_DIR"/*.framework; do
     codesign --force --sign - --timestamp=none "$fw_dir" 2>/dev/null || true
 done
 
-# Sign the main app bundle (--deep signs everything inside)
-codesign --force --sign - --timestamp=none \
-    --entitlements "$ENTITLEMENTS" \
-    --deep "$APP_BUNDLE" 2>/dev/null || true
-
-# Re-sign QEMU executable + dylib with entitlements AFTER --deep (which strips them)
-# The wrapper (qemu-system-aarch64) is the actual process that needs:
-#   - com.apple.security.hypervisor (HVF acceleration)
-#   - com.apple.security.cs.allow-jit (TCG JIT)
-#   - com.apple.security.cs.allow-unsigned-executable-memory (code generation)
+# Sign QEMU binaries with entitlements (before sealing the bundle)
 codesign --force --sign - --timestamp=none \
     --entitlements "$ENTITLEMENTS" \
     "$MACOS_DIR/libqemu-aarch64-softmmu.dylib" 2>/dev/null || true
 codesign --force --sign - --timestamp=none \
     --entitlements "$ENTITLEMENTS" \
     "$MACOS_DIR/qemu-system-aarch64" 2>/dev/null || true
+
+# Sign the app bundle LAST (seals all inner components)
+codesign --force --sign - --timestamp=none \
+    --entitlements "$ENTITLEMENTS" \
+    "$APP_BUNDLE" 2>/dev/null || true
 
 log "  Ad-hoc signing complete"
 

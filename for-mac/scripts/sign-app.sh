@@ -13,9 +13,18 @@ set -euo pipefail
 #
 # With Developer ID cert:
 #   ./scripts/sign-app.sh --identity "Developer ID Application: Your Name (TEAMID)"
-#   ./scripts/sign-app.sh --identity "Developer ID Application: Your Name (TEAMID)" --notarize
+#   ./scripts/sign-app.sh --notarize   (reads .env.signing for identity)
 #
-# Signing order matters: sign inside-out (frameworks first, then app)
+# IMPORTANT: Sign inside-out, WITHOUT --deep.
+# --deep creates a seal over all inner components. If you re-sign anything
+# inside after --deep, the seal breaks and macOS kills the app with
+# SIGKILL (Code Signature Invalid) / Taskgated Invalid Signature.
+#
+# Correct order:
+#   1. Sign each framework individually
+#   2. Sign QEMU dylib (with entitlements)
+#   3. Sign QEMU wrapper executable (with entitlements)
+#   4. Sign the main app bundle (seals everything, do NOT use --deep)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FOR_MAC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -29,7 +38,21 @@ APPLE_ID=""
 TEAM_ID=""
 APP_PASSWORD=""
 
-# Parse arguments
+# Load signing config from .env.signing if it exists
+SIGNING_ENV="${FOR_MAC_DIR}/.env.signing"
+if [ -f "$SIGNING_ENV" ]; then
+    # shellcheck disable=SC1090
+    source "$SIGNING_ENV"
+    if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
+        IDENTITY="$APPLE_SIGNING_IDENTITY"
+    fi
+    if [ -n "${APPLE_TEAM_ID:-}" ]; then
+        TEAM_ID="$APPLE_TEAM_ID"
+    fi
+    # APPLE_ID is set directly from the env file
+fi
+
+# Parse arguments (override .env.signing values)
 while [[ $# -gt 0 ]]; do
     case $1 in
         --identity) IDENTITY="$2"; shift 2 ;;
@@ -66,7 +89,7 @@ if [ "$IDENTITY" != "-" ]; then
 fi
 
 # =============================================================================
-# Step 1: Sign frameworks (inside-out)
+# Step 1: Sign frameworks (innermost first)
 # =============================================================================
 
 log "Step 1: Signing frameworks..."
@@ -74,7 +97,7 @@ log "Step 1: Signing frameworks..."
 FRAMEWORK_COUNT=0
 for fw_dir in "$FRAMEWORKS_DIR"/*.framework; do
     if [ -d "$fw_dir" ]; then
-        codesign "${SIGN_OPTS[@]}" "$fw_dir" 2>/dev/null || {
+        codesign "${SIGN_OPTS[@]}" "$fw_dir" || {
             echo "  WARNING: Failed to sign $(basename "$fw_dir")"
         }
         FRAMEWORK_COUNT=$((FRAMEWORK_COUNT + 1))
@@ -83,43 +106,70 @@ done
 log "  Signed $FRAMEWORK_COUNT frameworks"
 
 # =============================================================================
-# Step 2: Sign main app bundle
+# Step 2: Sign QEMU binaries (with entitlements)
 # =============================================================================
 
-log "Step 2: Signing main app bundle..."
-
-codesign "${SIGN_OPTS[@]}" --entitlements "$ENTITLEMENTS" --deep "$APP_BUNDLE"
-log "  Signed app bundle"
-
-# =============================================================================
-# Step 3: Re-sign QEMU dylib with entitlements
-# =============================================================================
-
-# QEMU must be signed AFTER --deep because --deep strips inner entitlements.
-# The wrapper executable (qemu-system-aarch64) is the process that needs
-# Hypervisor.framework access, JIT, and unsigned memory entitlements.
-log "Step 3: Re-signing QEMU binaries (with entitlements, after --deep)..."
+log "Step 2: Signing QEMU binaries (with entitlements)..."
 
 QEMU_DYLIB="${MACOS_DIR}/libqemu-aarch64-softmmu.dylib"
 QEMU_WRAPPER="${MACOS_DIR}/qemu-system-aarch64"
 
+# Sign dylib first (loaded by wrapper)
 if [ -f "$QEMU_DYLIB" ]; then
     codesign "${SIGN_OPTS[@]}" --entitlements "$ENTITLEMENTS" "$QEMU_DYLIB"
     log "  Signed QEMU dylib"
+else
+    log "  WARNING: QEMU dylib not found"
 fi
+
+# Sign wrapper executable (this is what gets exec'd, needs hypervisor entitlement)
 if [ -f "$QEMU_WRAPPER" ]; then
     codesign "${SIGN_OPTS[@]}" --entitlements "$ENTITLEMENTS" "$QEMU_WRAPPER"
-    log "  Signed QEMU wrapper with entitlements"
+    log "  Signed QEMU wrapper"
 else
     log "  WARNING: QEMU wrapper executable not found"
 fi
+
+# =============================================================================
+# Step 3: Sign main app bundle (seals everything — MUST be last)
+# =============================================================================
+#
+# DO NOT use --deep here. --deep recursively re-signs everything inside,
+# which would overwrite the QEMU entitlements we just applied. Instead,
+# signing just the app bundle creates a CodeResources seal that covers
+# all the already-signed inner components.
+
+log "Step 3: Signing main app bundle (creating seal)..."
+
+codesign "${SIGN_OPTS[@]}" --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
+log "  Signed app bundle"
 
 # =============================================================================
 # Step 4: Verify
 # =============================================================================
 
 log "Step 4: Verifying signature..."
-codesign -vvv "$APP_BUNDLE" 2>&1 | head -5
+
+# Verify the overall bundle (checks seal integrity)
+if ! codesign --verify --deep --strict "$APP_BUNDLE" 2>&1; then
+    echo "ERROR: App bundle signature verification failed!"
+    codesign -vvv "$APP_BUNDLE" 2>&1
+    exit 1
+fi
+log "  Bundle signature: valid"
+
+# Verify QEMU wrapper has entitlements
+if [ -f "$QEMU_WRAPPER" ]; then
+    if codesign -d --entitlements - "$QEMU_WRAPPER" 2>&1 | grep -q "com.apple.security.hypervisor"; then
+        log "  QEMU entitlements: hypervisor OK"
+    else
+        echo "ERROR: QEMU wrapper missing hypervisor entitlement!"
+        exit 1
+    fi
+fi
+
+# Show signing identity
+codesign -dvv "$APP_BUNDLE" 2>&1 | grep -E "Authority|TeamIdentifier|Identifier" || true
 
 # =============================================================================
 # Step 5: Notarize (optional, requires Developer ID)
@@ -127,19 +177,16 @@ codesign -vvv "$APP_BUNDLE" 2>&1 | head -5
 
 if [ "$NOTARIZE" = true ]; then
     if [ "$IDENTITY" = "-" ]; then
-        echo "ERROR: Cannot notarize with ad-hoc signing. Provide --identity."
-        exit 1
-    fi
-    if [ -z "$APPLE_ID" ] || [ -z "$TEAM_ID" ]; then
-        echo "ERROR: Notarization requires --apple-id and --team-id"
-        echo "Usage: $0 --identity 'Developer ID...' --notarize --apple-id you@email.com --team-id XXXXX"
+        echo "ERROR: Cannot notarize with ad-hoc signing. Provide --identity or .env.signing."
         exit 1
     fi
 
-    log "Step 5: Notarizing..."
+    log "Step 5: Notarizing app..."
 
     # Create a zip for notarization
     NOTARIZE_ZIP="/tmp/helix-notarize.zip"
+    rm -f "$NOTARIZE_ZIP"
+    log "  Creating zip for upload..."
     ditto -c -k --keepParent "$APP_BUNDLE" "$NOTARIZE_ZIP"
 
     # Submit for notarization
@@ -157,12 +204,12 @@ if [ "$NOTARIZE" = true ]; then
             --wait
     fi
 
-    # Staple the ticket
+    # Staple the ticket to the app
     log "  Stapling notarization ticket..."
     xcrun stapler staple "$APP_BUNDLE"
 
     rm -f "$NOTARIZE_ZIP"
-    log "  Notarization complete!"
+    log "  App notarization complete!"
 fi
 
 log ""
@@ -181,3 +228,6 @@ else
         log "Notarized: NO (run with --notarize for full Gatekeeper approval)"
     fi
 fi
+log ""
+log "Next steps:"
+log "  ./scripts/create-dmg.sh --notarize    # Create and notarize DMG"
