@@ -94,9 +94,12 @@ func (h *HelixAuthenticator) CreateUser(ctx context.Context, user *types.User) (
 		user.Password = ""
 	}
 
+	user.Waitlisted = h.cfg.Auth.Waitlist
+
 	// Check if user should be admin based on ADMIN_USER_IDS env var
 	if h.isUserInAdminList(user.ID) {
 		user.Admin = true
+		user.Waitlisted = false
 	}
 
 	return h.store.CreateUser(ctx, user)

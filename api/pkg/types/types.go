@@ -2557,6 +2557,7 @@ type UserResponse struct {
 	Name                string `json:"name"`
 	Admin               bool   `json:"admin"`
 	OnboardingCompleted bool   `json:"onboarding_completed"`
+	Waitlisted          bool   `json:"waitlisted"`
 }
 
 type AuthenticatedResponse struct {

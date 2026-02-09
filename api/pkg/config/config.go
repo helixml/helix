@@ -155,6 +155,7 @@ type Auth struct {
 	RegistrationEnabled bool               `envconfig:"AUTH_REGISTRATION_ENABLED" default:"true"`
 	OIDC                OIDC
 	Regular             Regular
+	Waitlist            bool `envconfig:"AUTH_WAITLIST_ENABLED" default:"false"`
 }
 
 type Regular struct {
