@@ -5,3 +5,4 @@ for-mac
 helix-desktop
 *.dylib
 *.a
+.env.signing
