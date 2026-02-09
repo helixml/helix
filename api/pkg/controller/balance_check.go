@@ -41,8 +41,10 @@ func (c *Controller) HasEnoughBalance(ctx context.Context, user *types.User, org
 		}
 	}
 
+	// Check if we have pricing for this model
 	if wallet.Balance < c.Options.Config.Stripe.MinimumInferenceBalance {
 		return false, nil
 	}
+
 	return true, nil
 }

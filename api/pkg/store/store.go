@@ -55,6 +55,7 @@ type ListSessionsQuery struct {
 	QuestionSetExecutionID string          `json:"question_set_execution_id"`
 	AppID                  string          `json:"app_id"`
 	ProjectID              string          `json:"project_id"`
+	IncludeExternalAgents  bool            `json:"include_external_agents"`
 }
 
 type ListAPIKeysQuery struct {

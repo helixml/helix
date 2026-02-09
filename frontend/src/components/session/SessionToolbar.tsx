@@ -61,21 +61,11 @@ import ZedSettingsViewer, { useHasValidMCPTools } from './ZedSettingsViewer'
 export const SessionToolbar: FC<{
   session: TypesSession,
   onReload?: () => void,
-  onOpenMobileMenu?: () => void,
-  showRDPViewer?: boolean,
-  onToggleRDPViewer?: () => void,
-  isExternalAgent?: boolean,
-  rdpViewerHeight?: number,
-  onRdpViewerHeightChange?: (height: number) => void,
+  onOpenMobileMenu?: () => void,  
 }> = ({
   session,
   onReload,
   onOpenMobileMenu,
-  showRDPViewer,
-  onToggleRDPViewer,
-  isExternalAgent,
-  rdpViewerHeight = 300,
-  onRdpViewerHeightChange,
 }) => {
   const {
     navigate,
@@ -97,9 +87,6 @@ export const SessionToolbar: FC<{
   const { data: project } = useGetProject(projectId || '', !!projectId)
 
   const isOwner = account.user?.id === session.owner
-
-  // Check if there are valid MCP tools to show the icon
-  const hasValidMCPTools = useHasValidMCPTools(isExternalAgent ? (session.id || '') : '')
 
   // Find the app if this session belongs to one
   const app = session.parent_app ? apps?.find(a => a.id === session.parent_app) : undefined
@@ -308,72 +295,7 @@ export const SessionToolbar: FC<{
                 </>
               )}
             </Typography>
-
-            {/* External Agent Controls - Show Zed on left */}
-            {(isOwner || account.admin) && isExternalAgent && onToggleRDPViewer && (
-              <Button
-                variant={showRDPViewer ? "contained" : "outlined"}
-                size="small"
-                startIcon={<Computer />}
-                onClick={onToggleRDPViewer}
-                sx={{
-                  fontSize: '0.7rem',
-                  py: 0.25,
-                  px: 1,
-                  minWidth: 'auto',
-                  ml: 1
-                }}
-              >
-                {showRDPViewer ? 'Hide' : 'Show'} Desktop
-              </Button>
-            )}
-
-            {/* Height Controls - Show when RDP viewer is visible */}
-            {(isOwner || account.admin) && isExternalAgent && showRDPViewer && onRdpViewerHeightChange && (
-              <Box sx={{ display: 'flex', alignItems: 'center',  gap: 0.5, ml: 1 }}>
-                <Tooltip title="Zoom Out">
-                  <span>
-                    <IconButton
-                      size="small"
-                      onClick={() => onRdpViewerHeightChange(Math.max(300, rdpViewerHeight - 100))}
-                      disabled={rdpViewerHeight <= 300}
-                      sx={{
-                        p: 0.25,
-                        opacity: rdpViewerHeight <= 300 ? 0.4 : 1,
-                      }}
-                    >
-                      <ZoomOut size={16} />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-                <Tooltip title="Zoom In">
-                  <IconButton
-                    size="small"
-                    onClick={() => onRdpViewerHeightChange(rdpViewerHeight + 100)}
-                    sx={{
-                      p: 0.25,
-                    }}
-                  >
-                    <ZoomIn size={16} />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Reset Zoom">
-                  <Button
-                    size="small"
-                    variant="text"
-                    onClick={() => onRdpViewerHeightChange(300)}
-                    sx={{
-                      fontSize: '0.65rem',
-                      py: 0.125,
-                      px: 0.5,
-                      minWidth: 'auto',
-                    }}
-                  >
-                    Reset
-                  </Button>
-                </Tooltip>
-              </Box>
-            )}
+            
           </Box>
         </Box>
       </Cell>
@@ -381,46 +303,6 @@ export const SessionToolbar: FC<{
         isBigScreen ? (
           <Box sx={{ alignItems: 'center' }}>
             <Row>
-              {isExternalAgent && hasValidMCPTools && (
-                <Cell>
-                  <Tooltip title="MCP Tools">
-                    <IconButton
-                      onClick={(e) => setMcpToolsAnchor(e.currentTarget)}
-                      size="small"
-                      sx={{
-                        color: Boolean(mcpToolsAnchor)
-                          ? 'primary.main'
-                          : theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                        '&:hover': {
-                          color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
-                        },
-                      }}
-                    >
-                      <Extension sx={{ fontSize: 18 }} />
-                    </IconButton>
-                  </Tooltip>
-                  <Popover
-                    open={Boolean(mcpToolsAnchor)}
-                    anchorEl={mcpToolsAnchor}
-                    onClose={() => setMcpToolsAnchor(null)}
-                    anchorReference="none"
-                    slotProps={{
-                      paper: {
-                        sx: {
-                          position: 'fixed',
-                          top: 60,
-                          right: 16,
-                          width: 380,
-                          maxHeight: 500,
-                          overflow: 'auto',
-                        }
-                      }
-                    }}
-                  >
-                    <ZedSettingsViewer sessionId={session.id || ''} />
-                  </Popover>
-                </Cell>
-              )}
               <Cell>
                 <Tooltip title="New Session">
                   <IconButton

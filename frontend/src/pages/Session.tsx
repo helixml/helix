@@ -30,7 +30,7 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import Tooltip from '@mui/material/Tooltip'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import SimpleConfirmWindow from '../components/widgets/SimpleConfirmWindow'
-import { useGetSession, useUpdateSession, useStopExternalAgent, useGetSessionIdleStatus } from '../services/sessionService'
+import { useGetSession, useUpdateSession, useGetSessionIdleStatus } from '../services/sessionService'
 
 import {
   INTERACTION_STATE_EDITING,
@@ -49,15 +49,11 @@ import { getAssistant } from '../utils/apps'
 import useApps from '../hooks/useApps'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
-import { generateFixtureSession } from '../utils/fixtures'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import { useListSessionSteps } from '../services/sessionService'
-import ScreenshotViewer from '../components/external-agent/ScreenshotViewer'
-import OpenInNew from '@mui/icons-material/OpenInNew'
 import PlayArrow from '@mui/icons-material/PlayArrow'
 import CircularProgress from '@mui/material/CircularProgress'
 import StopIcon from '@mui/icons-material/Stop'
-import IconButton from '@mui/material/IconButton'
 
 // Hook to track sandbox/desktop state for external agent sessions
 const useSandboxState = (sessionId: string) => {
@@ -97,112 +93,6 @@ const DesktopControls: React.FC<{
   }
 
   return null;
-};
-
-// Desktop viewer for external agent sessions - shows live screenshot or paused state
-const ExternalAgentDesktopViewer: React.FC<{
-  sessionId: string;
-  sandboxId?: string;
-  height: number;
-}> = ({ sessionId, sandboxId, height }) => {
-  const api = useApi();
-  const snackbar = useSnackbar();
-  const { isRunning, isPaused, isStarting } = useSandboxState(sessionId);
-  const [isResuming, setIsResuming] = React.useState(false);
-
-  const handleResume = async () => {
-    setIsResuming(true);
-    try {
-      await api.post(`/api/v1/sessions/${sessionId}/resume`, {});
-      snackbar.success('External agent started successfully');
-    } catch (error: any) {
-      console.error('Failed to resume agent:', error);
-      snackbar.error(error?.message || 'Failed to start agent');
-    } finally {
-      setIsResuming(false);
-    }
-  };
-
-  // Show starting state
-  if (isStarting || isResuming) {
-    return (
-      <Box
-        sx={{
-          width: '100%',
-          height: height,
-          backgroundColor: '#1a1a1a',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          border: '1px solid',
-          borderColor: 'divider',
-          borderRadius: 1,
-          gap: 2,
-        }}
-      >
-        <CircularProgress size={32} sx={{ color: 'primary.main' }} />
-        <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
-          Starting Desktop...
-        </Typography>
-      </Box>
-    );
-  }
-
-  if (isPaused) {
-    return (
-      <Box
-        sx={{
-          width: '100%',
-          height: height,
-          backgroundColor: '#1a1a1a',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          border: '1px solid',
-          borderColor: 'divider',
-          borderRadius: 1,
-          gap: 2,
-        }}
-      >
-        <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>
-          Desktop Paused
-        </Typography>
-        <Button
-          variant="contained"
-          color="primary"
-          size="large"
-          startIcon={isResuming ? <CircularProgress size={20} /> : <PlayArrow />}
-          onClick={handleResume}
-          disabled={isResuming}
-        >
-          {isResuming ? 'Starting...' : 'Start Desktop'}
-        </Button>
-      </Box>
-    );
-  }
-
-  return (
-    <Box sx={{
-      height: height,
-      border: '1px solid',
-      borderColor: 'divider',
-      borderRadius: 1,
-      overflow: 'hidden'
-    }}>
-      <ScreenshotViewer
-        sessionId={sessionId}
-        isRunner={false}
-        sandboxId={sandboxId}
-        enableStreaming={true}
-        onError={(error) => {
-          console.error('Screenshot viewer error:', error);
-        }}
-        height={height}
-      />
-    </Box>
-  );
 };
 
 // Add new interfaces for virtualization
@@ -364,48 +254,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   })
 
   const isOwner = account.user?.id == session?.data?.owner
-
-  // Stop external agent hook (works for any external agent session)
-  const stopExternalAgentMutation = useStopExternalAgent(sessionID || '')
-  const [showStopConfirm, setShowStopConfirm] = useState(false)
-
-  // Get idle status for external agent sessions (check session data directly)
-  const { data: idleStatus } = useGetSessionIdleStatus(sessionID || '', {
-    enabled: !!sessionID && session?.data?.config?.agent_type === 'zed_external'
-  })
-
-  // Get sandbox state to check if desktop is running
-  const { isRunning: isDesktopRunning } = useSandboxState(sessionID || '')
-
-  const handleStopExternalAgent = () => {
-    setShowStopConfirm(true)
-  }
-
-  const handleConfirmStop = async () => {
-    setShowStopConfirm(false)
-    try {
-      await stopExternalAgentMutation.mutateAsync()
-      snackbar.success('External agent stopped')
-    } catch (err) {
-      snackbar.error('Failed to stop external agent')
-    }
-  }
-
-  // Test RDP Mode state
-  const [testRDPMode, setTestRDPMode] = useState(false)
-
-  // Check if this is an external agent session and show Zed editor by default
-  useEffect(() => {
-    if (session?.data?.config?.agent_type === 'zed_external' || testRDPMode) {
-      setIsExternalAgent(true)
-      // Show Zed editor by default for zed-enabled sessions
-      setShowRDPViewer(true)
-    } else {
-      setIsExternalAgent(false)
-      setShowRDPViewer(false)
-    }
-  }, [session?.data?.config?.agent_type, testRDPMode])
-
 
   // If params sessionID is not set, try to get it from URL query param sessionId=
   if (!sessionID) {
@@ -1536,53 +1384,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                 session={session.data}
                 onReload={safeReloadSession}
                 onOpenMobileMenu={() => account.setMobileMenuOpen(true)}
-                showRDPViewer={showRDPViewer}
-                onToggleRDPViewer={() => setShowRDPViewer(!showRDPViewer)}
-                isExternalAgent={isExternalAgent}
-                rdpViewerHeight={rdpViewerHeight}
-                onRdpViewerHeightChange={setRdpViewerHeight}
-              />
-              {/* Show desktop state for external agent sessions */}
-              {isExternalAgent && (
-                <Box sx={{ px: 2, pt: 1, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
-                      Desktop:
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                      <DesktopControls
-                        sessionId={sessionID}
-                        onStop={handleStopExternalAgent}
-                        isStopping={stopExternalAgentMutation.isPending}
-                      />
-                    </Box>
-                  </Box>
-                </Box>
-              )}
-
-              {/* Idle timeout warning for external agent sessions - only show when desktop is running */}
-              {isExternalAgent && idleStatus?.data?.warning_threshold && isDesktopRunning && (
-                <Box sx={{ px: 2, pt: 1, pb: 1 }}>
-                  <Alert severity="warning" sx={{ py: 0.5 }}>
-                    <AlertTitle sx={{ fontSize: '0.875rem', mb: 0.5 }}>Idle Session Warning</AlertTitle>
-                    <Typography variant="body2" sx={{ fontSize: '0.8125rem' }}>
-                      This external agent has been idle for {idleStatus.data.idle_minutes} minutes.
-                      It will be automatically terminated in {idleStatus.data.will_terminate_in} minutes to free GPU resources.
-                      <br /><strong>Send a message to keep the agent alive.</strong>
-                    </Typography>
-                  </Alert>
-                </Box>
-              )}
-            </Box>
-          )}
-
-          {/* Embedded RDP Viewer */}
-          {isExternalAgent && showRDPViewer && (
-            <Box sx={{ px: 2, pb: 2 }}>
-              <ExternalAgentDesktopViewer
-                sessionId={sessionID}
-                sandboxId={sessionID}
-                height={rdpViewerHeight}
               />
             </Box>
           )}
@@ -1910,20 +1711,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             )}
           </Box>
         </Window>
-      )}
-
-      {/* Stop Confirmation Dialog */}
-      {showStopConfirm && (
-        <SimpleConfirmWindow
-          title="Stop External Agent?"
-          message="Stopping the external agent will terminate the running container. Any unsaved files or in-memory state will be lost. The conversation history will be preserved."
-          confirmTitle="Stop Agent"
-          cancelTitle="Cancel"
-          onCancel={() => setShowStopConfirm(false)}
-          onSubmit={handleConfirmStop}
-        />
-      )}
-
+      )}    
     </Box>
   )
 }
