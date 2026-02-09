@@ -195,19 +195,13 @@ func TestHasCacheFlags(t *testing.T) {
 }
 
 func TestInjectBuildCacheFlags(t *testing.T) {
-	// Create a temporary cache directory for testing
-	tmpDir, err := os.MkdirTemp("", "buildkit-cache-test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	// Temporarily override the cache directory constant
+	// Save and restore BuildKitCacheDir after test
 	originalCacheDir := BuildKitCacheDir
-	// We can't actually override a const, so we'll test with the directory not existing
-	// and then create it to test the injection
+	defer func() { BuildKitCacheDir = originalCacheDir }()
 
 	t.Run("no cache dir - no injection", func(t *testing.T) {
+		// Point to a non-existent directory so cache injection is skipped
+		BuildKitCacheDir = "/tmp/nonexistent-buildkit-cache-dir-for-test"
 		args := []string{"build", "-t", "myimage", "."}
 		got, err := injectBuildCacheFlags(args)
 		if err != nil {
@@ -219,6 +213,8 @@ func TestInjectBuildCacheFlags(t *testing.T) {
 	})
 
 	t.Run("non-build command - no injection", func(t *testing.T) {
+		// Even with a valid cache dir, non-build commands should pass through
+		BuildKitCacheDir = "/tmp/nonexistent-buildkit-cache-dir-for-test"
 		args := []string{"run", "-it", "ubuntu"}
 		got, err := injectBuildCacheFlags(args)
 		if err != nil {
@@ -230,6 +226,8 @@ func TestInjectBuildCacheFlags(t *testing.T) {
 	})
 
 	t.Run("already has cache flags - no injection", func(t *testing.T) {
+		// With cache dir present but flags already specified, should not double-inject
+		BuildKitCacheDir = originalCacheDir
 		args := []string{"build", "--cache-from=type=local,src=/other", "-t", "myimage", "."}
 		got, err := injectBuildCacheFlags(args)
 		if err != nil {
@@ -239,9 +237,6 @@ func TestInjectBuildCacheFlags(t *testing.T) {
 			t.Errorf("Expected no change when cache flags present, got %v", got)
 		}
 	})
-
-	// Restore original (not needed for const, but good practice)
-	_ = originalCacheDir
 }
 
 func TestProcessDockerArgs(t *testing.T) {

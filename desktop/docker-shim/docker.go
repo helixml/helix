@@ -284,9 +284,18 @@ func injectBuildCacheFlags(args []string) ([]string, error) {
 
 	cacheDir := filepath.Join(BuildKitCacheDir, cacheKey)
 
-	// Ensure cache subdirectory exists
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+	// Ensure cache subdirectory exists with world-writable permissions.
+	// BuildKit remote builders export type=local cache via the client process,
+	// which may run as a non-root user (e.g. retro/uid 1000 in dev containers).
+	// The directory might have been previously created by root (e.g. by BuildKit
+	// itself or a sudo'd process), so we also chmod existing directories.
+	if err := os.MkdirAll(cacheDir, 0777); err != nil {
 		return nil, fmt.Errorf("failed to create cache directory '%s': %w", cacheDir, err)
+	}
+	// Fix permissions on existing directories that may have been created with
+	// restrictive permissions (e.g. root:root 0755 from a previous BuildKit run)
+	if err := os.Chmod(cacheDir, 0777); err != nil {
+		log.Warn().Err(err).Str("dir", cacheDir).Msg("Failed to chmod cache directory, cache export may fail if owned by another user")
 	}
 
 	// Find where to insert flags (after "build" or "buildx build")

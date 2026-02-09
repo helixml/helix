@@ -87,9 +87,10 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
     CARGO_TARGET_DIR=target-ubuntu25 \
     RUSTFLAGS='-C link-arg=-s' \
     cargo build \
+        -p zed \
         $(if [ "$BUILD_TYPE" = "release" ]; then echo "--release"; else echo ""; fi) \
         --features external_websocket_sync \
-    && cp target-ubuntu25/${BUILD_TYPE}/zed /zed-binary
+    && cp target-ubuntu25/$(if [ "$BUILD_TYPE" = "release" ]; then echo "release"; else echo "debug"; fi)/zed /zed-binary
 
 # Output stage — just the binary, nothing else
 FROM scratch

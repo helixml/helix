@@ -599,6 +599,7 @@ EIGNORE
   # BuildKit cache mounts in the Dockerfile handle cargo/rustup/target caching
   docker build \
     --provenance=false \
+    -t zed-builder:build \
     -f "$DIR/Dockerfile.zed-build" \
     --build-arg "BUILD_TYPE=$BUILD_TYPE" \
     --output "type=local,dest=$ZED_OUTPUT_DIR" \
