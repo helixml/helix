@@ -1,7 +1,7 @@
 # GL Blit Sync for H.264 Encoding
 
 **Date:** 2026-02-09
-**Status:** glFinish fence + EGL context save/restore (testing)
+**Status:** EGL context save/restore + glFlush (testing); deferred backpressure via BH planned
 
 ## Problem
 
@@ -108,39 +108,91 @@ complete. Since ANGLE translates GL → Metal, this waits for the Metal
 command buffer to finish. This is stronger than `glFlush()` (non-blocking)
 and more appropriate than `IOSurfaceLock` (CPU-oriented).
 
+### Commit 67d79c6580 — Replaced glFinish with glFlush
+
+`glFinish()` blocks the QEMU main thread waiting for the Metal command
+buffer. This stalls `process_cmdq` and deadlocks the guest GPU driver
+after a few seconds. Replaced with `glFlush()` (non-blocking), matching
+what SPICE does. The triple-buffered ring provides latency margin.
+
+**Current approach: EGL context save/restore + glFlush + triple buffer.**
+
 ### Testing needed
 
-- Does EGL context save/restore + glFinish fix the corruption?
-- If not, remaining suspects: pixel format mismatch, Y-flip, or
-  encoder configuration issue
+- Does EGL context save/restore + glFlush fix the corruption?
+- If not, implement deferred backpressure via BH (see next section)
+- Other remaining suspects: pixel format mismatch, Y-flip, encoder config
 
 ## Key Files
 
-- `hw/display/helix/helix-frame-export.m` — GL blit + glFinish fence + EGL save/restore
+- `hw/display/helix/helix-frame-export.m` — GL blit + EGL save/restore
 - `hw/display/helix/helix-frame-export.h` — ring buffer struct fields
 - `hw/display/virtio-gpu-base.c` — `helix_gl_block()` wrapper (unused now)
 - `hw/display/virtio-gpu-virgl.c` — calls `helix_scanout_frame_ready`
 
-## Key Insight: Why Backpressure Can't Work Here
+## Correction: Backpressure CAN Work From Inside process_cmdq
 
-SPICE's `gl_block` works because `qemu_spice_gl_update` is called from the
-display update path (`dpy_gl_update`), NOT from inside `process_cmdq`.
-Our `helix_scanout_frame_ready` is called from `virgl_cmd_set_scanout` which
-IS inside `process_cmdq`. To use backpressure, we'd need to move the frame
-capture to the display update path instead.
+Earlier analysis said backpressure can't work because we're called from
+inside `process_cmdq`. **This was wrong.** SPICE also calls `gl_block(true)`
+from inside `process_cmdq`:
 
-## Key Insight: Display Update Path Not Feasible for Secondary Scanouts
+```
+process_cmdq → RESOURCE_FLUSH → dpy_gl_update → qemu_spice_gl_update
+  → gl_block(true)    ← increments renderer_blocked
+  → glFlush()         ← submit (non-blocking)
+  → gl_draw_async()   ← hand off to SPICE client
+  → return            ← back to process_cmdq, which STOPS (blocked)
+  ...
+  [later, on SPICE client thread]
+  → gl_draw_done()    ← schedules a BH
+  ...
+  [main loop, next iteration]
+  → BH fires          ← gl_block(false), renderer_blocked=0
+  → gl_flushed()      ← process_cmdq resumes
+```
 
-Moving frame capture to the display update path would fix the backpressure
-problem, but secondary scanouts use `virtio_gpu_secondary_ops` with
-`GRAPHIC_FLAGS_NONE` — no GL, no DMABUF. This was deliberately done
-(`virtio-gpu-base.c:240-253`) to prevent UTM's broken `gl_draw_done`
-handling from permanently blocking `renderer_blocked`. Without GL flags,
-secondary consoles get 2D SPICE display listeners, and `dpy_gl_update` is
-never called for them. The display update path simply doesn't exist for the
-scanouts Helix uses.
+The key: SPICE calls `gl_block(true)` and **returns**. The
+`gl_block(false)` happens later via a bottom-half (BH) scheduled from
+the SPICE client thread. The BH fires on the next main loop iteration,
+safely outside `process_cmdq`.
 
-To make the display update path work, you'd need to:
-1. Re-enable GL flags for secondary scanouts
-2. Fix UTM's `gl_draw_done` handling (or bypass SPICE entirely for Helix scanouts)
-This is a larger architectural change.
+Our crash (commit 535af85418) happened because we called BOTH
+`gl_block(true)` AND `gl_block(false)` **synchronously in the same
+function call**. The unblock immediately triggered `gl_flushed` →
+re-entered `process_cmdq` → crash. The concept was fine; the execution
+was wrong.
+
+## Next Step: Deferred Backpressure via BH
+
+Match SPICE's exact pattern. ~20-30 lines of QEMU code, no UTM changes.
+
+```
+helix_scanout_frame_ready (inside process_cmdq):
+  1. Save EGL context
+  2. gl_block(true)              — stop further command processing
+  3. eglMakeCurrent(helix_ctx)
+  4. glBlitFramebuffer           — read virgl tex → IOSurface[ring_slot]
+  5. glFlush()                   — submit (non-blocking)
+  6. Restore EGL context
+  7. CVPixelBufferCreateWithIOSurface
+  8. VTCompressionSessionEncodeFrame(async)
+  9. return                      — process_cmdq stops (renderer_blocked > 0)
+
+VT encode completion callback (on VT thread):
+  10. qemu_bh_schedule(encode_done_bh)  — thread-safe, bounces to main thread
+
+BH handler (on main thread, next main loop iteration):
+  11. gl_block(false)            — renderer_blocked=0 → process_cmdq resumes
+```
+
+Implementation:
+- Add `QEMUBH *encode_done_bh` to `HelixFrameExport`
+- Create BH in init: `qemu_bh_new(helix_encode_done_bh, fe)`
+- VT callback: `qemu_bh_schedule(fe->encode_done_bh)`
+- BH handler: `helix_gl_block(fe->virtio_gpu, false)`
+- `helix_scanout_frame_ready`: add `helix_gl_block(true)` before blit
+
+This gives us proper backpressure (at most one frame in-flight), matches
+SPICE's proven pattern exactly, and the VT encode completion replaces
+SPICE's `gl_draw_done` signal. The triple-buffered ring becomes a safety
+margin rather than the primary sync mechanism.
