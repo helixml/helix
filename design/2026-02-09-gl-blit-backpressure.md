@@ -1,7 +1,7 @@
 # GL Blit Sync for H.264 Encoding
 
 **Date:** 2026-02-09
-**Status:** EGL context save/restore + glFlush (testing); deferred backpressure via BH planned
+**Status:** Deferred backpressure via BH implemented (testing)
 
 ## Problem
 
@@ -115,19 +115,33 @@ buffer. This stalls `process_cmdq` and deadlocks the guest GPU driver
 after a few seconds. Replaced with `glFlush()` (non-blocking), matching
 what SPICE does. The triple-buffered ring provides latency margin.
 
-**Current approach: EGL context save/restore + glFlush + triple buffer.**
+**Still saw corruption** with EGL context save/restore + glFlush alone
+(without backpressure). The guest can still modify the virgl texture
+between glFlush and VT reading the IOSurface.
+
+### Commit 098b5532cc — Deferred backpressure via BH
+
+Implemented the deferred BH approach. All QEMU code, no UTM changes.
+
+- `virtio-gpu-base.c`: Added `helix_gl_unblock_bh` callback,
+  `helix_create_gl_unblock_bh()`, `helix_schedule_gl_unblock()`
+- `helix-frame-export.h`: Added `void *gl_unblock_bh` to `HelixFrameExport`
+- `helix-frame-export.m`:
+  - `helix_frame_export_init`: creates BH via `helix_create_gl_unblock_bh`
+  - `helix_scanout_frame_ready`: calls `helix_gl_block(true)` before blit
+  - `scanout_encoder_callback`: calls `helix_schedule_gl_unblock` (thread-safe)
+  - Error paths (blit fail, CVPixelBuffer fail, encode fail): also schedule BH
 
 ### Testing needed
 
-- Does EGL context save/restore + glFlush fix the corruption?
-- If not, implement deferred backpressure via BH (see next section)
-- Other remaining suspects: pixel format mismatch, Y-flip, encoder config
+- Does deferred backpressure fix the corruption?
+- If not, remaining suspects: pixel format mismatch, Y-flip, encoder config
 
 ## Key Files
 
-- `hw/display/helix/helix-frame-export.m` — GL blit + EGL save/restore
-- `hw/display/helix/helix-frame-export.h` — ring buffer struct fields
-- `hw/display/virtio-gpu-base.c` — `helix_gl_block()` wrapper (unused now)
+- `hw/display/helix/helix-frame-export.m` — GL blit + backpressure + EGL save/restore
+- `hw/display/helix/helix-frame-export.h` — ring buffer + BH fields
+- `hw/display/virtio-gpu-base.c` — `helix_gl_block()` + BH wrappers
 - `hw/display/virtio-gpu-virgl.c` — calls `helix_scanout_frame_ready`
 
 ## Correction: Backpressure CAN Work From Inside process_cmdq
@@ -162,9 +176,9 @@ function call**. The unblock immediately triggered `gl_flushed` →
 re-entered `process_cmdq` → crash. The concept was fine; the execution
 was wrong.
 
-## Next Step: Deferred Backpressure via BH
+## Implementation: Deferred Backpressure via BH
 
-Match SPICE's exact pattern. ~20-30 lines of QEMU code, no UTM changes.
+Matches SPICE's exact pattern. ~30 lines of QEMU code, no UTM changes.
 
 ```
 helix_scanout_frame_ready (inside process_cmdq):
