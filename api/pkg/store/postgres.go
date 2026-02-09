@@ -124,6 +124,14 @@ func (s *PostgresStore) runMigrations() error {
 		return fmt.Errorf("failed to run version migrations: %w", err)
 	}
 
+	// Truncate oversized session names before adding the index.
+	// Session.Name was previously unbounded text; some AI-generated names are thousands
+	// of characters which exceeds PostgreSQL's B-tree index row limit (2704 bytes).
+	// Use 255 chars to stay safe with multi-byte (CJK) characters (255 * 4 = 1020 bytes).
+	s.gdb.WithContext(context.Background()).Exec(
+		"UPDATE sessions SET name = LEFT(name, 255) WHERE OCTET_LENGTH(name) > 2704",
+	)
+
 	err = s.gdb.WithContext(context.Background()).AutoMigrate(
 		&types.Organization{},
 		&types.User{},
