@@ -58,6 +58,7 @@ See also: `.cursor/rules/*.mdc`
 - **Ask user to verify after changes** — UI/behavior changes can break things silently
 - **When stuck, bisect** — don't panic-fix. Use `git log --oneline -20` and `git bisect` to find the breaking commit
 - **Design docs survive compaction** — write debugging notes to `design/YYYY-MM-DD-*.md` so context persists across sessions
+- **TEST EVERY CHANGE IMMEDIATELY** — Never commit a code change without deploying and testing it in the same session. Untested changes create invisible landmines: the gap between cause and effect makes debugging exponentially harder. If you change desktop container code, rebuild the image (`./stack build-ubuntu`) and start a new session to verify. If you change QEMU code, rebuild and restart the VM. If a change can't be tested right now, flag it explicitly to the user: "WARNING: this change has NOT been tested yet." A 13-minute gap between an untested commit and the next image build once cost us an entire day of debugging.
 
 ### Sessions
 - **NEVER** run `spectask stop --all` without explicit user permission — user may have active sessions you can't see
