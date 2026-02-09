@@ -1,7 +1,7 @@
 # GL Blit Sync for H.264 Encoding
 
 **Date:** 2026-02-09
-**Status:** Deferred backpressure via BH implemented (testing)
+**Status:** Corruption fixed — testing whether all 3 sync layers are needed or if all-keyframe was masking it
 
 ## Problem
 
@@ -132,10 +132,41 @@ Implemented the deferred BH approach. All QEMU code, no UTM changes.
   - `scanout_encoder_callback`: calls `helix_schedule_gl_unblock` (thread-safe)
   - Error paths (blit fail, CVPixelBuffer fail, encode fail): also schedule BH
 
-### Testing needed
+### Commit a9825e4b79 — glFinish on virgl context + all-keyframe diagnostic
 
-- Does deferred backpressure fix the corruption?
-- If not, remaining suspects: pixel format mismatch, Y-flip, encoder config
+Still saw intermittent corruption with backpressure alone. Two changes:
+
+1. **`glFinish()` on virglrenderer's context** before switching to helix
+   context. Backpressure prevents the guest from submitting MORE commands,
+   but doesn't wait for ALREADY-SUBMITTED GPU rendering to complete. The
+   GPU may still be executing rendering commands when we read the texture.
+   `glFinish()` on virglrenderer's context (currently active when we're
+   called) waits for the guest's rendering to complete.
+
+2. **All-keyframe encoding** (diagnostic). Every frame is a self-contained
+   keyframe — if one frame has a corrupt blit, it doesn't propagate to
+   subsequent frames via P-frame prediction.
+
+**Result: Corruption gone.** Now testing which fix actually solved it
+by reverting to P-frame encoding (keyframe on first frame only).
+
+### Key finding: Three-layer sync was needed
+
+The corruption required ALL THREE mechanisms to fix:
+1. **EGL context save/restore** — prevents corrupting virglrenderer's GL state
+2. **Backpressure via BH** — prevents guest from modifying texture while we read
+3. **`glFinish()` on virgl context** — waits for GPU to finish rendering texture
+
+Without #3, the GPU could still be executing rendering commands for the
+texture even though the guest has submitted SET_SCANOUT. `glFlush()` only
+submits commands, doesn't wait. `glFinish()` blocks until the Metal
+command buffer completes. With backpressure limiting to one frame in-flight,
+this doesn't accumulate or cause hangs.
+
+### Testing: P-frame encoding
+
+Reverted to keyframe-on-first-frame-only to confirm the blit sync fixes
+are sufficient without all-keyframe encoding.
 
 ## Key Files
 

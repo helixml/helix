@@ -31,7 +31,7 @@ set -euo pipefail
 # =============================================================================
 
 VM_NAME="helix-desktop"
-VM_DIR="${HOME}/.helix/vm/${VM_NAME}"
+VM_DIR="${HOME}/Library/Application Support/Helix/vm/${VM_NAME}"
 DISK_SIZE="256G"      # Root disk (OS, Docker images, build cache, inner Docker volumes)
 ZFS_DISK_SIZE="128G"  # ZFS disk (workspaces with dedup - thin-provisioned qcow2)
 CPUS=8
@@ -444,7 +444,8 @@ if ! step_done "build_drm_manager"; then
     run_ssh "sudo tee /etc/systemd/system/helix-drm-manager.service > /dev/null << 'SVCEOF'
 [Unit]
 Description=Helix DRM Lease Manager
-After=multi-user.target
+After=systemd-udev-settle.service
+Wants=systemd-udev-settle.service
 
 [Service]
 Type=simple

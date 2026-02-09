@@ -149,8 +149,8 @@ sudo tee /etc/systemd/system/helix-drm-manager.service > /dev/null << 'SVCEOF'
 [Unit]
 Description=Helix DRM Lease Manager
 Documentation=https://github.com/helixml/helix
-After=multi-user.target
-Wants=multi-user.target
+After=systemd-udev-settle.service
+Wants=systemd-udev-settle.service
 
 [Service]
 Type=simple
