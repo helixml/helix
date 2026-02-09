@@ -29,7 +29,24 @@ APPLE_ID=""
 TEAM_ID=""
 APP_PASSWORD=""
 
-# Parse arguments
+# Load signing config from .env.signing if it exists
+SIGNING_ENV="${FOR_MAC_DIR}/.env.signing"
+if [ -f "$SIGNING_ENV" ]; then
+    # shellcheck disable=SC1090
+    source "$SIGNING_ENV"
+    if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
+        IDENTITY="$APPLE_SIGNING_IDENTITY"
+    fi
+    if [ -n "${APPLE_TEAM_ID:-}" ]; then
+        TEAM_ID="$APPLE_TEAM_ID"
+    fi
+    if [ -n "${APPLE_ID:-}" ]; then
+        # APPLE_ID already set from env file
+        true
+    fi
+fi
+
+# Parse arguments (override .env.signing values)
 while [[ $# -gt 0 ]]; do
     case $1 in
         --identity) IDENTITY="$2"; shift 2 ;;
@@ -119,7 +136,7 @@ fi
 # =============================================================================
 
 log "Step 4: Verifying signature..."
-codesign -vvv "$APP_BUNDLE" 2>&1 | head -5
+codesign -vvv "$APP_BUNDLE" 2>&1 | tail -2
 
 # =============================================================================
 # Step 5: Notarize (optional, requires Developer ID)
