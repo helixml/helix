@@ -162,13 +162,21 @@ fi
 # or reachable in all environments. We bypass the shim by using docker.real directly.
 if [ -x /usr/bin/docker.real ]; then
     echo "📦 Using docker.real to bypass docker-shim for builds"
-    export PATH="/usr/bin:$PATH"
-    # Create a temporary symlink to use docker.real as docker
+
+    # Unset BUILDKIT_HOST to prevent remote BuildKit usage
+    unset BUILDKIT_HOST
+
+    # Remove the helix-shared buildx instance that points to unreachable server
+    rm -f ~/.docker/buildx/instances/helix-shared 2>/dev/null
+
+    # Create a temporary directory with symlinks to docker.real
     mkdir -p /tmp/docker-bypass
     ln -sf /usr/bin/docker.real /tmp/docker-bypass/docker
+    ln -sf /usr/bin/docker.real /tmp/docker-bypass/docker-buildx
     export PATH="/tmp/docker-bypass:$PATH"
-    # Unset BUILDKIT_HOST to use local BuildKit
-    unset BUILDKIT_HOST
+
+    # Ensure default buildx builder is used
+    /usr/bin/docker.real buildx use default 2>/dev/null || true
 fi
 
 # Build and start the stack
