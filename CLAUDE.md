@@ -245,7 +245,8 @@ docker compose exec -T sandbox-nvidia docker pull registry:5000/helix-ubuntu:$(c
 - Use structs, not `map[string]interface{}` for API responses
 - GORM AutoMigrate only — no SQL migration files
 - Use gomock, not testify/mock
-- **NO FALLBACKS**: Pick one approach that works and stick to it. Fallback code paths are rarely tested and add complexity. If something doesn't work, fix it properly instead of adding a fallback.
+- **NO FALLBACKS**: Pick one approach that works and stick to it. Fallback code paths are rarely tested, add complexity, and make it impossible to tell which code path is actually running. If something doesn't work, fix it properly instead of adding a fallback. Use explicit modes with clear errors instead.
+- **CLEAN UP DEAD CODE**: When removing a feature or switching approaches, delete the old code immediately. Don't leave dead functions, unused fields, or `#if 0` blocks lying around. There's no time like the present.
 
 ### TypeScript/React
 

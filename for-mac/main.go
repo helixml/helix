@@ -23,7 +23,7 @@ func main() {
 	appMenu := createMenu(app)
 
 	err := wails.Run(&options.App{
-		Title:             "Helix",
+		Title:             "Helix for Mac (Beta)",
 		Width:             1200,
 		Height:            800,
 		MinWidth:          800,
@@ -53,8 +53,8 @@ func main() {
 				HideToolbarSeparator:       true,
 			},
 			About: &mac.AboutInfo{
-				Title:   "Helix",
-				Message: "GPU-accelerated AI development environment\n\nVersion 0.1.0\n\n\u00a9 2026 Helix ML\n\nThis application bundles QEMU (GPL v2), virglrenderer (MIT),\nSPICE (LGPL), GLib (LGPL), and other open-source libraries.\nQEMU source: github.com/helixml/qemu-utm\nFull license details: see NOTICES.md in the application bundle.",
+				Title:   "Helix for Mac",
+				Message: "GPU-accelerated AI development environment\n\nVersion 0.1.0-beta\n\n\u00a9 2026 Helix ML\n\nThis application bundles QEMU (GPL v2), virglrenderer (MIT),\nSPICE (LGPL), GLib (LGPL), and other open-source libraries.\nQEMU source: github.com/helixml/qemu-utm\nFull license details: see NOTICES.md in the application bundle.",
 			},
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,

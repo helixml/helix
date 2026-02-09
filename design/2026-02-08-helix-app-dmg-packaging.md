@@ -1,12 +1,12 @@
 # Helix.app DMG Packaging
 
 **Date:** 2026-02-08
-**Status:** Implemented
+**Status:** Implemented (with bundled VM images)
 **Branch:** feature/macos-arm-desktop-port
 
 ## Overview
 
-Package the Helix desktop app as a standalone `.dmg` that users can download and run on any Mac (Apple Silicon). The app embeds QEMU, all required open-source frameworks, and EFI firmware so it works without installing UTM or Homebrew.
+Package the Helix desktop app as a standalone `.dmg` that users can download and run on any Mac (Apple Silicon). The app embeds QEMU, all required open-source frameworks, EFI firmware, and pre-provisioned VM disk images so it works without installing UTM, Homebrew, or running any provisioning steps.
 
 ## Architecture
 
@@ -29,9 +29,14 @@ Helix for Mac.app/
 │   │   ├── firmware/
 │   │   │   ├── edk2-aarch64-code.fd    # EFI firmware (BSD)
 │   │   │   └── edk2-arm-vars.fd        # EFI vars template (BSD)
-│   │   └── vulkan/
-│   │       └── icd.d/
-│   │           └── kosmickrisp_mesa_icd.json  # Vulkan ICD config
+│   │   ├── vulkan/
+│   │   │   └── icd.d/
+│   │   │       └── kosmickrisp_mesa_icd.json  # Vulkan ICD config
+│   │   ├── vm/                          # Pre-provisioned VM (compressed qcow2)
+│   │   │   ├── disk.qcow2              # Root disk (~7GB compressed, 256G virtual)
+│   │   │   ├── zfs-data.qcow2          # ZFS workspace disk (~11GB compressed, 128G virtual)
+│   │   │   └── efi_vars.fd             # EFI variables (64MB)
+│   │   └── NOTICES.md                   # Open-source license notices
 │   └── Info.plist
 ```
 
@@ -41,6 +46,28 @@ Helix for Mac.app/
 - UTM.app binary or `utmctl` CLI
 - QEMU architectures other than aarch64 (saves ~500MB)
 - GStreamer plugins not needed by SPICE
+
+### First-Launch VM Extraction
+
+The compressed qcow2 disk images are bundled in the app bundle's `Contents/Resources/vm/` directory. On first launch, the app copies them to `~/.helix/vm/helix-desktop/` (a writable location) since QEMU needs write access to the disk images. This is done by `vm.go:ensureVMExtracted()` using streaming `io.Copy` to avoid loading multi-GB files into memory.
+
+The qcow2 files are already compressed by `qemu-img convert -c` during the build step, so QEMU reads them directly — no decompression step needed. QEMU writes new data uncompressed, so the disk images grow over time as the VM is used.
+
+### Size Budget
+
+| Component | Size |
+|-----------|------|
+| Main executable (Wails) | ~9MB |
+| QEMU dylib | ~33MB |
+| 27 frameworks | ~73MB |
+| EFI firmware | ~128MB |
+| VM root disk (compressed qcow2) | ~7GB |
+| VM ZFS data disk (compressed qcow2) | ~11GB |
+| EFI vars | 64MB |
+| **Total app bundle** | **~18GB** |
+| **DMG (UDZO compressed)** | **~17GB** |
+
+The DMG doesn't compress much below the app bundle size because the qcow2 files are already zlib-compressed internally.
 
 ### Framework Dependency Tree
 
@@ -120,7 +147,7 @@ All bundled libraries are open-source. Requirements:
 - **LGPL 2.1 (GLib, GIO, SPICE, etc.):** Dynamically linked as frameworks, satisfying LGPL. Users can replace these dylibs.
 - **MIT/BSD (pixman, virglrenderer, epoxy, etc.):** Include copyright notices.
 
-A `NOTICES` file should be included in future releases with all attributions.
+`NOTICES.md` is bundled in `Contents/Resources/` with all attributions and source URLs. The About dialog also references the GPL obligations.
 
 ## Build Instructions
 
@@ -128,8 +155,14 @@ A `NOTICES` file should be included in future releases with all attributions.
 
 ```bash
 cd for-mac
-./scripts/build-helix-app.sh
-./scripts/create-dmg.sh
+./scripts/build-helix-app.sh          # Builds app + bundles VM images (~18GB total)
+./scripts/create-dmg.sh               # Creates DMG (~17GB)
+```
+
+**Disk space:** The app bundle with VM images is ~18GB. If your boot volume is low on space, use an external volume:
+
+```bash
+./scripts/create-dmg.sh --build-dir /Volumes/Big/helix-build
 ```
 
 ### Prerequisites
@@ -160,6 +193,8 @@ cd for-mac
    - Copies 27 frameworks from UTM's framework directory
    - Copies EFI firmware into `Contents/Resources/firmware/`
    - Creates Vulkan ICD config pointing to bundled KosmicKrisp
+   - Compresses and bundles VM disk images from `~/.helix/vm/helix-desktop/` into `Contents/Resources/vm/`
+   - Copies `NOTICES.md` into `Contents/Resources/`
    - Fixes dylib paths with `install_name_tool`
    - Ad-hoc signs everything
 
@@ -176,17 +211,21 @@ cd for-mac
 
 ## VM Image Builder
 
-The `for-mac/scripts/provision-vm.sh` creates a fresh VM from scratch.
+The `for-mac/scripts/provision-vm.sh` creates a fresh VM from scratch. This must be run before `build-helix-app.sh` to produce the VM images that get bundled into the app.
 
 ### What It Does
 
 1. Downloads Ubuntu 25.10 ARM64 cloud image
-2. Creates 128G root disk + 128G ZFS data disk (thin-provisioned)
+2. Creates 256G root disk + 128G ZFS data disk (thin-provisioned)
 3. Generates cloud-init seed (FAT12) with user config + Docker
 4. Boots headless QEMU on port 2223 (avoids dev VM on 2222)
-5. SSHs in to install ZFS 2.4.0, Go 1.25, helix-drm-manager
-6. Clones helix repo, builds desktop Docker image
-7. Shuts down, creates UTM bundle
+5. Sets up 16GB swap (needed for Zed release builds with LTO)
+6. SSHs in to install ZFS 2.4.0, Go 1.25, helix-drm-manager
+7. Clones helix repo, builds Zed from source (release mode)
+8. Builds desktop Docker image (helix-ubuntu)
+9. Shuts down, creates UTM bundle
+
+**Memory:** Uses 32GB RAM (`MEMORY_MB=32768`). Zed release builds with LTO require >16GB to avoid OOM.
 
 ### Usage
 
@@ -227,5 +266,7 @@ Similarly for firmware and Vulkan ICD. This means the app works both:
 | `for-mac/scripts/sign-app.sh` | Code signing + notarization |
 | `for-mac/build/darwin/entitlements.plist` | macOS entitlements for QEMU |
 | `for-mac/build/darwin/Info.plist` | App bundle metadata (com.helixml.Helix) |
-| `for-mac/vm.go` | VM manager with bundled QEMU discovery |
+| `for-mac/vm.go` | VM manager with bundled QEMU discovery + first-launch VM extraction |
+| `for-mac/NOTICES.md` | Open-source license notices (bundled in app) |
+| `for-mac/README.md` | Build-from-scratch instructions |
 | `for-mac/scripts/provision-vm.sh` | Automated VM provisioning from scratch |

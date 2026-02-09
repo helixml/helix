@@ -34,6 +34,9 @@ UTM_FRAMEWORKS="${UTM_APP_FRAMEWORKS:-/Applications/UTM.app/Contents/Frameworks}
 EFI_CODE="/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
 EFI_VARS_TEMPLATE="/opt/homebrew/share/qemu/edk2-arm-vars.fd"
 
+# VM image directory (from provision-vm.sh)
+VM_DIR="${VM_DIR:-$HOME/.helix/vm/helix-desktop}"
+
 # Output paths
 # Wails uses the "name" field from wails.json for the .app bundle name,
 # and "outputfilename" for the executable inside Contents/MacOS/.
@@ -221,6 +224,37 @@ log "  Created Vulkan ICD config"
 # Copy open-source notices (required by GPL/LGPL for bundled QEMU + frameworks)
 cp "${FOR_MAC_DIR}/NOTICES.md" "${RESOURCES_DIR}/NOTICES.md"
 log "  Copied open-source NOTICES.md"
+
+# =============================================================================
+# Step 5b: Bundle VM disk images (compressed qcow2)
+# =============================================================================
+
+log "Step 5b: Bundling VM disk images..."
+VM_BUNDLE_DIR="${RESOURCES_DIR}/vm"
+mkdir -p "$VM_BUNDLE_DIR"
+
+if [ -f "${VM_DIR}/disk.qcow2" ] && [ -f "${VM_DIR}/zfs-data.qcow2" ]; then
+    # Compress qcow2 images (removes unused clusters, applies zlib compression)
+    # This reduces 16G+13G raw to ~6G+4G compressed
+    log "  Compressing root disk (this takes a few minutes)..."
+    qemu-img convert -c -O qcow2 "${VM_DIR}/disk.qcow2" "${VM_BUNDLE_DIR}/disk.qcow2"
+    log "  Root disk: $(du -h "${VM_BUNDLE_DIR}/disk.qcow2" | awk '{print $1}')"
+
+    log "  Compressing ZFS data disk..."
+    qemu-img convert -c -O qcow2 "${VM_DIR}/zfs-data.qcow2" "${VM_BUNDLE_DIR}/zfs-data.qcow2"
+    log "  ZFS disk: $(du -h "${VM_BUNDLE_DIR}/zfs-data.qcow2" | awk '{print $1}')"
+
+    # Copy EFI vars (VM-specific, 64MB)
+    cp "${VM_DIR}/efi_vars.fd" "${VM_BUNDLE_DIR}/efi_vars.fd"
+    log "  Copied EFI vars"
+
+    VM_TOTAL=$(du -sh "$VM_BUNDLE_DIR" | awk '{print $1}')
+    log "  Total VM bundle size: $VM_TOTAL"
+else
+    log "  WARNING: VM images not found at ${VM_DIR}/"
+    log "  Run provision-vm.sh first, or set VM_DIR to the VM directory."
+    log "  The app will still work but won't have a bundled VM image."
+fi
 
 # =============================================================================
 # Step 6: Fix dylib paths (install_name_tool)

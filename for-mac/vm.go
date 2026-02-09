@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -115,15 +117,114 @@ func (vm *VMManager) SetConfig(config VMConfig) error {
 	return nil
 }
 
-// getVMImagePath returns the path to the VM disk image
+// getVMDir returns the writable VM directory (~/.helix/vm/helix-desktop/)
+func (vm *VMManager) getVMDir() string {
+	homeDir, _ := os.UserHomeDir()
+	return filepath.Join(homeDir, ".helix", "vm", "helix-desktop")
+}
+
+// getVMImagePath returns the path to the root disk image
 func (vm *VMManager) getVMImagePath() string {
 	if vm.config.DiskPath != "" {
 		return vm.config.DiskPath
 	}
+	return filepath.Join(vm.getVMDir(), "disk.qcow2")
+}
 
-	// Default location
-	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".helix", "vm", "helix-ubuntu.qcow2")
+// getZFSDiskPath returns the path to the ZFS data disk
+func (vm *VMManager) getZFSDiskPath() string {
+	return filepath.Join(vm.getVMDir(), "zfs-data.qcow2")
+}
+
+// ensureVMExtracted checks if VM disk images exist in the writable location,
+// and if not, copies them from the app bundle's Resources/vm/ directory.
+// Returns nil if VM images are ready, error if not available.
+func (vm *VMManager) ensureVMExtracted() error {
+	vmDir := vm.getVMDir()
+	rootDisk := vm.getVMImagePath()
+	zfsDisk := vm.getZFSDiskPath()
+
+	// If both disks exist, we're good
+	if _, err := os.Stat(rootDisk); err == nil {
+		if _, err := os.Stat(zfsDisk); err == nil {
+			return nil
+		}
+	}
+
+	// Look for bundled VM images in app bundle
+	bundlePath := vm.getAppBundlePath()
+	if bundlePath == "" {
+		return fmt.Errorf("VM images not found at %s and no app bundle detected. Run provision-vm.sh first", vmDir)
+	}
+
+	bundledVMDir := filepath.Join(bundlePath, "Contents", "Resources", "vm")
+	bundledRoot := filepath.Join(bundledVMDir, "disk.qcow2")
+	bundledZFS := filepath.Join(bundledVMDir, "zfs-data.qcow2")
+	bundledEFI := filepath.Join(bundledVMDir, "efi_vars.fd")
+
+	if _, err := os.Stat(bundledRoot); os.IsNotExist(err) {
+		return fmt.Errorf("no bundled VM image found at %s. Run provision-vm.sh first", bundledRoot)
+	}
+
+	log.Printf("First launch: extracting VM images from app bundle to %s", vmDir)
+
+	// Create writable VM directory
+	if err := os.MkdirAll(vmDir, 0755); err != nil {
+		return fmt.Errorf("failed to create VM directory: %w", err)
+	}
+
+	// Copy root disk (compressed qcow2 — QEMU reads it directly, writes uncompressed)
+	if _, err := os.Stat(rootDisk); os.IsNotExist(err) {
+		log.Printf("Copying root disk image (%s)...", bundledRoot)
+		if err := copyFile(bundledRoot, rootDisk); err != nil {
+			return fmt.Errorf("failed to copy root disk: %w", err)
+		}
+	}
+
+	// Copy ZFS data disk
+	if _, err := os.Stat(zfsDisk); os.IsNotExist(err) {
+		if _, err := os.Stat(bundledZFS); err == nil {
+			log.Printf("Copying ZFS data disk image...")
+			if err := copyFile(bundledZFS, zfsDisk); err != nil {
+				return fmt.Errorf("failed to copy ZFS disk: %w", err)
+			}
+		}
+	}
+
+	// Copy EFI vars
+	efiVars := filepath.Join(vmDir, "efi_vars.fd")
+	if _, err := os.Stat(efiVars); os.IsNotExist(err) {
+		if _, err := os.Stat(bundledEFI); err == nil {
+			log.Printf("Copying EFI vars...")
+			if err := copyFile(bundledEFI, efiVars); err != nil {
+				return fmt.Errorf("failed to copy EFI vars: %w", err)
+			}
+		}
+	}
+
+	log.Printf("VM images extracted successfully")
+	return nil
+}
+
+// copyFile copies a file from src to dst using streaming (no full file in memory)
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		os.Remove(dst) // clean up partial file
+		return err
+	}
+	return dstFile.Close()
 }
 
 // Start starts the VM
@@ -139,11 +240,10 @@ func (vm *VMManager) Start() error {
 
 	vm.emitStatus()
 
-	// Check if VM image exists
-	imagePath := vm.getVMImagePath()
-	if _, err := os.Stat(imagePath); os.IsNotExist(err) {
-		vm.setError(fmt.Errorf("VM image not found at %s. Please run setup first.", imagePath))
-		return fmt.Errorf("VM image not found")
+	// Ensure VM images are extracted from bundle (first launch copies from app bundle)
+	if err := vm.ensureVMExtracted(); err != nil {
+		vm.setError(err)
+		return err
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -157,9 +257,9 @@ func (vm *VMManager) Start() error {
 
 // runVM runs the QEMU process with virtio-gpu and vsock
 func (vm *VMManager) runVM(ctx context.Context) {
-	homeDir, _ := os.UserHomeDir()
-	vmDir := filepath.Join(homeDir, ".helix", "vm")
+	vmDir := vm.getVMDir()
 	imagePath := vm.getVMImagePath()
+	zfsDiskPath := vm.getZFSDiskPath()
 
 	// Find EFI firmware (bundled in app or Homebrew)
 	efiCode := vm.findFirmware("edk2-aarch64-code.fd")
@@ -167,15 +267,15 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		vm.setError(fmt.Errorf("EFI firmware not found. Install QEMU via 'brew install qemu' or use the bundled app"))
 		return
 	}
-	efiVars := filepath.Join(vmDir, "efi-vars.fd")
-	cloudInitISO := filepath.Join(vmDir, "cloud-init.iso")
 
-	// Create EFI vars file if it doesn't exist
-	if _, statErr := os.Stat(efiVars); os.IsNotExist(statErr) {
-		// Copy from template if available, otherwise create empty
+	// Use VM-specific EFI vars (extracted from bundle or from provisioning)
+	efiVars := filepath.Join(vmDir, "efi_vars.fd")
+	if _, err := os.Stat(efiVars); os.IsNotExist(err) {
+		// Fall back to template if no VM-specific vars exist
 		efiVarsTemplate := vm.findFirmware("edk2-arm-vars.fd")
 		if efiVarsTemplate != "" {
 			if data, readErr := os.ReadFile(efiVarsTemplate); readErr == nil {
+				os.MkdirAll(vmDir, 0755)
 				os.WriteFile(efiVars, data, 0644)
 			}
 		}
@@ -205,12 +305,18 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		"-drive", fmt.Sprintf("if=pflash,format=raw,readonly=on,file=%s", efiCode),
 		"-drive", fmt.Sprintf("if=pflash,format=raw,file=%s", efiVars),
 
-		// Storage
-		"-device", "virtio-blk-pci,drive=hd0",
-		"-drive", fmt.Sprintf("id=hd0,file=%s,format=qcow2,if=none,cache=writeback", imagePath),
-		"-device", "virtio-blk-pci,drive=cd0",
-		"-drive", fmt.Sprintf("id=cd0,file=%s,format=raw,if=none,readonly=on", cloudInitISO),
+		// Storage: root disk (vda) and ZFS data disk (vdb)
+		"-drive", fmt.Sprintf("file=%s,format=qcow2,if=virtio,cache=writeback", imagePath),
+	}
 
+	// Add ZFS data disk if it exists
+	if _, err := os.Stat(zfsDiskPath); err == nil {
+		args = append(args,
+			"-drive", fmt.Sprintf("file=%s,format=qcow2,if=virtio", zfsDiskPath),
+		)
+	}
+
+	args = append(args,
 		// Network with port forwarding for SSH, API, and video stream
 		"-device", "virtio-net-pci,netdev=net0",
 		"-netdev", fmt.Sprintf("user,id=net0,hostfwd=tcp::%d-:22,hostfwd=tcp::%d-:8080,hostfwd=tcp::%d-:8765",
@@ -234,7 +340,7 @@ func (vm *VMManager) runVM(ctx context.Context) {
 
 		// No graphical display - headless VM
 		"-display", "none",
-	}
+	)
 
 	// Find QEMU binary: bundled in app > system PATH
 	qemuPath := vm.findQEMUBinary()

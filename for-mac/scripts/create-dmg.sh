@@ -22,17 +22,26 @@ FOR_MAC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_BUNDLE_NAME="helix-for-mac"
 APP_BUNDLE="${FOR_MAC_DIR}/build/bin/${APP_BUNDLE_NAME}.app"
 DMG_NAME="Helix-for-Mac"
-DMG_OUTPUT="${FOR_MAC_DIR}/build/bin/${DMG_NAME}.dmg"
 DMG_VOLUME="Helix"
-DMG_TEMP="${FOR_MAC_DIR}/build/bin/dmg-staging"
+
+# Default output location (can be overridden with --output or --build-dir)
+DMG_OUTPUT="${FOR_MAC_DIR}/build/bin/${DMG_NAME}.dmg"
+BUILD_DIR=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --output) DMG_OUTPUT="$2"; shift 2 ;;
+        --build-dir) BUILD_DIR="$2"; shift 2 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
+
+# If --build-dir specified, use it for staging and output
+if [ -n "$BUILD_DIR" ]; then
+    DMG_OUTPUT="${BUILD_DIR}/${DMG_NAME}.dmg"
+fi
+DMG_TEMP="$(dirname "$DMG_OUTPUT")/dmg-staging"
 
 log() { echo "[$(date +%H:%M:%S)] $*"; }
 

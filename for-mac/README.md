@@ -139,6 +139,11 @@ helix-for-mac.app/
         edk2-arm-vars.fd
       vulkan/icd.d/                         # Vulkan driver config
         kosmickrisp_mesa_icd.json
+      vm/                                   # Pre-provisioned VM (compressed)
+        disk.qcow2                          # Root disk (~7GB compressed)
+        zfs-data.qcow2                      # ZFS workspace disk (~11GB compressed)
+        efi_vars.fd                         # EFI variables (64MB)
+      NOTICES.md                            # Open-source license notices
 ```
 
 All bundled libraries are open-source (MIT, BSD, LGPL, GPL). See `design/2026-02-08-helix-app-dmg-packaging.md` for the full dependency tree and licensing details.
