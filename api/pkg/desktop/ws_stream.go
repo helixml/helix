@@ -1597,14 +1597,15 @@ func (v *VideoStreamer) Stop() {
 		v.cancel()
 	}
 
-	// Stop scanout source if in scanout mode
-	if v.scanoutSource != nil {
-		v.scanoutSource.Stop()
-		v.logger.Info("scanout source stopped")
-	}
+	// Don't stop scanoutSource directly — SharedVideoSource owns its lifecycle.
+	// SharedVideoSource.stop() calls externalSource.Stop() when the grace period
+	// expires (no clients reconnected). If we stop it here, the TCP connection to
+	// QEMU is closed immediately, and a reconnecting client gets a dead shared source
+	// with no frames. This is why reconnect works on NVIDIA (GStreamer pipeline is
+	// managed by SharedVideoSource) but hung on macOS (ScanoutSource was killed here).
 
 	// Unsubscribe from shared video source
-	// This will stop the pipeline if we're the last client
+	// This will schedule pipeline stop if we're the last client (with grace period)
 	if v.sharedSource != nil && v.sharedClientID > 0 {
 		v.sharedSource.Unsubscribe(v.sharedClientID)
 		v.logger.Info("unsubscribed from shared video source",
