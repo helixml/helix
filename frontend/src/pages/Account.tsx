@@ -40,6 +40,8 @@ import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import SmallSpinner from '../components/system/SmallSpinner'
 
 import { useGetUserAPIKeys, useGetConfig, useUpdatePassword, useUpdateAccount } from '../services/userService'
+import { useGetQuota } from '../services/quotaService'
+import QuotaListView from '../components/quota/QuotaListView'
 import { TypesAuthProvider } from '../api/api'
 
 const SyntaxHighlighter = SyntaxHighlighterPrism as unknown as React.FC<any>;
@@ -66,6 +68,7 @@ const Account: FC = () => {
   const [showPasswordConfirm, setShowPasswordConfirm] = useState(false)
 
   const { data: apiKeys, isLoading: isLoadingApiKeys } = useGetUserAPIKeys()
+  const { data: quotas } = useGetQuota()
 
   const regenerateApiKey = useRegenerateUserAPIKey()
   const updatePassword = useUpdatePassword()
@@ -496,7 +499,17 @@ export HELIX_API_KEY=${apiKey}
                   )}
                 </Box>
               </Grid>
-            </Grid>                    
+            </Grid>
+
+            {/* Quotas */}
+            {quotas && (
+              <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+                <Grid item xs={12}>
+                  <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>Quotas</Typography>
+                  <QuotaListView />
+                </Grid>
+              </Grid>
+            )}
 
           </Box>
         </Box>

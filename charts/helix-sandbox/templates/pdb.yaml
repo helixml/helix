@@ -1,0 +1,20 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "helix-sandbox.fullname" . }}
+  labels:
+    {{- include "helix-sandbox.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "helix-sandbox.selectorLabels" . | nindent 6 }}
+  {{- if .Values.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- else if .Values.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
+  # Default: at least 1 sandbox must remain available during disruptions
+  minAvailable: 1
+  {{- end }}
+{{- end }}

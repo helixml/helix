@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -323,4 +324,47 @@ func (apiServer *HelixAPIServer) getUserGuidelinesHistory(rw http.ResponseWriter
 	}
 
 	writeResponse(rw, history, http.StatusOK)
+}
+
+// completeOnboarding godoc
+// @Summary Complete onboarding
+// @Description Mark onboarding as completed for the current user
+// @Tags Users
+// @Produce json
+// @Success 200 {object} types.User
+// @Failure 401 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/users/me/onboarding [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) completeOnboarding(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Detach context cancellation
+	ctx := context.WithoutCancel(r.Context())
+
+	existingUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: user.ID})
+	if err != nil {
+		log.Error().Err(err).Str("user_id", user.ID).Msg("failed to get user")
+		http.Error(rw, "Failed to get user", http.StatusInternalServerError)
+		return
+	}
+
+	existingUser.OnboardingCompleted = true
+	existingUser.OnboardingCompletedAt = time.Now()
+
+	updatedUser, err := apiServer.Store.UpdateUser(ctx, existingUser)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", user.ID).Msg("failed to update user onboarding status")
+		http.Error(rw, "Failed to update onboarding status", http.StatusInternalServerError)
+		return
+	}
+
+	updatedUser.Token = ""
+	updatedUser.TokenType = ""
+
+	writeResponse(rw, updatedUser, http.StatusOK)
 }

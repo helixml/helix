@@ -21,6 +21,12 @@ type SystemSettings struct {
 	// Used when Kodit sends requests with model "kodit-model" - Helix substitutes with these values
 	KoditEnrichmentProvider string `json:"kodit_enrichment_provider,omitempty" gorm:"column:kodit_enrichment_provider"` // e.g., "together_ai", "openai", "helix"
 	KoditEnrichmentModel    string `json:"kodit_enrichment_model,omitempty" gorm:"column:kodit_enrichment_model"`       // e.g., "Qwen/Qwen3-8B", "gpt-4o", "llama3:instruct"
+
+	EnforceQuotas bool `json:"enforce_quotas,omitempty" gorm:"column:enforce_quotas"`
+
+	MaxConcurrentDesktops int `json:"max_concurrent_desktops,omitempty"` // Per user
+
+	ProvidersManagementEnabled bool `json:"providers_management_enabled,omitempty"`
 }
 
 // SystemSettingsRequest represents the request payload for updating system settings
@@ -30,6 +36,12 @@ type SystemSettingsRequest struct {
 	// Kodit enrichment model configuration
 	KoditEnrichmentProvider *string `json:"kodit_enrichment_provider,omitempty"`
 	KoditEnrichmentModel    *string `json:"kodit_enrichment_model,omitempty"`
+
+	MaxConcurrentDesktops *int `json:"max_concurrent_desktops"`
+
+	ProvidersManagementEnabled *bool `json:"providers_management_enabled"`
+
+	EnforceQuotas *bool `json:"enforce_quotas"`
 }
 
 // SystemSettingsResponse represents the response payload for system settings (without sensitive data)
@@ -46,19 +58,12 @@ type SystemSettingsResponse struct {
 	KoditEnrichmentProvider string `json:"kodit_enrichment_provider"`
 	KoditEnrichmentModel    string `json:"kodit_enrichment_model"`
 	KoditEnrichmentModelSet bool   `json:"kodit_enrichment_model_set"` // true if both provider and model are configured
-}
 
-// ToResponse converts SystemSettings to SystemSettingsResponse (masking sensitive data)
-func (s *SystemSettings) ToResponse() *SystemSettingsResponse {
-	return &SystemSettingsResponse{
-		ID:                      s.ID,
-		Created:                 s.Created,
-		Updated:                 s.Updated,
-		HuggingFaceTokenSet:     s.HuggingFaceToken != "",
-		KoditEnrichmentProvider: s.KoditEnrichmentProvider,
-		KoditEnrichmentModel:    s.KoditEnrichmentModel,
-		KoditEnrichmentModelSet: s.KoditEnrichmentProvider != "" && s.KoditEnrichmentModel != "",
-	}
+	MaxConcurrentDesktops int `json:"max_concurrent_desktops"` // Per user
+
+	ProvidersManagementEnabled bool `json:"providers_management_enabled"`
+
+	EnforceQuotas bool `json:"enforce_quotas"`
 }
 
 // ToResponseWithSource converts SystemSettings to SystemSettingsResponse with source information
@@ -78,14 +83,17 @@ func (s *SystemSettings) ToResponseWithSource(dbToken, envToken string) *SystemS
 	}
 
 	return &SystemSettingsResponse{
-		ID:                      s.ID,
-		Created:                 s.Created,
-		Updated:                 s.Updated,
-		HuggingFaceTokenSet:     hasToken,
-		HuggingFaceTokenSource:  source,
-		KoditEnrichmentProvider: s.KoditEnrichmentProvider,
-		KoditEnrichmentModel:    s.KoditEnrichmentModel,
-		KoditEnrichmentModelSet: s.KoditEnrichmentProvider != "" && s.KoditEnrichmentModel != "",
+		ID:                         s.ID,
+		Created:                    s.Created,
+		Updated:                    s.Updated,
+		HuggingFaceTokenSet:        hasToken,
+		HuggingFaceTokenSource:     source,
+		KoditEnrichmentProvider:    s.KoditEnrichmentProvider,
+		KoditEnrichmentModel:       s.KoditEnrichmentModel,
+		KoditEnrichmentModelSet:    s.KoditEnrichmentProvider != "" && s.KoditEnrichmentModel != "",
+		MaxConcurrentDesktops:      s.MaxConcurrentDesktops,
+		ProvidersManagementEnabled: s.ProvidersManagementEnabled,
+		EnforceQuotas:              s.EnforceQuotas,
 	}
 }
 

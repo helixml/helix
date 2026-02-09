@@ -4,6 +4,37 @@
 
 replicaCount: 1
 
+# Deployment configuration
+deployment:
+  # Type: "Deployment" or "StatefulSet"
+  # Use StatefulSet for:
+  # - Multi-replica deployments (stable pod names for sandbox IDs)
+  # - Per-pod persistent volumes (automatic via volumeClaimTemplates)
+  # Use Deployment for:
+  # - Single replica deployments
+  # - Simpler configuration
+  type: "Deployment"
+
+  # Deployment strategy (only for type: "Deployment")
+  # Use "Recreate" for single-GPU setups where RollingUpdate can't schedule
+  # a new pod until the old one releases the GPU
+  strategy:
+    type: "Recreate"
+
+  # StatefulSet-specific: pod management policy
+  # "Parallel" - all pods start/stop simultaneously
+  # "OrderedReady" - pods start/stop one at a time
+  podManagementPolicy: "Parallel"
+
+# Pod Disruption Budget
+# Ensures minimum availability during node maintenance/upgrades
+podDisruptionBudget:
+  enabled: false
+  # Minimum number of pods that must remain available
+  # minAvailable: 1
+  # OR maximum number of pods that can be unavailable
+  # maxUnavailable: 1
+
 image:
   repository: registry.helixml.tech/helix/helix-sandbox
   pullPolicy: IfNotPresent
@@ -31,26 +62,47 @@ sandbox:
   # Leave empty to use pod name as instance ID
   instanceId: ""
 
-  # Maximum number of concurrent sandboxes (Zed sessions)
+  # Maximum number of concurrent sessions (desktop containers)
   maxSandboxes: 10
-
-  # TURN server configuration for WebRTC NAT traversal
-  turn:
-    # Public IP or hostname for TURN server
-    # If empty, will use the API URL hostname
-    publicIp: ""
-    # TURN password (required for remote connections)
-    password: ""
-    turnPasswordExistingSecret: ""
-    turnPasswordExistingSecretKey: ""
 
   # Helix hostname displayed in browser
   helixHostname: ""
 
-  # GOP size (keyframe interval) - higher = lower bandwidth
-  # 120 recommended for remote connections
+  # GOP size (keyframe interval) for video encoding
+  # Higher = lower bandwidth, lower = better latency
+  # 120-240 recommended for remote connections
   gopSize: 120
 
+# Hydra configuration (multi-tenant container isolation)
+hydra:
+  # Enable Hydra for per-session Docker daemon isolation
+  # When enabled, each session gets its own isolated dockerd
+  enabled: true
+
+  # Privileged mode uses host Docker socket instead of isolated dockerd
+  # WARNING: Only for development - disables tenant isolation
+  privilegedMode: false
+
+# Desktop images configuration
+# The sandbox pulls desktop images from a registry at runtime
+desktopImages:
+  # Registry to pull desktop images from
+  # Default uses Helix public registry
+  # For enterprise/air-gapped: set to your internal registry
+  registry: "registry.helixml.tech"
+
+  # Default desktop image to use
+  # Options: helix-sway (Sway compositor), helix-ubuntu (GNOME)
+  default: "helix-sway"
+
+  # Image tag (version)
+  # Use "latest" or specific version tag
+  tag: "latest"
+
+  # Full image reference override (optional)
+  # If set, overrides registry/default/tag settings
+  # Example: "my-registry.com/custom/desktop:v1.2.3"
+  imageOverride: ""
 
 # GPU configuration
 # Supported vendors: "nvidia", "amd", "intel", "none"
@@ -68,6 +120,10 @@ gpu:
     # Runtime class name for OpenShift/Kubernetes
     # OpenShift typically uses "nvidia" or custom runtime class
     runtimeClassName: ""
+    # GKE-specific setup for nested GPU containers
+    # Enables library path configuration and cgroup fixes for Docker-in-Docker
+    # Set to true when running on Google Kubernetes Engine
+    gkeSetup: false
 
   # AMD-specific configuration
   amd:
@@ -111,6 +167,7 @@ resources:
     memory: "16Gi"
   requests:
     memory: "4Gi"
+    cpu: "2"
 
 # Service account configuration
 serviceAccount:
@@ -136,17 +193,18 @@ podSecurityContext: {}
 securityContext:
   privileged: true
 
-# Service configuration for sandbox streaming
+# Service configuration
+# Note: The sandbox uses RevDial (outbound connection to control plane)
+# A service is only needed if you want to expose metrics or health endpoints
 service:
-  type: LoadBalancer
+  # Set to false to disable service creation (sandbox uses RevDial)
+  enabled: false
+  type: ClusterIP
   annotations: {}
-  # WebSocket streaming port
-  web:
-    port: 8080
 
 # Persistence for sandbox Docker storage
 persistence:
-  # Docker storage for sandbox containers
+  # Docker storage for sandbox's nested dockerd
   dockerStorage:
     enabled: true
     size: 50Gi
@@ -154,13 +212,38 @@ persistence:
     accessModes:
       - ReadWriteOnce
 
-  # Hydra data storage (Docker isolation data)
+  # Hydra data storage (per-session dockerd data)
+  # IMPORTANT: Must be a real volume, not overlay filesystem
+  # Docker overlay2 cannot mount on top of overlay
   hydraData:
     enabled: true
-    size: 10Gi
+    size: 20Gi
     storageClassName: ""
     accessModes:
       - ReadWriteOnce
+
+  # Workspace data storage (user session data)
+  workspaceData:
+    enabled: true
+    size: 100Gi
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+
+# Debugging options
+debug:
+  # Keep dead containers for inspection (don't auto-remove)
+  keepDeadContainers: false
+
+  # GStreamer debug level (0-9, higher = more verbose)
+  gstDebug: "2"
+
+# Testing options (for non-production environments like kind)
+testing:
+  # Disable hostPath mounts that may not exist in test environments
+  # Set to true when testing on kind, minikube, or similar
+  # WARNING: This disables /run/udev mount needed for device hotplug
+  disableHostPaths: false
 
 # Node selector for GPU nodes
 nodeSelector: {}

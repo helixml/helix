@@ -1,0 +1,114 @@
+# Example values for bare metal / on-premises Kubernetes
+#
+# Prerequisites:
+# 1. Kubernetes cluster with GPU nodes
+# 2. NVIDIA GPU Operator or device plugin installed:
+#    # Option A: GPU Operator (recommended)
+#    helm install gpu-operator nvidia/gpu-operator
+#    # Option B: Device plugin only
+#    kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.14.0/nvidia-device-plugin.yml
+# 3. Create a secret with the runner token:
+#    kubectl create secret generic helix-sandbox-token --from-literal=token=YOUR_TOKEN
+#
+# For air-gapped / private registry deployments:
+# 1. Mirror images to your internal registry
+# 2. Set desktopImages.registry to your internal registry
+# 3. Ensure sandbox can pull images (imagePullSecrets if needed)
+#
+# Install:
+#   helm install helix-sandbox ./charts/helix-sandbox -f values-bare-metal.yaml \
+#     --set sandbox.apiUrl=https://your-helix-instance.com
+
+replicaCount: 1
+
+deployment:
+  # Single replica: Deployment is fine
+  # Multi-replica: use StatefulSet
+  type: "Deployment"
+
+sandbox:
+  runnerTokenExistingSecret: "helix-sandbox-token"
+  runnerTokenExistingSecretKey: "token"
+  maxSandboxes: 10
+
+gpu:
+  vendor: "nvidia"
+  nvidia:
+    enabled: true
+    count: 1
+    # May need runtime class depending on your setup
+    # Common values: "nvidia", "nvidia-container-runtime"
+    runtimeClassName: ""
+
+# Target nodes with GPUs
+# Adjust labels to match your cluster
+nodeSelector:
+  nvidia.com/gpu.present: "true"
+  # Or custom label:
+  # node-role.kubernetes.io/gpu: "true"
+
+tolerations:
+  - key: "nvidia.com/gpu"
+    operator: "Exists"
+    effect: "NoSchedule"
+
+resources:
+  requests:
+    memory: "8Gi"
+    cpu: "4"
+  limits:
+    memory: "32Gi"
+
+persistence:
+  dockerStorage:
+    enabled: true
+    size: 100Gi
+    # Use your storage class (e.g., local-path, longhorn, rook-ceph)
+    storageClassName: ""
+  hydraData:
+    enabled: true
+    size: 50Gi
+    storageClassName: ""
+  workspaceData:
+    enabled: true
+    size: 200Gi
+    storageClassName: ""
+
+# ============================================================
+# Air-gapped / Private Registry Configuration
+# ============================================================
+# Uncomment and configure for air-gapped deployments:
+
+# imagePullSecrets:
+#   - name: internal-registry-creds
+
+# image:
+#   repository: internal-registry.company.com/helix/helix-sandbox
+#   tag: "latest"
+
+# desktopImages:
+#   registry: "internal-registry.company.com"
+#   default: "helix-sway"
+#   tag: "latest"
+
+# ============================================================
+# Multi-GPU Node Configuration
+# ============================================================
+# For nodes with multiple GPUs, you can run multiple sandbox pods
+# each claiming 1 GPU. Use anti-affinity to spread across nodes:
+
+# replicaCount: 4  # One per GPU
+# deployment:
+#   type: "StatefulSet"
+# podDisruptionBudget:
+#   enabled: true
+#   maxUnavailable: 1
+# affinity:
+#   podAntiAffinity:
+#     preferredDuringSchedulingIgnoredDuringExecution:
+#       - weight: 100
+#         podAffinityTerm:
+#           labelSelector:
+#             matchLabels:
+#               app.kubernetes.io/name: helix-sandbox
+#           topologyKey: kubernetes.io/hostname

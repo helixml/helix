@@ -57,25 +57,47 @@ const getTimeAgo = (date: Date) => {
   return 'just now'
 }
 
-const getTimeBasedGreeting = (userName?: string) => {
+const LAST_LOGIN_DATE_KEY = 'helix_last_login_date'
+const WELCOME_MESSAGE_KEY = 'helix_welcome_message_index'
+
+const checkFirstLoginToday = (): boolean => {
+  const today = new Date().toDateString()
+  const lastLoginDate = localStorage.getItem(LAST_LOGIN_DATE_KEY)
+  
+  if (lastLoginDate !== today) {
+    localStorage.setItem(LAST_LOGIN_DATE_KEY, today)
+    return true
+  }
+  
+  return false
+}
+
+const getWelcomeMessage = (): string => {
+  const lastIndex = localStorage.getItem(WELCOME_MESSAGE_KEY)
+  const messages = ['Welcome back, Commander', 'Ready to assume command']
+  const nextIndex = lastIndex === '0' ? 1 : 0
+  localStorage.setItem(WELCOME_MESSAGE_KEY, nextIndex.toString())
+  return messages[nextIndex]
+}
+
+const getTimeBasedGreeting = (userName?: string, isFirstLogin: boolean = false) => {
+  if (isFirstLogin) {
+    return getWelcomeMessage()
+  }
+  
   const now = new Date()
   const hour = now.getHours()
   
-  // Extract first name from full name if available
   const firstName = userName ? userName.split(' ')[0] : ''
   const nameWithComma = firstName ? `, ${firstName}` : ''
   
   if (hour >= 5 && hour < 12) {
-    // Morning: 5am - 12pm
     return `Coffee and Helix${nameWithComma}?`
   } else if (hour >= 12 && hour < 17) {
-    // Afternoon: 12pm - 5pm
     return `Good afternoon${nameWithComma}`
   } else if (hour >= 17 && hour < 22) {
-    // Evening: 5pm - 10pm
     return `Good evening${nameWithComma}`
   } else {
-    // Late night: 10pm - 5am
     return `Burning the candle at both ends${nameWithComma}?`
   }
 }
@@ -124,6 +146,7 @@ const Home: FC = () => {
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [selectedImageName, setSelectedImageName] = useState<string | null>(null)
   const [showExamples, setShowExamples] = useState(false)
+  const [isFirstLoginToday, setIsFirstLoginToday] = useState(false)
 
   const { data: triggers, isLoading, refetch } = useListUserCronTriggers(
     account.organizationTools.organization?.id || ''
@@ -173,6 +196,13 @@ const Home: FC = () => {
   }, [
     currentModel
   ])
+
+  useEffect(() => {
+    if (account.user) {
+      const firstLogin = checkFirstLoginToday()
+      setIsFirstLoginToday(firstLogin)
+    }
+  }, [account.user])
 
   const submitPrompt = async () => {
     if (!currentPrompt.trim()) return
@@ -308,7 +338,7 @@ const Home: FC = () => {
                       mb: 2,
                     }}
                   >
-                    {getTimeBasedGreeting(account.user?.name)}
+                    {getTimeBasedGreeting(account.user?.name, isFirstLoginToday)}
                   </Typography>
                 </Row>
                 <Row>

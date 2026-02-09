@@ -33,12 +33,13 @@ import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 import QuestionSets from './pages/QuestionSets'
 import QuestionSetResults from './pages/QuestionSetResults'
-import GitRepos from './pages/GitRepos'
 import GitRepoDetail from './pages/GitRepoDetail'
 import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
 import PasswordReset from './pages/PasswordReset'
 import PasswordResetComplete from './pages/PasswordResetComplete'
 import DesignDocPage from './pages/DesignDocPage'
+import Onboarding from './pages/Onboarding'
+import Waitlist from './pages/Waitlist'
 import useRouter from './hooks/useRouter'
 
 // extend the base router5 route to add metadata and self rendering
@@ -82,21 +83,6 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     render: () => (
         <Home />
     ),
-  }, {
-    // Legacy home route - redirect to projects for backward compatibility
-    name: namePrefix + 'home',
-    path: routePrefix + '/home',
-    meta: {
-      drawer: false,
-      orgRouteAware: true,
-    },
-    render: () => {
-      const { navigateReplace } = useRouter()
-      React.useEffect(() => {
-        navigateReplace(namePrefix + 'projects')
-      }, [])
-      return null
-    },
   }, {
     name: namePrefix + 'new',
     path: routePrefix + '/new',
@@ -187,21 +173,6 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     render: () => (
       <SpecTasksPage />
     ),
-  }, {
-    // Legacy /projects route - redirect to root for backward compatibility
-    name: namePrefix + 'projects-legacy',
-    path: routePrefix + '/projects',
-    meta: {
-      drawer: false,
-      orgRouteAware: true,
-    },
-    render: () => {
-      const { navigateReplace } = useRouter()
-      React.useEffect(() => {
-        navigateReplace(namePrefix + 'projects')
-      }, [])
-      return null
-    },
   }, {
     name: namePrefix + 'project-specs',
     path: routePrefix + '/projects/:id/specs',
@@ -463,6 +434,24 @@ const routes: IApplicationRoute[] = [
     title: 'Design Document',
   },
   render: () => <DesignDocPage />,
+}, {
+  name: 'onboarding',
+  path: '/onboarding',
+  meta: {
+    drawer: false,
+    fullscreen: true,
+    title: 'Get Started',
+  },
+  render: () => <Onboarding />,
+}, {
+  name: 'waitlist',
+  path: '/waitlist',
+  meta: {
+    drawer: false,
+    fullscreen: true,
+    title: 'Waitlist',
+  },
+  render: () => <Waitlist />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {

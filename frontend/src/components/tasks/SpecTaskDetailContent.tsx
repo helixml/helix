@@ -29,6 +29,8 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Switch,
+  FormControlLabel,
+  Checkbox,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import EditIcon from "@mui/icons-material/Edit";
@@ -648,6 +650,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         description: task.description || task.original_prompt || "",
         priority: task.priority || "medium",
       });
+      setJustDoItMode(task.just_do_it_mode ?? false);
     }
   }, [task]);
 
@@ -661,6 +664,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           name: editFormData.name,
           description: editFormData.description,
           priority: editFormData.priority as TypesSpecTaskPriority,
+          just_do_it_mode: justDoItMode,
         },
       });
       setIsEditMode(false);
@@ -669,7 +673,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       console.error("Failed to update task:", err);
       snackbar.error("Failed to update task");
     }
-  }, [task?.id, editFormData, updateSpecTask, snackbar]);
+  }, [task?.id, editFormData, justDoItMode, updateSpecTask, snackbar]);
 
   // Handle review spec navigation
   const handleReviewSpec = useCallback(async () => {
@@ -954,6 +958,21 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </>
         )}
       </Box>
+
+      {isEditMode && (
+        <Box sx={{ mb: 2 }}>
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={justDoItMode}
+                onChange={(e) => setJustDoItMode(e.target.checked)}
+                size="small"
+              />
+            }
+            label="Skip planning (go straight to implementation)"
+          />
+        </Box>
+      )}
 
       {/* Agent Selection */}
       <Box sx={{ mb: 2 }}>

@@ -53,21 +53,22 @@ func (n *NotificationsProvider) Notify(ctx context.Context, notification *Notifi
 		return nil
 	}
 
-	user, err := n.store.GetUser(ctx, &store.GetUserQuery{ID: notification.Session.Owner})
-	if err != nil {
-		return fmt.Errorf("failed to get user '%s' details: %w", notification.Session.Owner, err)
+	// If email is not pre-populated, look up from session owner
+	if notification.Email == "" && notification.Session != nil {
+		user, err := n.store.GetUser(ctx, &store.GetUserQuery{ID: notification.Session.Owner})
+		if err != nil {
+			return fmt.Errorf("failed to get user '%s' details: %w", notification.Session.Owner, err)
+		}
+
+		notification.Email = user.Email
+		notification.FirstName = strings.Split(user.FullName, " ")[0]
 	}
 
-	notification.Email = user.Email
-	notification.FirstName = strings.Split(user.FullName, " ")[0]
-
-	if n.email.Enabled() {
-		log.Debug().
-			Str("email", user.Email).Str("notification", notification.Event.String()).Msg("sending notification")
-		err := n.email.Notify(ctx, notification)
-		if err != nil {
-			return err
-		}
+	log.Debug().
+		Str("email", notification.Email).Str("notification", notification.Event.String()).Msg("sending notification")
+	err := n.email.Notify(ctx, notification)
+	if err != nil {
+		return err
 	}
 
 	return nil

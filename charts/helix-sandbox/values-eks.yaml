@@ -1,0 +1,86 @@
+# Example values for Amazon Elastic Kubernetes Service (EKS)
+#
+# Prerequisites:
+# 1. EKS cluster with GPU node group (g4dn, g5, p4d instances)
+# 2. NVIDIA device plugin installed:
+#    kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.14.0/nvidia-device-plugin.yml
+# 3. Create a secret with the runner token:
+#    kubectl create secret generic helix-sandbox-token --from-literal=token=YOUR_TOKEN
+#
+# Recommended instance types:
+# - g4dn.xlarge: 1x T4 GPU, 4 vCPU, 16GB RAM (~$0.50/hr)
+# - g4dn.2xlarge: 1x T4 GPU, 8 vCPU, 32GB RAM (~$0.75/hr)
+# - g5.xlarge: 1x A10G GPU, 4 vCPU, 16GB RAM (~$1.00/hr)
+#
+# Install:
+#   helm install helix-sandbox ./charts/helix-sandbox -f values-eks.yaml \
+#     --set sandbox.apiUrl=https://your-helix-instance.com
+
+replicaCount: 2
+
+deployment:
+  type: "StatefulSet"
+  podManagementPolicy: "Parallel"
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+sandbox:
+  runnerTokenExistingSecret: "helix-sandbox-token"
+  runnerTokenExistingSecretKey: "token"
+  maxSandboxes: 10
+
+gpu:
+  vendor: "nvidia"
+  nvidia:
+    enabled: true
+    count: 1
+    runtimeClassName: ""
+
+# Target GPU instances
+nodeSelector:
+  node.kubernetes.io/instance-type: "g4dn.xlarge"
+  # Or use a label you've applied to GPU nodes:
+  # nvidia.com/gpu.present: "true"
+
+tolerations:
+  - key: "nvidia.com/gpu"
+    operator: "Exists"
+    effect: "NoSchedule"
+  # EKS may use this taint for GPU nodes
+  - key: "dedicated"
+    operator: "Equal"
+    value: "gpu"
+    effect: "NoSchedule"
+
+resources:
+  requests:
+    memory: "8Gi"
+    cpu: "2"
+  limits:
+    memory: "14Gi"  # Leave headroom on g4dn.xlarge (16GB total)
+
+persistence:
+  dockerStorage:
+    enabled: true
+    size: 100Gi
+    # Use gp3 for better IOPS
+    storageClassName: "gp3"
+  hydraData:
+    enabled: true
+    size: 50Gi
+    storageClassName: "gp3"
+  workspaceData:
+    enabled: true
+    size: 200Gi
+    storageClassName: "gp3"
+
+# EKS-specific: if using AWS Load Balancer Controller
+# (not needed since sandbox uses RevDial, but included for reference)
+# service:
+#   enabled: true
+#   type: LoadBalancer
+#   annotations:
+#     service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+#     service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"

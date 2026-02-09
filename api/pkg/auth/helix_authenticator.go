@@ -94,9 +94,12 @@ func (h *HelixAuthenticator) CreateUser(ctx context.Context, user *types.User) (
 		user.Password = ""
 	}
 
+	user.Waitlisted = h.cfg.Auth.Waitlist
+
 	// Check if user should be admin based on ADMIN_USER_IDS env var
 	if h.isUserInAdminList(user.ID) {
 		user.Admin = true
+		user.Waitlisted = false
 	}
 
 	return h.store.CreateUser(ctx, user)
@@ -251,18 +254,11 @@ func (h *HelixAuthenticator) ValidateUserToken(ctx context.Context, accessToken 
 		user.Admin = true
 	}
 
-	return &types.User{
-		ID:          user.ID,
-		Username:    user.Username,
-		Email:       user.Email,
-		FullName:    user.FullName,
-		Token:       accessToken,
-		TokenType:   types.TokenTypeNone,
-		Type:        types.OwnerTypeUser,
-		Admin:       user.Admin,
-		SB:          user.SB,
-		Deactivated: user.Deactivated,
-	}, nil
+	user.Token = accessToken
+	user.TokenType = types.TokenTypeNone
+	user.Type = types.OwnerTypeUser
+
+	return user, nil
 }
 
 func (h *HelixAuthenticator) GenerateUserToken(_ context.Context, user *types.User) (string, error) {

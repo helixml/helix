@@ -418,10 +418,11 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		if s.externalAgentExecutor != nil {
 			// Create a ZedAgent struct with session info for registration
 			zedAgent := &types.DesktopAgent{
-				SessionID:   session.ID,
-				UserID:      user.ID,
-				Input:       "Initialize Zed development environment",
-				ProjectPath: "workspace", // Use relative path
+				OrganizationID: session.OrganizationID,
+				SessionID:      session.ID,
+				UserID:         user.ID,
+				Input:          "Initialize Zed development environment",
+				ProjectPath:    "workspace", // Use relative path
 			}
 
 			// Apply display settings from external agent configuration
@@ -1824,6 +1825,7 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 	// If we have a project, load repositories and startup script
 	if projectID != "" {
 		agent.ProjectID = projectID
+		agent.OrganizationID = session.OrganizationID
 
 		projectRepos, err := s.Controller.Options.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
 			ProjectID: projectID,

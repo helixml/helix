@@ -31,6 +31,27 @@ func (s *PostgresStore) GetGitRepository(ctx context.Context, id string) (*types
 	return &repo, nil
 }
 
+func (s *PostgresStore) GetRepositoriesCount(ctx context.Context, query *GetRepositoriesCountQuery) (int64, error) {
+	if query.UserID == "" && query.OrganizationID == "" {
+		return 0, fmt.Errorf("user ID or organization ID is required")
+	}
+
+	q := s.gdb.WithContext(ctx).Model(&types.GitRepository{})
+
+	if query.OrganizationID != "" {
+		q = q.Where("organization_id = ?", query.OrganizationID)
+	} else {
+		q = q.Where("owner_id = ?", query.UserID)
+	}
+
+	var count int64
+	err := q.Count(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("error getting repositories count: %w", err)
+	}
+	return count, nil
+}
+
 // ListGitRepositories lists all git repositories, optionally filtered by owner
 func (s *PostgresStore) ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error) {
 	var repos []*types.GitRepository

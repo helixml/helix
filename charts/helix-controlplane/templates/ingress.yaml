@@ -21,10 +21,13 @@ metadata:
     {{- toYaml .Values.ingress.labels | nindent 4 }}
     {{- end }}
     {{- include "helix-controlplane.labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
   annotations:
+    {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- end }}
+    {{- if and .Values.ingress.gke .Values.ingress.gke.managedCertificate .Values.ingress.gke.managedCertificate.enabled }}
+    networking.gke.io/managed-certificates: {{ $fullName }}-managed-cert
+    {{- end }}
 spec:
   {{- if and .Values.ingress.className (semverCompare ">=1.18-0" .Capabilities.KubeVersion.GitVersion) }}
   ingressClassName: {{ .Values.ingress.className }}

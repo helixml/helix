@@ -1018,6 +1018,7 @@ type ServerConfigForFrontend struct {
 	License                                *FrontendLicenseInfo `json:"license,omitempty"`
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
 	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
+	MaxConcurrentDesktops                  int                  `json:"max_concurrent_desktops"`
 }
 
 // a short version of a session that we keep for the dashboard
@@ -1900,6 +1901,7 @@ type KeyPair struct {
 
 // DesktopAgent represents a Zed editor instance configuration
 type DesktopAgent struct {
+	OrganizationID string `json:"organization_id"` // Organization ID
 	// Session ID - the Helix session this desktop agent serves
 	SessionID string `json:"session_id"`
 	// User ID for security validation and access control
@@ -2549,11 +2551,13 @@ type AdminResetPasswordRequest struct {
 }
 
 type UserResponse struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-	Token string `json:"token"`
-	Name  string `json:"name"`
-	Admin bool   `json:"admin"`
+	ID                  string `json:"id"`
+	Email               string `json:"email"`
+	Token               string `json:"token"`
+	Name                string `json:"name"`
+	Admin               bool   `json:"admin"`
+	OnboardingCompleted bool   `json:"onboarding_completed"`
+	Waitlisted          bool   `json:"waitlisted"`
 }
 
 type AuthenticatedResponse struct {
@@ -2891,6 +2895,7 @@ const (
 	EventCronTriggerComplete  Event = 1
 	EventCronTriggerFailed    Event = 2
 	EventPasswordResetRequest Event = 3
+	EventWaitlistApproved     Event = 4
 )
 
 func (e Event) String() string {
@@ -2901,6 +2906,8 @@ func (e Event) String() string {
 		return "cron_trigger_failed"
 	case EventPasswordResetRequest:
 		return "password_reset_request"
+	case EventWaitlistApproved:
+		return "waitlist_approved"
 	default:
 		return "unknown_event"
 	}
