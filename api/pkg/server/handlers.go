@@ -1236,6 +1236,21 @@ func (apiServer *HelixAPIServer) adminApproveUser(_ http.ResponseWriter, req *ht
 		Str("approved_user_email", targetUser.Email).
 		Msg("admin approved user")
 
+	// Send approval notification email
+	firstName := strings.Split(targetUser.FullName, " ")[0]
+	notifyErr := apiServer.Controller.Options.Notifier.Notify(ctx, &types.Notification{
+		Event:     types.EventWaitlistApproved,
+		Email:     targetUser.Email,
+		FirstName: firstName,
+	})
+	if notifyErr != nil {
+		log.Error().
+			Err(notifyErr).
+			Str("user_id", targetUserID).
+			Str("email", targetUser.Email).
+			Msg("failed to send waitlist approval notification")
+	}
+
 	return updatedUser, nil
 }
 

@@ -84,6 +84,18 @@ export default function Waitlist() {
             We're gradually rolling out access. You'll receive an email once your account is approved.
           </Typography>
 
+          {account.user?.email && (
+            <Typography
+              sx={{
+                color: 'rgba(255,255,255,0.4)',
+                fontSize: '0.7rem',
+                mb: 2,
+              }}
+            >
+              {account.user.email}
+            </Typography>
+          )}
+
           <Button
             variant="text"
             onClick={handleLogout}
