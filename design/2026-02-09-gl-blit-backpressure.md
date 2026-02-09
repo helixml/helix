@@ -1,7 +1,7 @@
 # GL Blit Sync for H.264 Encoding
 
 **Date:** 2026-02-09
-**Status:** Corruption fixed — testing whether all 3 sync layers are needed or if all-keyframe was masking it
+**Status:** Root cause identified — corruption is in H.264 encoder, not GL blit. VideoToolbox missing MaxFrameDelayCount
 
 ## Problem
 
@@ -163,10 +163,66 @@ submits commands, doesn't wait. `glFinish()` blocks until the Metal
 command buffer completes. With backpressure limiting to one frame in-flight,
 this doesn't accumulate or cause hangs.
 
-### Testing: P-frame encoding
+### P-frame test result: CORRUPTION RETURNED
 
-Reverted to keyframe-on-first-frame-only to confirm the blit sync fixes
-are sufficient without all-keyframe encoding.
+Reverted to keyframe-on-first-frame-only. **Corruption came back immediately.**
+
+This proves the corruption was NEVER in the GL blit pipeline. The three-layer
+GL sync (EGL context save/restore, backpressure, glFinish) was solving a
+non-problem (or a separate, less visible problem). The real issue is in the
+H.264 encoder configuration.
+
+**Key insight:** All-keyframe encoding works because each frame is self-contained.
+P-frame corruption means the encoder is producing frames that the browser's
+zero-latency decoder can't correctly decode using P-frame prediction.
+
+### Root cause: VideoToolbox missing `kVTCompressionPropertyKey_MaxFrameDelayCount`
+
+Comparing NVIDIA GStreamer pipeline vs VideoToolbox:
+
+| Setting | NVIDIA (nvh264enc) | VideoToolbox |
+|---------|-------------------|--------------|
+| Zero-latency | `zerolatency=true` | **NOT SET** |
+| B-frames | `bframes=0` | `AllowFrameReordering=false` ✓ |
+| Ref frames | `ref-frames=1` | **NOT SET** (VT decides) |
+| Profile | `constrained-baseline` (via h264parse) | `Baseline_AutoLevel` |
+| Frame delay | Implicit (zerolatency) | **`MaxFrameDelayCount` NOT SET** |
+| Expected FPS | N/A | **`ExpectedFrameRate` NOT SET** |
+
+The critical missing property is `kVTCompressionPropertyKey_MaxFrameDelayCount`.
+Without it, VideoToolbox can internally buffer multiple frames before producing
+output, even with `AllowFrameReordering=false`. This causes:
+
+1. Encoder may hold frames for better compression (lookahead)
+2. Output frames may have PTS/DTS ordering that doesn't match the browser's
+   zero-latency decoder expectations
+3. Reference frames in the decoder's DPB may be stale/wrong
+
+The fix: Set `kVTCompressionPropertyKey_MaxFrameDelayCount = 0` to force
+truly one-in-one-out encoding (equivalent to NVENC's `zerolatency=true`).
+Also set `kVTCompressionPropertyKey_ExpectedFrameRate = 60`.
+
+### GL pipeline review: what was actually needed?
+
+Since corruption was encoder-side, the GL sync layers need re-evaluation:
+
+1. **EGL context save/restore** — **REQUIRED regardless.** Without it,
+   virglrenderer's GL state gets corrupted (we switch EGL contexts without
+   saving). This caused real GL corruption (staircase artifacts) independent
+   of the encoder issue.
+
+2. **Backpressure via BH** — **Good to have, not strictly required for
+   corruption fix.** Prevents the guest from overwhelming the pipeline.
+   With triple ring buffer, frames don't overlap even without backpressure.
+   But backpressure prevents work piling up and is good practice.
+
+3. **`glFinish()` on virgl context** — **Adds latency, may be unnecessary.**
+   This blocks until the GPU finishes rendering the texture. Adds 1-16ms
+   per frame. If the encoder fix resolves corruption, this could be removed
+   for lower latency. The triple ring buffer provides enough time margin.
+
+Current approach: Keep all three GL sync layers for safety, fix the encoder.
+Can remove `glFinish()` later if we want lower latency.
 
 ## Key Files
 
