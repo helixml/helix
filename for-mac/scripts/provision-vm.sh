@@ -31,7 +31,7 @@ set -euo pipefail
 # =============================================================================
 
 VM_NAME="helix-desktop"
-VM_DIR="${HOME}/Library/Application Support/Helix/vm/${VM_NAME}"
+VM_DIR="${HELIX_VM_DIR:-${HOME}/Library/Application Support/Helix/vm/${VM_NAME}}"
 DISK_SIZE="256G"      # Root disk (OS, Docker images, build cache, inner Docker volumes)
 ZFS_DISK_SIZE="128G"  # ZFS disk (workspaces with dedup - thin-provisioned qcow2)
 CPUS=8
@@ -57,6 +57,7 @@ while [[ $# -gt 0 ]]; do
         --zfs-size) ZFS_DISK_SIZE="$2"; shift 2 ;;
         --cpus) CPUS="$2"; shift 2 ;;
         --memory) MEMORY_MB="$2"; shift 2 ;;
+        --vm-dir) VM_DIR="$2"; shift 2 ;;
         --resume) RESUME=true; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
@@ -215,6 +216,22 @@ write_files:
     content: |
       PasswordAuthentication yes
       PubkeyAuthentication yes
+      UseDNS no
+  # Override cloud-init netplan to match by driver instead of MAC address.
+  # Cloud-init generates a config with match:macaddress locked to the provisioning
+  # QEMU's MAC (52:54:00:12:34:56). When running under UTM, the MAC is different
+  # (52:42:xx:xx:xx:xx), so the interface never gets configured and the VM has
+  # no network. Matching by driver works with any MAC address.
+  - path: /etc/netplan/99-helix-override.yaml
+    content: |
+      network:
+        version: 2
+        ethernets:
+          id0:
+            match:
+              driver: virtio_net
+            dhcp4: true
+            dhcp6: true
 USERDATA
 
     cat > "${SEED_DIR}/meta-data" << METADATA
@@ -391,22 +408,8 @@ if ! step_done "setup_zfs_pool"; then
             echo 'Created helix/workspaces dataset (dedup=on, compression=lz4)'
         fi
 
-        # Create Docker storage dataset (no dedup - Docker layers benefit from compression only)
-        if ! sudo zfs list helix/docker 2>/dev/null; then
-            sudo zfs create -o compression=lz4 -o atime=off helix/docker
-            echo 'Created helix/docker dataset (compression=lz4, no dedup)'
-        fi
-
-        # Configure Docker to use ZFS storage driver on the ZFS dataset
-        sudo mkdir -p /helix/docker
-        # Move Docker data to ZFS if currently on ext4
-        if [ ! -L /var/lib/docker ] && [ -d /var/lib/docker ]; then
-            sudo systemctl stop docker 2>/dev/null || true
-            sudo mv /var/lib/docker /var/lib/docker.ext4-backup
-            sudo ln -s /helix/docker /var/lib/docker
-            sudo systemctl start docker 2>/dev/null || true
-            echo 'Docker storage moved to ZFS (/helix/docker)'
-        fi
+        # Docker stays on ext4 (overlay2 on ZFS has compatibility issues).
+        # Only workspaces go on ZFS for dedup benefits.
 
         # Show pool status
         sudo zpool status helix
@@ -696,11 +699,22 @@ if ! step_done "utm_bundle"; then
     <key>QEMU</key>
     <dict>
         <key>AdditionalArguments</key>
-        <array/>
+        <array>
+            <string>-global</string>
+            <string>virtio-gpu-gl-pci.edid=on</string>
+            <string>-global</string>
+            <string>virtio-gpu-gl-pci.xres=5120</string>
+            <string>-global</string>
+            <string>virtio-gpu-gl-pci.yres=2880</string>
+            <string>-global</string>
+            <string>virtio-gpu-gl-pci.max_outputs=16</string>
+            <string>-serial</string>
+            <string>file:/tmp/qemu-serial.log</string>
+        </array>
         <key>BalloonDevice</key>
         <false/>
         <key>DebugLog</key>
-        <false/>
+        <true/>
         <key>Hypervisor</key>
         <true/>
         <key>PS2Controller</key>
