@@ -748,6 +748,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 				Name:                user.FullName,
 				Admin:               user.Admin,
 				OnboardingCompleted: user.OnboardingCompleted,
+				Waitlisted:          user.Waitlisted,
 			}
 			writeResponse(w, response, http.StatusOK)
 			return
@@ -830,6 +831,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 		Name:                user.FullName,
 		Admin:               user.Admin,
 		OnboardingCompleted: user.OnboardingCompleted,
+		Waitlisted:          user.Waitlisted,
 	}
 	writeResponse(w, response, http.StatusOK)
 }

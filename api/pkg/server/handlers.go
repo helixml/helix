@@ -1192,6 +1192,53 @@ func (apiServer *HelixAPIServer) adminDeleteUser(_ http.ResponseWriter, req *htt
 	}, nil
 }
 
+// adminApproveUser godoc
+// @Summary Approve a user (Admin only)
+// @Description Approve a waitlisted user, removing them from the waitlist. Only admins can use this endpoint.
+// @Tags    users
+// @Produce json
+// @Param id path string true "User ID"
+// @Success 200 {object} types.User
+// @Failure 400 {object} system.HTTPError "Invalid request"
+// @Failure 403 {object} system.HTTPError "Not authorized"
+// @Failure 404 {object} system.HTTPError "User not found"
+// @Router /api/v1/admin/users/{id}/approve [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) adminApproveUser(_ http.ResponseWriter, req *http.Request) (*types.User, error) {
+	ctx := req.Context()
+	adminUser := getRequestUser(req)
+
+	if !adminUser.Admin {
+		return nil, system.NewHTTPError403("only admins can approve users")
+	}
+
+	targetUserID := mux.Vars(req)["id"]
+	if targetUserID == "" {
+		return nil, system.NewHTTPError400("user ID is required")
+	}
+
+	targetUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: targetUserID})
+	if err != nil {
+		return nil, system.NewHTTPError404("user not found")
+	}
+
+	targetUser.Waitlisted = false
+
+	updatedUser, err := apiServer.Store.UpdateUser(ctx, targetUser)
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to update user: " + err.Error())
+	}
+
+	log.Info().
+		Str("admin_id", adminUser.ID).
+		Str("admin_email", adminUser.Email).
+		Str("approved_user_id", targetUserID).
+		Str("approved_user_email", targetUser.Email).
+		Msg("admin approved user")
+
+	return updatedUser, nil
+}
+
 // getSchedulerHeartbeats godoc
 // @Summary Get scheduler goroutine heartbeat status
 // @Description Get the health status of all scheduler goroutines
