@@ -176,31 +176,47 @@ H.264 encoder configuration.
 P-frame corruption means the encoder is producing frames that the browser's
 zero-latency decoder can't correctly decode using P-frame prediction.
 
-### Root cause: VideoToolbox missing `kVTCompressionPropertyKey_MaxFrameDelayCount`
+### First attempt: `MaxFrameDelayCount = 0` — NOT SUFFICIENT
 
-Comparing NVIDIA GStreamer pipeline vs VideoToolbox:
+Added `MaxFrameDelayCount = 0` and `ExpectedFrameRate = 60`. Still saw
+corruption. MaxFrameDelayCount only controls the encoder pipeline depth
+(how many frames VT can buffer before producing output). It doesn't change
+the reference frame structure of the encoded bitstream.
 
-| Setting | NVIDIA (nvh264enc) | VideoToolbox |
-|---------|-------------------|--------------|
-| Zero-latency | `zerolatency=true` | **NOT SET** |
-| B-frames | `bframes=0` | `AllowFrameReordering=false` ✓ |
-| Ref frames | `ref-frames=1` | **NOT SET** (VT decides) |
-| Profile | `constrained-baseline` (via h264parse) | `Baseline_AutoLevel` |
-| Frame delay | Implicit (zerolatency) | **`MaxFrameDelayCount` NOT SET** |
-| Expected FPS | N/A | **`ExpectedFrameRate` NOT SET** |
+### Root cause: Multiple reference frames + wrong profile
 
-The critical missing property is `kVTCompressionPropertyKey_MaxFrameDelayCount`.
-Without it, VideoToolbox can internally buffer multiple frames before producing
-output, even with `AllowFrameReordering=false`. This causes:
+Comparing NVIDIA GStreamer pipeline vs VideoToolbox (before fix):
 
-1. Encoder may hold frames for better compression (lookahead)
-2. Output frames may have PTS/DTS ordering that doesn't match the browser's
-   zero-latency decoder expectations
-3. Reference frames in the decoder's DPB may be stale/wrong
+| Setting | NVIDIA (nvh264enc) | VideoToolbox (before) | VideoToolbox (after) |
+|---------|-------------------|-----------------------|---------------------|
+| Zero-latency | `zerolatency=true` | `MaxFrameDelayCount=0` ✓ | Same ✓ |
+| B-frames | `bframes=0` | `AllowFrameReordering=false` ✓ | Same ✓ |
+| **Ref frames** | **`ref-frames=1`** | **NOT SET (VT default 3-4)** | **`ReferenceBufferCount=1` ✓** |
+| **Profile** | **`constrained-baseline`** | **`Baseline_AutoLevel`** | **`ConstrainedBaseline_AutoLevel` ✓** |
+| Frame delay | Implicit (zerolatency) | `MaxFrameDelayCount=0` ✓ | Same ✓ |
+| Expected FPS | N/A | `ExpectedFrameRate=60` ✓ | Same ✓ |
+| Open GOP | N/A | NOT SET | `AllowOpenGOP=false` ✓ |
+| Speed priority | N/A | NOT SET | `PrioritizeEncodingSpeedOverQuality=true` ✓ |
 
-The fix: Set `kVTCompressionPropertyKey_MaxFrameDelayCount = 0` to force
-truly one-in-one-out encoding (equivalent to NVENC's `zerolatency=true`).
-Also set `kVTCompressionPropertyKey_ExpectedFrameRate = 60`.
+The critical missing properties:
+
+1. **`ReferenceBufferCount = 1`** (macOS 13.0+) — Forces single reference frame.
+   Without this, VT uses 3-4 reference frames by default. Multi-ref P-frames mean
+   each frame can reference not just the previous frame, but frames N-2, N-3, etc.
+   Any subtle blit timing glitch or GPU synchronization issue gets amplified through
+   the P-frame dependency chain because the error propagates through multiple reference
+   paths. With single ref frame, each P-frame only depends on the immediately preceding
+   frame — the simplest possible dependency chain, matching NVIDIA's `ref-frames=1`.
+
+2. **`ConstrainedBaseline_AutoLevel`** (macOS 12.0+) — Mandatory WebRTC profile
+   (RFC 7742). Disallows FMO, ASO, and redundant slices. Simpler bitstream that
+   every browser decoder handles correctly.
+
+3. **`AllowOpenGOP = false`** — Ensures keyframes are true random-access points
+   with no cross-GOP dependencies. Better error recovery on keyframe insertion.
+
+4. **`PrioritizeEncodingSpeedOverQuality = true`** (macOS 11.0+) — Tells the
+   hardware encoder to trade quality for speed, reducing encode latency.
 
 ### GL pipeline review: what was actually needed?
 
