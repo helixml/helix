@@ -218,6 +218,10 @@ cat > "$VULKAN_DIR/kosmickrisp_mesa_icd.json" << 'EOF'
 EOF
 log "  Created Vulkan ICD config"
 
+# Copy open-source notices (required by GPL/LGPL for bundled QEMU + frameworks)
+cp "${FOR_MAC_DIR}/NOTICES.md" "${RESOURCES_DIR}/NOTICES.md"
+log "  Copied open-source NOTICES.md"
+
 # =============================================================================
 # Step 6: Fix dylib paths (install_name_tool)
 # =============================================================================

@@ -32,10 +32,10 @@ set -euo pipefail
 
 VM_NAME="helix-desktop"
 VM_DIR="${HOME}/.helix/vm/${VM_NAME}"
-DISK_SIZE="128G"      # Root disk (OS, Docker images, build cache, inner Docker volumes)
+DISK_SIZE="256G"      # Root disk (OS, Docker images, build cache, inner Docker volumes)
 ZFS_DISK_SIZE="128G"  # ZFS disk (workspaces with dedup - thin-provisioned qcow2)
 CPUS=8
-MEMORY_MB=16384
+MEMORY_MB=32768
 SSH_PORT="${HELIX_VM_SSH_PORT:-2223}"  # Use 2223 during provisioning to avoid conflicts
 VM_USER="luke"
 VM_PASS="helix"
@@ -355,6 +355,12 @@ run_ssh() {
     $SSH_CMD "$@"
 }
 
+if ! step_done "setup_swap"; then
+    log "Setting up 16GB swap file (for Zed release builds with LTO)..."
+    run_ssh "sudo fallocate -l 16G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile && echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab && free -h | grep Swap"
+    mark_step "setup_swap"
+fi
+
 if ! step_done "install_zfs"; then
     log "Installing ZFS 2.4.0 from arter97 PPA..."
     run_ssh "sudo add-apt-repository -y ppa:arter97/zfs && sudo apt-get update && sudo apt-get install -y zfsutils-linux" || {
@@ -470,17 +476,21 @@ if ! step_done "build_desktop_image"; then
     log "First run takes 30-60 minutes. Subsequent builds use Docker cache."
     # PROJECTS_ROOT tells ./stack where to find zed/ and qwen-code/ repos
     # SKIP_DESKTOP_TRANSFER=1 skips pushing to local registry (no sandbox running)
-    run_ssh "cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 DOCKER_BUILDKIT=1 bash stack build-ubuntu 2>&1 | tail -30" || {
+    run_ssh "cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 DOCKER_BUILDKIT=1 bash stack build-ubuntu 2>&1" || {
         log "WARNING: Desktop image build failed."
         log "Retry manually: ssh helix-vm 'cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 bash stack build-ubuntu'"
     }
-    # Verify the image was actually created
+    # Verify the image was actually created — don't mark step done if it wasn't
     if run_ssh "docker images helix-ubuntu:latest --format '{{.Size}}'" 2>/dev/null | grep -q .; then
         log "Desktop image built successfully: $(run_ssh 'docker images helix-ubuntu:latest --format "{{.Size}}"' 2>/dev/null)"
+        mark_step "build_desktop_image"
     else
-        log "WARNING: Desktop image not available. Build may have failed — check logs above."
+        log "ERROR: Desktop image not available. Build failed."
+        log "The provisioning VM is still running. SSH in to debug:"
+        log "  ssh -p ${SSH_PORT} ${VM_USER}@localhost"
+        log "Then retry: cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 bash stack build-ubuntu"
+        exit 1
     fi
-    mark_step "build_desktop_image"
 fi
 
 if ! step_done "setup_compose"; then
