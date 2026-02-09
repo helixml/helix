@@ -83,27 +83,36 @@ done
 log "  Signed $FRAMEWORK_COUNT frameworks"
 
 # =============================================================================
-# Step 2: Sign QEMU dylib with entitlements
+# Step 2: Sign main app bundle
 # =============================================================================
 
-log "Step 2: Signing QEMU dylib (with entitlements)..."
-
-QEMU_DYLIB="${MACOS_DIR}/libqemu-aarch64-softmmu.dylib"
-if [ -f "$QEMU_DYLIB" ]; then
-    codesign "${SIGN_OPTS[@]}" --entitlements "$ENTITLEMENTS" "$QEMU_DYLIB"
-    log "  Signed QEMU dylib"
-else
-    log "  WARNING: QEMU dylib not found"
-fi
-
-# =============================================================================
-# Step 3: Sign main app bundle
-# =============================================================================
-
-log "Step 3: Signing main app bundle..."
+log "Step 2: Signing main app bundle..."
 
 codesign "${SIGN_OPTS[@]}" --entitlements "$ENTITLEMENTS" --deep "$APP_BUNDLE"
 log "  Signed app bundle"
+
+# =============================================================================
+# Step 3: Re-sign QEMU dylib with entitlements
+# =============================================================================
+
+# QEMU must be signed AFTER --deep because --deep strips inner entitlements.
+# The wrapper executable (qemu-system-aarch64) is the process that needs
+# Hypervisor.framework access, JIT, and unsigned memory entitlements.
+log "Step 3: Re-signing QEMU binaries (with entitlements, after --deep)..."
+
+QEMU_DYLIB="${MACOS_DIR}/libqemu-aarch64-softmmu.dylib"
+QEMU_WRAPPER="${MACOS_DIR}/qemu-system-aarch64"
+
+if [ -f "$QEMU_DYLIB" ]; then
+    codesign "${SIGN_OPTS[@]}" --entitlements "$ENTITLEMENTS" "$QEMU_DYLIB"
+    log "  Signed QEMU dylib"
+fi
+if [ -f "$QEMU_WRAPPER" ]; then
+    codesign "${SIGN_OPTS[@]}" --entitlements "$ENTITLEMENTS" "$QEMU_WRAPPER"
+    log "  Signed QEMU wrapper with entitlements"
+else
+    log "  WARNING: QEMU wrapper executable not found"
+fi
 
 # =============================================================================
 # Step 4: Verify

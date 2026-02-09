@@ -8,7 +8,7 @@ import subprocess
 import uuid
 
 VM_NAME = "helix-ubuntu"
-ISO_PATH = os.path.expanduser("~/.helix/iso/ubuntu-25.10-desktop-arm64.iso")
+ISO_PATH = os.path.expanduser("~/Library/Application Support/Helix/iso/ubuntu-25.10-desktop-arm64.iso")
 UTM_DOCUMENTS = os.path.expanduser("~/Library/Containers/com.utmapp.UTM/Data/Documents")
 
 def create_vm(vm_name=VM_NAME, iso_path=ISO_PATH, memory_mb=8192, cpu_count=4, disk_gb=64):

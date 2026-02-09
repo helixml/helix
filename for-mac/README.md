@@ -109,9 +109,9 @@ This takes 30-60 minutes on first run and:
 
 ### Output
 
-- VM directory: `~/.helix/vm/helix-desktop/`
-- UTM bundle: `~/.helix/vm/helix-desktop/helix-desktop.utm` (auto-linked into UTM's documents)
-- Disk image: `~/.helix/vm/helix-desktop/disk.qcow2`
+- VM directory: `~/Library/Application Support/Helix/vm/helix-desktop/`
+- UTM bundle: `~/Library/Application Support/Helix/vm/helix-desktop/helix-desktop.utm` (auto-linked into UTM's documents)
+- Disk image: `~/Library/Application Support/Helix/vm/helix-desktop/disk.qcow2`
 
 ### Custom Options
 
@@ -126,7 +126,8 @@ helix-for-mac.app/
   Contents/
     MacOS/
       Helix for Mac                        # Wails app (9MB)
-      libqemu-aarch64-softmmu.dylib        # Custom QEMU (33MB)
+      qemu-system-aarch64                  # QEMU wrapper executable (75KB)
+      libqemu-aarch64-softmmu.dylib        # Custom QEMU core (33MB)
     Frameworks/                             # 27 open-source frameworks (73MB)
       virglrenderer.1.framework/            # GPU 3D rendering
       spice-server.1.framework/             # SPICE protocol
@@ -179,7 +180,7 @@ go run virgl_probe.go        # Probe virglrenderer availability
 | `utm.go` | UTM integration (dev mode fallback) |
 | `encoder.go` | Software video encoder |
 | `vsock.go` | Virtio-vsock for host-guest frame transfer |
-| `settings.go` | Persistent settings (~/.helix/settings.json) |
+| `settings.go` | Persistent settings (~/Library/Application Support/Helix/settings.json) |
 | `scripts/build-helix-app.sh` | Build .app with embedded QEMU |
 | `scripts/create-dmg.sh` | Package into .dmg |
 | `scripts/sign-app.sh` | Code signing + notarization |

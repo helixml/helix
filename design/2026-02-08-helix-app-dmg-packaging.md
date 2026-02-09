@@ -49,7 +49,7 @@ Helix for Mac.app/
 
 ### First-Launch VM Extraction
 
-The compressed qcow2 disk images are bundled in the app bundle's `Contents/Resources/vm/` directory. On first launch, the app copies them to `~/.helix/vm/helix-desktop/` (a writable location) since QEMU needs write access to the disk images. This is done by `vm.go:ensureVMExtracted()` using streaming `io.Copy` to avoid loading multi-GB files into memory.
+The compressed qcow2 disk images are bundled in the app bundle's `Contents/Resources/vm/` directory. On first launch, the app copies them to `~/Library/Application Support/Helix/vm/helix-desktop/` (a writable location) since QEMU needs write access to the disk images. This is done by `vm.go:ensureVMExtracted()` using streaming `io.Copy` to avoid loading multi-GB files into memory.
 
 The qcow2 files are already compressed by `qemu-img convert -c` during the build step, so QEMU reads them directly — no decompression step needed. QEMU writes new data uncompressed, so the disk images grow over time as the VM is used.
 
@@ -193,7 +193,7 @@ cd for-mac
    - Copies 27 frameworks from UTM's framework directory
    - Copies EFI firmware into `Contents/Resources/firmware/`
    - Creates Vulkan ICD config pointing to bundled KosmicKrisp
-   - Compresses and bundles VM disk images from `~/.helix/vm/helix-desktop/` into `Contents/Resources/vm/`
+   - Compresses and bundles VM disk images from `~/Library/Application Support/Helix/vm/helix-desktop/` into `Contents/Resources/vm/`
    - Copies `NOTICES.md` into `Contents/Resources/`
    - Fixes dylib paths with `install_name_tool`
    - Ad-hoc signs everything
@@ -242,8 +242,8 @@ The `for-mac/scripts/provision-vm.sh` creates a fresh VM from scratch. This must
 
 ### Output
 
-- VM directory: `~/.helix/vm/helix-desktop/`
-- UTM bundle: `~/.helix/vm/helix-desktop/helix-desktop.utm`
+- VM directory: `~/Library/Application Support/Helix/vm/helix-desktop/`
+- UTM bundle: `~/Library/Application Support/Helix/vm/helix-desktop/helix-desktop.utm`
 - Auto-linked into UTM's documents directory
 
 ## How QEMU is Loaded

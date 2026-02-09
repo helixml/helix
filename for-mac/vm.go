@@ -117,10 +117,16 @@ func (vm *VMManager) SetConfig(config VMConfig) error {
 	return nil
 }
 
-// getVMDir returns the writable VM directory (~/.helix/vm/helix-desktop/)
-func (vm *VMManager) getVMDir() string {
+// getHelixDataDir returns the macOS-conventional data directory for Helix.
+// Uses ~/Library/Application Support/Helix/ which works with and without App Sandbox.
+func getHelixDataDir() string {
 	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".helix", "vm", "helix-desktop")
+	return filepath.Join(homeDir, "Library", "Application Support", "Helix")
+}
+
+// getVMDir returns the writable VM directory
+func (vm *VMManager) getVMDir() string {
+	return filepath.Join(getHelixDataDir(), "vm", "helix-desktop")
 }
 
 // getVMImagePath returns the path to the root disk image
@@ -545,13 +551,17 @@ func (vm *VMManager) getAppBundlePath() string {
 }
 
 // findQEMUBinary locates the QEMU binary. Search order:
-//  1. Bundled in app: Contents/MacOS/libqemu-aarch64-softmmu.dylib
+//  1. Bundled in app: Contents/MacOS/qemu-system-aarch64 (wrapper executable)
 //  2. System PATH: qemu-system-aarch64
+//
+// QEMU is built as a dylib + thin wrapper. The wrapper (75KB) has main() and
+// loads libqemu-aarch64-softmmu.dylib via @executable_path. You cannot execute
+// a .dylib directly — the wrapper executable is required.
 func (vm *VMManager) findQEMUBinary() string {
 	// Check app bundle first
 	appPath := vm.getAppBundlePath()
 	if appPath != "" {
-		bundled := filepath.Join(appPath, "Contents", "MacOS", "libqemu-aarch64-softmmu.dylib")
+		bundled := filepath.Join(appPath, "Contents", "MacOS", "qemu-system-aarch64")
 		if _, err := os.Stat(bundled); err == nil {
 			return bundled
 		}

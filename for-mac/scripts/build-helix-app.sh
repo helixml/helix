@@ -35,7 +35,7 @@ EFI_CODE="/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
 EFI_VARS_TEMPLATE="/opt/homebrew/share/qemu/edk2-arm-vars.fd"
 
 # VM image directory (from provision-vm.sh)
-VM_DIR="${VM_DIR:-$HOME/.helix/vm/helix-desktop}"
+VM_DIR="${VM_DIR:-$HOME/Library/Application Support/Helix/vm/helix-desktop}"
 
 # Output paths
 # Wails uses the "name" field from wails.json for the .app bundle name,
@@ -108,13 +108,23 @@ fi
 # Step 2: Copy QEMU binary
 # =============================================================================
 
-log "Step 2: Copying QEMU binary..."
+log "Step 2: Copying QEMU binaries..."
 mkdir -p "$MACOS_DIR"
 
-# Copy QEMU as a standalone executable (not a framework dylib)
-# We'll use it as a dylib loaded by the app, matching UTM's approach
+# QEMU is built as a dylib + thin wrapper executable:
+#   - libqemu-aarch64-softmmu.dylib (34MB) — core QEMU implementation
+#   - qemu-system-aarch64 (75KB) — wrapper with main() that loads the dylib
+# The wrapper is what we exec.Command() — you cannot execute a .dylib directly.
+QEMU_WRAPPER="$SYSROOT/bin/qemu-system-aarch64"
+if [ ! -f "$QEMU_WRAPPER" ]; then
+    echo "ERROR: QEMU wrapper executable not found at: $QEMU_WRAPPER"
+    echo "Build QEMU first: ./qemu-helix/build-qemu-standalone.sh"
+    exit 1
+fi
+
 cp "$QEMU_DYLIB" "$MACOS_DIR/libqemu-aarch64-softmmu.dylib"
-log "  Copied QEMU dylib ($(du -h "$MACOS_DIR/libqemu-aarch64-softmmu.dylib" | awk '{print $1}'))"
+cp "$QEMU_WRAPPER" "$MACOS_DIR/qemu-system-aarch64"
+log "  Copied QEMU dylib ($(du -h "$MACOS_DIR/libqemu-aarch64-softmmu.dylib" | awk '{print $1}')) + wrapper ($(du -h "$MACOS_DIR/qemu-system-aarch64" | awk '{print $1}'))"
 
 # =============================================================================
 # Step 3: Copy required frameworks
@@ -263,24 +273,24 @@ fi
 log "Step 6: Fixing dylib load paths..."
 
 # Fix QEMU dylib: change sysroot paths to @rpath
-# The QEMU dylib currently has its install_name as an absolute sysroot path
 install_name_tool -id "@rpath/libqemu-aarch64-softmmu.dylib" \
     "$MACOS_DIR/libqemu-aarch64-softmmu.dylib" 2>/dev/null || true
 
-# Fix the absolute sysroot path in QEMU's own reference
+# Fix QEMU wrapper: change absolute sysroot path to @executable_path
 QEMU_OLD_ID="$SYSROOT/lib/libqemu-aarch64-softmmu.dylib"
 install_name_tool -change "$QEMU_OLD_ID" \
     "@executable_path/libqemu-aarch64-softmmu.dylib" \
-    "$MACOS_DIR/libqemu-aarch64-softmmu.dylib" 2>/dev/null || true
+    "$MACOS_DIR/qemu-system-aarch64" 2>/dev/null || true
 
-# Add @rpath pointing to Frameworks directory for the main executable
+# Add @rpath pointing to Frameworks directory for the main Wails executable
 MAIN_EXEC="${MACOS_DIR}/${APP_EXEC_NAME}"
 if [ -f "$MAIN_EXEC" ]; then
-    # Add rpath if not already present
     install_name_tool -add_rpath "@executable_path/../Frameworks" "$MAIN_EXEC" 2>/dev/null || true
 fi
 
-# Add rpath to QEMU dylib too
+# Add @rpath to QEMU wrapper and dylib so they find frameworks
+install_name_tool -add_rpath "@executable_path/../Frameworks" \
+    "$MACOS_DIR/qemu-system-aarch64" 2>/dev/null || true
 install_name_tool -add_rpath "@executable_path/../Frameworks" \
     "$MACOS_DIR/libqemu-aarch64-softmmu.dylib" 2>/dev/null || true
 
@@ -316,20 +326,30 @@ log "Step 7: Signing app bundle (ad-hoc)..."
 
 ENTITLEMENTS="${FOR_MAC_DIR}/build/darwin/entitlements.plist"
 
-# Sign frameworks first (inside-out signing order)
+# Sign inside-out: frameworks → main app → QEMU dylib last
+# QEMU must be signed AFTER the app bundle because --deep strips inner entitlements.
+# QEMU needs its own entitlements since it runs as a separate process (exec.Command).
+
 for fw_dir in "$FRAMEWORKS_DIR"/*.framework; do
     codesign --force --sign - --timestamp=none "$fw_dir" 2>/dev/null || true
 done
 
-# Sign QEMU dylib with entitlements (needs Hypervisor.framework access)
-codesign --force --sign - --timestamp=none \
-    --entitlements "$ENTITLEMENTS" \
-    "$MACOS_DIR/libqemu-aarch64-softmmu.dylib" 2>/dev/null || true
-
-# Sign the main app bundle
+# Sign the main app bundle (--deep signs everything inside)
 codesign --force --sign - --timestamp=none \
     --entitlements "$ENTITLEMENTS" \
     --deep "$APP_BUNDLE" 2>/dev/null || true
+
+# Re-sign QEMU executable + dylib with entitlements AFTER --deep (which strips them)
+# The wrapper (qemu-system-aarch64) is the actual process that needs:
+#   - com.apple.security.hypervisor (HVF acceleration)
+#   - com.apple.security.cs.allow-jit (TCG JIT)
+#   - com.apple.security.cs.allow-unsigned-executable-memory (code generation)
+codesign --force --sign - --timestamp=none \
+    --entitlements "$ENTITLEMENTS" \
+    "$MACOS_DIR/libqemu-aarch64-softmmu.dylib" 2>/dev/null || true
+codesign --force --sign - --timestamp=none \
+    --entitlements "$ENTITLEMENTS" \
+    "$MACOS_DIR/qemu-system-aarch64" 2>/dev/null || true
 
 log "  Ad-hoc signing complete"
 
@@ -351,14 +371,15 @@ log "Frameworks: $FW_COUNT"
 log ""
 log "Contents:"
 log "  MacOS/${APP_EXEC_NAME}      - Main app (Wails)"
-log "  MacOS/libqemu-*.dylib       - Custom QEMU with helix-frame-export"
+log "  MacOS/qemu-system-aarch64   - QEMU wrapper executable"
+log "  MacOS/libqemu-*.dylib       - Custom QEMU core with helix-frame-export"
 log "  Frameworks/                  - ${FW_COUNT} open-source frameworks"
 log "  Resources/firmware/          - EFI firmware (edk2)"
 log "  Resources/vulkan/            - KosmicKrisp Vulkan ICD"
 log ""
 log "Verification:"
 log "  codesign -vvv '$APP_BUNDLE'"
-log "  otool -L '$MACOS_DIR/libqemu-aarch64-softmmu.dylib' | grep -c '@rpath'"
+log "  otool -L '$MACOS_DIR/qemu-system-aarch64' | grep -c '@rpath'"
 log ""
 log "To create DMG:"
 log "  ./scripts/create-dmg.sh"

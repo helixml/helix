@@ -28,7 +28,6 @@ type AppSettings struct {
 
 // DefaultSettings returns the default settings
 func DefaultSettings() AppSettings {
-	homeDir, _ := os.UserHomeDir()
 	return AppSettings{
 		VMCPUs:     4,
 		VMMemoryMB: 8192,
@@ -36,7 +35,7 @@ func DefaultSettings() AppSettings {
 		APIPort:    8080,
 		VideoPort:  8765,
 		AutoStartVM: false,
-		VMDiskPath: filepath.Join(homeDir, ".helix", "vm", "helix-ubuntu.qcow2"),
+		VMDiskPath: filepath.Join(getHelixDataDir(), "vm", "helix-desktop", "disk.qcow2"),
 	}
 }
 
@@ -49,8 +48,7 @@ type SettingsManager struct {
 
 // NewSettingsManager creates a new settings manager
 func NewSettingsManager() *SettingsManager {
-	homeDir, _ := os.UserHomeDir()
-	settingsPath := filepath.Join(homeDir, ".helix", "settings.json")
+	settingsPath := filepath.Join(getHelixDataDir(), "settings.json")
 
 	sm := &SettingsManager{
 		settings: DefaultSettings(),

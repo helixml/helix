@@ -14,7 +14,7 @@ set -e
 # - helix-drm-manager (DRM lease daemon for multi-desktop scanout)
 # - GDM disabled (needed for DRM lease approach)
 
-HELIX_DIR="$HOME/.helix"
+HELIX_DIR="$HOME/Library/Application Support/Helix"
 VM_DIR="$HELIX_DIR/vm"
 IMAGE_NAME="helix-ubuntu.qcow2"
 IMAGE_PATH="$VM_DIR/$IMAGE_NAME"

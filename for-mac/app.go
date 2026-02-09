@@ -201,18 +201,12 @@ func (a *App) OpenSession(sessionID string) error {
 
 // SetupVM sets up the VM by downloading/creating the base image
 func (a *App) SetupVM() error {
-	// Create helix directory
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
+	vmDir := filepath.Join(getHelixDataDir(), "vm", "helix-desktop")
+	if err := os.MkdirAll(vmDir, 0755); err != nil {
+		return fmt.Errorf("failed to create VM directory: %w", err)
 	}
 
-	helixDir := filepath.Join(homeDir, ".helix", "vm")
-	if err := os.MkdirAll(helixDir, 0755); err != nil {
-		return fmt.Errorf("failed to create helix directory: %w", err)
-	}
-
-	imagePath := filepath.Join(helixDir, "helix-ubuntu.qcow2")
+	imagePath := filepath.Join(vmDir, "disk.qcow2")
 
 	// Check if image already exists
 	if _, err := os.Stat(imagePath); err == nil {
@@ -243,8 +237,7 @@ func (a *App) GetSSHCommand() string {
 
 // IsVMImageReady checks if the VM image exists
 func (a *App) IsVMImageReady() bool {
-	homeDir, _ := os.UserHomeDir()
-	imagePath := filepath.Join(homeDir, ".helix", "vm", "helix-ubuntu.qcow2")
+	imagePath := filepath.Join(getHelixDataDir(), "vm", "helix-desktop", "disk.qcow2")
 	_, err := os.Stat(imagePath)
 	return err == nil
 }
