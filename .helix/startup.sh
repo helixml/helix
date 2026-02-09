@@ -154,6 +154,23 @@ if tmux has-session -t helix 2>/dev/null; then
     tmux kill-session -t helix
 fi
 
+# =========================================
+# Bypass docker-shim for builds
+# =========================================
+# The Helix desktop environment uses a docker-shim that requires a shared BuildKit
+# server (helix-buildkit at tcp://10.213.0.2:1234). This server may not be running
+# or reachable in all environments. We bypass the shim by using docker.real directly.
+if [ -x /usr/bin/docker.real ]; then
+    echo "📦 Using docker.real to bypass docker-shim for builds"
+    export PATH="/usr/bin:$PATH"
+    # Create a temporary symlink to use docker.real as docker
+    mkdir -p /tmp/docker-bypass
+    ln -sf /usr/bin/docker.real /tmp/docker-bypass/docker
+    export PATH="/tmp/docker-bypass:$PATH"
+    # Unset BUILDKIT_HOST to use local BuildKit
+    unset BUILDKIT_HOST
+fi
+
 # Build and start the stack
 echo ""
 echo "Building Helix components..."
