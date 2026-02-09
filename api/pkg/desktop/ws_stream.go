@@ -1281,11 +1281,14 @@ func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool, isReplay bo
 
 	v.frameCount++
 
-	// For keyframes, patch SPS to set constraint_set3_flag=1 for zero-latency decode
+	// DIAGNOSTIC: Disable SPS rewriting to test if it's causing P-frame corruption.
+	// If corruption goes away without SPS rewriting, the rebuildSPSWithVUI() code
+	// is producing an invalid bitstream that confuses the decoder's reference frame handling.
 	frameData := data
-	if isKeyframe {
-		frameData = patchSPSConstraintSet3(data)
-	}
+	// TODO(diagnostic): Re-enable after testing
+	// if isKeyframe {
+	// 	frameData = patchSPSConstraintSet3(data)
+	// }
 
 	// PTS is already in microseconds from GStreamer (converted in gst_pipeline.go)
 
