@@ -1,7 +1,7 @@
 # GL Blit Sync for H.264 Encoding
 
 **Date:** 2026-02-09
-**Status:** IOSurfaceLock fence only (backpressure removed after crash)
+**Status:** glFinish fence + EGL context save/restore (testing)
 
 ## Problem
 
@@ -74,15 +74,49 @@ but the interaction caused QEMU to crash.
 6. VTCompressionSessionEncodeFrame  — async (ring buffer protects)
 ```
 
+### IOSurfaceLock alone — Still corrupt
+
+User reported staircase artifacts, shifted duplicate content, pink bands.
+Two root causes identified:
+
+1. **EGL context not restored after blit.** `helix_gl_blit_frame` called
+   `eglMakeCurrent(helix_ctx)` but never restored virglrenderer's context.
+   Since we're called from inside `virgl_cmd_set_scanout`, subsequent
+   virglrenderer GL calls went to the wrong context → corruption.
+   (The old deleted Metal snapshot code DID save/restore the context.)
+
+2. **IOSurfaceLock may not fence GPU writes.** It's documented for CPU
+   access synchronization. May not actually wait for Metal command queue
+   writes from a different context.
+
+### Fix: EGL context save/restore + glFinish
+
+Replaced IOSurfaceLock with `glFinish()` and added EGL context save/restore:
+
+```
+1. Save EGL context (virglrenderer's)
+2. eglMakeCurrent(helix_ctx)
+3. glBlitFramebuffer           — read virgl tex → IOSurface[ring_slot]
+4. glFinish()                  — wait for ALL GL commands on our context
+5. Restore EGL context (virglrenderer's)
+6. CVPixelBufferCreateWithIOSurface — zero-copy wrap
+7. VTCompressionSessionEncodeFrame  — async (ring buffer protects)
+```
+
+`glFinish()` blocks until all commands submitted on our ANGLE context are
+complete. Since ANGLE translates GL → Metal, this waits for the Metal
+command buffer to finish. This is stronger than `glFlush()` (non-blocking)
+and more appropriate than `IOSurfaceLock` (CPU-oriented).
+
 ### Testing needed
 
-- Does IOSurfaceLock alone fix the corruption?
-- If not, need to find another way to add backpressure (can't use
-  gl_block from inside process_cmdq)
+- Does EGL context save/restore + glFinish fix the corruption?
+- If not, remaining suspects: pixel format mismatch, Y-flip, or
+  encoder configuration issue
 
 ## Key Files
 
-- `hw/display/helix/helix-frame-export.m` — GL blit + IOSurfaceLock fence
+- `hw/display/helix/helix-frame-export.m` — GL blit + glFinish fence + EGL save/restore
 - `hw/display/helix/helix-frame-export.h` — ring buffer struct fields
 - `hw/display/virtio-gpu-base.c` — `helix_gl_block()` wrapper (unused now)
 - `hw/display/virtio-gpu-virgl.c` — calls `helix_scanout_frame_ready`
@@ -94,3 +128,19 @@ display update path (`dpy_gl_update`), NOT from inside `process_cmdq`.
 Our `helix_scanout_frame_ready` is called from `virgl_cmd_set_scanout` which
 IS inside `process_cmdq`. To use backpressure, we'd need to move the frame
 capture to the display update path instead.
+
+## Key Insight: Display Update Path Not Feasible for Secondary Scanouts
+
+Moving frame capture to the display update path would fix the backpressure
+problem, but secondary scanouts use `virtio_gpu_secondary_ops` with
+`GRAPHIC_FLAGS_NONE` — no GL, no DMABUF. This was deliberately done
+(`virtio-gpu-base.c:240-253`) to prevent UTM's broken `gl_draw_done`
+handling from permanently blocking `renderer_blocked`. Without GL flags,
+secondary consoles get 2D SPICE display listeners, and `dpy_gl_update` is
+never called for them. The display update path simply doesn't exist for the
+scanouts Helix uses.
+
+To make the display update path work, you'd need to:
+1. Re-enable GL flags for secondary scanouts
+2. Fix UTM's `gl_draw_done` handling (or bypass SPICE entirely for Helix scanouts)
+This is a larger architectural change.
