@@ -82,6 +82,7 @@ export default function Waitlist() {
             }}
           >
             We're gradually rolling out access. You'll receive an email once your account is approved.
+            Alternatively, you can deploy Helix yourself, source code is available in our <a href="https://github.com/helixml/helix" target="_blank" rel="noopener noreferrer">GitHub repo</a>.
           </Typography>
 
           {account.user?.email && (
