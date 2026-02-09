@@ -33,13 +33,13 @@ import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 import QuestionSets from './pages/QuestionSets'
 import QuestionSetResults from './pages/QuestionSetResults'
-import GitRepos from './pages/GitRepos'
 import GitRepoDetail from './pages/GitRepoDetail'
 import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
 import PasswordReset from './pages/PasswordReset'
 import PasswordResetComplete from './pages/PasswordResetComplete'
 import DesignDocPage from './pages/DesignDocPage'
 import Onboarding from './pages/Onboarding'
+import Waitlist from './pages/Waitlist'
 import useRouter from './hooks/useRouter'
 
 // extend the base router5 route to add metadata and self rendering
@@ -443,6 +443,15 @@ const routes: IApplicationRoute[] = [
     title: 'Get Started',
   },
   render: () => <Onboarding />,
+}, {
+  name: 'waitlist',
+  path: '/waitlist',
+  meta: {
+    drawer: false,
+    fullscreen: true,
+    title: 'Waitlist',
+  },
+  render: () => <Waitlist />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {

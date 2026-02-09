@@ -7,7 +7,6 @@ import {
   TextField,
   List,
   ListItem,
-  ListItemIcon,
   ListItemText,
   IconButton,
   Avatar,
@@ -69,7 +68,7 @@ const ProviderIcon: React.FC<{ provider: TypesProviderEndpoint }> = ({ provider 
     return <Avatar src={googleLogo} sx={{ width: 32, height: 32 }} variant="square" />;
   }
 
-  if (provider.base_url?.startsWith('https://api.anthropic.com/')) {
+  if (provider.name === 'anthropic' || provider.base_url?.startsWith('https://api.anthropic.com/')) {
     return <Avatar src={anthropicLogo} sx={{ width: 32, height: 32 }} variant="square" />;
   }
 
@@ -495,26 +494,15 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                     }}
                   >
                   <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, overflow: 'hidden' }}>
-                    <ListItemIcon sx={{ minWidth: 40 }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 56, mr: 1 }}>
                       <ProviderIcon provider={model.provider} />
-                    </ListItemIcon>
+                      <Typography variant="caption" sx={{ color: '#A0AEC0', fontSize: '0.6rem', mt: 0.5, textAlign: 'center', lineHeight: 1.1 }}>
+                        {model.provider.name}
+                      </Typography>
+                    </Box>
                     <ListItemText
                       primary={
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Chip
-                            label={model.provider.name}
-                            size="small"
-                            sx={{
-                              backgroundColor: '#353945',
-                              color: '#A0AEC0',
-                              fontSize: '0.7rem',
-                              height: '20px',
-                              minWidth: '70px',
-                              '& .MuiChip-label': {
-                                px: 1,
-                              },
-                            }}
-                          />
                           <Typography variant="body1" component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {model.id || 'Unnamed Model'}
                           </Typography>
@@ -533,7 +521,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                         </Box>
                       }
                       secondary={
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, ml: '78px' }}>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
                           {model.description && (
                             <Typography
                               variant="caption"
@@ -677,26 +665,15 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                       }}
                     >
                     <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, overflow: 'hidden' }}>
-                      <ListItemIcon sx={{ minWidth: 40 }}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 56, mr: 1 }}>
                         <ProviderIcon provider={model.provider} />
-                      </ListItemIcon>
+                        <Typography variant="caption" sx={{ color: '#A0AEC0', fontSize: '0.6rem', mt: 0.5, textAlign: 'center', lineHeight: 1.1 }}>
+                          {model.provider.name}
+                        </Typography>
+                      </Box>
                       <ListItemText
                         primary={
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Chip
-                              label={model.provider.name}
-                              size="small"
-                              sx={{
-                                backgroundColor: '#353945',
-                                color: '#A0AEC0',
-                                fontSize: '0.7rem',
-                                height: '20px',
-                                minWidth: '70px',
-                                '& .MuiChip-label': {
-                                  px: 1,
-                                },
-                              }}
-                            />
                             <Typography variant="body1" component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {model.id || 'Unnamed Model'}
                             </Typography>
@@ -715,7 +692,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                           </Box>
                         }
                         secondary={
-                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, ml: '78px' }}>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
                             {model.description && (
                               <Typography
                                 variant="caption"

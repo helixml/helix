@@ -165,6 +165,8 @@ type User struct {
 
 	OnboardingCompleted   bool      `json:"onboarding_completed"`
 	OnboardingCompletedAt time.Time `json:"onboarding_completed_at"`
+
+	Waitlisted bool `json:"waitlisted"`
 }
 
 type UserSearchResponse struct {

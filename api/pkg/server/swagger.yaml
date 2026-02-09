@@ -8548,6 +8548,8 @@ definitions:
         type: string
       username:
         type: string
+      waitlisted:
+        type: boolean
     type: object
   types.UserAppAccessResponse:
     properties:
@@ -8870,6 +8872,40 @@ paths:
       security:
       - BearerAuth: []
       summary: Delete a user (Admin only)
+      tags:
+      - users
+  /api/v1/admin/users/{id}/approve:
+    post:
+      description: Approve a waitlisted user, removing them from the waitlist. Only
+        admins can use this endpoint.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.User'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Not authorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: User not found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Approve a user (Admin only)
       tags:
       - users
   /api/v1/admin/users/{id}/password:

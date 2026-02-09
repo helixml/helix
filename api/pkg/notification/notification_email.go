@@ -30,9 +30,13 @@ var taskFailedTemplate string
 //go:embed templates/password_reset_request.html
 var passwordResetRequestTemplate string
 
+//go:embed templates/waitlist_approved.html
+var waitlistApprovedTemplate string
+
 var cronTriggerCompleteTmpl = template.Must(template.New("taskComplete").Parse(taskCompleteTemplate))
 var cronTriggerFailedTmpl = template.Must(template.New("taskFailed").Parse(taskFailedTemplate))
 var passwordResetRequestTmpl = template.Must(template.New("passwordResetRequest").Parse(passwordResetRequestTemplate))
+var waitlistApprovedTmpl = template.Must(template.New("waitlistApproved").Parse(waitlistApprovedTemplate))
 
 type Email struct {
 	cfg     *config.Notifications
@@ -62,7 +66,7 @@ func (e *Email) Enabled() bool {
 func (e *Email) Notify(ctx context.Context, n *Notification) error {
 	if n.Email == "" {
 		// Nothing to do
-		log.Ctx(ctx).Warn().Str("session_id", n.Session.ID).Msg("no email address provided for notification")
+		log.Ctx(ctx).Warn().Msg("no email address provided for notification")
 		return nil
 	}
 
@@ -192,6 +196,18 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 		}
 
 		return "Password Reset Request", buf.String(), nil
+	case types.EventWaitlistApproved:
+		var buf bytes.Buffer
+
+		err = waitlistApprovedTmpl.Execute(&buf, &templateData{
+			FirstName: n.FirstName,
+			AppURL:    e.cfg.AppURL,
+		})
+		if err != nil {
+			return "", "", fmt.Errorf("failed to execute template: %w", err)
+		}
+
+		return "Welcome to Helix - You're Approved!", buf.String(), nil
 	default:
 		return "", "", fmt.Errorf("unknown event '%s'", n.Event.String())
 	}
@@ -202,4 +218,6 @@ type templateData struct {
 	Message      template.HTML
 	SessionName  string
 	ErrorMessage string
+	FirstName    string
+	AppURL       string
 }

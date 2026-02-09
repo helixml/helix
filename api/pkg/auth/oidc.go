@@ -51,6 +51,8 @@ type OIDCConfig struct {
 	// OfflineAccess requests offline access for refresh tokens (access_type=offline).
 	// Required for Google OIDC to return refresh tokens.
 	OfflineAccess bool
+	// Waitlist makes all new users waitlisted until they are approved by an admin
+	Waitlist bool
 }
 
 func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
@@ -336,11 +338,12 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 			Msg("Creating new user from OIDC token")
 
 		user, err = c.store.CreateUser(ctx, &types.User{
-			ID:        userInfo.Subject,
-			Username:  userInfo.Subject,
-			Email:     userInfo.Email,
-			FullName:  fullName,
-			CreatedAt: time.Now(),
+			ID:         userInfo.Subject,
+			Username:   userInfo.Subject,
+			Email:      userInfo.Email,
+			FullName:   fullName,
+			CreatedAt:  time.Now(),
+			Waitlisted: c.cfg.Waitlist,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create user: %w", err)
@@ -368,6 +371,7 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 		Admin:       isAdmin,
 		SB:          user.SB,
 		Deactivated: user.Deactivated,
+		Waitlisted:  user.Waitlisted,
 	}, nil
 }
 

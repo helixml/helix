@@ -434,9 +434,20 @@ export const useAccountContext = (): IAccountContext => {
     }
   }, [user])
 
+  // Redirect to waitlist page immediately if user is waitlisted (before loading anything else)
+  useEffect(() => {
+    if (!initialized || !user) return
+    if (router.name === 'waitlist') return
+    if (!user.waitlisted) return
+
+    router.navigateReplace('waitlist')
+  }, [initialized, user, router.name])
+
   // Redirect to onboarding if user hasn't completed it and has no orgs
   useEffect(() => {
     if (!initialized || !user) return
+    // Don't redirect if user is waitlisted (waitlist takes priority)
+    if (user.waitlisted) return
     // Don't redirect if already on onboarding page
     if (router.name === 'onboarding') return
     // Don't redirect if onboarding is already completed

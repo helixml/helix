@@ -204,18 +204,15 @@ const SpecTasksPage: FC = () => {
   const { NewInference, setCurrentSessionId } = useStreaming();
 
   // Selected session ID for persistence across reloads
-  const [selectedSessionId, setSelectedSessionId] = useState<string | undefined>(() => {
-    if (!projectId) return undefined;
-    return localStorage.getItem(`helix_chat_session_${projectId}`) || undefined;
-  });
-  const [isNewChatMode, setIsNewChatMode] = useState(false);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | undefined>();
+  const [isNewChatMode, setIsNewChatMode] = useState(true);
 
-  // Reset selected session when project changes
+  // Reset to fresh chat when project changes
   useEffect(() => {
     if (projectId) {
-      const stored = localStorage.getItem(`helix_chat_session_${projectId}`);
-      setSelectedSessionId(stored || undefined);
+      setSelectedSessionId(undefined);
       setChatSession(undefined);
+      setIsNewChatMode(true);
     }
   }, [projectId]);
 
@@ -748,15 +745,6 @@ const SpecTasksPage: FC = () => {
     }
   }, [loadedSessionData?.data, chatPanelOpen, selectedSessionId]);
 
-  // Auto-select the most recent session when panel opens and no session is selected (unless user wants new chat)
-  useEffect(() => {
-    if (chatPanelOpen && !selectedSessionId && !isNewChatMode && projectSessions.length > 0) {
-      const mostRecentSession = projectSessions[0];
-      if (mostRecentSession?.session_id) {
-        setSelectedSessionId(mostRecentSession.session_id);
-      }
-    }
-  }, [chatPanelOpen, selectedSessionId, isNewChatMode, projectSessions]);
 
   const handleChatInference = useCallback(async () => {
     if (!chatInputValue.trim() || !projectManagerAppId) return;

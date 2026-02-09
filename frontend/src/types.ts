@@ -148,6 +148,7 @@ export interface IKeycloakUser {
   token: string,
   name: string,
   onboarding_completed?: boolean,
+  waitlisted?: boolean,
 }
 
 export interface IUserConfig {

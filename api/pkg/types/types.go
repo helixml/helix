@@ -2557,6 +2557,7 @@ type UserResponse struct {
 	Name                string `json:"name"`
 	Admin               bool   `json:"admin"`
 	OnboardingCompleted bool   `json:"onboarding_completed"`
+	Waitlisted          bool   `json:"waitlisted"`
 }
 
 type AuthenticatedResponse struct {
@@ -2894,6 +2895,7 @@ const (
 	EventCronTriggerComplete  Event = 1
 	EventCronTriggerFailed    Event = 2
 	EventPasswordResetRequest Event = 3
+	EventWaitlistApproved     Event = 4
 )
 
 func (e Event) String() string {
@@ -2904,6 +2906,8 @@ func (e Event) String() string {
 		return "cron_trigger_failed"
 	case EventPasswordResetRequest:
 		return "password_reset_request"
+	case EventWaitlistApproved:
+		return "waitlist_approved"
 	default:
 		return "unknown_event"
 	}

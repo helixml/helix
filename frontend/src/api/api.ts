@@ -5168,6 +5168,7 @@ export interface TypesUser {
   type?: TypesOwnerType;
   updated_at?: string;
   username?: string;
+  waitlisted?: boolean;
 }
 
 export interface TypesUserAppAccessResponse {
@@ -5506,6 +5507,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/admin/users/${id}`,
         method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Approve a waitlisted user, removing them from the waitlist. Only admins can use this endpoint.
+     *
+     * @tags users
+     * @name V1AdminUsersApproveCreate
+     * @summary Approve a user (Admin only)
+     * @request POST:/api/v1/admin/users/{id}/approve
+     * @secure
+     */
+    v1AdminUsersApproveCreate: (id: string, params: RequestParams = {}) =>
+      this.request<TypesUser, SystemHTTPError>({
+        path: `/api/v1/admin/users/${id}/approve`,
+        method: "POST",
         secure: true,
         format: "json",
         ...params,
