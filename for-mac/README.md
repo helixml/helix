@@ -64,25 +64,47 @@ Use `--skip-wails` to re-run just the packaging steps without rebuilding the Go/
 ./scripts/create-dmg.sh
 ```
 
-Output: `build/bin/Helix-for-Mac.dmg` (~32MB compressed).
+Output: `build/bin/Helix-for-Mac.dmg` (~17GB with bundled VM images).
 
-### Step 3: Code Signing (Optional)
+### Step 3: Code Signing + Notarization
 
-Without an Apple Developer account ($99/year), the app uses ad-hoc signing. Users on other Macs must go to System Settings > Privacy & Security > "Open Anyway".
+The build script applies ad-hoc signing by default. For distribution, sign with a Developer ID certificate and notarize so Gatekeeper accepts the app on any Mac.
+
+**One-time setup:**
+
+1. Create a `for-mac/.env.signing` file:
+   ```
+   APPLE_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+   APPLE_TEAM_ID="TEAMID"
+   APPLE_ID="you@email.com"
+   ```
+
+2. Store notarization credentials in keychain (needs an [app-specific password](https://appleid.apple.com) under Sign-In and Security):
+   ```bash
+   xcrun notarytool store-credentials "helix-notarize" \
+     --apple-id you@email.com \
+     --team-id TEAMID \
+     --password "xxxx-xxxx-xxxx-xxxx"
+   ```
+
+**Signing + notarization:**
 
 ```bash
-# Ad-hoc (default, done automatically by build-helix-app.sh)
-./scripts/sign-app.sh
+# Sign the app with Developer ID (reads .env.signing automatically)
+./scripts/sign-app.sh --notarize
 
-# With Developer ID certificate
-./scripts/sign-app.sh --identity "Developer ID Application: Your Name (TEAMID)"
+# Create notarized DMG
+./scripts/create-dmg.sh --notarize --build-dir /Volumes/Big/helix-build
+```
 
-# With notarization (Gatekeeper approved, no user intervention needed)
-./scripts/sign-app.sh \
-  --identity "Developer ID Application: Your Name (TEAMID)" \
-  --notarize \
-  --apple-id you@email.com \
-  --team-id XXXXX
+The correct order is: sign app → notarize app → create DMG → notarize DMG. Both the app and DMG should be notarized for Gatekeeper to accept the download without warnings.
+
+**Without a Developer ID** (ad-hoc only):
+
+```bash
+./scripts/sign-app.sh    # Ad-hoc signing (default)
+./scripts/create-dmg.sh  # No notarization
+# Users must: System Settings > Privacy & Security > "Open Anyway"
 ```
 
 ## Provisioning a VM

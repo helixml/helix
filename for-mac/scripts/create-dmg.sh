@@ -28,11 +28,14 @@ DMG_VOLUME="Helix"
 DMG_OUTPUT="${FOR_MAC_DIR}/build/bin/${DMG_NAME}.dmg"
 BUILD_DIR=""
 
+NOTARIZE=false
+
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --output) DMG_OUTPUT="$2"; shift 2 ;;
         --build-dir) BUILD_DIR="$2"; shift 2 ;;
+        --notarize) NOTARIZE=true; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -89,6 +92,21 @@ rm -rf "$DMG_TEMP"
 
 DMG_SIZE=$(du -h "$DMG_OUTPUT" | awk '{print $1}')
 
+# =============================================================================
+# Notarize DMG (optional)
+# =============================================================================
+
+if [ "$NOTARIZE" = true ]; then
+    log "Notarizing DMG (uploading to Apple)..."
+    xcrun notarytool submit "$DMG_OUTPUT" \
+        --keychain-profile "helix-notarize" \
+        --wait
+
+    log "Stapling notarization ticket to DMG..."
+    xcrun stapler staple "$DMG_OUTPUT"
+    log "DMG notarized and stapled"
+fi
+
 log ""
 log "================================================"
 log "DMG created successfully!"
@@ -96,13 +114,12 @@ log "================================================"
 log ""
 log "Output: $DMG_OUTPUT"
 log "Size:   $DMG_SIZE"
+if [ "$NOTARIZE" = true ]; then
+    log "Notarized: YES (Gatekeeper will accept on any Mac)"
+fi
 log ""
 log "To install:"
 log "  1. Double-click the .dmg to mount it"
 log "  2. Drag 'Helix for Mac' to the Applications folder"
 log "  3. Eject the disk image"
 log "  4. Launch from Applications"
-log ""
-log "NOTE: Without Apple Developer signing, users must:"
-log "  System Settings > Privacy & Security > scroll down > 'Open Anyway'"
-log "  (macOS Sequoia removed the old right-click bypass)"
