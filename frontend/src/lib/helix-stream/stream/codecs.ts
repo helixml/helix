@@ -25,9 +25,9 @@ export type WsVideoCodecType = typeof WsVideoCodec[keyof typeof WsVideoCodec]
 // See: https://issues.chromium.org/issues/40857774
 export function codecToWebCodecsString(codec: number): string {
   switch (codec) {
-    // avc1.42d028 = Baseline(0x42) + constraints(0xd0: set0=1,set1=1,set3=1) + level 4.0(0x28)
-    // constraint_set3_flag=1 signals no frame reordering, enabling 1-in-1-out decoding
-    case WsVideoCodec.H264: return "avc1.42d028"
+    // avc1.420028 = Baseline(0x42) + no constraints(0x00) + level 4.0(0x28)
+    // DIAGNOSTIC: Using raw VideoToolbox SPS (no SPS rewriting) to test P-frame corruption
+    case WsVideoCodec.H264: return "avc1.420028"
     case WsVideoCodec.H264High444: return "avc1.640032"
     case WsVideoCodec.H265: return "hvc1.1.6.L120.90"
     case WsVideoCodec.H265Main10: return "hvc1.2.4.L120.90"
@@ -37,7 +37,7 @@ export function codecToWebCodecsString(codec: number): string {
     case WsVideoCodec.Av1Main10: return "av01.0.08M.10"
     case WsVideoCodec.Av1High8_444: return "av01.1.08H.08"
     case WsVideoCodec.Av1High10_444: return "av01.1.08H.10"
-    default: return "avc1.42d028" // Default to H264 Constrained Baseline
+    default: return "avc1.420028" // Default to H264 Baseline
   }
 }
 
