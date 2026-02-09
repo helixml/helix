@@ -143,7 +143,7 @@ Each build kills UTM and reinstalls the QEMU binary. VM must be manually restart
 | Hypothesis | Why it seemed right | Why it was wrong |
 |-----------|-------------------|-----------------|
 | Multi-scanout commit `8136753a09` | Symptoms consistent with GL fence issues | Was present and working for 17+ subsequent QEMU builds |
-| VM GPU state corruption | linux-broken VM was genuinely corrupted | Fresh VM had same problem |
+| VM GPU state corruption | `dma_fence_default_wait` seemed like a stuck GPU fence from a killed QEMU | Almost certainly the same `MESA_GL_VERSION_OVERRIDE` bug — linux-broken also had the guilty commit in its desktop image |
 | QEMU encoder changes (`ConstrainedBaseline`) | Also capable of causing `gl_block` deadlock | Working2 branch doesn't include those changes, still broken |
 | `dpy_gl_update` skip needed | Partial fix when added to QEMU | Addressed a different (SPICE display) issue |
 
@@ -161,8 +161,8 @@ Reading Claude session transcripts (JSONL files in `~/.claude/projects/`) was es
 ### `git stash show` doesn't show untracked files
 The incident report was "lost" during a branch switch but was actually safely in `stash@{0}^3` (the untracked files tree). Use `git show stash@{0}^3:path/to/file` to recover stashed untracked files.
 
-### Multiple real issues can coexist
-The original VM (`linux-broken`) DID have genuine GPU state corruption from repeated QEMU kills. This was a real problem that masked the actual code bug. The fresh VM ruled out corruption but initially seemed to confirm the multi-scanout theory.
+### Don't invent explanations
+The "GPU state corruption" hypothesis was never confirmed — it was invented to explain why rollbacks didn't fix the problem. In hindsight, linux-broken almost certainly had the same `MESA_GL_VERSION_OVERRIDE` bug. The hypothesis led to provisioning an entirely new VM (hours of work) when the real fix was a 2-line env var removal.
 
 ## File Locations
 
