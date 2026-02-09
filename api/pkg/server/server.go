@@ -189,6 +189,7 @@ func NewServer(
 			ExpectedIssuer: cfg.Auth.OIDC.ExpectedIssuer,
 			TokenURL:       cfg.Auth.OIDC.TokenURL,
 			OfflineAccess:  cfg.Auth.OIDC.OfflineAccess,
+			Waitlist:       cfg.Auth.Waitlist,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create oidc client: %w", err)
