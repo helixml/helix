@@ -165,8 +165,8 @@ fi
 if [ -S /var/run/host-docker.sock ]; then
     echo "🔧 Checking shared BuildKit connectivity..."
 
-    # Test if we can reach helix-buildkit
-    if ! curl -s --connect-timeout 2 http://10.213.0.2:1234 >/dev/null 2>&1; then
+    # Test if we can reach helix-buildkit (use nc since it's gRPC, not HTTP)
+    if ! nc -z -w 2 10.213.0.2 1234 2>/dev/null; then
         echo "  ⚠️  Cannot reach helix-buildkit at 10.213.0.2:1234"
         echo "  🔧 Attempting to reconnect orphaned veths in sandbox..."
 
@@ -186,7 +186,7 @@ if [ -S /var/run/host-docker.sock ]; then
 
         # Verify connectivity after fix
         sleep 1
-        if curl -s --connect-timeout 2 http://10.213.0.2:1234 >/dev/null 2>&1; then
+        if nc -z -w 2 10.213.0.2 1234 2>/dev/null; then
             echo "  ✅ helix-buildkit is now reachable!"
         else
             echo "  ❌ helix-buildkit still unreachable - builds may fail"
