@@ -252,9 +252,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! step_done "boot_setup"; then
+# Check if there are remaining steps that need SSH access
+NEED_SSH=false
+for step in install_zfs setup_zfs_pool install_go clone_helix build_drm_manager clone_deps build_desktop_image setup_compose shutdown; do
+    if ! step_done "$step"; then
+        NEED_SSH=true
+        break
+    fi
+done
+
+boot_provisioning_vm() {
     log "Booting VM with QEMU for provisioning..."
     log "(This uses homebrew QEMU - no GPU, headless mode)"
+    log "SSH port: ${SSH_PORT} (dev VM on 2222 is untouched)"
 
     SEED_DISK="${VM_DIR}/seed-fat.img"
 
@@ -278,9 +288,35 @@ if ! step_done "boot_setup"; then
         > "${VM_DIR}/qemu-boot.log" 2>&1 &
     QEMU_PID=$!
 
-    log "QEMU started (PID $QEMU_PID), waiting for cloud-init..."
+    log "QEMU started (PID $QEMU_PID), waiting for SSH..."
 
-    # Wait for SSH to become available (cloud-init takes 2-5 minutes)
+    MAX_WAIT=600
+    ELAPSED=0
+    while [ $ELAPSED -lt $MAX_WAIT ]; do
+        if ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+               -p "$SSH_PORT" "${VM_USER}@localhost" "echo ready" 2>/dev/null; then
+            log "SSH is ready!"
+            break
+        fi
+        sleep 10
+        ELAPSED=$((ELAPSED + 10))
+        if [ $((ELAPSED % 60)) -eq 0 ]; then
+            log "Still waiting for SSH... (${ELAPSED}s)"
+        fi
+    done
+
+    if [ $ELAPSED -ge $MAX_WAIT ]; then
+        log "ERROR: Timed out waiting for SSH (${MAX_WAIT}s)"
+        log "Check ${VM_DIR}/qemu-boot.log for details"
+        exit 1
+    fi
+}
+
+if ! step_done "boot_setup"; then
+    boot_provisioning_vm
+
+    # First boot: wait for cloud-init to complete
+    log "Waiting for cloud-init to finish..."
     MAX_WAIT=600
     ELAPSED=0
     while [ $ELAPSED -lt $MAX_WAIT ]; do
@@ -303,6 +339,10 @@ if ! step_done "boot_setup"; then
     fi
 
     mark_step "boot_setup"
+elif [ "$NEED_SSH" = true ]; then
+    # Resuming: VM was previously booted but there are remaining steps.
+    # Boot it again for SSH access.
+    boot_provisioning_vm
 fi
 
 # =============================================================================
@@ -516,11 +556,13 @@ if ! step_done "utm_bundle"; then
 
     mkdir -p "${UTM_DIR}/Data"
 
-    # Copy disk images to UTM bundle
+    # Link disk images into UTM bundle (hardlink to avoid doubling disk usage)
     DISK_UUID=$(uuidgen)
     ZFS_DISK_UUID=$(uuidgen)
-    cp "${VM_DIR}/disk.qcow2" "${UTM_DIR}/Data/${DISK_UUID}.qcow2"
-    cp "${VM_DIR}/zfs-data.qcow2" "${UTM_DIR}/Data/${ZFS_DISK_UUID}.qcow2"
+    ln -f "${VM_DIR}/disk.qcow2" "${UTM_DIR}/Data/${DISK_UUID}.qcow2" 2>/dev/null \
+        || cp "${VM_DIR}/disk.qcow2" "${UTM_DIR}/Data/${DISK_UUID}.qcow2"
+    ln -f "${VM_DIR}/zfs-data.qcow2" "${UTM_DIR}/Data/${ZFS_DISK_UUID}.qcow2" 2>/dev/null \
+        || cp "${VM_DIR}/zfs-data.qcow2" "${UTM_DIR}/Data/${ZFS_DISK_UUID}.qcow2"
     cp "${VM_DIR}/efi_vars.fd" "${UTM_DIR}/Data/efi_vars.fd"
 
     # Generate VM UUID

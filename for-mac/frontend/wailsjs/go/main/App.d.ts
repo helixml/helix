@@ -14,6 +14,8 @@ export function GetHelixURL():Promise<string>;
 
 export function GetSSHCommand():Promise<string>;
 
+export function GetScanoutStats():Promise<main.ScanoutStats>;
+
 export function GetSettings():Promise<main.AppSettings>;
 
 export function GetStreamURL(arg1:string):Promise<string>;

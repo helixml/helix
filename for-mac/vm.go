@@ -160,16 +160,31 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	homeDir, _ := os.UserHomeDir()
 	vmDir := filepath.Join(homeDir, ".helix", "vm")
 	imagePath := vm.getVMImagePath()
-	efiCode := "/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
+
+	// Find EFI firmware (bundled in app or Homebrew)
+	efiCode := vm.findFirmware("edk2-aarch64-code.fd")
+	if efiCode == "" {
+		vm.setError(fmt.Errorf("EFI firmware not found. Install QEMU via 'brew install qemu' or use the bundled app"))
+		return
+	}
 	efiVars := filepath.Join(vmDir, "efi-vars.fd")
 	cloudInitISO := filepath.Join(vmDir, "cloud-init.iso")
 
 	// Create EFI vars file if it doesn't exist
-	if _, err := os.Stat(efiVars); os.IsNotExist(err) {
-		f, err := os.Create(efiVars)
-		if err == nil {
-			f.Truncate(64 * 1024 * 1024) // 64MB
-			f.Close()
+	if _, statErr := os.Stat(efiVars); os.IsNotExist(statErr) {
+		// Copy from template if available, otherwise create empty
+		efiVarsTemplate := vm.findFirmware("edk2-arm-vars.fd")
+		if efiVarsTemplate != "" {
+			if data, readErr := os.ReadFile(efiVarsTemplate); readErr == nil {
+				os.WriteFile(efiVars, data, 0644)
+			}
+		}
+		// If template copy didn't work, create an empty 64MB file
+		if _, checkErr := os.Stat(efiVars); os.IsNotExist(checkErr) {
+			if f, createErr := os.Create(efiVars); createErr == nil {
+				f.Truncate(64 * 1024 * 1024) // 64MB
+				f.Close()
+			}
 		}
 	}
 
@@ -221,10 +236,10 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		"-display", "none",
 	}
 
-	// Check if QEMU is available
-	qemuPath, err := exec.LookPath("qemu-system-aarch64")
-	if err != nil {
-		vm.setError(fmt.Errorf("QEMU not found. Please install via 'brew install qemu'"))
+	// Find QEMU binary: bundled in app > system PATH
+	qemuPath := vm.findQEMUBinary()
+	if qemuPath == "" {
+		vm.setError(fmt.Errorf("QEMU not found. Install via 'brew install qemu' or use the bundled app"))
 		return
 	}
 
@@ -249,7 +264,7 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	go vm.waitForReady(ctx)
 
 	// Wait for process to exit
-	err = vm.cmd.Wait()
+	err := vm.cmd.Wait()
 
 	vm.statusMu.Lock()
 	if ctx.Err() != nil {
@@ -395,6 +410,100 @@ func (vm *VMManager) GetSSHCommand() string {
 	return fmt.Sprintf("ssh -p %d helix@localhost", vm.config.SSHPort)
 }
 
+// getAppBundlePath returns the path to the running .app bundle, if any.
+// Returns empty string if not running from an app bundle.
+func (vm *VMManager) getAppBundlePath() string {
+	execPath, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	// Resolve symlinks
+	execPath, err = filepath.EvalSymlinks(execPath)
+	if err != nil {
+		return ""
+	}
+	// Check if we're inside a .app/Contents/MacOS/ directory
+	macosDir := filepath.Dir(execPath)
+	if filepath.Base(macosDir) != "MacOS" {
+		return ""
+	}
+	contentsDir := filepath.Dir(macosDir)
+	if filepath.Base(contentsDir) != "Contents" {
+		return ""
+	}
+	appDir := filepath.Dir(contentsDir)
+	if filepath.Ext(appDir) != ".app" {
+		return ""
+	}
+	return appDir
+}
+
+// findQEMUBinary locates the QEMU binary. Search order:
+//  1. Bundled in app: Contents/MacOS/libqemu-aarch64-softmmu.dylib
+//  2. System PATH: qemu-system-aarch64
+func (vm *VMManager) findQEMUBinary() string {
+	// Check app bundle first
+	appPath := vm.getAppBundlePath()
+	if appPath != "" {
+		bundled := filepath.Join(appPath, "Contents", "MacOS", "libqemu-aarch64-softmmu.dylib")
+		if _, err := os.Stat(bundled); err == nil {
+			return bundled
+		}
+	}
+
+	// Fall back to system PATH
+	path, err := exec.LookPath("qemu-system-aarch64")
+	if err == nil {
+		return path
+	}
+
+	return ""
+}
+
+// findFirmware locates an EFI firmware file. Search order:
+//  1. Bundled in app: Contents/Resources/firmware/<name>
+//  2. Homebrew: /opt/homebrew/share/qemu/<name>
+func (vm *VMManager) findFirmware(name string) string {
+	// Check app bundle first
+	appPath := vm.getAppBundlePath()
+	if appPath != "" {
+		bundled := filepath.Join(appPath, "Contents", "Resources", "firmware", name)
+		if _, err := os.Stat(bundled); err == nil {
+			return bundled
+		}
+	}
+
+	// Homebrew path
+	brewPath := filepath.Join("/opt/homebrew/share/qemu", name)
+	if _, err := os.Stat(brewPath); err == nil {
+		return brewPath
+	}
+
+	return ""
+}
+
+// findVulkanICD locates the KosmicKrisp Vulkan ICD JSON. Search order:
+//  1. Bundled in app: Contents/Resources/vulkan/icd.d/kosmickrisp_mesa_icd.json
+//  2. UTM.app: /Applications/UTM.app/Contents/Resources/vulkan/icd.d/kosmickrisp_mesa_icd.json
+func (vm *VMManager) findVulkanICD() string {
+	// Check app bundle first
+	appPath := vm.getAppBundlePath()
+	if appPath != "" {
+		bundled := filepath.Join(appPath, "Contents", "Resources", "vulkan", "icd.d", "kosmickrisp_mesa_icd.json")
+		if _, err := os.Stat(bundled); err == nil {
+			return bundled
+		}
+	}
+
+	// Fall back to UTM.app
+	utmPath := "/Applications/UTM.app/Contents/Resources/vulkan/icd.d/kosmickrisp_mesa_icd.json"
+	if _, err := os.Stat(utmPath); err == nil {
+		return utmPath
+	}
+
+	return ""
+}
+
 // buildQEMUEnv returns the environment variables for the QEMU process.
 // Sets VK_DRIVER_FILES to use KosmicKrisp (Mesa Vulkan) instead of MoltenVK.
 // KosmicKrisp produces dramatically better rendering quality under concurrent
@@ -402,10 +511,9 @@ func (vm *VMManager) GetSSHCommand() string {
 func (vm *VMManager) buildQEMUEnv() []string {
 	env := os.Environ()
 
-	// Use KosmicKrisp Vulkan driver from UTM's bundle.
-	// The ICD JSON uses relative paths to resolve the framework library.
-	icdPath := "/Applications/UTM.app/Contents/Resources/vulkan/icd.d/kosmickrisp_mesa_icd.json"
-	if _, err := os.Stat(icdPath); err == nil {
+	// Use KosmicKrisp Vulkan driver — check bundled location first, then UTM.app
+	icdPath := vm.findVulkanICD()
+	if icdPath != "" {
 		env = append(env, "VK_DRIVER_FILES="+icdPath)
 	}
 

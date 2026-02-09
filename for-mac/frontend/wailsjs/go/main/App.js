@@ -22,20 +22,16 @@ export function GetHelixURL() {
   return window['go']['main']['App']['GetHelixURL']();
 }
 
-export function GetSettings() {
-  return window['go']['main']['App']['GetSettings']();
-}
-
-export function GetTrayStatus() {
-  return window['go']['main']['App']['GetTrayStatus']();
-}
-
-export function GetZFSStats() {
-  return window['go']['main']['App']['GetZFSStats']();
-}
-
 export function GetSSHCommand() {
   return window['go']['main']['App']['GetSSHCommand']();
+}
+
+export function GetScanoutStats() {
+  return window['go']['main']['App']['GetScanoutStats']();
+}
+
+export function GetSettings() {
+  return window['go']['main']['App']['GetSettings']();
 }
 
 export function GetStreamURL(arg1) {
@@ -46,12 +42,20 @@ export function GetSystemInfo() {
   return window['go']['main']['App']['GetSystemInfo']();
 }
 
+export function GetTrayStatus() {
+  return window['go']['main']['App']['GetTrayStatus']();
+}
+
 export function GetVMConfig() {
   return window['go']['main']['App']['GetVMConfig']();
 }
 
 export function GetVMStatus() {
   return window['go']['main']['App']['GetVMStatus']();
+}
+
+export function GetZFSStats() {
+  return window['go']['main']['App']['GetZFSStats']();
 }
 
 export function IsVMImageReady() {
@@ -66,12 +70,12 @@ export function OpenSession(arg1) {
   return window['go']['main']['App']['OpenSession'](arg1);
 }
 
-export function SetVMConfig(arg1) {
-  return window['go']['main']['App']['SetVMConfig'](arg1);
-}
-
 export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
+}
+
+export function SetVMConfig(arg1) {
+  return window['go']['main']['App']['SetVMConfig'](arg1);
 }
 
 export function SetupVM() {
