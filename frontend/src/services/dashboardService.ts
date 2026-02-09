@@ -184,6 +184,31 @@ export function useAdminResetPassword() {
 }
 
 /**
+ * Hook to approve a waitlisted user (Admin only)
+ * @returns React Query mutation for approving a user
+ *
+ * @example
+ * const approveUser = useAdminApproveUser();
+ *
+ * approveUser.mutate('user-123');
+ */
+export function useAdminApproveUser() {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (userId: string) => {
+            const response = await apiClient.v1AdminUsersApproveCreate(userId);
+            return response.data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["users"] });
+        },
+    });
+}
+
+/**
  * Hook to delete a user (Admin only)
  * @returns React Query mutation for deleting a user
  *
