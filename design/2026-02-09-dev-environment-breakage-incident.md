@@ -132,11 +132,28 @@ Each build kills UTM and reinstalls the QEMU binary. VM must be manually restart
 - Diffed `b7d52bd41..655ffbffe` — found `b9b23692e` added global `MESA_GL_VERSION_OVERRIDE=4.5`
 - Confirmed this was the root cause
 
-### Fix applied
+### Confirmed working combination
 
-- Removed global `MESA_GL_VERSION_OVERRIDE` from `detect-render-node.sh`
-- Committed as `d0c3d674f` on `feature/macos-arm-desktop-port-working2`
-- Awaiting verification with rebuilt desktop image
+Tested at ~22:00 UTC Feb 9 with:
+- **UTM settings**: `QEMURendererBackend=0` (Default), `QEMUVulkanDriver=3` (KosmicKrisp)
+- **Helix**: `b7d52bd41` (old code with `LIBGL_ALWAYS_SOFTWARE=1` for Ghostty)
+- **QEMU**: `9abf11ab94` (working2, P-frame encoding)
+- **Result**: Video streaming worked, P-frames clean, no corruption, no `dma_fence_default_wait`
+
+### Second bug: Ghostty `MESA_GL_VERSION_OVERRIDE` also broken
+
+After applying the global `MESA_GL_VERSION_OVERRIDE` fix and rebuilding, the `dma_fence_default_wait` deadlock was resolved. However, **P-frame video corruption returned**. The per-process `MESA_GL_VERSION_OVERRIDE=4.5` on Ghostty's launch line (in `start-zed-helix.sh`) was causing:
+- Ghostty segfaults: `Segmentation fault (core dumped) MESA_GL_VERSION_OVERRIDE=4.5 ghostty ...`
+- GL context failures: `failed to make GL context current: Unable to create a GL context`
+- Video corruption in captured frames (corrupt Ghostty rendering fed into QEMU scanout)
+
+**Fix**: Reverted Ghostty back to `LIBGL_ALWAYS_SOFTWARE=1` (the approach that was working at `b7d52bd41`). Lying about virgl's GL version doesn't work even per-process — virgl genuinely can't handle GL 4.5 calls and crashes.
+
+### Fixes applied
+
+1. Removed global `MESA_GL_VERSION_OVERRIDE` from `detect-render-node.sh` — commit `d0c3d674f`
+2. Reverted Ghostty to `LIBGL_ALWAYS_SOFTWARE=1` in `start-zed-helix.sh` — awaiting commit
+- Both on `feature/macos-arm-desktop-port-working2`
 
 ## Hypotheses That Were Wrong
 
@@ -152,8 +169,8 @@ Each build kills UTM and reinstalls the QEMU binary. VM must be manually restart
 ### Test every change immediately
 A 13-minute gap between an untested commit and the next image build cost an entire day of debugging. Added rule to CLAUDE.md: never commit code changes without deploying and testing them in the same session.
 
-### `MESA_GL_VERSION_OVERRIDE` is dangerous
-Lying to gnome-shell about GL capabilities causes hard-to-debug GPU deadlocks. The override should only be applied per-process to specific apps that need it (like Ghostty), never globally.
+### `MESA_GL_VERSION_OVERRIDE` doesn't work with virgl at all
+Lying about GL version causes deadlocks (gnome-shell) and segfaults (Ghostty) because virgl genuinely cannot handle GL 4.5 calls — it's not just under-reporting, it really only supports GL 2.1. The correct fix for apps needing GL 3.3+ (like Ghostty) is `LIBGL_ALWAYS_SOFTWARE=1` to use llvmpipe, not version overrides.
 
 ### Session transcript archaeology works
 Reading Claude session transcripts (JSONL files in `~/.claude/projects/`) was essential for reconstructing what image versions were running at specific times. Git logs alone weren't enough because the image build is a separate step from committing code.
