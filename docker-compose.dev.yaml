@@ -318,7 +318,7 @@ services:
       - ./desktop/xfce-config:/helix-dev/xfce-config:rw
       - ./desktop/kde-config:/helix-dev/kde-config:rw
       - ./desktop/shared:/helix-dev/shared:ro
-      - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
+      - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/60-setup-telemetry-firewall.sh
       # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
       # Set HELIX_SANDBOX_DATA to a host path (e.g., /prod/helix-workspaces) for ZFS dedup
@@ -405,7 +405,7 @@ services:
       - ./desktop/xfce-config:/helix-dev/xfce-config:rw
       - ./desktop/kde-config:/helix-dev/kde-config:rw
       - ./desktop/shared:/helix-dev/shared:ro
-      - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
+      - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/60-setup-telemetry-firewall.sh
       # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
       # Set HELIX_SANDBOX_DATA to a host path (e.g., /prod/helix-workspaces) for ZFS dedup
@@ -489,7 +489,7 @@ services:
       - ./desktop/xfce-config:/helix-dev/xfce-config:rw
       - ./desktop/kde-config:/helix-dev/kde-config:rw
       - ./desktop/shared:/helix-dev/shared:ro
-      - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
+      - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/60-setup-telemetry-firewall.sh
       # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
       # Set HELIX_SANDBOX_DATA to a host path (e.g., /prod/helix-workspaces) for ZFS dedup
