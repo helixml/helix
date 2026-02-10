@@ -53,11 +53,51 @@ When developing Helix inside Helix, we want:
 - Developer can run `./stack start` to start the Helix control plane
 - Developer can test with sandboxes
 
-But sandboxes need DinD, and the desktop is already inside DinD. Running DinD-in-DinD-in-DinD doesn't work:
-1. Storage driver issues (overlay2 on overlay2 on overlay2)
+But sandboxes need DinD, and the desktop is already inside DinD. Running DinD-in-DinD-in-DinD doesn't work **if each level uses overlay2 on the layer above**:
+1. Storage driver issues (overlay2 on overlay2 fails)
 2. Device/cgroup access problems
 3. Performance degradation
 4. Namespace nesting limits
+
+### Key Insight: Arbitrary DinD Nesting IS Possible With Volume Mounts
+
+**The constraint is NOT about nesting depth — it's about the storage driver backing filesystem.**
+
+overlay2 requires a real filesystem (ext4/xfs) as its lower layer. It cannot mount on top of another overlay2 filesystem. This is why naive DinD-in-DinD fails: the inner Docker tries to use overlay2 on the outer Docker's overlay2 writable layer.
+
+**But if you bind-mount or volume-mount a real ext4/xfs filesystem through to each level's `/var/lib/docker`, you can nest arbitrarily deep:**
+
+```
+Level 0: Host dockerd
+  /var/lib/docker → host ext4 filesystem
+  overlay2 on ext4 ✓
+
+Level 1: Sandbox container (--privileged)
+  /var/lib/docker → Docker VOLUME (backed by host ext4, NOT overlay)
+  overlay2 on ext4 ✓
+
+Level 2 (hypothetical): Container inside sandbox
+  /var/lib/docker → Docker VOLUME from level 1 (backed by host ext4)
+  overlay2 on ext4 ✓
+
+Level N: As long as /var/lib/docker is a volume, not the container's writable layer
+  overlay2 on ext4 ✓
+```
+
+**This is how our sandbox already works:** the sandbox container's `/var/lib/docker` is a Docker volume, so the sandbox's dockerd gets overlay2-on-ext4, which works fine. The multiple dockerd processes inside the sandbox (main dockerd + session dockerds) all share this volume with separate data-roots.
+
+**Practical implications:**
+- We COULD run the inner sandbox inside the session dockerd if we gave it a volume mount for `/var/lib/docker`
+- The current architecture (inner sandbox on Host Docker) works but adds complexity (two Docker sockets, image transfer, etc.)
+- A future simplification could mount a volume through from host → sandbox → inner sandbox, eliminating the need for `DOCKER_HOST_OUTER`
+- The `--privileged` flag is still required at each level for device access and namespace operations
+
+**Why we still use Host Docker for the inner sandbox:**
+Even though deeper nesting is technically possible, using Host Docker for the inner sandbox is simpler today:
+1. No need to plumb volume mounts through multiple layers
+2. Host Docker has direct GPU access (no passthrough needed)
+3. The inner sandbox's RevDial connection works regardless of Docker topology
+4. Less risk of resource exhaustion in the sandbox container
 
 ---
 
@@ -1140,6 +1180,205 @@ Screenshot captured from inner session shows:
 
 1. **CLI timeout**: The `spectask start` CLI times out before session status propagates, but the session actually starts and works
 2. **USER_API_TOKEN**: May still have issues in some code paths (see previous section)
+
+---
+
+## Future Architecture: Dockerd Inside the Desktop Container
+
+**Date:** 2026-02-06
+**Status:** Idea (not implemented)
+
+### The Current Architecture (Hydra Side-by-Side)
+
+Today, the sandbox container runs multiple dockerd processes as siblings:
+
+```
+Sandbox Container
+├── Main dockerd (sandbox0) → desktop containers, buildkit
+├── Session dockerd 1 (hydra1) → user containers for session 1
+├── Session dockerd 2 (hydra2) → user containers for session 2
+└── Hydra daemon (manages everything above)
+
+Desktop container (on main dockerd) gets a bind-mounted socket
+from its session dockerd. veth pairs bridge the two networks.
+```
+
+This works but creates significant complexity:
+- Veth pair injection between sandbox0 and hydra bridges
+- Hydra DNS proxy per session for container name resolution
+- Bridge management, orphaned veth cleanup, bridge deletion bugs
+- Cross-network routing for `localhost` to reach user containers
+- The `docker0` deletion bug we just fixed with `sandbox0`
+
+### The Simpler Architecture: Dockerd Inside Desktop
+
+Now that we know DinD can nest arbitrarily deep (as long as `/var/lib/docker` is a volume), we could run dockerd **inside the desktop container itself**:
+
+```
+Sandbox Container
+├── Main dockerd (sandbox0) → desktop containers only
+└── Hydra daemon (simplified)
+
+Desktop Container (on main dockerd)
+├── dockerd (per-session, /var/lib/docker is a volume)
+│   ├── user's containers (docker compose up)
+│   ├── user's networks
+│   └── user's volumes
+├── GNOME/Sway desktop
+├── Zed IDE
+└── Streaming (desktop-bridge)
+```
+
+### Why This Is Better
+
+1. **`localhost` just works.** User containers are in the same network namespace as the desktop. No veth bridging, no DNS proxying, no cross-network routing. `docker compose up` with `ports: ["3000:3000"]` is reachable from the desktop's browser at `localhost:3000`.
+
+2. **No bridge management.** No hydra bridges, no sandbox0, no veth pairs, no orphaned veth cleanup, no bridge deletion bugs. Each desktop is fully self-contained.
+
+3. **Natural isolation.** Each desktop has its own Docker daemon. No shared dockerd means no cross-session visibility. Isolation is structural, not policy-based.
+
+4. **Simpler Hydra.** Hydra just needs to start desktop containers with the right volume mounts. No more starting/managing per-session dockerds, DNS servers, bridge creation, veth injection.
+
+5. **Docker Compose works natively.** Users can `docker compose up` and everything behaves like a local machine. No surprises from cross-bridge networking.
+
+### Volume Mount Requirements
+
+The desktop container needs:
+```yaml
+volumes:
+  # Per-session Docker storage — backed by real ext4, not overlay
+  - session-${ID}-docker:/var/lib/docker
+  # Optionally pre-populated with images:
+  - session-${ID}-images:/var/lib/docker-images
+```
+
+The Docker volume `session-${ID}-docker` is backed by the host filesystem (ext4), so the inner dockerd's overlay2 works correctly.
+
+### Pre-loading Images
+
+Today, desktop images (helix-ubuntu, helix-sway) are pre-loaded into the sandbox's dockerd. With dockerd-per-desktop, we'd need to pre-load images into each desktop's dockerd on first start. Options:
+
+1. **Lazy pull on demand** — simplest, but first `docker compose up` is slow
+2. **Volume snapshot** — pre-populate a Docker volume with common images, clone per session
+3. **Registry inside sandbox** — desktop's dockerd pulls from local registry (fast, layer-shared)
+4. **Shared content store** — mount a read-only content-addressable store across sessions
+
+Option 3 (local registry) is probably the right first step. We already have registry infrastructure.
+
+### Migration Path
+
+This doesn't need to be a big-bang change:
+1. Add a `DOCKER_IN_DESKTOP=true` mode to Hydra
+2. When enabled, mount a Docker volume into the desktop and start dockerd inside it
+3. Skip veth injection, skip per-session dockerd, skip Hydra DNS
+4. Keep the old mode as fallback
+5. Gradually migrate once the new mode is proven
+
+### Trade-offs
+
+- **Startup time:** Each desktop starts its own dockerd (adds ~2-3 seconds)
+- **Resource usage:** Each session has its own dockerd process (small overhead)
+- **GPU containers:** The desktop's inner dockerd needs NVIDIA runtime configured
+- **Image sharing:** No shared layer cache between sessions (registry mitigates this)
+
+---
+
+## Future: Kubernetes Support (Kind / K3S)
+
+**Date:** 2026-02-06
+**Status:** Idea (not implemented)
+
+### Motivation
+
+Users want to develop and test Kubernetes applications inside Helix sessions. Today there's no K8s support. With dockerd inside the desktop container, adding Kubernetes becomes straightforward.
+
+### Option A: Kind (Kubernetes IN Docker)
+
+[Kind](https://kind.sigs.k8s.io/) runs Kubernetes clusters as Docker containers. If we have dockerd inside the desktop, Kind works out of the box:
+
+```
+Desktop Container
+├── dockerd (/var/lib/docker is a volume)
+│   ├── kind-control-plane (K8s control plane container)
+│   ├── kind-worker (K8s worker node container)
+│   ├── kind-worker2 (optional additional nodes)
+│   └── user's other containers
+├── kubectl (pre-installed)
+└── Desktop + IDE
+```
+
+**Advantages:**
+- No changes needed to Helix infrastructure — Kind uses Docker, Docker works inside desktop
+- Multi-node clusters for testing
+- Standard `kubectl` experience
+- `kind create cluster` just works if dockerd is in the desktop
+- LoadBalancer services work via Kind's port mapping to localhost
+
+**Considerations:**
+- Kind nodes are Docker containers running K8s, so it's container-in-container (works with volume-backed Docker)
+- Resource usage: each Kind node is a container with kubelet, etcd, etc.
+- Pre-pulling common K8s images (pause, coredns, etc.) into the registry would speed up cluster creation
+
+### Option B: K3S (Lightweight Kubernetes)
+
+[K3S](https://k3s.io/) is a minimal Kubernetes distribution that runs as a single binary:
+
+```
+Desktop Container
+├── k3s server (single binary: apiserver + scheduler + controller + kubelet)
+│   ├── containerd (K3S uses containerd, not Docker)
+│   │   ├── user's pods
+│   │   └── K8s system pods (coredns, metrics-server)
+│   └── SQLite (instead of etcd, for single-node)
+├── kubectl (pre-installed, configured automatically)
+└── Desktop + IDE
+```
+
+**Advantages:**
+- Lighter weight than Kind (single binary, no Docker needed for K8s itself)
+- Runs directly as a process in the desktop container
+- Uses containerd directly (Docker uses containerd under the hood anyway, so this isn't fewer nesting levels — just fewer API layers)
+- Includes Traefik ingress by default
+- SQLite instead of etcd for single-node (simpler)
+
+**Considerations:**
+- K3S needs `--rootless` mode or `--docker` flag depending on container runtime
+- Users might still want Docker for non-K8s workflows, so K3S + Docker would both need to run
+- K3S `--data-dir` should point to a volume for persistence
+- If dockerd is already in the desktop, K3S with `--docker` flag can reuse it
+
+### Option C: Both (User's Choice)
+
+Offer both via project configuration:
+
+```yaml
+# .helix/config.yaml
+kubernetes:
+  provider: kind  # or k3s
+  nodes: 1        # multi-node for kind
+  version: "1.31" # K8s version
+  preload_images:
+    - nginx:latest
+    - postgres:16
+```
+
+The startup script would:
+1. Start dockerd in the desktop (if not already running)
+2. Start Kind or K3S based on config
+3. Pre-pull images from local registry
+4. Set up `kubectl` config
+
+### Recommendation
+
+**Start with Kind.** It's the simplest path because it builds on Docker, which we already support. Once dockerd-in-desktop is working, `kind create cluster` should just work with zero Helix changes. K3S can be added later as an alternative for users who want lighter weight.
+
+### Integration with Helix Agent
+
+The Helix agent (Qwen Code / Claude) could:
+- Detect `kubectl` in PATH and offer K8s-aware assistance
+- Read `~/.kube/config` to understand cluster topology
+- Use MCP tools to manage K8s resources
+- Create/debug deployments, services, ingresses
 
 ---
 
