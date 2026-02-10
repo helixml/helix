@@ -120,7 +120,7 @@ Example workflow:
 			if !quiet {
 				fmt.Printf("⏳ Waiting for sandbox to start (this takes ~15 seconds)...\n")
 			}
-			session, err := waitForTaskSession(apiURL, token, taskID, 60*time.Second)
+			session, err := waitForTaskSession(apiURL, token, taskID, 3*time.Minute)
 			if err != nil {
 				return fmt.Errorf("failed waiting for session: %w", err)
 			}

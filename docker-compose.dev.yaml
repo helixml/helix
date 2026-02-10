@@ -115,11 +115,15 @@ services:
       - chrome
     extra_hosts:
       - "host.docker.internal:host-gateway"
+      # In Helix-in-Helix mode, the startup script sets OUTER_API_IP to the
+      # outer Helix API's address. This lets the inner API reach the outer API
+      # at http://outer-api:8080 for LLM inference routing.
+      - "outer-api:${OUTER_API_IP:-127.0.0.1}"
   postgres:
     image: postgres:12.13-alpine
     restart: always
-    ports:
-     - 5432:5432  # SECURITY: Never expose postgres externally - attackers scan for this
+    # ports:
+    #  - 5432:5432  # SECURITY: Never expose postgres externally - attackers scan for this
     volumes:
       - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
     environment:

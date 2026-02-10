@@ -27,7 +27,7 @@ type SpecTaskMultiSessionExtensions struct {
 type SpecTaskWorkSession struct {
 	ID             string `json:"id" gorm:"primaryKey;size:255"`
 	SpecTaskID     string `json:"spec_task_id" gorm:"not null;size:255;index"`
-	HelixSessionID string `json:"helix_session_id" gorm:"not null;size:255;uniqueIndex"` // 1:1 mapping
+	HelixSessionID string `json:"helix_session_id" gorm:"not null;size:255;index"` // Maps to Helix session (multiple Zed threads can share one session)
 
 	// Work session details
 	Name        string                    `json:"name,omitempty" gorm:"size:255"`

@@ -86,6 +86,7 @@ func findTaskDirectory(repoPath string, specTaskID string, designDocPath string)
 	if err != nil {
 		return "", fmt.Errorf("failed to open git repository: %w", err)
 	}
+	defer gitRepo.Close()
 	return gitRepo.FindTaskDirInBranch("helix-specs", designDocPath, specTaskID)
 }
 
@@ -95,6 +96,7 @@ func readFileFromBranch(repoPath, branch, filePath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to open git repository: %w", err)
 	}
+	defer gitRepo.Close()
 	content, err := gitRepo.ReadFileFromBranch(branch, filePath)
 	if err != nil {
 		return "", err
