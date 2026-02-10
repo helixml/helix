@@ -129,6 +129,77 @@ func (suite *HelixAuthenticatorTestSuite) TestCreateUser_WithoutPassword() {
 	suite.NotNil(createdUser)
 }
 
+func (suite *HelixAuthenticatorTestSuite) TestCreateUser_WaitlistEnabled() {
+	suite.cfg.Auth.Waitlist = true
+
+	userID := uuid.New().String()
+	user := &types.User{
+		ID:       userID,
+		Email:    "waitlisted@example.com",
+		Username: "waitlisted",
+		Password: "testpassword123",
+	}
+
+	suite.store.EXPECT().
+		CreateUser(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, u *types.User) (*types.User, error) {
+			suite.True(u.Waitlisted, "user should be waitlisted when waitlist is enabled")
+			return u, nil
+		})
+
+	createdUser, err := suite.auth.CreateUser(suite.ctx, user)
+	suite.NoError(err)
+	suite.NotNil(createdUser)
+}
+
+func (suite *HelixAuthenticatorTestSuite) TestCreateUser_WaitlistEnabled_AdminNotWaitlisted() {
+	suite.cfg.Auth.Waitlist = true
+	suite.cfg.WebServer.AdminUserIDs = []string{config.AdminAllUsers}
+
+	userID := uuid.New().String()
+	user := &types.User{
+		ID:       userID,
+		Email:    "admin@example.com",
+		Username: "adminuser",
+		Password: "testpassword123",
+	}
+
+	suite.store.EXPECT().
+		CreateUser(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, u *types.User) (*types.User, error) {
+			suite.False(u.Waitlisted, "admin user should not be waitlisted")
+			suite.True(u.Admin, "admin user should be admin")
+			return u, nil
+		})
+
+	createdUser, err := suite.auth.CreateUser(suite.ctx, user)
+	suite.NoError(err)
+	suite.NotNil(createdUser)
+}
+
+func (suite *HelixAuthenticatorTestSuite) TestCreateUser_WaitlistDisabled() {
+	suite.cfg.Auth.Waitlist = false
+
+	userID := uuid.New().String()
+	user := &types.User{
+		ID:       userID,
+		Email:    "notwaitlisted@example.com",
+		Username: "notwaitlisted",
+		Password: "testpassword123",
+	}
+
+	suite.store.EXPECT().
+		CreateUser(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, u *types.User) (*types.User, error) {
+			suite.False(u.Waitlisted, "user should not be waitlisted when waitlist is disabled")
+			return u, nil
+		})
+
+	createdUser, err := suite.auth.CreateUser(suite.ctx, user)
+	suite.NoError(err)
+	suite.NotNil(createdUser)
+}
+
 func (suite *HelixAuthenticatorTestSuite) TestCreateUser_DevMode_SetsAdminTrue() {
 	// Set ADMIN_USER_IDS=all (dev mode)
 	suite.cfg.WebServer.AdminUserIDs = []string{config.AdminAllUsers}

@@ -139,6 +139,29 @@ func (apiServer *HelixAPIServer) getOrganization(rw http.ResponseWriter, r *http
 	writeResponse(rw, organization, http.StatusOK)
 }
 
+// normalizeOrgName converts a display name into a URL-safe slug.
+// e.g. "My Company Inc." -> "my-company-inc"
+func normalizeOrgName(displayName string) string {
+	name := strings.ToLower(strings.TrimSpace(displayName))
+	// Replace any non-alphanumeric characters with hyphens
+	var b strings.Builder
+	prevHyphen := false
+	for _, ch := range name {
+		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') {
+			b.WriteRune(ch)
+			prevHyphen = false
+		} else if !prevHyphen && b.Len() > 0 {
+			b.WriteByte('-')
+			prevHyphen = true
+		}
+	}
+	result := strings.TrimRight(b.String(), "-")
+	if result == "" {
+		return "org"
+	}
+	return result
+}
+
 // createOrganization godoc
 // @Summary Create a new organization
 // @Description Create a new organization. Only admin users can create organizations.
@@ -164,14 +187,47 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 		return
 	}
 
+	// If only display_name is provided, auto-generate the URL-safe name from it
+	if organization.Name == "" && organization.DisplayName != "" {
+		organization.Name = normalizeOrgName(organization.DisplayName)
+	}
+
 	if organization.Name == "" {
 		http.Error(rw, "Name not specified", http.StatusBadRequest)
 		return
 	}
 
-	organization.Owner = user.ID
+	// If display_name wasn't set, use the name as display name
+	if organization.DisplayName == "" {
+		organization.DisplayName = organization.Name
+	}
 
+	// Ensure the name is unique by appending a suffix if needed
 	ctx := context.Background()
+	baseName := organization.Name
+	for i := 0; i < 100; i++ {
+		candidate := baseName
+		if i > 0 {
+			candidate = fmt.Sprintf("%s-%d", baseName, i)
+		}
+		_, err := apiServer.Store.GetOrganization(ctx, &store.GetOrganizationQuery{Name: candidate})
+		if err == store.ErrNotFound {
+			organization.Name = candidate
+			break
+		}
+		if err != nil {
+			log.Err(err).Msg("error checking organization name uniqueness")
+			http.Error(rw, "Could not check organization name: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Name exists, try next suffix
+		if i == 99 {
+			http.Error(rw, "Could not generate a unique organization name", http.StatusConflict)
+			return
+		}
+	}
+
+	organization.Owner = user.ID
 
 	createdOrg, err := apiServer.Store.CreateOrganization(ctx, organization)
 	if err != nil {

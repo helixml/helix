@@ -75,7 +75,7 @@ export default function SpecTaskActionButtons({
 
   // Button size based on variant
   const buttonSize = 'small'
-  const buttonSx = isInline ? { fontSize: '0.75rem' } : {}
+  const buttonSx = isInline ? { fontSize: '0.75rem', whiteSpace: 'nowrap' } : { whiteSpace: 'nowrap' }
 
   // Backlog phase: Start Planning button
   if (task.status === 'backlog') {
@@ -196,7 +196,7 @@ export default function SpecTaskActionButtons({
 
           {hasDesignDocs && onReviewSpec && (
             <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
-              <span style={{ flex: 1 }}>
+              <span>
                 <Button
                   size={buttonSize}
                   variant="outlined"
@@ -206,7 +206,6 @@ export default function SpecTaskActionButtons({
                     onReviewSpec()
                   }}
                   disabled={isArchived}
-                  fullWidth
                   sx={buttonSx}
                 >
                   View Spec

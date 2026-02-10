@@ -20,11 +20,37 @@ export PATH="/usr/local/sbin/.iptables-legacy:$PATH"
 echo "Using iptables-legacy for Docker-in-Docker networking compatibility"
 
 # ================================================================================
+# Create custom bridge for sandbox dockerd
+# We use "sandbox0" instead of Docker's default "docker0" bridge to prevent
+# session dockerds from deleting it. Docker's startup code calls
+# removeDefaultBridgeInterface() which specifically targets "docker0".
+# By using a custom bridge name, we're immune to that cleanup logic.
+# See: design/2026-02-06-docker0-veth-reconnection.md
+# ================================================================================
+SANDBOX_BRIDGE="sandbox0"
+SANDBOX_BRIDGE_IP="10.213.0.1/24"
+SANDBOX_SUBNET="10.213.0.0/24"
+
+if ! ip link show "$SANDBOX_BRIDGE" >/dev/null 2>&1; then
+    echo "🌉 Creating bridge $SANDBOX_BRIDGE with IP $SANDBOX_BRIDGE_IP"
+    ip link add name "$SANDBOX_BRIDGE" type bridge
+    ip addr add "$SANDBOX_BRIDGE_IP" dev "$SANDBOX_BRIDGE"
+    ip link set "$SANDBOX_BRIDGE" up
+else
+    echo "✅ Bridge $SANDBOX_BRIDGE already exists"
+    # Ensure it's up and has the correct IP
+    ip link set "$SANDBOX_BRIDGE" up 2>/dev/null || true
+    if ! ip addr show "$SANDBOX_BRIDGE" | grep -q "10.213.0.1"; then
+        ip addr add "$SANDBOX_BRIDGE_IP" dev "$SANDBOX_BRIDGE" 2>/dev/null || true
+    fi
+fi
+
+# ================================================================================
 # Configure dockerd with DNS and optional NVIDIA runtime
 # DNS is configured to use dns-proxy (10.213.0.1) which forwards to outer Docker DNS.
 # This enables enterprise DNS resolution for FQDNs (e.g., myapp.internal.company.com).
 # Search domains are NOT needed for FQDNs - they're only for short hostnames.
-# NOTE: We use 10.213.0.1 because default-address-pools sets docker0 to 10.213.0.0/24
+# NOTE: We use 10.213.0.1 because our custom bridge (sandbox0) uses 10.213.0.0/24
 # ================================================================================
 mkdir -p /etc/docker
 
@@ -78,14 +104,21 @@ echo "✅ Configured sandbox dockerd"
 
 # Start dockerd with auto-restart supervisor loop in background
 # This ensures dockerd restarts if it crashes (which would break all sandboxes)
+#
+# We use --bridge=sandbox0 to tell dockerd to use our pre-created bridge.
+# This is a "user-managed bridge" in Docker terminology, which means:
+# 1. Docker won't try to create or delete it
+# 2. Docker won't be affected by session dockerds cleaning up "docker0"
+# 3. We control the bridge lifecycle ourselves
 (
     while true; do
         # Clean up stale PID files before each restart attempt
         rm -f /var/run/docker.pid /run/docker/containerd/containerd.pid 2>/dev/null || true
 
-        echo "[$(date -Iseconds)] Starting dockerd..."
+        echo "[$(date -Iseconds)] Starting dockerd with bridge=$SANDBOX_BRIDGE..."
         dockerd --config-file /etc/docker/daemon.json \
-            --host=unix:///var/run/docker.sock
+            --host=unix:///var/run/docker.sock \
+            --bridge="$SANDBOX_BRIDGE"
         EXIT_CODE=$?
         echo "[$(date -Iseconds)] ⚠️  dockerd exited with code $EXIT_CODE, restarting in 2s..."
         sleep 2

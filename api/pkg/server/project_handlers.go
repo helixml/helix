@@ -1212,6 +1212,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 
 			// Restart Zed agent with existing session
 			zedAgent := &types.DesktopAgent{
+				OrganizationID:      project.OrganizationID,
 				SessionID:           existingSession.ID,
 				UserID:              user.ID,
 				Input:               fmt.Sprintf("Explore the %s project", project.Name),
@@ -1370,8 +1371,9 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		return nil, system.NewHTTPError403("UseHostDocker requires admin access")
 	}
 
-	// Create ZedAgent for exploratory session
+	// Create ZedAgent for team desktop
 	zedAgent := &types.DesktopAgent{
+		OrganizationID:      project.OrganizationID,
 		SessionID:           createdSession.ID,
 		UserID:              user.ID,
 		Input:               fmt.Sprintf("Explore the %s project", project.Name),

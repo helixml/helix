@@ -9,6 +9,7 @@ import DirectionsRunIcon from '@mui/icons-material/DirectionsRun'
 import ModelTrainingIcon from '@mui/icons-material/ModelTraining'
 import SettingsIcon from '@mui/icons-material/Settings'
 import DeveloperBoardIcon from '@mui/icons-material/DeveloperBoard'
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney'
 
 import useRouter from '../../hooks/useRouter'
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
@@ -85,6 +86,13 @@ const AdminPanelSidebar: FC = () => {
           icon: <ModelTrainingIcon />,
           isActive: currentTab === 'helix_models',
           onClick: () => handleNavigationClick('helix_models')
+        },
+        {
+          id: 'pricing',
+          label: 'Pricing',
+          icon: <AttachMoneyIcon />,
+          isActive: currentTab === 'pricing',
+          onClick: () => handleNavigationClick('pricing')
         },
         {
           id: 'system_settings',

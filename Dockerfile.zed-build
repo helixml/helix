@@ -2,14 +2,16 @@
 # Ubuntu 25.10 Build Environment for Zed Editor
 # ====================================================================
 # Uses Ubuntu 25.10 to match Sway/KDE and GNOME containers.
+# BuildKit cache mounts persist cargo registry, git deps, rustup
+# toolchain, and build artifacts across builds.
 #
 # Usage: ./stack build-zed [dev|release]
 # ====================================================================
-FROM ubuntu:25.10
+FROM ubuntu:25.10 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Zed build dependencies
+# Install Zed build dependencies (cached as Docker layer)
 # Based on Zed's official build requirements + additional libs for full feature support
 RUN apt-get update && apt-get install -y \
     # Core build tools
@@ -52,14 +54,43 @@ RUN apt-get update && apt-get install -y \
     libglib2.0-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust via rustup (gets latest stable)
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+# Install rustup minimal installer (no toolchain yet — that comes from rust-toolchain.toml)
+# We install to /root/.rustup-base which is baked into the image layer.
+# The actual build step copies this into the cache mount if needed.
+ENV RUSTUP_HOME=/root/.rustup
+ENV CARGO_HOME=/root/.cargo
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Cargo config - no memory restrictions (high-memory build machine)
-RUN mkdir -p /root/.cargo
+ARG BUILD_TYPE=release
 
-# Set working directory for builds
+# Copy source (filtered by .dockerignore — excludes target/, .git/)
+COPY . /zed
 WORKDIR /zed
 
-# The build script mounts Zed source here and runs cargo build
+# Build with BuildKit cache mounts:
+#   - /root/.cargo/registry: crate index + source archives
+#   - /root/.cargo/git: git dependency checkouts
+#   - /root/.rustup: toolchain + rustup data (entire dir cached so rename() works)
+#   - /zed/target-ubuntu25: build artifacts (incremental compilation)
+#
+# On first run, the rustup cache mount is empty so we bootstrap from the layer.
+# The cargo binary is in /root/.cargo/bin which is NOT cache-mounted (just registry/git).
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/root/.rustup \
+    --mount=type=cache,target=/zed/target-ubuntu25 \
+    if [ ! -f /root/.rustup/settings.toml ]; then \
+        echo "Bootstrapping rustup in cache mount..." && \
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none; \
+    fi && \
+    CARGO_TARGET_DIR=target-ubuntu25 \
+    RUSTFLAGS='-C link-arg=-s' \
+    cargo build \
+        $(if [ "$BUILD_TYPE" = "release" ]; then echo "--release"; else echo ""; fi) \
+        --features external_websocket_sync \
+    && cp target-ubuntu25/${BUILD_TYPE}/zed /zed-binary
+
+# Output stage — just the binary, nothing else
+FROM scratch
+COPY --from=builder /zed-binary /zed

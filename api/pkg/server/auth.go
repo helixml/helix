@@ -545,8 +545,8 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 			r,
 			user.ID,
 			types.AuthProviderRegular,
-			"", // no OIDC access token
-			"", // no OIDC refresh token
+			"",          // no OIDC access token
+			"",          // no OIDC refresh token
 			time.Time{}, // no OIDC token expiry
 		)
 		if err != nil {
@@ -742,11 +742,13 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 				Msg("User info retrieved via BFF session")
 
 			response := types.UserResponse{
-				ID:    user.ID,
-				Email: user.Email,
-				Token: "", // No token exposed with BFF pattern
-				Name:  user.FullName,
-				Admin: user.Admin,
+				ID:                  user.ID,
+				Email:               user.Email,
+				Token:               "", // No token exposed with BFF pattern
+				Name:                user.FullName,
+				Admin:               user.Admin,
+				OnboardingCompleted: user.OnboardingCompleted,
+				Waitlisted:          user.Waitlisted,
 			}
 			writeResponse(w, response, http.StatusOK)
 			return
@@ -772,6 +774,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to validate user token: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+
 	default:
 		// OIDC-based auth (keycloak, oidc, or any future OIDC provider)
 		// First check for stale Helix JWTs - this can happen when AUTH_PROVIDER
@@ -822,11 +825,13 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := types.UserResponse{
-		ID:    user.ID,
-		Email: user.Email,
-		Token: accessToken,
-		Name:  user.FullName,
-		Admin: user.Admin,
+		ID:                  user.ID,
+		Email:               user.Email,
+		Token:               accessToken,
+		Name:                user.FullName,
+		Admin:               user.Admin,
+		OnboardingCompleted: user.OnboardingCompleted,
+		Waitlisted:          user.Waitlisted,
 	}
 	writeResponse(w, response, http.StatusOK)
 }

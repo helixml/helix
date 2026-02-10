@@ -1,0 +1,17 @@
+{{- if and .Values.ingress.enabled .Values.ingress.className }}
+{{- if eq .Values.ingress.className "gce" }}
+# IngressClass for GKE's GCE ingress controller
+# This is required when explicitly specifying ingressClassName: gce
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: gce
+  labels:
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+  annotations:
+    # Don't set as default - let cluster admin decide
+    # ingressclass.kubernetes.io/is-default-class: "false"
+spec:
+  controller: k8s.io/gce
+{{- end }}
+{{- end }}

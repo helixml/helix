@@ -18,6 +18,7 @@ import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
 import { useListProjects } from '../../services/projectService';
+import { useAccount } from '../../contexts/account';
 
 interface ProjectManagerSkillProps {
   open: boolean;
@@ -57,6 +58,7 @@ const ProjectManagerSkill: React.FC<ProjectManagerSkillProps> = ({
   onUpdate,
 }) => {
   const lightTheme = useLightTheme();
+  const account = useAccount();
   const [error, setError] = useState<string | null>(null);
   const [projectManagerConfig, setProjectManagerConfig] = useState<TypesAssistantProjectManager>({
     enabled: false,
@@ -65,7 +67,7 @@ const ProjectManagerSkill: React.FC<ProjectManagerSkillProps> = ({
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [isDirty, setIsDirty] = useState(false);
 
-  const { data: projects, isLoading: projectsLoading } = useListProjects();
+  const { data: projects, isLoading: projectsLoading } = useListProjects(account.organizationTools.organization?.id);
 
   useEffect(() => {
     if (app.projectManagerTool) {

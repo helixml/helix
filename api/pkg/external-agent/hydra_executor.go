@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -392,17 +391,18 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 
 	// Track session
 	session := &ZedSession{
-		ProjectID:     agent.ProjectID,
-		SessionID:     agent.SessionID,
-		UserID:        agent.UserID,
-		Status:        "running",
-		StartTime:     time.Now(),
-		LastAccess:    time.Now(),
-		ProjectPath:   agent.ProjectPath,
-		ContainerName: resp.ContainerName,
-		ContainerID:   resp.ContainerID,
-		ContainerIP:   resp.IPAddress,
-		SandboxID:     sandboxID,
+		OrganizationID: agent.OrganizationID,
+		ProjectID:      agent.ProjectID,
+		SessionID:      agent.SessionID,
+		UserID:         agent.UserID,
+		Status:         "running",
+		StartTime:      time.Now(),
+		LastAccess:     time.Now(),
+		ProjectPath:    agent.ProjectPath,
+		ContainerName:  resp.ContainerName,
+		ContainerID:    resp.ContainerID,
+		ContainerIP:    resp.IPAddress,
+		SandboxID:      sandboxID,
 		// DevContainerID is not used in Hydra mode, but we store container info here
 	}
 	h.mutex.Lock()
@@ -889,7 +889,8 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	switch h.gpuVendor {
 	case "nvidia":
 		env = append(env, "NVIDIA_VISIBLE_DEVICES=all")
-		env = append(env, "NVIDIA_DRIVER_CAPABILITIES=all")
+		// Use explicit capabilities instead of "all" for GKE/cloud compatibility
+		env = append(env, "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display")
 	case "amd":
 		env = append(env, "GOW_REQUIRED_DEVICES=/dev/dri/card*:/dev/dri/renderD*")
 	case "intel":
@@ -1221,19 +1222,17 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 			}
 		}
 
-		fmt.Println("XXX RECONCILE")
-		spew.Dump(dbSession)
-
 		// Add to in-memory sessions map
 		h.mutex.Lock()
 		h.sessions[sessionID] = &ZedSession{
-			ProjectID:     dbSession.ProjectID,
-			SessionID:     sessionID,
-			ContainerID:   container.containerID,
-			ContainerName: container.containerName,
-			Status:        "running",
-			ContainerIP:   container.containerIP,
-			LastAccess:    time.Now(),
+			OrganizationID: dbSession.OrganizationID,
+			ProjectID:      dbSession.ProjectID,
+			SessionID:      sessionID,
+			ContainerID:    container.containerID,
+			ContainerName:  container.containerName,
+			Status:         "running",
+			ContainerIP:    container.containerIP,
+			LastAccess:     time.Now(),
 		}
 		h.mutex.Unlock()
 

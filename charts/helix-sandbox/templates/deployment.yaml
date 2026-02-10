@@ -1,3 +1,4 @@
+{{- if or (not .Values.deployment) (eq (default "Deployment" .Values.deployment.type) "Deployment") }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -6,6 +7,18 @@ metadata:
     {{- include "helix-sandbox.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  {{- if and .Values.deployment .Values.deployment.strategy }}
+  strategy:
+    type: {{ .Values.deployment.strategy.type | default "Recreate" }}
+    {{- if eq .Values.deployment.strategy.type "RollingUpdate" }}
+    rollingUpdate:
+      maxSurge: {{ .Values.deployment.strategy.rollingUpdate.maxSurge | default "25%" }}
+      maxUnavailable: {{ .Values.deployment.strategy.rollingUpdate.maxUnavailable | default "25%" }}
+    {{- end }}
+  {{- else }}
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       {{- include "helix-sandbox.selectorLabels" . | nindent 6 }}
@@ -41,9 +54,28 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if and .Values.gpu .Values.gpu.nvidia .Values.gpu.nvidia.gkeSetup }}
+          # GKE NVIDIA setup: configure library paths and cgroups for nested GPU containers
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              if [ -d "/usr/local/nvidia/lib64" ]; then
+                echo "/usr/local/nvidia/lib64" > /etc/ld.so.conf.d/nvidia-gke.conf
+                ldconfig
+                # Fix nvidia-container-runtime for Docker-in-Docker on GKE
+                sed -i 's/#no-cgroups = false/no-cgroups = true/' /etc/nvidia-container-runtime/config.toml 2>/dev/null || true
+                # Use legacy mode for proper NVIDIA_VISIBLE_DEVICES handling
+                sed -i 's/mode = "auto"/mode = "legacy"/' /etc/nvidia-container-runtime/config.toml 2>/dev/null || true
+              fi
+              exec /entrypoint.sh
+          {{- end }}
           env:
+            # =====================================================
             # Core Helix configuration
+            # =====================================================
             - name: HELIX_API_URL
+              value: {{ .Values.sandbox.apiUrl | quote }}
+            - name: HELIX_API_BASE_URL
               value: {{ .Values.sandbox.apiUrl | quote }}
             - name: RUNNER_TOKEN
               {{- if .Values.sandbox.runnerTokenExistingSecret }}
@@ -65,24 +97,6 @@ spec:
             - name: MAX_SANDBOXES
               value: {{ .Values.sandbox.maxSandboxes | quote }}
 
-            # TURN server configuration
-            - name: TURN_PUBLIC_IP
-              {{- if .Values.sandbox.turn.publicIp }}
-              value: {{ .Values.sandbox.turn.publicIp | quote }}
-              {{- else }}
-              # Extract hostname from API URL if not specified
-              value: {{ .Values.sandbox.apiUrl | trimPrefix "https://" | trimPrefix "http://" | regexFind "^[^:/]+" | quote }}
-              {{- end }}
-            - name: TURN_PASSWORD
-              {{- if .Values.sandbox.turn.turnPasswordExistingSecret }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.sandbox.turn.turnPasswordExistingSecret }}
-                  key: {{ .Values.sandbox.turn.turnPasswordExistingSecretKey | default "password" }}
-              {{- else }}
-              value: {{ .Values.sandbox.turn.password | quote }}
-              {{- end }}
-
             # Helix hostname for display
             - name: HELIX_HOSTNAME
               {{- if .Values.sandbox.helixHostname }}
@@ -91,22 +105,48 @@ spec:
               value: {{ .Values.sandbox.apiUrl | trimPrefix "https://" | trimPrefix "http://" | regexFind "^[^:/]+" | quote }}
               {{- end }}
 
-            # Sandbox configuration
-            - name: XDG_RUNTIME_DIR
-              value: "/tmp/sockets"
+            # Video encoding configuration
             - name: GOP_SIZE
               value: {{ .Values.sandbox.gopSize | quote }}
 
+            # =====================================================
+            # Hydra configuration (multi-tenant isolation)
+            # =====================================================
+            - name: HYDRA_ENABLED
+              value: {{ .Values.hydra.enabled | quote }}
+            - name: HYDRA_PRIVILEGED_MODE_ENABLED
+              value: {{ .Values.hydra.privilegedMode | quote }}
+
+            # =====================================================
+            # Desktop image configuration
+            # =====================================================
+            {{- if .Values.desktopImages.imageOverride }}
+            - name: ZED_IMAGE
+              value: {{ .Values.desktopImages.imageOverride | quote }}
+            {{- else }}
+            - name: ZED_IMAGE
+              value: "{{ .Values.desktopImages.registry }}/helix/{{ .Values.desktopImages.default }}:{{ .Values.desktopImages.tag }}"
+            {{- end }}
+            - name: HELIX_SANDBOX_REGISTRY
+              value: {{ .Values.desktopImages.registry | quote }}
+
+            # =====================================================
             # GPU vendor configuration
+            # =====================================================
             - name: GPU_VENDOR
               value: {{ $gpuVendor | quote }}
 
             {{- if eq $gpuVendor "nvidia" }}
             # NVIDIA-specific environment
+            # Use explicit capabilities instead of "all" for GKE compatibility
             - name: NVIDIA_DRIVER_CAPABILITIES
-              value: "all"
+              value: "compute,utility,video,graphics,display"
             - name: NVIDIA_VISIBLE_DEVICES
               value: "all"
+            # GKE/Cloud: NVIDIA libraries are at /usr/local/nvidia/lib64
+            # This path is harmless if it doesn't exist on other systems
+            - name: LD_LIBRARY_PATH
+              value: "/usr/local/nvidia/lib64"
             {{- else if eq $gpuVendor "none" }}
             # Software rendering environment (no GPU)
             - name: LIBGL_ALWAYS_SOFTWARE
@@ -115,30 +155,40 @@ spec:
               value: "4.5"
             {{- end }}
 
-            # Production mode
+            # =====================================================
+            # Runtime configuration
+            # =====================================================
             - name: HELIX_DEV_MODE
               value: "false"
-            - name: ZED_IMAGE
-              value: "registry.helixml.tech/helix/zed-agent:latest"
+            - name: XDG_RUNTIME_DIR
+              value: "/tmp/sockets"
+            - name: SANDBOX_DATA_PATH
+              value: "/data"
 
-          ports:
-            # WebSocket streaming port
-            - name: web
-              containerPort: {{ .Values.service.web.port }}
-              protocol: TCP
+            # =====================================================
+            # Debugging options
+            # =====================================================
+            - name: HELIX_KEEP_DEAD_CONTAINERS
+              value: {{ .Values.debug.keepDeadContainers | quote }}
+            - name: GST_DEBUG
+              value: {{ .Values.debug.gstDebug | quote }}
 
           volumeMounts:
             - name: docker-storage
               mountPath: /var/lib/docker
             - name: hydra-data
               mountPath: /hydra-data
+            - name: workspace-data
+              mountPath: /data
             - name: tmp-sockets
               mountPath: /tmp/sockets
             - name: hydra-socket
               mountPath: /var/run/hydra
+            {{- if not .Values.testing.disableHostPaths }}
             - name: udev
               mountPath: /run/udev
               readOnly: true
+            {{- end }}
             {{- if ne $gpuVendor "none" }}
             # GPU modes need /dev mounted for DRI access
             - name: dev
@@ -184,20 +234,26 @@ spec:
             {{- end }}
             {{- toYaml $resources | nindent 12 }}
 
+          # Health check: verify nested dockerd is running
+          # The sandbox doesn't expose ports (uses RevDial for outbound connection)
           livenessProbe:
-            tcpSocket:
-              port: web
-            initialDelaySeconds: 30
+            exec:
+              command:
+                - docker
+                - info
+            initialDelaySeconds: 60
             periodSeconds: 30
-            timeoutSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 3
 
           readinessProbe:
-            tcpSocket:
-              port: web
-            initialDelaySeconds: 10
+            exec:
+              command:
+                - docker
+                - info
+            initialDelaySeconds: 30
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 3
 
       volumes:
@@ -215,14 +271,23 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        - name: workspace-data
+          {{- if .Values.persistence.workspaceData.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "helix-sandbox.fullname" . }}-workspace
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
         - name: tmp-sockets
           emptyDir: {}
         - name: hydra-socket
           emptyDir: {}
+        {{- if not .Values.testing.disableHostPaths }}
         - name: udev
           hostPath:
             path: /run/udev
             type: Directory
+        {{- end }}
         {{- if ne $gpuVendor "none" }}
         - name: dev
           hostPath:
@@ -242,3 +307,4 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+{{- end }}

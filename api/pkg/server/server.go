@@ -36,6 +36,7 @@ import (
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/quota"
 	"github.com/helixml/helix/api/pkg/revdial"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server/spa"
@@ -78,6 +79,7 @@ type HelixAPIServer struct {
 	Cfg                         *config.ServerConfig
 	Store                       store.Store
 	Stripe                      *stripe.Stripe
+	quotaManager                quota.QuotaManager
 	Controller                  *controller.Controller
 	Janitor                     *janitor.Janitor
 	authMiddleware              *authMiddleware
@@ -136,7 +138,6 @@ func NewServer(
 	cfg *config.ServerConfig,
 	store store.Store,
 	ps pubsub.PubSub,
-
 	providerManager manager.ProviderManager,
 	modelInfoProvider model.ModelInfoProvider,
 	inferenceServer *openai.InternalHelixServer,
@@ -188,6 +189,7 @@ func NewServer(
 			ExpectedIssuer: cfg.Auth.OIDC.ExpectedIssuer,
 			TokenURL:       cfg.Auth.OIDC.TokenURL,
 			OfflineAccess:  cfg.Auth.OIDC.OfflineAccess,
+			Waitlist:       cfg.Auth.Waitlist,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create oidc client: %w", err)
@@ -231,6 +233,8 @@ func NewServer(
 		GPUVendor:                     os.Getenv("GPU_VENDOR"), // "nvidia", "amd", "intel", or ""
 	})
 
+	quotaManager := quota.NewDefaultQuotaManager(store, cfg, externalAgentExecutor)
+
 	// Initialize external agent runner connection manager
 	externalAgentRunnerManager := NewExternalAgentRunnerManager()
 
@@ -240,6 +244,7 @@ func NewServer(
 		Cfg:                         cfg,
 		Store:                       store,
 		Stripe:                      stripe,
+		quotaManager:                quotaManager,
 		Controller:                  controller,
 		Janitor:                     janitor,
 		gitRepositoryService:        gitRepositoryService,
@@ -255,10 +260,10 @@ func NewServer(
 		requestToCommenterMapping:   make(map[string]string),
 		streamingRateLimiter:        make(map[string]time.Time),
 		inferenceServer:             inferenceServer,
-		sessionManager: auth.NewSessionManager(store, oidcClient, cfg),
-		providerManager:   providerManager,
-		modelInfoProvider: modelInfoProvider,
-		pubsub:            ps,
+		sessionManager:              auth.NewSessionManager(store, oidcClient, cfg),
+		providerManager:             providerManager,
+		modelInfoProvider:           modelInfoProvider,
+		pubsub:                      ps,
 		mcpClientGetter: &mcp.DefaultClientGetter{
 			TLSSkipVerify: cfg.Tools.TLSSkipVerify,
 		},
@@ -576,6 +581,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/users/me/guidelines", apiServer.updateUserGuidelines).Methods(http.MethodPut)
 	authRouter.HandleFunc("/users/me/guidelines-history", apiServer.getUserGuidelinesHistory).Methods(http.MethodGet)
 
+	// Onboarding
+	authRouter.HandleFunc("/users/me/onboarding", apiServer.completeOnboarding).Methods(http.MethodPost)
+
 	authRouter.HandleFunc("/users/{id}", apiServer.getUserDetails).Methods(http.MethodGet)
 
 	// Billing
@@ -588,6 +596,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// Usage
 	authRouter.HandleFunc("/usage", system.Wrapper(apiServer.getUsage)).Methods(http.MethodGet)
+
+	// Quotas
+	authRouter.HandleFunc("/quotas", apiServer.getQuotasHandler).Methods(http.MethodGet)
 
 	// Security telemetry monitoring routes
 	// TODO: Fix compilation errors in security_telemetry_handlers.go before enabling
@@ -817,6 +828,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/users", system.DefaultWrapper(apiServer.createUser)).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/users/{id}/password", system.DefaultWrapper(apiServer.adminResetPassword)).Methods(http.MethodPut)
 	adminRouter.HandleFunc("/admin/users/{id}", system.DefaultWrapper(apiServer.adminDeleteUser)).Methods(http.MethodDelete)
+	adminRouter.HandleFunc("/admin/users/{id}/approve", system.DefaultWrapper(apiServer.adminApproveUser)).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/scheduler/heartbeats", system.DefaultWrapper(apiServer.getSchedulerHeartbeats)).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/slots/{slot_id}", system.DefaultWrapper(apiServer.deleteSlot)).Methods(http.MethodDelete)

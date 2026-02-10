@@ -22,6 +22,31 @@ func Test_GetGeminiFlash(t *testing.T) {
 	assert.Equal(t, "0.0000004", modelInfo.Pricing.Completion)
 }
 
+func Test_GetHaiku35(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	assert.NoError(t, err)
+
+	modelInfo, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+		Provider: "anthropic",
+		// Model:    "claude-3-5-haiku-20241022",
+		Model: "anthropic/claude-3.5-haiku",
+	})
+	assert.NoError(t, err)
+
+	assert.Equal(t, "Anthropic: Claude 3.5 Haiku", modelInfo.Name)
+	assert.Equal(t, "0.000004", modelInfo.Pricing.Completion)
+
+	// With date
+	modelInfo, err = b.GetModelInfo(context.Background(), &ModelInfoRequest{
+		Provider: "anthropic",
+		Model:    "claude-3-5-haiku-20241022",
+	})
+	assert.NoError(t, err)
+
+	assert.Equal(t, "Anthropic: Claude 3.5 Haiku", modelInfo.Name)
+	assert.Equal(t, "0.000004", modelInfo.Pricing.Completion)
+}
+
 func Test_GetOpus45(t *testing.T) {
 	b, err := NewBaseModelInfoProvider()
 	assert.NoError(t, err)
@@ -36,6 +61,20 @@ func Test_GetOpus45(t *testing.T) {
 	assert.Equal(t, "0.000025", modelInfo.Pricing.Completion)
 }
 
+func Test_GetOpus46(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	assert.NoError(t, err)
+
+	modelInfo, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+		Provider: "anthropic",
+		Model:    "anthropic/claude-opus-4.6",
+	})
+	assert.NoError(t, err)
+
+	assert.Equal(t, "Anthropic: Claude Opus 4.6", modelInfo.Name)
+	assert.Equal(t, "0.000025", modelInfo.Pricing.Completion)
+}
+
 func Test_GetGptOSS20B(t *testing.T) {
 	b, err := NewBaseModelInfoProvider()
 	assert.NoError(t, err)
@@ -47,7 +86,7 @@ func Test_GetGptOSS20B(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, "OpenAI: gpt-oss-20b", modelInfo.Name)
-	assert.Equal(t, "0.00000014", modelInfo.Pricing.Completion)
+	assert.Equal(t, "0.0000001", modelInfo.Pricing.Completion)
 }
 
 func Test_GetGeminiFlash_CustomUserProvider(t *testing.T) {

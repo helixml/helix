@@ -49,6 +49,14 @@ func (s *HelixAPIServer) listProviders(rw http.ResponseWriter, r *http.Request) 
 
 var blankAPIKey = "********"
 
+func (s *HelixAPIServer) isProvidersManagementEnabled(ctx context.Context) bool {
+	systemSettings, err := s.Store.GetSystemSettings(ctx)
+	if err != nil {
+		return false
+	}
+	return systemSettings.ProvidersManagementEnabled
+}
+
 // listProviderEndpoints godoc
 // @Summary List currently configured provider endpoints
 // @Description List currently configured providers
@@ -69,7 +77,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 	user := getRequestUser(r)
 
 	// If providers management is disabled and user is not admin, only return global providers
-	if !s.Cfg.ProvidersManagementEnabled && !user.Admin {
+	if !s.isProvidersManagementEnabled(ctx) && !user.Admin {
 		// Return only global providers
 		globalProviderEndpoints, err := s.providerManager.ListProviders(ctx, "")
 		if err != nil {
@@ -364,7 +372,7 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 	isAdmin := s.isAdmin(r)
 
 	// Check if providers management is enabled
-	if !s.Cfg.ProvidersManagementEnabled && !isAdmin {
+	if !s.isProvidersManagementEnabled(ctx) && !isAdmin {
 		http.Error(rw, "Providers management is not enabled", http.StatusForbidden)
 		return
 	}
@@ -459,7 +467,7 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	endpointID := mux.Vars(r)["id"]
 
 	// Check if providers management is enabled
-	if !s.Cfg.ProvidersManagementEnabled && !user.Admin {
+	if !s.isProvidersManagementEnabled(r.Context()) && !user.Admin {
 		http.Error(rw, "Providers management is not enabled", http.StatusForbidden)
 		return
 	}
@@ -590,7 +598,7 @@ func (s *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, r *http.
 	endpointID := mux.Vars(r)["id"]
 
 	// Check if providers management is enabled
-	if !s.Cfg.ProvidersManagementEnabled && !user.Admin {
+	if !s.isProvidersManagementEnabled(r.Context()) && !user.Admin {
 		http.Error(rw, "Providers management is not enabled", http.StatusForbidden)
 		return
 	}
@@ -658,7 +666,7 @@ func (s *HelixAPIServer) getProviderDailyUsage(rw http.ResponseWriter, r *http.R
 	id := getID(r)
 
 	// Check if providers management is enabled
-	if !s.Cfg.ProvidersManagementEnabled && !user.Admin {
+	if !s.isProvidersManagementEnabled(r.Context()) && !user.Admin {
 		writeErrResponse(rw, errors.New("providers management is not enabled"), http.StatusForbidden)
 		return
 	}
@@ -725,11 +733,12 @@ func (s *HelixAPIServer) getProviderDailyUsage(rw http.ResponseWriter, r *http.R
 // @Router /api/v1/provider-endpoints/{id}/users-daily-usage [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getProviderUsersDailyUsage(rw http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	user := getRequestUser(r)
 	id := getID(r)
 
 	// Check if providers management is enabled
-	if !s.Cfg.ProvidersManagementEnabled && !user.Admin {
+	if !s.isProvidersManagementEnabled(ctx) && !user.Admin {
 		writeErrResponse(rw, errors.New("providers management is not enabled"), http.StatusForbidden)
 		return
 	}
@@ -828,10 +837,10 @@ func (s *HelixAPIServer) providerVisible(ctx context.Context, user *types.User, 
 // 2. Then periodically based on ModelsCacheTTL (default 1 minute)
 //
 // This is important for handling:
-// - HuggingFace model IDs like "Qwen/Qwen3-Coder" that could be incorrectly parsed
-//   as provider prefixes if the cache is empty
-// - Providers that were down at startup and later come back up
-// - New models added to providers
+//   - HuggingFace model IDs like "Qwen/Qwen3-Coder" that could be incorrectly parsed
+//     as provider prefixes if the cache is empty
+//   - Providers that were down at startup and later come back up
+//   - New models added to providers
 func (s *HelixAPIServer) StartModelCacheRefresh(ctx context.Context) {
 	// Use ModelsCacheTTL as the refresh interval, with a minimum of 30 seconds
 	refreshInterval := s.Cfg.WebServer.ModelsCacheTTL
