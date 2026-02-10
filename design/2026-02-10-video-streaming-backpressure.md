@@ -194,6 +194,100 @@ The Go desktop-bridge already has correct backpressure:
 - `SharedVideoSource.broadcastFrames`: per-client 120-frame buffer, disconnects slow clients
 - `VideoStreamer.readFramesAndSend`: per-client WebSocket mutex, blocking write only affects one client
 
+## Open Issue: VM Hang on Video Stream Reconnect
+
+**Status:** Investigating — reproducible
+**Symptom:** Toggling the chat box (WebSocket disconnect/reconnect) causes video to freeze on last frame. VM stays alive. Then pressing the reconnect button in the streaming desktop component causes the **entire VM to hang** — SSH frozen, UTM Linux console frozen.
+
+### Sequence of Events
+
+1. Browser toggles chat box → React re-renders → WebSocket disconnects/reconnects
+2. Go SharedVideoSource handles the WebSocket reconnect
+3. Browser shows one frame then freezes (or shows old frame forever) — VM still alive
+4. User presses reconnect button in streaming desktop component
+5. Full video stream reconnect attempt
+6. **Entire VM hangs** — SSH, console, everything frozen
+
+### Root Cause — CONFIRMED via `sample` (2026-02-10)
+
+**`MSG_DONTWAIT` does not prevent `send()` from blocking on macOS.**
+
+Thread backtrace from frozen VM (`sample $(pgrep qemu) 5`):
+
+```
+Thread_1045152 (VT encoder callback — dispatch queue):
+  scanout_encoder_callback                    helix-frame-export.m:406
+    → helix_send_to_subscribed_clients        helix-frame-export.m:219
+      → __sendto                              ← BLOCKED IN KERNEL (holds clients_lock)
+
+Thread_1043863 (QEMU main loop):
+  virtio_gpu_process_cmdq                     virtio-gpu.c:1063
+    → helix_scanout_frame_ready               helix-frame-export.m:881
+      → pthread_mutex_lock (clients_lock)     ← BLOCKED (VT callback holds it)
+
+Thread_1043872..1043891 (20 vCPU threads):
+  hvf_vcpu_exec → bql_lock_impl              ← BLOCKED (main loop holds BQL)
+```
+
+**The deadlock chain:**
+1. VT callback fires on Apple's `vtencoder-callback-queue` dispatch thread
+2. Callback calls `helix_send_to_subscribed_clients`, acquires `clients_lock`
+3. Calls `send(fd, data, size, MSG_DONTWAIT)` — **blocks in `__sendto` despite `MSG_DONTWAIT`**
+4. macOS kernel does not honor `MSG_DONTWAIT` for sockets in closing/half-open TCP states
+5. Main loop calls `helix_scanout_frame_ready`, tries to acquire `clients_lock` → blocked
+6. Main loop holds BQL (Big QEMU Lock) → all 20 vCPU threads waiting for BQL → VM frozen
+
+**Why it correlates with WebSocket reconnect:**
+When the browser disconnects the WebSocket, the Go desktop-bridge's SharedVideoSource
+removes the client. The TCP connection between Go and QEMU may enter a half-close state
+(Go stops reading but the connection isn't fully closed yet). The next VT callback tries
+to `send()` on this half-closed socket. Despite `MSG_DONTWAIT`, macOS blocks in the kernel.
+
+### Fix Applied
+
+**Primary fix: `O_NONBLOCK` on client sockets via `fcntl()`**
+
+`MSG_DONTWAIT` is a per-call flag that macOS doesn't honor reliably. `O_NONBLOCK` is a
+per-fd flag set via `fcntl()` that the kernel enforces at a lower level. With `O_NONBLOCK`,
+`send()` truly cannot block — it returns `EAGAIN` immediately.
+
+```c
+// At accept time:
+int flags = fcntl(client_fd, F_GETFL, 0);
+fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
+```
+
+Since the socket is now non-blocking for reads too, `read_exact_bytes()` was updated to
+use `poll()` with a 600-second timeout to wait for data.
+
+**Secondary fix: `vt_busy` flag**
+
+Even with `O_NONBLOCK`, the VT callback holds `clients_lock` while iterating clients.
+If there are many clients or the iteration is slow, the main loop could stall briefly.
+The `vt_busy` flag prevents `VTCompressionSessionEncodeFrame` from being called while
+the previous callback is still running — if `EncodeFrame` would block (because VT's
+internal queue is full with `MaxFrameDelayCount=0`), we drop the frame instead.
+
+**Additional fixes:**
+- `SO_SNDTIMEO` removed (O_NONBLOCK makes it redundant)
+- Partial sends → disconnect client (prevents permanent stream desync)
+- `g_helix_export` set after all init succeeds (fixes use-after-free on init failure)
+
+### Diagnostic Method
+
+To diagnose a frozen VM, run on the macOS host:
+
+```bash
+# Non-destructive — shows all thread backtraces
+sample $(pgrep -f "qemu-system-aarch64") 5 -file /tmp/qemu-hang-sample.txt
+```
+
+Key things to look for:
+- Main loop thread stuck in `pthread_mutex_lock` → lock contention
+- Main loop thread stuck in `VTCompressionSessionEncodeFrame` → VT blocking
+- VT callback thread stuck in `__sendto` → macOS send() blocking
+- `renderer_blocked` non-zero → SPICE gl_block issue (separate problem)
+
 ## File Summary
 
 | File | Lines | Change |
