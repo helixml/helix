@@ -1,7 +1,7 @@
 # Dramatic Simplification via Arbitrary Docker Nesting
 
 **Date:** 2026-02-10
-**Status:** Design Proposal
+**Status:** POC Validated (branch: `feature/docker-in-desktop`)
 **Author:** Claude (with Luke)
 **Depends on:** 2025-12-07-hydra-architecture-deep-dive.md, 2026-01-25-helix-in-helix-development.md, 2026-02-02-docker-network-isolation-fix.md, 2026-02-06-docker0-veth-reconnection.md
 
@@ -470,6 +470,54 @@ Moving dockerd inside the desktop container eliminates the entire veth bridging 
 For Helix-in-Helix, the simplification is even more dramatic: no more two Docker endpoints, no more host Docker socket exposure, no more image transfer between dockerd instances. The inner sandbox simply runs inside the developer's desktop dockerd at level 3 — a configuration that works because the overlay2 constraint was never about nesting depth.
 
 Four levels deep? Five? The kernel allows 32. We'd use 4-5 at most for Helix-in-Helix. The overhead is manageable (each dockerd is ~50-100MB RAM), and the complexity reduction is transformational.
+
+---
+
+## POC Test Results (2026-02-10)
+
+Branch `feature/docker-in-desktop` implements Phase 1 + Phase 3 (simultaneous — old code removed, new mode is the only mode).
+
+### What Works
+
+| Test | Result | Notes |
+|------|--------|-------|
+| Desktop container startup | **PASS** | Container stays running, all init scripts execute |
+| dockerd starts inside desktop | **PASS** | Detects `/var/lib/docker` volume mount, starts on attempt 1 |
+| `docker info` inside desktop | **PASS** | Server Version 29.2.1, overlay2, Docker Root Dir: /var/lib/docker |
+| `docker run hello-world` | **PASS** | Pulls from Docker Hub, runs successfully |
+| `docker build` | **PASS** | BuildKit builds work, multi-step Dockerfile |
+| `docker compose` | **PASS** | Docker Compose v5.0.2 available |
+| DNS resolution (inner containers) | **PASS** | `ping google.com` works from containers on inner dockerd |
+| Desktop-bridge streaming | **PASS** | WebSocket health checks every 10s |
+| Settings-sync daemon | **PASS** | Detects config changes, injects API keys |
+| Privileged mode | **PASS** | Container runs as privileged with Docker volume mount |
+| Volume mount (ext4 backing) | **PASS** | `docker-data-{session_id}` named volume at `/var/lib/docker` |
+| No old docker.sock mount | **PASS** | No docker.sock or host-docker.sock bind mounts |
+| `kind` binary present | **PASS** | kind v0.27.0 |
+| `kubectl` binary present | **PASS** | kubectl v1.35.1 |
+
+### What Doesn't Work Yet
+
+| Test | Result | Notes |
+|------|--------|-------|
+| `kind create cluster` | **FAIL** | cgroup v2 controller delegation — sandbox's dockerd only delegates `cpuset cpu pids`, missing `memory io` needed by Kind's systemd nodes. Fixable by configuring sandbox dockerd's cgroup parent or using `--cgroupns=host`. |
+| Enterprise DNS chain | **PARTIAL** | DNS works via Google DNS fallback (8.8.8.8). The sandbox's inner dockerd sees 127.0.0.11 in its /etc/resolv.conf, can't use it as upstream, falls back to defaults. Enterprise DNS would need explicit `--dns` flag on sandbox's dockerd pointing to the host gateway. This is a pre-existing issue with the sandbox architecture, not introduced by docker-in-desktop. |
+
+### Bugs Found and Fixed During Testing
+
+1. **DNS proxy blocking sandbox startup** — `45-start-dns-proxy.sh` waited 30s for `sandbox0` bridge (no longer exists), then `exit 1`. Fixed by removing DNS proxy from `Dockerfile.sandbox` entirely.
+2. **Hardcoded DNS `8.8.8.8` in desktop's `17-start-dockerd.sh`** — Would break enterprise DNS. Fixed by removing explicit `"dns"` key from daemon.json.
+3. **`exit 0` in sourced init script kills entrypoint** — `16-add-docker-group.sh` used `exit 0` when docker socket not found, which killed the entire entrypoint (GOW entrypoint `source`s scripts under `set -e`). Fixed by changing to `return 0 2>/dev/null || true`.
+
+### Code Changes Summary
+
+**Modified:** `Dockerfile.sandbox`, `Dockerfile.ubuntu-helix`, `api/pkg/external-agent/hydra_executor.go`, `api/pkg/hydra/manager.go`, `api/pkg/hydra/server.go`, `api/pkg/hydra/client.go`, `api/pkg/hydra/types.go`, `api/pkg/hydra/store.go`, `api/pkg/hydra/store_mocks.go`, `api/pkg/hydra/store_sandbox.go`, `api/pkg/types/project.go`, `api/pkg/server/session_handlers.go`, `api/pkg/server/simple_sample_projects.go`, `api/pkg/services/sample_project_code_service.go`, `stack`, `docker-compose.dev.yaml`, `desktop/ubuntu-config/16-add-docker-group.sh`, `desktop/ubuntu-config/cont-init.d/17-start-dockerd.sh`, `frontend/` (several files removing UseHostDocker UI)
+
+**Deleted:** `api/pkg/hydra/dns.go` (~287 lines)
+
+**Created:** `desktop/ubuntu-config/cont-init.d/17-start-dockerd.sh`
+
+**Estimated net code reduction:** ~1500+ lines of bridge/DNS/veth infrastructure removed
 
 ---
 
