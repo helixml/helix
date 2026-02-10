@@ -65,8 +65,8 @@ body {
 
 .sidebar-header {
     padding: 20px 16px 12px;
-    /* Extra top padding for macOS titlebar */
-    padding-top: 38px;
+    /* Extra top padding for macOS titlebar traffic lights */
+    padding-top: 48px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -81,6 +81,11 @@ body {
 
 .helix-icon {
     color: var(--teal);
+}
+
+.helix-icon-img {
+    object-fit: contain;
+    border-radius: 4px;
 }
 
 .sidebar-title {
@@ -212,6 +217,12 @@ body {
 .home-placeholder svg {
     color: var(--teal);
     opacity: 0.5;
+}
+
+.home-logo {
+    width: 80px;
+    height: auto;
+    object-fit: contain;
 }
 
 .home-placeholder h2 {
@@ -477,7 +488,11 @@ body {
 .form-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
+    gap: 16px;
+}
+
+.form-row .form-group {
+    margin-bottom: 0;
 }
 
 .form-hint {

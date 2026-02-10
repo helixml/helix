@@ -242,7 +242,7 @@ log "  Copied open-source NOTICES.md"
 # the CDN on first launch. This reduces the app bundle from ~18GB to ~300MB.
 # Only the small EFI vars file (64MB) and a manifest.json are bundled.
 
-log "Step 5b: Generating VM manifest..."
+log "Step 5b: Bundling VM manifest..."
 VM_BUNDLE_DIR="${RESOURCES_DIR}/vm"
 mkdir -p "$VM_BUNDLE_DIR"
 
@@ -252,50 +252,16 @@ VM_VERSION="${VM_VERSION:-$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/nu
 # CDN base URL for VM image downloads
 VM_BASE_URL="${VM_BASE_URL:-https://dl.helix.ml/vm}"
 
-generate_manifest() {
-    local manifest_files="["
-    local first=true
-
-    for img_name in disk.qcow2 zfs-data.qcow2 efi_vars.fd; do
-        local img_path="${VM_DIR}/${img_name}"
-        if [ -f "$img_path" ]; then
-            local size
-            size=$(stat -f%z "$img_path" 2>/dev/null || stat -c%s "$img_path" 2>/dev/null || echo "0")
-            local sha
-            sha=$(shasum -a 256 "$img_path" | awk '{print $1}')
-            if [ "$first" = true ]; then
-                first=false
-            else
-                manifest_files+=","
-            fi
-            manifest_files+=$(printf '\n    {"name": "%s", "size": %s, "sha256": "%s"}' "$img_name" "$size" "$sha")
-        fi
-    done
-    manifest_files+=$'\n  ]'
-
-    cat > "${VM_BUNDLE_DIR}/vm-manifest.json" << MANIFEST_EOF
-{
-  "version": "${VM_VERSION}",
-  "base_url": "${VM_BASE_URL}",
-  "files": ${manifest_files}
-}
-MANIFEST_EOF
-}
-
-if [ -f "${VM_DIR}/disk.qcow2" ] && [ -f "${VM_DIR}/zfs-data.qcow2" ]; then
-    log "  Computing SHA256 checksums (this may take a moment)..."
-    generate_manifest
-    log "  Generated vm-manifest.json (version: ${VM_VERSION})"
-
-    # Bundle only EFI vars (64MB — small enough to include in the app)
-    if [ -f "${VM_DIR}/efi_vars.fd" ]; then
-        cp "${VM_DIR}/efi_vars.fd" "${VM_BUNDLE_DIR}/efi_vars.fd"
-        log "  Bundled EFI vars ($(du -h "${VM_BUNDLE_DIR}/efi_vars.fd" | awk '{print $1}'))"
-    fi
+# Use pre-generated manifest from upload script if available (has correct compressed sizes/hashes)
+PREBUILT_MANIFEST="${FOR_MAC_DIR}/vm-manifest.json"
+if [ -f "$PREBUILT_MANIFEST" ]; then
+    cp "$PREBUILT_MANIFEST" "${VM_BUNDLE_DIR}/vm-manifest.json"
+    log "  Using pre-built vm-manifest.json (from upload-vm-images.sh)"
+    cat "${VM_BUNDLE_DIR}/vm-manifest.json"
 else
-    log "  WARNING: VM images not found at ${VM_DIR}/"
-    log "  Cannot generate manifest. The app will prompt users to download VM images."
-    # Write a placeholder manifest so the app at least knows the CDN URL
+    log "  WARNING: No vm-manifest.json found at ${PREBUILT_MANIFEST}"
+    log "  Run ./scripts/upload-vm-images.sh first to generate it."
+    log "  Writing placeholder manifest..."
     cat > "${VM_BUNDLE_DIR}/vm-manifest.json" << MANIFEST_EOF
 {
   "version": "${VM_VERSION}",
@@ -303,6 +269,12 @@ else
   "files": []
 }
 MANIFEST_EOF
+fi
+
+# Bundle EFI vars (64MB — small enough to include in the app)
+if [ -f "${VM_DIR}/efi_vars.fd" ]; then
+    cp "${VM_DIR}/efi_vars.fd" "${VM_BUNDLE_DIR}/efi_vars.fd"
+    log "  Bundled EFI vars ($(du -h "${VM_BUNDLE_DIR}/efi_vars.fd" | awk '{print $1}'))"
 fi
 
 # =============================================================================
@@ -363,34 +335,49 @@ log "  Fixed dylib paths"
 
 log "Step 7: Signing app bundle (ad-hoc)..."
 
-ENTITLEMENTS="${FOR_MAC_DIR}/build/darwin/entitlements.plist"
+APP_ENTITLEMENTS="${FOR_MAC_DIR}/build/darwin/entitlements-app.plist"
+QEMU_ENTITLEMENTS="${FOR_MAC_DIR}/build/darwin/entitlements.plist"
 
-# Sign inside-out: frameworks → main app → QEMU dylib last
-# QEMU must be signed AFTER the app bundle because --deep strips inner entitlements.
-# QEMU needs its own entitlements since it runs as a separate process (exec.Command).
+# Sign inside-out: frameworks → main app → QEMU binaries last.
+#
+# The main Wails app only needs disable-library-validation (to load bundled frameworks).
+# Restricted entitlements (hypervisor, vm.networking, JIT) go ONLY on the QEMU binaries,
+# which run as a separate process via exec.Command. Applying restricted entitlements to
+# the main app causes SIGKILL on launch ("No matching profile found") on macOS Sequoia+.
 
 for fw_dir in "$FRAMEWORKS_DIR"/*.framework; do
     codesign --force --sign - --timestamp=none "$fw_dir" 2>/dev/null || true
 done
 
-# Sign the main app bundle (--deep signs everything inside)
+# Sign the main app bundle with minimal entitlements (--deep signs everything inside)
 codesign --force --sign - --timestamp=none \
-    --entitlements "$ENTITLEMENTS" \
+    --entitlements "$APP_ENTITLEMENTS" \
     --deep "$APP_BUNDLE" 2>/dev/null || true
 
-# Re-sign QEMU executable + dylib with entitlements AFTER --deep (which strips them)
+# Re-sign QEMU executable + dylib with full entitlements AFTER --deep (which strips them)
 # The wrapper (qemu-system-aarch64) is the actual process that needs:
 #   - com.apple.security.hypervisor (HVF acceleration)
 #   - com.apple.security.cs.allow-jit (TCG JIT)
 #   - com.apple.security.cs.allow-unsigned-executable-memory (code generation)
 codesign --force --sign - --timestamp=none \
-    --entitlements "$ENTITLEMENTS" \
+    --entitlements "$QEMU_ENTITLEMENTS" \
     "$MACOS_DIR/libqemu-aarch64-softmmu.dylib" 2>/dev/null || true
 codesign --force --sign - --timestamp=none \
-    --entitlements "$ENTITLEMENTS" \
+    --entitlements "$QEMU_ENTITLEMENTS" \
     "$MACOS_DIR/qemu-system-aarch64" 2>/dev/null || true
 
 log "  Ad-hoc signing complete"
+
+# Re-sign with Developer ID if .env.signing exists
+# QEMU needs restricted entitlements (hypervisor, JIT) which require
+# a Developer ID signature on macOS Sequoia+. Ad-hoc signing won't work.
+SIGNING_ENV="${FOR_MAC_DIR}/.env.signing"
+SIGN_SCRIPT="${SCRIPT_DIR}/sign-app.sh"
+if [ -f "$SIGNING_ENV" ] && [ -f "$SIGN_SCRIPT" ]; then
+    log ""
+    log "Step 7b: Re-signing with Developer ID (from .env.signing)..."
+    bash "$SIGN_SCRIPT"
+fi
 
 # =============================================================================
 # Summary

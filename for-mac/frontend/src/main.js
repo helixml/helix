@@ -2,12 +2,8 @@ import './style.css';
 import {
     GetVMStatus,
     GetVMConfig,
-    SetVMConfig,
     StartVM,
     StopVM,
-    GetEncoderStats,
-    GetClientCount,
-    CheckDependencies,
     IsVMImageReady,
     OpenHelixUI,
     GetHelixURL,
@@ -32,9 +28,6 @@ let state = {
     currentView: 'home',
     vmStatus: { state: 'stopped' },
     vmConfig: {},
-    encoderStats: {},
-    clientCount: 0,
-    dependencies: {},
     vmImageReady: false,
     systemInfo: {},
     helixURL: '',
@@ -52,8 +45,7 @@ let state = {
 async function init() {
     // Load initial state
     try {
-        const [deps, imageReady, sysInfo, vmStatus, vmConfig, helixURL, settings, licenseStatus] = await Promise.all([
-            CheckDependencies(),
+        const [imageReady, sysInfo, vmStatus, vmConfig, helixURL, settings, licenseStatus] = await Promise.all([
             IsVMImageReady(),
             GetSystemInfo(),
             GetVMStatus(),
@@ -62,7 +54,6 @@ async function init() {
             GetSettings(),
             GetLicenseStatus(),
         ]);
-        state.dependencies = deps;
         state.vmImageReady = imageReady;
         state.needsDownload = !imageReady;
         state.systemInfo = sysInfo;
@@ -79,7 +70,7 @@ async function init() {
     EventsOn('vm:status', (status) => {
         state.vmStatus = status;
         updateSidebarStatus();
-        if (state.currentView === 'vm') renderContent();
+        if (state.currentView === 'vm' || state.currentView === 'home') renderContent();
     });
 
     // Subscribe to download progress events
@@ -90,7 +81,7 @@ async function init() {
             state.vmImageReady = true;
             state.downloadProgress = null;
         }
-        if (state.currentView === 'vm') renderContent();
+        if (state.currentView === 'vm' || state.currentView === 'home') renderContent();
     });
 
     // Set up sidebar navigation
@@ -115,15 +106,11 @@ async function pollStats() {
         updateSidebarStatus();
 
         if (state.vmStatus.state === 'running') {
-            const [stats, clients, zfs, disk, scanout] = await Promise.all([
-                GetEncoderStats(),
-                GetClientCount(),
+            const [zfs, disk, scanout] = await Promise.all([
                 GetZFSStats(),
                 GetDiskUsage(),
                 GetScanoutStats(),
             ]);
-            state.encoderStats = stats;
-            state.clientCount = clients;
             state.zfsStats = zfs;
             state.diskUsage = disk;
             state.scanoutStats = scanout;
@@ -176,6 +163,7 @@ function renderContent() {
     switch (state.currentView) {
         case 'home':
             content.innerHTML = renderHomeView();
+            attachHomeHandlers();
             break;
         case 'vm':
             content.innerHTML = renderVMView();
@@ -194,6 +182,7 @@ function renderContent() {
 // ---- Home View ----
 
 function renderHomeView() {
+    // Show Helix UI when VM is running and API is ready
     if (state.vmStatus.state === 'running' && state.vmStatus.api_ready) {
         return `
             <div class="home-view">
@@ -202,25 +191,109 @@ function renderHomeView() {
         `;
     }
 
+    // First boot: need to download VM images
+    if (state.needsDownload) {
+        return `
+            <div class="home-view">
+                <div class="home-placeholder">
+                    <img src="/helix-logo.png" alt="Helix" class="home-logo">
+                    <h2>Welcome to Helix</h2>
+                    <p>Download the VM image to get started. This is a one-time download of approximately 18 GB.</p>
+                    ${renderHomeDownloadSection()}
+                </div>
+            </div>
+        `;
+    }
+
+    // VM images ready but not running
     return `
         <div class="home-view">
             <div class="home-placeholder">
-                <svg viewBox="0 0 48 48" width="48" height="48">
-                    <polygon points="24,4 44,16 44,32 24,44 4,32 4,16" fill="none" stroke="currentColor" stroke-width="2.5"/>
-                </svg>
+                <img src="/helix-logo.png" alt="Helix" class="home-logo">
                 <h2>Helix Desktop</h2>
-                <p>Start the VM to access the Helix web interface. The full Helix UI will be embedded here once the VM is running.</p>
                 ${state.vmStatus.state === 'stopped' ? `
-                    <button class="btn btn-primary" onclick="document.querySelector('[data-view=vm]').click()">Go to VM</button>
+                    <p>Ready to start.</p>
+                    <button class="btn btn-primary" id="homeStartVMBtn">Start Helix</button>
                 ` : state.vmStatus.state === 'starting' ? `
                     <div class="status-badge starting">
                         <span class="status-indicator starting"></span>
-                        Starting VM...
+                        Starting...
                     </div>
+                ` : state.vmStatus.state === 'error' ? `
+                    <div class="error-msg">${state.vmStatus.error_msg || 'VM failed to start'}</div>
+                    <button class="btn btn-primary" id="homeStartVMBtn">Retry</button>
                 ` : ''}
             </div>
         </div>
     `;
+}
+
+function renderHomeDownloadSection() {
+    const p = state.downloadProgress;
+
+    if (p && (p.status === 'downloading' || p.status === 'verifying')) {
+        return `
+            <div class="home-download-progress">
+                <div class="download-file-info">
+                    <span class="download-filename">${p.file || ''}</span>
+                    <span class="download-size">${formatBytes(p.bytes_done || 0)} / ${formatBytes(p.bytes_total || 0)}</span>
+                </div>
+                <div class="progress-bar download-progress">
+                    <div class="progress-fill teal" style="width: ${p.percent || 0}%;"></div>
+                </div>
+                <div class="download-stats">
+                    <span class="download-speed">${p.speed || '--'}</span>
+                    <span class="download-eta">${p.status === 'verifying' ? 'Verifying...' : `${(p.percent || 0).toFixed(1)}%`}</span>
+                </div>
+                <button class="btn btn-secondary btn-sm" id="homeCancelDownloadBtn" style="margin-top: 12px;">Cancel</button>
+            </div>
+        `;
+    }
+
+    if (p && p.status === 'error') {
+        return `
+            <div class="error-msg" style="margin-bottom: 12px;">${p.error || 'Download failed'}</div>
+            <button class="btn btn-primary" id="homeStartDownloadBtn">Retry Download</button>
+        `;
+    }
+
+    return `<button class="btn btn-primary" id="homeStartDownloadBtn">Download VM Image</button>`;
+}
+
+function attachHomeHandlers() {
+    const startVMBtn = document.getElementById('homeStartVMBtn');
+    const startDownloadBtn = document.getElementById('homeStartDownloadBtn');
+    const cancelDownloadBtn = document.getElementById('homeCancelDownloadBtn');
+
+    if (startVMBtn) {
+        startVMBtn.addEventListener('click', async () => {
+            startVMBtn.disabled = true;
+            startVMBtn.textContent = 'Starting...';
+            try { await StartVM(); } catch (err) {
+                console.error('Start VM failed:', err);
+                showToast('Failed to start VM');
+            }
+        });
+    }
+
+    if (startDownloadBtn) {
+        startDownloadBtn.addEventListener('click', async () => {
+            startDownloadBtn.disabled = true;
+            startDownloadBtn.textContent = 'Starting download...';
+            try { await DownloadVMImages(); } catch (err) {
+                console.error('Download failed:', err);
+                showToast('Failed to start download');
+            }
+        });
+    }
+
+    if (cancelDownloadBtn) {
+        cancelDownloadBtn.addEventListener('click', () => {
+            CancelDownload();
+            state.downloadProgress = null;
+            renderContent();
+        });
+    }
 }
 
 // ---- VM View ----
@@ -228,7 +301,6 @@ function renderHomeView() {
 function renderVMView() {
     const s = state.vmStatus;
     const config = state.vmConfig;
-    const stats = state.encoderStats;
     const stateLabel = s.state.charAt(0).toUpperCase() + s.state.slice(1);
 
     // Show download card if VM images need downloading
@@ -286,33 +358,6 @@ function renderVMView() {
                         ${s.state === 'running' && s.api_ready ?
                             `<button class="btn btn-primary" id="openUIBtn">Open Helix UI</button>` : ''
                         }
-                    </div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-header">
-                    <h2>Video Encoding</h2>
-                    <span class="card-badge" style="color: var(--text-faded);">VideoToolbox H.264</span>
-                </div>
-                <div class="card-body">
-                    <div class="stats-grid">
-                        <div class="stat-item">
-                            <div class="stat-label">FPS</div>
-                            <div class="stat-value teal">${(stats.current_fps || 0).toFixed(1)}</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Clients</div>
-                            <div class="stat-value">${state.clientCount}</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Frames Encoded</div>
-                            <div class="stat-value small">${formatNumber(stats.frames_encoded || 0)}</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Dropped</div>
-                            <div class="stat-value small ${(stats.frames_dropped || 0) > 0 ? 'warning' : ''}">${stats.frames_dropped || 0}</div>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -467,7 +512,7 @@ function renderLicenseSection() {
                         <button class="btn btn-primary" id="activateLicenseBtn">Activate License</button>
                     </div>
                     <div class="license-links">
-                        <a href="#" id="getLicenseLink" class="license-link">Get a license at deploy.helix.ml</a>
+                        <a href="#" id="getLicenseLink" class="license-link">Get a license at helix.ml</a>
                     </div>
                     <div id="licenseError" class="error-msg" style="display: none; margin-top: 8px;"></div>
                 </div>
@@ -475,7 +520,7 @@ function renderLicenseSection() {
         `;
     }
 
-    // no_trial — show trial start button
+    // no_trial — show trial start + license key entry
     return `
         <div class="card license-card">
             <div class="card-header">
@@ -483,18 +528,20 @@ function renderLicenseSection() {
             </div>
             <div class="card-body">
                 <p class="license-description">
-                    Start a free 24-hour trial to try Helix Desktop, or enter a license key.
+                    Enter your license key to activate Helix Desktop, or start a free 24-hour trial.
                 </p>
-                <div class="btn-group" style="margin-top: 12px;">
-                    <button class="btn btn-primary" id="startTrialBtn">Start 24-Hour Free Trial</button>
+                <div class="form-group" style="margin-top: 16px;">
+                    <label class="form-label" for="licenseKeyInput">License Key</label>
+                    <input class="form-input mono" id="licenseKeyInput" type="text" placeholder="Paste your license key here...">
+                </div>
+                <div class="btn-group" style="margin-top: 8px;">
+                    <button class="btn btn-primary" id="activateLicenseBtn">Activate License</button>
+                    <a href="#" id="getLicenseLink" class="btn btn-secondary">Buy a License</a>
                 </div>
                 <div style="margin-top: 16px; border-top: 1px solid var(--border); padding-top: 16px;">
-                    <div class="form-group">
-                        <label class="form-label" for="licenseKeyInput">Or enter a license key</label>
-                        <input class="form-input mono" id="licenseKeyInput" type="text" placeholder="Paste your license key here...">
-                    </div>
+                    <p class="license-description">No license key? Try it free for 24 hours.</p>
                     <div class="btn-group" style="margin-top: 8px;">
-                        <button class="btn btn-secondary" id="activateLicenseBtn">Activate License</button>
+                        <button class="btn btn-secondary" id="startTrialBtn">Start 24-Hour Free Trial</button>
                     </div>
                 </div>
                 <div id="licenseError" class="error-msg" style="display: none; margin-top: 8px;"></div>
@@ -654,7 +701,7 @@ function attachVMHandlers() {
         getLicenseLink.addEventListener('click', (e) => {
             e.preventDefault();
             // Use Wails to open in default browser
-            window.open('https://deploy.helix.ml/licenses/new', '_blank');
+            window.open('https://helix.ml/licenses', '_blank');
         });
     }
 }
@@ -840,12 +887,12 @@ function renderSettingsView() {
                         <div class="form-group">
                             <label class="form-label" for="settingCPUs">CPU Cores</label>
                             <input class="form-input" id="settingCPUs" type="text" value="${s.vm_cpus || 4}" placeholder="4">
-                            <div class="form-hint">Number of vCPUs allocated to the VM</div>
+                            <div class="form-hint">vCPUs allocated to the VM</div>
                         </div>
                         <div class="form-group">
                             <label class="form-label" for="settingMemory">Memory (MB)</label>
                             <input class="form-input" id="settingMemory" type="text" value="${s.vm_memory_mb || 8192}" placeholder="8192">
-                            <div class="form-hint">RAM in megabytes (e.g., 8192 = 8 GB)</div>
+                            <div class="form-hint">RAM in megabytes (8192 = 8 GB)</div>
                         </div>
                     </div>
                     <div class="form-group">
@@ -857,7 +904,7 @@ function renderSettingsView() {
 
             <div class="card">
                 <div class="card-header">
-                    <h2>Network</h2>
+                    <h2>Network Ports</h2>
                 </div>
                 <div class="card-body">
                     <div class="form-row">
@@ -869,11 +916,6 @@ function renderSettingsView() {
                             <label class="form-label" for="settingAPI">API Port</label>
                             <input class="form-input" id="settingAPI" type="text" value="${s.api_port || 8080}" placeholder="8080">
                         </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" for="settingVideo">Video Port</label>
-                        <input class="form-input" id="settingVideo" type="text" value="${s.video_port || 8765}" placeholder="8765">
-                        <div class="form-hint">WebSocket port for video streaming</div>
                     </div>
                 </div>
             </div>
@@ -898,7 +940,7 @@ function attachSettingsHandlers() {
                 vm_disk_path: document.getElementById('settingDisk').value,
                 ssh_port: parseInt(document.getElementById('settingSSH').value) || 2222,
                 api_port: parseInt(document.getElementById('settingAPI').value) || 8080,
-                video_port: parseInt(document.getElementById('settingVideo').value) || 8765,
+                video_port: state.settings.video_port || 8765,
                 auto_start_vm: false,
             };
 

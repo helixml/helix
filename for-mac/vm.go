@@ -151,34 +151,82 @@ func (vm *VMManager) getZFSDiskPath() string {
 func (vm *VMManager) ensureVMExtracted() error {
 	vmDir := vm.getVMDir()
 	rootDisk := vm.getVMImagePath()
-	zfsDisk := vm.getZFSDiskPath()
 
-	// If both disks exist, we're good
-	if _, err := os.Stat(rootDisk); err == nil {
-		if _, err := os.Stat(zfsDisk); err == nil {
-			return nil
-		}
-	}
+	// Root disk is required (downloaded from CDN)
+	if _, err := os.Stat(rootDisk); err != nil {
+		log.Printf("VM root disk not found at %s — download required", vmDir)
 
-	log.Printf("VM images not found at %s — download required", vmDir)
-
-	// Copy EFI vars from bundle if available (they're small, ~64MB, and still bundled)
-	bundlePath := vm.getAppBundlePath()
-	if bundlePath != "" {
-		bundledEFI := filepath.Join(bundlePath, "Contents", "Resources", "vm", "efi_vars.fd")
-		efiVars := filepath.Join(vmDir, "efi_vars.fd")
-		if _, err := os.Stat(efiVars); os.IsNotExist(err) {
-			if _, err := os.Stat(bundledEFI); err == nil {
-				os.MkdirAll(vmDir, 0755)
-				log.Printf("Copying EFI vars from bundle...")
-				if err := copyFile(bundledEFI, efiVars); err != nil {
-					log.Printf("Warning: failed to copy EFI vars: %v", err)
+		// Copy EFI vars from bundle if available (they're small, ~64MB, and still bundled)
+		bundlePath := vm.getAppBundlePath()
+		if bundlePath != "" {
+			bundledEFI := filepath.Join(bundlePath, "Contents", "Resources", "vm", "efi_vars.fd")
+			efiVars := filepath.Join(vmDir, "efi_vars.fd")
+			if _, err := os.Stat(efiVars); os.IsNotExist(err) {
+				if _, err := os.Stat(bundledEFI); err == nil {
+					os.MkdirAll(vmDir, 0755)
+					log.Printf("Copying EFI vars from bundle...")
+					if err := copyFile(bundledEFI, efiVars); err != nil {
+						log.Printf("Warning: failed to copy EFI vars: %v", err)
+					}
 				}
 			}
 		}
+
+		return ErrVMImagesNotDownloaded
 	}
 
-	return ErrVMImagesNotDownloaded
+	// ZFS data disk is created locally on first boot (no need to download)
+	zfsDisk := vm.getZFSDiskPath()
+	if _, err := os.Stat(zfsDisk); os.IsNotExist(err) {
+		log.Printf("Creating ZFS data disk at %s (128 GB thin-provisioned)...", zfsDisk)
+		os.MkdirAll(vmDir, 0755)
+		if err := vm.createEmptyQcow2(zfsDisk, "128G"); err != nil {
+			return fmt.Errorf("failed to create ZFS data disk: %w", err)
+		}
+		log.Printf("ZFS data disk created")
+	}
+
+	return nil
+}
+
+// createEmptyQcow2 creates an empty thin-provisioned qcow2 image using qemu-img.
+func (vm *VMManager) createEmptyQcow2(path, size string) error {
+	qemuImg := vm.findQEMUImg()
+	if qemuImg == "" {
+		return fmt.Errorf("qemu-img not found — cannot create disk image")
+	}
+	cmd := exec.Command(qemuImg, "create", "-f", "qcow2", path, size)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// findQEMUImg locates the qemu-img binary. Search order:
+//  1. Same directory as the QEMU binary (app bundle or PATH)
+//  2. Homebrew: /opt/homebrew/bin/qemu-img
+//  3. System PATH
+func (vm *VMManager) findQEMUImg() string {
+	// Check next to the QEMU binary
+	qemuPath := vm.findQEMUBinary()
+	if qemuPath != "" {
+		qemuImg := filepath.Join(filepath.Dir(qemuPath), "qemu-img")
+		if _, err := os.Stat(qemuImg); err == nil {
+			return qemuImg
+		}
+	}
+
+	// Homebrew
+	if _, err := os.Stat("/opt/homebrew/bin/qemu-img"); err == nil {
+		return "/opt/homebrew/bin/qemu-img"
+	}
+
+	// System PATH
+	path, err := exec.LookPath("qemu-img")
+	if err == nil {
+		return path
+	}
+
+	return ""
 }
 
 // copyFile copies a file from src to dst using streaming (no full file in memory)
@@ -366,6 +414,8 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
+	sshReady := false
+	zfsInitialized := false
 	videoReady := false
 	apiReady := false
 
@@ -374,6 +424,25 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			// Wait for SSH first (needed for ZFS init)
+			if !sshReady {
+				conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", vm.config.SSHPort), time.Second)
+				if err == nil {
+					conn.Close()
+					sshReady = true
+					log.Printf("VM SSH is ready")
+				}
+			}
+
+			// Initialize ZFS pool via SSH if SSH is up but ZFS not yet done
+			if sshReady && !zfsInitialized {
+				if err := vm.initZFSPool(); err != nil {
+					log.Printf("ZFS init not ready yet: %v", err)
+				} else {
+					zfsInitialized = true
+				}
+			}
+
 			// Check if video stream port is responding
 			if !videoReady {
 				conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", vm.config.VideoPort), time.Second)
@@ -405,6 +474,49 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// initZFSPool initializes the ZFS pool on the data disk via SSH.
+// This is idempotent — if the pool already exists, it's a no-op.
+func (vm *VMManager) initZFSPool() error {
+	script := `
+		if sudo zpool list helix 2>/dev/null; then
+			echo 'ZFS pool helix already exists'
+		else
+			# Find the data disk (second virtio disk, typically /dev/vdb or /dev/vdc)
+			DATA_DISK=""
+			for disk in /dev/vdb /dev/vdc /dev/vdd; do
+				if [ -b "$disk" ] && ! mount | grep -q "$disk"; then
+					DATA_DISK="$disk"
+					break
+				fi
+			done
+			if [ -z "$DATA_DISK" ]; then
+				echo 'ERROR: No unmounted data disk found'
+				exit 1
+			fi
+			echo "Creating ZFS pool on $DATA_DISK..."
+			sudo zpool create -f helix "$DATA_DISK"
+		fi
+		# Ensure datasets exist
+		sudo zfs list helix/workspaces 2>/dev/null || sudo zfs create -o dedup=on -o compression=lz4 -o atime=off helix/workspaces
+		sudo zfs list helix/docker 2>/dev/null || sudo zfs create -o compression=lz4 -o atime=off helix/docker
+		echo 'ZFS ready'
+	`
+	cmd := exec.Command("ssh",
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "ConnectTimeout=3",
+		"-p", fmt.Sprintf("%d", vm.config.SSHPort),
+		"helix@localhost",
+		script,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("SSH command failed: %w (output: %s)", err, string(out))
+	}
+	log.Printf("ZFS init: %s", string(out))
+	return nil
 }
 
 // Stop stops the VM gracefully

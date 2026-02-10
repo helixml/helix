@@ -6,3 +6,4 @@ helix-desktop
 *.dylib
 *.a
 .env.signing
+.env.r2

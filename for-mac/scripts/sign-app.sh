@@ -22,7 +22,8 @@ FOR_MAC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 APP_BUNDLE_NAME="Helix"
 APP_BUNDLE="${FOR_MAC_DIR}/build/bin/${APP_BUNDLE_NAME}.app"
-ENTITLEMENTS="${FOR_MAC_DIR}/build/darwin/entitlements.plist"
+APP_ENTITLEMENTS="${FOR_MAC_DIR}/build/darwin/entitlements-app.plist"
+QEMU_ENTITLEMENTS="${FOR_MAC_DIR}/build/darwin/entitlements.plist"
 IDENTITY="-"  # Ad-hoc by default
 NOTARIZE=false
 APPLE_ID=""
@@ -66,8 +67,12 @@ if [ ! -d "$APP_BUNDLE" ]; then
     exit 1
 fi
 
-if [ ! -f "$ENTITLEMENTS" ]; then
-    echo "ERROR: Entitlements file not found at: $ENTITLEMENTS"
+if [ ! -f "$QEMU_ENTITLEMENTS" ]; then
+    echo "ERROR: QEMU entitlements file not found at: $QEMU_ENTITLEMENTS"
+    exit 1
+fi
+if [ ! -f "$APP_ENTITLEMENTS" ]; then
+    echo "ERROR: App entitlements file not found at: $APP_ENTITLEMENTS"
     exit 1
 fi
 
@@ -105,8 +110,8 @@ log "  Signed $FRAMEWORK_COUNT frameworks"
 
 log "Step 2: Signing main app bundle..."
 
-codesign "${SIGN_OPTS[@]}" --entitlements "$ENTITLEMENTS" --deep "$APP_BUNDLE"
-log "  Signed app bundle"
+codesign "${SIGN_OPTS[@]}" --entitlements "$APP_ENTITLEMENTS" --deep "$APP_BUNDLE"
+log "  Signed app bundle (minimal entitlements)"
 
 # =============================================================================
 # Step 3: Re-sign QEMU dylib with entitlements
@@ -121,11 +126,11 @@ QEMU_DYLIB="${MACOS_DIR}/libqemu-aarch64-softmmu.dylib"
 QEMU_WRAPPER="${MACOS_DIR}/qemu-system-aarch64"
 
 if [ -f "$QEMU_DYLIB" ]; then
-    codesign "${SIGN_OPTS[@]}" --entitlements "$ENTITLEMENTS" "$QEMU_DYLIB"
+    codesign "${SIGN_OPTS[@]}" --entitlements "$QEMU_ENTITLEMENTS" "$QEMU_DYLIB"
     log "  Signed QEMU dylib"
 fi
 if [ -f "$QEMU_WRAPPER" ]; then
-    codesign "${SIGN_OPTS[@]}" --entitlements "$ENTITLEMENTS" "$QEMU_WRAPPER"
+    codesign "${SIGN_OPTS[@]}" --entitlements "$QEMU_ENTITLEMENTS" "$QEMU_WRAPPER"
     log "  Signed QEMU wrapper with entitlements"
 else
     log "  WARNING: QEMU wrapper executable not found"

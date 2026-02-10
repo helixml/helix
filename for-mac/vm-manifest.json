@@ -1,0 +1,8 @@
+{
+  "version": "2012d69a5",
+  "base_url": "https://dl.helix.ml/vm",
+  "files": [
+    {"name": "disk.qcow2", "size": 7080706048, "sha256": "f5523fa1673333d735637b049c07b21341097ab9beb3730bbca40f83f1d95f5a"},
+    {"name": "efi_vars.fd", "size": 67108864, "sha256": "fa011b56a0214b655bdcec2f71d273cd12c5ef4d5740f6d1d70f4a8928f055d6"}
+  ]
+}
