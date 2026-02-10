@@ -1064,47 +1064,47 @@ export default function Onboarding() {
       sx={{
         position: 'fixed',
         inset: 0,
-        bgcolor: BG,
+        bgcolor: '#0a0a14',
         zIndex: 1300,
         display: 'flex',
         justifyContent: 'center',
-        alignItems: 'flex-start',
-        overflowY: 'auto',
-        pt: { xs: 4, md: 6 },
-        pb: 6,
+        alignItems: 'center',
+        p: { xs: 2, md: 4 },
       }}
     >
-      {/* Skip button */}
-      <IconButton
-        onClick={handleSkip}
-        disabled={skipping}
-        sx={{
-          position: 'fixed',
-          top: 16,
-          right: 16,
-          color: 'rgba(255,255,255,0.2)',
-          '&:hover': { color: 'rgba(255,255,255,0.5)', bgcolor: 'rgba(255,255,255,0.04)' },
-        }}
-      >
-        <CloseIcon sx={{ fontSize: 20 }} />
-      </IconButton>
-
       <Box
         sx={{
           width: '100%',
-          maxWidth: 580,
-          px: { xs: 2, md: 0 },
+          maxWidth: 620,
+          maxHeight: '90vh',
+          bgcolor: BG,
+          borderRadius: 3,
+          border: `1px solid rgba(255,255,255,0.08)`,
+          boxShadow: '0 24px 80px rgba(0,0,0,0.6), 0 0 1px rgba(255,255,255,0.1)',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
         }}
       >
-        {/* Header */}
-        <Fade in timeout={600}>
-          <Box sx={{ mb: 5 }}>
+        {/* Header bar */}
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            px: { xs: 2.5, md: 3.5 },
+            pt: { xs: 2.5, md: 3 },
+            pb: 0,
+            flexShrink: 0,
+          }}
+        >
+          <Box>
             <Typography
               sx={{
                 color: '#fff',
                 fontWeight: 700,
                 mb: 0.5,
-                fontSize: { xs: '1.5rem', md: '1.8rem' },
+                fontSize: { xs: '1.3rem', md: '1.5rem' },
                 letterSpacing: '-0.02em',
               }}
             >
@@ -1113,97 +1113,130 @@ export default function Onboarding() {
             <Typography
               sx={{
                 color: 'rgba(255,255,255,0.35)',
-                fontSize: '0.88rem',
+                fontSize: '0.85rem',
               }}
             >
-              Let's set up for success 😉
+              Let's set up for success
             </Typography>
           </Box>
-        </Fade>
-
-        {/* Steps */}
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {STEPS.map((step, index) => {
-            const completed = isStepCompleted(index)
-            const active = isStepActive(index)
-            const locked = isStepLocked(index)
-
-            return (
-              <Fade in timeout={600 + index * 150} key={index}>
-                <Box
-                  sx={{
-                    px: { xs: 2.5, md: 3 },
-                    py: { xs: 2, md: 2.5 },
-                    borderRadius: 2,
-                    border: `1px solid ${active ? CARD_BORDER_ACTIVE : CARD_BORDER}`,
-                    bgcolor: active ? CARD_BG_ACTIVE : completed ? CARD_BG : 'transparent',
-                    transition: 'all 0.3s ease',
-                    opacity: locked ? 0.35 : 1,
-                    ...(active && {
-                      boxShadow: `0 0 24px rgba(0, 232, 145, 0.04)`,
-                    }),
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    {renderStepIcon(index)}
-                    <Box sx={{ flex: 1 }}>
-                      <Typography
-                        sx={{
-                          color: completed || active ? '#fff' : 'rgba(255,255,255,0.35)',
-                          fontWeight: 600,
-                          fontSize: '0.88rem',
-                        }}
-                      >
-                        {step.title}
-                      </Typography>
-                      <Typography
-                        sx={{
-                          color: 'rgba(255,255,255,0.28)',
-                          fontSize: '0.76rem',
-                          mt: 0.2,
-                        }}
-                      >
-                        {step.subtitle}
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  {active && index > 0 && renderStepContent(index)}
-                </Box>
-              </Fade>
-            )
-          })}
+          <Button
+            onClick={handleSkip}
+            disabled={skipping}
+            variant="text"
+            sx={{
+              color: 'rgba(255,255,255,0.5)',
+              textTransform: 'none',
+              fontSize: '0.82rem',
+              fontWeight: 500,
+              px: 1.5,
+              py: 0.5,
+              borderRadius: 1.5,
+              border: '1px solid rgba(255,255,255,0.1)',
+              '&:hover': {
+                color: '#fff',
+                bgcolor: 'rgba(255,255,255,0.06)',
+                borderColor: 'rgba(255,255,255,0.2)',
+              },
+            }}
+          >
+            {skipping ? 'Skipping...' : 'Skip setup'}
+          </Button>
         </Box>
 
-        <BrowseProvidersDialog
-          open={linkRepoDialogOpen}
-          onClose={() => setLinkRepoDialogOpen(false)}
-          onSelectRepository={handleBrowseSelectRepository}
-          isLinking={linkingRepo}
-        />
+        {/* Scrollable content */}
+        <Box
+          sx={{
+            flex: 1,
+            overflowY: 'auto',
+            px: { xs: 2.5, md: 3.5 },
+            pt: 3,
+            pb: 3,
+          }}
+        >
+          {/* Steps */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {STEPS.map((step, index) => {
+              const completed = isStepCompleted(index)
+              const active = isStepActive(index)
+              const locked = isStepLocked(index)
 
-        {/* All done message */}
-        {completedSteps.size === STEPS.length && (
-          <Fade in timeout={600}>
-            <Box sx={{ mt: 4, textAlign: 'center' }}>
-              <Typography sx={{ color: ACCENT, fontWeight: 600, fontSize: '0.95rem', mb: 1.5 }}>
-                You're all set!
-              </Typography>
-              <Button
-                variant="contained"
-                onClick={handleComplete}
-                sx={{
-                  ...btnSx,
-                  px: 4,
-                  py: 1,
-                  fontSize: '0.85rem',
-                }}
-              >
-                Go to your workspace
-              </Button>
-            </Box>
-          </Fade>
-        )}
+              return (
+                <Fade in timeout={600 + index * 150} key={index}>
+                  <Box
+                    sx={{
+                      px: { xs: 2.5, md: 3 },
+                      py: { xs: 2, md: 2.5 },
+                      borderRadius: 2,
+                      border: `1px solid ${active ? CARD_BORDER_ACTIVE : CARD_BORDER}`,
+                      bgcolor: active ? CARD_BG_ACTIVE : completed ? CARD_BG : 'transparent',
+                      transition: 'all 0.3s ease',
+                      opacity: locked ? 0.35 : 1,
+                      ...(active && {
+                        boxShadow: `0 0 24px rgba(0, 232, 145, 0.04)`,
+                      }),
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      {renderStepIcon(index)}
+                      <Box sx={{ flex: 1 }}>
+                        <Typography
+                          sx={{
+                            color: completed || active ? '#fff' : 'rgba(255,255,255,0.35)',
+                            fontWeight: 600,
+                            fontSize: '0.88rem',
+                          }}
+                        >
+                          {step.title}
+                        </Typography>
+                        <Typography
+                          sx={{
+                            color: 'rgba(255,255,255,0.28)',
+                            fontSize: '0.76rem',
+                            mt: 0.2,
+                          }}
+                        >
+                          {step.subtitle}
+                        </Typography>
+                      </Box>
+                    </Box>
+
+                    {active && index > 0 && renderStepContent(index)}
+                  </Box>
+                </Fade>
+              )
+            })}
+          </Box>
+
+          <BrowseProvidersDialog
+            open={linkRepoDialogOpen}
+            onClose={() => setLinkRepoDialogOpen(false)}
+            onSelectRepository={handleBrowseSelectRepository}
+            isLinking={linkingRepo}
+          />
+
+          {/* All done message */}
+          {completedSteps.size === STEPS.length && (
+            <Fade in timeout={600}>
+              <Box sx={{ mt: 4, textAlign: 'center' }}>
+                <Typography sx={{ color: ACCENT, fontWeight: 600, fontSize: '0.95rem', mb: 1.5 }}>
+                  You're all set!
+                </Typography>
+                <Button
+                  variant="contained"
+                  onClick={handleComplete}
+                  sx={{
+                    ...btnSx,
+                    px: 4,
+                    py: 1,
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  Go to your workspace
+                </Button>
+              </Box>
+            </Fade>
+          )}
+        </Box>
       </Box>
     </Box>
   )
