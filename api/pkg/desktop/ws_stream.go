@@ -656,10 +656,11 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Note: gst-vaapi plugin uses GstVaapiDisplay which respects LIBVA_DRIVER_NAME env var.
 		// Unlike gst-va plugin, it doesn't have a render-device property, but we set LIBVA_DRIVER_NAME
 		// in detect-render-node.sh to ensure correct GPU is used.
+		// Note: vaapipostproc doesn't support add-borders property (only in newer vapostproc)
 		parts = append(parts,
-			"vaapipostproc add-borders=true",
+			"vaapipostproc",
 			fmt.Sprintf("video/x-raw,format=NV12,width=%d,height=%d,pixel-aspect-ratio=1/1", v.config.Width, v.config.Height),
-			fmt.Sprintf("vaapih264enc tune=low-latency rate-control=cqp keyframe-period=%d",
+			fmt.Sprintf("vaapih264enc rate-control=cqp keyframe-period=%d",
 				v.getEffectiveGOPSize()),
 		)
 		// Log if render device is configured (even though legacy plugin uses env var instead)
