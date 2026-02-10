@@ -142,16 +142,6 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}
 	defer dockerClient.Close()
 
-	// Ensure sandbox0 bridge exists when using the main sandbox dockerd.
-	// This is a defensive measure against the sandbox bridge mysteriously disappearing.
-	// Only do this for the default socket (main dockerd uses sandbox0);
-	// session dockerds use their own hydra{N} bridges.
-	if req.DockerSocket == "" {
-		if err := dm.manager.EnsureSandboxBridge(); err != nil {
-			log.Warn().Err(err).Str("bridge", SandboxBridgeName).Msg("Failed to ensure sandbox bridge, container networking may fail")
-		}
-	}
-
 	// Build container configuration
 	containerConfig := &container.Config{
 		Image:    resolvedImage,
@@ -171,6 +161,10 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 
 	// Ensure mount source directories exist before creating container
 	for _, m := range req.Mounts {
+		// Skip volume mounts (Docker creates named volumes automatically)
+		if m.Type == "volume" {
+			continue
+		}
 		// Skip socket files and runtime directories - they're not directories to create
 		if m.Source == "" ||
 			strings.HasPrefix(m.Source, "/run/") ||
@@ -506,8 +500,7 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *
 	hostConfig := &container.HostConfig{
 		NetworkMode: networkMode,
 		IpcMode:     "host",
-		Privileged:  false,
-		CapAdd:      []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"},
+		Privileged:  req.Privileged,
 		SecurityOpt: []string{"seccomp=unconfined", "apparmor=unconfined"},
 		Resources: container.Resources{
 			DeviceCgroupRules: dm.getDeviceCgroupRules(),
@@ -515,6 +508,12 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *
 				{Name: "nofile", Soft: 65536, Hard: 65536},
 			},
 		},
+	}
+
+	// Only add explicit capabilities when not in privileged mode
+	// (privileged mode already grants all capabilities)
+	if !req.Privileged {
+		hostConfig.CapAdd = []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
 	}
 
 	// Add ExtraHosts so the container can resolve "api" hostname.
@@ -534,8 +533,12 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 	var mounts []mount.Mount
 
 	for _, m := range req.Mounts {
+		mountType := mount.TypeBind
+		if m.Type == "volume" {
+			mountType = mount.TypeVolume
+		}
 		mounts = append(mounts, mount.Mount{
-			Type:     mount.TypeBind,
+			Type:     mountType,
 			Source:   m.Source,
 			Target:   m.Destination,
 			ReadOnly: m.ReadOnly,

@@ -200,7 +200,6 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 		TechnicalDesign:     technicalDesign,
 		ImplementationPlan:  implementationPlan,
 		JustDoItMode:        source.JustDoItMode,
-		UseHostDocker:       source.UseHostDocker,
 		ClonedFromID:        source.ID,
 		ClonedFromProjectID: source.ProjectID,
 		CloneGroupID:        cloneGroupID,

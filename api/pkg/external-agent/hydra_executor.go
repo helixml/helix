@@ -125,8 +125,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	sandboxID := agent.SandboxID
 	if sandboxID == "" {
 		// Find an available sandbox with the required desktop image
-		// If UseHostDocker is set, we need a sandbox with PrivilegedMode enabled
-		sandbox, err := h.store.FindAvailableSandbox(ctx, containerType, agent.UseHostDocker)
+		sandbox, err := h.store.FindAvailableSandbox(ctx, containerType)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find available sandbox: %w", err)
 		}
@@ -135,12 +134,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 			log.Info().
 				Str("sandbox_id", sandboxID).
 				Str("container_type", containerType).
-				Bool("use_host_docker", agent.UseHostDocker).
 				Msg("Auto-selected available sandbox")
 		} else {
-			if agent.UseHostDocker {
-				return nil, fmt.Errorf("no privileged sandbox available (UseHostDocker requires HYDRA_PRIVILEGED_MODE_ENABLED=true on sandbox)")
-			}
 			// Fallback to "local" if no sandbox found (for backwards compatibility)
 			sandboxID = "local"
 			log.Warn().
@@ -270,53 +265,22 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		}
 	}
 
-	// ALWAYS create isolated dockerd for each session (security requirement)
-	// This prevents:
-	// 1. Users breaking each other's containers (docker stop/rm)
-	// 2. Users reading secrets from other containers (docker exec/logs)
-	// 3. Network conflicts from docker-compose with conflicting subnets
-	// 4. Container escape to the sandbox's control plane dockerd
-	// This must happen BEFORE buildMounts so we can pass the correct Docker socket
-	var dockerSocket string
-	{
-		log.Info().
-			Str("session_id", agent.SessionID).
-			Msg("Creating isolated Docker instance via Hydra")
+	// Docker-in-desktop mode: the desktop container runs its own dockerd with a
+	// volume-backed /var/lib/docker. No per-session sibling dockerd or network
+	// bridging needed. This is simpler and supports arbitrary DinD nesting.
+	//
+	// The init script 17-start-dockerd.sh inside the desktop container detects
+	// the volume mount and starts dockerd automatically.
+	log.Info().
+		Str("session_id", agent.SessionID).
+		Msg("Docker-in-desktop mode: desktop will run its own dockerd")
 
-		// NOTE: We always create a per-session dockerd, even when UseHostDocker is true.
-		// This is critical for helix-in-helix mode:
-		// - /var/run/docker.sock → per-session dockerd (for inner control plane)
-		// - /var/run/host-docker.sock → host Docker (for inner sandbox, via buildMounts)
-		//
-		// If we passed UseHostDocker here, Hydra would return the host socket for BOTH,
-		// and there would be no isolation for the inner control plane.
-		dockerReq := &hydra.CreateDockerInstanceRequest{
-			ScopeType: hydra.ScopeTypeSession,
-			ScopeID:   agent.SessionID,
-			UserID:    agent.UserID,
-			// UseHostDocker intentionally NOT passed - we always want a per-session dockerd
-		}
-		dockerResp, err := hydraClient.CreateDockerInstance(ctx, dockerReq)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create isolated Docker instance: %w", err)
-		}
-		dockerSocket = dockerResp.DockerSocket
-
-		log.Info().
-			Str("session_id", agent.SessionID).
-			Str("docker_socket", dockerResp.DockerSocket).
-			Msg("Created isolated Docker instance")
-	}
-
-	// Build mounts - pass the Docker socket so it mounts the correct one
-	mounts := h.buildMounts(agent, workspaceDir, containerType, agent.UseHostDocker, dockerSocket)
+	// Build mounts - includes Docker volume for /var/lib/docker
+	mounts := h.buildMounts(agent, workspaceDir, containerType)
 
 	// Create dev container request
 	// NOTE: GPUVendor is empty - Hydra reads it from its own GPU_VENDOR env var
-	// NOTE: DockerSocket is intentionally NOT passed here. Dev containers are always
-	// created on the sandbox's main dockerd. The per-session Hydra dockerd socket
-	// is MOUNTED into the container (via buildMounts) so users' docker commands
-	// go to their isolated dockerd, but the container itself runs on the main dockerd.
+	// Privileged mode is required for the inner dockerd (overlay2 needs it)
 	req := &hydra.CreateDevContainerRequest{
 		SessionID:     agent.SessionID,
 		Image:         image,
@@ -330,7 +294,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		ContainerType: hydra.DevContainerType(containerType),
 		UserID:        agent.UserID,
 		Network:       "bridge",
-		// DockerSocket intentionally omitted - container created on main dockerd
+		Privileged:    true, // Required for inner dockerd (docker-in-desktop mode)
 	}
 
 	// Create dev container via Hydra
@@ -353,29 +317,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Str("ip_address", resp.IPAddress).
 		Msg("Dev container created successfully via Hydra")
 
-	// Bridge the desktop container to the per-session dockerd's network
-	// This enables the desktop to access containers running on the per-session dockerd
-	// (e.g., docker-compose projects started by the user inside the desktop)
-	bridgeReq := &hydra.BridgeDesktopRequest{
-		SessionID:          agent.SessionID,
-		DesktopContainerID: resp.ContainerID,
-	}
-	bridgeResp, err := hydraClient.BridgeDesktop(ctx, bridgeReq)
-	if err != nil {
-		log.Warn().Err(err).
-			Str("session_id", agent.SessionID).
-			Str("container_id", resp.ContainerID).
-			Msg("Failed to bridge desktop to Hydra network (docker-compose access may not work)")
-		// Don't fail - container is running, bridging is optional for basic functionality
-	} else {
-		log.Info().
-			Str("session_id", agent.SessionID).
-			Str("desktop_ip", bridgeResp.DesktopIP).
-			Str("gateway", bridgeResp.Gateway).
-			Str("subnet", bridgeResp.Subnet).
-			Str("interface", bridgeResp.Interface).
-			Msg("Desktop bridged to Hydra network")
-	}
+	// No bridging needed - desktop runs its own dockerd, so all containers
+	// are on the same Docker network inside the desktop container.
 
 	// Wait for desktop-bridge to be ready before returning
 	// Desktop-bridge takes time to start: waits for D-Bus, Wayland, portal, GStreamer init
@@ -916,12 +859,12 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	return env
 }
 
-// buildMounts builds volume mounts for the container
+// buildMounts builds volume mounts for the container.
+// In docker-in-desktop mode, we mount a Docker named volume for /var/lib/docker
+// instead of mounting a docker.sock from a sibling dockerd.
 // workspaceDir is already a sandbox-local path (e.g., /data/workspaces/spec-tasks/spt_xxx)
 // containerType is "sway", "ubuntu", or "headless"
-// useHostDocker: if true, also mount the host Docker socket for privileged mode
-// dockerSocket: path to the Docker socket to mount (e.g., per-session Hydra socket), empty for default
-func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir string, containerType string, useHostDocker bool, dockerSocket string) []hydra.MountConfig {
+func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir string, containerType string) []hydra.MountConfig {
 	// CRITICAL: Mount workspace at MULTIPLE paths for compatibility:
 	// 1. Same path (/data/workspaces/...) - for Docker wrapper hacks that resolve symlinks
 	// 2. /home/retro/work - so agent tools see a real directory (not a symlink)
@@ -948,23 +891,13 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 		},
 	}
 
-	// Docker socket mount
-	// If dockerSocket is set (from Hydra isolation), use that specific socket.
-	// Otherwise use the default socket (sandbox's main dockerd).
-	// This ensures desktop containers using Hydra Docker isolation get their
-	// per-session dockerd socket, preventing network conflicts when users
-	// run docker-compose inside the desktop.
-	dockerSocketSource := "/var/run/docker.sock"
-	if dockerSocket != "" {
-		dockerSocketSource = dockerSocket
-		log.Debug().
-			Str("docker_socket", dockerSocket).
-			Msg("Using isolated Docker socket for desktop container")
-	}
+	// Docker-in-desktop: mount a named volume for the inner dockerd's data.
+	// The desktop's 17-start-dockerd.sh init script detects this mountpoint
+	// and starts dockerd automatically. No docker.sock mount needed.
 	mounts = append(mounts, hydra.MountConfig{
-		Source:      dockerSocketSource,
-		Destination: "/var/run/docker.sock",
-		ReadOnly:    false,
+		Source:      fmt.Sprintf("docker-data-%s", agent.SessionID),
+		Destination: "/var/lib/docker",
+		Type:        "volume", // Docker named volume, backed by host ext4
 	})
 
 	// For Ubuntu/GNOME containers, create a per-session pipewire directory
@@ -987,17 +920,6 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 		Destination: "/tmp/cores",
 		ReadOnly:    false,
 	})
-
-	// Host Docker socket for privileged mode (Helix-in-Helix development)
-	// When enabled, allows the desktop container to create sandboxes on the host Docker
-	// instead of trying to run DinD-in-DinD (which fails with overlay2 storage driver)
-	if useHostDocker {
-		mounts = append(mounts, hydra.MountConfig{
-			Source:      "/var/run/host-docker.sock",
-			Destination: "/var/run/host-docker.sock",
-			ReadOnly:    false,
-		})
-	}
 
 	return mounts
 }

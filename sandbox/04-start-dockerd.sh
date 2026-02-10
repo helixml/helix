@@ -20,52 +20,16 @@ export PATH="/usr/local/sbin/.iptables-legacy:$PATH"
 echo "Using iptables-legacy for Docker-in-Docker networking compatibility"
 
 # ================================================================================
-# Create custom bridge for sandbox dockerd
-# We use "sandbox0" instead of Docker's default "docker0" bridge to prevent
-# session dockerds from deleting it. Docker's startup code calls
-# removeDefaultBridgeInterface() which specifically targets "docker0".
-# By using a custom bridge name, we're immune to that cleanup logic.
-# See: design/2026-02-06-docker0-veth-reconnection.md
-# ================================================================================
-SANDBOX_BRIDGE="sandbox0"
-SANDBOX_BRIDGE_IP="10.213.0.1/24"
-SANDBOX_SUBNET="10.213.0.0/24"
-
-if ! ip link show "$SANDBOX_BRIDGE" >/dev/null 2>&1; then
-    echo "🌉 Creating bridge $SANDBOX_BRIDGE with IP $SANDBOX_BRIDGE_IP"
-    ip link add name "$SANDBOX_BRIDGE" type bridge
-    ip addr add "$SANDBOX_BRIDGE_IP" dev "$SANDBOX_BRIDGE"
-    ip link set "$SANDBOX_BRIDGE" up
-else
-    echo "✅ Bridge $SANDBOX_BRIDGE already exists"
-    # Ensure it's up and has the correct IP
-    ip link set "$SANDBOX_BRIDGE" up 2>/dev/null || true
-    if ! ip addr show "$SANDBOX_BRIDGE" | grep -q "10.213.0.1"; then
-        ip addr add "$SANDBOX_BRIDGE_IP" dev "$SANDBOX_BRIDGE" 2>/dev/null || true
-    fi
-fi
-
-# ================================================================================
 # Configure dockerd with DNS and optional NVIDIA runtime
-# DNS is configured to use dns-proxy (10.213.0.1) which forwards to outer Docker DNS.
-# This enables enterprise DNS resolution for FQDNs (e.g., myapp.internal.company.com).
-# Search domains are NOT needed for FQDNs - they're only for short hostnames.
-# NOTE: We use 10.213.0.1 because our custom bridge (sandbox0) uses 10.213.0.0/24
+# With docker-in-desktop mode, per-session dockerds no longer run in the sandbox.
+# The sandbox's dockerd only needs to launch desktop containers.
+# Each desktop container runs its own dockerd internally.
 # ================================================================================
 mkdir -p /etc/docker
 
-echo "🔗 DNS: 10.213.0.1 (dns-proxy → Docker DNS → enterprise DNS)"
-
-# GPU_VENDOR is set in docker-compose.yaml based on the sandbox profile:
-#   - sandbox-nvidia: GPU_VENDOR=nvidia
-#   - sandbox-amd-intel: GPU_VENDOR=intel
-#   - sandbox-software: GPU_VENDOR=none
+# GPU_VENDOR is set in docker-compose.yaml based on the sandbox profile
 # Configure default-address-pools to use high 10.x range instead of 172.x.x.x
 # This prevents subnet conflicts with the outer Docker network (172.19.0.0/16)
-# which would cause routing issues for RevDial connections to the API.
-#
-# We use 10.213.0.0/16 - an awkward number (3×71) no human would choose.
-# See: https://docs.docker.com/reference/cli/dockerd/#daemon-configuration-file
 if [[ "${GPU_VENDOR:-}" == "nvidia" ]]; then
     echo "🎮 GPU_VENDOR=nvidia - configuring NVIDIA container runtime"
     cat > /etc/docker/daemon.json <<'DAEMON_JSON'
@@ -76,7 +40,6 @@ if [[ "${GPU_VENDOR:-}" == "nvidia" ]]; then
       "runtimeArgs": []
     }
   },
-  "dns": ["10.213.0.1"],
   "storage-driver": "overlay2",
   "log-level": "error",
   "insecure-registries": ["registry:5000"],
@@ -89,7 +52,6 @@ else
     echo "ℹ️  GPU_VENDOR=${GPU_VENDOR:-unset} - NVIDIA runtime not configured"
     cat > /etc/docker/daemon.json <<'DAEMON_JSON'
 {
-  "dns": ["10.213.0.1"],
   "storage-driver": "overlay2",
   "log-level": "error",
   "insecure-registries": ["registry:5000"],
@@ -104,21 +66,14 @@ echo "✅ Configured sandbox dockerd"
 
 # Start dockerd with auto-restart supervisor loop in background
 # This ensures dockerd restarts if it crashes (which would break all sandboxes)
-#
-# We use --bridge=sandbox0 to tell dockerd to use our pre-created bridge.
-# This is a "user-managed bridge" in Docker terminology, which means:
-# 1. Docker won't try to create or delete it
-# 2. Docker won't be affected by session dockerds cleaning up "docker0"
-# 3. We control the bridge lifecycle ourselves
 (
     while true; do
         # Clean up stale PID files before each restart attempt
         rm -f /var/run/docker.pid /run/docker/containerd/containerd.pid 2>/dev/null || true
 
-        echo "[$(date -Iseconds)] Starting dockerd with bridge=$SANDBOX_BRIDGE..."
+        echo "[$(date -Iseconds)] Starting dockerd..."
         dockerd --config-file /etc/docker/daemon.json \
-            --host=unix:///var/run/docker.sock \
-            --bridge="$SANDBOX_BRIDGE"
+            --host=unix:///var/run/docker.sock
         EXIT_CODE=$?
         echo "[$(date -Iseconds)] ⚠️  dockerd exited with code $EXIT_CODE, restarting in 2s..."
         sleep 2

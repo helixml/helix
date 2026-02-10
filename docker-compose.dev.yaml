@@ -320,8 +320,8 @@ services:
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
       # Set HELIX_SANDBOX_DATA to a host path (e.g., /prod/helix-workspaces) for ZFS dedup
       - ${HELIX_SANDBOX_DATA:-sandbox-data}:/data
-      # Host Docker socket for privileged mode (Helix-in-Helix development)
-      # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
+      # Host Docker socket (legacy, may be removed — docker-in-desktop mode
+      # runs dockerd inside the desktop container instead)
       - /var/run/docker.sock:/var/run/host-docker.sock:rw
       # Desktop image tarballs and versions (bind-mounted for hot-reload)
       # Adding new desktops requires no changes here - just add to sandbox-images/
@@ -407,8 +407,8 @@ services:
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
       # Set HELIX_SANDBOX_DATA to a host path (e.g., /prod/helix-workspaces) for ZFS dedup
       - ${HELIX_SANDBOX_DATA:-sandbox-data}:/data
-      # Host Docker socket for privileged mode (Helix-in-Helix development)
-      # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
+      # Host Docker socket (legacy, may be removed — docker-in-desktop mode
+      # runs dockerd inside the desktop container instead)
       - /var/run/docker.sock:/var/run/host-docker.sock:rw
       # Desktop image tarballs and versions (bind-mounted for hot-reload)
       # Adding new desktops requires no changes here - just add to sandbox-images/
@@ -491,8 +491,8 @@ services:
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
       # Set HELIX_SANDBOX_DATA to a host path (e.g., /prod/helix-workspaces) for ZFS dedup
       - ${HELIX_SANDBOX_DATA:-sandbox-data}:/data
-      # Host Docker socket for privileged mode (Helix-in-Helix development)
-      # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
+      # Host Docker socket (legacy, may be removed — docker-in-desktop mode
+      # runs dockerd inside the desktop container instead)
       - /var/run/docker.sock:/var/run/host-docker.sock:rw
       # Desktop image tarballs and versions (bind-mounted for hot-reload)
       # Adding new desktops requires no changes here - just add to sandbox-images/
