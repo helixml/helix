@@ -723,3 +723,120 @@ body {
 .content::-webkit-scrollbar-thumb:hover {
     background: var(--border-hover);
 }
+
+/* ---- Download Progress ---- */
+
+.download-card {
+    border-color: rgba(0, 213, 255, 0.3);
+}
+
+.download-file-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 13px;
+}
+
+.download-filename {
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+.download-size {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.download-progress {
+    height: 8px;
+    margin: 12px 0;
+}
+
+.download-stats {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.download-speed {
+    font-weight: 500;
+    color: var(--teal);
+    font-variant-numeric: tabular-nums;
+}
+
+.download-eta {
+    font-variant-numeric: tabular-nums;
+}
+
+.download-description {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+/* ---- License / Trial ---- */
+
+.license-card {
+    border-color: rgba(245, 158, 11, 0.3);
+}
+
+.license-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 16px;
+}
+
+.license-badge.licensed {
+    background: rgba(34, 197, 94, 0.1);
+    border: 1px solid rgba(34, 197, 94, 0.25);
+    color: var(--success);
+}
+
+.license-badge.trial-active {
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    color: var(--warning);
+}
+
+.license-badge-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+}
+
+.license-expires {
+    margin-left: 4px;
+    color: var(--text-faded);
+    font-weight: 400;
+    font-size: 12px;
+}
+
+.license-description {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.license-links {
+    margin-top: 12px;
+}
+
+.license-link {
+    font-size: 12px;
+    color: var(--teal);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+}
+
+.license-link:hover {
+    color: var(--text-primary);
+    text-decoration: underline;
+}

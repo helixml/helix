@@ -430,7 +430,7 @@ fi
 if ! step_done "clone_helix"; then
     log "Cloning helix repository..."
     run_ssh "git clone https://github.com/helixml/helix.git ~/helix 2>/dev/null || (cd ~/helix && git pull)"
-    run_ssh "cd ~/helix && git checkout feature/macos-arm-desktop-port"
+    run_ssh "cd ~/helix && git checkout feature/macos-arm-desktop-port-working2"
     mark_step "clone_helix"
 fi
 

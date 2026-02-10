@@ -2,110 +2,142 @@
 
 A standalone macOS app that runs an Ubuntu VM with the Helix AI development platform. Embeds QEMU, open-source GPU rendering frameworks, and EFI firmware — no need to install UTM or Homebrew.
 
+The app bundle is ~300MB. VM disk images (~18GB) are downloaded from Cloudflare R2 on first launch with progress UI and resume support.
+
 ## Building from Scratch
 
-### Prerequisites
+There are two phases: **one-time setup** (dependencies you install once) and the **build itself** (3 commands).
 
-Install on your Mac:
+### One-Time Setup
+
+#### 1. Install Homebrew packages
 
 ```bash
-# Go (1.24+)
-brew install go
-
-# Wails CLI
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
-
-# Node.js (for frontend build)
-brew install node
-
-# QEMU (for EFI firmware files + VM provisioning)
-brew install qemu
-
-# mtools (for cloud-init FAT12 disk in VM provisioning)
-brew install mtools
+brew install go node qemu mtools
 ```
 
-You also need:
+- **go** (1.24+) — compiles the app
+- **node** — builds the React frontend
+- **qemu** — provides EFI firmware files (`edk2-aarch64-code.fd`)
+- **mtools** — used by VM provisioning to create cloud-init FAT12 disks
 
-1. **Custom QEMU build** — Our fork with helix-frame-export patches, compiled against UTM's sysroot:
-   ```bash
-   # Clone our QEMU fork (if not already done)
-   git clone https://github.com/helixml/qemu-utm ~/pm/qemu-utm
-   cd ~/pm/qemu-utm && git checkout utm-edition-venus-helix
+#### 2. Install the Wails CLI
 
-   # Build (requires UTM sysroot at ~/pm/UTM/sysroot-macOS-arm64/)
-   cd ~/pm/helix/for-mac
-   ./qemu-helix/build-qemu-standalone.sh
-   ```
+```bash
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
+```
 
-2. **UTM sysroot** — Pre-built open-source frameworks (virglrenderer, SPICE, glib, etc.):
-   ```bash
-   # Clone UTM and build dependencies
-   git clone https://github.com/utmapp/UTM ~/pm/UTM
-   cd ~/pm/UTM
-   ./scripts/build_dependencies.sh -p macos -a arm64
-   ```
-   Output: `~/pm/UTM/sysroot-macOS-arm64/` with ~170 files in `lib/`.
+Wails is the Go framework that produces a native `.app` bundle with an embedded WebView frontend.
 
-### Step 1: Build the App
+#### 3. Build the UTM sysroot
+
+The app bundles 27 open-source frameworks (virglrenderer, SPICE, glib, etc.) that QEMU links against. These come from UTM's dependency build system:
+
+```bash
+git clone https://github.com/utmapp/UTM ~/pm/UTM
+cd ~/pm/UTM
+./scripts/build_dependencies.sh -p macos -a arm64
+```
+
+This produces `~/pm/UTM/sysroot-macOS-arm64/` containing the framework bundles and libraries. It only needs to be run once (or when updating UTM dependencies).
+
+#### 4. Build our custom QEMU
+
+We maintain a QEMU fork with helix-frame-export patches for host-guest video transfer. It must be compiled against the UTM sysroot from step 3:
+
+```bash
+git clone https://github.com/helixml/qemu-utm ~/pm/qemu-utm
+cd ~/pm/qemu-utm && git checkout utm-edition-venus-helix
+
+cd ~/pm/helix/for-mac
+./qemu-helix/build-qemu-standalone.sh
+```
+
+Output: `~/pm/UTM/sysroot-macOS-arm64/lib/libqemu-aarch64-softmmu.dylib` and `~/pm/UTM/sysroot-macOS-arm64/bin/qemu-system-aarch64`.
+
+#### 5. Set up code signing (required for the app to launch)
+
+macOS kills unsigned or ad-hoc signed apps on launch with `SIGKILL (Code Signature Invalid)`. You need an Apple Developer ID certificate ($99/year from [developer.apple.com](https://developer.apple.com)).
+
+Create `for-mac/.env.signing`:
+
+```
+APPLE_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+APPLE_TEAM_ID="TEAMID"
+APPLE_ID="you@email.com"
+```
+
+For notarization (so Gatekeeper accepts the app without "Open Anyway"), store credentials in keychain. You need an [app-specific password](https://appleid.apple.com) (under Sign-In and Security > App-Specific Passwords):
+
+```bash
+xcrun notarytool store-credentials "helix-notarize" \
+  --apple-id you@email.com \
+  --team-id TEAMID \
+  --password "xxxx-xxxx-xxxx-xxxx"
+```
+
+**Without a Developer ID:** The app will be ad-hoc signed. It will only launch if the user goes to System Settings > Privacy & Security > "Open Anyway" after each install.
+
+### Build
+
+After one-time setup is done, building the app is three commands:
 
 ```bash
 cd for-mac
+
+# 1. Build the app (compiles Go + React, bundles QEMU + frameworks + firmware)
 ./scripts/build-helix-app.sh
-```
 
-This runs `wails build`, then bundles QEMU, 27 open-source frameworks, EFI firmware, and Vulkan ICD config into the app. Output: `build/bin/helix-for-mac.app` (~243MB).
-
-Use `--skip-wails` to re-run just the packaging steps without rebuilding the Go/frontend code.
-
-### Step 2: Create the DMG
-
-```bash
+# 2. Create the DMG (auto-signs with Developer ID if .env.signing exists)
 ./scripts/create-dmg.sh
+
+# 3. (Optional) Notarize + upload to CDN
+./scripts/create-dmg.sh --notarize --upload --version v1.0.0
 ```
 
-Output: `build/bin/Helix-for-Mac.dmg` (~17GB with bundled VM images).
+That's it. Here's what each step does:
 
-### Step 3: Code Signing + Notarization
+**`build-helix-app.sh`** runs `wails build`, then bundles QEMU, 27 open-source frameworks, EFI firmware, Vulkan ICD config, and a VM manifest into the app. Output: `build/bin/helix-for-mac.app` (~300MB). Use `--skip-wails` to re-run just the packaging steps without recompiling Go/frontend code. VM disk images are **not** bundled — they are downloaded from the CDN on first launch.
 
-The build script applies ad-hoc signing by default. For distribution, sign with a Developer ID certificate and notarize so Gatekeeper accepts the app on any Mac.
+**`create-dmg.sh`** automatically calls `sign-app.sh` before packaging (if `.env.signing` exists), then creates `build/bin/Helix-for-Mac.dmg` with ULFO (lzfse) compression. With `--notarize`, it also submits the DMG to Apple's notary service and staples the ticket.
 
-**One-time setup:**
+**`--upload`** pushes the DMG and VM images to Cloudflare R2:
+- `s3://helix-releases/desktop/{version}/Helix-for-Mac.dmg`
+- `s3://helix-releases/vm/{version}/disk.qcow2`, `zfs-data.qcow2`, `efi_vars.fd`
+- `s3://helix-releases/vm/{version}/manifest.json`
+- `s3://helix-releases/desktop/latest.json`
 
-1. Create a `for-mac/.env.signing` file:
-   ```
-   APPLE_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)"
-   APPLE_TEAM_ID="TEAMID"
-   APPLE_ID="you@email.com"
-   ```
+R2 upload requires a `.env.r2` file (copy from `.env.r2.example` and fill in your credentials).
 
-2. Store notarization credentials in keychain (needs an [app-specific password](https://appleid.apple.com) under Sign-In and Security):
-   ```bash
-   xcrun notarytool store-credentials "helix-notarize" \
-     --apple-id you@email.com \
-     --team-id TEAMID \
-     --password "xxxx-xxxx-xxxx-xxxx"
-   ```
+### Signing Without a DMG (Direct Install)
 
-**Signing + notarization:**
+To sign and install the `.app` directly without creating a DMG:
 
 ```bash
-# Sign the app with Developer ID (reads .env.signing automatically)
-./scripts/sign-app.sh --notarize
-
-# Create notarized DMG
-./scripts/create-dmg.sh --notarize --build-dir /Volumes/Big/helix-build
+./scripts/sign-app.sh                   # Signs with Developer ID from .env.signing
+cp -R build/bin/helix-for-mac.app /Applications/
 ```
 
-The correct order is: sign app → notarize app → create DMG → notarize DMG. Both the app and DMG should be notarized for Gatekeeper to accept the download without warnings.
-
-**Without a Developer ID** (ad-hoc only):
+To re-sign after changing `.env.signing` or the app bundle:
 
 ```bash
-./scripts/sign-app.sh    # Ad-hoc signing (default)
-./scripts/create-dmg.sh  # No notarization
-# Users must: System Settings > Privacy & Security > "Open Anyway"
+./scripts/sign-app.sh --notarize        # Sign + notarize the .app directly
 ```
+
+## Trial and Licensing
+
+The app includes a 24-hour free trial and offline license key validation.
+
+**Trial flow:**
+1. On first launch, the VM page shows a "Start 24-Hour Free Trial" button
+2. During the trial, a countdown badge shows remaining time
+3. After 24 hours, the VM refuses to start and prompts for a license key
+
+**License validation:**
+- License keys are validated offline using ECDSA P-256 signature verification
+- Compatible with Launchpad license keys (trial, community, enterprise)
+- License keys can be obtained from [deploy.helix.ml](https://deploy.helix.ml/licenses/new)
+- Validated keys are stored in `~/Library/Application Support/Helix/settings.json`
 
 ## Provisioning a VM
 
@@ -162,12 +194,13 @@ helix-for-mac.app/
         edk2-arm-vars.fd
       vulkan/icd.d/                         # Vulkan driver config
         kosmickrisp_mesa_icd.json
-      vm/                                   # Pre-provisioned VM (compressed)
-        disk.qcow2                          # Root disk (~7GB compressed)
-        zfs-data.qcow2                      # ZFS workspace disk (~11GB compressed)
+      vm/                                   # VM manifest + EFI vars
+        vm-manifest.json                    # CDN download manifest (SHA256, sizes, URLs)
         efi_vars.fd                         # EFI variables (64MB)
       NOTICES.md                            # Open-source license notices
 ```
+
+VM disk images (~18GB) are downloaded from the CDN on first launch and stored at `~/Library/Application Support/Helix/vm/helix-desktop/`.
 
 All bundled libraries are open-source (MIT, BSD, LGPL, GPL). See `design/2026-02-08-helix-app-dmg-packaging.md` for the full dependency tree and licensing details.
 
@@ -197,13 +230,16 @@ go run virgl_probe.go        # Probe virglrenderer availability
 | File | Purpose |
 |------|---------|
 | `main.go` | Wails entry point, app menu |
-| `app.go` | Application state, VM lifecycle, video |
+| `app.go` | Application state, VM lifecycle, video, download/license wiring |
 | `vm.go` | QEMU process management, bundled binary discovery |
+| `download.go` | VM image CDN downloader with HTTP Range resume + SHA256 |
+| `license.go` | 24h trial + ECDSA license validation (offline) |
+| `settings.go` | Persistent settings (~/Library/Application Support/Helix/settings.json) |
 | `utm.go` | UTM integration (dev mode fallback) |
 | `encoder.go` | Software video encoder |
 | `vsock.go` | Virtio-vsock for host-guest frame transfer |
-| `settings.go` | Persistent settings (~/Library/Application Support/Helix/settings.json) |
-| `scripts/build-helix-app.sh` | Build .app with embedded QEMU |
-| `scripts/create-dmg.sh` | Package into .dmg |
+| `scripts/build-helix-app.sh` | Build .app with embedded QEMU + VM manifest |
+| `scripts/create-dmg.sh` | Package into .dmg + upload to R2 |
 | `scripts/sign-app.sh` | Code signing + notarization |
 | `scripts/provision-vm.sh` | Create VM from scratch |
+| `.env.r2.example` | Template for Cloudflare R2 credentials |

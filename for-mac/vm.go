@@ -15,6 +15,9 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+// ErrVMImagesNotDownloaded is returned when VM images need to be downloaded from the CDN
+var ErrVMImagesNotDownloaded = fmt.Errorf("VM images not downloaded")
+
 // VMState represents the current state of the VM
 type VMState string
 
@@ -142,9 +145,9 @@ func (vm *VMManager) getZFSDiskPath() string {
 	return filepath.Join(vm.getVMDir(), "zfs-data.qcow2")
 }
 
-// ensureVMExtracted checks if VM disk images exist in the writable location,
-// and if not, copies them from the app bundle's Resources/vm/ directory.
-// Returns nil if VM images are ready, error if not available.
+// ensureVMExtracted checks if VM disk images exist in the writable location.
+// VM images are downloaded from the CDN on first launch rather than bundled in the app.
+// Returns ErrVMImagesNotDownloaded if images need to be downloaded, or nil if ready.
 func (vm *VMManager) ensureVMExtracted() error {
 	vmDir := vm.getVMDir()
 	rootDisk := vm.getVMImagePath()
@@ -157,59 +160,25 @@ func (vm *VMManager) ensureVMExtracted() error {
 		}
 	}
 
-	// Look for bundled VM images in app bundle
+	log.Printf("VM images not found at %s — download required", vmDir)
+
+	// Copy EFI vars from bundle if available (they're small, ~64MB, and still bundled)
 	bundlePath := vm.getAppBundlePath()
-	if bundlePath == "" {
-		return fmt.Errorf("VM images not found at %s and no app bundle detected. Run provision-vm.sh first", vmDir)
-	}
-
-	bundledVMDir := filepath.Join(bundlePath, "Contents", "Resources", "vm")
-	bundledRoot := filepath.Join(bundledVMDir, "disk.qcow2")
-	bundledZFS := filepath.Join(bundledVMDir, "zfs-data.qcow2")
-	bundledEFI := filepath.Join(bundledVMDir, "efi_vars.fd")
-
-	if _, err := os.Stat(bundledRoot); os.IsNotExist(err) {
-		return fmt.Errorf("no bundled VM image found at %s. Run provision-vm.sh first", bundledRoot)
-	}
-
-	log.Printf("First launch: extracting VM images from app bundle to %s", vmDir)
-
-	// Create writable VM directory
-	if err := os.MkdirAll(vmDir, 0755); err != nil {
-		return fmt.Errorf("failed to create VM directory: %w", err)
-	}
-
-	// Copy root disk (compressed qcow2 — QEMU reads it directly, writes uncompressed)
-	if _, err := os.Stat(rootDisk); os.IsNotExist(err) {
-		log.Printf("Copying root disk image (%s)...", bundledRoot)
-		if err := copyFile(bundledRoot, rootDisk); err != nil {
-			return fmt.Errorf("failed to copy root disk: %w", err)
-		}
-	}
-
-	// Copy ZFS data disk
-	if _, err := os.Stat(zfsDisk); os.IsNotExist(err) {
-		if _, err := os.Stat(bundledZFS); err == nil {
-			log.Printf("Copying ZFS data disk image...")
-			if err := copyFile(bundledZFS, zfsDisk); err != nil {
-				return fmt.Errorf("failed to copy ZFS disk: %w", err)
+	if bundlePath != "" {
+		bundledEFI := filepath.Join(bundlePath, "Contents", "Resources", "vm", "efi_vars.fd")
+		efiVars := filepath.Join(vmDir, "efi_vars.fd")
+		if _, err := os.Stat(efiVars); os.IsNotExist(err) {
+			if _, err := os.Stat(bundledEFI); err == nil {
+				os.MkdirAll(vmDir, 0755)
+				log.Printf("Copying EFI vars from bundle...")
+				if err := copyFile(bundledEFI, efiVars); err != nil {
+					log.Printf("Warning: failed to copy EFI vars: %v", err)
+				}
 			}
 		}
 	}
 
-	// Copy EFI vars
-	efiVars := filepath.Join(vmDir, "efi_vars.fd")
-	if _, err := os.Stat(efiVars); os.IsNotExist(err) {
-		if _, err := os.Stat(bundledEFI); err == nil {
-			log.Printf("Copying EFI vars...")
-			if err := copyFile(bundledEFI, efiVars); err != nil {
-				return fmt.Errorf("failed to copy EFI vars: %w", err)
-			}
-		}
-	}
-
-	log.Printf("VM images extracted successfully")
-	return nil
+	return ErrVMImagesNotDownloaded
 }
 
 // copyFile copies a file from src to dst using streaming (no full file in memory)
@@ -525,29 +494,7 @@ func (vm *VMManager) GetSSHCommand() string {
 // getAppBundlePath returns the path to the running .app bundle, if any.
 // Returns empty string if not running from an app bundle.
 func (vm *VMManager) getAppBundlePath() string {
-	execPath, err := os.Executable()
-	if err != nil {
-		return ""
-	}
-	// Resolve symlinks
-	execPath, err = filepath.EvalSymlinks(execPath)
-	if err != nil {
-		return ""
-	}
-	// Check if we're inside a .app/Contents/MacOS/ directory
-	macosDir := filepath.Dir(execPath)
-	if filepath.Base(macosDir) != "MacOS" {
-		return ""
-	}
-	contentsDir := filepath.Dir(macosDir)
-	if filepath.Base(contentsDir) != "Contents" {
-		return ""
-	}
-	appDir := filepath.Dir(contentsDir)
-	if filepath.Ext(appDir) != ".app" {
-		return ""
-	}
-	return appDir
+	return getAppBundlePath()
 }
 
 // findQEMUBinary locates the QEMU binary. Search order:

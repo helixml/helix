@@ -40,7 +40,7 @@ VM_DIR="${VM_DIR:-$HOME/Library/Application Support/Helix/vm/helix-desktop}"
 # Output paths
 # Wails uses the "name" field from wails.json for the .app bundle name,
 # and "outputfilename" for the executable inside Contents/MacOS/.
-APP_BUNDLE_NAME="helix-for-mac"
+APP_BUNDLE_NAME="Helix"
 APP_EXEC_NAME="Helix for Mac"
 APP_BUNDLE="${FOR_MAC_DIR}/build/bin/${APP_BUNDLE_NAME}.app"
 CONTENTS="${APP_BUNDLE}/Contents"
@@ -236,34 +236,73 @@ cp "${FOR_MAC_DIR}/NOTICES.md" "${RESOURCES_DIR}/NOTICES.md"
 log "  Copied open-source NOTICES.md"
 
 # =============================================================================
-# Step 5b: Bundle VM disk images (compressed qcow2)
+# Step 5b: Generate VM manifest + bundle EFI vars only
 # =============================================================================
+# VM disk images are NO LONGER bundled in the app. They are downloaded from
+# the CDN on first launch. This reduces the app bundle from ~18GB to ~300MB.
+# Only the small EFI vars file (64MB) and a manifest.json are bundled.
 
-log "Step 5b: Bundling VM disk images..."
+log "Step 5b: Generating VM manifest..."
 VM_BUNDLE_DIR="${RESOURCES_DIR}/vm"
 mkdir -p "$VM_BUNDLE_DIR"
 
+# Version tag for this build (git short hash)
+VM_VERSION="${VM_VERSION:-$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo "dev")}"
+
+# CDN base URL for VM image downloads
+VM_BASE_URL="${VM_BASE_URL:-https://dl.helix.ml/vm}"
+
+generate_manifest() {
+    local manifest_files="["
+    local first=true
+
+    for img_name in disk.qcow2 zfs-data.qcow2 efi_vars.fd; do
+        local img_path="${VM_DIR}/${img_name}"
+        if [ -f "$img_path" ]; then
+            local size
+            size=$(stat -f%z "$img_path" 2>/dev/null || stat -c%s "$img_path" 2>/dev/null || echo "0")
+            local sha
+            sha=$(shasum -a 256 "$img_path" | awk '{print $1}')
+            if [ "$first" = true ]; then
+                first=false
+            else
+                manifest_files+=","
+            fi
+            manifest_files+=$(printf '\n    {"name": "%s", "size": %s, "sha256": "%s"}' "$img_name" "$size" "$sha")
+        fi
+    done
+    manifest_files+=$'\n  ]'
+
+    cat > "${VM_BUNDLE_DIR}/vm-manifest.json" << MANIFEST_EOF
+{
+  "version": "${VM_VERSION}",
+  "base_url": "${VM_BASE_URL}",
+  "files": ${manifest_files}
+}
+MANIFEST_EOF
+}
+
 if [ -f "${VM_DIR}/disk.qcow2" ] && [ -f "${VM_DIR}/zfs-data.qcow2" ]; then
-    # Compress qcow2 images (removes unused clusters, applies zlib compression)
-    # This reduces 16G+13G raw to ~6G+4G compressed
-    log "  Compressing root disk (this takes a few minutes)..."
-    qemu-img convert -c -O qcow2 "${VM_DIR}/disk.qcow2" "${VM_BUNDLE_DIR}/disk.qcow2"
-    log "  Root disk: $(du -h "${VM_BUNDLE_DIR}/disk.qcow2" | awk '{print $1}')"
+    log "  Computing SHA256 checksums (this may take a moment)..."
+    generate_manifest
+    log "  Generated vm-manifest.json (version: ${VM_VERSION})"
 
-    log "  Compressing ZFS data disk..."
-    qemu-img convert -c -O qcow2 "${VM_DIR}/zfs-data.qcow2" "${VM_BUNDLE_DIR}/zfs-data.qcow2"
-    log "  ZFS disk: $(du -h "${VM_BUNDLE_DIR}/zfs-data.qcow2" | awk '{print $1}')"
-
-    # Copy EFI vars (VM-specific, 64MB)
-    cp "${VM_DIR}/efi_vars.fd" "${VM_BUNDLE_DIR}/efi_vars.fd"
-    log "  Copied EFI vars"
-
-    VM_TOTAL=$(du -sh "$VM_BUNDLE_DIR" | awk '{print $1}')
-    log "  Total VM bundle size: $VM_TOTAL"
+    # Bundle only EFI vars (64MB — small enough to include in the app)
+    if [ -f "${VM_DIR}/efi_vars.fd" ]; then
+        cp "${VM_DIR}/efi_vars.fd" "${VM_BUNDLE_DIR}/efi_vars.fd"
+        log "  Bundled EFI vars ($(du -h "${VM_BUNDLE_DIR}/efi_vars.fd" | awk '{print $1}'))"
+    fi
 else
     log "  WARNING: VM images not found at ${VM_DIR}/"
-    log "  Run provision-vm.sh first, or set VM_DIR to the VM directory."
-    log "  The app will still work but won't have a bundled VM image."
+    log "  Cannot generate manifest. The app will prompt users to download VM images."
+    # Write a placeholder manifest so the app at least knows the CDN URL
+    cat > "${VM_BUNDLE_DIR}/vm-manifest.json" << MANIFEST_EOF
+{
+  "version": "${VM_VERSION}",
+  "base_url": "${VM_BASE_URL}",
+  "files": []
+}
+MANIFEST_EOF
 fi
 
 # =============================================================================
@@ -376,6 +415,7 @@ log "  MacOS/libqemu-*.dylib       - Custom QEMU core with helix-frame-export"
 log "  Frameworks/                  - ${FW_COUNT} open-source frameworks"
 log "  Resources/firmware/          - EFI firmware (edk2)"
 log "  Resources/vulkan/            - KosmicKrisp Vulkan ICD"
+log "  Resources/vm/                - VM manifest + EFI vars (disk images downloaded on first launch)"
 log ""
 log "Verification:"
 log "  codesign -vvv '$APP_BUNDLE'"

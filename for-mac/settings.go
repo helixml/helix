@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 // AppSettings holds the persisted application settings
@@ -24,6 +25,10 @@ type AppSettings struct {
 
 	// Paths
 	VMDiskPath string `json:"vm_disk_path"`
+
+	// License
+	LicenseKey     string     `json:"license_key,omitempty"`
+	TrialStartedAt *time.Time `json:"trial_started_at,omitempty"`
 }
 
 // DefaultSettings returns the default settings

@@ -17,6 +17,12 @@ import {
     GetSettings,
     SaveSettings,
     GetScanoutStats,
+    DownloadVMImages,
+    CancelDownload,
+    GetDownloadStatus,
+    GetLicenseStatus,
+    ValidateLicenseKey,
+    StartTrial,
 } from '../wailsjs/go/main/App';
 import { EventsOn } from '../wailsjs/runtime/runtime';
 
@@ -36,6 +42,9 @@ let state = {
     diskUsage: {},
     scanoutStats: {},
     settings: {},
+    downloadProgress: null,
+    needsDownload: false,
+    licenseStatus: { state: 'no_trial' },
 };
 
 // ---- Init ----
@@ -43,7 +52,7 @@ let state = {
 async function init() {
     // Load initial state
     try {
-        const [deps, imageReady, sysInfo, vmStatus, vmConfig, helixURL, settings] = await Promise.all([
+        const [deps, imageReady, sysInfo, vmStatus, vmConfig, helixURL, settings, licenseStatus] = await Promise.all([
             CheckDependencies(),
             IsVMImageReady(),
             GetSystemInfo(),
@@ -51,14 +60,17 @@ async function init() {
             GetVMConfig(),
             GetHelixURL(),
             GetSettings(),
+            GetLicenseStatus(),
         ]);
         state.dependencies = deps;
         state.vmImageReady = imageReady;
+        state.needsDownload = !imageReady;
         state.systemInfo = sysInfo;
         state.vmStatus = vmStatus;
         state.vmConfig = vmConfig;
         state.helixURL = helixURL;
         state.settings = settings;
+        state.licenseStatus = licenseStatus;
     } catch (err) {
         console.error('Failed to load initial state:', err);
     }
@@ -67,7 +79,17 @@ async function init() {
     EventsOn('vm:status', (status) => {
         state.vmStatus = status;
         updateSidebarStatus();
-        // Re-render VM view if visible
+        if (state.currentView === 'vm') renderContent();
+    });
+
+    // Subscribe to download progress events
+    EventsOn('download:progress', (progress) => {
+        state.downloadProgress = progress;
+        if (progress.status === 'complete') {
+            state.needsDownload = false;
+            state.vmImageReady = true;
+            state.downloadProgress = null;
+        }
         if (state.currentView === 'vm') renderContent();
     });
 
@@ -209,12 +231,20 @@ function renderVMView() {
     const stats = state.encoderStats;
     const stateLabel = s.state.charAt(0).toUpperCase() + s.state.slice(1);
 
+    // Show download card if VM images need downloading
+    const downloadSection = renderDownloadSection();
+    // Show license section if needed
+    const licenseSection = renderLicenseSection();
+
     return `
         <div class="view-container">
             <div class="view-header">
                 <h1>Virtual Machine</h1>
                 <p>Manage the Helix development VM</p>
             </div>
+
+            ${downloadSection}
+            ${licenseSection}
 
             <div class="card">
                 <div class="card-header">
@@ -248,7 +278,7 @@ function renderVMView() {
 
                     <div class="btn-group" style="margin-top: 16px;">
                         ${s.state === 'stopped' || s.state === 'error' ?
-                            `<button class="btn btn-success" id="startVMBtn">Start VM</button>` :
+                            `<button class="btn btn-success" id="startVMBtn" ${state.needsDownload || shouldBlockVM() ? 'disabled' : ''}>Start VM</button>` :
                          s.state === 'running' ?
                             `<button class="btn btn-danger" id="stopVMBtn">Stop VM</button>` :
                             `<button class="btn btn-secondary" disabled>${stateLabel}...</button>`
@@ -316,12 +346,191 @@ function renderVMView() {
     `;
 }
 
+// ---- Download Section ----
+
+function renderDownloadSection() {
+    if (!state.needsDownload && !state.downloadProgress) {
+        return '';
+    }
+
+    const p = state.downloadProgress;
+
+    // Download in progress
+    if (p && (p.status === 'downloading' || p.status === 'verifying')) {
+        return `
+            <div class="card download-card">
+                <div class="card-header">
+                    <h2>Downloading VM Images</h2>
+                    <span class="card-badge" style="color: var(--teal);">${p.status === 'verifying' ? 'Verifying...' : `${p.percent?.toFixed(1) || 0}%`}</span>
+                </div>
+                <div class="card-body">
+                    <div class="download-file-info">
+                        <span class="download-filename">${p.file || ''}</span>
+                        <span class="download-size">${formatBytes(p.bytes_done || 0)} / ${formatBytes(p.bytes_total || 0)}</span>
+                    </div>
+                    <div class="progress-bar download-progress">
+                        <div class="progress-fill teal" style="width: ${p.percent || 0}%;"></div>
+                    </div>
+                    <div class="download-stats">
+                        <span class="download-speed">${p.speed || '--'}</span>
+                        <span class="download-eta">ETA: ${p.eta || '--'}</span>
+                    </div>
+                    <div class="btn-group" style="margin-top: 12px;">
+                        <button class="btn btn-secondary btn-sm" id="cancelDownloadBtn">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // Download error
+    if (p && p.status === 'error') {
+        return `
+            <div class="card download-card">
+                <div class="card-header">
+                    <h2>Download Failed</h2>
+                </div>
+                <div class="card-body">
+                    <div class="error-msg">${p.error || 'Unknown error'}</div>
+                    <div class="btn-group" style="margin-top: 12px;">
+                        <button class="btn btn-primary" id="retryDownloadBtn">Retry Download</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // Not yet started — show download prompt
+    return `
+        <div class="card download-card">
+            <div class="card-header">
+                <h2>VM Images Required</h2>
+            </div>
+            <div class="card-body">
+                <p class="download-description">
+                    The VM disk images need to be downloaded before you can start the virtual machine.
+                    This is a one-time download of approximately 18 GB.
+                </p>
+                <div class="btn-group" style="margin-top: 12px;">
+                    <button class="btn btn-primary" id="startDownloadBtn">Download VM Images</button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// ---- License Section ----
+
+function shouldBlockVM() {
+    const ls = state.licenseStatus;
+    return ls.state === 'trial_expired' || ls.state === 'no_trial';
+}
+
+function renderLicenseSection() {
+    const ls = state.licenseStatus;
+
+    if (ls.state === 'licensed') {
+        return `
+            <div class="license-badge licensed">
+                <span class="license-badge-icon">&#10003;</span>
+                Licensed to: ${ls.licensed_to || 'Unknown'}
+                ${ls.expires_at ? `<span class="license-expires">(expires ${new Date(ls.expires_at).toLocaleDateString()})</span>` : ''}
+            </div>
+        `;
+    }
+
+    if (ls.state === 'trial_active') {
+        const remaining = getTrialRemaining(ls.trial_ends_at);
+        return `
+            <div class="license-badge trial-active">
+                <span class="license-badge-icon">&#9201;</span>
+                Trial: ${remaining} remaining
+            </div>
+        `;
+    }
+
+    if (ls.state === 'trial_expired') {
+        return `
+            <div class="card license-card">
+                <div class="card-header">
+                    <h2>Trial Expired</h2>
+                </div>
+                <div class="card-body">
+                    <p class="license-description">
+                        Your 24-hour trial has expired. Enter a license key to continue using Helix Desktop.
+                    </p>
+                    <div class="form-group" style="margin-top: 12px;">
+                        <label class="form-label" for="licenseKeyInput">License Key</label>
+                        <input class="form-input mono" id="licenseKeyInput" type="text" placeholder="Paste your license key here...">
+                    </div>
+                    <div class="btn-group" style="margin-top: 8px;">
+                        <button class="btn btn-primary" id="activateLicenseBtn">Activate License</button>
+                    </div>
+                    <div class="license-links">
+                        <a href="#" id="getLicenseLink" class="license-link">Get a license at deploy.helix.ml</a>
+                    </div>
+                    <div id="licenseError" class="error-msg" style="display: none; margin-top: 8px;"></div>
+                </div>
+            </div>
+        `;
+    }
+
+    // no_trial — show trial start button
+    return `
+        <div class="card license-card">
+            <div class="card-header">
+                <h2>Get Started</h2>
+            </div>
+            <div class="card-body">
+                <p class="license-description">
+                    Start a free 24-hour trial to try Helix Desktop, or enter a license key.
+                </p>
+                <div class="btn-group" style="margin-top: 12px;">
+                    <button class="btn btn-primary" id="startTrialBtn">Start 24-Hour Free Trial</button>
+                </div>
+                <div style="margin-top: 16px; border-top: 1px solid var(--border); padding-top: 16px;">
+                    <div class="form-group">
+                        <label class="form-label" for="licenseKeyInput">Or enter a license key</label>
+                        <input class="form-input mono" id="licenseKeyInput" type="text" placeholder="Paste your license key here...">
+                    </div>
+                    <div class="btn-group" style="margin-top: 8px;">
+                        <button class="btn btn-secondary" id="activateLicenseBtn">Activate License</button>
+                    </div>
+                </div>
+                <div id="licenseError" class="error-msg" style="display: none; margin-top: 8px;"></div>
+            </div>
+        </div>
+    `;
+}
+
+function getTrialRemaining(endsAt) {
+    if (!endsAt) return '--';
+    const end = new Date(endsAt);
+    const now = new Date();
+    const diff = end - now;
+    if (diff <= 0) return 'Expired';
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    return `${minutes}m`;
+}
+
 function attachVMHandlers() {
     const startBtn = document.getElementById('startVMBtn');
     const stopBtn = document.getElementById('stopVMBtn');
     const openUIBtn = document.getElementById('openUIBtn');
     const copySSHBtn = document.getElementById('copySSHBtn');
     const copyAPIBtn = document.getElementById('copyAPIBtn');
+
+    // Download handlers
+    const startDownloadBtn = document.getElementById('startDownloadBtn');
+    const retryDownloadBtn = document.getElementById('retryDownloadBtn');
+    const cancelDownloadBtn = document.getElementById('cancelDownloadBtn');
+
+    // License handlers
+    const startTrialBtn = document.getElementById('startTrialBtn');
+    const activateLicenseBtn = document.getElementById('activateLicenseBtn');
+    const getLicenseLink = document.getElementById('getLicenseLink');
 
     if (startBtn) {
         startBtn.addEventListener('click', async () => {
@@ -356,6 +565,96 @@ function attachVMHandlers() {
             const port = state.vmConfig.api_port || 8080;
             navigator.clipboard.writeText(`http://localhost:${port}`);
             showToast('API endpoint copied');
+        });
+    }
+
+    // Download buttons
+    if (startDownloadBtn) {
+        startDownloadBtn.addEventListener('click', async () => {
+            startDownloadBtn.disabled = true;
+            startDownloadBtn.textContent = 'Starting download...';
+            try {
+                await DownloadVMImages();
+            } catch (err) {
+                console.error('Download failed:', err);
+                showToast('Failed to start download');
+            }
+        });
+    }
+
+    if (retryDownloadBtn) {
+        retryDownloadBtn.addEventListener('click', async () => {
+            state.downloadProgress = null;
+            renderContent();
+            try {
+                await DownloadVMImages();
+            } catch (err) {
+                console.error('Retry download failed:', err);
+            }
+        });
+    }
+
+    if (cancelDownloadBtn) {
+        cancelDownloadBtn.addEventListener('click', () => {
+            CancelDownload();
+            state.downloadProgress = null;
+            renderContent();
+        });
+    }
+
+    // License buttons
+    if (startTrialBtn) {
+        startTrialBtn.addEventListener('click', async () => {
+            startTrialBtn.disabled = true;
+            startTrialBtn.textContent = 'Starting trial...';
+            try {
+                await StartTrial();
+                state.licenseStatus = await GetLicenseStatus();
+                renderContent();
+                showToast('24-hour trial started');
+            } catch (err) {
+                console.error('Start trial failed:', err);
+                showToast('Failed to start trial');
+            }
+        });
+    }
+
+    if (activateLicenseBtn) {
+        activateLicenseBtn.addEventListener('click', async () => {
+            const input = document.getElementById('licenseKeyInput');
+            const errorEl = document.getElementById('licenseError');
+            if (!input || !input.value.trim()) {
+                if (errorEl) {
+                    errorEl.textContent = 'Please enter a license key';
+                    errorEl.style.display = 'block';
+                }
+                return;
+            }
+
+            activateLicenseBtn.disabled = true;
+            activateLicenseBtn.textContent = 'Validating...';
+
+            try {
+                await ValidateLicenseKey(input.value.trim());
+                state.licenseStatus = await GetLicenseStatus();
+                renderContent();
+                showToast('License activated');
+            } catch (err) {
+                if (errorEl) {
+                    errorEl.textContent = err.toString().replace('Error: ', '');
+                    errorEl.style.display = 'block';
+                }
+                activateLicenseBtn.disabled = false;
+                activateLicenseBtn.textContent = 'Activate License';
+            }
+        });
+    }
+
+    if (getLicenseLink) {
+        getLicenseLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            // Use Wails to open in default browser
+            window.open('https://deploy.helix.ml/licenses/new', '_blank');
         });
     }
 }

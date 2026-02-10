@@ -30,6 +30,8 @@ type App struct {
 	settings         *SettingsManager
 	zfsCollector     *ZFSCollector
 	scanoutCollector *ScanoutCollector
+	downloader       *VMDownloader
+	licenseValidator *LicenseValidator
 }
 
 // NewApp creates a new App application struct
@@ -57,6 +59,16 @@ func NewApp() *App {
 	// The socket path is typically /tmp/helix-vsock.sock, configured in UTM
 	vsockPath := filepath.Join(os.TempDir(), "helix-vsock.sock")
 	app.vsockServer = NewVsockServer(vsockPath, vtEncoder)
+
+	// VM image downloader (CDN download on first launch)
+	app.downloader = NewVMDownloader()
+
+	// License validator (offline ECDSA verification with embedded Launchpad public key)
+	validator, err := NewLicenseValidator()
+	if err != nil {
+		log.Printf("Warning: failed to initialize license validator: %v", err)
+	}
+	app.licenseValidator = validator
 
 	return app
 }
@@ -154,9 +166,19 @@ func (a *App) SetVMConfig(config VMConfig) error {
 	return a.vm.SetConfig(config)
 }
 
-// StartVM starts the virtual machine
+// StartVM starts the virtual machine after checking license and download status
 func (a *App) StartVM() error {
+	// Check license/trial status
+	if a.licenseValidator != nil {
+		if err := a.licenseValidator.CanStartVM(a.settings.Get()); err != nil {
+			return fmt.Errorf("license check failed: %w", err)
+		}
+	}
+
 	if err := a.vm.Start(); err != nil {
+		if err == ErrVMImagesNotDownloaded {
+			return fmt.Errorf("needs_download: VM images must be downloaded before starting")
+		}
 		return err
 	}
 
@@ -199,35 +221,45 @@ func (a *App) OpenSession(sessionID string) error {
 	return openBrowser(url)
 }
 
-// SetupVM sets up the VM by downloading/creating the base image
-func (a *App) SetupVM() error {
-	vmDir := filepath.Join(getHelixDataDir(), "vm", "helix-desktop")
-	if err := os.MkdirAll(vmDir, 0755); err != nil {
-		return fmt.Errorf("failed to create VM directory: %w", err)
+// DownloadVMImages downloads VM images from the CDN with progress events
+func (a *App) DownloadVMImages() error {
+	if a.downloader.IsRunning() {
+		return fmt.Errorf("download already in progress")
 	}
 
-	imagePath := filepath.Join(vmDir, "disk.qcow2")
+	// Create a context emitter that wraps the Wails app context
+	emitter := &appContextEmitter{ctx: a.ctx}
 
-	// Check if image already exists
-	if _, err := os.Stat(imagePath); err == nil {
-		wailsRuntime.EventsEmit(a.ctx, "setup:progress", map[string]interface{}{
-			"step":     "complete",
-			"message":  "VM image already exists",
-			"progress": 100,
-		})
-		return nil
-	}
+	go func() {
+		if err := a.downloader.DownloadAll(emitter); err != nil {
+			log.Printf("VM image download failed: %v", err)
+			wailsRuntime.EventsEmit(a.ctx, "download:progress", DownloadProgress{
+				Status: "error",
+				Error:  err.Error(),
+			})
+		}
+	}()
 
-	// Emit progress events
-	wailsRuntime.EventsEmit(a.ctx, "setup:progress", map[string]interface{}{
-		"step":     "downloading",
-		"message":  "Downloading Ubuntu ARM64 image...",
-		"progress": 10,
-	})
+	return nil
+}
 
-	// For now, we'll create a placeholder - in production this would download from get.helix.ml
-	// The actual VM setup requires downloading a pre-built image or creating one with cloud-init
-	return fmt.Errorf("VM setup not yet implemented. Please create a VM image manually at %s", imagePath)
+// CancelDownload cancels an in-progress VM image download
+func (a *App) CancelDownload() {
+	a.downloader.Cancel()
+}
+
+// GetDownloadStatus returns the current download progress
+func (a *App) GetDownloadStatus() DownloadProgress {
+	return a.downloader.GetProgress()
+}
+
+// appContextEmitter wraps the Wails context to satisfy the emitter interface
+type appContextEmitter struct {
+	ctx context.Context
+}
+
+func (e *appContextEmitter) EventsEmit(eventName string, data ...interface{}) {
+	wailsRuntime.EventsEmit(e.ctx, eventName, data...)
 }
 
 // GetSSHCommand returns the SSH command to connect to the VM
@@ -235,11 +267,52 @@ func (a *App) GetSSHCommand() string {
 	return a.vm.GetSSHCommand()
 }
 
-// IsVMImageReady checks if the VM image exists
+// IsVMImageReady checks if all required VM images exist
 func (a *App) IsVMImageReady() bool {
-	imagePath := filepath.Join(getHelixDataDir(), "vm", "helix-desktop", "disk.qcow2")
-	_, err := os.Stat(imagePath)
-	return err == nil
+	vmDir := filepath.Join(getHelixDataDir(), "vm", "helix-desktop")
+	rootDisk := filepath.Join(vmDir, "disk.qcow2")
+	zfsDisk := filepath.Join(vmDir, "zfs-data.qcow2")
+
+	if _, err := os.Stat(rootDisk); err != nil {
+		return false
+	}
+	if _, err := os.Stat(zfsDisk); err != nil {
+		return false
+	}
+	return true
+}
+
+// GetLicenseStatus returns the current license/trial state
+func (a *App) GetLicenseStatus() LicenseStatus {
+	if a.licenseValidator == nil {
+		return LicenseStatus{State: "licensed"} // No validator = no restrictions
+	}
+	return a.licenseValidator.GetLicenseStatus(a.settings.Get())
+}
+
+// ValidateLicenseKey validates and saves a license key
+func (a *App) ValidateLicenseKey(key string) error {
+	if a.licenseValidator == nil {
+		return fmt.Errorf("license validator not initialized")
+	}
+
+	_, err := a.licenseValidator.ValidateLicenseKey(key)
+	if err != nil {
+		return err
+	}
+
+	// Save the valid license key to settings
+	settings := a.settings.Get()
+	settings.LicenseKey = key
+	return a.settings.Save(settings)
+}
+
+// StartTrial starts the 24-hour free trial
+func (a *App) StartTrial() error {
+	if a.licenseValidator == nil {
+		return fmt.Errorf("license validator not initialized")
+	}
+	return a.licenseValidator.StartTrial(a.settings)
 }
 
 // GetHelixURL returns the URL for the Helix API

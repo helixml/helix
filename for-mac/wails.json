@@ -1,6 +1,6 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "helix-for-mac",
+  "name": "Helix",
   "outputfilename": "Helix for Mac",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",

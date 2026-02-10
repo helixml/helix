@@ -8,6 +8,9 @@ export namespace main {
 	    video_port: number;
 	    auto_start_vm: boolean;
 	    vm_disk_path: string;
+	    license_key?: string;
+	    // Go type: time
+	    trial_started_at?: any;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
@@ -22,7 +25,27 @@ export namespace main {
 	        this.video_port = source["video_port"];
 	        this.auto_start_vm = source["auto_start_vm"];
 	        this.vm_disk_path = source["vm_disk_path"];
+	        this.license_key = source["license_key"];
+	        this.trial_started_at = this.convertValues(source["trial_started_at"], null);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class DiskUsage {
 	    root_disk_total: number;
@@ -68,6 +91,32 @@ export namespace main {
 	        this.height = source["height"];
 	    }
 	}
+	export class DownloadProgress {
+	    file: string;
+	    bytes_done: number;
+	    bytes_total: number;
+	    percent: number;
+	    speed: string;
+	    eta: string;
+	    status: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DownloadProgress(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.file = source["file"];
+	        this.bytes_done = source["bytes_done"];
+	        this.bytes_total = source["bytes_total"];
+	        this.percent = source["percent"];
+	        this.speed = source["speed"];
+	        this.eta = source["eta"];
+	        this.status = source["status"];
+	        this.error = source["error"];
+	    }
+	}
 	export class EncoderStats {
 	    frames_encoded: number;
 	    frames_dropped: number;
@@ -88,6 +137,24 @@ export namespace main {
 	        this.average_bitrate = source["average_bitrate"];
 	        this.last_frame_time = source["last_frame_time"];
 	        this.pipeline_state = source["pipeline_state"];
+	    }
+	}
+	export class LicenseStatus {
+	    state: string;
+	    trial_ends_at?: string;
+	    licensed_to?: string;
+	    expires_at?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LicenseStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.trial_ends_at = source["trial_ends_at"];
+	        this.licensed_to = source["licensed_to"];
+	        this.expires_at = source["expires_at"];
 	    }
 	}
 	export class ScanoutStats {

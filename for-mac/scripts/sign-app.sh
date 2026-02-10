@@ -20,7 +20,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FOR_MAC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-APP_BUNDLE_NAME="helix-for-mac"
+APP_BUNDLE_NAME="Helix"
 APP_BUNDLE="${FOR_MAC_DIR}/build/bin/${APP_BUNDLE_NAME}.app"
 ENTITLEMENTS="${FOR_MAC_DIR}/build/darwin/entitlements.plist"
 IDENTITY="-"  # Ad-hoc by default
