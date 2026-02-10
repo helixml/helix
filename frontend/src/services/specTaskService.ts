@@ -31,6 +31,7 @@ const QUERY_KEYS = {
   cloneGroups: (taskId: string) => ['spec-tasks', taskId, 'clone-groups'] as const,
   cloneGroupProgress: (groupId: string) => ['clone-groups', groupId, 'progress'] as const,
   reposWithoutProjects: (orgId?: string) => ['repositories', 'without-projects', orgId] as const,
+  zedThreads: (id: string) => ['spec-tasks', id, 'zed-threads'] as const,
 };
 
 // Hook to fetch all spec tasks with react-query
@@ -97,6 +98,19 @@ export function useZedInstanceStatus(taskId: string) {
     },
     enabled: !!taskId,
     refetchInterval: 10000, // Refresh every 10 seconds
+  });
+}
+
+export function useZedThreads(taskId: string, options?: { enabled?: boolean }) {
+  const api = useApi();
+  return useQuery({
+    queryKey: QUERY_KEYS.zedThreads(taskId),
+    queryFn: async () => {
+      const response = await api.getApiClient().v1SpecTasksZedThreadsDetail(taskId);
+      return response.data;
+    },
+    enabled: options?.enabled !== false && !!taskId,
+    refetchInterval: 5000,
   });
 }
 
@@ -307,8 +321,9 @@ const specTaskService = {
   // Query functions
   useSpecTask,
   useSpecTaskUsage,
-  useTaskProgress,  
+  useTaskProgress,
   useZedInstanceStatus,
+  useZedThreads,
   useCloneGroups,
   useCloneGroupProgress,
   useReposWithoutProjects,

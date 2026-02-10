@@ -861,6 +861,7 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 		log.Error().Err(err).Str("repo_path", repoPath).Msg("Failed to open git repository")
 		return
 	}
+	defer gitRepo.Close()
 
 	for _, pushedBranch := range pushedBranches {
 		commitHash, err := gitRepo.GetBranchCommitHash(pushedBranch)
