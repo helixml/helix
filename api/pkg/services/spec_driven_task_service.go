@@ -534,6 +534,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	zedAgent := &types.DesktopAgent{
+		OrganizationID:      orgID,
 		SessionID:           session.ID,
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment for spec generation",
@@ -915,6 +916,7 @@ Follow these guidelines when making changes:
 
 	// Create ZedAgent struct with session info for Wolf executor
 	zedAgent := &types.DesktopAgent{
+		OrganizationID:      orgID,
 		SessionID:           session.ID,
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment",
@@ -1601,8 +1603,9 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 
 	// Build the ZedAgent for restart
 	zedAgent := &types.DesktopAgent{
+		OrganizationID:      task.OrganizationID,
 		SessionID:           session.ID,
-		UserID:              task.CreatedBy,
+		UserID:              task.UserID,
 		Input:               "Resuming Zed development environment after container restart",
 		ProjectPath:         "workspace",
 		SpecTaskID:          task.ID,

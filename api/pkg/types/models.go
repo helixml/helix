@@ -198,6 +198,7 @@ type ModelInfo struct { //nolint:revive
 	ProviderSlug        string     `json:"provider_slug"`
 	ProviderModelID     string     `json:"provider_model_id"`
 	Slug                string     `json:"slug"`
+	Permaslug           string     `json:"permaslug"`
 	Name                string     `json:"name"`
 	Author              string     `json:"author"`
 	SupportedParameters []string   `json:"supported_parameters"`

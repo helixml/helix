@@ -47,6 +47,10 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		q = q.Where("project_id = ?", query.ProjectID)
 	}
 
+	if !query.IncludeExternalAgents {
+		q = q.Where("model_name != 'external_agent'")
+	}
+
 	// Add ordering
 	q = q.Order("created DESC")
 

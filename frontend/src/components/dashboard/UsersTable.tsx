@@ -27,8 +27,10 @@ import ClearIcon from "@mui/icons-material/Clear";
 import AddIcon from "@mui/icons-material/Add";
 import LockResetIcon from "@mui/icons-material/LockReset";
 import DeleteIcon from "@mui/icons-material/Delete";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { TypesUser, TypesPaginatedUsersList } from "../../api/api";
-import { useListUsers, UserListQuery } from "../../services/dashboardService";
+import { useListUsers, useAdminApproveUser, UserListQuery } from "../../services/dashboardService";
+import useSnackbar from "../../hooks/useSnackbar";
 import CreateUserDialog from "./CreateUserDialog";
 import ResetPasswordDialog from "./ResetPasswordDialog";
 import DeleteUserDialog from "./DeleteUserDialog";
@@ -101,6 +103,8 @@ const UsersTable: FC = () => {
     const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [selectedUser, setSelectedUser] = useState<TypesUser | null>(null);
+    const approveUser = useAdminApproveUser();
+    const snackbar = useSnackbar();
 
     const handleResetPassword = (user: TypesUser) => {
         setSelectedUser(user);
@@ -110,6 +114,16 @@ const UsersTable: FC = () => {
     const handleCloseResetPasswordDialog = () => {
         setResetPasswordDialogOpen(false);
         setSelectedUser(null);
+    };
+
+    const handleApproveUser = async (user: TypesUser) => {
+        if (!user.id) return;
+        try {
+            await approveUser.mutateAsync(user.id);
+            snackbar.success(`User ${user.email || user.username} approved`);
+        } catch (err: any) {
+            snackbar.error(err?.message || "Failed to approve user");
+        }
     };
 
     const handleDeleteUser = (user: TypesUser) => {
@@ -326,6 +340,18 @@ const UsersTable: FC = () => {
                                         </Tooltip>
                                     </TableCell>
                                     <TableCell align="right">
+                                        {user.waitlisted && (
+                                            <Tooltip title="Approve User">
+                                                <IconButton
+                                                    size="small"
+                                                    onClick={() => handleApproveUser(user)}
+                                                    disabled={approveUser.isPending}
+                                                    sx={{ color: 'success.main' }}
+                                                >
+                                                    <CheckCircleIcon fontSize="small" />
+                                                </IconButton>
+                                            </Tooltip>
+                                        )}
                                         <Tooltip title="Reset Password">
                                             <IconButton
                                                 size="small"

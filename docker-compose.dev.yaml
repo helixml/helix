@@ -77,9 +77,6 @@ services:
       # Discord integration
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
       - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE:-}
-      # AI Providers management - enable/disable user-facing AI provider API keys management
-      # Disabled by default - admins manage providers via admin panel
-      - PROVIDERS_MANAGEMENT_ENABLED=${PROVIDERS_MANAGEMENT_ENABLED:-}
       # Socket configuration for haystack communication
       - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
       - RAG_HAYSTACK_ENABLED=true
@@ -118,6 +115,10 @@ services:
       - chrome
     extra_hosts:
       - "host.docker.internal:host-gateway"
+      # In Helix-in-Helix mode, the startup script sets OUTER_API_IP to the
+      # outer Helix API's address. This lets the inner API reach the outer API
+      # at http://outer-api:8080 for LLM inference routing.
+      - "outer-api:${OUTER_API_IP:-127.0.0.1}"
   postgres:
     image: postgres:12.13-alpine
     restart: always

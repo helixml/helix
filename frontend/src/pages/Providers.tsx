@@ -24,6 +24,16 @@ const Providers: React.FC = () => {
   // Check if providers management is enabled
   const providersManagementEnabled = account.serverConfig.providers_management_enabled
 
+  // Get org if orgName is set (hooks must be called before any early returns)
+  const { data: org, isLoading: isLoadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
+
+  // Get provider endpoints
+  const { data: providerEndpoints = [], isLoading: isLoadingProviders, refetch: loadData } = useListProviders({
+    loadModels: false,
+    orgId: org?.id,
+    enabled: !isLoadingOrg,
+  });
+
   // If providers management is disabled and user is not admin, show message
   if (!providersManagementEnabled && !account.admin) {
     return (
@@ -39,16 +49,6 @@ const Providers: React.FC = () => {
       </Page>
     )
   }
-
-  // Get org if orgName is set
-  const { data: org, isLoading: isLoadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
-
-  // Get provider endpoints
-  const { data: providerEndpoints = [], isLoading: isLoadingProviders, refetch: loadData } = useListProviders({
-    loadModels: false,
-    orgId: org?.id,
-    enabled: !isLoadingOrg,
-  });
 
 
   let editAllowed = false

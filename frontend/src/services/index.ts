@@ -49,5 +49,12 @@ export {
   userGuidelinesHistoryQueryKey,
 } from './guidelinesService';
 
+// System Settings Service
+export {
+  useGetSystemSettings,
+  useUpdateSystemSettings,
+  SYSTEM_SETTINGS_QUERY_KEY,
+} from './systemSettingsService';
+
 // Re-export types for convenience
 export type { TypesDynamicModelInfo, TypesModelInfo, TypesPricing, TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesForkSimpleProjectRequest, TypesForkSimpleProjectResponse, TypesGuidelinesHistory } from '../api/api';

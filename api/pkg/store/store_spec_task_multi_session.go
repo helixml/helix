@@ -268,6 +268,23 @@ func (s *PostgresStore) GetSpecTaskZedThreadByWorkSession(ctx context.Context, w
 	return &zedThread, nil
 }
 
+func (s *PostgresStore) GetSpecTaskZedThreadByZedThreadID(ctx context.Context, zedThreadID string) (*types.SpecTaskZedThread, error) {
+	var zedThread types.SpecTaskZedThread
+
+	err := s.gdb.WithContext(ctx).
+		Preload("WorkSession").
+		First(&zedThread, "zed_thread_id = ?", zedThreadID).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("spec task zed thread not found for zed thread ID: %s", zedThreadID)
+		}
+		return nil, fmt.Errorf("failed to get spec task zed thread by zed thread ID: %w", err)
+	}
+
+	return &zedThread, nil
+}
+
 func (s *PostgresStore) UpdateSpecTaskZedThread(ctx context.Context, zedThread *types.SpecTaskZedThread) error {
 	zedThread.UpdatedAt = time.Now()
 

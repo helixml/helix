@@ -29,6 +29,8 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Switch,
+  FormControlLabel,
+  Checkbox,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import EditIcon from "@mui/icons-material/Edit";
@@ -68,6 +70,7 @@ import {
   useUpdateSpecTask,
   useSpecTask,
   useCloneGroups,
+  useZedThreads,
 } from "../../services/specTaskService";
 import {
   useGetProject,
@@ -130,6 +133,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     enabled: !!taskId,
     refetchInterval: 2300, // 2.3s - prime to avoid sync with other polling
   });
+
+  // Fetch zed threads for thread switching
+  const { data: zedThreadsData } = useZedThreads(taskId);
 
   // Fetch project and repositories to get default branch
   const { data: project } = useGetProject(
@@ -366,8 +372,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Check if task is archived/rejected - container is shut down so desktop view won't work
   const isTaskArchived = task?.archived;
 
+  // Thread selection state for switching between planning and implementation threads
+  const [selectedThreadSessionId, setSelectedThreadSessionId] = useState<string | null>(null);
+
   // Get the active session ID - keep it available for chat history even when task is completed
-  const activeSessionId = task?.planning_session_id;
+  const activeSessionId = selectedThreadSessionId || task?.planning_session_id;
 
   // Track sandbox/desktop state for stop/start buttons
   const { isRunning: isDesktopRunning, isPaused: isDesktopPaused, isStarting: isDesktopStarting } = useSandboxState(activeSessionId || '');
@@ -632,6 +641,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         description: task.description || task.original_prompt || "",
         priority: task.priority || "medium",
       });
+      setJustDoItMode(task.just_do_it_mode ?? false);
     }
   }, [task]);
 
@@ -645,6 +655,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           name: editFormData.name,
           description: editFormData.description,
           priority: editFormData.priority as TypesSpecTaskPriority,
+          just_do_it_mode: justDoItMode,
         },
       });
       setIsEditMode(false);
@@ -653,7 +664,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       console.error("Failed to update task:", err);
       snackbar.error("Failed to update task");
     }
-  }, [task?.id, editFormData, updateSpecTask, snackbar]);
+  }, [task?.id, editFormData, justDoItMode, updateSpecTask, snackbar]);
 
   // Handle review spec navigation
   const handleReviewSpec = useCallback(async () => {
@@ -938,6 +949,21 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </>
         )}
       </Box>
+
+      {isEditMode && (
+        <Box sx={{ mb: 2 }}>
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={justDoItMode}
+                onChange={(e) => setJustDoItMode(e.target.checked)}
+                size="small"
+              />
+            }
+            label="Skip planning (go straight to implementation)"
+          />
+        </Box>
+      )}
 
       {/* Agent Selection */}
       <Box sx={{ mb: 2 }}>
@@ -1318,12 +1344,47 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     flexShrink: 0,
                   }}
                 >
-                  <Typography
-                    variant="body2"
-                    sx={{ fontWeight: 500, color: "text.secondary" }}
-                  >
-                    Chat
-                  </Typography>
+                  {zedThreadsData?.zed_threads && zedThreadsData.zed_threads.length > 0 ? (
+                    <Select
+                      size="small"
+                      variant="standard"
+                      value={selectedThreadSessionId || "planning"}
+                      onChange={(e) => {
+                        const val = e.target.value as string;
+                        setSelectedThreadSessionId(val === "planning" ? null : val);
+                      }}
+                      sx={{
+                        fontSize: "0.875rem",
+                        fontWeight: 500,
+                        color: "text.secondary",
+                        minWidth: 100,
+                        "&:before": { display: "none" },
+                        "&:after": { display: "none" },
+                        "& .MuiSelect-select": { py: 0 },
+                      }}
+                    >
+                      <MenuItem value="planning">Main thread</MenuItem>
+                      {zedThreadsData.zed_threads.map((thread, index) => {
+                        const sessionId = thread.work_session?.helix_session_id;
+                        if (!sessionId) return null;
+                        const label = thread.work_session?.name
+                          || thread.work_session?.implementation_task_title
+                          || `Thread ${index + 2}`;
+                        return (
+                          <MenuItem key={sessionId} value={sessionId}>
+                            {label}
+                          </MenuItem>
+                        );
+                      })}
+                    </Select>
+                  ) : (
+                    <Typography
+                      variant="body2"
+                      sx={{ fontWeight: 500, color: "text.secondary" }}
+                    >
+                      Chat
+                    </Typography>
+                  )}
                   <Tooltip title="Collapse chat panel">
                     <IconButton
                       size="small"
@@ -1942,6 +2003,50 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   overflow: "hidden",
                 }}
               >
+                {zedThreadsData?.zed_threads && zedThreadsData.zed_threads.length > 0 && (
+                  <Box
+                    sx={{
+                      px: 1.5,
+                      py: 0.5,
+                      borderBottom: "1px solid",
+                      borderColor: "divider",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Select
+                      size="small"
+                      variant="standard"
+                      value={selectedThreadSessionId || "planning"}
+                      onChange={(e) => {
+                        const val = e.target.value as string;
+                        setSelectedThreadSessionId(val === "planning" ? null : val);
+                      }}
+                      sx={{
+                        fontSize: "0.875rem",
+                        fontWeight: 500,
+                        color: "text.secondary",
+                        minWidth: 100,
+                        "&:before": { display: "none" },
+                        "&:after": { display: "none" },
+                        "& .MuiSelect-select": { py: 0 },
+                      }}
+                    >
+                      <MenuItem value="planning">Main thread</MenuItem>
+                      {zedThreadsData.zed_threads.map((thread, index) => {
+                        const sessionId = thread.work_session?.helix_session_id;
+                        if (!sessionId) return null;
+                        const label = thread.work_session?.name
+                          || thread.work_session?.implementation_task_title
+                          || `Thread ${index + 2}`;
+                        return (
+                          <MenuItem key={sessionId} value={sessionId}>
+                            {label}
+                          </MenuItem>
+                        );
+                      })}
+                    </Select>
+                  </Box>
+                )}
                 <EmbeddedSessionView
                   ref={sessionViewRef}
                   sessionId={activeSessionId}

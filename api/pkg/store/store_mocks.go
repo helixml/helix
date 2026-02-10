@@ -2452,6 +2452,21 @@ func (mr *MockStoreMockRecorder) GetProjectExploratorySession(ctx, projectID any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProjectExploratorySession", reflect.TypeOf((*MockStore)(nil).GetProjectExploratorySession), ctx, projectID)
 }
 
+// GetProjectsCount mocks base method.
+func (m *MockStore) GetProjectsCount(ctx context.Context, query *GetProjectsCountQuery) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetProjectsCount", ctx, query)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetProjectsCount indicates an expected call of GetProjectsCount.
+func (mr *MockStoreMockRecorder) GetProjectsCount(ctx, query any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProjectsCount", reflect.TypeOf((*MockStore)(nil).GetProjectsCount), ctx, query)
+}
+
 // GetProjectsForRepository mocks base method.
 func (m *MockStore) GetProjectsForRepository(ctx context.Context, repositoryID string) ([]string, error) {
 	m.ctrl.T.Helper()
@@ -2540,6 +2555,21 @@ func (m *MockStore) GetQuestionSetExecution(ctx context.Context, id string) (*ty
 func (mr *MockStoreMockRecorder) GetQuestionSetExecution(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetQuestionSetExecution", reflect.TypeOf((*MockStore)(nil).GetQuestionSetExecution), ctx, id)
+}
+
+// GetRepositoriesCount mocks base method.
+func (m *MockStore) GetRepositoriesCount(ctx context.Context, query *GetRepositoriesCountQuery) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRepositoriesCount", ctx, query)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRepositoriesCount indicates an expected call of GetRepositoriesCount.
+func (mr *MockStoreMockRecorder) GetRepositoriesCount(ctx, query any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRepositoriesCount", reflect.TypeOf((*MockStore)(nil).GetRepositoriesCount), ctx, query)
 }
 
 // GetRepositoriesForProject mocks base method.
@@ -2947,6 +2977,21 @@ func (mr *MockStoreMockRecorder) GetSpecTaskZedThread(ctx, id any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTaskZedThread", reflect.TypeOf((*MockStore)(nil).GetSpecTaskZedThread), ctx, id)
 }
 
+// GetSpecTaskZedThreadByZedThreadID mocks base method.
+func (m *MockStore) GetSpecTaskZedThreadByZedThreadID(ctx context.Context, zedThreadID string) (*types.SpecTaskZedThread, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSpecTaskZedThreadByZedThreadID", ctx, zedThreadID)
+	ret0, _ := ret[0].(*types.SpecTaskZedThread)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSpecTaskZedThreadByZedThreadID indicates an expected call of GetSpecTaskZedThreadByZedThreadID.
+func (mr *MockStoreMockRecorder) GetSpecTaskZedThreadByZedThreadID(ctx, zedThreadID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTaskZedThreadByZedThreadID", reflect.TypeOf((*MockStore)(nil).GetSpecTaskZedThreadByZedThreadID), ctx, zedThreadID)
+}
+
 // GetSpecTaskZedThreadByWorkSession mocks base method.
 func (m *MockStore) GetSpecTaskZedThreadByWorkSession(ctx context.Context, workSessionID string) (*types.SpecTaskZedThread, error) {
 	m.ctrl.T.Helper()
@@ -2960,6 +3005,21 @@ func (m *MockStore) GetSpecTaskZedThreadByWorkSession(ctx context.Context, workS
 func (mr *MockStoreMockRecorder) GetSpecTaskZedThreadByWorkSession(ctx, workSessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTaskZedThreadByWorkSession", reflect.TypeOf((*MockStore)(nil).GetSpecTaskZedThreadByWorkSession), ctx, workSessionID)
+}
+
+// GetSpecTasksCount mocks base method.
+func (m *MockStore) GetSpecTasksCount(ctx context.Context, query *GetSpecTasksCountQuery) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSpecTasksCount", ctx, query)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSpecTasksCount indicates an expected call of GetSpecTasksCount.
+func (mr *MockStoreMockRecorder) GetSpecTasksCount(ctx, query any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTasksCount", reflect.TypeOf((*MockStore)(nil).GetSpecTasksCount), ctx, query)
 }
 
 // GetSystemSettings mocks base method.

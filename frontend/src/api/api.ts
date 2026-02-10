@@ -3492,6 +3492,20 @@ export enum TypesQuestionSetExecutionStatus {
   QuestionSetExecutionStatusError = "error",
 }
 
+export interface TypesQuotaResponse {
+  active_concurrent_desktops?: number;
+  max_concurrent_desktops?: number;
+  max_projects?: number;
+  max_repositories?: number;
+  max_spec_tasks?: number;
+  /** If applicable */
+  organization_id?: string;
+  projects?: number;
+  repositories?: number;
+  spec_tasks?: number;
+  user_id?: string;
+}
+
 export interface TypesRAGSettings {
   /** the amount of overlap between chunks - will default to 32 bytes */
   chunk_overflow?: number;
@@ -3575,6 +3589,7 @@ export enum TypesResource {
   ResourceSpecTask = "SpecTask",
   ResourceSession = "Session",
   ResourcePrompt = "Prompt",
+  ResourceDesktop = "Desktop",
 }
 
 export interface TypesResourceSearchRequest {
@@ -3807,6 +3822,7 @@ export interface TypesServerConfigForFrontend {
   google_analytics_frontend?: string;
   latest_version?: string;
   license?: TypesFrontendLicenseInfo;
+  max_concurrent_desktops?: number;
   organizations_create_enabled_for_non_admins?: boolean;
   /** Controls if users can add their own AI provider API keys */
   providers_management_enabled?: boolean;
@@ -4727,14 +4743,18 @@ export interface TypesSyncAllResponse {
 }
 
 export interface TypesSystemSettingsRequest {
+  enforce_quotas?: boolean;
   huggingface_token?: string;
   kodit_enrichment_model?: string;
   /** Kodit enrichment model configuration */
   kodit_enrichment_provider?: string;
+  max_concurrent_desktops?: number;
+  providers_management_enabled?: boolean;
 }
 
 export interface TypesSystemSettingsResponse {
   created?: string;
+  enforce_quotas?: boolean;
   /** Sensitive fields are masked */
   huggingface_token_set?: boolean;
   /** "database", "environment", or "none" */
@@ -4745,6 +4765,9 @@ export interface TypesSystemSettingsResponse {
   kodit_enrichment_model_set?: boolean;
   /** Kodit enrichment model configuration (not sensitive, returned as-is) */
   kodit_enrichment_provider?: string;
+  /** Per user */
+  max_concurrent_desktops?: number;
+  providers_management_enabled?: boolean;
   updated?: string;
 }
 
@@ -5122,6 +5145,8 @@ export interface TypesUser {
   id?: string;
   /** if the user must change their password */
   must_change_password?: boolean;
+  onboarding_completed?: boolean;
+  onboarding_completed_at?: string;
   /** bcrypt hash of the password */
   password_hash?: number[];
   /** When running in Helix Code sandbox */
@@ -5143,6 +5168,7 @@ export interface TypesUser {
   type?: TypesOwnerType;
   updated_at?: string;
   username?: string;
+  waitlisted?: boolean;
 }
 
 export interface TypesUserAppAccessResponse {
@@ -5163,6 +5189,7 @@ export interface TypesUserResponse {
   email?: string;
   id?: string;
   name?: string;
+  onboarding_completed?: boolean;
   token?: string;
 }
 
@@ -5480,6 +5507,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/admin/users/${id}`,
         method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Approve a waitlisted user, removing them from the waitlist. Only admins can use this endpoint.
+     *
+     * @tags users
+     * @name V1AdminUsersApproveCreate
+     * @summary Approve a user (Admin only)
+     * @request POST:/api/v1/admin/users/{id}/approve
+     * @secure
+     */
+    v1AdminUsersApproveCreate: (id: string, params: RequestParams = {}) =>
+      this.request<TypesUser, SystemHTTPError>({
+        path: `/api/v1/admin/users/${id}/approve`,
+        method: "POST",
         secure: true,
         format: "json",
         ...params,
@@ -9378,6 +9423,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get quotas for the user. Returns current usage and limits for desktops, projects, repositories, and spec tasks. Optionally pass org_id query parameter to get organization quotas.
+     *
+     * @tags quotas
+     * @name V1QuotasList
+     * @summary Get quotas
+     * @request GET:/api/v1/quotas
+     * @secure
+     */
+    v1QuotasList: (
+      query?: {
+        /** Organization ID to get quotas for */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesQuotaResponse, any>({
+        path: `/api/v1/quotas`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get all repositories that don't have an associated project
      *
      * @tags Repositories
@@ -10506,9 +10575,9 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/spec-tasks
      */
     v1SpecTasksList: (
-      query?: {
-        /** Filter by project ID */
-        project_id?: string;
+      query: {
+        /** Project ID */
+        project_id: string;
         /** Filter by status */
         status?: string;
         /** Filter by user ID */
@@ -11507,6 +11576,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesGuidelinesHistory[], SystemHTTPError>({
         path: `/api/v1/users/me/guidelines-history`,
         method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Mark onboarding as completed for the current user
+     *
+     * @tags Users
+     * @name V1UsersMeOnboardingCreate
+     * @summary Complete onboarding
+     * @request POST:/api/v1/users/me/onboarding
+     * @secure
+     */
+    v1UsersMeOnboardingCreate: (params: RequestParams = {}) =>
+      this.request<TypesUser, SystemHTTPError>({
+        path: `/api/v1/users/me/onboarding`,
+        method: "POST",
         secure: true,
         format: "json",
         ...params,
