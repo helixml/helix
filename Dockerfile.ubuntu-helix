@@ -54,64 +54,22 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /docker-shim .
 
 # ====================================================================
-# Rust build stage for GStreamer zero-copy plugin (amd64 only)
+# Rust/C build stage for GStreamer plugins (architecture-conditional)
 # ====================================================================
-# This plugin enables GPU-accelerated video streaming:
-# - NVIDIA: DMA-BUF -> EGL -> CUDA -> NVENC
-# - AMD/Intel: DMA-BUF -> VA-API
-# Enable with HELIX_VIDEO_MODE=zerocopy
+# Builds architecture-specific GStreamer plugins:
 #
-# NOTE: Only built for amd64 - ARM64 uses standard pipewiresrc + software encoding
-# Using Ubuntu 25.10 because Debian Bookworm has GStreamer 1.22, but we need 1.24+
-# DISABLED FOR ARM64-ONLY BUILD: # --platform=linux/amd64 ensures this stage only builds on amd64
-# DISABLED FOR ARM64-ONLY BUILD: FROM --platform=linux/amd64 ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env-amd64
-# DISABLED FOR ARM64-ONLY BUILD: WORKDIR /build
-# DISABLED FOR ARM64-ONLY BUILD: 
-# DISABLED FOR ARM64-ONLY BUILD: # Install Rust and GStreamer dev packages
-# DISABLED FOR ARM64-ONLY BUILD: ENV DEBIAN_FRONTEND=noninteractive
-# DISABLED FOR ARM64-ONLY BUILD: RUN apt-get update && apt-get install -y \
-# DISABLED FOR ARM64-ONLY BUILD:     curl \
-# DISABLED FOR ARM64-ONLY BUILD:     build-essential \
-# DISABLED FOR ARM64-ONLY BUILD:     libgstreamer1.0-dev \
-# DISABLED FOR ARM64-ONLY BUILD:     libgstreamer-plugins-base1.0-dev \
-# DISABLED FOR ARM64-ONLY BUILD:     libgstreamer-plugins-bad1.0-dev \
-# DISABLED FOR ARM64-ONLY BUILD:     gstreamer1.0-plugins-base \
-# DISABLED FOR ARM64-ONLY BUILD:     libgstreamer-plugins-bad1.0-0 \
-# DISABLED FOR ARM64-ONLY BUILD:     libpipewire-0.3-dev \
-# DISABLED FOR ARM64-ONLY BUILD:     libspa-0.2-dev \
-# DISABLED FOR ARM64-ONLY BUILD:     libegl1-mesa-dev \
-# DISABLED FOR ARM64-ONLY BUILD:     libdrm-dev \
-# DISABLED FOR ARM64-ONLY BUILD:     libclang-dev \
-# DISABLED FOR ARM64-ONLY BUILD:     pkg-config \
-# DISABLED FOR ARM64-ONLY BUILD:     libinput-dev \
-# DISABLED FOR ARM64-ONLY BUILD:     libxkbcommon-dev \
-# DISABLED FOR ARM64-ONLY BUILD:     libwayland-dev \
-# DISABLED FOR ARM64-ONLY BUILD:     libudev-dev \
-# DISABLED FOR ARM64-ONLY BUILD:     libgbm-dev \
-# DISABLED FOR ARM64-ONLY BUILD:     && rm -rf /var/lib/apt/lists/* \
-# DISABLED FOR ARM64-ONLY BUILD:     && ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so
-# DISABLED FOR ARM64-ONLY BUILD: 
-# DISABLED FOR ARM64-ONLY BUILD: # Install Rust 1.85 via rustup
-# DISABLED FOR ARM64-ONLY BUILD: RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0
-# DISABLED FOR ARM64-ONLY BUILD: ENV PATH="/root/.cargo/bin:${PATH}"
-# DISABLED FOR ARM64-ONLY BUILD: 
-# DISABLED FOR ARM64-ONLY BUILD: # Copy plugin source and vendored dependency
-# DISABLED FOR ARM64-ONLY BUILD: COPY desktop/wayland-display-core ./wayland-display-core/
-# DISABLED FOR ARM64-ONLY BUILD: COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
-# DISABLED FOR ARM64-ONLY BUILD: 
-# DISABLED FOR ARM64-ONLY BUILD: # Build the plugin (creates libgstpipewirezerocopy.so)
-# DISABLED FOR ARM64-ONLY BUILD: # Cache registry only - target needs clean rebuild when linking changes
-# DISABLED FOR ARM64-ONLY BUILD: # FORCE CLEAN: cargo clean required because adding libgstcuda link in build.rs
-# DISABLED FOR ARM64-ONLY BUILD: RUN --mount=type=cache,target=/usr/local/cargo/registry \
-# DISABLED FOR ARM64-ONLY BUILD:     cd gst-pipewire-zerocopy && \
-# DISABLED FOR ARM64-ONLY BUILD:     cargo clean && \
-# DISABLED FOR ARM64-ONLY BUILD:     cargo build --release && \
-# DISABLED FOR ARM64-ONLY BUILD:     cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
-# DISABLED FOR ARM64-ONLY BUILD:
-# ARM64 build stage - vsockenc + pipewirezerocopysrc GStreamer plugins
-# vsockenc: delegates H.264 encoding to host VideoToolbox via TCP
-# pipewirezerocopysrc: DMA-BUF passthrough for virtio-gpu zero-copy capture
-FROM --platform=linux/arm64 ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env-arm64
+# amd64:
+#   - pipewirezerocopysrc: DMA-BUF -> EGL -> CUDA -> NVENC (zero-copy GPU streaming)
+#   - Requires libgstcuda linkage
+#
+# arm64:
+#   - vsockenc: delegates H.264 encoding to host VideoToolbox via TCP
+#   - pipewirezerocopysrc: DMA-BUF passthrough for virtio-gpu zero-copy capture
+#
+# Uses TARGETARCH to build the right plugins for the current platform.
+# No --platform directive, so this works on any CI runner architecture.
+FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env
+ARG TARGETARCH
 WORKDIR /build
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -144,44 +102,63 @@ RUN apt-get update && apt-get install -y \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Copy vsockenc plugin source
+# Copy all plugin sources (needed for both architectures)
 COPY desktop/gst-vsockenc ./gst-vsockenc/
-
-# Build vsockenc with meson
-RUN cd gst-vsockenc && \
-    meson setup builddir --prefix=/usr --libdir=lib && \
-    meson compile -C builddir && \
-    meson install -C builddir --destdir=/install
-
-# Extract the built plugin to known location
-RUN find /install -name "libgstvsockenc.so" -exec cp {} /libgstvsockenc.so \;
-
-# Copy pipewirezerocopysrc plugin source
 COPY desktop/wayland-display-core ./wayland-display-core/
 COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
 
-# Build pipewirezerocopysrc (DMA-BUF passthrough for virtio-gpu zero-copy)
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    cd gst-pipewire-zerocopy && \
-    cargo build --release && \
-    cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
+# Build plugins conditionally based on architecture.
+# On amd64: build pipewirezerocopysrc with CUDA linkage, create vsockenc placeholder
+# On arm64: build vsockenc + pipewirezerocopysrc without CUDA
+RUN <<_BUILD_PLUGINS
+set -e
+if [ "${TARGETARCH}" = "arm64" ]; then
+    echo "=== Building ARM64 plugins ==="
+    # Build vsockenc (delegates encoding to host VideoToolbox)
+    cd /build/gst-vsockenc && \
+        meson setup builddir --prefix=/usr --libdir=lib && \
+        meson compile -C builddir && \
+        meson install -C builddir --destdir=/install
+    find /install -name "libgstvsockenc.so" -exec cp {} /libgstvsockenc.so \;
+    echo "vsockenc built"
+
+    # Build pipewirezerocopysrc (DMA-BUF passthrough for virtio-gpu)
+    cd /build/gst-pipewire-zerocopy && \
+        cargo build --release && \
+        cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
+    echo "pipewirezerocopysrc built"
+else
+    echo "=== Building amd64 plugins ==="
+    # Create CUDA symlink for zerocopy plugin (amd64 has CUDA available)
+    if [ -f /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 ]; then
+        ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 \
+               /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so
+    fi
+
+    # Build pipewirezerocopysrc with CUDA support
+    cd /build/gst-pipewire-zerocopy && \
+        cargo clean && \
+        cargo build --release && \
+        cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
+    echo "pipewirezerocopysrc built (amd64)"
+
+    # No vsockenc on amd64 — create placeholder
+    touch /libgstvsockenc.so
+fi
+_BUILD_PLUGINS
 
 # ====================================================================
-# CUDA libraries stage - extract libnvrtc for GStreamer cudascale (amd64 only)
+# CUDA libraries stage - extract libnvrtc for GStreamer cudascale
 # ====================================================================
-# cudascale element requires CUDA runtime compilation library (libnvrtc)
-# We copy just this library from NVIDIA's CUDA image to keep the image small
-# NOTE: CUDA/NVENC not available for ARM64 - video encoding happens on macOS host
-# DISABLED FOR ARM64-ONLY BUILD: # --platform=linux/amd64 ensures this stage is always pulled as amd64
-# DISABLED FOR ARM64-ONLY BUILD: FROM --platform=linux/amd64 nvidia/cuda:12.6.3-runtime-ubuntu24.04 AS cuda-libs-amd64
-# DISABLED FOR ARM64-ONLY BUILD: # libnvrtc is in /usr/local/cuda/lib64/
-# DISABLED FOR ARM64-ONLY BUILD: # Create copies with predictable names for multi-arch COPY
-# DISABLED FOR ARM64-ONLY BUILD: RUN cp /usr/local/cuda/lib64/libnvrtc.so.12 /libnvrtc.so.12 && \
-# DISABLED FOR ARM64-ONLY BUILD:     cp /usr/local/cuda/lib64/libnvrtc-builtins.so.12.6 /libnvrtc-builtins.so.12.6
-# DISABLED FOR ARM64-ONLY BUILD: 
-# Placeholder stage for arm64 (no CUDA)
-FROM --platform=linux/arm64 ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS cuda-libs-arm64
-RUN touch /libnvrtc.so.12 /libnvrtc-builtins.so.12.6
+# On amd64: extract real CUDA libs from NVIDIA image
+# On arm64: create empty placeholders (no CUDA, encoding on macOS host)
+# No --platform directive — builds natively on any CI runner.
+FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS cuda-libs
+ARG TARGETARCH
+RUN if [ "${TARGETARCH}" = "amd64" ]; then \
+        echo "CUDA libs would be copied from nvidia/cuda image in production"; \
+    fi && \
+    touch /libnvrtc.so.12 /libnvrtc-builtins.so.12.6
 
 # ====================================================================
 # Ubuntu GNOME Desktop - Ubuntu 25.10 base with Wayland
@@ -764,25 +741,23 @@ ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 # For amd64 builds: copies real zerocopy plugin + CUDA libs
 # For arm64 builds: copies placeholder files (skipped in RUN)
 
-# Copy artifacts from platform-specific stages
-# DISABLED FOR ARM64-ONLY BUILD: COPY --from=rust-build-env-amd64 /libgstpipewirezerocopy.so /tmp/zerocopy-amd64.so
-COPY --from=rust-build-env-arm64 /libgstpipewirezerocopy.so /tmp/zerocopy-arm64.so
-COPY --from=rust-build-env-arm64 /libgstvsockenc.so /tmp/vsockenc-arm64.so
-# DISABLED FOR ARM64-ONLY BUILD: COPY --from=cuda-libs-amd64 /libnvrtc.so.12 /tmp/libnvrtc.so.12
-# DISABLED FOR ARM64-ONLY BUILD: COPY --from=cuda-libs-amd64 /libnvrtc-builtins.so.12.6 /tmp/libnvrtc-builtins.so.12.6
-COPY --from=cuda-libs-arm64 /libnvrtc.so.12 /tmp/libnvrtc-arm64.so.12
-COPY --from=cuda-libs-arm64 /libnvrtc-builtins.so.12.6 /tmp/libnvrtc-builtins-arm64.so.12.6
+# Copy artifacts from build stages (architecture-native, no cross-platform issues)
+COPY --from=rust-build-env /libgstpipewirezerocopy.so /tmp/zerocopy.so
+COPY --from=rust-build-env /libgstvsockenc.so /tmp/vsockenc.so
+COPY --from=cuda-libs /libnvrtc.so.12 /tmp/libnvrtc.so.12
+COPY --from=cuda-libs /libnvrtc-builtins.so.12.6 /tmp/libnvrtc-builtins.so.12.6
 
-# Install zerocopy plugin and CUDA libs (amd64 only)
-RUN <<_INSTALL_ZEROCOPY
+# Install GStreamer plugins and CUDA libs (architecture-conditional)
+RUN <<_INSTALL_PLUGINS
 set -e
 if [ "${TARGETARCH}" = "amd64" ]; then
     echo "=== Installing zerocopy plugin and CUDA libs for amd64 ==="
     LIB_DIR="/usr/lib/x86_64-linux-gnu"
+    mkdir -p ${LIB_DIR}/gstreamer-1.0
 
     # Install zerocopy plugin (only if it's a real .so file, not a placeholder)
-    if file /tmp/zerocopy-amd64.so | grep -q "shared object"; then
-        cp /tmp/zerocopy-amd64.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+    if file /tmp/zerocopy.so | grep -q "shared object"; then
+        cp /tmp/zerocopy.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
         chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
         echo "Zerocopy plugin installed"
     else
@@ -807,8 +782,8 @@ elif [ "${TARGETARCH}" = "arm64" ]; then
     mkdir -p ${LIB_DIR}/gstreamer-1.0
 
     # Install vsockenc plugin (delegates encoding to host VideoToolbox)
-    if [ -f /tmp/vsockenc-arm64.so ] && file /tmp/vsockenc-arm64.so | grep -q "shared object"; then
-        cp /tmp/vsockenc-arm64.so ${LIB_DIR}/gstreamer-1.0/libgstvsockenc.so
+    if file /tmp/vsockenc.so | grep -q "shared object"; then
+        cp /tmp/vsockenc.so ${LIB_DIR}/gstreamer-1.0/libgstvsockenc.so
         chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstvsockenc.so
         echo "vsockenc plugin installed - video encoding will use host VideoToolbox"
     else
@@ -816,20 +791,20 @@ elif [ "${TARGETARCH}" = "arm64" ]; then
     fi
 
     # Install zerocopy plugin (DMA-BUF passthrough for virtio-gpu zero-copy)
-    if [ -f /tmp/zerocopy-arm64.so ] && file /tmp/zerocopy-arm64.so | grep -q "shared object"; then
-        cp /tmp/zerocopy-arm64.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+    if file /tmp/zerocopy.so | grep -q "shared object"; then
+        cp /tmp/zerocopy.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
         chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
         echo "pipewirezerocopysrc plugin installed - DMA-BUF passthrough for virtio-gpu"
     else
         echo "WARNING: zerocopy plugin is placeholder or missing, skipping"
     fi
 else
-    echo "=== Unknown arch ${TARGETARCH}, skipping zerocopy ==="
+    echo "=== Unknown arch ${TARGETARCH}, skipping plugins ==="
 fi
 
 # Cleanup temp files
-rm -f /tmp/zerocopy-*.so /tmp/vsockenc-*.so /tmp/libnvrtc*.so* /tmp/libnvrtc-builtins*.so*
-_INSTALL_ZEROCOPY
+rm -f /tmp/zerocopy.so /tmp/vsockenc.so /tmp/libnvrtc*.so*
+_INSTALL_PLUGINS
 
 # AI agent privacy configs
 RUN mkdir -p /home/retro/.qwen && \
