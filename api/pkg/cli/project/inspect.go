@@ -79,17 +79,34 @@ func newInspectCommand() *cobra.Command {
 
 			// Group tasks by status
 			backlog := []types.SpecTask{}
+			planning := []types.SpecTask{}
 			inProgress := []types.SpecTask{}
+			review := []types.SpecTask{}
 			done := []types.SpecTask{}
+			failed := []types.SpecTask{}
 
 			for _, task := range tasks {
-				switch task.Status {
-				case "backlog":
+				switch types.SpecTaskStatus(task.Status) {
+				case types.TaskStatusBacklog:
 					backlog = append(backlog, task)
-				case "in_progress", "planning", "implementing", "review":
+				case types.TaskStatusQueuedSpecGeneration,
+					types.TaskStatusSpecGeneration,
+					types.TaskStatusSpecReview,
+					types.TaskStatusSpecRevision,
+					types.TaskStatusSpecApproved:
+					planning = append(planning, task)
+				case types.TaskStatusQueuedImplementation,
+					types.TaskStatusImplementationQueued,
+					types.TaskStatusImplementation:
 					inProgress = append(inProgress, task)
-				case "done", "completed":
+				case types.TaskStatusImplementationReview,
+					types.TaskStatusPullRequest:
+					review = append(review, task)
+				case types.TaskStatusDone:
 					done = append(done, task)
+				case types.TaskStatusSpecFailed,
+					types.TaskStatusImplementationFailed:
+					failed = append(failed, task)
 				default:
 					backlog = append(backlog, task)
 				}
@@ -106,6 +123,14 @@ func newInspectCommand() *cobra.Command {
 				fmt.Println()
 			}
 
+			if len(planning) > 0 {
+				fmt.Printf("📝 Planning (%d)\n", len(planning))
+				for _, task := range planning {
+					displayTask(task)
+				}
+				fmt.Println()
+			}
+
 			if len(inProgress) > 0 {
 				fmt.Printf("🟡 In Progress (%d)\n", len(inProgress))
 				for _, task := range inProgress {
@@ -114,9 +139,25 @@ func newInspectCommand() *cobra.Command {
 				fmt.Println()
 			}
 
+			if len(review) > 0 {
+				fmt.Printf("🔍 Review (%d)\n", len(review))
+				for _, task := range review {
+					displayTask(task)
+				}
+				fmt.Println()
+			}
+
 			if len(done) > 0 {
 				fmt.Printf("✅ Done (%d)\n", len(done))
 				for _, task := range done {
+					displayTask(task)
+				}
+				fmt.Println()
+			}
+
+			if len(failed) > 0 {
+				fmt.Printf("❌ Failed (%d)\n", len(failed))
+				for _, task := range failed {
 					displayTask(task)
 				}
 				fmt.Println()
@@ -134,7 +175,14 @@ func newInspectCommand() *cobra.Command {
 
 func displayTask(task types.SpecTask) {
 	fmt.Printf("  • %s\n", task.Name)
-	fmt.Printf("    ID: %s | Priority: %s | Type: %s\n", task.ID, task.Priority, task.Type)
+	fmt.Printf("    ID: %s | Status: %s", task.ID, task.Status)
+	if task.Priority != "" {
+		fmt.Printf(" | Priority: %s", task.Priority)
+	}
+	if task.Type != "" {
+		fmt.Printf(" | Type: %s", task.Type)
+	}
+	fmt.Println()
 	if task.Description != "" && task.Description != task.Name {
 		fmt.Printf("    Description: %s\n", task.Description)
 	}
