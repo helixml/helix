@@ -33,7 +33,6 @@ set -euo pipefail
 VM_NAME="helix-desktop"
 VM_DIR="${HOME}/Library/Application Support/Helix/vm/${VM_NAME}"
 DISK_SIZE="256G"      # Root disk (OS, Docker images, build cache, inner Docker volumes)
-ZFS_DISK_SIZE="128G"  # ZFS disk (workspaces with dedup - thin-provisioned qcow2)
 CPUS=8
 MEMORY_MB=32768
 SSH_PORT="${HELIX_VM_SSH_PORT:-2223}"  # Use 2223 during provisioning to avoid conflicts
@@ -54,7 +53,6 @@ RESUME=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --disk-size) DISK_SIZE="$2"; shift 2 ;;
-        --zfs-size) ZFS_DISK_SIZE="$2"; shift 2 ;;
         --cpus) CPUS="$2"; shift 2 ;;
         --memory) MEMORY_MB="$2"; shift 2 ;;
         --resume) RESUME=true; shift ;;
@@ -116,12 +114,8 @@ if ! step_done "disk"; then
     qemu-img resize "${VM_DIR}/disk.qcow2.tmp" "$DISK_SIZE"
     mv "${VM_DIR}/disk.qcow2.tmp" "${VM_DIR}/disk.qcow2"
 
-    # Create ZFS data disk (thin-provisioned qcow2 - only uses actual data size on host)
-    # This disk holds workspaces with ZFS dedup to minimize disk usage on the Mac.
-    # A 128GB virtual disk with 17x dedup ratio could hold ~2TB of workspaces
-    # while only using ~7GB of actual host disk space.
-    log "Creating ZFS data disk (${ZFS_DISK_SIZE} virtual, thin-provisioned)..."
-    qemu-img create -f qcow2 "${VM_DIR}/zfs-data.qcow2" "$ZFS_DISK_SIZE"
+    # ZFS data disk is no longer created during provisioning.
+    # It's created on first boot by the desktop app (vm.go createEmptyQcow2).
 
     # Copy EFI vars template
     cp "$EFI_VARS_TEMPLATE" "${VM_DIR}/efi_vars.fd"
@@ -269,7 +263,8 @@ boot_provisioning_vm() {
     SEED_DISK="${VM_DIR}/seed-fat.img"
 
     # Start QEMU in background
-    # Disks: vda=root (ext4), vdb=cloud-init seed, vdc=ZFS data
+    # Disks: vda=root (ext4), vdb=cloud-init seed
+    # ZFS data disk is NOT attached during provisioning — it's created on first boot.
     qemu-system-aarch64 \
         -machine virt,accel=hvf \
         -cpu host \
@@ -279,7 +274,6 @@ boot_provisioning_vm() {
         -drive if=pflash,format=raw,file="${VM_DIR}/efi_vars.fd" \
         -drive file="${VM_DIR}/disk.qcow2",format=qcow2,if=virtio \
         -drive file="${SEED_DISK}",format=raw,if=virtio,readonly=on \
-        -drive file="${VM_DIR}/zfs-data.qcow2",format=qcow2,if=virtio \
         -device virtio-net-pci,netdev=net0 \
         -netdev user,id=net0,hostfwd=tcp::${SSH_PORT}-:22 \
         -smbios type=1,serial=ds=nocloud \
@@ -370,49 +364,9 @@ if ! step_done "install_zfs"; then
 fi
 
 if ! step_done "setup_zfs_pool"; then
-    log "Creating ZFS pool on /dev/vdc with dedup + lz4 compression..."
-    # /dev/vdc is the third virtio disk (zfs-data.qcow2)
-    # The qcow2 is thin-provisioned: 128GB virtual but only uses actual data size on Mac disk.
-    # With ZFS dedup ratios of 10-17x (measured on production), this can hold 1-2TB of
-    # workspace data while using <10GB of actual host disk space.
-    run_ssh "
-        # Check if pool already exists
-        if sudo zpool list helix 2>/dev/null; then
-            echo 'ZFS pool helix already exists'
-        else
-            # Create pool on the data disk
-            sudo zpool create -f helix /dev/vdc
-            echo 'ZFS pool created on /dev/vdc'
-        fi
-
-        # Create workspaces dataset with dedup + compression
-        if ! sudo zfs list helix/workspaces 2>/dev/null; then
-            sudo zfs create -o dedup=on -o compression=lz4 -o atime=off helix/workspaces
-            echo 'Created helix/workspaces dataset (dedup=on, compression=lz4)'
-        fi
-
-        # Create Docker storage dataset (no dedup - Docker layers benefit from compression only)
-        if ! sudo zfs list helix/docker 2>/dev/null; then
-            sudo zfs create -o compression=lz4 -o atime=off helix/docker
-            echo 'Created helix/docker dataset (compression=lz4, no dedup)'
-        fi
-
-        # Configure Docker to use ZFS storage driver on the ZFS dataset
-        sudo mkdir -p /helix/docker
-        # Move Docker data to ZFS if currently on ext4
-        if [ ! -L /var/lib/docker ] && [ -d /var/lib/docker ]; then
-            sudo systemctl stop docker 2>/dev/null || true
-            sudo mv /var/lib/docker /var/lib/docker.ext4-backup
-            sudo ln -s /helix/docker /var/lib/docker
-            sudo systemctl start docker 2>/dev/null || true
-            echo 'Docker storage moved to ZFS (/helix/docker)'
-        fi
-
-        # Show pool status
-        sudo zpool status helix
-        sudo zfs list -r helix
-        echo 'ZFS setup complete'
-    "
+    log "ZFS pool setup skipped during provisioning."
+    log "ZFS data disk is created on first boot by the desktop app (vm.go)."
+    log "Docker stays on ext4 overlay2 (default, configured in cloud-init daemon.json)."
     mark_step "setup_zfs_pool"
 fi
 
@@ -569,11 +523,8 @@ if ! step_done "utm_bundle"; then
 
     # Link disk images into UTM bundle (hardlink to avoid doubling disk usage)
     DISK_UUID=$(uuidgen)
-    ZFS_DISK_UUID=$(uuidgen)
     ln -f "${VM_DIR}/disk.qcow2" "${UTM_DIR}/Data/${DISK_UUID}.qcow2" 2>/dev/null \
         || cp "${VM_DIR}/disk.qcow2" "${UTM_DIR}/Data/${DISK_UUID}.qcow2"
-    ln -f "${VM_DIR}/zfs-data.qcow2" "${UTM_DIR}/Data/${ZFS_DISK_UUID}.qcow2" 2>/dev/null \
-        || cp "${VM_DIR}/zfs-data.qcow2" "${UTM_DIR}/Data/${ZFS_DISK_UUID}.qcow2"
     cp "${VM_DIR}/efi_vars.fd" "${UTM_DIR}/Data/efi_vars.fd"
 
     # Generate VM UUID
@@ -611,20 +562,6 @@ if ! step_done "utm_bundle"; then
             <string>${DISK_UUID}</string>
             <key>ImageName</key>
             <string>${DISK_UUID}.qcow2</string>
-            <key>ImageType</key>
-            <string>Disk</string>
-            <key>Interface</key>
-            <string>VirtIO</string>
-            <key>InterfaceVersion</key>
-            <integer>1</integer>
-            <key>ReadOnly</key>
-            <false/>
-        </dict>
-        <dict>
-            <key>Identifier</key>
-            <string>${ZFS_DISK_UUID}</string>
-            <key>ImageName</key>
-            <string>${ZFS_DISK_UUID}.qcow2</string>
             <key>ImageType</key>
             <string>Disk</string>
             <key>Interface</key>
