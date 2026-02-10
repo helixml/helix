@@ -601,6 +601,11 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 			Str("zed_context_id", contextID).
 			Msg("✅ [HELIX] Successfully stored zed_context_id on session and populated contextMappings")
 
+		// If this session belongs to a spectask, also create a SpecTaskZedThread record
+		if helixSession.Metadata.SpecTaskID != "" {
+			go apiServer.trackSpecTaskZedThread(context.Background(), helixSession, acpThreadID, title)
+		}
+
 		return nil
 	}
 
@@ -708,6 +713,43 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		Str("helix_session_id", createdSession.ID).
 		Str("interaction_id", createdInteraction.ID).
 		Msg("✅ [HELIX] Created initial interaction and stored mapping")
+
+	// Check if this external agent belongs to a spectask session
+	// The sessionID (agent connection ID) is the Helix session ID when it starts with "ses_"
+	// Look up that session to get its SpecTaskID
+	if strings.HasPrefix(sessionID, "ses_") {
+		originalSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), sessionID)
+		if err == nil && originalSession != nil && originalSession.Metadata.SpecTaskID != "" {
+			// Set the SpecTaskID on the new session too
+			createdSession.Metadata.SpecTaskID = originalSession.Metadata.SpecTaskID
+			createdSession.Metadata.ZedThreadID = contextID
+			_, _ = apiServer.Controller.Options.Store.UpdateSession(context.Background(), *createdSession)
+
+			go apiServer.trackSpecTaskZedThread(context.Background(), createdSession, acpThreadID, title)
+
+			log.Info().
+				Str("original_session_id", sessionID).
+				Str("new_session_id", createdSession.ID).
+				Str("spec_task_id", originalSession.Metadata.SpecTaskID).
+				Str("acp_thread_id", acpThreadID).
+				Msg("✅ [HELIX] Linked new user-initiated thread to spec task")
+		}
+	} else {
+		// Fallback: check the agent session mapping (for non-ses_ agent IDs)
+		apiServer.contextMappingsMutex.RLock()
+		originalHelixSessionID, hasOriginal := apiServer.externalAgentSessionMapping[sessionID]
+		apiServer.contextMappingsMutex.RUnlock()
+		if hasOriginal {
+			originalSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), originalHelixSessionID)
+			if err == nil && originalSession != nil && originalSession.Metadata.SpecTaskID != "" {
+				createdSession.Metadata.SpecTaskID = originalSession.Metadata.SpecTaskID
+				createdSession.Metadata.ZedThreadID = contextID
+				_, _ = apiServer.Controller.Options.Store.UpdateSession(context.Background(), *createdSession)
+
+				go apiServer.trackSpecTaskZedThread(context.Background(), createdSession, acpThreadID, title)
+			}
+		}
+	}
 
 	return nil
 }
@@ -1687,6 +1729,11 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("final_state", string(targetInteraction.State)).
 		Msg("✅ [HELIX] Marked interaction as complete")
 
+	// Update SpecTaskZedThread activity if this is a spectask session
+	if helixSession.Metadata.SpecTaskID != "" {
+		go apiServer.updateSpecTaskZedThreadActivity(context.Background(), acpThreadID)
+	}
+
 	// Extract request_id from message data for commenter notification
 	// This needs to be done before publishing so we can pass it to publishSessionUpdateToFrontend
 	messageRequestID, _ := syncMsg.Data["request_id"].(string)
@@ -2595,5 +2642,91 @@ If you need to verify the current state, check the git status and any running pr
 		log.Warn().
 			Str("session_id", sessionID).
 			Msg("Failed to send continue prompt - channel full")
+	}
+}
+
+// trackSpecTaskZedThread creates a SpecTaskWorkSession + SpecTaskZedThread pair
+// for a Zed thread that belongs to a spectask. This runs in a background goroutine.
+func (apiServer *HelixAPIServer) trackSpecTaskZedThread(ctx context.Context, helixSession *types.Session, acpThreadID string, title string) {
+	specTaskID := helixSession.Metadata.SpecTaskID
+	st := apiServer.Controller.Options.Store
+
+	// Check if a SpecTaskZedThread already exists for this acpThreadID
+	existing, err := st.GetSpecTaskZedThreadByZedThreadID(ctx, acpThreadID)
+	if err == nil && existing != nil {
+		log.Info().
+			Str("spec_task_id", specTaskID).
+			Str("acp_thread_id", acpThreadID).
+			Str("zed_thread_record_id", existing.ID).
+			Msg("SpecTaskZedThread already exists for this thread, skipping creation")
+		return
+	}
+
+	// Create a SpecTaskWorkSession for this thread
+	workSession := &types.SpecTaskWorkSession{
+		SpecTaskID:     specTaskID,
+		HelixSessionID: helixSession.ID,
+		Name:           title,
+		Phase:          types.SpecTaskPhaseImplementation,
+		Status:         types.SpecTaskWorkSessionStatusActive,
+	}
+
+	err = st.CreateSpecTaskWorkSession(ctx, workSession)
+	if err != nil {
+		log.Error().Err(err).
+			Str("spec_task_id", specTaskID).
+			Str("helix_session_id", helixSession.ID).
+			Msg("Failed to create SpecTaskWorkSession for thread tracking")
+		return
+	}
+
+	// Create the SpecTaskZedThread record
+	now := time.Now()
+	zedThread := &types.SpecTaskZedThread{
+		WorkSessionID:  workSession.ID,
+		SpecTaskID:     specTaskID,
+		ZedThreadID:    acpThreadID,
+		Status:         types.SpecTaskZedStatusActive,
+		LastActivityAt: &now,
+	}
+
+	err = st.CreateSpecTaskZedThread(ctx, zedThread)
+	if err != nil {
+		log.Error().Err(err).
+			Str("spec_task_id", specTaskID).
+			Str("work_session_id", workSession.ID).
+			Str("acp_thread_id", acpThreadID).
+			Msg("Failed to create SpecTaskZedThread for thread tracking")
+		return
+	}
+
+	log.Info().
+		Str("spec_task_id", specTaskID).
+		Str("work_session_id", workSession.ID).
+		Str("zed_thread_id", zedThread.ID).
+		Str("acp_thread_id", acpThreadID).
+		Str("helix_session_id", helixSession.ID).
+		Msg("✅ Created SpecTaskZedThread for multi-thread tracking")
+}
+
+// updateSpecTaskZedThreadActivity updates the LastActivityAt timestamp on a SpecTaskZedThread.
+// This runs in a background goroutine.
+func (apiServer *HelixAPIServer) updateSpecTaskZedThreadActivity(ctx context.Context, acpThreadID string) {
+	st := apiServer.Controller.Options.Store
+
+	zedThread, err := st.GetSpecTaskZedThreadByZedThreadID(ctx, acpThreadID)
+	if err != nil {
+		// Not a tracked spectask thread - this is normal for non-spectask sessions
+		return
+	}
+
+	now := time.Now()
+	zedThread.LastActivityAt = &now
+	err = st.UpdateSpecTaskZedThread(ctx, zedThread)
+	if err != nil {
+		log.Error().Err(err).
+			Str("acp_thread_id", acpThreadID).
+			Str("zed_thread_id", zedThread.ID).
+			Msg("Failed to update SpecTaskZedThread activity")
 	}
 }

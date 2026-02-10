@@ -303,6 +303,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				HelixVersion:        data.GetHelixVersion(),
 				AgentType:           agentType,
 				ExternalAgentConfig: startReq.ExternalAgentConfig,
+				SpecTaskID:          user.SpecTaskID,
 			},
 		}
 
