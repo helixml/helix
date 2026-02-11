@@ -27,7 +27,8 @@ services:
       dockerfile: Dockerfile
       target: api-dev-env
     networks:
-      - default
+      default:
+        ipv4_address: 172.18.0.100
     ports:
       - ${API_PORT:-8080}:8080
       # Port range for expose endpoint (port-based proxy for dev container services)
@@ -667,3 +668,6 @@ volumes:
 networks:
   default:
     name: ${HELIX_NETWORK_NAME:-helix_default}
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
