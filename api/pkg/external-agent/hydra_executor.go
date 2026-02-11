@@ -839,11 +839,8 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		env = append(env, "GOW_REQUIRED_DEVICES=/dev/dri/card*:/dev/dri/renderD*")
 	}
 
-	// Shared BuildKit: pass the BuildKit endpoint so docker-shim can create
-	// the buildx builder without looking up the container by name.
-	if buildkitHost := hydra.GetBuildKitHost(); buildkitHost != "" {
-		env = append(env, fmt.Sprintf("BUILDKIT_HOST=%s", buildkitHost))
-	}
+	// NOTE: BUILDKIT_HOST env var is injected by Hydra server side (devcontainer.go buildEnv)
+	// which runs inside the sandbox where it can query the helix-buildkit container IP.
 
 	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)
 	// These come LAST so they can override defaults (e.g., use user's token instead of runner token)
@@ -906,17 +903,9 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 		Type:        "volume", // Docker named volume, backed by host ext4
 	})
 
-	// Shared BuildKit cache: bind mount from sandbox's shared cache directory.
-	// This allows docker-shim to inject --cache-from/--cache-to flags pointing
-	// to the shared cache, so docker build layers are shared across all sessions.
-	// BuildKit uses content-addressed storage, so concurrent access is safe.
-	buildkitCacheDir := filepath.Join(hydra.DefaultDataDir, hydra.SharedBuildKitCacheDir)
-	if _, err := os.Stat(buildkitCacheDir); err == nil {
-		mounts = append(mounts, hydra.MountConfig{
-			Source:      buildkitCacheDir,
-			Destination: "/buildkit-cache",
-		})
-	}
+	// NOTE: Shared BuildKit cache mount (/buildkit-cache) and BUILDKIT_HOST env var
+	// are injected by the Hydra server side (devcontainer.go buildMounts/buildEnv)
+	// which runs inside the sandbox where it can access the correct paths.
 
 	// For Ubuntu/GNOME containers, create a per-session pipewire directory
 	// and mount it to /run/user/1000 where PipeWire daemon creates its socket
