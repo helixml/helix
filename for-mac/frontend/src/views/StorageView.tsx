@@ -76,7 +76,7 @@ export function StorageView({ zfsStats: zfs, vmState }: StorageViewProps) {
           ) : (
             <div className="empty-state">
               {vmState !== 'running'
-                ? 'Start the VM to view storage stats.'
+                ? 'Start Helix to view storage stats.'
                 : zfs.error
                   ? `Unable to fetch storage stats: ${zfs.error}`
                   : 'Loading storage stats...'}

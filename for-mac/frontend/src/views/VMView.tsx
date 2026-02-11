@@ -39,8 +39,8 @@ export function VMView({
   return (
     <div className="view-container">
       <div className="view-header">
-        <h1>Virtual Machine</h1>
-        <p>Manage the Helix virtual machine</p>
+        <h1>Environment</h1>
+        <p>Manage the Helix runtime environment</p>
       </div>
 
       <DownloadCard
@@ -105,7 +105,7 @@ export function VMView({
                   }
                 }}
               >
-                Start VM
+                Start
               </button>
             )}
             {s.state === 'running' && (
@@ -122,7 +122,7 @@ export function VMView({
                   }
                 }}
               >
-                Stop VM
+                Stop
               </button>
             )}
             {s.state !== 'stopped' &&
@@ -151,7 +151,7 @@ export function VMView({
           <div className="action-list">
             <div className="action-item">
               <div className="action-info">
-                <h3>SSH to VM</h3>
+                <h3>SSH Access</h3>
                 <p>ssh -p {config.ssh_port || 2222} ubuntu@localhost</p>
               </div>
               <button

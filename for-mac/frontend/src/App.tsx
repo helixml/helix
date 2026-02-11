@@ -86,7 +86,7 @@ const NAV_ITEMS: { view: View; label: string; icon: JSX.Element }[] = [
   },
   {
     view: 'vm',
-    label: 'VM',
+    label: 'Environment',
     icon: (
       <svg viewBox="0 0 20 20" width="18" height="18">
         <path
@@ -272,7 +272,7 @@ export function App() {
           <div className="sidebar-vm-status">
             <span className={`status-indicator ${vmStatus.state}`} />
             <span>
-              VM {stateLabel}
+              {stateLabel}
               {vmStatus.state === 'running' &&
                 ` \u00B7 ${sessions} session${sessions !== 1 ? 's' : ''}`}
             </span>

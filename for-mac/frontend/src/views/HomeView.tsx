@@ -40,8 +40,8 @@ export function HomeView({
           <img src="/helix-logo.png" alt="Helix" className="home-logo" />
           <h2>Welcome to Helix</h2>
           <p>
-            Download the VM image to get started. This is a one-time download of approximately 18
-            GB.
+            Download the Helix environment to get started. This is a one-time download of
+            approximately 18 GB.
           </p>
           <HomeDownloadSection
             downloadProgress={p}
@@ -72,7 +72,7 @@ export function HomeView({
                   await StartVM();
                 } catch (err) {
                   console.error('Start VM failed:', err);
-                  showToast('Failed to start VM');
+                  showToast('Failed to start');
                 }
               }}
             >
@@ -88,7 +88,7 @@ export function HomeView({
         )}
         {vmStatus.state === 'error' && (
           <>
-            <div className="error-msg">{vmStatus.error_msg || 'VM failed to start'}</div>
+            <div className="error-msg">{vmStatus.error_msg || 'Failed to start'}</div>
             <button
               className="btn btn-primary"
               onClick={async (e) => {
@@ -99,7 +99,7 @@ export function HomeView({
                   await StartVM();
                 } catch (err) {
                   console.error('Start VM failed:', err);
-                  showToast('Failed to start VM');
+                  showToast('Failed to start');
                 }
               }}
             >
@@ -194,7 +194,7 @@ function HomeDownloadSection({
         }
       }}
     >
-      Download VM Image
+      Download
     </button>
   );
 }

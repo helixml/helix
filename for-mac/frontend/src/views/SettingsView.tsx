@@ -64,7 +64,7 @@ export function SettingsView({ settings: s, onSettingsUpdated, showToast }: Sett
       return;
     }
 
-    if (!confirm(`Resize data disk from ${currentSize} GB to ${newSize} GB?\n\nThe VM will be stopped and restarted if running.`)) {
+    if (!confirm(`Resize data disk from ${currentSize} GB to ${newSize} GB?\n\nHelix will be restarted if running.`)) {
       return;
     }
 
@@ -86,12 +86,12 @@ export function SettingsView({ settings: s, onSettingsUpdated, showToast }: Sett
     <div className="view-container">
       <div className="view-header">
         <h1>Settings</h1>
-        <p>Configure VM and network settings</p>
+        <p>Configure environment and network settings</p>
       </div>
 
       <div className="card">
         <div className="card-header">
-          <h2>Virtual Machine</h2>
+          <h2>Resources</h2>
         </div>
         <div className="card-body">
           <div className="form-row">
@@ -107,7 +107,7 @@ export function SettingsView({ settings: s, onSettingsUpdated, showToast }: Sett
                 onChange={(e) => setCpus(e.target.value)}
                 placeholder="4"
               />
-              <div className="form-hint">vCPUs allocated to the VM</div>
+              <div className="form-hint">CPU cores allocated to Helix</div>
             </div>
             <div className="form-group">
               <label className="form-label" htmlFor="settingMemory">
@@ -126,7 +126,7 @@ export function SettingsView({ settings: s, onSettingsUpdated, showToast }: Sett
           </div>
           <div className="form-group">
             <label className="form-label" htmlFor="settingDisk">
-              VM Disk Path
+              Disk Path
             </label>
             <input
               className="form-input mono"

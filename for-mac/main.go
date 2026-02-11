@@ -85,22 +85,22 @@ func createMenu(app *App) *menu.Menu {
 		app.OpenHelixUI()
 	})
 
-	// VM Menu
-	vmMenu := appMenu.AddSubmenu("VM")
-	vmMenu.AddText("Start VM", keys.CmdOrCtrl("r"), func(_ *menu.CallbackData) {
+	// Environment Menu
+	envMenu := appMenu.AddSubmenu("Environment")
+	envMenu.AddText("Start", keys.CmdOrCtrl("r"), func(_ *menu.CallbackData) {
 		if err := app.StartVM(); err != nil {
-			log.Printf("Failed to start VM: %v", err)
+			log.Printf("Failed to start: %v", err)
 		}
 	})
-	vmMenu.AddText("Stop VM", keys.Shift("r"), func(_ *menu.CallbackData) {
+	envMenu.AddText("Stop", keys.Shift("r"), func(_ *menu.CallbackData) {
 		if err := app.StopVM(); err != nil {
-			log.Printf("Failed to stop VM: %v", err)
+			log.Printf("Failed to stop: %v", err)
 		}
 	})
-	vmMenu.AddSeparator()
-	vmMenu.AddText("VM Settings...", keys.CmdOrCtrl(","), nil)
-	vmMenu.AddSeparator()
-	vmMenu.AddText("SSH to VM", nil, func(_ *menu.CallbackData) {
+	envMenu.AddSeparator()
+	envMenu.AddText("Settings...", keys.CmdOrCtrl(","), nil)
+	envMenu.AddSeparator()
+	envMenu.AddText("SSH Access", nil, func(_ *menu.CallbackData) {
 		log.Printf("SSH command: %s", app.GetSSHCommand())
 	})
 

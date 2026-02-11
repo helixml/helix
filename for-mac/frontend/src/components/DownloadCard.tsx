@@ -47,7 +47,7 @@ export function DownloadCard({
     return (
       <div className="card download-card">
         <div className="card-header">
-          <h2>Downloading VM Images</h2>
+          <h2>Downloading Helix Environment</h2>
           <span className="card-badge" style={{ color: 'var(--teal)' }}>
             {p.status === 'verifying' ? 'Verifying...' : `${(p.percent ?? 0).toFixed(1)}%`}
           </span>
@@ -102,16 +102,16 @@ export function DownloadCard({
   return (
     <div className="card download-card">
       <div className="card-header">
-        <h2>VM Images Required</h2>
+        <h2>Download Required</h2>
       </div>
       <div className="card-body">
         <p className="download-description">
-          The VM disk images need to be downloaded before you can start the virtual machine. This is
-          a one-time download of approximately 18 GB.
+          The Helix environment needs to be downloaded before you can get started.
+          This is a one-time download of approximately 18 GB.
         </p>
         <div className="btn-group" style={{ marginTop: 12 }}>
           <button className="btn btn-primary" onClick={handleStartDownload}>
-            Download VM Images
+            Download
           </button>
         </div>
       </div>
