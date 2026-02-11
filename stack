@@ -13,20 +13,6 @@ export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
 export WIPE_SLOTS=${WIPE_SLOTS:="0"}
 export COMPOSE_PROFILES=${COMPOSE_PROFILES:=""}
 
-# Helix-in-Helix mode: no longer needed — docker-in-desktop runs dockerd
-# inside the desktop container, so ./stack start just works natively.
-export HELIX_IN_HELIX="false"
-
-# detect_helix_in_helix: no longer needed — docker-in-desktop handles nesting natively.
-function detect_helix_in_helix() {
-  :
-}
-
-# start_outer_sandbox: no longer needed — docker-in-desktop handles nesting natively.
-function start_outer_sandbox() {
-  :
-}
-
 # Desktop categories for build-sandbox
 # Production desktops are always built; experimental require opt-in via EXPERIMENTAL_DESKTOPS
 # Note: Using arrays because IFS is set to '\n\t' (no space splitting)
@@ -1879,9 +1865,6 @@ function help() {
   echo "  STOP_PGVECTOR=1    - Stop PGVector when stopping"
   echo "  EXPERIMENTAL_DESKTOPS=\"zorin xfce\" - Build experimental desktops in build-sandbox"
 }
-
-# Detect Helix-in-Helix mode for all commands (not just start)
-detect_helix_in_helix
 
 # Show help if no arguments provided
 if [[ $# -eq 0 ]]; then

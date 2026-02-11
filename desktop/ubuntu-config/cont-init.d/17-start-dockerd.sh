@@ -1,16 +1,15 @@
 #!/bin/bash
-# Start dockerd inside the desktop container if Docker volume is mounted.
-# This is the "docker-in-desktop" mode: each desktop container runs its own
-# dockerd with a volume-backed /var/lib/docker. This eliminates the need for
-# per-session sibling dockerds managed by Hydra and all the bridge/veth/DNS
-# infrastructure that connected desktop containers to those sibling dockerds.
-#
-# When /var/lib/docker is NOT a mountpoint (no volume), dockerd is not started.
-# In that case, the container relies on an externally-mounted docker.sock
-# (the legacy "sibling dockerd" mode).
+# Start dockerd inside the desktop container.
+# Each desktop container runs its own dockerd with a volume-backed /var/lib/docker.
 
-if mountpoint -q /var/lib/docker 2>/dev/null; then
-    echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"
+if ! mountpoint -q /var/lib/docker 2>/dev/null; then
+    echo "[dockerd] ERROR: /var/lib/docker is not a volume mount."
+    echo "[dockerd] Docker-in-desktop mode requires a Docker volume at /var/lib/docker."
+    echo "[dockerd] The container will continue but Docker will not be available."
+    exit 0
+fi
+
+echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"
 
     # Use iptables-legacy for DinD compatibility
     if [ -d /usr/local/sbin/.iptables-legacy ]; then
@@ -96,6 +95,3 @@ EOF
         fi
         sleep 1
     done
-else
-    echo "[dockerd] /var/lib/docker not mounted - dockerd disabled (using external socket)"
-fi

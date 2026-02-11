@@ -482,7 +482,6 @@ RUN echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
 # In docker-in-desktop mode, each desktop container runs its own dockerd with a
 # volume-backed /var/lib/docker. This eliminates the need for per-session sibling
 # dockerds and all the bridge/veth/DNS infrastructure that connected them.
-# The docker-shim still handles path translation and BuildKit cache injection.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gnupg ca-certificates curl lsb-release iptables \
     && install -m 0755 -d /etc/apt/keyrings \
@@ -500,11 +499,9 @@ RUN curl -Lo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-
     && curl -Lo /usr/local/bin/kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
     && chmod +x /usr/local/bin/kubectl
 
-# Docker shim for Hydra compatibility and shared BuildKit cache
-# The Go-based docker-shim replaces the bash wrappers with:
-# - Path translation for Hydra bind mounts
-# - BuildKit cache injection for shared caching across sessions
-# - Docker Compose project isolation per session
+# Docker shim for shared BuildKit cache
+# The Go-based docker-shim intercepts docker/docker-compose commands to inject
+# BuildKit cache flags for shared caching across sessions.
 COPY --from=go-build-env /docker-shim /usr/local/bin/docker-shim
 RUN mv /usr/bin/docker /usr/bin/docker.real \
     && ln -s /usr/local/bin/docker-shim /usr/bin/docker \

@@ -42,8 +42,6 @@ type Manager struct {
 	socketDir string
 	dataDir   string
 	mutex     sync.RWMutex
-	stopChan  chan struct{}
-	wg        sync.WaitGroup
 }
 
 // NewManager creates a new Hydra manager
@@ -58,14 +56,7 @@ func NewManager(socketDir, dataDir string) *Manager {
 	return &Manager{
 		socketDir: socketDir,
 		dataDir:   dataDir,
-		stopChan:  make(chan struct{}),
 	}
-}
-
-// SetPrivilegedMode is a no-op in docker-in-desktop mode.
-// Kept for backward compatibility with server.go.
-func (m *Manager) SetPrivilegedMode(enabled bool) {
-	// No-op: docker-in-desktop mode doesn't need privileged mode distinction
 }
 
 // Start initializes the manager and starts background tasks
@@ -92,10 +83,6 @@ func (m *Manager) Start(ctx context.Context) error {
 		log.Warn().Err(err).Msg("Failed to setup shared BuildKit container, builds will work but cache won't be shared")
 	}
 
-	// Start cleanup goroutine
-	m.wg.Add(1)
-	go m.cleanupLoop(ctx)
-
 	log.Info().
 		Str("socket_dir", m.socketDir).
 		Str("data_dir", m.dataDir).
@@ -106,8 +93,6 @@ func (m *Manager) Start(ctx context.Context) error {
 
 // Stop gracefully shuts down the manager
 func (m *Manager) Stop(ctx context.Context) error {
-	close(m.stopChan)
-	m.wg.Wait()
 	log.Info().Msg("Hydra manager stopped")
 	return nil
 }
@@ -206,36 +191,3 @@ func (m *Manager) ensureBuildxBuilder(ctx context.Context) error {
 	return nil
 }
 
-// cleanupLoop runs periodic maintenance
-func (m *Manager) cleanupLoop(ctx context.Context) {
-	defer m.wg.Done()
-
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-m.stopChan:
-			return
-		case <-ticker.C:
-			// Periodic cleanup - placeholder for future use
-		}
-	}
-}
-
-// prefixWriter writes to stdout with a prefix
-type prefixWriter struct {
-	prefix string
-}
-
-func (w *prefixWriter) Write(p []byte) (n int, err error) {
-	lines := strings.Split(string(p), "\n")
-	for _, line := range lines {
-		if line != "" {
-			fmt.Printf("%s%s\n", w.prefix, line)
-		}
-	}
-	return len(p), nil
-}
