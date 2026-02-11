@@ -1,9 +1,13 @@
 #!/bin/bash
 # Helix-in-Helix Development Startup Script
-# Builds and starts the Helix development stack
+# Builds and starts the Helix development stack inside a desktop container.
+#
+# Docker-in-desktop mode: the desktop container runs its own dockerd with a
+# volume-backed /var/lib/docker. The inner Helix stack (API, postgres, sandbox)
+# runs on this local dockerd. No host Docker access needed — nesting works
+# arbitrarily deep because each level's /var/lib/docker is backed by ext4.
 #
 # Prerequisites:
-# - Session must have UseHostDocker=true (HYDRA_PRIVILEGED_MODE_ENABLED=true)
 # - Repos already cloned to ~/work/{helix,zed,qwen-code} by project setup
 
 set -xeuo pipefail
@@ -63,18 +67,13 @@ fi
 # Note: Rust is NOT needed on the host - Zed builds inside a Docker container
 # (zed-builder:ubuntu25) which has its own Rust installation.
 
-# Check for privileged mode (host docker socket)
-# NOTE: We do NOT set DOCKER_HOST here. The ./stack script has its own
-# Helix-in-Helix detection (detect_helix_in_helix) that properly handles:
-# - Running the control plane on inner Docker (Hydra's DinD)
-# - Running the sandbox on host Docker via start_outer_sandbox()
-if [ -S /var/run/host-docker.sock ]; then
-    echo "✓ Privileged mode enabled - host Docker available for sandbox"
-    echo "  The ./stack script will handle Helix-in-Helix mode automatically"
+# Check that Docker is available (docker-in-desktop mode)
+if docker info &>/dev/null; then
+    echo "✓ Docker available (docker-in-desktop mode)"
 else
-    echo "⚠ Warning: Privileged mode not enabled"
-    echo "  Host Docker not available. Set UseHostDocker=true on the task/session."
-    echo "  The inner Helix won't be able to run sandboxes (DinD-in-DinD-in-DinD doesn't work)"
+    echo "⚠ Warning: Docker not available"
+    echo "  The desktop container's dockerd may not have started yet."
+    echo "  Check: docker info"
 fi
 
 # Helix repo location - project setup clones it to ~/work/helix
@@ -98,7 +97,6 @@ fi
 echo "Using helix directory: $HELIX_DIR"
 cd "$HELIX_DIR"
 
-# =========================================
 # =========================================
 # Create stable hostname for outer API
 # =========================================
@@ -152,48 +150,6 @@ fi
 if tmux has-session -t helix 2>/dev/null; then
     echo "Stopping existing helix tmux session..."
     tmux kill-session -t helix
-fi
-
-# =========================================
-# Fix orphaned veths for shared BuildKit
-# =========================================
-# The shared BuildKit (helix-buildkit at tcp://10.213.0.2:1234) may be unreachable
-# because its veth got disconnected from docker0 when session dockerds started.
-# This is a known issue documented in design/2026-02-06-docker0-veth-reconnection.md
-#
-# We fix this by reconnecting any orphaned veths to docker0 in the sandbox.
-if [ -S /var/run/host-docker.sock ]; then
-    echo "🔧 Checking shared BuildKit connectivity..."
-
-    # Test if we can reach helix-buildkit (use nc since it's gRPC, not HTTP)
-    if ! nc -z -w 2 10.213.0.2 1234 2>/dev/null; then
-        echo "  ⚠️  Cannot reach helix-buildkit at 10.213.0.2:1234"
-        echo "  🔧 Attempting to reconnect orphaned veths in sandbox..."
-
-        # Get list of orphaned veths (veths without a master bridge) and reconnect them to docker0
-        # This runs inside the sandbox container via the host docker socket
-        DOCKER_HOST=unix:///var/run/host-docker.sock docker exec helix-sandbox-nvidia-1 sh -c '
-            # Find veths that are UP but have no master (orphaned)
-            for iface in $(ip -o link show type veth | grep -v "master " | awk -F: "{print \$2}" | awk "{print \$1}"); do
-                # Skip hydra bridge veths (vethb-*)
-                case "$iface" in vethb-*) continue ;; esac
-                # Reconnect to docker0
-                if ip link set "$iface" master docker0 2>/dev/null; then
-                    echo "    ✅ Reconnected $iface to docker0"
-                fi
-            done
-        ' 2>/dev/null || echo "  ⚠️  Could not reconnect veths (sandbox may not be accessible)"
-
-        # Verify connectivity after fix
-        sleep 1
-        if nc -z -w 2 10.213.0.2 1234 2>/dev/null; then
-            echo "  ✅ helix-buildkit is now reachable!"
-        else
-            echo "  ❌ helix-buildkit still unreachable - builds may fail"
-        fi
-    else
-        echo "  ✅ helix-buildkit is reachable at 10.213.0.2:1234"
-    fi
 fi
 
 # Build and start the stack
