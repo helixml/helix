@@ -2836,6 +2836,7 @@ export interface TypesModelInfo {
   max_completion_tokens?: number;
   name?: string;
   output_modalities?: TypesModality[];
+  permaslug?: string;
   pricing?: TypesPricing;
   provider_model_id?: string;
   provider_slug?: string;
@@ -4637,7 +4638,7 @@ export interface TypesSpecTaskWorkSession {
   created_at?: string;
   description?: string;
   environment_config?: number[];
-  /** 1:1 mapping */
+  /** Maps to Helix session (multiple Zed threads can share one session) */
   helix_session_id?: string;
   id?: string;
   implementation_task_description?: string;
@@ -5191,6 +5192,7 @@ export interface TypesUserResponse {
   name?: string;
   onboarding_completed?: boolean;
   token?: string;
+  waitlisted?: boolean;
 }
 
 export interface TypesUserSearchResponse {
