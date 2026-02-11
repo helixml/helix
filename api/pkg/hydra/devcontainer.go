@@ -440,7 +440,7 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 	// Dev containers mount their per-session Docker socket, but helix-buildkit runs
 	// on the sandbox's main dockerd. Pass the BuildKit endpoint directly so docker-shim
 	// can create the buildx builder without looking up the container.
-	if buildkitHost := getBuildKitHost(); buildkitHost != "" {
+	if buildkitHost := GetBuildKitHost(); buildkitHost != "" {
 		env = append(env, fmt.Sprintf("BUILDKIT_HOST=%s", buildkitHost))
 		log.Debug().Str("buildkit_host", buildkitHost).Msg("Added BUILDKIT_HOST to dev container env")
 	}
@@ -1010,10 +1010,10 @@ func (dm *DevContainerManager) streamContainerLogs(ctx context.Context, containe
 	log.Debug().Str("container", containerName).Msg("Stopped streaming container logs")
 }
 
-// getBuildKitHost returns the BuildKit endpoint URL (e.g., "tcp://172.17.0.5:1234")
+// GetBuildKitHost returns the BuildKit endpoint URL (e.g., "tcp://172.17.0.5:1234")
 // by querying the helix-buildkit container's IP address on the sandbox's main dockerd.
 // Returns empty string if BuildKit is not available.
-func getBuildKitHost() string {
+func GetBuildKitHost() string {
 	// Query helix-buildkit container IP using the sandbox's main Docker socket
 	// (not the per-session socket that dev containers use)
 	cmd := exec.Command("docker", "-H", "unix:///var/run/docker.sock",
