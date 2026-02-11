@@ -27,12 +27,24 @@ echo "Using iptables-legacy for Docker-in-Docker networking compatibility"
 # ================================================================================
 mkdir -p /etc/docker
 
+# Compute non-overlapping address pool based on nesting depth.
+# Each depth gets its own /16 from the 10.x.0.0 range:
+#   Depth 1 (sandbox):          10.213.0.0/16
+#   Depth 2 (desktop):          10.214.0.0/16 (in 17-start-dockerd.sh)
+#   Depth 3 (H-in-H sandbox):   10.215.0.0/16
+#   Depth N:                     10.(212+N).0.0/16
+DEPTH="${HELIX_DOCKER_DEPTH:-1}"
+POOL_OCTET=$((212 + DEPTH))
+if [ "$POOL_OCTET" -gt 255 ]; then
+    echo "⚠️  Nesting depth $DEPTH exceeds address space, clamping to 10.255.0.0/16"
+    POOL_OCTET=255
+fi
+echo "📍 Nesting depth=$DEPTH, address pool=10.${POOL_OCTET}.0.0/16"
+
 # GPU_VENDOR is set in docker-compose.yaml based on the sandbox profile
-# Configure default-address-pools to use high 10.x range instead of 172.x.x.x
-# This prevents subnet conflicts with the outer Docker network (172.19.0.0/16)
 if [[ "${GPU_VENDOR:-}" == "nvidia" ]]; then
     echo "🎮 GPU_VENDOR=nvidia - configuring NVIDIA container runtime"
-    cat > /etc/docker/daemon.json <<'DAEMON_JSON'
+    cat > /etc/docker/daemon.json <<DAEMON_JSON
 {
   "runtimes": {
     "nvidia": {
@@ -44,19 +56,19 @@ if [[ "${GPU_VENDOR:-}" == "nvidia" ]]; then
   "log-level": "error",
   "insecure-registries": ["registry:5000"],
   "default-address-pools": [
-    {"base": "10.213.0.0/16", "size": 24}
+    {"base": "10.${POOL_OCTET}.0.0/16", "size": 24}
   ]
 }
 DAEMON_JSON
 else
     echo "ℹ️  GPU_VENDOR=${GPU_VENDOR:-unset} - NVIDIA runtime not configured"
-    cat > /etc/docker/daemon.json <<'DAEMON_JSON'
+    cat > /etc/docker/daemon.json <<DAEMON_JSON
 {
   "storage-driver": "overlay2",
   "log-level": "error",
   "insecure-registries": ["registry:5000"],
   "default-address-pools": [
-    {"base": "10.213.0.0/16", "size": 24}
+    {"base": "10.${POOL_OCTET}.0.0/16", "size": 24}
   ]
 }
 DAEMON_JSON

@@ -363,8 +363,8 @@ Furthermore, restricting the user's dockerd from starting `--privileged` contain
 2. **`localhost` just works.** No iptables DNAT, no periodic port refresh.
 3. **Container DNS just works.** No custom DNS servers, no miekg/dns dependency for this purpose.
 4. **No bridge bugs.** No docker0 deletion, no orphaned veths, no bridge index exhaustion.
-5. **No subnet conflicts.** Each desktop is fully isolated — no awkward subnet schemes.
-6. **Simpler Helix-in-Helix.** One Docker endpoint, no host Docker exposure, no image transfer.
+5. **Simple subnet isolation.** Depth-based address pools (`10.(212+depth).0.0/16`) prevent conflicts automatically — no bridge index tracking, no subnet negotiation.
+6. **Helix-in-Helix is just Helix.** There is zero H-in-H-specific code in the platform. Every nesting level runs identical code — the same dockerd, the same registry, the same sandbox, the same compose stack. The only difference is a two-line `.env` change (routing inference to the outer Helix via `OPENAI_BASE_URL`), and that lives in the project's startup script, not in the Helix source code. This means any software that works in Docker — including Helix itself — works inside Helix with no special-casing.
 7. **Each desktop is self-contained.** Easier to reason about, debug, and monitor.
 8. **Kind/K3s compatibility.** `kind create cluster` just works inside the desktop.
 
@@ -384,6 +384,58 @@ Furthermore, restricting the user's dockerd from starting `--privileged` contain
 4. **Build cache sharing.** Today, helix-buildkit runs on the sandbox's main dockerd, shared across sessions. With dockerd-per-desktop, each session gets its own build cache (unless using the shared BuildKit via registry).
 
 5. **Startup time.** dockerd takes ~2-3 seconds to start inside the container. This happens in parallel with desktop initialization (GNOME/Sway startup takes ~10-15 seconds), so it adds zero perceived latency.
+
+---
+
+## Deep Nesting: Resource Isolation
+
+When Docker nests arbitrarily deep (host → sandbox → desktop → H-in-H sandbox → H-in-H desktop → ...), several resources must not conflict between levels.
+
+### Solved: Subnet Isolation
+
+Each dockerd uses a non-overlapping address pool based on its nesting depth:
+
+| Depth | Component | Address Pool |
+|-------|-----------|-------------|
+| 0 | Host dockerd | Docker defaults (172.x) |
+| 1 | Sandbox dockerd | `10.213.0.0/16` |
+| 2 | Desktop dockerd | `10.214.0.0/16` |
+| 3 | H-in-H sandbox | `10.215.0.0/16` |
+| N | Any level | `10.(212+N).0.0/16` |
+
+The `HELIX_DOCKER_DEPTH` env var propagates through the chain:
+- Compose file sets `HELIX_DOCKER_DEPTH=${HELIX_DOCKER_DEPTH:-1}` on sandbox services
+- Hydra's `buildEnv()` increments it: desktop gets `depth+1`
+- `04-start-dockerd.sh` and `17-start-dockerd.sh` read it to compute the pool
+
+Each `/16` gives 256 `/24` subnets per level, supporting up to depth 43 (10.255.0.0/16).
+
+### Solved: Outer API Resolution
+
+Each desktop container gets `outer-api:host-gateway` as a Docker ExtraHost. Docker resolves `host-gateway` to the compose network gateway (the host machine). Since the API publishes port 8080 on the host, `outer-api:8080` reaches the API dynamically — Docker updates iptables DNAT rules when the API restarts.
+
+For H-in-H, the startup script resolves `outer-api` to an IP and exports `OUTER_API_IP`. The inner compose file picks this up via `extra_hosts: "outer-api:${OUTER_API_IP:-127.0.0.1}"`, propagating the address into inner containers.
+
+### Solved: IP Forwarding
+
+Each dockerd startup script sets `iptables -P FORWARD ACCEPT` so inner containers can route traffic through to outer networks. The routing chain works naturally:
+
+```
+Inner container → desktop bridge → desktop kernel → sandbox bridge → sandbox kernel → compose network → host → API
+```
+
+### Not an Issue: Registry Access
+
+Each nesting level runs its own compose stack, which includes its own `registry:2` service on port 5000. The sandbox's `insecure-registries: ["registry:5000"]` resolves via compose DNS to the registry at the same nesting level. Image distribution is self-contained at each level — `./stack build-ubuntu` pushes to the local registry, and the local sandbox pulls from it.
+
+### Safe by Design (No Conflicts)
+
+- **Named volumes** — scoped to each dockerd namespace
+- **Container names** — scoped to each dockerd namespace
+- **Ports** (9876, 9877, 1234) — isolated by Docker bridge networks (each container gets its own IP)
+- **Hydra socket paths** — each sandbox has its own container filesystem
+- **cgroup paths** — each container has its own `/sys/fs/cgroup` mount
+- **BuildKit cache** — content-addressed, safe for concurrent access within a level
 
 ---
 

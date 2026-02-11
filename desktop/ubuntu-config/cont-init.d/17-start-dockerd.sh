@@ -40,6 +40,20 @@ echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"
         echo "[dockerd] cgroup v2 subtree controllers: $(cat /sys/fs/cgroup/cgroup.subtree_control)"
     fi
 
+    # Compute non-overlapping address pool based on nesting depth.
+    # Each depth gets its own /16 from the 10.x.0.0 range:
+    #   Depth 1 (sandbox):          10.213.0.0/16 (in 04-start-dockerd.sh)
+    #   Depth 2 (desktop):          10.214.0.0/16
+    #   Depth 3 (H-in-H sandbox):   10.215.0.0/16
+    #   Depth N:                     10.(212+N).0.0/16
+    DEPTH="${HELIX_DOCKER_DEPTH:-2}"
+    POOL_OCTET=$((212 + DEPTH))
+    if [ "$POOL_OCTET" -gt 255 ]; then
+        echo "[dockerd] WARNING: nesting depth $DEPTH exceeds address space, clamping to 10.255.0.0/16"
+        POOL_OCTET=255
+    fi
+    echo "[dockerd] Nesting depth=$DEPTH, address pool=10.${POOL_OCTET}.0.0/16"
+
     # Write daemon.json
     # NOTE: No explicit "dns" setting — Docker inherits DNS from the desktop
     # container's /etc/resolv.conf, which chains through the sandbox's dockerd
@@ -48,7 +62,10 @@ echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"
     cat > /etc/docker/daemon.json <<EOF
 {
     "storage-driver": "overlay2",
-    "log-level": "warn"
+    "log-level": "warn",
+    "default-address-pools": [
+        {"base": "10.${POOL_OCTET}.0.0/16", "size": 24}
+    ]
 }
 EOF
 
@@ -59,6 +76,9 @@ EOF
 {
     "storage-driver": "overlay2",
     "log-level": "warn",
+    "default-address-pools": [
+        {"base": "10.${POOL_OCTET}.0.0/16", "size": 24}
+    ],
     "runtimes": {
         "nvidia": {
             "path": "nvidia-container-runtime",
@@ -67,6 +87,13 @@ EOF
     }
 }
 EOF
+    fi
+
+    # Enable forwarding so inner containers can reach outer networks.
+    # Without this, traffic from inner compose containers can't route
+    # through to the sandbox and ultimately to the host/API.
+    if command -v iptables &>/dev/null; then
+        iptables -P FORWARD ACCEPT 2>/dev/null || true
     fi
 
     # Start dockerd in background with auto-restart

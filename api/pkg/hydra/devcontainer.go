@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -436,6 +437,17 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 		}
 	}
 
+	// Pass Docker nesting depth for address pool isolation.
+	// Each nesting level's dockerd uses a different subnet range (10.(212+depth).0.0/16)
+	// to prevent routing conflicts between inner and outer Docker networks.
+	currentDepth := 1 // sandbox default
+	if depthStr := os.Getenv("HELIX_DOCKER_DEPTH"); depthStr != "" {
+		if d, err := strconv.Atoi(depthStr); err == nil {
+			currentDepth = d
+		}
+	}
+	env = append(env, fmt.Sprintf("HELIX_DOCKER_DEPTH=%d", currentDepth+1))
+
 	// Add BUILDKIT_HOST for shared BuildKit cache support
 	// Dev containers mount their per-session Docker socket, but helix-buildkit runs
 	// on the sandbox's main dockerd. Pass the BuildKit endpoint directly so docker-shim
@@ -561,25 +573,30 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 	return mounts
 }
 
-// buildExtraHosts resolves hostnames that the container needs to reach
-// and returns them as Docker ExtraHosts entries (format: "hostname:ip").
-// This is needed because containers on bridge network can't resolve
-// the "api" hostname which lives on the helix_* Docker Compose network.
+// buildExtraHosts returns Docker ExtraHosts entries (format: "hostname:ip")
+// so the desktop container can reach services on the helix compose network.
 func (dm *DevContainerManager) buildExtraHosts() []string {
 	var extraHosts []string
 
-	// Resolve "api" hostname from the sandbox's perspective
-	// The sandbox is connected to the helix network and can resolve "api"
+	// "api" hostname: resolve from sandbox's perspective for direct access.
+	// This works until an inner compose stack shadows the "api" hostname.
 	ips, err := net.LookupHost("api")
 	if err == nil && len(ips) > 0 {
 		apiIP := ips[0]
 		extraHosts = append(extraHosts, "api:"+apiIP)
 		log.Debug().Str("api_ip", apiIP).Msg("Added API host entry for dev container")
 	} else {
-		// Fallback: try common Docker network gateway patterns
-		// In Docker Compose, the API is typically on 172.19.0.x
 		log.Warn().Err(err).Msg("Could not resolve 'api' hostname, container may not connect to API")
 	}
+
+	// "outer-api" hostname: use host-gateway for stable access to the host.
+	// Docker resolves "host-gateway" to the daemon host's gateway IP, which
+	// for sandbox's dockerd is the compose network gateway (the actual host).
+	// The API publishes port 8080 on the host, so outer-api:8080 reaches the
+	// API even after API restarts — Docker updates iptables DNAT automatically.
+	// Used by Helix-in-Helix when the inner compose stack shadows "api".
+	extraHosts = append(extraHosts, "outer-api:host-gateway")
+	log.Debug().Msg("Added outer-api:host-gateway for stable API access via host")
 
 	return extraHosts
 }

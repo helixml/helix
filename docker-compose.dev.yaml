@@ -272,6 +272,8 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=all
       - NVIDIA_VISIBLE_DEVICES=all
       - GPU_VENDOR=${GPU_VENDOR:-nvidia}
+      # Docker nesting depth for address pool isolation (incremented at each level)
+      - HELIX_DOCKER_DEPTH=${HELIX_DOCKER_DEPTH:-1}
       # Helix dev mode (enables bind-mounts for hot reload)
       - HELIX_DEV_MODE=true
       - ZED_IMAGE=helix-sway:latest
@@ -359,6 +361,8 @@ services:
     environment:
       # AMD/Intel GPU configuration (no NVIDIA variables)
       - GPU_VENDOR=${GPU_VENDOR:-intel}
+      # Docker nesting depth for address pool isolation (incremented at each level)
+      - HELIX_DOCKER_DEPTH=${HELIX_DOCKER_DEPTH:-1}
       # Helix dev mode (enables bind-mounts for hot reload)
       - HELIX_DEV_MODE=true
       - ZED_IMAGE=helix-sway:latest
@@ -444,6 +448,8 @@ services:
       - GPU_VENDOR=none
       - LIBGL_ALWAYS_SOFTWARE=1
       - MESA_GL_VERSION_OVERRIDE=4.5
+      # Docker nesting depth for address pool isolation (incremented at each level)
+      - HELIX_DOCKER_DEPTH=${HELIX_DOCKER_DEPTH:-1}
       # Helix dev mode (enables bind-mounts for hot reload)
       - HELIX_DEV_MODE=true
       - ZED_IMAGE=helix-sway:latest
