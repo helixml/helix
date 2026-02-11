@@ -74,7 +74,7 @@ check "Sandbox healthy" test "$(docker inspect --format='{{.State.Health.Status}
 
 # Check cgroup controllers at sandbox level
 SANDBOX_CTRLS=$(se cat /sys/fs/cgroup/cgroup.subtree_control 2>&1)
-check "Cgroup controllers delegated" echo "$SANDBOX_CTRLS" | grep -q memory
+check "Cgroup controllers delegated" bash -c "echo '$SANDBOX_CTRLS' | grep -q memory"
 
 # Start session
 echo ""
@@ -155,9 +155,9 @@ fi
 echo ""
 echo "--- cgroup v2 delegation ---"
 DESKTOP_CTRLS=$(de cat /sys/fs/cgroup/cgroup.controllers 2>&1)
-check "memory controller available" echo "$DESKTOP_CTRLS" | grep -q memory
+check "memory controller available" bash -c "echo '$DESKTOP_CTRLS' | grep -q memory"
 DESKTOP_SUBTREE=$(de cat /sys/fs/cgroup/cgroup.subtree_control 2>&1)
-check "memory controller delegated" echo "$DESKTOP_SUBTREE" | grep -q memory
+check "memory controller delegated" bash -c "echo '$DESKTOP_SUBTREE' | grep -q memory"
 
 echo ""
 echo "--- Kind (Kubernetes) ---"
@@ -166,7 +166,7 @@ check "kubectl binary" de kubectl version --client
 
 echo -n "  kind create cluster... "
 KIND_OUT=$(de kind create cluster --name integ-test 2>&1 || true)
-if echo "$KIND_OUT" | grep -q "Have a nice day"; then
+if echo "$KIND_OUT" | grep -q "kubectl cluster-info"; then
     echo "PASS"
     PASS=$((PASS + 1))
 
@@ -194,12 +194,15 @@ fi
 
 # DinD at inner container depth (depth 4+: host → sandbox → desktop → dind → hello-world)
 # This proves the inner sandbox's dockerd will work in H-in-H.
-# docker:27-dind starts its own dockerd, then runs our command against it.
+# We start dockerd inside a docker:dind container, wait for readiness, then
+# run hello-world against the inner dockerd.
 echo -n "  DinD nesting (inner sandbox depth)... "
 DIND_OUT=$(de docker run --rm --privileged \
     -v dind-integ-test:/var/lib/docker \
+    -e DOCKER_TLS_CERTDIR= \
+    --entrypoint sh \
     docker:27-dind \
-    sh -c "docker run --rm hello-world" 2>&1)
+    -c 'dockerd &>/dev/null & for i in $(seq 1 30); do docker info &>/dev/null && break; sleep 1; done; docker run --rm hello-world' 2>&1)
 de docker volume rm dind-integ-test >/dev/null 2>&1 || true
 if echo "$DIND_OUT" | grep -q "Hello from Docker"; then
     echo "PASS"
