@@ -72,6 +72,9 @@ func createMenu(app *App) *menu.Menu {
 	// App Menu (macOS)
 	appMenu.Append(menu.AppMenu())
 
+	// Edit Menu (required for Cmd+C/V/X/A to work in webview)
+	appMenu.Append(menu.EditMenu())
+
 	// File Menu
 	fileMenu := appMenu.AddSubmenu("File")
 	fileMenu.AddText("New Session...", keys.CmdOrCtrl("n"), func(_ *menu.CallbackData) {

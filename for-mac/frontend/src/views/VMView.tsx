@@ -40,7 +40,7 @@ export function VMView({
     <div className="view-container">
       <div className="view-header">
         <h1>Virtual Machine</h1>
-        <p>Manage the Helix development VM</p>
+        <p>Manage the Helix virtual machine</p>
       </div>
 
       <DownloadCard
