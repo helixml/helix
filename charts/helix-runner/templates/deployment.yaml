@@ -65,7 +65,7 @@ spec:
                 echo "/usr/local/nvidia/lib64" > /etc/ld.so.conf.d/nvidia-gke.conf
                 ldconfig
               fi
-              exec /usr/bin/helix-runner --api-host {{ .Values.runner.host }} --runner-id "$(POD_NAME)"
+              exec /workspace/helix/helix-runner --api-host {{ .Values.runner.host }} --runner-id "$(POD_NAME)"
           {{- else }}
           args:
             - --api-host
