@@ -57,11 +57,22 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.gkeSetup }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              if [ -d "/usr/local/nvidia/lib64" ]; then
+                echo "/usr/local/nvidia/lib64" > /etc/ld.so.conf.d/nvidia-gke.conf
+                ldconfig
+              fi
+              exec /workspace/helix/helix-runner --api-host {{ .Values.runner.host }} --runner-id "$(POD_NAME)"
+          {{- else }}
           args:
             - --api-host
             - {{ .Values.runner.host }}
             - --runner-id
             - "$(POD_NAME)"
+          {{- end }}
           env:
             {{- if .Values.runner.tokenExistingSecret }}
             - name: API_TOKEN
