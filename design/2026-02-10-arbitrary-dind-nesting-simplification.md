@@ -318,33 +318,36 @@ Today, sandboxes run on the host's Docker daemon (or at most one DinD level deep
 
 With the overlay2 concern removed, sandboxes could potentially run deeper. GPU passthrough does work through multiple DinD levels when using the NVIDIA container runtime, since it's ultimately just device mounts and cgroup rules.
 
-### What Still Requires `--privileged`
+### Security Model: The Sandbox Machine Is the Boundary
 
 Each container that runs its own dockerd needs `--privileged` (or at minimum `SYS_ADMIN`, `MKNOD`, and a few other caps). This is an inherent requirement of DinD and doesn't change with nesting depth.
 
-**Security implication:** Each privileged container can theoretically escape to the host. This is true at any nesting depth. The security boundary is the same whether you nest 2 or 4 levels deep — `--privileged` at any level gives host access.
+Importantly, **any user with access to a Docker socket for a privileged dockerd can escalate to that dockerd's host-level access** (e.g., `docker run --privileged -v /:/host alpine chroot /host`). This is true regardless of whether the desktop container itself is privileged or not. Making the desktop unprivileged while handing the user a socket to a privileged dockerd does not change the attack surface.
 
-For production multi-tenancy, **Sysbox** (acquired by Docker) provides rootless DinD without `--privileged`. This would be a future improvement orthogonal to the nesting simplification.
+Furthermore, restricting the user's dockerd from starting `--privileged` containers would break Helix-in-Helix, which requires privileged inner sandboxes for DinD.
 
-### Roadmap: Alternatives to Privileged Desktop Containers
+**Conclusion: the sandbox machine (host) is the security boundary.** Everything inside a sandbox — desktop containers, user containers, nested sandboxes — should be considered at the same trust level. The container boundaries within a sandbox provide operational isolation (preventing agents from accidentally interfering with each other) but are not a hard security boundary.
 
-The current docker-in-desktop approach requires `--privileged` on the desktop container because the inner dockerd needs write access to `/sys/fs/cgroup`. Testing confirmed that `SYS_ADMIN` + `--cgroupns=host` is insufficient — Docker mounts `/sys/fs/cgroup` read-only for non-privileged containers.
+**Deployment guidance for customers:**
+- Run sandboxes on dedicated machines (or VMs) for isolation between tenants
+- Use one sandbox per project where inter-project isolation is required
+- Treat sandbox machines as untrusted after user workloads have run on them
 
-Three alternatives to investigate:
+### Roadmap: Stronger Isolation
 
-**1. Sysbox runtime (active project, Docker-sponsored)**
+**1. VM-based desktop containers (long-term)**
+- Replace privileged containers with lightweight VMs (Kata Containers, Cloud Hypervisor, or QEMU/KVM)
+- VM boundary provides real kernel separation — users get full root inside their VM with no escalation path to the host
+- GPU passthrough options: VFIO (dedicates GPU, not shareable), NVIDIA vGPU/MIG (shareable, enterprise license), or virtio-gpu
+- virtio-gpu is already working for Mac desktops in a separate effort and is the likely path for desktop workloads
+- H-in-H works natively inside VMs (full kernel, no DinD privilege concerns)
+- Trade-off: more complex orchestration, GPU sharing model changes
+
+**2. Sysbox runtime (medium-term)**
 - Custom OCI runtime that enables unprivileged DinD by virtualizing `/proc`, `/sys`, and cgroup filesystems
-- Last updated Jan 2026, actively maintained (1900+ commits)
+- Last updated Jan 2026, actively maintained (Docker-sponsored, 1900+ commits)
 - Would allow desktop containers to run dockerd without `--privileged`
-- Trade-off: adds operational dependency on the Sysbox runtime in the sandbox's dockerd config
-
-**2. Hydra-managed sibling dockerd (revisit old approach with new insights)**
-- Desktop container stays unprivileged (only GPU caps: SYS_ADMIN, SYS_NICE, etc.)
-- Hydra manages a separate privileged dockerd container per session (headless — no user shell)
-- Docker socket mounted into desktop — docker CLI works transparently via docker-shim
-- Key improvement over old approach: sibling dockerd could share the desktop's network namespace (`--network=container:desktop-xxx`), making `localhost` port bindings and Docker DNS work without veths, iptables DNAT, or custom DNS proxies
-- For H-in-H: inner sandbox runs on the sibling dockerd (volume-backed, so nesting works) — no host Docker socket needed, no `UseHostDocker`
-- Trade-off: re-adds some per-session dockerd management code, but far simpler if using shared network namespace instead of bridges
+- Trade-off: adds operational dependency, doesn't fully solve the Docker socket escalation path (user could still `docker run --privileged` through the socket unless Sysbox also restricts that)
 
 **3. Rootless dockerd inside desktop**
 - Run dockerd in rootless mode (doesn't need privileged)
