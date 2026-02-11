@@ -532,7 +532,7 @@ RUN apt-get update && apt-get install -y \
 
 # Helix background
 RUN mkdir -p /usr/share/backgrounds && \
-    wget -O /usr/share/backgrounds/helix-logo.png https://helix.ml/assets/helix-logo.png
+    wget -O /usr/share/backgrounds/helix-logo.png https://deploy.helix.ml/assets/helix-logo.png
 
 # Node.js 20 (for Qwen Code and chrome-devtools-mcp)
 RUN apt-get update && \
