@@ -722,20 +722,39 @@ func (vm *VMManager) getAppBundlePath() string {
 }
 
 // findQEMUBinary locates the QEMU binary. Search order:
-//  1. Bundled in app: Contents/MacOS/qemu-system-aarch64 (wrapper executable)
-//  2. System PATH: qemu-system-aarch64
+//  1. HELIX_QEMU_PATH environment variable (explicit override)
+//  2. Bundled in app: Contents/MacOS/qemu-system-aarch64
+//  3. Build output: build/bin/Helix.app/Contents/MacOS/qemu-system-aarch64
+//     (for dev mode — wails dev runs from for-mac/, so this relative path works)
+//  4. System PATH: qemu-system-aarch64
 //
 // QEMU is built as a dylib + thin wrapper. The wrapper (75KB) has main() and
 // loads libqemu-aarch64-softmmu.dylib via @executable_path. You cannot execute
 // a .dylib directly — the wrapper executable is required.
 func (vm *VMManager) findQEMUBinary() string {
-	// Check app bundle first
+	// Explicit override via environment variable
+	if envPath := os.Getenv("HELIX_QEMU_PATH"); envPath != "" {
+		if _, err := os.Stat(envPath); err == nil {
+			return envPath
+		}
+	}
+
+	// Check app bundle (production mode)
 	appPath := vm.getAppBundlePath()
 	if appPath != "" {
 		bundled := filepath.Join(appPath, "Contents", "MacOS", "qemu-system-aarch64")
 		if _, err := os.Stat(bundled); err == nil {
 			return bundled
 		}
+	}
+
+	// Check build output directory (dev mode — wails dev runs from for-mac/)
+	devBuild := filepath.Join("build", "bin", "Helix.app", "Contents", "MacOS", "qemu-system-aarch64")
+	if _, err := os.Stat(devBuild); err == nil {
+		if abs, err := filepath.Abs(devBuild); err == nil {
+			return abs
+		}
+		return devBuild
 	}
 
 	// Fall back to system PATH
@@ -749,7 +768,8 @@ func (vm *VMManager) findQEMUBinary() string {
 
 // findFirmware locates an EFI firmware file. Search order:
 //  1. Bundled in app: Contents/Resources/firmware/<name>
-//  2. Homebrew: /opt/homebrew/share/qemu/<name>
+//  2. Build output: build/bin/Helix.app/Contents/Resources/firmware/<name> (dev mode)
+//  3. Homebrew: /opt/homebrew/share/qemu/<name>
 func (vm *VMManager) findFirmware(name string) string {
 	// Check app bundle first
 	appPath := vm.getAppBundlePath()
@@ -758,6 +778,15 @@ func (vm *VMManager) findFirmware(name string) string {
 		if _, err := os.Stat(bundled); err == nil {
 			return bundled
 		}
+	}
+
+	// Check build output directory (dev mode)
+	devBuild := filepath.Join("build", "bin", "Helix.app", "Contents", "Resources", "firmware", name)
+	if _, err := os.Stat(devBuild); err == nil {
+		if abs, err := filepath.Abs(devBuild); err == nil {
+			return abs
+		}
+		return devBuild
 	}
 
 	// Homebrew path
@@ -771,19 +800,31 @@ func (vm *VMManager) findFirmware(name string) string {
 
 // findVulkanICD locates the KosmicKrisp Vulkan ICD JSON. Search order:
 //  1. Bundled in app: Contents/Resources/vulkan/icd.d/kosmickrisp_mesa_icd.json
-//  2. UTM.app: /Applications/UTM.app/Contents/Resources/vulkan/icd.d/kosmickrisp_mesa_icd.json
+//  2. Build output: build/bin/Helix.app/Contents/Resources/vulkan/icd.d/... (dev mode)
+//  3. UTM.app: /Applications/UTM.app/Contents/Resources/vulkan/icd.d/kosmickrisp_mesa_icd.json
 func (vm *VMManager) findVulkanICD() string {
+	icdRel := filepath.Join("vulkan", "icd.d", "kosmickrisp_mesa_icd.json")
+
 	// Check app bundle first
 	appPath := vm.getAppBundlePath()
 	if appPath != "" {
-		bundled := filepath.Join(appPath, "Contents", "Resources", "vulkan", "icd.d", "kosmickrisp_mesa_icd.json")
+		bundled := filepath.Join(appPath, "Contents", "Resources", icdRel)
 		if _, err := os.Stat(bundled); err == nil {
 			return bundled
 		}
 	}
 
+	// Check build output directory (dev mode)
+	devBuild := filepath.Join("build", "bin", "Helix.app", "Contents", "Resources", icdRel)
+	if _, err := os.Stat(devBuild); err == nil {
+		if abs, err := filepath.Abs(devBuild); err == nil {
+			return abs
+		}
+		return devBuild
+	}
+
 	// Fall back to UTM.app
-	utmPath := "/Applications/UTM.app/Contents/Resources/vulkan/icd.d/kosmickrisp_mesa_icd.json"
+	utmPath := filepath.Join("/Applications/UTM.app/Contents/Resources", icdRel)
 	if _, err := os.Stat(utmPath); err == nil {
 		return utmPath
 	}

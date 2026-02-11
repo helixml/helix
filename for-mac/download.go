@@ -70,7 +70,18 @@ func (d *VMDownloader) LoadManifest() (*VMManifest, error) {
 		}
 	}
 
-	// Try local dev path (for development without app bundle)
+	// Try build output directory (dev mode — wails dev runs from for-mac/)
+	devBuildPath := filepath.Join("build", "bin", "Helix.app", "Contents", "Resources", "vm", "vm-manifest.json")
+	if data, err := os.ReadFile(devBuildPath); err == nil {
+		var m VMManifest
+		if err := json.Unmarshal(data, &m); err != nil {
+			return nil, fmt.Errorf("failed to parse vm-manifest.json: %w", err)
+		}
+		d.manifest = &m
+		return &m, nil
+	}
+
+	// Try local data directory (fallback for development)
 	devPath := filepath.Join(getHelixDataDir(), "vm-manifest.json")
 	if data, err := os.ReadFile(devPath); err == nil {
 		var m VMManifest
