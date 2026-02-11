@@ -8,7 +8,6 @@ import {
   GetHelixURL,
   GetSystemInfo,
   GetZFSStats,
-  GetDiskUsage,
   GetSettings,
   GetScanoutStats,
   GetLicenseStatus,
@@ -51,16 +50,6 @@ const defaultZFSStats = new main.ZFSStats({
   dedup_ratio: 1,
   compression_ratio: 1,
   last_updated: '',
-});
-
-const defaultDiskUsage = new main.DiskUsage({
-  root_disk_total: 0,
-  root_disk_used: 0,
-  root_disk_free: 0,
-  zfs_disk_total: 0,
-  zfs_disk_used: 0,
-  zfs_disk_free: 0,
-  host_actual: 0,
 });
 
 const defaultScanoutStats = new main.ScanoutStats({
@@ -157,7 +146,6 @@ export function App() {
   const [needsDownload, setNeedsDownload] = useState(false);
   const [helixURL, setHelixURL] = useState('');
   const [zfsStats, setZfsStats] = useState<main.ZFSStats>(defaultZFSStats);
-  const [diskUsage, setDiskUsage] = useState<main.DiskUsage>(defaultDiskUsage);
   const [scanoutStats, setScanoutStats] = useState<main.ScanoutStats>(defaultScanoutStats);
   const [settings, setSettings] = useState<main.AppSettings>(defaultSettings);
   const [downloadProgress, setDownloadProgress] = useState<main.DownloadProgress | null>(null);
@@ -234,13 +222,11 @@ export function App() {
         setVmStatus(status);
 
         if (status.state === 'running') {
-          const [zfs, disk, scanout] = await Promise.all([
+          const [zfs, scanout] = await Promise.all([
             GetZFSStats(),
-            GetDiskUsage(),
             GetScanoutStats(),
           ]);
           setZfsStats(zfs);
-          setDiskUsage(disk);
           setScanoutStats(scanout);
         }
       } catch {
@@ -325,7 +311,7 @@ export function App() {
           />
         )}
         {currentView === 'storage' && (
-          <StorageView zfsStats={zfsStats} diskUsage={diskUsage} vmState={vmStatus.state} />
+          <StorageView zfsStats={zfsStats} vmState={vmStatus.state} />
         )}
         {currentView === 'settings' && (
           <SettingsView

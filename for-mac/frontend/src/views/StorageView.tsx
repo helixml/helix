@@ -3,23 +3,18 @@ import { formatBytes } from '../lib/helpers';
 
 interface StorageViewProps {
   zfsStats: main.ZFSStats;
-  diskUsage: main.DiskUsage;
   vmState: string;
 }
 
-export function StorageView({ zfsStats: zfs, diskUsage: disk, vmState }: StorageViewProps) {
+export function StorageView({ zfsStats: zfs, vmState }: StorageViewProps) {
   const hasData = zfs.pool_size > 0;
   const poolPct = hasData ? Math.round((zfs.pool_used / zfs.pool_size) * 100) : 0;
-  const rootPct =
-    disk.root_disk_total > 0
-      ? Math.round((disk.root_disk_used / disk.root_disk_total) * 100)
-      : 0;
 
   return (
     <div className="view-container">
       <div className="view-header">
         <h1>Storage</h1>
-        <p>Deduplicated agent storage and disk usage</p>
+        <p>Deduplicated agent storage</p>
       </div>
 
       {hasData && (
@@ -85,42 +80,6 @@ export function StorageView({ zfsStats: zfs, diskUsage: disk, vmState }: Storage
                 : zfs.error
                   ? `Unable to fetch storage stats: ${zfs.error}`
                   : 'Loading storage stats...'}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-header">
-          <h2>Host Disk</h2>
-        </div>
-        <div className="card-body">
-          {disk.root_disk_total > 0 ? (
-            <div className="storage-breakdown">
-              <div className="storage-row">
-                <span className="label">Root Disk</span>
-                <span className="value">
-                  {formatBytes(disk.root_disk_used)} / {formatBytes(disk.root_disk_total)}
-                </span>
-              </div>
-              <div className="progress-bar">
-                <div
-                  className={`progress-fill ${
-                    rootPct > 90 ? 'error' : rootPct > 75 ? 'warning' : 'teal'
-                  }`}
-                  style={{ width: `${rootPct}%` }}
-                />
-              </div>
-              {disk.host_actual > 0 && (
-                <div className="storage-row" style={{ marginTop: 8 }}>
-                  <span className="label">Actual on disk (after deduplication)</span>
-                  <span className="value">{formatBytes(disk.host_actual)}</span>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="empty-state">
-              {vmState !== 'running' ? 'Start the VM to view disk usage.' : 'Loading disk usage...'}
             </div>
           )}
         </div>
