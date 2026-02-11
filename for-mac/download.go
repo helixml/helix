@@ -230,10 +230,12 @@ func (d *VMDownloader) downloadFile(ctx interface{ EventsEmit(string, ...interfa
 	}
 	defer outFile.Close()
 
-	// Track progress
+	// Track progress with exponential moving average for smooth speed display
 	bytesDone := startByte
 	lastReport := time.Now()
 	lastBytes := startByte
+	smoothedSpeed := 0.0       // EMA of bytes/sec
+	const emaAlpha = 0.15      // Smoothing factor: lower = smoother (0.1-0.2 is Activity Monitor-like)
 	buf := make([]byte, 256*1024) // 256KB buffer
 
 	for {
@@ -250,11 +252,19 @@ func (d *VMDownloader) downloadFile(ctx interface{ EventsEmit(string, ...interfa
 			}
 			bytesDone += int64(n)
 
-			// Report progress every 250ms
-			if time.Since(lastReport) > 250*time.Millisecond {
+			// Report progress every 500ms
+			if time.Since(lastReport) > 500*time.Millisecond {
 				elapsed := time.Since(lastReport).Seconds()
-				speed := float64(bytesDone-lastBytes) / elapsed
-				remaining := float64(f.Size-bytesDone) / speed
+				instantSpeed := float64(bytesDone-lastBytes) / elapsed
+
+				// Exponential moving average for smooth display
+				if smoothedSpeed == 0 {
+					smoothedSpeed = instantSpeed // Initialize on first sample
+				} else {
+					smoothedSpeed = emaAlpha*instantSpeed + (1-emaAlpha)*smoothedSpeed
+				}
+
+				remaining := float64(f.Size-bytesDone) / smoothedSpeed
 
 				pct := float64(bytesDone) / float64(f.Size) * 100
 				if pct > 100 {
@@ -266,7 +276,7 @@ func (d *VMDownloader) downloadFile(ctx interface{ EventsEmit(string, ...interfa
 					BytesDone:  bytesDone,
 					BytesTotal: f.Size,
 					Percent:    pct,
-					Speed:      formatSpeed(speed),
+					Speed:      formatSpeed(smoothedSpeed),
 					ETA:        formatDuration(remaining),
 					Status:     "downloading",
 				})

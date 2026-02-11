@@ -245,7 +245,6 @@ func (a *App) SaveSettings(s AppSettings) error {
 	config.MemoryMB = s.VMMemoryMB
 	config.SSHPort = s.SSHPort
 	config.APIPort = s.APIPort
-	config.VideoPort = s.VideoPort
 	config.DiskPath = s.VMDiskPath
 	config.ExposeOnNetwork = s.ExposeOnNetwork
 	return a.vm.SetConfig(config)

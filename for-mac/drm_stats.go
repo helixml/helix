@@ -99,7 +99,7 @@ func (s *ScanoutCollector) sshCmd(command string) (string, error) {
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=5",
 		"-p", fmt.Sprintf("%d", s.sshPort),
-		"helix@localhost",
+		"ubuntu@localhost",
 		command,
 	)
 	out, err := cmd.CombinedOutput()

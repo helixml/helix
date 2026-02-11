@@ -32,11 +32,11 @@ set -euo pipefail
 
 VM_NAME="helix-desktop"
 VM_DIR="${HOME}/Library/Application Support/Helix/vm/${VM_NAME}"
-DISK_SIZE="256G"      # Root disk (OS, Docker images, build cache, inner Docker volumes)
+DISK_SIZE="128G"      # Root disk (OS only — Docker data lives on ZFS data disk)
 CPUS=8
 MEMORY_MB=32768
 SSH_PORT="${HELIX_VM_SSH_PORT:-2223}"  # Use 2223 during provisioning to avoid conflicts
-VM_USER="luke"
+VM_USER="ubuntu"
 VM_PASS="helix"
 GO_VERSION="1.25.0"
 
@@ -181,11 +181,16 @@ runcmd:
   - echo "deb [arch=arm64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list
   - apt-get update
   - apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-  - systemctl enable docker
-  - systemctl start docker
+  - systemctl disable docker
+  - systemctl disable docker.socket
   - usermod -aG docker ${VM_USER}
   - systemctl disable gdm || true
   - systemctl stop gdm || true
+  # Enable helix-storage-init service (runs before Docker on every boot)
+  - systemctl daemon-reload
+  - systemctl enable helix-storage-init.service
+  # Disable cloud-init for subsequent boots (root swap shouldn't re-provision)
+  - touch /etc/cloud/cloud-init.disabled
   # Limit Virtual-1 (VM console) to 1080p so the text console isn't painfully slow at 5K.
   # EDID advertises 5K as preferred mode, but only DRM lease connectors (Virtual-2+) need it.
   - sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="[^"]*"/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash console=tty0 video=Virtual-1:1920x1080"/' /etc/default/grub
@@ -209,6 +214,96 @@ write_files:
     content: |
       PasswordAuthentication yes
       PubkeyAuthentication yes
+  - path: /etc/systemd/system/helix-storage-init.service
+    content: |
+      [Unit]
+      Description=Helix ZFS Storage Initialization
+      DefaultDependencies=no
+      After=zfs-mount.service zfs-import-cache.service
+      Before=docker.service containerd.service
+      Wants=zfs-mount.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/helix-storage-init.sh
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /usr/local/bin/helix-storage-init.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -e
+      LOG_TAG="helix-storage-init"
+      log() { logger -t "\$LOG_TAG" "\$*"; echo "\$*"; }
+
+      # Import ZFS pool if not already imported
+      if ! zpool list helix 2>/dev/null; then
+          log "Importing ZFS pool..."
+          # Try each possible data disk
+          for disk in /dev/vdb /dev/vdc /dev/vdd; do
+              if [ -b "\$disk" ]; then
+                  if zpool import -f -d "\$disk" helix 2>/dev/null; then
+                      log "Imported ZFS pool from \$disk"
+                      break
+                  fi
+              fi
+          done
+      fi
+
+      # Exit early if pool still not available (host app will create it via SSH)
+      if ! zpool list helix 2>/dev/null; then
+          log "ZFS pool not found — waiting for host app initialization"
+          exit 0
+      fi
+
+      # Expand pool if disk was resized
+      zpool online -e helix \$(zpool list -vHP helix 2>/dev/null | awk '/dev/{print \$1}' | head -1) 2>/dev/null || true
+
+      # Mount Docker zvol if it exists
+      if zfs list helix/docker 2>/dev/null; then
+          ZVOL_DEV=\$(ls /dev/zvol/helix/docker 2>/dev/null || echo "")
+          if [ -n "\$ZVOL_DEV" ] && [ -b "\$ZVOL_DEV" ]; then
+              if ! mountpoint -q /var/lib/docker 2>/dev/null; then
+                  log "Mounting Docker zvol at /var/lib/docker..."
+                  mkdir -p /var/lib/docker
+                  mount "\$ZVOL_DEV" /var/lib/docker
+              fi
+          fi
+      fi
+
+      # Restore persistent config if available
+      if [ -d /helix/config/ssh ]; then
+          log "Restoring SSH host keys from /helix/config/ssh/..."
+          cp /helix/config/ssh/ssh_host_* /etc/ssh/ 2>/dev/null || true
+          chmod 600 /etc/ssh/ssh_host_*_key 2>/dev/null || true
+          chmod 644 /etc/ssh/ssh_host_*_key.pub 2>/dev/null || true
+          systemctl restart sshd 2>/dev/null || true
+          if [ -f /helix/config/ssh/authorized_keys ]; then
+              mkdir -p /home/ubuntu/.ssh
+              cp /helix/config/ssh/authorized_keys /home/ubuntu/.ssh/authorized_keys
+              chmod 600 /home/ubuntu/.ssh/authorized_keys
+              chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys
+          fi
+      fi
+
+      if [ -f /helix/config/machine-id ]; then
+          cp /helix/config/machine-id /etc/machine-id
+          systemd-machine-id-commit 2>/dev/null || true
+      fi
+
+      if [ -f /helix/config/env.vm ] && [ ! -f /home/ubuntu/helix/.env.vm ]; then
+          mkdir -p /home/ubuntu/helix
+          cp /helix/config/env.vm /home/ubuntu/helix/.env.vm
+          chown ubuntu:ubuntu /home/ubuntu/helix/.env.vm
+      fi
+
+      # Start Docker now that /var/lib/docker is mounted
+      log "Starting Docker..."
+      systemctl start docker
+
+      log "Helix storage initialization complete"
 USERDATA
 
     cat > "${SEED_DIR}/meta-data" << METADATA
@@ -248,7 +343,7 @@ trap cleanup EXIT
 
 # Check if there are remaining steps that need SSH access
 NEED_SSH=false
-for step in install_zfs setup_zfs_pool install_go clone_helix build_drm_manager clone_deps build_desktop_image setup_compose shutdown; do
+for step in install_zfs setup_zfs_pool install_go clone_helix build_drm_manager clone_deps build_desktop_image setup_compose cleanup shutdown; do
     if ! step_done "$step"; then
         NEED_SSH=true
         break
@@ -348,12 +443,6 @@ SSH_CMD="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p $SSH
 run_ssh() {
     $SSH_CMD "$@"
 }
-
-if ! step_done "setup_swap"; then
-    log "Setting up 16GB swap file (for Zed release builds with LTO)..."
-    run_ssh "sudo fallocate -l 16G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile && echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab && free -h | grep Swap"
-    mark_step "setup_swap"
-fi
 
 if ! step_done "install_zfs"; then
     log "Installing ZFS 2.4.0 from arter97 PPA..."
@@ -492,8 +581,27 @@ fi
 # Step 7: Shut down VM
 # =============================================================================
 
+if ! step_done "cleanup"; then
+    log "Cleaning up build artifacts to shrink root disk..."
+    # Source repos: built artifacts are baked into Docker images, source trees are dead weight
+    run_ssh "rm -rf ~/zed ~/qwen-code" || true
+    # Go build cache
+    run_ssh "rm -rf ~/.cache/go-build /tmp/go*.tar.gz" || true
+    # apt package cache
+    run_ssh "sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*" || true
+    # Docker build cache (intermediate layers used during image build)
+    run_ssh "docker builder prune -f 2>/dev/null" || true
+    # Dangling images (untagged intermediates)
+    run_ssh "docker image prune -f 2>/dev/null" || true
+    # Temp files
+    run_ssh "sudo rm -rf /tmp/* /var/tmp/*" || true
+    # Cloud-init logs and seed data (no longer needed)
+    run_ssh "sudo rm -rf /var/lib/cloud/instances /var/log/cloud-init*" || true
+    mark_step "cleanup"
+fi
+
 if ! step_done "shutdown"; then
-    log "Zeroing free space for qcow2 compaction (reduces host disk usage)..."
+    log "Trimming free space for qcow2 compaction..."
     run_ssh "sudo fstrim -av 2>/dev/null || true" 2>/dev/null || true
 
     log "Shutting down provisioning VM..."

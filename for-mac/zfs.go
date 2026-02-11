@@ -115,7 +115,7 @@ func (z *ZFSCollector) sshCmd(command string) (string, error) {
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=5",
 		"-p", fmt.Sprintf("%d", z.sshPort),
-		"helix@localhost",
+		"ubuntu@localhost",
 		command,
 	)
 	out, err := cmd.CombinedOutput()

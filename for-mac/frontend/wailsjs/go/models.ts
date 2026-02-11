@@ -6,7 +6,6 @@ export namespace main {
 	    data_disk_size_gb: number;
 	    ssh_port: number;
 	    api_port: number;
-	    video_port: number;
 	    expose_on_network: boolean;
 	    auto_start_vm: boolean;
 	    vm_disk_path: string;
@@ -25,7 +24,6 @@ export namespace main {
 	        this.data_disk_size_gb = source["data_disk_size_gb"];
 	        this.ssh_port = source["ssh_port"];
 	        this.api_port = source["api_port"];
-	        this.video_port = source["video_port"];
 	        this.expose_on_network = source["expose_on_network"];
 	        this.auto_start_vm = source["auto_start_vm"];
 	        this.vm_disk_path = source["vm_disk_path"];
@@ -187,7 +185,6 @@ export namespace main {
 	    vsock_cid: number;
 	    ssh_port: number;
 	    api_port: number;
-	    video_port: number;
 	    qmp_port: number;
 	    expose_on_network: boolean;
 	
@@ -204,7 +201,6 @@ export namespace main {
 	        this.vsock_cid = source["vsock_cid"];
 	        this.ssh_port = source["ssh_port"];
 	        this.api_port = source["api_port"];
-	        this.video_port = source["video_port"];
 	        this.qmp_port = source["qmp_port"];
 	        this.expose_on_network = source["expose_on_network"];
 	    }
@@ -217,7 +213,6 @@ export namespace main {
 	    sessions: number;
 	    error_msg?: string;
 	    api_ready: boolean;
-	    video_ready: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new VMStatus(source);
@@ -232,7 +227,6 @@ export namespace main {
 	        this.sessions = source["sessions"];
 	        this.error_msg = source["error_msg"];
 	        this.api_ready = source["api_ready"];
-	        this.video_ready = source["video_ready"];
 	    }
 	}
 	export class ZFSStats {

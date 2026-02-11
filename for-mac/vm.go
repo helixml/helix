@@ -38,7 +38,6 @@ type VMConfig struct {
 	VsockCID    uint32 `json:"vsock_cid"`    // virtio-vsock Context ID for host<->guest communication
 	SSHPort     int    `json:"ssh_port"`     // Host port forwarded to guest SSH
 	APIPort     int    `json:"api_port"`     // Host port forwarded to Helix API
-	VideoPort   int    `json:"video_port"`   // Host port forwarded to video stream WebSocket
 	QMPPort         int  `json:"qmp_port"`          // QEMU Machine Protocol for control
 	ExposeOnNetwork bool `json:"expose_on_network"` // Bind to 0.0.0.0 instead of localhost
 }
@@ -51,8 +50,7 @@ type VMStatus struct {
 	Uptime     int64   `json:"uptime"`
 	Sessions   int     `json:"sessions"`
 	ErrorMsg   string  `json:"error_msg,omitempty"`
-	APIReady   bool    `json:"api_ready"`
-	VideoReady bool    `json:"video_ready"`
+	APIReady bool `json:"api_ready"`
 }
 
 // VMManager manages the Helix VM
@@ -85,9 +83,8 @@ func NewVMManager() *VMManager {
 			MemoryMB:  8192,  // 8GB - enough for Docker + GNOME + Zed + containers
 			VsockCID:  3,     // Guest CID (2 is host, 3+ are guests)
 			SSHPort:   2222,  // Host:2222 -> Guest:22
-			APIPort:   8080,  // Host:8080 -> Guest:8080 (Helix API)
-			VideoPort: 8765,  // Host:8765 -> Guest:8765 (video stream WebSocket)
-			QMPPort:   4444,  // QMP for VM control
+			APIPort: 8080, // Host:8080 -> Guest:8080 (Helix API)
+			QMPPort: 4444, // QMP for VM control
 		},
 		status: VMStatus{
 			State: VMStateStopped,
@@ -364,8 +361,8 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	args = append(args,
 		// Network with port forwarding for SSH, API, and video stream
 		"-device", "virtio-net-pci,netdev=net0",
-		"-netdev", fmt.Sprintf("user,id=net0,hostfwd=tcp::%d-:22,hostfwd=tcp:%s:%d-:8080,hostfwd=tcp::%d-:8765",
-			vm.config.SSHPort, vm.bindAddr(), vm.config.APIPort, vm.config.VideoPort),
+		"-netdev", fmt.Sprintf("user,id=net0,hostfwd=tcp::%d-:22,hostfwd=tcp:%s:%d-:8080",
+			vm.config.SSHPort, vm.bindAddr(), vm.config.APIPort),
 
 		// virtio-vsock for high-speed host<->guest communication
 		// Useful for frame transfer bypassing network stack
@@ -438,7 +435,6 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 
 	sshReady := false
 	zfsInitialized := false
-	videoReady := false
 	apiReady := false
 
 	for {
@@ -465,19 +461,6 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 				}
 			}
 
-			// Check if video stream port is responding
-			if !videoReady {
-				conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", vm.config.VideoPort), time.Second)
-				if err == nil {
-					conn.Close()
-					vm.statusMu.Lock()
-					vm.status.VideoReady = true
-					vm.statusMu.Unlock()
-					vm.emitStatus()
-					videoReady = true
-				}
-			}
-
 			// Check if API is responding
 			if !apiReady {
 				conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", vm.config.APIPort), time.Second)
@@ -491,7 +474,7 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 				}
 			}
 
-			if videoReady && apiReady {
+			if apiReady {
 				return
 			}
 		}
@@ -720,11 +703,6 @@ func (vm *VMManager) emitStatus() {
 	if vm.appCtx != nil {
 		runtime.EventsEmit(vm.appCtx, "vm:status", vm.GetStatus())
 	}
-}
-
-// GetVideoPort returns the video stream port
-func (vm *VMManager) GetVideoPort() int {
-	return vm.config.VideoPort
 }
 
 // GetVsockCID returns the vsock CID for the VM

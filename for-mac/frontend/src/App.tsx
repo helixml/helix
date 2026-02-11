@@ -27,7 +27,6 @@ const defaultVMStatus = new main.VMStatus({
   uptime: 0,
   sessions: 0,
   api_ready: false,
-  video_ready: false,
 });
 
 const defaultVMConfig = new main.VMConfig({
@@ -38,7 +37,6 @@ const defaultVMConfig = new main.VMConfig({
   vsock_cid: 0,
   ssh_port: 2222,
   api_port: 8080,
-  video_port: 8765,
   qmp_port: 0,
 });
 
@@ -65,7 +63,6 @@ const defaultSettings = new main.AppSettings({
   data_disk_size_gb: 256,
   ssh_port: 2222,
   api_port: 8080,
-  video_port: 8765,
   auto_start_vm: false,
   vm_disk_path: '',
 });

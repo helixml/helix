@@ -22,9 +22,8 @@ type AppSettings struct {
 	DataDiskSizeGB int `json:"data_disk_size_gb"` // ZFS data disk size (can only grow)
 
 	// Network ports
-	SSHPort   int `json:"ssh_port"`
-	APIPort   int `json:"api_port"`
-	VideoPort int `json:"video_port"`
+	SSHPort int `json:"ssh_port"`
+	APIPort int `json:"api_port"`
 
 	// Network access
 	ExposeOnNetwork bool `json:"expose_on_network"` // Bind to 0.0.0.0 instead of localhost
@@ -63,8 +62,7 @@ func DefaultSettings() AppSettings {
 		DataDiskSizeGB: 256,
 		SSHPort:        2222,
 		APIPort:        8080,
-		VideoPort:      8765,
-		AutoStartVM:    false,
+		AutoStartVM: false,
 		VMDiskPath:     filepath.Join(getHelixDataDir(), "vm", "helix-desktop", "disk.qcow2"),
 	}
 }

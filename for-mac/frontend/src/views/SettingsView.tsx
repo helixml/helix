@@ -33,7 +33,6 @@ export function SettingsView({ settings: s, onSettingsUpdated, showToast }: Sett
       data_disk_size_gb: s.data_disk_size_gb || 256,
       ssh_port: parseInt(sshPort) || 2222,
       api_port: parseInt(apiPort) || 8080,
-      video_port: s.video_port || 8765,
       auto_start_vm: false,
       expose_on_network: exposeOnNetwork,
     });
