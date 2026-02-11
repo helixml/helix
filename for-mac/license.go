@@ -36,7 +36,7 @@ type LicenseData struct {
 	Valid        bool           `json:"valid"`
 	Organization string         `json:"organization"`
 	Issued       time.Time      `json:"issued"`
-	ValidUntil   time.Time      `json:"validUntil"`
+	ValidUntil   time.Time      `json:"valid_until"`
 	Features     LicenseFeatures `json:"features"`
 	Limits       LicenseLimits   `json:"limits"`
 }
@@ -128,7 +128,10 @@ func (v *LicenseValidator) ValidateLicenseKey(key string) (*LicenseData, error) 
 
 	// Step 3: Verify ECDSA signature
 	data := []byte(envelope.Data)
-	sig := []byte(envelope.Signature)
+	sig, err := base64.StdEncoding.DecodeString(envelope.Signature)
+	if err != nil {
+		return nil, fmt.Errorf("invalid signature encoding: %w", err)
+	}
 
 	if !verifySignature(data, sig, v.pubKey) {
 		return nil, fmt.Errorf("license signature verification failed")
