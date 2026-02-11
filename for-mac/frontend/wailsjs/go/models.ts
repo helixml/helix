@@ -7,6 +7,7 @@ export namespace main {
 	    ssh_port: number;
 	    api_port: number;
 	    video_port: number;
+	    expose_on_network: boolean;
 	    auto_start_vm: boolean;
 	    vm_disk_path: string;
 	    license_key?: string;
@@ -25,6 +26,7 @@ export namespace main {
 	        this.ssh_port = source["ssh_port"];
 	        this.api_port = source["api_port"];
 	        this.video_port = source["video_port"];
+	        this.expose_on_network = source["expose_on_network"];
 	        this.auto_start_vm = source["auto_start_vm"];
 	        this.vm_disk_path = source["vm_disk_path"];
 	        this.license_key = source["license_key"];
@@ -187,6 +189,7 @@ export namespace main {
 	    api_port: number;
 	    video_port: number;
 	    qmp_port: number;
+	    expose_on_network: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new VMConfig(source);
@@ -203,6 +206,7 @@ export namespace main {
 	        this.api_port = source["api_port"];
 	        this.video_port = source["video_port"];
 	        this.qmp_port = source["qmp_port"];
+	        this.expose_on_network = source["expose_on_network"];
 	    }
 	}
 	export class VMStatus {

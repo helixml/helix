@@ -463,6 +463,26 @@ body {
     margin-bottom: 6px;
 }
 
+.toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    margin-bottom: 4px;
+}
+
+.toggle-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--teal);
+    cursor: pointer;
+}
+
+.toggle-label span {
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
 .form-input {
     width: 100%;
     padding: 8px 12px;

@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
+	"syscall"
 	"time"
+	"unsafe"
 )
 
 // AppSettings holds the persisted application settings
@@ -15,10 +18,16 @@ type AppSettings struct {
 	VMCPUs     int `json:"vm_cpus"`
 	VMMemoryMB int `json:"vm_memory_mb"`
 
+	// Storage
+	DataDiskSizeGB int `json:"data_disk_size_gb"` // ZFS data disk size (can only grow)
+
 	// Network ports
 	SSHPort   int `json:"ssh_port"`
 	APIPort   int `json:"api_port"`
 	VideoPort int `json:"video_port"`
+
+	// Network access
+	ExposeOnNetwork bool `json:"expose_on_network"` // Bind to 0.0.0.0 instead of localhost
 
 	// Display
 	AutoStartVM bool `json:"auto_start_vm"`
@@ -31,17 +40,52 @@ type AppSettings struct {
 	TrialStartedAt *time.Time `json:"trial_started_at,omitempty"`
 }
 
-// DefaultSettings returns the default settings
+// DefaultSettings returns the default settings with system-aware CPU and memory defaults.
+// CPUs default to half the system's logical cores (min 2).
+// Memory defaults to half the system's physical RAM (min 4GB).
 func DefaultSettings() AppSettings {
-	return AppSettings{
-		VMCPUs:     4,
-		VMMemoryMB: 8192,
-		SSHPort:    2222,
-		APIPort:    8080,
-		VideoPort:  8765,
-		AutoStartVM: false,
-		VMDiskPath: filepath.Join(getHelixDataDir(), "vm", "helix-desktop", "disk.qcow2"),
+	cpus := runtime.NumCPU() / 2
+	if cpus < 2 {
+		cpus = 2
 	}
+
+	memoryMB := 8192 // fallback
+	if totalMem := getSystemMemoryMB(); totalMem > 0 {
+		memoryMB = totalMem / 2
+		if memoryMB < 4096 {
+			memoryMB = 4096
+		}
+	}
+
+	return AppSettings{
+		VMCPUs:         cpus,
+		VMMemoryMB:     memoryMB,
+		DataDiskSizeGB: 256,
+		SSHPort:        2222,
+		APIPort:        8080,
+		VideoPort:      8765,
+		AutoStartVM:    false,
+		VMDiskPath:     filepath.Join(getHelixDataDir(), "vm", "helix-desktop", "disk.qcow2"),
+	}
+}
+
+// getSystemMemoryMB returns the total physical memory in MB using sysctl on macOS.
+func getSystemMemoryMB() int {
+	var mem uint64
+	size := uint64(8)
+	name := [2]int32{6 /* CTL_HW */, 24 /* HW_MEMSIZE */}
+	_, _, err := syscall.Syscall6(
+		syscall.SYS___SYSCTL,
+		uintptr(unsafe.Pointer(&name[0])),
+		2,
+		uintptr(unsafe.Pointer(&mem)),
+		uintptr(unsafe.Pointer(&size)),
+		0, 0,
+	)
+	if err != 0 {
+		return 0
+	}
+	return int(mem / (1024 * 1024))
 }
 
 // SettingsManager handles loading and saving settings

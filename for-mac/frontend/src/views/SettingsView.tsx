@@ -15,7 +15,15 @@ export function SettingsView({ settings: s, onSettingsUpdated, showToast }: Sett
   const [dataDiskSize, setDataDiskSize] = useState(String(s.data_disk_size_gb || 256));
   const [sshPort, setSshPort] = useState(String(s.ssh_port || 2222));
   const [apiPort, setApiPort] = useState(String(s.api_port || 8080));
+  const [exposeOnNetwork, setExposeOnNetwork] = useState(s.expose_on_network || false);
   const [resizing, setResizing] = useState(false);
+
+  const currentDiskSize = s.data_disk_size_gb || 256;
+  const parsedDiskSize = parseInt(dataDiskSize);
+  const diskSizeError =
+    parsedDiskSize && parsedDiskSize < currentDiskSize
+      ? `Cannot shrink below current size (${currentDiskSize} GB)`
+      : '';
 
   async function handleSave() {
     const settings = new main.AppSettings({
@@ -27,12 +35,13 @@ export function SettingsView({ settings: s, onSettingsUpdated, showToast }: Sett
       api_port: parseInt(apiPort) || 8080,
       video_port: s.video_port || 8765,
       auto_start_vm: false,
+      expose_on_network: exposeOnNetwork,
     });
 
     try {
       await SaveSettings(settings);
       onSettingsUpdated(settings);
-      showToast('Settings saved');
+      showToast('Settings saved. Restart Helix for changes to take effect.');
     } catch (err) {
       console.error('Failed to save settings:', err);
       showToast('Failed to save settings');
@@ -49,6 +58,7 @@ export function SettingsView({ settings: s, onSettingsUpdated, showToast }: Sett
       setDataDiskSize(String(fresh.data_disk_size_gb || 256));
       setSshPort(String(fresh.ssh_port || 2222));
       setApiPort(String(fresh.api_port || 8080));
+      setExposeOnNetwork(fresh.expose_on_network || false);
       showToast('Settings reset');
     } catch (err) {
       console.error('Failed to reset settings:', err);
@@ -158,16 +168,22 @@ export function SettingsView({ settings: s, onSettingsUpdated, showToast }: Sett
                 onChange={(e) => setDataDiskSize(e.target.value)}
                 placeholder="256"
               />
-              <div className="form-hint">
-                Data disk for agent storage, workspaces, and swap. Can only be increased.
-              </div>
+              {diskSizeError ? (
+                <div className="error-msg" style={{ marginTop: 4, fontSize: 12 }}>
+                  {diskSizeError}
+                </div>
+              ) : (
+                <div className="form-hint">
+                  Data disk for agent storage, workspaces, and swap. Can only be increased.
+                </div>
+              )}
             </div>
           </div>
           <button
             className="btn btn-secondary"
             style={{ marginTop: 4 }}
             onClick={handleResizeDataDisk}
-            disabled={resizing}
+            disabled={resizing || !!diskSizeError || !parsedDiskSize || parsedDiskSize <= currentDiskSize}
           >
             {resizing ? 'Resizing...' : 'Resize Data Disk'}
           </button>
@@ -176,10 +192,26 @@ export function SettingsView({ settings: s, onSettingsUpdated, showToast }: Sett
 
       <div className="card">
         <div className="card-header">
-          <h2>Network Ports</h2>
+          <h2>Advanced</h2>
         </div>
         <div className="card-body">
-          <div className="form-row">
+          <div className="form-group">
+            <label className="form-label toggle-label" htmlFor="settingExposeNetwork">
+              <input
+                type="checkbox"
+                id="settingExposeNetwork"
+                checked={exposeOnNetwork}
+                onChange={(e) => setExposeOnNetwork(e.target.checked)}
+              />
+              <span>Share on network</span>
+            </label>
+            <div className="form-hint">
+              Allow other devices on your local network to access Helix.
+              When disabled, Helix is only accessible from this Mac.
+              Requires restart to take effect.
+            </div>
+          </div>
+          <div className="form-row" style={{ marginTop: 16 }}>
             <div className="form-group">
               <label className="form-label" htmlFor="settingSSH">
                 SSH Port

@@ -39,7 +39,8 @@ type VMConfig struct {
 	SSHPort     int    `json:"ssh_port"`     // Host port forwarded to guest SSH
 	APIPort     int    `json:"api_port"`     // Host port forwarded to Helix API
 	VideoPort   int    `json:"video_port"`   // Host port forwarded to video stream WebSocket
-	QMPPort     int    `json:"qmp_port"`     // QEMU Machine Protocol for control
+	QMPPort         int  `json:"qmp_port"`          // QEMU Machine Protocol for control
+	ExposeOnNetwork bool `json:"expose_on_network"` // Bind to 0.0.0.0 instead of localhost
 }
 
 // VMStatus represents current VM status
@@ -64,6 +65,15 @@ type VMManager struct {
 	cmd        *exec.Cmd
 	cancelFunc context.CancelFunc
 	startTime  time.Time
+}
+
+// bindAddr returns the address to bind forwarded ports to.
+// Returns "0.0.0.0" if network exposure is enabled, empty string (localhost) otherwise.
+func (vm *VMManager) bindAddr() string {
+	if vm.config.ExposeOnNetwork {
+		return "0.0.0.0"
+	}
+	return ""
 }
 
 // NewVMManager creates a new VM manager
@@ -178,9 +188,9 @@ func (vm *VMManager) ensureVMExtracted() error {
 	// ZFS data disk is created locally on first boot (no need to download)
 	zfsDisk := vm.getZFSDiskPath()
 	if _, err := os.Stat(zfsDisk); os.IsNotExist(err) {
-		log.Printf("Creating ZFS data disk at %s (128 GB thin-provisioned)...", zfsDisk)
+		log.Printf("Creating ZFS data disk at %s (256 GB thin-provisioned)...", zfsDisk)
 		os.MkdirAll(vmDir, 0755)
-		if err := vm.createEmptyQcow2(zfsDisk, "128G"); err != nil {
+		if err := vm.createEmptyQcow2(zfsDisk, "256G"); err != nil {
 			return fmt.Errorf("failed to create ZFS data disk: %w", err)
 		}
 		log.Printf("ZFS data disk created")
@@ -196,6 +206,18 @@ func (vm *VMManager) createEmptyQcow2(path, size string) error {
 		return fmt.Errorf("qemu-img not found — cannot create disk image")
 	}
 	cmd := exec.Command(qemuImg, "create", "-f", "qcow2", path, size)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// resizeQcow2 resizes an existing qcow2 image. VM must be stopped.
+func (vm *VMManager) resizeQcow2(path, size string) error {
+	qemuImg := vm.findQEMUImg()
+	if qemuImg == "" {
+		return fmt.Errorf("qemu-img not found — cannot resize disk image")
+	}
+	cmd := exec.Command(qemuImg, "resize", path, size)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -342,8 +364,8 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	args = append(args,
 		// Network with port forwarding for SSH, API, and video stream
 		"-device", "virtio-net-pci,netdev=net0",
-		"-netdev", fmt.Sprintf("user,id=net0,hostfwd=tcp::%d-:22,hostfwd=tcp::%d-:8080,hostfwd=tcp::%d-:8765",
-			vm.config.SSHPort, vm.config.APIPort, vm.config.VideoPort),
+		"-netdev", fmt.Sprintf("user,id=net0,hostfwd=tcp::%d-:22,hostfwd=tcp:%s:%d-:8080,hostfwd=tcp::%d-:8765",
+			vm.config.SSHPort, vm.bindAddr(), vm.config.APIPort, vm.config.VideoPort),
 
 		// virtio-vsock for high-speed host<->guest communication
 		// Useful for frame transfer bypassing network stack
@@ -477,38 +499,150 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 }
 
 // initZFSPool initializes the ZFS pool on the data disk via SSH.
-// This is idempotent — if the pool already exists, it's a no-op.
+// Creates the full ZFS layout: workspaces dataset, Docker zvol (ext4),
+// swap zvol, and config dataset for persistent state across root disk upgrades.
+// All steps are idempotent — safe to run on every boot.
 func (vm *VMManager) initZFSPool() error {
 	script := `
-		if sudo zpool list helix 2>/dev/null; then
-			echo 'ZFS pool helix already exists'
-		else
-			# Find the data disk (second virtio disk, typically /dev/vdb or /dev/vdc)
-			DATA_DISK=""
-			for disk in /dev/vdb /dev/vdc /dev/vdd; do
-				if [ -b "$disk" ] && ! mount | grep -q "$disk"; then
-					DATA_DISK="$disk"
-					break
-				fi
-			done
-			if [ -z "$DATA_DISK" ]; then
-				echo 'ERROR: No unmounted data disk found'
-				exit 1
-			fi
-			echo "Creating ZFS pool on $DATA_DISK..."
-			sudo zpool create -f helix "$DATA_DISK"
-		fi
-		# Ensure datasets exist
-		sudo zfs list helix/workspaces 2>/dev/null || sudo zfs create -o dedup=on -o compression=lz4 -o atime=off helix/workspaces
-		sudo zfs list helix/docker 2>/dev/null || sudo zfs create -o compression=lz4 -o atime=off helix/docker
-		echo 'ZFS ready'
-	`
+set -e
+
+# =========================================================================
+# Step 1: Import or create pool
+# =========================================================================
+if sudo zpool list helix 2>/dev/null; then
+    echo 'ZFS pool helix already exists'
+else
+    # Find the data disk (second virtio disk, typically /dev/vdb or /dev/vdc)
+    DATA_DISK=""
+    for disk in /dev/vdb /dev/vdc /dev/vdd; do
+        if [ -b "$disk" ] && ! mount | grep -q "$disk"; then
+            # Try importing first (upgrade scenario: pool exists on disk but not imported)
+            if sudo zpool import -f -d "$disk" helix 2>/dev/null; then
+                echo "Imported existing ZFS pool from $disk"
+                DATA_DISK="imported"
+                break
+            fi
+            DATA_DISK="$disk"
+            break
+        fi
+    done
+    if [ -z "$DATA_DISK" ]; then
+        echo 'ERROR: No unmounted data disk found'
+        exit 1
+    fi
+    if [ "$DATA_DISK" != "imported" ]; then
+        echo "Creating ZFS pool on $DATA_DISK..."
+        sudo zpool create -f helix "$DATA_DISK"
+    fi
+fi
+
+# Expand pool if disk was resized (no-op if already at full size)
+sudo zpool online -e helix $(sudo zpool list -vHP helix 2>/dev/null | awk '/dev/{print $1}' | head -1) 2>/dev/null || true
+
+# =========================================================================
+# Step 2: Create datasets and zvols
+# =========================================================================
+
+# Workspaces dataset (dedup + compression for user workspace data)
+if ! sudo zfs list helix/workspaces 2>/dev/null; then
+    echo 'Creating helix/workspaces dataset...'
+    sudo zfs create -o dedup=on -o compression=lz4 -o atime=off -o mountpoint=/helix/workspaces helix/workspaces
+fi
+
+# Docker zvol (200GB, ext4-formatted, ZFS block-level dedup)
+if ! sudo zfs list helix/docker 2>/dev/null; then
+    echo 'Creating helix/docker zvol (200GB)...'
+    sudo zfs create -V 200G -o dedup=on -o compression=lz4 -o volblocksize=64k helix/docker
+    # Wait for zvol device to appear
+    sleep 2
+    ZVOL_DEV=$(ls /dev/zvol/helix/docker 2>/dev/null || echo "/dev/zd0")
+    echo "Formatting $ZVOL_DEV as ext4..."
+    sudo mkfs.ext4 -L helix-docker "$ZVOL_DEV"
+fi
+
+# Mount Docker zvol at /var/lib/docker if not already mounted
+if ! mountpoint -q /var/lib/docker 2>/dev/null; then
+    ZVOL_DEV=$(ls /dev/zvol/helix/docker 2>/dev/null || echo "/dev/zd0")
+    if [ -b "$ZVOL_DEV" ]; then
+        echo "Mounting Docker zvol at /var/lib/docker..."
+        sudo mkdir -p /var/lib/docker
+        sudo mount "$ZVOL_DEV" /var/lib/docker
+        # Add to fstab if not already there
+        if ! grep -q 'helix-docker' /etc/fstab 2>/dev/null; then
+            echo "LABEL=helix-docker /var/lib/docker ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
+        fi
+    fi
+fi
+
+# Config dataset (persistent state surviving root disk swaps)
+if ! sudo zfs list helix/config 2>/dev/null; then
+    echo 'Creating helix/config dataset...'
+    sudo zfs create -o compression=lz4 -o mountpoint=/helix/config helix/config
+fi
+
+# =========================================================================
+# Step 3: Persist / restore config (SSH keys, machine-id, authorized_keys)
+# =========================================================================
+
+# SSH host keys
+if [ ! -d /helix/config/ssh ]; then
+    # First boot: copy keys TO config
+    echo 'Persisting SSH host keys to /helix/config/ssh/...'
+    sudo mkdir -p /helix/config/ssh
+    sudo cp /etc/ssh/ssh_host_* /helix/config/ssh/
+    # Also persist authorized_keys if they exist
+    if [ -f /home/ubuntu/.ssh/authorized_keys ]; then
+        sudo cp /home/ubuntu/.ssh/authorized_keys /helix/config/ssh/authorized_keys
+    fi
+else
+    # Upgrade boot: restore keys FROM config
+    echo 'Restoring SSH host keys from /helix/config/ssh/...'
+    sudo cp /helix/config/ssh/ssh_host_* /etc/ssh/
+    sudo chmod 600 /etc/ssh/ssh_host_*_key
+    sudo chmod 644 /etc/ssh/ssh_host_*_key.pub
+    sudo systemctl restart sshd 2>/dev/null || true
+    # Restore authorized_keys
+    if [ -f /helix/config/ssh/authorized_keys ]; then
+        mkdir -p /home/ubuntu/.ssh
+        cp /helix/config/ssh/authorized_keys /home/ubuntu/.ssh/authorized_keys
+        chmod 600 /home/ubuntu/.ssh/authorized_keys
+        chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys
+    fi
+fi
+
+# Machine ID
+if [ ! -f /helix/config/machine-id ]; then
+    sudo cp /etc/machine-id /helix/config/machine-id
+else
+    sudo cp /helix/config/machine-id /etc/machine-id
+    sudo systemd-machine-id-commit 2>/dev/null || true
+fi
+
+# Helix .env.vm
+if [ -f /home/ubuntu/helix/.env.vm ] && [ ! -f /helix/config/env.vm ]; then
+    sudo cp /home/ubuntu/helix/.env.vm /helix/config/env.vm
+elif [ -f /helix/config/env.vm ] && [ ! -f /home/ubuntu/helix/.env.vm ]; then
+    sudo mkdir -p /home/ubuntu/helix
+    sudo cp /helix/config/env.vm /home/ubuntu/helix/.env.vm
+    sudo chown ubuntu:ubuntu /home/ubuntu/helix/.env.vm
+fi
+
+# =========================================================================
+# Step 4: Start Docker (now that /var/lib/docker is mounted)
+# =========================================================================
+if ! systemctl is-active docker >/dev/null 2>&1; then
+    echo 'Starting Docker...'
+    sudo systemctl start docker
+fi
+
+echo 'ZFS storage ready'
+`
 	cmd := exec.Command("ssh",
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=3",
 		"-p", fmt.Sprintf("%d", vm.config.SSHPort),
-		"helix@localhost",
+		"ubuntu@localhost",
 		script,
 	)
 	out, err := cmd.CombinedOutput()
@@ -600,7 +734,7 @@ func (vm *VMManager) GetVsockCID() uint32 {
 
 // GetSSHCommand returns the SSH command to connect to the VM
 func (vm *VMManager) GetSSHCommand() string {
-	return fmt.Sprintf("ssh -p %d helix@localhost", vm.config.SSHPort)
+	return fmt.Sprintf("ssh -p %d ubuntu@localhost", vm.config.SSHPort)
 }
 
 // getAppBundlePath returns the path to the running .app bundle, if any.

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -246,7 +247,63 @@ func (a *App) SaveSettings(s AppSettings) error {
 	config.APIPort = s.APIPort
 	config.VideoPort = s.VideoPort
 	config.DiskPath = s.VMDiskPath
+	config.ExposeOnNetwork = s.ExposeOnNetwork
 	return a.vm.SetConfig(config)
+}
+
+// ResizeDataDisk resizes the ZFS data disk to the specified size in GB.
+// Only allows growing (not shrinking). Requires VM to be stopped — will
+// stop it automatically and restart after resize.
+func (a *App) ResizeDataDisk(newSizeGB int) error {
+	settings := a.settings.Get()
+
+	if newSizeGB <= settings.DataDiskSizeGB {
+		return fmt.Errorf("new size (%d GB) must be larger than current size (%d GB)", newSizeGB, settings.DataDiskSizeGB)
+	}
+
+	// Stop VM if running
+	vmWasRunning := a.vm.GetStatus().State == VMStateRunning
+	if vmWasRunning {
+		log.Printf("Stopping VM to resize data disk...")
+		if err := a.vm.Stop(); err != nil {
+			return fmt.Errorf("failed to stop VM for resize: %w", err)
+		}
+		// Wait for VM to fully stop
+		for i := 0; i < 30; i++ {
+			if a.vm.GetStatus().State == VMStateStopped {
+				break
+			}
+			time.Sleep(time.Second)
+		}
+		if a.vm.GetStatus().State != VMStateStopped {
+			return fmt.Errorf("VM did not stop within 30 seconds")
+		}
+	}
+
+	// Resize the qcow2 file
+	zfsDisk := a.vm.getZFSDiskPath()
+	sizeStr := fmt.Sprintf("%dG", newSizeGB)
+	if err := a.vm.resizeQcow2(zfsDisk, sizeStr); err != nil {
+		return fmt.Errorf("failed to resize data disk: %w", err)
+	}
+
+	// Update settings
+	settings.DataDiskSizeGB = newSizeGB
+	if err := a.settings.Save(settings); err != nil {
+		return fmt.Errorf("disk resized but failed to save settings: %w", err)
+	}
+
+	log.Printf("Data disk resized to %d GB", newSizeGB)
+
+	// Restart VM if it was running
+	if vmWasRunning {
+		log.Printf("Restarting VM after disk resize...")
+		if err := a.StartVM(); err != nil {
+			return fmt.Errorf("disk resized but failed to restart VM: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // GetZFSStats returns the latest ZFS pool statistics
