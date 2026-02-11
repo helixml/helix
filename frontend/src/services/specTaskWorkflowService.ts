@@ -39,7 +39,9 @@ export function useApproveImplementation(specTaskId: string) {
       queryClient.invalidateQueries({ queryKey: ['spec-tasks'] })
     },
     onError: (error: any) => {
-      snackbar.error(error?.response?.data?.message || 'Failed to approve implementation')
+      const data = error?.response?.data
+      const message = typeof data === 'string' ? data : data?.message || 'Failed to approve implementation'
+      snackbar.error(message)
     },
   })
 }

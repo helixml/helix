@@ -29,21 +29,21 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	specTaskID := vars["spec_task_id"]
 
 	if specTaskID == "" {
-		http.Error(w, "spec_task_id is required", http.StatusBadRequest)
+		writeErrResponse(w, fmt.Errorf("spec_task_id is required"), http.StatusBadRequest)
 		return
 	}
 
 	// Get spec task
 	specTask, err := s.Store.GetSpecTask(ctx, specTaskID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get spec task: %s", err.Error()), http.StatusInternalServerError)
+		writeErrResponse(w, fmt.Errorf("failed to get spec task: %w", err), http.StatusInternalServerError)
 		return
 	}
 
 	// Get project for authorization and repo info
 	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get project: %s", err.Error()), http.StatusInternalServerError)
+		writeErrResponse(w, fmt.Errorf("failed to get project: %w", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -54,18 +54,18 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			Str("user_id", user.ID).
 			Str("project_id", project.ID).
 			Msg("User not authorized to approve implementation")
-		http.Error(w, "Not authorized", http.StatusForbidden)
+		writeErrResponse(w, fmt.Errorf("not authorized"), http.StatusForbidden)
 		return
 	}
 
 	// Verify status - allow approval from implementation or implementation_review
 	if specTask.Status != types.TaskStatusImplementation && specTask.Status != types.TaskStatusImplementationReview {
-		http.Error(w, fmt.Sprintf("Task must be in implementation or implementation_review status, currently: %s", specTask.Status), http.StatusBadRequest)
+		writeErrResponse(w, fmt.Errorf("task must be in implementation or implementation_review status, currently: %s", specTask.Status), http.StatusBadRequest)
 		return
 	}
 
 	if project.DefaultRepoID == "" {
-		http.Error(w, "Default repository not set for project", http.StatusBadRequest)
+		writeErrResponse(w, fmt.Errorf("default repository not set for project"), http.StatusBadRequest)
 		return
 	}
 
@@ -91,7 +91,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		specTask.Status = types.TaskStatusPullRequest
 
 		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
+			writeErrResponse(w, fmt.Errorf("failed to update spec task: %w", err), http.StatusInternalServerError)
 			return
 		}
 
@@ -143,7 +143,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		// Re-fetch to get the latest PullRequestID (may have been set by concurrent push)
 		updatedTask, err := s.Store.GetSpecTask(ctx, specTaskID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to get updated spec task: %s", err.Error()), http.StatusInternalServerError)
+			writeErrResponse(w, fmt.Errorf("failed to get updated spec task: %w", err), http.StatusInternalServerError)
 			return
 		}
 
@@ -192,7 +192,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		// Keep in implementation_review status so agent stays alive
 		specTask.Status = types.TaskStatusImplementationReview
 		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
+			writeErrResponse(w, fmt.Errorf("failed to update spec task: %w", err), http.StatusInternalServerError)
 			return
 		}
 
@@ -250,7 +250,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 				}
 			}
 
-			http.Error(w, fmt.Sprintf("Failed to push merge to upstream: %s", pushErr.Error()), http.StatusInternalServerError)
+			writeErrResponse(w, fmt.Errorf("failed to push merge to upstream: %w", pushErr), http.StatusInternalServerError)
 			return
 		}
 
@@ -276,7 +276,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 
 	// Updating spec task
 	if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
+		writeErrResponse(w, fmt.Errorf("failed to update spec task: %w", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -381,20 +381,20 @@ func (s *HelixAPIServer) stopAgentSession(w http.ResponseWriter, r *http.Request
 	specTaskID := vars["spec_task_id"]
 
 	if specTaskID == "" {
-		http.Error(w, "spec_task_id is required", http.StatusBadRequest)
+		writeErrResponse(w, fmt.Errorf("spec_task_id is required"), http.StatusBadRequest)
 		return
 	}
 
 	specTask, err := s.Store.GetSpecTask(ctx, specTaskID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeErrResponse(w, fmt.Errorf("failed to get spec task: %w", err), http.StatusInternalServerError)
 		return
 	}
 
 	// Get project for authorization
 	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get project: %s", err.Error()), http.StatusInternalServerError)
+		writeErrResponse(w, fmt.Errorf("failed to get project: %w", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -405,7 +405,7 @@ func (s *HelixAPIServer) stopAgentSession(w http.ResponseWriter, r *http.Request
 			Str("user_id", user.ID).
 			Str("project_id", project.ID).
 			Msg("User not authorized to stop agent session")
-		http.Error(w, "Not authorized", http.StatusForbidden)
+		writeErrResponse(w, fmt.Errorf("not authorized"), http.StatusForbidden)
 		return
 	}
 
