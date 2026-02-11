@@ -129,10 +129,13 @@ func (s *PostgresStore) runMigrations() error {
 	// the WHERE clause makes it a no-op once all names are within bounds.
 	// Input validation in CreateSession/UpdateSession/UpdateSessionName now
 	// prevents new oversized names from being written.
-	if err := s.gdb.WithContext(context.Background()).Exec(
-		"UPDATE sessions SET name = LEFT(name, 255) WHERE LENGTH(name) > 255",
-	).Error; err != nil {
-		return fmt.Errorf("failed to truncate oversized session names: %w", err)
+	// Skip on fresh databases where the sessions table doesn't exist yet.
+	if s.gdb.Migrator().HasTable(&types.Session{}) {
+		if err := s.gdb.WithContext(context.Background()).Exec(
+			"UPDATE sessions SET name = LEFT(name, 255) WHERE LENGTH(name) > 255",
+		).Error; err != nil {
+			return fmt.Errorf("failed to truncate oversized session names: %w", err)
+		}
 	}
 
 	err = s.gdb.WithContext(context.Background()).AutoMigrate(
