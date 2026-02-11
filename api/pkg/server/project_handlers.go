@@ -121,21 +121,25 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 	}
 
 	// Load startup script from helix-specs branch in primary repo.
-	// Startup script lives at .helix/startup.sh in the helix-specs branch.
-	// No need to sync from upstream - helix-specs is only written by Helix,
-	// so our middle repo always has the latest data.
+	// Sync from upstream first — helix-specs can be modified outside Helix
+	// (e.g., direct git pushes), so we need the latest version.
 	if project.DefaultRepoID != "" {
 		primaryRepo, err := s.Store.GetGitRepository(r.Context(), project.DefaultRepoID)
 		if err == nil && primaryRepo.LocalPath != "" {
-			startupScript, loadErr := s.projectInternalRepoService.LoadStartupScriptFromHelixSpecs(primaryRepo.LocalPath)
-			if loadErr != nil {
+			syncErr := s.gitRepositoryService.WithExternalRepoRead(r.Context(), primaryRepo, func() error {
+				startupScript, loadErr := s.projectInternalRepoService.LoadStartupScriptFromHelixSpecs(primaryRepo.LocalPath)
+				if loadErr != nil {
+					return loadErr
+				}
+				project.StartupScript = startupScript
+				return nil
+			})
+			if syncErr != nil {
 				log.Warn().
-					Err(loadErr).
+					Err(syncErr).
 					Str("project_id", projectID).
 					Str("primary_repo_id", project.DefaultRepoID).
 					Msg("failed to load startup script from helix-specs branch")
-			} else {
-				project.StartupScript = startupScript
 			}
 		}
 	}
@@ -1521,10 +1525,16 @@ func (s *HelixAPIServer) getProjectStartupScriptHistory(_ http.ResponseWriter, r
 		return nil, system.NewHTTPError400("primary repository is external - history not available")
 	}
 
-	versions, err := s.projectInternalRepoService.GetStartupScriptHistoryFromHelixSpecs(primaryRepo.LocalPath)
-	if err != nil {
+	// Sync from upstream first — helix-specs can be modified outside Helix
+	var versions []services.StartupScriptVersion
+	syncErr := s.gitRepositoryService.WithExternalRepoRead(r.Context(), primaryRepo, func() error {
+		var err error
+		versions, err = s.projectInternalRepoService.GetStartupScriptHistoryFromHelixSpecs(primaryRepo.LocalPath)
+		return err
+	})
+	if syncErr != nil {
 		log.Error().
-			Err(err).
+			Err(syncErr).
 			Str("project_id", projectID).
 			Str("primary_repo_id", project.DefaultRepoID).
 			Msg("failed to get startup script history from helix-specs branch")
