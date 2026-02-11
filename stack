@@ -1905,6 +1905,9 @@ function update_openapi() {
 		return 1
 	}
 
+  echo "🔄 Generating TypeScript client..."
+  npx swagger2openapi ./api/pkg/server/swagger.json --resolve --outfile ./openapi.json
+
 	echo "✅ OpenAPI update complete"
 }
 
