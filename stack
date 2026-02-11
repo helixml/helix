@@ -1894,11 +1894,19 @@ function update_openapi() {
 		return 1
 	}
 
+  cp -r api/pkg/server/swagger.json . || {
+		echo "❌ Failed to copy swagger.yaml"
+		return 1
+	}
+
 	echo "🔄 Generating TypeScript client..."
 	npx swagger-typescript-api@13.0.23 -p ./frontend/swagger/swagger.yaml -o ./frontend/src/api --axios -n api.ts || {
 		echo "❌ TypeScript client generation FAILED"
 		return 1
 	}
+
+  echo "🔄 Generating TypeScript client..."
+  npx swagger2openapi ./api/pkg/server/swagger.json --resolve --outfile ./openapi.json
 
 	echo "✅ OpenAPI update complete"
 }
