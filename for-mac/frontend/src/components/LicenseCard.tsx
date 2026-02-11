@@ -110,7 +110,7 @@ export function LicenseCard({ licenseStatus: ls, onLicenseUpdated, showToast }: 
               className="license-link"
               onClick={(e) => {
                 e.preventDefault();
-                BrowserOpenURL('https://helix.ml/licenses');
+                BrowserOpenURL('https://deploy.helix.ml/licenses');
               }}
             >
               Get a license at helix.ml
@@ -162,7 +162,7 @@ export function LicenseCard({ licenseStatus: ls, onLicenseUpdated, showToast }: 
             className="btn btn-secondary"
             onClick={(e) => {
               e.preventDefault();
-              BrowserOpenURL('https://helix.ml/licenses');
+              BrowserOpenURL('https://deploy.helix.ml/licenses');
             }}
           >
             Buy a License
