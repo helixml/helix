@@ -326,6 +326,30 @@ Each container that runs its own dockerd needs `--privileged` (or at minimum `SY
 
 For production multi-tenancy, **Sysbox** (acquired by Docker) provides rootless DinD without `--privileged`. This would be a future improvement orthogonal to the nesting simplification.
 
+### Roadmap: Alternatives to Privileged Desktop Containers
+
+The current docker-in-desktop approach requires `--privileged` on the desktop container because the inner dockerd needs write access to `/sys/fs/cgroup`. Testing confirmed that `SYS_ADMIN` + `--cgroupns=host` is insufficient — Docker mounts `/sys/fs/cgroup` read-only for non-privileged containers.
+
+Three alternatives to investigate:
+
+**1. Sysbox runtime (active project, Docker-sponsored)**
+- Custom OCI runtime that enables unprivileged DinD by virtualizing `/proc`, `/sys`, and cgroup filesystems
+- Last updated Jan 2026, actively maintained (1900+ commits)
+- Would allow desktop containers to run dockerd without `--privileged`
+- Trade-off: adds operational dependency on the Sysbox runtime in the sandbox's dockerd config
+
+**2. Hydra-managed sibling dockerd (revisit old approach with new insights)**
+- Desktop container stays unprivileged (only GPU caps: SYS_ADMIN, SYS_NICE, etc.)
+- Hydra manages a separate privileged dockerd container per session (headless — no user shell)
+- Docker socket mounted into desktop — docker CLI works transparently via docker-shim
+- Key improvement over old approach: sibling dockerd could share the desktop's network namespace (`--network=container:desktop-xxx`), making `localhost` port bindings and Docker DNS work without veths, iptables DNAT, or custom DNS proxies
+- For H-in-H: inner sandbox runs on the sibling dockerd (volume-backed, so nesting works) — no host Docker socket needed, no `UseHostDocker`
+- Trade-off: re-adds some per-session dockerd management code, but far simpler if using shared network namespace instead of bridges
+
+**3. Rootless dockerd inside desktop**
+- Run dockerd in rootless mode (doesn't need privileged)
+- Trade-off: overlay2 doesn't work in rootless mode (must use fuse-overlayfs), GPU passthrough is more complex, and performance overhead from FUSE
+
 ---
 
 ## Trade-offs
@@ -465,7 +489,7 @@ docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
 
 The Helix sandbox architecture accumulated enormous complexity because of a misunderstanding about Docker nesting limits. The overlay2 filesystem stacking limit (2 levels) was conflated with a Docker nesting limit. In reality, Docker can nest arbitrarily deep as long as each level's `/var/lib/docker` is backed by a real filesystem via Docker volumes.
 
-Moving dockerd inside the desktop container eliminates the entire veth bridging / DNS proxy / subnet management / port forwarding infrastructure. `localhost` just works. Container DNS just works. Each desktop is self-contained. The code deletion would be substantial — thousands of lines of the most bug-prone infrastructure in the codebase.
+Moving dockerd inside the desktop container eliminates the entire veth bridging / DNS proxy / subnet management / port forwarding infrastructure. `localhost` just works. Container DNS just works. Each desktop is self-contained. The code deletion would be substantial — thousands of lines of bridge/DNS/veth infrastructure.
 
 For Helix-in-Helix, the simplification is even more dramatic: no more two Docker endpoints, no more host Docker socket exposure, no more image transfer between dockerd instances. The inner sandbox simply runs inside the developer's desktop dockerd at level 3 — a configuration that works because the overlay2 constraint was never about nesting depth.
 
