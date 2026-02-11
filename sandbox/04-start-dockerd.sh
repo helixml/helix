@@ -64,6 +64,32 @@ fi
 
 echo "✅ Configured sandbox dockerd"
 
+# Enable cgroup v2 controller delegation for nested containers.
+# By default only cpuset/cpu/pids are delegated to subtrees.
+# Kind (Kubernetes-in-Docker) needs memory+io for systemd inside node containers.
+#
+# cgroup v2 has a "no internal processes" constraint: a cgroup can't have both
+# processes AND child cgroups with controllers. We must move all root-cgroup
+# processes into a child cgroup (init.scope) before enabling controllers.
+if [ -f /sys/fs/cgroup/cgroup.subtree_control ]; then
+    # Step 1: Create init.scope and move all root cgroup processes there
+    mkdir -p /sys/fs/cgroup/init.scope
+    for pid in $(cat /sys/fs/cgroup/cgroup.procs 2>/dev/null); do
+        echo "$pid" > /sys/fs/cgroup/init.scope/cgroup.procs 2>/dev/null || true
+    done
+
+    # Step 2: Enable all available controllers for subtrees
+    AVAILABLE=$(cat /sys/fs/cgroup/cgroup.controllers)
+    ENABLE=""
+    for ctrl in $AVAILABLE; do
+        ENABLE="$ENABLE +$ctrl"
+    done
+    if [ -n "$ENABLE" ]; then
+        echo "$ENABLE" > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || true
+    fi
+    echo "✅ cgroup v2 subtree controllers: $(cat /sys/fs/cgroup/cgroup.subtree_control)"
+fi
+
 # Start dockerd with auto-restart supervisor loop in background
 # This ensures dockerd restarts if it crashes (which would break all sandboxes)
 (

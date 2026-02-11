@@ -22,6 +22,25 @@ if mountpoint -q /var/lib/docker 2>/dev/null; then
         update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy 2>/dev/null || true
     fi
 
+    # Enable cgroup v2 controller delegation for Kind/systemd containers.
+    # Move all root-cgroup processes to init.scope (required by cgroup v2's
+    # "no internal processes" rule), then enable all controllers for subtrees.
+    if [ -f /sys/fs/cgroup/cgroup.subtree_control ]; then
+        mkdir -p /sys/fs/cgroup/init.scope
+        for pid in $(cat /sys/fs/cgroup/cgroup.procs 2>/dev/null); do
+            echo "$pid" > /sys/fs/cgroup/init.scope/cgroup.procs 2>/dev/null || true
+        done
+        AVAILABLE=$(cat /sys/fs/cgroup/cgroup.controllers 2>/dev/null)
+        ENABLE=""
+        for ctrl in $AVAILABLE; do
+            ENABLE="$ENABLE +$ctrl"
+        done
+        if [ -n "$ENABLE" ]; then
+            echo "$ENABLE" > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || true
+        fi
+        echo "[dockerd] cgroup v2 subtree controllers: $(cat /sys/fs/cgroup/cgroup.subtree_control)"
+    fi
+
     # Write daemon.json
     # NOTE: No explicit "dns" setting — Docker inherits DNS from the desktop
     # container's /etc/resolv.conf, which chains through the sandbox's dockerd
