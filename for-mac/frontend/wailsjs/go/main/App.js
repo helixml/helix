@@ -6,16 +6,8 @@ export function CancelDownload() {
   return window['go']['main']['App']['CancelDownload']();
 }
 
-export function CheckDependencies() {
-  return window['go']['main']['App']['CheckDependencies']();
-}
-
 export function DownloadVMImages() {
   return window['go']['main']['App']['DownloadVMImages']();
-}
-
-export function GetClientCount() {
-  return window['go']['main']['App']['GetClientCount']();
 }
 
 export function GetDiskUsage() {
@@ -24,10 +16,6 @@ export function GetDiskUsage() {
 
 export function GetDownloadStatus() {
   return window['go']['main']['App']['GetDownloadStatus']();
-}
-
-export function GetEncoderStats() {
-  return window['go']['main']['App']['GetEncoderStats']();
 }
 
 export function GetHelixURL() {
@@ -50,16 +38,8 @@ export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
 
-export function GetStreamURL(arg1) {
-  return window['go']['main']['App']['GetStreamURL'](arg1);
-}
-
 export function GetSystemInfo() {
   return window['go']['main']['App']['GetSystemInfo']();
-}
-
-export function GetTrayStatus() {
-  return window['go']['main']['App']['GetTrayStatus']();
 }
 
 export function GetVMConfig() {
@@ -84,6 +64,10 @@ export function OpenHelixUI() {
 
 export function OpenSession(arg1) {
   return window['go']['main']['App']['OpenSession'](arg1);
+}
+
+export function ResizeDataDisk(arg1) {
+  return window['go']['main']['App']['ResizeDataDisk'](arg1);
 }
 
 export function SaveSettings(arg1) {

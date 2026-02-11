@@ -748,9 +748,9 @@ body {
 .download-file-info {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     margin-bottom: 8px;
     font-size: 13px;
+    gap: 4px;
 }
 
 .download-filename {
@@ -854,4 +854,29 @@ body {
 .license-link:hover {
     color: var(--text-primary);
     text-decoration: underline;
+}
+
+/* ---- Titlebar Drag Region ---- */
+
+.titlebar-drag {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 32px;
+    -webkit-app-region: drag;
+    z-index: 1;
+    pointer-events: auto;
+}
+
+/* Prevent buttons/links inside the drag region from being undraggable */
+.titlebar-drag * {
+    -webkit-app-region: no-drag;
+}
+
+/* ---- Home Download Progress (inline in home placeholder) ---- */
+
+.home-download-progress {
+    width: 100%;
+    max-width: 400px;
 }

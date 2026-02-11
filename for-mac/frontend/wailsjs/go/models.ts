@@ -3,6 +3,7 @@ export namespace main {
 	export class AppSettings {
 	    vm_cpus: number;
 	    vm_memory_mb: number;
+	    data_disk_size_gb: number;
 	    ssh_port: number;
 	    api_port: number;
 	    video_port: number;
@@ -20,6 +21,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.vm_cpus = source["vm_cpus"];
 	        this.vm_memory_mb = source["vm_memory_mb"];
+	        this.data_disk_size_gb = source["data_disk_size_gb"];
 	        this.ssh_port = source["ssh_port"];
 	        this.api_port = source["api_port"];
 	        this.video_port = source["video_port"];
@@ -117,28 +119,6 @@ export namespace main {
 	        this.error = source["error"];
 	    }
 	}
-	export class EncoderStats {
-	    frames_encoded: number;
-	    frames_dropped: number;
-	    current_fps: number;
-	    average_bitrate: number;
-	    last_frame_time: number;
-	    pipeline_state: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new EncoderStats(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.frames_encoded = source["frames_encoded"];
-	        this.frames_dropped = source["frames_dropped"];
-	        this.current_fps = source["current_fps"];
-	        this.average_bitrate = source["average_bitrate"];
-	        this.last_frame_time = source["last_frame_time"];
-	        this.pipeline_state = source["pipeline_state"];
-	    }
-	}
 	export class LicenseStatus {
 	    state: string;
 	    trial_ends_at?: string;
@@ -196,22 +176,6 @@ export namespace main {
 		    }
 		    return a;
 		}
-	}
-	export class TrayStatus {
-	    vm_state: string;
-	    session_count: number;
-	    api_ready: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new TrayStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.vm_state = source["vm_state"];
-	        this.session_count = source["session_count"];
-	        this.api_ready = source["api_ready"];
-	    }
 	}
 	export class VMConfig {
 	    name: string;
