@@ -159,7 +159,7 @@ export function SettingsView({ settings: s, onSettingsUpdated, showToast }: Sett
                 placeholder="256"
               />
               <div className="form-hint">
-                ZFS data disk for Docker images, workspaces, and swap. Can only be increased.
+                Data disk for agent storage, workspaces, and swap. Can only be increased.
               </div>
             </div>
           </div>

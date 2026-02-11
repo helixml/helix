@@ -19,14 +19,14 @@ export function StorageView({ zfsStats: zfs, diskUsage: disk, vmState }: Storage
     <div className="view-container">
       <div className="view-header">
         <h1>Storage</h1>
-        <p>ZFS deduplication and disk usage</p>
+        <p>Deduplicated agent storage and disk usage</p>
       </div>
 
       {hasData && (
         <div className="dedup-highlight">
           <div>
             <div className="dedup-value">{(zfs.dedup_ratio || 1).toFixed(2)}x</div>
-            <div className="dedup-label">Dedup Ratio</div>
+            <div className="dedup-label">Deduplication</div>
           </div>
           <div style={{ marginLeft: 24 }}>
             <div className="dedup-value" style={{ fontSize: 22 }}>
@@ -39,9 +39,9 @@ export function StorageView({ zfsStats: zfs, diskUsage: disk, vmState }: Storage
 
       <div className="card">
         <div className="card-header">
-          <h2>ZFS Pool</h2>
+          <h2>Agent Storage Pool</h2>
           <span className="card-badge" style={{ color: 'var(--text-faded)' }}>
-            {zfs.pool_name || 'helix'}
+            Deduplicated
           </span>
         </div>
         <div className="card-body">
@@ -81,10 +81,10 @@ export function StorageView({ zfsStats: zfs, diskUsage: disk, vmState }: Storage
           ) : (
             <div className="empty-state">
               {vmState !== 'running'
-                ? 'Start the VM to view ZFS storage stats.'
+                ? 'Start the VM to view storage stats.'
                 : zfs.error
-                  ? `Unable to fetch ZFS stats: ${zfs.error}`
-                  : 'Loading ZFS stats...'}
+                  ? `Unable to fetch storage stats: ${zfs.error}`
+                  : 'Loading storage stats...'}
             </div>
           )}
         </div>
@@ -92,7 +92,7 @@ export function StorageView({ zfsStats: zfs, diskUsage: disk, vmState }: Storage
 
       <div className="card">
         <div className="card-header">
-          <h2>Disk Usage</h2>
+          <h2>Host Disk</h2>
         </div>
         <div className="card-body">
           {disk.root_disk_total > 0 ? (
@@ -113,7 +113,7 @@ export function StorageView({ zfsStats: zfs, diskUsage: disk, vmState }: Storage
               </div>
               {disk.host_actual > 0 && (
                 <div className="storage-row" style={{ marginTop: 8 }}>
-                  <span className="label">Host Actual (after dedup)</span>
+                  <span className="label">Actual on disk (after deduplication)</span>
                   <span className="value">{formatBytes(disk.host_actual)}</span>
                 </div>
               )}
