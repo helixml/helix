@@ -142,48 +142,6 @@ export function VMView({
       </div>
 
       <ScanoutCard scanoutStats={scanoutStats} vmState={s.state} />
-
-      <div className="card">
-        <div className="card-header">
-          <h2>Quick Actions</h2>
-        </div>
-        <div className="card-body">
-          <div className="action-list">
-            <div className="action-item">
-              <div className="action-info">
-                <h3>SSH Access</h3>
-                <p>ssh -p {config.ssh_port || 2222} ubuntu@localhost</p>
-              </div>
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={() => {
-                  const port = config.ssh_port || 2222;
-                  navigator.clipboard.writeText(`ssh -p ${port} ubuntu@localhost`);
-                  showToast('SSH command copied');
-                }}
-              >
-                Copy
-              </button>
-            </div>
-            <div className="action-item">
-              <div className="action-info">
-                <h3>API Endpoint</h3>
-                <p>http://localhost:{config.api_port || 8080}</p>
-              </div>
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={() => {
-                  const port = config.api_port || 8080;
-                  navigator.clipboard.writeText(`http://localhost:${port}`);
-                  showToast('API endpoint copied');
-                }}
-              >
-                Copy
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
