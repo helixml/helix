@@ -16645,6 +16645,13 @@
                 "required": true
             }
         },
+        "securitySchemes": {
+            "ApiKeyAuth": {
+                "type": "apiKey",
+                "name": "Authorization",
+                "in": "header"
+            }
+        },
         "schemas": {
             "controller.MemoryEstimationResponse": {
                 "type": "object",

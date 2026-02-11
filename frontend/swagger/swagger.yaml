@@ -17580,4 +17580,9 @@ paths:
       - BearerAuth: []
 schemes:
 - https
+securityDefinitions:
+  ApiKeyAuth:
+    in: header
+    name: Authorization
+    type: apiKey
 swagger: "2.0"
