@@ -20305,6 +20305,9 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.Modality"
                     }
                 },
+                "permaslug": {
+                    "type": "string"
+                },
                 "pricing": {
                     "$ref": "#/definitions/types.Pricing"
                 },
@@ -24600,7 +24603,7 @@ const docTemplate = `{
                     }
                 },
                 "helix_session_id": {
-                    "description": "1:1 mapping",
+                    "description": "Maps to Helix session (multiple Zed threads can share one session)",
                     "type": "string"
                 },
                 "id": {
@@ -25894,6 +25897,9 @@ const docTemplate = `{
                 },
                 "token": {
                     "type": "string"
+                },
+                "waitlisted": {
+                    "type": "boolean"
                 }
             }
         },
