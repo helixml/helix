@@ -94,6 +94,11 @@ func (s *PostgresStore) CreateSession(ctx context.Context, session types.Session
 		session.Created = time.Now()
 	}
 
+	// Truncate name to fit varchar(255) column
+	if len([]rune(session.Name)) > 255 {
+		session.Name = string([]rune(session.Name)[:255])
+	}
+
 	err := s.gdb.WithContext(ctx).Omit(clause.Associations).Create(&session).Error
 	if err != nil {
 		return nil, err
@@ -159,6 +164,11 @@ func (s *PostgresStore) UpdateSession(ctx context.Context, session types.Session
 		return nil, fmt.Errorf("id not specified")
 	}
 
+	// Truncate name to fit varchar(255) column
+	if len([]rune(session.Name)) > 255 {
+		session.Name = string([]rune(session.Name)[:255])
+	}
+
 	// Log session metadata before update
 	ragResultsCount := 0
 	if session.Metadata.SessionRAGResults != nil {
@@ -190,6 +200,11 @@ func (s *PostgresStore) UpdateSessionMeta(ctx context.Context, data types.Sessio
 		return nil, fmt.Errorf("id not specified")
 	}
 
+	// Truncate name to fit varchar(255) column
+	if len([]rune(data.Name)) > 255 {
+		data.Name = string([]rune(data.Name)[:255])
+	}
+
 	err := s.gdb.WithContext(ctx).Where(&types.Session{
 		ID: data.ID,
 	}).Updates(&types.Session{
@@ -211,6 +226,11 @@ func (s *PostgresStore) UpdateSessionName(ctx context.Context, sessionID, name s
 
 	if name == "" {
 		return fmt.Errorf("name not specified")
+	}
+
+	// Cap name to 255 chars to fit varchar(255) column
+	if len([]rune(name)) > 255 {
+		name = string([]rune(name)[:255])
 	}
 
 	err := s.gdb.WithContext(ctx).Model(&types.Session{}).Where("id = ?", sessionID).Update("name", name).Error

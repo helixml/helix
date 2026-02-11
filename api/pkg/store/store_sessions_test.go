@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -192,4 +193,141 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSessionsPagination() {
 			}
 		})
 	}
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_CreateSession_TruncatesLongName() {
+	longName := strings.Repeat("a", 500)
+	session := types.Session{
+		ID:      system.GenerateSessionID(),
+		Name:    longName,
+		Owner:   "user_id",
+		Created: time.Now(),
+		Updated: time.Now(),
+	}
+
+	created, err := suite.db.CreateSession(context.Background(), session)
+	suite.NoError(err)
+
+	suite.T().Cleanup(func() {
+		_, _ = suite.db.DeleteSession(context.Background(), session.ID)
+	})
+
+	suite.Equal(255, len([]rune(created.Name)))
+	suite.Equal(strings.Repeat("a", 255), created.Name)
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_CreateSession_TruncatesMultibyteChars() {
+	// Use CJK characters (3 bytes each in UTF-8) to verify rune-aware truncation
+	longName := strings.Repeat("漢", 300)
+	session := types.Session{
+		ID:      system.GenerateSessionID(),
+		Name:    longName,
+		Owner:   "user_id",
+		Created: time.Now(),
+		Updated: time.Now(),
+	}
+
+	created, err := suite.db.CreateSession(context.Background(), session)
+	suite.NoError(err)
+
+	suite.T().Cleanup(func() {
+		_, _ = suite.db.DeleteSession(context.Background(), session.ID)
+	})
+
+	suite.Equal(255, len([]rune(created.Name)))
+	suite.Equal(strings.Repeat("漢", 255), created.Name)
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSession_TruncatesLongName() {
+	session := types.Session{
+		ID:      system.GenerateSessionID(),
+		Name:    "short",
+		Owner:   "user_id",
+		Created: time.Now(),
+		Updated: time.Now(),
+	}
+
+	_, err := suite.db.CreateSession(context.Background(), session)
+	suite.NoError(err)
+
+	suite.T().Cleanup(func() {
+		_, _ = suite.db.DeleteSession(context.Background(), session.ID)
+	})
+
+	session.Name = strings.Repeat("b", 500)
+	updated, err := suite.db.UpdateSession(context.Background(), session)
+	suite.NoError(err)
+
+	suite.Equal(255, len([]rune(updated.Name)))
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSessionName_TruncatesLongName() {
+	session := types.Session{
+		ID:      system.GenerateSessionID(),
+		Name:    "short",
+		Owner:   "user_id",
+		Created: time.Now(),
+		Updated: time.Now(),
+	}
+
+	_, err := suite.db.CreateSession(context.Background(), session)
+	suite.NoError(err)
+
+	suite.T().Cleanup(func() {
+		_, _ = suite.db.DeleteSession(context.Background(), session.ID)
+	})
+
+	longName := strings.Repeat("c", 500)
+	err = suite.db.UpdateSessionName(context.Background(), session.ID, longName)
+	suite.NoError(err)
+
+	retrieved, err := suite.db.GetSession(context.Background(), session.ID)
+	suite.NoError(err)
+	suite.Equal(255, len([]rune(retrieved.Name)))
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSessionMeta_TruncatesLongName() {
+	session := types.Session{
+		ID:      system.GenerateSessionID(),
+		Name:    "short",
+		Owner:   "user_id",
+		Created: time.Now(),
+		Updated: time.Now(),
+	}
+
+	_, err := suite.db.CreateSession(context.Background(), session)
+	suite.NoError(err)
+
+	suite.T().Cleanup(func() {
+		_, _ = suite.db.DeleteSession(context.Background(), session.ID)
+	})
+
+	longName := strings.Repeat("d", 500)
+	updated, err := suite.db.UpdateSessionMeta(context.Background(), types.SessionMetaUpdate{
+		ID:   session.ID,
+		Name: longName,
+	})
+	suite.NoError(err)
+	suite.Equal(255, len([]rune(updated.Name)))
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_SessionName_PreservesExactly255() {
+	// Names at exactly 255 chars should not be modified
+	exactName := strings.Repeat("e", 255)
+	session := types.Session{
+		ID:      system.GenerateSessionID(),
+		Name:    exactName,
+		Owner:   "user_id",
+		Created: time.Now(),
+		Updated: time.Now(),
+	}
+
+	created, err := suite.db.CreateSession(context.Background(), session)
+	suite.NoError(err)
+
+	suite.T().Cleanup(func() {
+		_, _ = suite.db.DeleteSession(context.Background(), session.ID)
+	})
+
+	suite.Equal(exactName, created.Name)
 }
