@@ -101,15 +101,15 @@ cd "$HELIX_DIR"
 # Create stable hostname for outer API
 # =========================================
 # The inner compose stack shadows the "api" hostname with its own API service.
-# Resolve the outer API IP now and create an "outer-api" /etc/hosts entry that
-# survives the inner stack startup. Also used by Zed for LLM access.
+# The outer API has a static IP (172.18.0.100) in docker-compose.dev.yaml,
+# so the resolved IP survives API restarts.
 if [[ -n "${HELIX_API_URL:-}" ]]; then
     OUTER_API_IP=$(getent hosts api | awk '{print $1}' | head -1)
     if [[ -n "$OUTER_API_IP" ]]; then
         if ! grep -q "outer-api" /etc/hosts 2>/dev/null; then
             echo "$OUTER_API_IP outer-api" | sudo tee -a /etc/hosts >/dev/null
         fi
-        echo "✅ outer-api → $OUTER_API_IP (preserves access after inner stack starts)"
+        echo "outer-api → $OUTER_API_IP (static IP, survives API restarts)"
         export HELIX_API_URL="http://outer-api:8080"
         export OUTER_API_IP
     fi
