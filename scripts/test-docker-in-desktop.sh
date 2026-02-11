@@ -182,6 +182,35 @@ else
 fi
 
 echo ""
+echo "--- Helix-in-Helix nesting depth ---"
+echo "  (Verifying GPU + DinD at the depth inner H-in-H containers run)"
+
+# nvidia-smi at desktop depth (depth 3: host → sandbox → desktop)
+if de test -e /dev/nvidia0 2>/dev/null; then
+    check "nvidia-smi (desktop depth)" de nvidia-smi --query-gpu=name --format=csv,noheader
+else
+    echo "  nvidia-smi (desktop depth)... SKIP (no GPU)"
+fi
+
+# DinD at inner container depth (depth 4+: host → sandbox → desktop → dind → hello-world)
+# This proves the inner sandbox's dockerd will work in H-in-H.
+# docker:27-dind starts its own dockerd, then runs our command against it.
+echo -n "  DinD nesting (inner sandbox depth)... "
+DIND_OUT=$(de docker run --rm --privileged \
+    -v dind-integ-test:/var/lib/docker \
+    docker:27-dind \
+    sh -c "docker run --rm hello-world" 2>&1)
+de docker volume rm dind-integ-test >/dev/null 2>&1 || true
+if echo "$DIND_OUT" | grep -q "Hello from Docker"; then
+    echo "PASS"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL"
+    FAIL=$((FAIL + 1))
+    ERRORS="${ERRORS}  - DinD nesting: $(echo "$DIND_OUT" | tail -5)\n"
+fi
+
+echo ""
 echo "--- No old infrastructure ---"
 MOUNTS=$(se docker inspect "$CTR" --format '{{json .Mounts}}' 2>&1)
 echo -n "  No docker.sock mount... "
