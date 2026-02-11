@@ -101,17 +101,22 @@ cd "$HELIX_DIR"
 # Create stable hostname for outer API
 # =========================================
 # The inner compose stack shadows the "api" hostname with its own API service.
-# The outer API has a static IP (172.18.0.100) in docker-compose.dev.yaml,
-# so the resolved IP survives API restarts.
+# Hydra sets "outer-api:host-gateway" as a Docker ExtraHost on the desktop
+# container, which resolves to the compose network gateway (the host machine).
+# Since the outer API publishes port 8080 on the host, outer-api:8080 reaches
+# the API dynamically — Docker updates iptables DNAT when the API restarts.
+#
+# We resolve outer-api to an IP and export OUTER_API_IP so the inner compose
+# file can add it as an extra_host on the inner API service too.
 if [[ -n "${HELIX_API_URL:-}" ]]; then
-    OUTER_API_IP=$(getent hosts api | awk '{print $1}' | head -1)
+    OUTER_API_IP=$(getent hosts outer-api | awk '{print $1}' | head -1)
     if [[ -n "$OUTER_API_IP" ]]; then
-        if ! grep -q "outer-api" /etc/hosts 2>/dev/null; then
-            echo "$OUTER_API_IP outer-api" | sudo tee -a /etc/hosts >/dev/null
-        fi
-        echo "outer-api → $OUTER_API_IP (static IP, survives API restarts)"
+        echo "outer-api → $OUTER_API_IP (via host-gateway, survives API restarts)"
         export HELIX_API_URL="http://outer-api:8080"
         export OUTER_API_IP
+    else
+        echo "ERROR: outer-api hostname not set. Rebuild sandbox with latest code."
+        echo "  Hydra should set outer-api:host-gateway as a Docker ExtraHost."
     fi
 fi
 
