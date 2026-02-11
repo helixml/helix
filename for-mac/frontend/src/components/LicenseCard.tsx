@@ -1,5 +1,6 @@
 import { main } from '../../wailsjs/go/models';
 import { StartTrial, ValidateLicenseKey, GetLicenseStatus } from '../../wailsjs/go/main/App';
+import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { getTrialRemaining } from '../lib/helpers';
 import { useState } from 'react';
 
@@ -109,7 +110,7 @@ export function LicenseCard({ licenseStatus: ls, onLicenseUpdated, showToast }: 
               className="license-link"
               onClick={(e) => {
                 e.preventDefault();
-                window.open('https://helix.ml/licenses', '_blank');
+                BrowserOpenURL('https://helix.ml/licenses');
               }}
             >
               Get a license at helix.ml
@@ -161,7 +162,7 @@ export function LicenseCard({ licenseStatus: ls, onLicenseUpdated, showToast }: 
             className="btn btn-secondary"
             onClick={(e) => {
               e.preventDefault();
-              window.open('https://helix.ml/licenses', '_blank');
+              BrowserOpenURL('https://helix.ml/licenses');
             }}
           >
             Buy a License
