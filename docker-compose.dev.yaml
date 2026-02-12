@@ -323,9 +323,10 @@ services:
       # Host Docker socket for privileged mode (Helix-in-Helix development)
       # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
       - /var/run/docker.sock:/var/run/host-docker.sock:rw
-      # Desktop image tarballs and versions (bind-mounted for hot-reload)
+      # Desktop image versions and registry refs (bind-mounted for hot-reload)
+      # NOT read-only: sandbox startup writes .runtime-ref files here during registry pulls
       # Adding new desktops requires no changes here - just add to sandbox-images/
-      - ./sandbox-images:/opt/images:ro
+      - ./sandbox-images:/opt/images
     device_cgroup_rules:
       - "c 13:* rmw"
     devices:
@@ -410,9 +411,10 @@ services:
       # Host Docker socket for privileged mode (Helix-in-Helix development)
       # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
       - /var/run/docker.sock:/var/run/host-docker.sock:rw
-      # Desktop image tarballs and versions (bind-mounted for hot-reload)
+      # Desktop image versions and registry refs (bind-mounted for hot-reload)
+      # NOT read-only: sandbox startup writes .runtime-ref files here during registry pulls
       # Adding new desktops requires no changes here - just add to sandbox-images/
-      - ./sandbox-images:/opt/images:ro
+      - ./sandbox-images:/opt/images
     device_cgroup_rules:
       - "c 13:* rmw"
     devices:
@@ -494,9 +496,10 @@ services:
       # Host Docker socket for privileged mode (Helix-in-Helix development)
       # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
       - /var/run/docker.sock:/var/run/host-docker.sock:rw
-      # Desktop image tarballs and versions (bind-mounted for hot-reload)
+      # Desktop image versions and registry refs (bind-mounted for hot-reload)
+      # NOT read-only: sandbox startup writes .runtime-ref files here during registry pulls
       # Adding new desktops requires no changes here - just add to sandbox-images/
-      - ./sandbox-images:/opt/images:ro
+      - ./sandbox-images:/opt/images
     # No device mounts for software rendering (no GPU)
     device_cgroup_rules:
       - "c 13:* rmw"
