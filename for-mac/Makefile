@@ -3,18 +3,19 @@
 # Usage:
 #   make build      - Quick rebuild (Wails + re-sign)
 #   make build-full - Full rebuild with QEMU + frameworks packaging
-#   make sign       - Re-sign existing app bundle
+#   make sign       - Re-sign existing app bundle + dev QEMU
 #   make dev        - Start Wails dev mode (hot reload)
 
 APP_BUNDLE := build/bin/Helix.app
 MACOS_DIR := $(APP_BUNDLE)/Contents/MacOS
 FRAMEWORKS_DIR := $(APP_BUNDLE)/Contents/Frameworks
+DEV_QEMU_DIR := build/dev-qemu
 APP_ENTITLEMENTS := build/darwin/entitlements-app.plist
 QEMU_ENTITLEMENTS := build/darwin/entitlements.plist
 SIGNING_ENV := .env.signing
 SIGN_SCRIPT := scripts/sign-app.sh
 
-.PHONY: build build-full sign dev
+.PHONY: build build-full sign sign-dev-qemu dev
 
 # Quick rebuild: wails build + re-sign
 build:
@@ -24,9 +25,10 @@ build:
 # Full rebuild: QEMU + frameworks + everything
 build-full:
 	./scripts/build-helix-app.sh
+	@$(MAKE) sign-dev-qemu
 
-# Re-sign the app bundle (frameworks + main app + QEMU with entitlements)
-sign:
+# Re-sign the app bundle + create standalone dev QEMU
+sign: sign-dev-qemu
 	@echo "[sign] Signing app bundle..."
 	@for fw_dir in $(FRAMEWORKS_DIR)/*.framework; do \
 		codesign --force --sign - --timestamp=none "$$fw_dir" 2>/dev/null || true; \
@@ -47,6 +49,52 @@ sign:
 		echo "[sign] Ad-hoc signing complete (no .env.signing found)"; \
 	fi
 	@codesign --verify --deep --strict $(APP_BUNDLE) 2>&1 && echo "[sign] Signature verified OK"
+
+# Create standalone signed QEMU for dev mode.
+# Lives outside the app bundle so wails dev rebuilding the main binary
+# doesn't invalidate QEMU's code signature.
+sign-dev-qemu:
+	@if [ ! -f "$(MACOS_DIR)/qemu-system-aarch64" ]; then \
+		echo "[dev-qemu] No QEMU in app bundle — run 'make build-full' first"; \
+		exit 0; \
+	fi
+	@echo "[dev-qemu] Creating standalone dev QEMU..."
+	@mkdir -p $(DEV_QEMU_DIR)
+	@cp -f $(MACOS_DIR)/qemu-system-aarch64 $(DEV_QEMU_DIR)/
+	@cp -f $(MACOS_DIR)/libqemu-aarch64-softmmu.dylib $(DEV_QEMU_DIR)/
+	@# Fix dylib load path to point to the dev directory
+	@install_name_tool -change "@executable_path/libqemu-aarch64-softmmu.dylib" \
+		"@executable_path/libqemu-aarch64-softmmu.dylib" \
+		$(DEV_QEMU_DIR)/qemu-system-aarch64 2>/dev/null || true
+	@# Add rpath for frameworks (still in the app bundle)
+	@install_name_tool -delete_rpath "@executable_path/../Frameworks" \
+		$(DEV_QEMU_DIR)/qemu-system-aarch64 2>/dev/null || true
+	@install_name_tool -add_rpath "$(CURDIR)/$(FRAMEWORKS_DIR)" \
+		$(DEV_QEMU_DIR)/qemu-system-aarch64 2>/dev/null || true
+	@install_name_tool -delete_rpath "@executable_path/../Frameworks" \
+		$(DEV_QEMU_DIR)/libqemu-aarch64-softmmu.dylib 2>/dev/null || true
+	@install_name_tool -add_rpath "$(CURDIR)/$(FRAMEWORKS_DIR)" \
+		$(DEV_QEMU_DIR)/libqemu-aarch64-softmmu.dylib 2>/dev/null || true
+	@# Sign with entitlements (Developer ID if available, ad-hoc otherwise)
+	@if [ -f "$(SIGNING_ENV)" ]; then \
+		. $(SIGNING_ENV) && \
+		codesign --force --sign "$$APPLE_SIGNING_IDENTITY" --timestamp \
+			--entitlements $(QEMU_ENTITLEMENTS) \
+			$(DEV_QEMU_DIR)/libqemu-aarch64-softmmu.dylib && \
+		codesign --force --sign "$$APPLE_SIGNING_IDENTITY" --timestamp \
+			--entitlements $(QEMU_ENTITLEMENTS) \
+			$(DEV_QEMU_DIR)/qemu-system-aarch64 && \
+		echo "[dev-qemu] Signed with Developer ID"; \
+	else \
+		codesign --force --sign - --timestamp=none \
+			--entitlements $(QEMU_ENTITLEMENTS) \
+			$(DEV_QEMU_DIR)/libqemu-aarch64-softmmu.dylib && \
+		codesign --force --sign - --timestamp=none \
+			--entitlements $(QEMU_ENTITLEMENTS) \
+			$(DEV_QEMU_DIR)/qemu-system-aarch64 && \
+		echo "[dev-qemu] Ad-hoc signed"; \
+	fi
+	@codesign -vvv $(DEV_QEMU_DIR)/qemu-system-aarch64 2>&1 && echo "[dev-qemu] Signature verified OK"
 
 # Wails dev mode with hot reload
 dev:

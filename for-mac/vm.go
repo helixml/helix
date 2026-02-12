@@ -748,13 +748,14 @@ func (vm *VMManager) findQEMUBinary() string {
 		}
 	}
 
-	// Check build output directory (dev mode — wails dev runs from for-mac/)
-	devBuild := filepath.Join("build", "bin", "Helix.app", "Contents", "MacOS", "qemu-system-aarch64")
-	if _, err := os.Stat(devBuild); err == nil {
-		if abs, err := filepath.Abs(devBuild); err == nil {
+	// Check standalone dev QEMU directory (dev mode — signed independently of the
+	// app bundle so wails dev rebuilding the main binary doesn't break its signature)
+	devQemu := filepath.Join("build", "dev-qemu", "qemu-system-aarch64")
+	if _, err := os.Stat(devQemu); err == nil {
+		if abs, err := filepath.Abs(devQemu); err == nil {
 			return abs
 		}
-		return devBuild
+		return devQemu
 	}
 
 	// Fall back to system PATH
