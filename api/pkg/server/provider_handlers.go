@@ -85,53 +85,6 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 
 	user := getRequestUser(r)
 
-	// If providers management is disabled and user is not admin, only return global providers
-	if !s.isProvidersManagementEnabled(ctx) && !user.Admin {
-		// Return only global providers
-		globalProviderEndpoints, err := s.providerManager.ListProviders(ctx, "")
-		if err != nil {
-			log.Err(err).Msg("error listing providers")
-			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		var providerEndpoints []*types.ProviderEndpoint
-		for _, provider := range globalProviderEndpoints {
-			var baseURL string
-			switch provider {
-			case types.ProviderOpenAI:
-				baseURL = s.Cfg.Providers.OpenAI.BaseURL
-			case types.ProviderTogetherAI:
-				baseURL = s.Cfg.Providers.TogetherAI.BaseURL
-			case types.ProviderVLLM:
-				baseURL = s.Cfg.Providers.VLLM.BaseURL
-			case types.ProviderHelix:
-				baseURL = "internal"
-			}
-
-			providerEndpoints = append(providerEndpoints, &types.ProviderEndpoint{
-				ID:             "-",
-				Name:           string(provider),
-				Description:    "",
-				BaseURL:        baseURL,
-				EndpointType:   types.ProviderEndpointTypeGlobal,
-				Owner:          string(types.OwnerTypeSystem),
-				APIKey:         "",
-				BillingEnabled: s.Cfg.Providers.BillingEnabled, // Controlled by PROVIDERS_BILLING_ENABLED env var
-			})
-		}
-
-		// Set default
-		for idx := range providerEndpoints {
-			if providerEndpoints[idx].Name == s.Cfg.Inference.Provider {
-				providerEndpoints[idx].Default = true
-			}
-		}
-
-		writeResponse(rw, providerEndpoints, http.StatusOK)
-		return
-	}
-
 	if orgID != "" {
 		// Check if user has access to view teams
 		_, err := s.authorizeOrgMember(r.Context(), user, orgID)
@@ -167,7 +120,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 			return
 		}
 
-		providerEndpoints, err := s.Store.ListProviderEndpoints(ctx, query)
+		providerEndpoints, err = s.Store.ListProviderEndpoints(ctx, query)
 		if err != nil {
 			log.Err(err).Msg("error listing provider endpoints")
 			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)

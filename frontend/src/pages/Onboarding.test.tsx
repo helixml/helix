@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Onboarding from './Onboarding'
 
 const mockNavigateReplace = vi.fn()
@@ -13,6 +14,7 @@ const mockV1UsersMeOnboardingCreate = vi.fn().mockResolvedValue({})
 const mockV1GitRepositoriesCreate = vi.fn()
 const mockV1ProjectsCreate = vi.fn()
 const mockV1SpecTasksFromPromptCreate = vi.fn()
+const mockV1ProviderEndpointsList = vi.fn()
 const mockApiGet = vi.fn()
 const mockCreateOrgMutateAsync = vi.fn()
 
@@ -38,6 +40,7 @@ vi.mock('../hooks/useApi', () => ({
       v1GitRepositoriesCreate: mockV1GitRepositoriesCreate,
       v1ProjectsCreate: mockV1ProjectsCreate,
       v1SpecTasksFromPromptCreate: mockV1SpecTasksFromPromptCreate,
+      v1ProviderEndpointsList: mockV1ProviderEndpointsList,
     }),
   }),
 }))
@@ -126,11 +129,30 @@ async function fillProjectAndCreateWithModel(projectName: string) {
   })
 }
 
+function renderOnboarding() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  })
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <Onboarding />
+    </QueryClientProvider>
+  )
+}
+
 describe('Onboarding', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
     mockApiGet.mockResolvedValue([])
+    mockV1ProviderEndpointsList.mockResolvedValue({
+      data: [],
+    })
     setAccountWithOrgs([])
   })
 
@@ -141,7 +163,7 @@ describe('Onboarding', () => {
         { id: 'org-456', name: 'other-org', display_name: 'Other Org' },
       ])
 
-      render(<Onboarding />)
+      renderOnboarding()
 
       await selectExistingOrgAndGoToStep2()
 
@@ -183,7 +205,7 @@ describe('Onboarding', () => {
         display_name: 'New Org',
       })
 
-      render(<Onboarding />)
+      renderOnboarding()
 
       const orgNameInput = screen.getByLabelText(/organization name/i)
       fireEvent.change(orgNameInput, { target: { value: 'New Org' } })
@@ -239,7 +261,7 @@ describe('Onboarding', () => {
       mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'proj-id' } })
       mockCreateAgent.mockResolvedValue({ id: 'agent-id' })
 
-      render(<Onboarding />)
+      renderOnboarding()
 
       await selectExistingOrgAndGoToStep2()
       await fillProjectAndCreateWithModel('repo-test')
@@ -262,7 +284,7 @@ describe('Onboarding', () => {
       mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'proj-99' } })
       mockCreateAgent.mockResolvedValue({ id: 'agent-99' })
 
-      render(<Onboarding />)
+      renderOnboarding()
 
       await selectExistingOrgAndGoToStep2()
       await fillProjectAndCreateWithModel('proj-test')
@@ -284,7 +306,7 @@ describe('Onboarding', () => {
       mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'p-1' } })
       mockCreateAgent.mockResolvedValue({ id: 'a-1' })
 
-      render(<Onboarding />)
+      renderOnboarding()
 
       await selectExistingOrgAndGoToStep2()
       await fillProjectAndCreateWithModel('agent-test')
@@ -311,7 +333,7 @@ describe('Onboarding', () => {
       mockCreateAgent.mockResolvedValue({ id: 'agent-ls' })
       mockV1SpecTasksFromPromptCreate.mockResolvedValue({ data: { id: 'task-1' } })
 
-      render(<Onboarding />)
+      renderOnboarding()
 
       await selectExistingOrgAndGoToStep2()
       await fillProjectAndCreateWithModel('ls-project')
@@ -358,7 +380,7 @@ describe('Onboarding', () => {
       mockCreateAgent.mockResolvedValue({ id: 'agent-nav' })
       mockV1SpecTasksFromPromptCreate.mockResolvedValue({ data: { id: 'task-nav' } })
 
-      render(<Onboarding />)
+      renderOnboarding()
 
       await selectExistingOrgAndGoToStep2()
       await fillProjectAndCreateWithModel('nav-project')
@@ -397,7 +419,7 @@ describe('Onboarding', () => {
     it('should mark onboarding complete and navigate to projects when skipping', async () => {
       setAccountWithOrgs([])
 
-      render(<Onboarding />)
+      renderOnboarding()
 
       const closeButtons = screen.getAllByRole('button')
       const skipBtn = closeButtons[0]
@@ -417,7 +439,7 @@ describe('Onboarding', () => {
     it('should not show create project button when not on step 2', async () => {
       setAccountWithOrgs([])
 
-      render(<Onboarding />)
+      renderOnboarding()
 
       expect(screen.queryByRole('button', { name: /create project/i })).not.toBeInTheDocument()
     })
@@ -429,7 +451,7 @@ describe('Onboarding', () => {
 
       mockApiGet.mockResolvedValue([])
 
-      render(<Onboarding />)
+      renderOnboarding()
 
       await selectExistingOrgAndGoToStep2()
 
