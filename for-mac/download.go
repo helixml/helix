@@ -738,27 +738,3 @@ func formatDuration(seconds float64) string {
 	return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
 }
 
-// getAppBundlePath returns the path to the running .app bundle, if any.
-func getAppBundlePath() string {
-	execPath, err := os.Executable()
-	if err != nil {
-		return ""
-	}
-	execPath, err = filepath.EvalSymlinks(execPath)
-	if err != nil {
-		return ""
-	}
-	macosDir := filepath.Dir(execPath)
-	if filepath.Base(macosDir) != "MacOS" {
-		return ""
-	}
-	contentsDir := filepath.Dir(macosDir)
-	if filepath.Base(contentsDir) != "Contents" {
-		return ""
-	}
-	appDir := filepath.Dir(contentsDir)
-	if filepath.Ext(appDir) != ".app" {
-		return ""
-	}
-	return appDir
-}

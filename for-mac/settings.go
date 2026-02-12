@@ -10,9 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
-	"syscall"
 	"time"
-	"unsafe"
 )
 
 // AppSettings holds the persisted application settings
@@ -82,25 +80,6 @@ func DefaultSettings() AppSettings {
 		AllowRegistration:    true,
 		VMDiskPath:           filepath.Join(getHelixDataDir(), "vm", "helix-desktop", "disk.qcow2"),
 	}
-}
-
-// getSystemMemoryMB returns the total physical memory in MB using sysctl on macOS.
-func getSystemMemoryMB() int {
-	var mem uint64
-	size := uint64(8)
-	name := [2]int32{6 /* CTL_HW */, 24 /* HW_MEMSIZE */}
-	_, _, err := syscall.Syscall6(
-		syscall.SYS___SYSCTL,
-		uintptr(unsafe.Pointer(&name[0])),
-		2,
-		uintptr(unsafe.Pointer(&mem)),
-		uintptr(unsafe.Pointer(&size)),
-		0, 0,
-	)
-	if err != 0 {
-		return 0
-	}
-	return int(mem / (1024 * 1024))
 }
 
 // SettingsManager handles loading and saving settings

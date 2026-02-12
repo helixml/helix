@@ -1,0 +1,7 @@
+{
+  "version": "TODO",
+  "base_url": "https://dl.helix.ml/vm-windows",
+  "files": [
+    {"name": "rootfs.tar.gz", "size": 0, "sha256": "TODO"}
+  ]
+}

@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"log"
+	"runtime"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
@@ -16,14 +17,16 @@ import (
 var assets embed.FS
 
 func main() {
-	// Create an instance of the app structure
 	app := NewApp()
-
-	// Create the application menu
 	appMenu := createMenu(app)
 
+	title := "Helix Desktop (Beta)"
+	if runtime.GOOS == "darwin" {
+		title = "Helix for Mac (Beta)"
+	}
+
 	err := wails.Run(&options.App{
-		Title:             "Helix for Mac (Beta)",
+		Title:             title,
 		Width:             1200,
 		Height:            800,
 		MinWidth:          800,
@@ -32,8 +35,8 @@ func main() {
 		Fullscreen:        false,
 		Frameless:         false,
 		StartHidden:       false,
-		HideWindowOnClose: true, // Keep running when window is closed
-		BackgroundColour:  &options.RGBA{R: 18, G: 18, B: 20, A: 255}, // #121214
+		HideWindowOnClose: true,
+		BackgroundColour:  &options.RGBA{R: 18, G: 18, B: 20, A: 255},
 		Menu:              appMenu,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
@@ -53,8 +56,8 @@ func main() {
 				HideToolbarSeparator:       true,
 			},
 			About: &mac.AboutInfo{
-				Title:   "Helix for Mac",
-				Message: "GPU-accelerated AI development environment\n\nVersion 0.1.0-beta\n\n\u00a9 2026 Helix ML\n\nThis application bundles QEMU (GPL v2), virglrenderer (MIT),\nSPICE (LGPL), GLib (LGPL), and other open-source libraries.\nQEMU source: github.com/helixml/qemu-utm\nFull license details: see NOTICES.md in the application bundle.",
+				Title:   "Helix Desktop",
+				Message: "GPU-accelerated AI development environment\n\nVersion 0.1.0-beta\n\n\u00a9 2026 Helix ML",
 			},
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,
@@ -69,7 +72,7 @@ func main() {
 func createMenu(app *App) *menu.Menu {
 	appMenu := menu.NewMenu()
 
-	// App Menu (macOS)
+	// App Menu (macOS — ignored on Windows)
 	appMenu.Append(menu.AppMenu())
 
 	// Edit Menu (required for Cmd+C/V/X/A to work in webview)
@@ -101,7 +104,7 @@ func createMenu(app *App) *menu.Menu {
 	envMenu.AddText("Settings...", keys.CmdOrCtrl(","), nil)
 	envMenu.AddSeparator()
 	envMenu.AddText("SSH Access", nil, func(_ *menu.CallbackData) {
-		log.Printf("SSH command: %s", app.GetSSHCommand())
+		log.Printf("Access: %s", app.GetSSHCommand())
 	})
 
 	// View Menu

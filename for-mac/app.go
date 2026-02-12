@@ -6,7 +6,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -219,12 +218,10 @@ func (a *App) GetSSHCommand() string {
 	return a.vm.GetSSHCommand()
 }
 
-// IsVMImageReady checks if the root disk image exists (ZFS disk is created on first boot)
+// IsVMImageReady checks if the VM image exists (disk.qcow2 on macOS, rootfs.tar.gz on Windows)
 func (a *App) IsVMImageReady() bool {
-	vmDir := filepath.Join(getHelixDataDir(), "vm", "helix-desktop")
-	rootDisk := filepath.Join(vmDir, "disk.qcow2")
-
-	if _, err := os.Stat(rootDisk); err != nil {
+	imagePath := a.vm.getVMImagePath()
+	if _, err := os.Stat(imagePath); err != nil {
 		return false
 	}
 	return true
@@ -454,7 +451,7 @@ func (a *App) GetLANAddress() string {
 			if !ok || ipNet.IP.To4() == nil {
 				continue
 			}
-			if iface.Name == "en0" {
+			if nic := preferredNIC(); nic != "" && iface.Name == nic {
 				return ipNet.IP.String()
 			}
 			if fallback == "" {
@@ -519,8 +516,3 @@ func (a *App) FactoryReset() error {
 	return nil
 }
 
-// openBrowser opens a URL in the default browser
-func openBrowser(url string) error {
-	cmd := exec.Command("open", url)
-	return cmd.Start()
-}
