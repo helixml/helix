@@ -192,7 +192,7 @@ func canSeeSession(user *types.User, session *types.Session) bool {
 }
 
 func canEditSession(user *types.User, session *types.Session) bool {
-	if session.OwnerType == user.Type && session.Owner == user.ID {
+	if session.Owner == user.ID {
 		return true
 	}
 	if user.Admin {
