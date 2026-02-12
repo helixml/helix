@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +23,7 @@ type App struct {
 	scanoutCollector *ScanoutCollector
 	downloader       *VMDownloader
 	licenseValidator *LicenseValidator
+	tray             *TrayManager
 }
 
 // NewApp creates a new App application struct
@@ -52,12 +54,25 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.vm.SetAppContext(ctx)
+	a.vm.desktopSecret = a.settings.Get().DesktopSecret
+	a.vm.consolePassword = a.settings.Get().ConsolePassword
+
+	// Wire VM state changes to system tray
+	a.vm.onStateChange = func(state string) {
+		if a.tray != nil {
+			a.tray.UpdateState(state)
+		}
+	}
 
 	// Start ZFS stats collector
 	a.zfsCollector.Start()
 
 	// Start scanout stats collector
 	a.scanoutCollector.Start()
+
+	// Initialize system tray
+	a.tray = NewTrayManager(a)
+	a.tray.Start()
 
 	log.Println("Helix Desktop started")
 
@@ -75,6 +90,11 @@ func (a *App) startup(ctx context.Context) {
 // shutdown is called when the app is closing
 func (a *App) shutdown(ctx context.Context) {
 	log.Println("Helix Desktop shutting down...")
+
+	// Stop system tray
+	if a.tray != nil {
+		a.tray.Stop()
+	}
 
 	// Stop ZFS collector
 	if a.zfsCollector != nil {
@@ -243,9 +263,25 @@ func (a *App) StartTrial() error {
 	return a.licenseValidator.StartTrial(a.settings)
 }
 
+// GetConsolePassword returns the VM console login password.
+func (a *App) GetConsolePassword() string {
+	return a.settings.Get().ConsolePassword
+}
+
 // GetHelixURL returns the URL for the Helix API
 func (a *App) GetHelixURL() string {
 	return fmt.Sprintf("http://localhost:%d", a.vm.GetConfig().APIPort)
+}
+
+// GetAutoLoginURL returns the desktop auto-login callback URL.
+// The iframe navigates here first to transparently log in the user as admin.
+func (a *App) GetAutoLoginURL() string {
+	secret := a.settings.Get().DesktopSecret
+	if secret == "" {
+		return fmt.Sprintf("http://localhost:%d", a.vm.GetConfig().APIPort)
+	}
+	return fmt.Sprintf("http://localhost:%d/api/v1/auth/desktop-callback?token=%s",
+		a.vm.GetConfig().APIPort, secret)
 }
 
 // GetSettings returns the current application settings
@@ -253,13 +289,67 @@ func (a *App) GetSettings() AppSettings {
 	return a.settings.Get()
 }
 
-// SaveSettings persists the application settings
+// SaveSettings persists the application settings.
+// If VM-affecting settings changed and the VM is running, it automatically
+// restarts the VM to apply them.
+// Server-managed fields (secrets, license, trial) are preserved from the
+// existing settings so the frontend doesn't need to track them.
 func (a *App) SaveSettings(s AppSettings) error {
+	old := a.settings.Get()
+
+	// Preserve server-managed fields that the frontend doesn't send
+	s.LicenseKey = old.LicenseKey
+	s.TrialStartedAt = old.TrialStartedAt
+	s.DesktopSecret = old.DesktopSecret
+	s.ConsolePassword = old.ConsolePassword
+
 	if err := a.settings.Save(s); err != nil {
 		return err
 	}
 
-	// Apply settings to VM config
+	// Check if any VM-affecting settings changed (these are QEMU command-line args)
+	needsReboot := old.VMCPUs != s.VMCPUs ||
+		old.VMMemoryMB != s.VMMemoryMB ||
+		old.SSHPort != s.SSHPort ||
+		old.APIPort != s.APIPort ||
+		old.VMDiskPath != s.VMDiskPath ||
+		old.ExposeOnNetwork != s.ExposeOnNetwork
+
+	if needsReboot && a.vm.GetStatus().State == VMStateRunning {
+		log.Println("VM-affecting settings changed — restarting VM...")
+		go func() {
+			if err := a.vm.Stop(); err != nil {
+				log.Printf("Failed to stop VM for settings restart: %v", err)
+				return
+			}
+			// Wait for VM to fully stop
+			for i := 0; i < 30; i++ {
+				if a.vm.GetStatus().State == VMStateStopped {
+					break
+				}
+				time.Sleep(time.Second)
+			}
+			if a.vm.GetStatus().State != VMStateStopped {
+				log.Printf("VM did not stop within 30 seconds for settings restart")
+				return
+			}
+			// Apply new config and start
+			config := a.vm.GetConfig()
+			config.CPUs = s.VMCPUs
+			config.MemoryMB = s.VMMemoryMB
+			config.SSHPort = s.SSHPort
+			config.APIPort = s.APIPort
+			config.DiskPath = s.VMDiskPath
+			config.ExposeOnNetwork = s.ExposeOnNetwork
+			a.vm.SetConfig(config)
+			if err := a.StartVM(); err != nil {
+				log.Printf("Failed to restart VM after settings change: %v", err)
+			}
+		}()
+		return nil
+	}
+
+	// VM not running — just apply config directly
 	config := a.vm.GetConfig()
 	config.CPUs = s.VMCPUs
 	config.MemoryMB = s.VMMemoryMB
@@ -330,6 +420,8 @@ func (a *App) GetZFSStats() ZFSStats {
 	return a.zfsCollector.GetStats()
 }
 
+
+
 // GetDiskUsage returns disk usage breakdown
 func (a *App) GetDiskUsage() DiskUsage {
 	return a.zfsCollector.GetDiskUsage()
@@ -338,6 +430,39 @@ func (a *App) GetDiskUsage() DiskUsage {
 // GetScanoutStats returns DRM scanout/display usage statistics
 func (a *App) GetScanoutStats() ScanoutStats {
 	return a.scanoutCollector.GetStats()
+}
+
+// GetLANAddress returns the probable LAN IP address of this machine,
+// or empty string if none found. Prefers en0 (Wi-Fi/Ethernet on macOS).
+func (a *App) GetLANAddress() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	// Prefer en0 (primary NIC on macOS), fall back to first non-loopback IPv4
+	var fallback string
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok || ipNet.IP.To4() == nil {
+				continue
+			}
+			if iface.Name == "en0" {
+				return ipNet.IP.String()
+			}
+			if fallback == "" {
+				fallback = ipNet.IP.String()
+			}
+		}
+	}
+	return fallback
 }
 
 // GetSystemInfo returns system information
@@ -349,6 +474,49 @@ func (a *App) GetSystemInfo() map[string]interface{} {
 		"goroot":   runtime.GOROOT(),
 		"platform": fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 	}
+}
+
+// FactoryReset stops the VM, deletes all VM disk images and settings,
+// and quits the app. On next launch it will re-download and provision from scratch.
+func (a *App) FactoryReset() error {
+	// Stop VM if running
+	if a.vm.GetStatus().State == VMStateRunning || a.vm.GetStatus().State == VMStateStarting {
+		log.Println("Factory reset: stopping VM...")
+		if err := a.vm.Stop(); err != nil {
+			log.Printf("Factory reset: failed to stop VM (continuing): %v", err)
+		}
+		// Wait for VM to stop
+		for i := 0; i < 30; i++ {
+			if a.vm.GetStatus().State == VMStateStopped {
+				break
+			}
+			time.Sleep(time.Second)
+		}
+	}
+
+	// Delete VM directory (disk images, EFI vars, cloud-init seed, etc.)
+	vmDir := filepath.Join(getHelixDataDir(), "vm")
+	if err := os.RemoveAll(vmDir); err != nil {
+		return fmt.Errorf("failed to delete VM data: %w", err)
+	}
+	log.Printf("Factory reset: deleted %s", vmDir)
+
+	// Delete settings file
+	settingsPath := filepath.Join(getHelixDataDir(), "settings.json")
+	if err := os.Remove(settingsPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to delete settings: %w", err)
+	}
+	log.Println("Factory reset: deleted settings.json")
+
+	log.Println("Factory reset complete — quitting app")
+
+	// Quit the app so it starts fresh
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		wailsRuntime.Quit(a.ctx)
+	}()
+
+	return nil
 }
 
 // openBrowser opens a URL in the default browser

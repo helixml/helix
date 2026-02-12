@@ -1,8 +1,11 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -28,6 +31,11 @@ type AppSettings struct {
 	// Network access
 	ExposeOnNetwork bool `json:"expose_on_network"` // Bind to 0.0.0.0 instead of localhost
 
+	// Auth — when exposed on network, these control access
+	RequireAuthOnNetwork bool `json:"require_auth_on_network"` // Require login when accessed from network (default true)
+	NewUsersAreAdmin     bool `json:"new_users_are_admin"`     // New users get admin role automatically
+	AllowRegistration    bool `json:"allow_registration"`      // Allow new users to register via the web UI
+
 	// Display
 	AutoStartVM bool `json:"auto_start_vm"`
 
@@ -37,6 +45,12 @@ type AppSettings struct {
 	// License
 	LicenseKey     string     `json:"license_key,omitempty"`
 	TrialStartedAt *time.Time `json:"trial_started_at,omitempty"`
+
+	// Desktop auto-login shared secret (generated on first launch)
+	DesktopSecret string `json:"desktop_secret,omitempty"`
+
+	// VM console login password (generated on first launch, injected into VM on boot)
+	ConsolePassword string `json:"console_password,omitempty"`
 }
 
 // DefaultSettings returns the default settings with system-aware CPU and memory defaults.
@@ -57,13 +71,16 @@ func DefaultSettings() AppSettings {
 	}
 
 	return AppSettings{
-		VMCPUs:         cpus,
-		VMMemoryMB:     memoryMB,
-		DataDiskSizeGB: 256,
-		SSHPort:        41222,
-		APIPort:        41080,
-		AutoStartVM: false,
-		VMDiskPath:     filepath.Join(getHelixDataDir(), "vm", "helix-desktop", "disk.qcow2"),
+		VMCPUs:               cpus,
+		VMMemoryMB:           memoryMB,
+		DataDiskSizeGB:       256,
+		SSHPort:              41222,
+		APIPort:              41080,
+		AutoStartVM:          true,
+		RequireAuthOnNetwork: true,
+		NewUsersAreAdmin:     false,
+		AllowRegistration:    true,
+		VMDiskPath:           filepath.Join(getHelixDataDir(), "vm", "helix-desktop", "disk.qcow2"),
 	}
 }
 
@@ -110,7 +127,47 @@ func NewSettingsManager() *SettingsManager {
 		}
 	}
 
+	// Ensure desktop secret exists (generate on first launch)
+	needsSave := false
+	if sm.settings.DesktopSecret == "" {
+		sm.settings.DesktopSecret = generateSecret()
+		needsSave = true
+	}
+
+	// Ensure console password exists (generate on first launch)
+	if sm.settings.ConsolePassword == "" {
+		sm.settings.ConsolePassword = generatePassword()
+		needsSave = true
+	}
+
+	if needsSave {
+		_ = sm.Save(sm.settings)
+	}
+
 	return sm
+}
+
+// generateSecret creates a cryptographically random hex string for desktop auto-login.
+func generateSecret() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		log.Fatalf("crypto/rand failed: %v", err)
+	}
+	return hex.EncodeToString(b)
+}
+
+// generatePassword creates a random alphanumeric password for the VM console.
+// Uses unambiguous characters (no 0/O, 1/l/I) for readability.
+func generatePassword() string {
+	const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789"
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		log.Fatalf("crypto/rand failed: %v", err)
+	}
+	for i := range b {
+		b[i] = chars[int(b[i])%len(chars)]
+	}
+	return string(b)
 }
 
 // Get returns the current settings
@@ -152,7 +209,9 @@ func (sm *SettingsManager) load() error {
 		return err
 	}
 
-	var s AppSettings
+	// Start from defaults so missing JSON fields preserve their default values.
+	// This is important for boolean fields that default to true (e.g. RequireAuthOnNetwork).
+	s := DefaultSettings()
 	if err := json.Unmarshal(data, &s); err != nil {
 		return fmt.Errorf("failed to parse settings: %w", err)
 	}

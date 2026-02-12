@@ -6,6 +6,7 @@ import {
   GetVMConfig,
   IsVMImageReady,
   GetHelixURL,
+  GetAutoLoginURL,
   GetSystemInfo,
   GetZFSStats,
   GetSettings,
@@ -14,11 +15,8 @@ import {
 } from '../wailsjs/go/main/App';
 import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
 import { HomeView } from './views/HomeView';
-import { VMView } from './views/VMView';
-import { StorageView } from './views/StorageView';
-import { SettingsView } from './views/SettingsView';
-
-type View = 'home' | 'vm' | 'storage' | 'settings';
+import { SettingsPanel } from './components/SettingsPanel';
+import { ConsoleDrawer } from './components/ConsoleDrawer';
 
 const defaultVMStatus = new main.VMStatus({
   state: 'stopped',
@@ -50,19 +48,12 @@ const defaultZFSStats = new main.ZFSStats({
   last_updated: '',
 });
 
-const defaultScanoutStats = new main.ScanoutStats({
-  total_connectors: 0,
-  active_displays: 0,
-  max_scanouts: 15,
-  last_updated: '',
-});
-
 const defaultSettings = new main.AppSettings({
   vm_cpus: 4,
   vm_memory_mb: 8192,
   data_disk_size_gb: 256,
-  ssh_port: 2222,
-  api_port: 8080,
+  ssh_port: 41222,
+  api_port: 41080,
   auto_start_vm: false,
   vm_disk_path: '',
 });
@@ -71,83 +62,20 @@ const defaultLicenseStatus = new main.LicenseStatus({
   state: 'no_trial',
 });
 
-const NAV_ITEMS: { view: View; label: string; icon: JSX.Element }[] = [
-  {
-    view: 'home',
-    label: 'Home',
-    icon: (
-      <svg viewBox="0 0 20 20" width="18" height="18">
-        <path d="M10 2L2 8v10h6v-6h4v6h6V8L10 2z" fill="currentColor" />
-      </svg>
-    ),
-  },
-  {
-    view: 'vm',
-    label: 'Environment',
-    icon: (
-      <svg viewBox="0 0 20 20" width="18" height="18">
-        <path
-          d="M3 4h14a1 1 0 011 1v8a1 1 0 01-1 1H3a1 1 0 01-1-1V5a1 1 0 011-1zm4 12h6m-3-2v2"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    ),
-  },
-  {
-    view: 'storage',
-    label: 'Storage',
-    icon: (
-      <svg viewBox="0 0 20 20" width="18" height="18">
-        <path
-          d="M4 5h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1zm0 6h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2a1 1 0 011-1z"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-        />
-        <circle cx="6" cy="7" r="1" fill="currentColor" />
-        <circle cx="6" cy="13" r="1" fill="currentColor" />
-      </svg>
-    ),
-  },
-  {
-    view: 'settings',
-    label: 'Settings',
-    icon: (
-      <svg viewBox="0 0 20 20" width="18" height="18">
-        <path
-          d="M10 13a3 3 0 100-6 3 3 0 000 6z"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-        />
-        <path
-          d="M17 10a7 7 0 01-.4 2.3l1.5 1.2-1.4 2.4-1.8-.5a7 7 0 01-2 1.2L12.5 18h-2.8l-.4-1.4a7 7 0 01-2-1.2l-1.8.5-1.4-2.4 1.5-1.2a7 7 0 010-4.6L4.1 6.5l1.4-2.4 1.8.5a7 7 0 012-1.2L9.7 2h2.8l.4 1.4a7 7 0 012 1.2l1.8-.5 1.4 2.4-1.5 1.2A7 7 0 0117 10z"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-        />
-      </svg>
-    ),
-  },
-];
-
 export function App() {
-  const [currentView, setCurrentView] = useState<View>('home');
   const [vmStatus, setVmStatus] = useState<main.VMStatus>(defaultVMStatus);
   const [vmConfig, setVmConfig] = useState<main.VMConfig>(defaultVMConfig);
   const [vmImageReady, setVmImageReady] = useState(false);
   const [needsDownload, setNeedsDownload] = useState(false);
   const [helixURL, setHelixURL] = useState('');
+  const [autoLoginURL, setAutoLoginURL] = useState('');
   const [zfsStats, setZfsStats] = useState<main.ZFSStats>(defaultZFSStats);
-  const [scanoutStats, setScanoutStats] = useState<main.ScanoutStats>(defaultScanoutStats);
   const [settings, setSettings] = useState<main.AppSettings>(defaultSettings);
   const [downloadProgress, setDownloadProgress] = useState<main.DownloadProgress | null>(null);
   const [licenseStatus, setLicenseStatus] = useState<main.LicenseStatus>(defaultLicenseStatus);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [consoleOpen, setConsoleOpen] = useState(false);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -164,13 +92,14 @@ export function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [imageReady, _sysInfo, status, config, url, appSettings, license] =
+        const [imageReady, _sysInfo, status, config, url, loginURL, appSettings, license] =
           await Promise.all([
             IsVMImageReady(),
             GetSystemInfo(),
             GetVMStatus(),
             GetVMConfig(),
             GetHelixURL(),
+            GetAutoLoginURL(),
             GetSettings(),
             GetLicenseStatus(),
           ]);
@@ -179,6 +108,7 @@ export function App() {
         setVmStatus(status);
         setVmConfig(config);
         setHelixURL(url);
+        setAutoLoginURL(loginURL);
         setSettings(appSettings);
         setLicenseStatus(license);
       } catch (err) {
@@ -205,9 +135,15 @@ export function App() {
       }
     });
 
+    // Listen for settings:show event from system tray
+    EventsOn('settings:show', () => {
+      setSettingsOpen(true);
+    });
+
     return () => {
       EventsOff('vm:status');
       EventsOff('download:progress');
+      EventsOff('settings:show');
     };
   }, []);
 
@@ -219,12 +155,8 @@ export function App() {
         setVmStatus(status);
 
         if (status.state === 'running') {
-          const [zfs, scanout] = await Promise.all([
-            GetZFSStats(),
-            GetScanoutStats(),
-          ]);
+          const zfs = await GetZFSStats();
           setZfsStats(zfs);
-          setScanoutStats(scanout);
         }
       } catch {
         // Silently ignore poll errors
@@ -235,89 +167,107 @@ export function App() {
   }, []);
 
   const stateLabel = vmStatus.state.charAt(0).toUpperCase() + vmStatus.state.slice(1);
-  const sessions = vmStatus.sessions || 0;
 
   return (
     <>
-      <nav className="sidebar">
-        <div className="sidebar-header" style={{ '--wails-draggable': 'drag' } as React.CSSProperties}>
-          <div className="sidebar-logo">
-            <img
-              src="/helix-logo.png"
-              alt="Helix"
-              className="helix-icon-img"
-              width="22"
-              height="22"
-            />
-            <span className="sidebar-title">Helix</span>
-          </div>
-          <div className="sidebar-status" />
+      {/* Titlebar control bar */}
+      <header className="titlebar">
+        <div className="titlebar-logo">
+          <img src="/helix-logo.png" alt="Helix" />
+          <span>Helix</span>
         </div>
-        <div className="sidebar-nav">
-          {NAV_ITEMS.map((item) => (
-            <button
-              key={item.view}
-              className={`nav-item ${currentView === item.view ? 'active' : ''}`}
-              onClick={() => setCurrentView(item.view)}
-            >
-              {item.icon}
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </div>
-        <div className="sidebar-footer">
-          <div className="sidebar-vm-status">
-            <span className={`status-indicator ${vmStatus.state}`} />
-            <span>
-              {stateLabel}
-              {vmStatus.state === 'running' &&
-                ` \u00B7 ${sessions} session${sessions !== 1 ? 's' : ''}`}
-            </span>
-          </div>
-        </div>
-      </nav>
 
+        <div className="titlebar-status">
+          <span className={`status-pill ${vmStatus.state}`} title={stateLabel}>
+            <span className={`status-indicator ${vmStatus.state}`} />
+            {stateLabel}
+          </span>
+        </div>
+
+        <div className="titlebar-spacer" />
+
+        <div className="titlebar-actions">
+          {/* Console toggle */}
+          <button
+            className={`titlebar-btn ${consoleOpen ? 'active' : ''}`}
+            onClick={() => setConsoleOpen((v) => !v)}
+            title="Console"
+          >
+            <svg viewBox="0 0 20 20" width="16" height="16">
+              <path
+                d="M3 4h14a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V5a1 1 0 011-1z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              />
+              <path
+                d="M6 8l3 2-3 2M11 12h3"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+
+          {/* Settings gear */}
+          <button
+            className={`titlebar-btn ${settingsOpen ? 'active' : ''}`}
+            onClick={() => setSettingsOpen((v) => !v)}
+            title="Settings"
+          >
+            <svg viewBox="0 0 20 20" width="16" height="16">
+              <path
+                d="M10 13a3 3 0 100-6 3 3 0 000 6z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              />
+              <path
+                d="M17 10a7 7 0 01-.4 2.3l1.5 1.2-1.4 2.4-1.8-.5a7 7 0 01-2 1.2L12.5 18h-2.8l-.4-1.4a7 7 0 01-2-1.2l-1.8.5-1.4-2.4 1.5-1.2a7 7 0 010-4.6L4.1 6.5l1.4-2.4 1.8.5a7 7 0 012-1.2L9.7 2h2.8l.4 1.4a7 7 0 012 1.2l1.8-.5 1.4 2.4-1.5 1.2A7 7 0 0117 10z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      {/* Main content + console drawer */}
       <main className="content">
-        <div className="titlebar-drag" style={{ '--wails-draggable': 'drag' } as React.CSSProperties} />
-        {currentView === 'home' && (
-          <HomeView
-            vmStatus={vmStatus}
-            helixURL={helixURL}
-            needsDownload={needsDownload}
-            downloadProgress={downloadProgress}
-            onProgressCleared={() => setDownloadProgress(null)}
-            showToast={showToast}
-          />
-        )}
-        {currentView === 'vm' && (
-          <VMView
-            vmStatus={vmStatus}
-            vmConfig={vmConfig}
-            needsDownload={needsDownload}
-            downloadProgress={downloadProgress}
-            licenseStatus={licenseStatus}
-            scanoutStats={scanoutStats}
-            onDownloadComplete={() => {
-              setNeedsDownload(false);
-              setVmImageReady(true);
-              setDownloadProgress(null);
-            }}
-            onProgressCleared={() => setDownloadProgress(null)}
-            onLicenseUpdated={setLicenseStatus}
-            showToast={showToast}
-          />
-        )}
-        {currentView === 'storage' && (
-          <StorageView zfsStats={zfsStats} vmState={vmStatus.state} />
-        )}
-        {currentView === 'settings' && (
-          <SettingsView
-            settings={settings}
-            onSettingsUpdated={setSettings}
-            showToast={showToast}
+        <HomeView
+          vmStatus={vmStatus}
+          helixURL={helixURL}
+          autoLoginURL={autoLoginURL}
+          needsDownload={needsDownload}
+          downloadProgress={downloadProgress}
+          licenseStatus={licenseStatus}
+          onProgressCleared={() => setDownloadProgress(null)}
+          onLicenseUpdated={setLicenseStatus}
+          showToast={showToast}
+        />
+
+        {consoleOpen && (
+          <ConsoleDrawer
+            vmState={vmStatus.state}
+            onClose={() => setConsoleOpen(false)}
           />
         )}
       </main>
+
+      {/* Settings slide-over panel */}
+      {settingsOpen && (
+        <SettingsPanel
+          settings={settings}
+          zfsStats={zfsStats}
+          vmState={vmStatus.state}
+          onSettingsUpdated={setSettings}
+          onClose={() => setSettingsOpen(false)}
+          showToast={showToast}
+        />
+      )}
 
       {toastMessage && <div className="toast">{toastMessage}</div>}
     </>

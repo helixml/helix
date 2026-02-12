@@ -2,7 +2,10 @@ module for-mac
 
 go 1.24.0
 
-require github.com/wailsapp/wails/v2 v2.11.0
+require (
+	github.com/energye/systray v1.0.3
+	github.com/wailsapp/wails/v2 v2.11.0
+)
 
 require (
 	github.com/bep/debounce v1.2.1 // indirect

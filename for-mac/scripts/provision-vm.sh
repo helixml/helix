@@ -263,13 +263,21 @@ write_files:
 
       # Mount Docker zvol if it exists
       if zfs list helix/docker 2>/dev/null; then
-          ZVOL_DEV=\$(ls /dev/zvol/helix/docker 2>/dev/null || echo "")
-          if [ -n "\$ZVOL_DEV" ] && [ -b "\$ZVOL_DEV" ]; then
-              if ! mountpoint -q /var/lib/docker 2>/dev/null; then
+          if ! mountpoint -q /var/lib/docker 2>/dev/null; then
+              ZVOL_DEV=\$(ls /dev/zvol/helix/docker 2>/dev/null || echo "")
+              if [ -n "\$ZVOL_DEV" ] && [ -b "\$ZVOL_DEV" ]; then
                   log "Mounting Docker zvol at /var/lib/docker..."
                   mkdir -p /var/lib/docker
-                  mount "\$ZVOL_DEV" /var/lib/docker
+                  mount "\$ZVOL_DEV" /var/lib/docker 2>/dev/null || {
+                      if mountpoint -q /var/lib/docker 2>/dev/null; then
+                          log "Docker zvol already mounted (fstab race)"
+                      else
+                          log "WARNING: Failed to mount Docker zvol"
+                      fi
+                  }
               fi
+          else
+              log "Docker zvol already mounted at /var/lib/docker"
           fi
       fi
 
@@ -555,9 +563,6 @@ POSTGRES_PORT=5432
 POSTGRES_DB=postgres
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
-
-# Auth (development mode)
-KEYCLOAK_ADMIN_PASSWORD=admin
 
 # Runner token
 RUNNER_TOKEN=oh-hallo-insecure-token

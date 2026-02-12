@@ -10,8 +10,20 @@ export function DownloadVMImages() {
   return window['go']['main']['App']['DownloadVMImages']();
 }
 
+export function FactoryReset() {
+  return window['go']['main']['App']['FactoryReset']();
+}
+
+export function GetAutoLoginURL() {
+  return window['go']['main']['App']['GetAutoLoginURL']();
+}
+
 export function GetConsoleOutput() {
   return window['go']['main']['App']['GetConsoleOutput']();
+}
+
+export function GetConsolePassword() {
+  return window['go']['main']['App']['GetConsolePassword']();
 }
 
 export function GetDiskUsage() {
@@ -24,6 +36,10 @@ export function GetDownloadStatus() {
 
 export function GetHelixURL() {
   return window['go']['main']['App']['GetHelixURL']();
+}
+
+export function GetLANAddress() {
+  return window['go']['main']['App']['GetLANAddress']();
 }
 
 export function GetLicenseStatus() {

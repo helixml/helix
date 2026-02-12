@@ -7,11 +7,16 @@ export namespace main {
 	    ssh_port: number;
 	    api_port: number;
 	    expose_on_network: boolean;
+	    require_auth_on_network: boolean;
+	    new_users_are_admin: boolean;
+	    allow_registration: boolean;
 	    auto_start_vm: boolean;
 	    vm_disk_path: string;
 	    license_key?: string;
 	    // Go type: time
 	    trial_started_at?: any;
+	    desktop_secret?: string;
+	    console_password?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
@@ -25,10 +30,15 @@ export namespace main {
 	        this.ssh_port = source["ssh_port"];
 	        this.api_port = source["api_port"];
 	        this.expose_on_network = source["expose_on_network"];
+	        this.require_auth_on_network = source["require_auth_on_network"];
+	        this.new_users_are_admin = source["new_users_are_admin"];
+	        this.allow_registration = source["allow_registration"];
 	        this.auto_start_vm = source["auto_start_vm"];
 	        this.vm_disk_path = source["vm_disk_path"];
 	        this.license_key = source["license_key"];
 	        this.trial_started_at = this.convertValues(source["trial_started_at"], null);
+	        this.desktop_secret = source["desktop_secret"];
+	        this.console_password = source["console_password"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -186,6 +196,7 @@ export namespace main {
 	    ssh_port: number;
 	    api_port: number;
 	    qmp_port: number;
+	    frame_export_port: number;
 	    expose_on_network: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -202,11 +213,13 @@ export namespace main {
 	        this.ssh_port = source["ssh_port"];
 	        this.api_port = source["api_port"];
 	        this.qmp_port = source["qmp_port"];
+	        this.frame_export_port = source["frame_export_port"];
 	        this.expose_on_network = source["expose_on_network"];
 	    }
 	}
 	export class VMStatus {
 	    state: string;
+	    boot_stage?: string;
 	    cpu_percent: number;
 	    memory_used: number;
 	    uptime: number;
@@ -221,6 +234,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.state = source["state"];
+	        this.boot_stage = source["boot_stage"];
 	        this.cpu_percent = source["cpu_percent"];
 	        this.memory_used = source["memory_used"];
 	        this.uptime = source["uptime"];

@@ -6,14 +6,21 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// splitLines splits a string into non-empty lines
+func splitLines(s string) []string {
+	return strings.Split(strings.TrimSpace(s), "\n")
+}
 
 // ErrVMImagesNotDownloaded is returned when VM images need to be downloaded from the CDN
 var ErrVMImagesNotDownloaded = fmt.Errorf("VM images not downloaded")
@@ -39,18 +46,20 @@ type VMConfig struct {
 	SSHPort     int    `json:"ssh_port"`     // Host port forwarded to guest SSH
 	APIPort     int    `json:"api_port"`     // Host port forwarded to Helix API
 	QMPPort         int  `json:"qmp_port"`          // QEMU Machine Protocol for control
+	FrameExportPort int  `json:"frame_export_port"` // TCP port for Helix frame export (0 = disabled)
 	ExposeOnNetwork bool `json:"expose_on_network"` // Bind to 0.0.0.0 instead of localhost
 }
 
 // VMStatus represents current VM status
 type VMStatus struct {
 	State      VMState `json:"state"`
+	BootStage  string  `json:"boot_stage,omitempty"` // Current boot stage (shown in UI during startup)
 	CPUPercent float64 `json:"cpu_percent"`
 	MemoryUsed int64   `json:"memory_used"`
 	Uptime     int64   `json:"uptime"`
 	Sessions   int     `json:"sessions"`
 	ErrorMsg   string  `json:"error_msg,omitempty"`
-	APIReady bool `json:"api_ready"`
+	APIReady   bool    `json:"api_ready"`
 }
 
 // VMManager manages the Helix VM
@@ -67,6 +76,12 @@ type VMManager struct {
 	consoleBuf   []byte
 	consoleMu    sync.Mutex
 	consoleStdin io.WriteCloser
+	// Callback for state changes (used by system tray)
+	onStateChange func(state string)
+	// Desktop auto-login secret (set from AppSettings before VM start)
+	desktopSecret string
+	// VM console login password (set from AppSettings before VM start)
+	consolePassword string
 }
 
 // getSpiceSocketPath returns the path for the SPICE Unix socket
@@ -93,7 +108,8 @@ func NewVMManager() *VMManager {
 			VsockCID:  3,     // Guest CID (2 is host, 3+ are guests)
 			SSHPort:   41222,  // Host:41222 -> Guest:22
 			APIPort: 41080, // Host:41080 -> Guest:8080 (Helix API)
-			QMPPort: 41444, // QMP for VM control
+			QMPPort:         41444, // QMP for VM control
+			FrameExportPort: 41937, // TCP port for Helix frame export
 		},
 		status: VMStatus{
 			State: VMStateStopped,
@@ -281,7 +297,7 @@ func copyFile(src, dst string) error {
 // Start starts the VM
 func (vm *VMManager) Start() error {
 	vm.statusMu.Lock()
-	if vm.status.State != VMStateStopped {
+	if vm.status.State != VMStateStopped && vm.status.State != VMStateError {
 		vm.statusMu.Unlock()
 		return fmt.Errorf("VM is not stopped (current state: %s)", vm.status.State)
 	}
@@ -290,6 +306,15 @@ func (vm *VMManager) Start() error {
 	vm.statusMu.Unlock()
 
 	vm.emitStatus()
+
+	// Kill any orphaned QEMU process from a previous crash
+	vm.killStaleQEMU()
+
+	// Clean up stale SPICE socket
+	spiceSock := vm.getSpiceSocketPath()
+	if _, err := os.Stat(spiceSock); err == nil {
+		os.Remove(spiceSock)
+	}
 
 	// Ensure VM images are extracted from bundle (first launch copies from app bundle)
 	if err := vm.ensureVMExtracted(); err != nil {
@@ -304,6 +329,58 @@ func (vm *VMManager) Start() error {
 	go vm.runVM(ctx)
 
 	return nil
+}
+
+// killStaleQEMU checks for an orphaned QEMU process holding the QMP port
+// and kills it. This handles the case where the app was force-quit but QEMU
+// kept running.
+func (vm *VMManager) killStaleQEMU() {
+	// Check if QMP port is in use
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", vm.config.QMPPort), 500*time.Millisecond)
+	if err != nil {
+		// Port is free, no stale process
+		return
+	}
+	conn.Close()
+	log.Printf("QMP port %d is in use — looking for stale QEMU process", vm.config.QMPPort)
+
+	// Use lsof to find the PID holding the port
+	cmd := exec.Command("lsof", "-ti", fmt.Sprintf("tcp:%d", vm.config.QMPPort))
+	out, err := cmd.Output()
+	if err != nil || len(out) == 0 {
+		log.Printf("Could not find PID holding port %d", vm.config.QMPPort)
+		return
+	}
+
+	// Parse PID(s) and kill them
+	for _, line := range splitLines(string(out)) {
+		if line == "" {
+			continue
+		}
+		pid := 0
+		if _, err := fmt.Sscanf(line, "%d", &pid); err != nil || pid <= 0 {
+			continue
+		}
+		log.Printf("Killing stale QEMU process (PID %d) holding QMP port %d", pid, vm.config.QMPPort)
+		proc, err := os.FindProcess(pid)
+		if err != nil {
+			continue
+		}
+		proc.Kill()
+	}
+
+	// Wait briefly for the port to be released
+	for i := 0; i < 10; i++ {
+		time.Sleep(200 * time.Millisecond)
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", vm.config.QMPPort), 200*time.Millisecond)
+		if err != nil {
+			// Port is free
+			log.Printf("QMP port %d is now free", vm.config.QMPPort)
+			return
+		}
+		conn.Close()
+	}
+	log.Printf("Warning: QMP port %d still in use after killing stale process", vm.config.QMPPort)
 }
 
 // runVM runs the QEMU process with virtio-gpu and vsock
@@ -379,7 +456,7 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		// venus=true enables Vulkan passthrough via Venus protocol.
 		// hostmem=256M allocates host-side memory for GPU resources.
 		// EDID enabled with 5K preferred resolution so 5120x2880 is available as a DRM mode.
-		"-device", "virtio-gpu-gl-pci,id=gpu0,hostmem=256M,blob=true,venus=true,edid=on,xres=5120,yres=2880",
+		"-device", fmt.Sprintf("virtio-gpu-gl-pci,id=gpu0,hostmem=256M,blob=true,venus=true,edid=on,xres=5120,yres=2880,helix-port=%d", vm.config.FrameExportPort),
 
 		// SPICE display with GL/ES context (via ANGLE) — matches UTM's approach.
 		// Provides the EGL context needed by virglrenderer and the Helix frame export patches.
@@ -461,32 +538,74 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	vm.emitStatus()
 }
 
-// waitForReady waits for the VM's services to be ready
+// waitForReady waits for the VM's services to be ready.
+// Times out after 10 minutes total to avoid hanging forever.
 func (vm *VMManager) waitForReady(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
+	bootStart := time.Now()
+	const bootTimeout = 10 * time.Minute
+	const apiTimeout = 3 * time.Minute // Max time to wait for API after stack starts
+
 	sshReady := false
 	zfsInitialized := false
+	secretInjected := false
+	stackStarted := false
+	stackStartedAt := time.Time{}
 	apiReady := false
+	apiCheckCount := 0
+
+	setBootStage := func(stage string) {
+		vm.statusMu.Lock()
+		vm.status.BootStage = stage
+		vm.statusMu.Unlock()
+		vm.emitStatus()
+	}
+
+	setBootStage("Booting VM...")
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// Wait for SSH first (needed for ZFS init)
+			// Check overall boot timeout
+			if time.Since(bootStart) > bootTimeout {
+				log.Printf("Boot timed out after %v", bootTimeout)
+				vm.statusMu.Lock()
+				vm.status.BootStage = ""
+				vm.statusMu.Unlock()
+				vm.setError(fmt.Errorf("boot timed out after %d minutes — check VM console for errors", int(bootTimeout.Minutes())))
+				return
+			}
+
+			// Wait for SSH first (needed for all subsequent steps).
+			// We test with an actual SSH command rather than a TCP port check
+			// because QEMU opens the host-side port forwarding immediately,
+			// long before sshd is running inside the guest.
 			if !sshReady {
-				conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", vm.config.SSHPort), time.Second)
-				if err == nil {
-					conn.Close()
+				cmd := exec.Command("ssh",
+					"-o", "StrictHostKeyChecking=no",
+					"-o", "UserKnownHostsFile=/dev/null",
+					"-o", "ConnectTimeout=2",
+					"-p", fmt.Sprintf("%d", vm.config.SSHPort),
+					"ubuntu@localhost",
+					"echo ready",
+				)
+				if out, err := cmd.CombinedOutput(); err == nil && strings.Contains(string(out), "ready") {
 					sshReady = true
 					log.Printf("VM SSH is ready")
 				}
 			}
 
-			// Initialize ZFS pool via SSH if SSH is up but ZFS not yet done
+			// Initialize ZFS pool and start Docker via SSH.
+			// IMPORTANT: Docker must NOT be started before ZFS mounts /var/lib/docker,
+			// otherwise Docker runs on the root disk and the zvol mount replaces its
+			// working directory mid-operation, causing "Interrupted" image pulls.
+			// The ZFS init script handles Docker startup in Step 4, after the mount.
 			if sshReady && !zfsInitialized {
+				setBootStage("Setting up storage...")
 				if err := vm.initZFSPool(); err != nil {
 					log.Printf("ZFS init not ready yet: %v", err)
 				} else {
@@ -494,13 +613,53 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 				}
 			}
 
-			// Check if API is responding
-			if !apiReady {
-				conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", vm.config.APIPort), time.Second)
-				if err == nil {
-					conn.Close()
+			// Inject desktop auto-login secret into .env.vm (after ZFS init restores .env.vm)
+			if sshReady && zfsInitialized && !secretInjected && vm.desktopSecret != "" {
+				setBootStage("Configuring environment...")
+				if err := vm.injectDesktopSecret(); err != nil {
+					log.Printf("Desktop secret injection: %v", err)
+				} else {
+					secretInjected = true
+				}
+			}
+
+			// Start the Helix compose stack after ZFS + Docker + secret are ready.
+			// ZFS init ensures Docker is running before returning.
+			if zfsInitialized && !stackStarted {
+				setBootStage("Starting Helix services...")
+				if err := vm.startHelixStack(); err != nil {
+					log.Printf("Helix stack start: %v", err)
+				} else {
+					stackStarted = true
+					stackStartedAt = time.Now()
+				}
+			}
+
+			// Check if API is responding (HTTP health check, not just TCP)
+			// TCP port checks give false positives because QEMU opens the
+			// host-side port forwarding before anything is listening in the guest.
+			if stackStarted && !apiReady {
+				apiCheckCount++
+				elapsed := time.Since(stackStartedAt)
+				if elapsed > apiTimeout {
+					// API didn't come up — check what's wrong with docker compose
+					log.Printf("API not ready after %v — checking container status", apiTimeout)
+					errMsg := vm.diagnoseAPIFailure()
+					vm.statusMu.Lock()
+					vm.status.BootStage = ""
+					vm.statusMu.Unlock()
+					vm.setError(fmt.Errorf("API failed to start: %s", errMsg))
+					return
+				}
+
+				setBootStage("Waiting for API...")
+				if apiCheckCount%5 == 0 {
+					log.Printf("API health check attempt %d (%.0fs since stack start)", apiCheckCount, elapsed.Seconds())
+				}
+				if vm.checkAPIHealth() {
 					vm.statusMu.Lock()
 					vm.status.APIReady = true
+					vm.status.BootStage = ""
 					vm.statusMu.Unlock()
 					vm.emitStatus()
 					apiReady = true
@@ -512,6 +671,102 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// diagnoseAPIFailure checks docker compose inside the VM to determine why the API isn't starting
+func (vm *VMManager) diagnoseAPIFailure() string {
+	cmd := vm.sshCommand(`cd ~/helix 2>/dev/null && docker compose ps --format '{{.Service}}: {{.Status}}' 2>/dev/null | head -20`)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Sprintf("could not check container status: %v", err)
+	}
+	status := strings.TrimSpace(string(out))
+	if status == "" {
+		return "no containers running — docker compose may have failed to start"
+	}
+	log.Printf("Container status:\n%s", status)
+
+	// Also grab recent API logs if available
+	logCmd := vm.sshCommand(`cd ~/helix 2>/dev/null && docker compose logs api --tail 10 2>/dev/null`)
+	logOut, _ := logCmd.CombinedOutput()
+	if len(logOut) > 0 {
+		log.Printf("API container logs:\n%s", string(logOut))
+	}
+
+	return fmt.Sprintf("containers: %s", status)
+}
+
+// checkAPIHealth verifies the Helix API is actually responding to HTTP requests.
+// A TCP port check is insufficient because QEMU opens host-side port forwarding
+// before anything is listening inside the guest.
+func (vm *VMManager) checkAPIHealth() bool {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/api/v1/status", vm.config.APIPort))
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode < 500
+}
+
+// sshCommand creates an SSH exec.Cmd to the VM with standard options.
+// Uses generous keepalive settings to avoid killing long-running operations
+// (e.g., docker compose image pulls) under I/O pressure.
+func (vm *VMManager) sshCommand(script string) *exec.Cmd {
+	return exec.Command("ssh",
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "ConnectTimeout=5",
+		"-o", "ServerAliveInterval=30",
+		"-o", "ServerAliveCountMax=6",
+		"-p", fmt.Sprintf("%d", vm.config.SSHPort),
+		"ubuntu@localhost",
+		script,
+	)
+}
+
+// ensureDockerRunning starts Docker if it isn't already running.
+// Docker is disabled on boot (storage-init starts it after ZFS mount),
+// but we start it here as a safety net regardless of ZFS state.
+func (vm *VMManager) ensureDockerRunning() error {
+	cmd := vm.sshCommand("if ! systemctl is-active docker >/dev/null 2>&1; then sudo systemctl start docker && echo STARTED; else echo RUNNING; fi")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to start Docker: %w (output: %s)", err, string(out))
+	}
+	log.Printf("Docker: %s", strings.TrimSpace(string(out)))
+	return nil
+}
+
+// startHelixStack starts the Helix docker-compose services inside the VM.
+// Uses .env.vm for configuration and docker-compose.dev.yaml for the compose file.
+func (vm *VMManager) startHelixStack() error {
+	script := `
+cd ~/helix 2>/dev/null || exit 0
+if [ ! -f .env.vm ]; then
+    echo 'NO_ENV_FILE'
+    exit 0
+fi
+# Docker Compose always reads .env by default; symlink so it picks up our config
+if [ ! -e .env ]; then
+    ln -s .env.vm .env
+fi
+# Check if stack is already running
+if docker compose ps --format '{{.Service}}' 2>/dev/null | grep -q api; then
+    echo 'ALREADY_RUNNING'
+else
+    echo 'Starting Helix stack...'
+    docker compose -f docker-compose.dev.yaml up -d 2>&1
+    echo 'STARTED'
+fi
+`
+	cmd := vm.sshCommand(script)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to start Helix stack: %w (output: %s)", err, string(out))
+	}
+	log.Printf("Helix stack: %s", strings.TrimSpace(string(out)))
+	return nil
 }
 
 // initZFSPool initializes the ZFS pool on the data disk via SSH.
@@ -582,12 +837,21 @@ if ! mountpoint -q /var/lib/docker 2>/dev/null; then
     if [ -b "$ZVOL_DEV" ]; then
         echo "Mounting Docker zvol at /var/lib/docker..."
         sudo mkdir -p /var/lib/docker
-        sudo mount "$ZVOL_DEV" /var/lib/docker
+        sudo mount "$ZVOL_DEV" /var/lib/docker 2>/dev/null || {
+            # Race with fstab auto-mount — check if it got mounted anyway
+            if mountpoint -q /var/lib/docker 2>/dev/null; then
+                echo "Docker zvol already mounted (fstab race)"
+            else
+                echo "WARNING: Failed to mount Docker zvol"
+            fi
+        }
         # Add to fstab if not already there
         if ! grep -q 'helix-docker' /etc/fstab 2>/dev/null; then
             echo "LABEL=helix-docker /var/lib/docker ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
         fi
     fi
+else
+    echo "Docker zvol already mounted at /var/lib/docker"
 fi
 
 # Config dataset (persistent state surviving root disk swaps)
@@ -620,9 +884,9 @@ else
     # Restore authorized_keys
     if [ -f /helix/config/ssh/authorized_keys ]; then
         mkdir -p /home/ubuntu/.ssh
-        cp /helix/config/ssh/authorized_keys /home/ubuntu/.ssh/authorized_keys
-        chmod 600 /home/ubuntu/.ssh/authorized_keys
-        chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys
+        sudo cp /helix/config/ssh/authorized_keys /home/ubuntu/.ssh/authorized_keys
+        sudo chmod 600 /home/ubuntu/.ssh/authorized_keys
+        sudo chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys
     fi
 fi
 
@@ -644,28 +908,101 @@ elif [ -f /helix/config/env.vm ] && [ ! -f /home/ubuntu/helix/.env.vm ]; then
 fi
 
 # =========================================================================
-# Step 4: Start Docker (now that /var/lib/docker is mounted)
+# Step 4: Ensure Docker is running on the correct /var/lib/docker
 # =========================================================================
-if ! systemctl is-active docker >/dev/null 2>&1; then
+# Always restart Docker to ensure it uses the zvol-backed /var/lib/docker.
+# If Docker was started before the zvol mount (e.g., by systemd), it would
+# be running on the root disk and the mount replaced its working directory.
+if systemctl is-active docker >/dev/null 2>&1; then
+    # Check if Docker is already running on the zvol
+    if mountpoint -q /var/lib/docker 2>/dev/null; then
+        echo 'Docker already running on zvol'
+    else
+        echo 'Docker running but not on zvol — restarting...'
+        sudo systemctl restart docker
+    fi
+else
     echo 'Starting Docker...'
     sudo systemctl start docker
 fi
 
 echo 'ZFS storage ready'
 `
-	cmd := exec.Command("ssh",
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "UserKnownHostsFile=/dev/null",
-		"-o", "ConnectTimeout=3",
-		"-p", fmt.Sprintf("%d", vm.config.SSHPort),
-		"ubuntu@localhost",
-		script,
-	)
+	cmd := vm.sshCommand(script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("SSH command failed: %w (output: %s)", err, string(out))
 	}
 	log.Printf("ZFS init: %s", string(out))
+	return nil
+}
+
+// injectDesktopSecret ensures the desktop auto-login secret, admin config,
+// and console password are applied to the VM. Runs via SSH after initZFSPool
+// restores .env.vm. Idempotent — only modifies files if values changed.
+func (vm *VMManager) injectDesktopSecret() error {
+	script := fmt.Sprintf(`
+ENV_FILE=/home/ubuntu/helix/.env.vm
+if [ ! -f "$ENV_FILE" ]; then
+    exit 0
+fi
+
+CHANGED=0
+
+# Desktop auto-login secret
+if grep -q '^DESKTOP_AUTO_LOGIN_SECRET=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^DESKTOP_AUTO_LOGIN_SECRET=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "%s" ]; then
+        sed -i "s|^DESKTOP_AUTO_LOGIN_SECRET=.*|DESKTOP_AUTO_LOGIN_SECRET=%s|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo 'DESKTOP_AUTO_LOGIN_SECRET=%s' >> "$ENV_FILE"
+    CHANGED=1
+fi
+
+# Ensure all desktop users are admin
+if ! grep -q '^ADMIN_USER_IDS=' "$ENV_FILE" 2>/dev/null; then
+    echo 'ADMIN_USER_IDS=all' >> "$ENV_FILE"
+    CHANGED=1
+fi
+
+# Persist env to ZFS
+if [ $CHANGED -eq 1 ]; then
+    sudo cp "$ENV_FILE" /helix/config/env.vm
+    echo 'ENV_UPDATED'
+fi
+
+# Set ubuntu user password and persist to ZFS
+PASS_FILE=/helix/config/console_password
+CURRENT_PASS=""
+if [ -f "$PASS_FILE" ]; then
+    CURRENT_PASS=$(sudo cat "$PASS_FILE" 2>/dev/null)
+fi
+if [ "$CURRENT_PASS" != "%s" ]; then
+    echo 'ubuntu:%s' | sudo chpasswd
+    echo '%s' | sudo tee "$PASS_FILE" > /dev/null
+    sudo chmod 600 "$PASS_FILE"
+    echo 'PASS_UPDATED'
+fi
+`, vm.desktopSecret, vm.desktopSecret, vm.desktopSecret,
+		vm.consolePassword, vm.consolePassword, vm.consolePassword)
+
+	cmd := vm.sshCommand(script)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("inject desktop secret failed: %w (output: %s)", err, string(out))
+	}
+	outStr := string(out)
+	if strings.Contains(outStr, "ENV_UPDATED") {
+		log.Printf("Desktop secret injected into .env.vm — restarting API container")
+		restart := vm.sshCommand("cd ~/helix && docker compose --env-file .env.vm restart api 2>&1 || true")
+		restartOut, _ := restart.CombinedOutput()
+		log.Printf("API restart: %s", string(restartOut))
+	}
+	if strings.Contains(outStr, "PASS_UPDATED") {
+		log.Printf("Console password updated for ubuntu user")
+	}
 	return nil
 }
 
@@ -731,10 +1068,14 @@ func (vm *VMManager) setError(err error) {
 	vm.emitStatus()
 }
 
-// emitStatus emits status update to frontend
+// emitStatus emits status update to frontend and notifies tray
 func (vm *VMManager) emitStatus() {
+	status := vm.GetStatus()
 	if vm.appCtx != nil {
-		runtime.EventsEmit(vm.appCtx, "vm:status", vm.GetStatus())
+		runtime.EventsEmit(vm.appCtx, "vm:status", status)
+	}
+	if vm.onStateChange != nil {
+		vm.onStateChange(string(status.State))
 	}
 }
 

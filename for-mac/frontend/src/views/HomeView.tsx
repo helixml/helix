@@ -5,29 +5,58 @@ import {
   CancelDownload,
 } from '../../wailsjs/go/main/App';
 import { formatBytes } from '../lib/helpers';
+import { LicenseCard } from '../components/LicenseCard';
 
 interface HomeViewProps {
   vmStatus: main.VMStatus;
   helixURL: string;
+  autoLoginURL: string;
   needsDownload: boolean;
   downloadProgress: main.DownloadProgress | null;
+  licenseStatus: main.LicenseStatus;
   onProgressCleared: () => void;
+  onLicenseUpdated: (status: main.LicenseStatus) => void;
   showToast: (msg: string) => void;
+}
+
+function shouldBlockVM(ls: main.LicenseStatus): boolean {
+  return ls.state === 'trial_expired' || ls.state === 'no_trial';
 }
 
 export function HomeView({
   vmStatus,
   helixURL,
+  autoLoginURL,
   needsDownload,
   downloadProgress: p,
+  licenseStatus,
   onProgressCleared,
+  onLicenseUpdated,
   showToast,
 }: HomeViewProps) {
-  // Show Helix UI when VM is running and API is ready
+  // Show Helix UI when VM is running and API is ready.
+  // Use the auto-login callback URL so the user is transparently logged in as admin.
+  // The callback sets session cookies and redirects to /.
   if (vmStatus.state === 'running' && vmStatus.api_ready) {
     return (
       <div className="home-view">
-        <iframe src={helixURL} title="Helix" />
+        <iframe src={autoLoginURL || helixURL} title="Helix" />
+      </div>
+    );
+  }
+
+  // Show boot progress when VM is starting or running but API isn't ready
+  if (vmStatus.state === 'starting' || (vmStatus.state === 'running' && !vmStatus.api_ready)) {
+    return (
+      <div className="home-view">
+        <div className="home-placeholder">
+          <img src="/helix-logo.png" alt="Helix" className="home-logo" />
+          <h2>Starting Helix</h2>
+          <div className="status-badge starting">
+            <span className="status-indicator starting" />
+            {vmStatus.boot_stage || 'Booting VM...'}
+          </div>
+        </div>
       </div>
     );
   }
@@ -41,7 +70,7 @@ export function HomeView({
           <h2>Welcome to Helix</h2>
           <p>
             Download the Helix environment to get started. This is a one-time download of
-            approximately 18 GB.
+            approximately 16 GB.
           </p>
           <HomeDownloadSection
             downloadProgress={p}
@@ -53,21 +82,48 @@ export function HomeView({
     );
   }
 
-  // VM images ready but not running
+  // VM images ready but not running — show setup/start screen
+  const blocked = shouldBlockVM(licenseStatus);
+
   return (
     <div className="home-view">
       <div className="home-placeholder">
         <img src="/helix-logo.png" alt="Helix" className="home-logo" />
         <h2>Helix Desktop</h2>
-        {vmStatus.state === 'stopped' && (
+
+        {/* License gate */}
+        {blocked && (
+          <div style={{ width: '100%', maxWidth: 480 }}>
+            <LicenseCard
+              licenseStatus={licenseStatus}
+              onLicenseUpdated={onLicenseUpdated}
+              showToast={showToast}
+            />
+          </div>
+        )}
+
+        {!blocked && licenseStatus.state === 'trial_active' && (
+          <LicenseCard
+            licenseStatus={licenseStatus}
+            onLicenseUpdated={onLicenseUpdated}
+            showToast={showToast}
+          />
+        )}
+
+        {!blocked && licenseStatus.state === 'licensed' && (
+          <LicenseCard
+            licenseStatus={licenseStatus}
+            onLicenseUpdated={onLicenseUpdated}
+            showToast={showToast}
+          />
+        )}
+
+        {vmStatus.state === 'stopped' && !blocked && (
           <>
             <p>Ready to start.</p>
             <button
               className="btn btn-primary"
-              onClick={async (e) => {
-                const btn = e.currentTarget;
-                btn.disabled = true;
-                btn.textContent = 'Starting...';
+              onClick={async () => {
                 try {
                   await StartVM();
                 } catch (err) {
@@ -80,21 +136,12 @@ export function HomeView({
             </button>
           </>
         )}
-        {vmStatus.state === 'starting' && (
-          <div className="status-badge starting">
-            <span className="status-indicator starting" />
-            Starting...
-          </div>
-        )}
         {vmStatus.state === 'error' && (
           <>
             <div className="error-msg">{vmStatus.error_msg || 'Failed to start'}</div>
             <button
               className="btn btn-primary"
-              onClick={async (e) => {
-                const btn = e.currentTarget;
-                btn.disabled = true;
-                btn.textContent = 'Starting...';
+              onClick={async () => {
                 try {
                   await StartVM();
                 } catch (err) {
@@ -136,7 +183,7 @@ function HomeDownloadSection({
         <div className="download-stats">
           <span className="download-speed">{p.speed || '--'}</span>
           <span className="download-eta">
-            {p.status === 'verifying' ? 'Verifying...' : `${(p.percent || 0).toFixed(1)}%`}
+            {p.status === 'verifying' ? 'Verifying...' : p.eta ? `${p.eta} remaining` : `${(p.percent || 0).toFixed(1)}%`}
           </span>
         </div>
         <button
@@ -161,10 +208,7 @@ function HomeDownloadSection({
         </div>
         <button
           className="btn btn-primary"
-          onClick={async (e) => {
-            const btn = e.currentTarget;
-            btn.disabled = true;
-            btn.textContent = 'Starting download...';
+          onClick={async () => {
             try {
               await DownloadVMImages();
             } catch (err) {
@@ -182,10 +226,7 @@ function HomeDownloadSection({
   return (
     <button
       className="btn btn-primary"
-      onClick={async (e) => {
-        const btn = e.currentTarget;
-        btn.disabled = true;
-        btn.textContent = 'Starting download...';
+      onClick={async () => {
         try {
           await DownloadVMImages();
         } catch (err) {

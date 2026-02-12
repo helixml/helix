@@ -156,6 +156,11 @@ type Auth struct {
 	OIDC                OIDC
 	Regular             Regular
 	Waitlist            bool `envconfig:"AUTH_WAITLIST_ENABLED" default:"false"`
+
+	// DesktopAutoLoginSecret is a shared secret that enables automatic admin login
+	// for the Helix Desktop app. When set, GET /api/v1/auth/desktop-callback?token=<secret>
+	// creates an admin session and redirects to /.
+	DesktopAutoLoginSecret string `envconfig:"DESKTOP_AUTO_LOGIN_SECRET"`
 }
 
 type Regular struct {

@@ -6,13 +6,21 @@ export function CancelDownload():Promise<void>;
 
 export function DownloadVMImages():Promise<void>;
 
+export function FactoryReset():Promise<void>;
+
+export function GetAutoLoginURL():Promise<string>;
+
 export function GetConsoleOutput():Promise<string>;
+
+export function GetConsolePassword():Promise<string>;
 
 export function GetDiskUsage():Promise<main.DiskUsage>;
 
 export function GetDownloadStatus():Promise<main.DownloadProgress>;
 
 export function GetHelixURL():Promise<string>;
+
+export function GetLANAddress():Promise<string>;
 
 export function GetLicenseStatus():Promise<main.LicenseStatus>;
 
