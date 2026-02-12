@@ -6,6 +6,8 @@ export function CancelDownload():Promise<void>;
 
 export function DownloadVMImages():Promise<void>;
 
+export function GetConsoleOutput():Promise<string>;
+
 export function GetDiskUsage():Promise<main.DiskUsage>;
 
 export function GetDownloadStatus():Promise<main.DownloadProgress>;
@@ -37,6 +39,8 @@ export function OpenSession(arg1:string):Promise<void>;
 export function ResizeDataDisk(arg1:number):Promise<void>;
 
 export function SaveSettings(arg1:main.AppSettings):Promise<void>;
+
+export function SendConsoleInput(arg1:string):Promise<void>;
 
 export function SetVMConfig(arg1:main.VMConfig):Promise<void>;
 

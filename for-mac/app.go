@@ -60,6 +60,16 @@ func (a *App) startup(ctx context.Context) {
 	a.scanoutCollector.Start()
 
 	log.Println("Helix Desktop started")
+
+	// Auto-start VM if enabled in settings
+	if a.settings.Get().AutoStartVM {
+		log.Println("Auto-starting VM...")
+		go func() {
+			if err := a.StartVM(); err != nil {
+				log.Printf("Auto-start VM failed: %v", err)
+			}
+		}()
+	}
 }
 
 // shutdown is called when the app is closing
@@ -119,6 +129,16 @@ func (a *App) StartVM() error {
 // StopVM stops the virtual machine
 func (a *App) StopVM() error {
 	return a.vm.Stop()
+}
+
+// GetConsoleOutput returns the serial console buffer
+func (a *App) GetConsoleOutput() string {
+	return a.vm.GetConsoleOutput()
+}
+
+// SendConsoleInput sends input to the VM serial console
+func (a *App) SendConsoleInput(input string) error {
+	return a.vm.SendConsoleInput(input)
 }
 
 // OpenHelixUI opens the Helix web UI in the default browser

@@ -60,8 +60,8 @@ func DefaultSettings() AppSettings {
 		VMCPUs:         cpus,
 		VMMemoryMB:     memoryMB,
 		DataDiskSizeGB: 256,
-		SSHPort:        2222,
-		APIPort:        8080,
+		SSHPort:        41222,
+		APIPort:        41080,
 		AutoStartVM: false,
 		VMDiskPath:     filepath.Join(getHelixDataDir(), "vm", "helix-desktop", "disk.qcow2"),
 	}

@@ -63,6 +63,15 @@ type VMManager struct {
 	cmd        *exec.Cmd
 	cancelFunc context.CancelFunc
 	startTime  time.Time
+	// Serial console ring buffer
+	consoleBuf   []byte
+	consoleMu    sync.Mutex
+	consoleStdin io.WriteCloser
+}
+
+// getSpiceSocketPath returns the path for the SPICE Unix socket
+func (vm *VMManager) getSpiceSocketPath() string {
+	return filepath.Join(os.TempDir(), "helix-spice.sock")
 }
 
 // bindAddr returns the address to bind forwarded ports to.
@@ -82,9 +91,9 @@ func NewVMManager() *VMManager {
 			CPUs:      4,
 			MemoryMB:  8192,  // 8GB - enough for Docker + GNOME + Zed + containers
 			VsockCID:  3,     // Guest CID (2 is host, 3+ are guests)
-			SSHPort:   2222,  // Host:2222 -> Guest:22
-			APIPort: 8080, // Host:8080 -> Guest:8080 (Helix API)
-			QMPPort: 4444, // QMP for VM control
+			SSHPort:   41222,  // Host:41222 -> Guest:22
+			APIPort: 41080, // Host:41080 -> Guest:8080 (Helix API)
+			QMPPort: 41444, // QMP for VM control
 		},
 		status: VMStatus{
 			State: VMStateStopped,
@@ -360,28 +369,27 @@ func (vm *VMManager) runVM(ctx context.Context) {
 
 	args = append(args,
 		// Network with port forwarding for SSH, API, and video stream
-		"-device", "virtio-net-pci,netdev=net0",
+		"-device", "virtio-net-pci,netdev=net0,romfile=",
 		"-netdev", fmt.Sprintf("user,id=net0,hostfwd=tcp::%d-:22,hostfwd=tcp:%s:%d-:8080",
 			vm.config.SSHPort, vm.bindAddr(), vm.config.APIPort),
 
-		// virtio-vsock for high-speed host<->guest communication
-		// Useful for frame transfer bypassing network stack
-		"-device", fmt.Sprintf("vhost-vsock-pci,guest-cid=%d", vm.config.VsockCID),
-
-		// GPU: virtio-gpu with virgl3d for OpenGL acceleration
-		// This accelerates rendering inside the VM (GNOME, Zed, etc.)
+		// GPU: virtio-gpu-gl with virgl3d + Venus Vulkan passthrough
+		// Matches UTM's config for full GPU acceleration inside the VM.
+		// blob=true enables zero-copy memory sharing via host mappable blob resources.
+		// venus=true enables Vulkan passthrough via Venus protocol.
+		// hostmem=256M allocates host-side memory for GPU resources.
 		// EDID enabled with 5K preferred resolution so 5120x2880 is available as a DRM mode.
-		// Containers requesting lower resolutions still get their exact mode (1080p, 4K, etc.)
-		"-device", "virtio-gpu-gl-pci,id=gpu0,edid=on,xres=5120,yres=2880",
+		"-device", "virtio-gpu-gl-pci,id=gpu0,hostmem=256M,blob=true,venus=true,edid=on,xres=5120,yres=2880",
 
-		// Serial console for debugging (no VNC needed)
+		// SPICE display with GL/ES context (via ANGLE) — matches UTM's approach.
+		// Provides the EGL context needed by virglrenderer and the Helix frame export patches.
+		"-spice", fmt.Sprintf("unix=on,addr=%s,disable-ticketing=on,gl=es", vm.getSpiceSocketPath()),
+
+		// Serial console — captured and shown in the app UI
 		"-serial", "mon:stdio",
 
 		// QMP for VM control (pause, resume, etc.)
 		"-qmp", fmt.Sprintf("tcp:localhost:%d,server,nowait", vm.config.QMPPort),
-
-		// No graphical display - headless VM
-		"-display", "none",
 	)
 
 	// Find QEMU binary: bundled in app > system PATH
@@ -393,9 +401,20 @@ func (vm *VMManager) runVM(ctx context.Context) {
 
 	vm.cmd = exec.CommandContext(ctx, qemuPath, args...)
 	vm.cmd.Env = vm.buildQEMUEnv()
-	vm.cmd.Stdout = os.Stdout
-	vm.cmd.Stderr = os.Stderr
-	vm.cmd.Stdin = os.Stdin // Allow serial console interaction
+
+	// Pipe serial console (QEMU stdio = guest /dev/ttyAMA0) through ring buffer
+	stdoutPipe, err := vm.cmd.StdoutPipe()
+	if err != nil {
+		vm.setError(fmt.Errorf("failed to create stdout pipe: %w", err))
+		return
+	}
+	vm.cmd.Stderr = os.Stderr // QEMU errors still go to app stderr
+	stdinPipe, err := vm.cmd.StdinPipe()
+	if err != nil {
+		vm.setError(fmt.Errorf("failed to create stdin pipe: %w", err))
+		return
+	}
+	vm.consoleStdin = stdinPipe
 
 	if err := vm.cmd.Start(); err != nil {
 		vm.setError(fmt.Errorf("failed to start VM: %w", err))
@@ -408,11 +427,25 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	vm.statusMu.Unlock()
 	vm.emitStatus()
 
+	// Capture serial console output into ring buffer and emit to frontend
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := stdoutPipe.Read(buf)
+			if n > 0 {
+				vm.appendConsole(buf[:n])
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
 	// Wait for VM services to be ready
 	go vm.waitForReady(ctx)
 
 	// Wait for process to exit
-	err := vm.cmd.Wait()
+	err = vm.cmd.Wait()
 
 	vm.statusMu.Lock()
 	if ctx.Err() != nil {
@@ -848,4 +881,37 @@ func (vm *VMManager) buildQEMUEnv() []string {
 	}
 
 	return env
+}
+
+const maxConsoleSize = 256 * 1024 // 256KB ring buffer
+
+// appendConsole appends data to the serial console ring buffer and emits to frontend
+func (vm *VMManager) appendConsole(data []byte) {
+	vm.consoleMu.Lock()
+	vm.consoleBuf = append(vm.consoleBuf, data...)
+	// Trim to ring buffer size
+	if len(vm.consoleBuf) > maxConsoleSize {
+		vm.consoleBuf = vm.consoleBuf[len(vm.consoleBuf)-maxConsoleSize:]
+	}
+	vm.consoleMu.Unlock()
+	// Emit to frontend for xterm.js
+	if vm.appCtx != nil {
+		runtime.EventsEmit(vm.appCtx, "console:output", string(data))
+	}
+}
+
+// GetConsoleOutput returns the full console buffer
+func (vm *VMManager) GetConsoleOutput() string {
+	vm.consoleMu.Lock()
+	defer vm.consoleMu.Unlock()
+	return string(vm.consoleBuf)
+}
+
+// SendConsoleInput sends input to the serial console (guest /dev/ttyAMA0)
+func (vm *VMManager) SendConsoleInput(input string) error {
+	if vm.consoleStdin == nil {
+		return fmt.Errorf("console not connected")
+	}
+	_, err := vm.consoleStdin.Write([]byte(input))
+	return err
 }

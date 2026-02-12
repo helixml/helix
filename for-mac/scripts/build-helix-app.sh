@@ -180,6 +180,9 @@ REQUIRED_FRAMEWORKS=(
     "gthread-2.0.0"
     "gpg-error.0"
     "gcrypt.20"
+    # ANGLE (provides EGL/GLESv2 on macOS for egl-headless and SPICE GL)
+    "EGL"
+    "GLESv2"
 )
 
 COPIED=0

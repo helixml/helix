@@ -5,9 +5,6 @@
     <!-- Required for QEMU HVF (Hypervisor.framework) acceleration -->
     <key>com.apple.security.hypervisor</key>
     <true/>
-    <!-- Required for QEMU to use vmnet.framework for networking -->
-    <key>com.apple.vm.networking</key>
-    <true/>
     <!-- Allow JIT compilation (QEMU TCG fallback) -->
     <key>com.apple.security.cs.allow-jit</key>
     <true/>

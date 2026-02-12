@@ -10,6 +10,10 @@ export function DownloadVMImages() {
   return window['go']['main']['App']['DownloadVMImages']();
 }
 
+export function GetConsoleOutput() {
+  return window['go']['main']['App']['GetConsoleOutput']();
+}
+
 export function GetDiskUsage() {
   return window['go']['main']['App']['GetDiskUsage']();
 }
@@ -72,6 +76,10 @@ export function ResizeDataDisk(arg1) {
 
 export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
+}
+
+export function SendConsoleInput(arg1) {
+  return window['go']['main']['App']['SendConsoleInput'](arg1);
 }
 
 export function SetVMConfig(arg1) {
