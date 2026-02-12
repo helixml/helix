@@ -83,6 +83,24 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 
 	now := time.Now()
 
+	// Check if the feature branch exists before proceeding with either path.
+	// If it doesn't exist, the agent hasn't created it yet (still implementing).
+	if _, err := services.GetBranchCommitID(ctx, repo.LocalPath, specTask.BranchName); err != nil {
+		if giteagit.IsErrNotExist(err) {
+			// Branch not ready yet - return the task unchanged with 200.
+			// Frontend detects status is still 'implementation' and shows a warning.
+			log.Info().
+				Str("task_id", specTask.ID).
+				Str("branch", specTask.BranchName).
+				Msg("Approve requested but feature branch doesn't exist yet - returning task unchanged")
+			writeResponse(w, specTask, http.StatusOK)
+			return
+		}
+		// For other errors (e.g., corrupt repo, permission issues), fail fast
+		writeErrResponse(w, fmt.Errorf("failed to check feature branch %q: %w", specTask.BranchName, err), http.StatusInternalServerError)
+		return
+	}
+
 	// If repo is external, move to pull_request status (awaiting merge in external system)
 	// For internal repos, try merge first - only record approval if merge succeeds
 	if s.shouldOpenPullRequest(repo) {
@@ -157,17 +175,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 
 	// Internal repo or external repo with no PRs automation implemented
 	// Server-side merge: agent can't push to main due to branch restrictions
-
-	// Check if the feature branch exists before attempting merge.
-	// If it doesn't exist, the agent hasn't created it yet (still implementing).
-	if _, err := services.GetBranchCommitID(ctx, repo.LocalPath, specTask.BranchName); err != nil {
-		if giteagit.IsErrNotExist(err) {
-			writeErrResponse(w, fmt.Errorf("implementation is still in progress — the feature branch %q hasn't been created yet, please wait for the agent to finish", specTask.BranchName), http.StatusBadRequest)
-			return
-		}
-		// For other errors (e.g., repo access issues), log and let the merge attempt proceed
-		log.Warn().Err(err).Str("branch", specTask.BranchName).Msg("Failed to check feature branch existence")
-	}
+	// Note: branch existence is already verified above (before the external/internal split)
 
 	// For external repos, acquire lock and sync before merge.
 	// The lock serializes git operations to prevent race conditions.

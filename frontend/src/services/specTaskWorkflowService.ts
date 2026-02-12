@@ -15,7 +15,11 @@ export function useApproveImplementation(specTaskId: string) {
       return response.data
     },
     onSuccess: (response: TypesSpecTask) => {
-      if (response.status === 'done') {
+      if (response.status === 'implementation') {
+        // Branch not created yet - approval couldn't proceed
+        snackbar.warning('Implementation is still in progress — please wait for the agent to create the branch.')
+        return
+      } else if (response.status === 'done') {
         // Internal repo - merge succeeded
         snackbar.success('Implementation approved and merged!')
       } else if (response.status === 'implementation_review') {
