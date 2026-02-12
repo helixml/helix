@@ -723,9 +723,9 @@ func (vm *VMManager) getAppBundlePath() string {
 
 // findQEMUBinary locates the QEMU binary. Search order:
 //  1. HELIX_QEMU_PATH environment variable (explicit override)
-//  2. Bundled in app: Contents/MacOS/qemu-system-aarch64
-//  3. Build output: build/bin/Helix.app/Contents/MacOS/qemu-system-aarch64
-//     (for dev mode — wails dev runs from for-mac/, so this relative path works)
+//  2. Standalone dev QEMU: build/dev-qemu/qemu-system-aarch64
+//     (signed independently — immune to wails dev breaking the app bundle seal)
+//  3. Bundled in app: Contents/MacOS/qemu-system-aarch64 (production mode)
 //  4. System PATH: qemu-system-aarch64
 //
 // QEMU is built as a dylib + thin wrapper. The wrapper (75KB) has main() and
@@ -739,23 +739,24 @@ func (vm *VMManager) findQEMUBinary() string {
 		}
 	}
 
-	// Check app bundle (production mode)
+	// Check standalone dev QEMU (signed independently of app bundle — works
+	// even when wails dev has broken the bundle's CodeResources seal)
+	devQemu := filepath.Join("build", "dev-qemu", "qemu-system-aarch64")
+	if _, err := os.Stat(devQemu); err == nil {
+		if abs, err := filepath.Abs(devQemu); err == nil {
+			log.Printf("Using dev QEMU: %s", abs)
+			return abs
+		}
+		return devQemu
+	}
+
+	// Check app bundle (production mode — only reached when dev-qemu doesn't exist)
 	appPath := vm.getAppBundlePath()
 	if appPath != "" {
 		bundled := filepath.Join(appPath, "Contents", "MacOS", "qemu-system-aarch64")
 		if _, err := os.Stat(bundled); err == nil {
 			return bundled
 		}
-	}
-
-	// Check standalone dev QEMU directory (dev mode — signed independently of the
-	// app bundle so wails dev rebuilding the main binary doesn't break its signature)
-	devQemu := filepath.Join("build", "dev-qemu", "qemu-system-aarch64")
-	if _, err := os.Stat(devQemu); err == nil {
-		if abs, err := filepath.Abs(devQemu); err == nil {
-			return abs
-		}
-		return devQemu
 	}
 
 	// Fall back to system PATH
