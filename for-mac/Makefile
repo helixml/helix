@@ -75,24 +75,24 @@ sign-dev-qemu:
 		$(DEV_QEMU_DIR)/libqemu-aarch64-softmmu.dylib 2>/dev/null || true
 	@install_name_tool -add_rpath "$(CURDIR)/$(FRAMEWORKS_DIR)" \
 		$(DEV_QEMU_DIR)/libqemu-aarch64-softmmu.dylib 2>/dev/null || true
-	@# Sign with entitlements (Developer ID if available, ad-hoc otherwise)
+	@# Sign with entitlements + hardened runtime (Developer ID if available, ad-hoc otherwise)
 	@if [ -f "$(SIGNING_ENV)" ]; then \
 		. $(SIGNING_ENV) && \
-		codesign --force --sign "$$APPLE_SIGNING_IDENTITY" --timestamp \
+		codesign --force --sign "$$APPLE_SIGNING_IDENTITY" --timestamp --options runtime \
 			--entitlements $(QEMU_ENTITLEMENTS) \
 			$(DEV_QEMU_DIR)/libqemu-aarch64-softmmu.dylib && \
-		codesign --force --sign "$$APPLE_SIGNING_IDENTITY" --timestamp \
+		codesign --force --sign "$$APPLE_SIGNING_IDENTITY" --timestamp --options runtime \
 			--entitlements $(QEMU_ENTITLEMENTS) \
 			$(DEV_QEMU_DIR)/qemu-system-aarch64 && \
-		echo "[dev-qemu] Signed with Developer ID"; \
+		echo "[dev-qemu] Signed with Developer ID (hardened runtime)"; \
 	else \
-		codesign --force --sign - --timestamp=none \
+		codesign --force --sign - --timestamp=none --options runtime \
 			--entitlements $(QEMU_ENTITLEMENTS) \
 			$(DEV_QEMU_DIR)/libqemu-aarch64-softmmu.dylib && \
-		codesign --force --sign - --timestamp=none \
+		codesign --force --sign - --timestamp=none --options runtime \
 			--entitlements $(QEMU_ENTITLEMENTS) \
 			$(DEV_QEMU_DIR)/qemu-system-aarch64 && \
-		echo "[dev-qemu] Ad-hoc signed"; \
+		echo "[dev-qemu] Ad-hoc signed (hardened runtime)"; \
 	fi
 	@codesign -vvv $(DEV_QEMU_DIR)/qemu-system-aarch64 2>&1 && echo "[dev-qemu] Signature verified OK"
 
