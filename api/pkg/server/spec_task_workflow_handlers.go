@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	giteagit "code.gitea.io/gitea/modules/git"
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/services"
@@ -156,6 +157,17 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 
 	// Internal repo or external repo with no PRs automation implemented
 	// Server-side merge: agent can't push to main due to branch restrictions
+
+	// Check if the feature branch exists before attempting merge.
+	// If it doesn't exist, the agent hasn't created it yet (still implementing).
+	if _, err := services.GetBranchCommitID(ctx, repo.LocalPath, specTask.BranchName); err != nil {
+		if giteagit.IsErrNotExist(err) {
+			writeErrResponse(w, fmt.Errorf("implementation is still in progress — the feature branch %q hasn't been created yet, please wait for the agent to finish", specTask.BranchName), http.StatusBadRequest)
+			return
+		}
+		// For other errors (e.g., repo access issues), log and let the merge attempt proceed
+		log.Warn().Err(err).Str("branch", specTask.BranchName).Msg("Failed to check feature branch existence")
+	}
 
 	// For external repos, acquire lock and sync before merge.
 	// The lock serializes git operations to prevent race conditions.

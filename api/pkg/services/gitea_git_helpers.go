@@ -237,6 +237,12 @@ func GetBranchCommitID(ctx context.Context, repoPath, branchName string) (string
 
 	commitID, err := repo.GetBranchCommitID(branchName)
 	if err != nil {
+		// Return ErrNotExist unwrapped so callers can use giteagit.IsErrNotExist().
+		// gitea's IsErrNotExist uses direct type assertion, not errors.As,
+		// so wrapping would break detection.
+		if giteagit.IsErrNotExist(err) {
+			return "", err
+		}
 		return "", fmt.Errorf("failed to get branch commit: %w", err)
 	}
 	return commitID, nil
