@@ -74,6 +74,15 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 	orgID := r.URL.Query().Get("org_id")
 	all := r.URL.Query().Get("all") == "true"
 
+	if orgID != "" {
+		org, err := s.lookupOrg(ctx, orgID)
+		if err != nil {
+			writeErrResponse(rw, fmt.Errorf("failed to lookup org: %w", err), http.StatusInternalServerError)
+			return
+		}
+		orgID = org.ID
+	}
+
 	user := getRequestUser(r)
 
 	// If providers management is disabled and user is not admin, only return global providers
@@ -158,7 +167,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 			return
 		}
 
-		providerEndpoints, err = s.Store.ListProviderEndpoints(ctx, query)
+		providerEndpoints, err := s.Store.ListProviderEndpoints(ctx, query)
 		if err != nil {
 			log.Err(err).Msg("error listing provider endpoints")
 			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
