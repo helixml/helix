@@ -9,6 +9,7 @@ interface SettingsPanelProps {
   zfsStats: main.ZFSStats;
   vmState: string;
   onSettingsUpdated: (settings: main.AppSettings) => void;
+  onLicenseUpdated: (status: main.LicenseStatus) => void;
   onClose: () => void;
   showToast: (msg: string) => void;
 }
@@ -53,6 +54,7 @@ export function SettingsPanel({
   zfsStats: zfs,
   vmState,
   onSettingsUpdated,
+  onLicenseUpdated,
   onClose,
   showToast,
 }: SettingsPanelProps) {
@@ -112,6 +114,7 @@ export function SettingsPanel({
       api_port: parseInt(apiPort) || 41080,
       auto_start_vm: autoStart,
       expose_on_network: exposeOnNetwork,
+      require_auth_on_network: s.require_auth_on_network !== false,
       new_users_are_admin: newUsersAdmin,
       allow_registration: allowRegistration,
     });
@@ -122,7 +125,7 @@ export function SettingsPanel({
       showToast('Settings saved');
     } catch (err) {
       console.error('Failed to save settings:', err);
-      showToast('Failed to save settings');
+      showToast('Failed to save settings: ' + (err instanceof Error ? err.message : String(err)));
     }
   }
 
@@ -503,6 +506,7 @@ export function SettingsPanel({
                       await ValidateLicenseKey(licenseKey.trim());
                       const status = await GetLicenseStatus();
                       setLicenseStatus(status.state || '');
+                      onLicenseUpdated(status);
                       showToast('License activated');
                     } catch (err) {
                       showToast('Invalid license key: ' + err);

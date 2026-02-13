@@ -418,6 +418,7 @@ export function App() {
           zfsStats={zfsStats}
           vmState={vmStatus.state}
           onSettingsUpdated={setSettings}
+          onLicenseUpdated={setLicenseStatus}
           onClose={() => setSettingsOpen(false)}
           showToast={showToast}
         />
