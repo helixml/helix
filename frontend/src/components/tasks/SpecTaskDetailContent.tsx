@@ -747,7 +747,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           `Uploaded ${successCount} file${successCount > 1 ? "s" : ""} to ~/work/incoming`,
         );
       } else if (successCount > 0 && errorCount > 0) {
-        snackbar.warning(`Uploaded ${successCount}, ${errorCount} failed`);
+        snackbar.info(`Uploaded ${successCount}, ${errorCount} failed`);
       } else if (errorCount > 0) {
         snackbar.error(
           `Failed to upload ${errorCount} file${errorCount > 1 ? "s" : ""}`,
@@ -1316,7 +1316,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {/* When chatCollapsed is true, use mobile-style tab layout even on desktop */}
         {activeSessionId && isBigScreen && !chatCollapsed ? (
           <PanelGroup
-            direction="horizontal"
+            orientation="horizontal"
             style={{ height: "100%", flex: 1 }}
           >
             {/* Left: Chat panel - always visible on desktop */}
@@ -1481,10 +1481,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     size="small"
                     sx={{
                       "& .MuiToggleButton-root": {
-                        py: 0.25,
-                        px: 1,
+                        py: 0.4,
+                        px: 0.8,
+                        minWidth: 62,
                         border: "none",
                         borderRadius: "4px !important",
+                        textTransform: "none",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: 0.2,
                         "&.Mui-selected": {
                           backgroundColor: "action.selected",
                         },
@@ -1492,19 +1498,43 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     }}
                   >
                     <ToggleButton value="desktop" aria-label="Desktop view">
-                      <Tooltip title="Desktop">
-                        <MonitorPlay size={16} />
-                      </Tooltip>
+                      <MonitorPlay size={18} />
+                      <Typography
+                        sx={{
+                          fontSize: "0.65rem",
+                          lineHeight: 1,
+                          fontWeight: 400,
+                          textTransform: "none",
+                        }}
+                      >
+                        Desktop
+                      </Typography>
                     </ToggleButton>
                     <ToggleButton value="changes" aria-label="Changes view">
-                      <Tooltip title="Changes">
-                        <GitCompare size={16} />
-                      </Tooltip>
+                      <GitCompare size={18} />
+                      <Typography
+                        sx={{
+                          fontSize: "0.65rem",
+                          lineHeight: 1,
+                          fontWeight: 400,
+                          textTransform: "none",
+                        }}
+                      >
+                        File Diff
+                      </Typography>
                     </ToggleButton>
                     <ToggleButton value="details" aria-label="Details view">
-                      <Tooltip title="Details">
-                        <SlidersHorizontal size={16} />
-                      </Tooltip>
+                      <SlidersHorizontal size={18} />
+                      <Typography
+                        sx={{
+                          fontSize: "0.65rem",
+                          lineHeight: 1,
+                          fontWeight: 400,
+                          textTransform: "none",
+                        }}
+                      >
+                        Details
+                      </Typography>
                     </ToggleButton>
                   </ToggleButtonGroup>
 
@@ -1524,7 +1554,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     variant="inline"
                     onStartPlanning={handleStartPlanning}
                     onReviewSpec={handleReviewSpec}
-                    onReject={handleArchiveClick}
+                    onReject={(shiftKey) => {
+                      if (shiftKey) {
+                        performArchive();
+                      } else {
+                        setArchiveConfirmOpen(true);
+                      }
+                    }}
                     hasExternalRepo={projectRepositories.some(
                       (r) => r.is_external || r.external_type || r.external_url,
                     )}
@@ -1772,11 +1808,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 sx={{
                   flexShrink: 0,
                   "& .MuiToggleButton-root": {
-                    py: 0.25,
-                    px: 0.75,
-                    minWidth: 32,
+                    py: 0.35,
+                    px: 0.7,
+                    minWidth: 56,
                     border: "none",
                     borderRadius: "4px !important",
+                    textTransform: "none",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 0.15,
                     "&.Mui-selected": {
                       backgroundColor: "action.selected",
                     },
@@ -1786,29 +1827,61 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 {/* Chat tab - only on mobile when there's an active session */}
                 {activeSessionId && (
                   <ToggleButton value="chat" aria-label="Chat view">
-                    <Tooltip title="Chat">
-                      <ForumOutlinedIcon sx={{ fontSize: 18 }} />
-                    </Tooltip>
+                    <ForumOutlinedIcon sx={{ fontSize: 18 }} />
+                    <Typography
+                      sx={{
+                        fontSize: "0.65rem",
+                        lineHeight: 1,
+                        fontWeight: 400,
+                        textTransform: "none",
+                      }}
+                    >
+                      Chat
+                    </Typography>
                   </ToggleButton>
                 )}
                 {activeSessionId && (
                   <ToggleButton value="desktop" aria-label="Desktop view">
-                    <Tooltip title="Desktop">
-                      <MonitorPlay size={16} />
-                    </Tooltip>
+                    <MonitorPlay size={18} />
+                    <Typography
+                      sx={{
+                        fontSize: "0.65rem",
+                        lineHeight: 1,
+                        fontWeight: 400,
+                        textTransform: "none",
+                      }}
+                    >
+                      Desktop
+                    </Typography>
                   </ToggleButton>
                 )}
                 {activeSessionId && (
                   <ToggleButton value="changes" aria-label="Changes view">
-                    <Tooltip title="Changes">
-                      <GitCompare size={16} />
-                    </Tooltip>
+                    <GitCompare size={18} />
+                    <Typography
+                      sx={{
+                        fontSize: "0.65rem",
+                        lineHeight: 1,
+                        fontWeight: 400,
+                        textTransform: "none",
+                      }}
+                    >
+                      File Diff
+                    </Typography>
                   </ToggleButton>
                 )}
                 <ToggleButton value="details" aria-label="Details view">
-                  <Tooltip title="Details">
-                    <SlidersHorizontal size={16} />
-                  </Tooltip>
+                  <SlidersHorizontal size={18} />
+                  <Typography
+                    sx={{
+                      fontSize: "0.65rem",
+                      lineHeight: 1,
+                      fontWeight: 400,
+                      textTransform: "none",
+                    }}
+                  >
+                    Details
+                  </Typography>
                 </ToggleButton>
               </ToggleButtonGroup>
 
@@ -1841,7 +1914,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 variant="inline"
                 onStartPlanning={handleStartPlanning}
                 onReviewSpec={handleReviewSpec}
-                onReject={handleArchiveClick}
+                onReject={(shiftKey) => {
+                  if (shiftKey) {
+                    performArchive();
+                  } else {
+                    setArchiveConfirmOpen(true);
+                  }
+                }}
                 hasExternalRepo={projectRepositories.some(
                   (r) => r.is_external || r.external_type || r.external_url,
                 )}
