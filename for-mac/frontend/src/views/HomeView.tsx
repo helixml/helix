@@ -47,14 +47,22 @@ export function HomeView({
 
   // Show boot progress when VM is starting or running but API isn't ready
   if (vmStatus.state === 'starting' || (vmStatus.state === 'running' && !vmStatus.api_ready)) {
+    const stage = vmStatus.boot_stage || 'Booting VM...';
+    const bootPercent = stage.startsWith('Setting up storage') ? 25
+      : stage.startsWith('Configuring') ? 50
+      : stage.startsWith('Starting Helix') ? 70
+      : stage.startsWith('Waiting for API') ? 90
+      : 10;
     return (
       <div className="home-view">
         <div className="home-placeholder">
           <img src="/helix-logo.png" alt="Helix" className="home-logo" />
           <h2>Starting Helix</h2>
-          <div className="status-badge starting">
-            <span className="status-indicator starting" />
-            {vmStatus.boot_stage || 'Booting VM...'}
+          <div className="boot-progress">
+            <div className="progress-bar">
+              <div className="progress-fill teal boot-progress-fill" style={{ width: `${bootPercent}%` }} />
+            </div>
+            <div className="boot-stage-label">{stage}</div>
           </div>
         </div>
       </div>

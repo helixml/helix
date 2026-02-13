@@ -1206,8 +1206,8 @@ func (s *HelixAPIServer) desktopCallback(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// Create a BFF session
-	_, err = s.sessionManager.CreateSession(
+	// Create a BFF session — sets HttpOnly cookies on the response
+	session, err := s.sessionManager.CreateSession(
 		ctx, w, r,
 		user.ID,
 		types.AuthProviderRegular,
@@ -1221,8 +1221,28 @@ func (s *HelixAPIServer) desktopCallback(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	log.Info().Str("user_id", user.ID).Msg("Desktop auto-login successful")
+	log.Info().Str("user_id", user.ID).Str("session_id", session.ID).Msg("Desktop auto-login successful")
 
-	// Redirect to the app root
-	http.Redirect(w, r, "/", http.StatusFound)
+	// Also generate a JWT access token for the legacy cookie path.
+	// WKWebView (macOS) iframes may not persist HttpOnly cookies set via
+	// Set-Cookie headers due to cross-origin iframe cookie isolation.
+	// To work around this, we return an HTML page that sets the access_token
+	// cookie via JavaScript (non-HttpOnly) before redirecting to /.
+	accessToken, err := s.authenticator.GenerateUserToken(ctx, user)
+	if err != nil {
+		// Fall back to redirect — BFF session cookies may still work
+		log.Warn().Err(err).Msg("Failed to generate access token for desktop login, falling back to redirect")
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+
+	// Return an HTML page that sets the cookie via JS and redirects.
+	// This ensures the cookie is set in the iframe's JS context where
+	// WKWebView won't block it.
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!DOCTYPE html><html><head><script>
+document.cookie="access_token=%s;path=/;max-age=2592000;samesite=lax";
+document.cookie="refresh_token=%s;path=/;max-age=2592000;samesite=lax";
+window.location.replace("/");
+</script></head><body></body></html>`, accessToken, accessToken)
 }

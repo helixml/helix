@@ -182,6 +182,36 @@ export function App() {
             <span className={`status-indicator ${vmStatus.state}`} />
             {stateLabel}
           </span>
+          {vmStatus.state === 'running' && vmStatus.api_ready && (
+            <button
+              className="titlebar-btn refresh-btn"
+              onClick={() => {
+                const iframe = document.querySelector('.home-view iframe') as HTMLIFrameElement;
+                if (iframe) {
+                  iframe.src = iframe.src;
+                }
+              }}
+              title="Refresh"
+            >
+              <svg viewBox="0 0 20 20" width="14" height="14">
+                <path
+                  d="M14.5 5.5A6 6 0 004.05 9M5.5 14.5A6 6 0 0015.95 11"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M14 2v4h-4M6 18v-4h4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          )}
         </div>
 
         <div className="titlebar-spacer" />

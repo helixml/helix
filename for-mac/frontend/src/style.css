@@ -89,6 +89,16 @@ body {
 
 .titlebar-status {
     --wails-draggable: no-drag;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.refresh-btn {
+    padding: 2px !important;
+    opacity: 0.6;
+}
+.refresh-btn:hover {
+    opacity: 1;
 }
 
 .titlebar-status .status-pill {
@@ -425,6 +435,26 @@ body {
 .progress-fill.teal { background: var(--teal); }
 .progress-fill.warning { background: var(--warning); }
 .progress-fill.error { background: var(--error); }
+
+/* ---- Boot Progress ---- */
+.boot-progress {
+    width: 100%;
+    max-width: 360px;
+    margin-top: 16px;
+}
+.boot-progress .progress-bar {
+    height: 8px;
+    border-radius: 4px;
+}
+.boot-progress-fill {
+    transition: width 1s ease;
+}
+.boot-stage-label {
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    text-align: center;
+}
 
 /* ---- Form Controls ---- */
 

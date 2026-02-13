@@ -567,8 +567,8 @@ POSTGRES_PASSWORD=postgres
 # Runner token
 RUNNER_TOKEN=oh-hallo-insecure-token
 
-# Frontend
-FRONTEND_URL=http://localhost:5173
+# Frontend — Vite dev server inside the frontend container on port 8081
+FRONTEND_URL=http://frontend:8081
 
 # Sandbox (runs directly in VM Docker, not DinD)
 GPU_VENDOR=virtio
