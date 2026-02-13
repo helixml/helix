@@ -751,6 +751,11 @@ body {
     width: 100%;
 }
 
+.license-card p {
+    text-align: left;
+    max-width: none;
+}
+
 .license-badge {
     display: flex;
     align-items: center;
