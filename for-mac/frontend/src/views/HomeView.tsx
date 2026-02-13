@@ -47,9 +47,11 @@ export function HomeView({
   // Use the auto-login callback URL so the user is transparently logged in as admin.
   // The callback sets session cookies and redirects to /.
   if (vmStatus.state === 'running' && vmStatus.api_ready) {
+    const iframeSrc = autoLoginURL || helixURL;
+    console.log('[AUTH] Rendering iframe with src:', iframeSrc);
     return (
       <div className="home-view">
-        <iframe src={autoLoginURL || helixURL} title="Helix" />
+        <iframe src={iframeSrc} title="Helix" />
       </div>
     );
   }
@@ -96,6 +98,7 @@ export function HomeView({
       <div className="home-placeholder">
         <img src="/helix-logo.png" alt="Helix" className="home-logo" />
         <h2>Helix Desktop</h2>
+        <p className="home-tagline">Your Private Agent Swarm</p>
 
         {/* License gate */}
         {blocked && (

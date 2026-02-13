@@ -236,6 +236,36 @@ docker compose exec -T sandbox-nvidia docker pull registry:5000/helix-ubuntu:$(c
 
 **Key point:** New sessions auto-pull from the sandbox's local dockerd. Existing containers keep their old image - you must start a NEW session to use the updated image.
 
+### macOS Desktop App (for-mac) — Deploying Changes to the VM
+
+When modifying backend code (`api/pkg/server/`, `api/pkg/auth/`, etc.) while working on the macOS desktop app, changes must be deployed to the VM. The API runs inside Docker Compose in the VM, built from the repo checked out at `~/helix`.
+
+**CRITICAL**: Always deploy API/backend changes to the VM. The desktop app's Go code (`for-mac/`) is rebuilt by `wails dev` automatically, but the API server inside the VM uses a separate checkout.
+
+```bash
+# 1. Commit and push your changes on the host
+git add -A && git commit -m "description" && git push
+
+# 2. Pull changes in the VM (SSH as ubuntu)
+ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 41222 ubuntu@localhost \
+  "cd ~/helix && git fetch && git checkout BRANCH_NAME && git pull"
+
+# 3. Restart the API container (Air hot-reload rebuilds Go automatically)
+ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 41222 ubuntu@localhost \
+  "cd ~/helix && docker compose -f docker-compose.dev.yaml restart api"
+```
+
+**When the VM branch is wrong**: Check `git branch` in the VM and switch to the correct branch before pulling.
+
+**What auto-rebuilds:**
+- `for-mac/*.go` — Wails dev hot-reloads the Go backend automatically
+- `for-mac/frontend/src/` — Vite HMR hot-reloads the React frontend
+- `api/` changes inside the VM — Air hot-reloads after `docker compose restart api`
+
+**What requires manual deployment:**
+- Any changes to `api/pkg/` — must be committed, pushed, pulled in VM
+- Docker Compose config changes — must be pulled in VM and `docker compose up -d`
+
 ## Code Patterns
 
 ### Go

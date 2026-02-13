@@ -29,6 +29,11 @@ const (
 
 	// DefaultSessionDuration is the default session lifetime (30 days)
 	DefaultSessionDuration = 30 * 24 * time.Hour
+
+	// DesktopSessionDuration is the session lifetime for Helix Desktop auto-login.
+	// Effectively permanent — desktop users should never be prompted to re-authenticate.
+	// Go's time.Duration is int64 nanoseconds so max is ~292 years; we use 200 years.
+	DesktopSessionDuration = 200 * 365 * 24 * time.Hour
 )
 
 var (
@@ -53,7 +58,8 @@ func NewSessionManager(store store.Store, oidcClient OIDC, cfg *config.ServerCon
 	}
 }
 
-// CreateSession creates a new user session and sets the session cookie
+// CreateSession creates a new user session and sets the session cookie.
+// Use CreateDesktopSession for Helix Desktop auto-login with a longer expiry.
 func (sm *SessionManager) CreateSession(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -63,11 +69,61 @@ func (sm *SessionManager) CreateSession(
 	oidcAccessToken, oidcRefreshToken string,
 	oidcTokenExpiry time.Time,
 ) (*types.UserSession, error) {
+	return sm.createSessionWithDuration(ctx, w, r, userID, authProvider, oidcAccessToken, oidcRefreshToken, oidcTokenExpiry, DefaultSessionDuration)
+}
+
+// CreateDesktopSession creates a user session with a very long expiry
+// for the Helix Desktop app, so the user is never prompted to re-authenticate.
+// It uses SameSite=None so the cookie works inside cross-origin iframes
+// (the Wails WKWebView parent is wails:// while the iframe is http://localhost).
+func (sm *SessionManager) CreateDesktopSession(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	userID string,
+) (*types.UserSession, error) {
+	session := &types.UserSession{
+		ID:           system.GenerateUserSessionID(),
+		UserID:       userID,
+		AuthProvider: types.AuthProviderRegular,
+		ExpiresAt:    time.Now().Add(DesktopSessionDuration),
+		UserAgent:    r.UserAgent(),
+		IPAddress:    getClientIP(r),
+	}
+
+	createdSession, err := sm.store.CreateUserSession(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set cookies with SameSite=None for cross-origin iframe compatibility.
+	// localhost is exempt from the Secure requirement in WebKit.
+	sm.setDesktopSessionCookie(w, createdSession.ID, createdSession.ExpiresAt)
+
+	log.Info().
+		Str("session_id", createdSession.ID).
+		Str("user_id", userID).
+		Str("auth_provider", string(types.AuthProviderRegular)).
+		Msg("Created new desktop session")
+
+	return createdSession, nil
+}
+
+func (sm *SessionManager) createSessionWithDuration(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	userID string,
+	authProvider types.AuthProvider,
+	oidcAccessToken, oidcRefreshToken string,
+	oidcTokenExpiry time.Time,
+	duration time.Duration,
+) (*types.UserSession, error) {
 	session := &types.UserSession{
 		ID:               system.GenerateUserSessionID(),
 		UserID:           userID,
 		AuthProvider:     authProvider,
-		ExpiresAt:        time.Now().Add(DefaultSessionDuration),
+		ExpiresAt:        time.Now().Add(duration),
 		OIDCAccessToken:  oidcAccessToken,
 		OIDCRefreshToken: oidcRefreshToken,
 		OIDCTokenExpiry:  oidcTokenExpiry,
@@ -226,6 +282,34 @@ func (sm *SessionManager) setSessionCookie(w http.ResponseWriter, sessionID stri
 		HttpOnly: false, // JS needs to read this
 		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// setDesktopSessionCookie sets cookies with SameSite=None for cross-origin
+// iframe contexts (Helix Desktop WKWebView). This is necessary because
+// SameSite=Lax cookies are not sent in cross-origin iframe navigations.
+func (sm *SessionManager) setDesktopSessionCookie(w http.ResponseWriter, sessionID string, expiresAt time.Time) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     SessionCookieName,
+		Value:    sessionID,
+		Path:     "/",
+		Expires:  expiresAt,
+		MaxAge:   int(time.Until(expiresAt).Seconds()),
+		HttpOnly: true,
+		Secure:   false, // localhost doesn't use HTTPS
+		SameSite: http.SameSiteNoneMode,
+	})
+
+	csrfToken := generateCSRFToken()
+	http.SetCookie(w, &http.Cookie{
+		Name:     CSRFCookieName,
+		Value:    csrfToken,
+		Path:     "/",
+		Expires:  expiresAt,
+		MaxAge:   int(time.Until(expiresAt).Seconds()),
+		HttpOnly: false,
+		Secure:   false,
+		SameSite: http.SameSiteNoneMode,
 	})
 }
 

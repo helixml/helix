@@ -137,6 +137,47 @@ body {
     flex: 1;
 }
 
+/* ---- Upsell Banner ---- */
+
+.upsell-banner {
+    --wails-draggable: no-drag;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(167, 139, 250, 0.3);
+    background: linear-gradient(135deg, rgba(111, 0, 255, 0.12) 0%, rgba(0, 200, 255, 0.08) 100%);
+    color: rgba(200, 180, 255, 0.9);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.upsell-banner:hover {
+    border-color: rgba(167, 139, 250, 0.55);
+    background: linear-gradient(135deg, rgba(111, 0, 255, 0.2) 0%, rgba(0, 200, 255, 0.14) 100%);
+    color: #d4c4ff;
+    box-shadow: 0 0 12px rgba(111, 0, 255, 0.15);
+}
+
+.upsell-banner svg {
+    opacity: 0.6;
+    transition: transform var(--transition-fast);
+}
+
+.upsell-banner:hover svg {
+    opacity: 1;
+    transform: translateX(2px);
+}
+
+.upsell-sparkle {
+    font-size: 12px;
+}
+
 .titlebar-actions {
     display: flex;
     align-items: center;
@@ -253,6 +294,13 @@ body {
     font-size: 18px;
     font-weight: 500;
     color: var(--text-primary);
+}
+
+.home-tagline {
+    font-size: 14px;
+    color: var(--text-faded);
+    letter-spacing: 0.04em;
+    font-weight: 400;
 }
 
 .home-placeholder p {

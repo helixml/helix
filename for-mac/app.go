@@ -3,15 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -27,6 +24,7 @@ type App struct {
 	downloader       *VMDownloader
 	licenseValidator *LicenseValidator
 	tray             *TrayManager
+	authProxy        *AuthProxy
 }
 
 // NewApp creates a new App application struct
@@ -68,6 +66,11 @@ func (a *App) startup(ctx context.Context) {
 		}
 	}
 
+	// Wire API ready callback to start the auth proxy
+	a.vm.onAPIReady = func() {
+		a.ensureAuthProxy()
+	}
+
 	// Start ZFS stats collector
 	a.zfsCollector.Start()
 
@@ -98,6 +101,11 @@ func (a *App) shutdown(ctx context.Context) {
 	// Stop system tray
 	if a.tray != nil {
 		a.tray.Stop()
+	}
+
+	// Stop auth proxy
+	if a.authProxy != nil {
+		a.authProxy.Stop()
 	}
 
 	// Stop ZFS collector
@@ -290,57 +298,55 @@ func (a *App) GetHelixURL() string {
 	return fmt.Sprintf("http://localhost:%d", a.vm.GetConfig().APIPort)
 }
 
-// GetAutoLoginURL returns the Helix URL with an auth token in the hash fragment.
-// WKWebView blocks third-party cookies in cross-origin iframes, so we pass
-// a JWT token via the URL hash instead. The Helix frontend detects it and
-// uses it as a Bearer token for all API requests.
+// GetAutoLoginURL returns the URL for the authenticated proxy.
+// The proxy injects the helix_session cookie server-side, working around
+// WKWebView's cross-origin iframe cookie blocking.
 func (a *App) GetAutoLoginURL() string {
-	token, err := a.fetchAuthToken()
-	if err != nil {
-		log.Printf("Failed to fetch auth token: %v", err)
-		return fmt.Sprintf("http://localhost:%d", a.vm.GetConfig().APIPort)
+	if a.authProxy != nil {
+		if u := a.authProxy.GetURL(); u != "" {
+			log.Printf("[AUTH] GetAutoLoginURL: returning proxy URL %s", u)
+			return u
+		}
 	}
-	return fmt.Sprintf("http://localhost:%d/#token=%s", a.vm.GetConfig().APIPort, token)
+	secret := a.settings.Get().DesktopSecret
+	if secret != "" {
+		callbackURL := fmt.Sprintf("http://localhost:%d/api/v1/auth/desktop-callback?token=%s",
+			a.vm.GetConfig().APIPort, secret)
+		log.Printf("[AUTH] GetAutoLoginURL: returning callback URL (proxy not ready)")
+		return callbackURL
+	}
+	url := fmt.Sprintf("http://localhost:%d", a.vm.GetConfig().APIPort)
+	log.Printf("[AUTH] GetAutoLoginURL: returning plain URL %s (no secret)", url)
+	return url
 }
 
-// fetchAuthToken calls the desktop-callback endpoint and extracts the JWT
-// from the response body.
-func (a *App) fetchAuthToken() (string, error) {
+// ensureAuthProxy starts the auth proxy and authenticates it against the API.
+// Called when the API becomes ready (health check passes).
+func (a *App) ensureAuthProxy() {
 	secret := a.settings.Get().DesktopSecret
 	if secret == "" {
-		return "", fmt.Errorf("no desktop secret configured")
-	}
-	url := fmt.Sprintf("http://localhost:%d/api/v1/auth/desktop-callback?token=%s",
-		a.vm.GetConfig().APIPort, secret)
-
-	resp, err := http.Get(url)
-	if err != nil {
-		return "", fmt.Errorf("callback request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("callback returned status %d", resp.StatusCode)
+		log.Println("[AUTH] No desktop secret configured, skipping auth proxy")
+		return
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read callback response: %w", err)
+	apiPort := a.vm.GetConfig().APIPort
+
+	// Start the proxy if not already running
+	if a.authProxy == nil {
+		a.authProxy = NewAuthProxy(apiPort)
+		if err := a.authProxy.Start(); err != nil {
+			log.Printf("[AUTH] Failed to start auth proxy: %v", err)
+			return
+		}
+		log.Printf("[AUTH] Auth proxy started on %s", a.authProxy.GetURL())
 	}
 
-	// Extract JWT from the JavaScript: document.cookie="access_token=JWT;..."
-	bodyStr := string(body)
-	marker := `access_token=`
-	start := strings.Index(bodyStr, marker)
-	if start == -1 {
-		return "", fmt.Errorf("no access_token in callback response")
+	// Authenticate (or re-authenticate)
+	if err := a.authProxy.Authenticate(secret); err != nil {
+		log.Printf("[AUTH] Auth proxy authentication failed: %v", err)
+	} else {
+		log.Printf("[AUTH] Auth proxy authenticated successfully")
 	}
-	start += len(marker)
-	end := strings.Index(bodyStr[start:], ";")
-	if end == -1 {
-		return "", fmt.Errorf("malformed access_token in callback response")
-	}
-	return bodyStr[start : start+end], nil
 }
 
 // GetSettings returns the current application settings

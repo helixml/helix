@@ -13,7 +13,7 @@ import {
   GetScanoutStats,
   GetLicenseStatus,
 } from '../wailsjs/go/main/App';
-import { EventsOn, EventsOff, WindowToggleMaximise } from '../wailsjs/runtime/runtime';
+import { EventsOn, EventsOff, WindowToggleMaximise, BrowserOpenURL } from '../wailsjs/runtime/runtime';
 import { HomeView } from './views/HomeView';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ConsoleDrawer } from './components/ConsoleDrawer';
@@ -76,6 +76,7 @@ export function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [consoleOpen, setConsoleOpen] = useState(false);
+  const [initialized, setInitialized] = useState(false);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -113,6 +114,8 @@ export function App() {
         setLicenseStatus(license);
       } catch (err) {
         console.error('Failed to load initial state:', err);
+      } finally {
+        setInitialized(true);
       }
     })();
   }, []);
@@ -147,8 +150,10 @@ export function App() {
     };
   }, []);
 
-  // Poll for stats
+  // Poll for stats, and re-fetch autoLoginURL when API becomes ready
   useEffect(() => {
+    let prevAPIReady = false;
+
     const interval = setInterval(async () => {
       try {
         const status = await GetVMStatus();
@@ -158,6 +163,15 @@ export function App() {
           const zfs = await GetZFSStats();
           setZfsStats(zfs);
         }
+
+        // Re-fetch autoLoginURL when API transitions to ready
+        if (status.api_ready && !prevAPIReady) {
+          console.log('[AUTH] API became ready, fetching autoLoginURL...');
+          const loginURL = await GetAutoLoginURL();
+          console.log('[AUTH] autoLoginURL:', loginURL);
+          setAutoLoginURL(loginURL);
+        }
+        prevAPIReady = status.api_ready;
       } catch {
         // Silently ignore poll errors
       }
@@ -167,6 +181,32 @@ export function App() {
   }, []);
 
   const stateLabel = vmStatus.state.charAt(0).toUpperCase() + vmStatus.state.slice(1);
+
+  // Don't render content until initial state is loaded to avoid flashing
+  // stale defaults (e.g., license form when a key is already configured)
+  if (!initialized) {
+    return (
+      <>
+        <header className="titlebar" onDoubleClick={WindowToggleMaximise}>
+          <div className="titlebar-logo">
+            <img src="/helix-logo.png" alt="Helix" />
+            <span>Helix</span>
+          </div>
+          <div className="titlebar-spacer" />
+        </header>
+        <main className="content">
+          <div className="home-view">
+            <div className="home-placeholder">
+              <img src="/helix-logo.png" alt="Helix" className="home-logo" />
+              <h2>Helix</h2>
+              <p className="home-tagline">Your Private Agent Swarm</p>
+              <div className="spinner" />
+            </div>
+          </div>
+        </main>
+      </>
+    );
+  }
 
   return (
     <>
@@ -215,6 +255,19 @@ export function App() {
         </div>
 
         <div className="titlebar-spacer" />
+
+        <button
+          className="upsell-banner"
+          onDoubleClick={e => e.stopPropagation()}
+          onClick={() => BrowserOpenURL('https://helix.ml/cluster')}
+          title="Deploy Helix on your own infrastructure"
+        >
+          <span className="upsell-sparkle">&#x2728;</span>
+          Deploy for your team &mdash; your servers, your data
+          <svg viewBox="0 0 16 16" width="12" height="12">
+            <path d="M5 3l6 5-6 5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
 
         <div className="titlebar-actions" onDoubleClick={e => e.stopPropagation()}>
           {/* Console toggle */}

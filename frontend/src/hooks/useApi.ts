@@ -25,28 +25,6 @@ import {
 
 const API_MOUNT = ""
 
-// Desktop app auth: detect JWT token passed via URL hash (#token=JWT)
-// WKWebView blocks third-party cookies in cross-origin iframes, so the
-// Helix Desktop app passes a JWT via the URL hash instead.
-let desktopAuthToken: string | null = null
-if (window.location.hash) {
-  const hashParams = new URLSearchParams(window.location.hash.slice(1))
-  const token = hashParams.get('token')
-  if (token) {
-    desktopAuthToken = token
-    // Clean up the URL without triggering a reload
-    window.history.replaceState(null, '', window.location.pathname + window.location.search)
-  }
-}
-
-// Desktop auth interceptor — adds Authorization header when running inside the desktop app
-const desktopAuthInterceptor = (config: any) => {
-  if (desktopAuthToken && !config.headers.Authorization) {
-    config.headers.Authorization = `Bearer ${desktopAuthToken}`
-  }
-  return config
-}
-
 export interface IApiOptions {
   snackbar?: boolean,
   loading?: boolean,
@@ -76,14 +54,12 @@ const apiClientSingleton = new Api({
 })
 
 // Add interceptors to the Api client's axios instance
-apiClientSingleton.instance.interceptors.request.use(desktopAuthInterceptor)
 apiClientSingleton.instance.interceptors.request.use(csrfInterceptor)
 
 // Configure axios to send cookies with requests (same-origin)
 axios.defaults.withCredentials = true
 
 // Add interceptors for direct axios usage
-axios.interceptors.request.use(desktopAuthInterceptor)
 axios.interceptors.request.use(csrfInterceptor)
 
 // Helper function to check if an error is auth-related

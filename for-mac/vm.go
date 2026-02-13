@@ -78,6 +78,8 @@ type VMManager struct {
 	consoleStdin io.WriteCloser
 	// Callback for state changes (used by system tray)
 	onStateChange func(state string)
+	// Callback when API becomes ready (used by auth proxy)
+	onAPIReady func()
 	// Desktop auto-login secret (set from AppSettings before VM start)
 	desktopSecret string
 	// VM console login password (set from AppSettings before VM start)
@@ -665,6 +667,9 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 					vm.statusMu.Unlock()
 					vm.emitStatus()
 					apiReady = true
+					if vm.onAPIReady != nil {
+						vm.onAPIReady()
+					}
 				}
 			}
 

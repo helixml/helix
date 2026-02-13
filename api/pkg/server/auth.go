@@ -1206,15 +1206,10 @@ func (s *HelixAPIServer) desktopCallback(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// Create a BFF session — sets HttpOnly cookies on the response
-	session, err := s.sessionManager.CreateSession(
-		ctx, w, r,
-		user.ID,
-		types.AuthProviderRegular,
-		"",          // no OIDC access token
-		"",          // no OIDC refresh token
-		time.Time{}, // no OIDC token expiry
-	)
+	// Create a long-lived BFF session — sets HttpOnly cookies on the response.
+	// Desktop sessions use a 10-year expiry so the user is never prompted
+	// to re-authenticate inside the embedded WKWebView.
+	session, err := s.sessionManager.CreateDesktopSession(ctx, w, r, user.ID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create desktop session")
 		http.Error(w, "Failed to create session", http.StatusInternalServerError)
@@ -1223,26 +1218,6 @@ func (s *HelixAPIServer) desktopCallback(w http.ResponseWriter, r *http.Request)
 
 	log.Info().Str("user_id", user.ID).Str("session_id", session.ID).Msg("Desktop auto-login successful")
 
-	// Also generate a JWT access token for the legacy cookie path.
-	// WKWebView (macOS) iframes may not persist HttpOnly cookies set via
-	// Set-Cookie headers due to cross-origin iframe cookie isolation.
-	// To work around this, we return an HTML page that sets the access_token
-	// cookie via JavaScript (non-HttpOnly) before redirecting to /.
-	accessToken, err := s.authenticator.GenerateUserToken(ctx, user)
-	if err != nil {
-		// Fall back to redirect — BFF session cookies may still work
-		log.Warn().Err(err).Msg("Failed to generate access token for desktop login, falling back to redirect")
-		http.Redirect(w, r, "/", http.StatusFound)
-		return
-	}
-
-	// Return an HTML page that sets the cookie via JS and redirects.
-	// This ensures the cookie is set in the iframe's JS context where
-	// WKWebView won't block it.
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<!DOCTYPE html><html><head><script>
-document.cookie="access_token=%s;path=/;max-age=2592000;samesite=lax";
-document.cookie="refresh_token=%s;path=/;max-age=2592000;samesite=lax";
-window.location.replace("/");
-</script></head><body></body></html>`, accessToken, accessToken)
+	// Redirect to the root — the HttpOnly session cookie is already set.
+	http.Redirect(w, r, "/", http.StatusFound)
 }
