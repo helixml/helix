@@ -447,7 +447,7 @@ body {
     border-radius: 4px;
 }
 .boot-progress-fill {
-    transition: width 1s ease;
+    transition: width 0.15s linear;
 }
 .boot-stage-label {
     margin-top: 10px;

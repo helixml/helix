@@ -654,7 +654,7 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 					return
 				}
 
-				setBootStage("Waiting for API...")
+				setBootStage("Starting app...")
 				if apiCheckCount%5 == 0 {
 					log.Printf("API health check attempt %d (%.0fs since stack start)", apiCheckCount, elapsed.Seconds())
 				}
@@ -677,7 +677,7 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 
 // diagnoseAPIFailure checks docker compose inside the VM to determine why the API isn't starting
 func (vm *VMManager) diagnoseAPIFailure() string {
-	cmd := vm.sshCommand(`cd ~/helix 2>/dev/null && docker compose ps --format '{{.Service}}: {{.Status}}' 2>/dev/null | head -20`)
+	cmd := vm.sshCommand(`cd ~/helix 2>/dev/null && docker compose -f docker-compose.dev.yaml ps --format '{{.Service}}: {{.Status}}' 2>/dev/null | head -20`)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Sprintf("could not check container status: %v", err)
@@ -689,7 +689,7 @@ func (vm *VMManager) diagnoseAPIFailure() string {
 	log.Printf("Container status:\n%s", status)
 
 	// Also grab recent API logs if available
-	logCmd := vm.sshCommand(`cd ~/helix 2>/dev/null && docker compose logs api --tail 10 2>/dev/null`)
+	logCmd := vm.sshCommand(`cd ~/helix 2>/dev/null && docker compose -f docker-compose.dev.yaml logs api --tail 10 2>/dev/null`)
 	logOut, _ := logCmd.CombinedOutput()
 	if len(logOut) > 0 {
 		log.Printf("API container logs:\n%s", string(logOut))
@@ -754,7 +754,7 @@ if [ ! -e .env ]; then
     ln -s .env.vm .env
 fi
 # Check if stack is already running
-if docker compose ps --format '{{.Service}}' 2>/dev/null | grep -q api; then
+if docker compose -f docker-compose.dev.yaml ps --format '{{.Service}}' 2>/dev/null | grep -q api; then
     echo 'ALREADY_RUNNING'
 else
     echo 'Starting Helix stack...'
@@ -1017,7 +1017,7 @@ fi
 	outStr := string(out)
 	if strings.Contains(outStr, "ENV_UPDATED") {
 		log.Printf("Desktop secret injected into .env.vm — restarting API container")
-		restart := vm.sshCommand("cd ~/helix && docker compose down api && docker compose up -d api 2>&1 || true")
+		restart := vm.sshCommand("cd ~/helix && docker compose -f docker-compose.dev.yaml down api && docker compose -f docker-compose.dev.yaml up -d api 2>&1 || true")
 		restartOut, _ := restart.CombinedOutput()
 		log.Printf("API restart: %s", string(restartOut))
 	}

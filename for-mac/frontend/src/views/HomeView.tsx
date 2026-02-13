@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef } from 'react';
 import { main } from '../../wailsjs/go/models';
 import {
   StartVM,
@@ -6,6 +7,14 @@ import {
 } from '../../wailsjs/go/main/App';
 import { formatBytes } from '../lib/helpers';
 import { LicenseCard } from '../components/LicenseCard';
+
+const BOOT_STAGES = [
+  { prefix: 'Booting', startPct: 3, endPct: 28, durationMs: 30000 },
+  { prefix: 'Setting up storage', startPct: 30, endPct: 38, durationMs: 5000 },
+  { prefix: 'Configuring', startPct: 40, endPct: 48, durationMs: 5000 },
+  { prefix: 'Starting Helix', startPct: 50, endPct: 58, durationMs: 5000 },
+  { prefix: 'Starting app', startPct: 60, endPct: 98, durationMs: 90000 },
+];
 
 interface HomeViewProps {
   vmStatus: main.VMStatus;
@@ -47,23 +56,12 @@ export function HomeView({
 
   // Show boot progress when VM is starting or running but API isn't ready
   if (vmStatus.state === 'starting' || (vmStatus.state === 'running' && !vmStatus.api_ready)) {
-    const stage = vmStatus.boot_stage || 'Booting VM...';
-    const bootPercent = stage.startsWith('Setting up storage') ? 25
-      : stage.startsWith('Configuring') ? 50
-      : stage.startsWith('Starting Helix') ? 70
-      : stage.startsWith('Waiting for API') ? 90
-      : 10;
     return (
       <div className="home-view">
         <div className="home-placeholder">
           <img src="/helix-logo.png" alt="Helix" className="home-logo" />
           <h2>Starting Helix</h2>
-          <div className="boot-progress">
-            <div className="progress-bar">
-              <div className="progress-fill teal boot-progress-fill" style={{ width: `${bootPercent}%` }} />
-            </div>
-            <div className="boot-stage-label">{stage}</div>
-          </div>
+          <BootProgress stage={vmStatus.boot_stage || 'Booting VM...'} />
         </div>
       </div>
     );
@@ -245,5 +243,42 @@ function HomeDownloadSection({
     >
       Download
     </button>
+  );
+}
+
+function BootProgress({ stage }: { stage: string }) {
+  const stageInfo = BOOT_STAGES.find(s => stage.startsWith(s.prefix)) || BOOT_STAGES[0];
+  const prevPrefix = useRef(stageInfo.prefix);
+  const stageStartRef = useRef(Date.now());
+  const [bootPercent, setBootPercent] = useState(stageInfo.startPct);
+
+  // When stage changes, reset the timer and jump to the new start percentage
+  useEffect(() => {
+    if (stageInfo.prefix !== prevPrefix.current) {
+      prevPrefix.current = stageInfo.prefix;
+      stageStartRef.current = Date.now();
+      setBootPercent(stageInfo.startPct);
+    }
+  }, [stageInfo.prefix, stageInfo.startPct]);
+
+  // Smoothly animate towards the end percentage using easeOutCubic
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - stageStartRef.current;
+      const progress = Math.min(elapsed / stageInfo.durationMs, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const pct = stageInfo.startPct + (stageInfo.endPct - stageInfo.startPct) * eased;
+      setBootPercent(Math.round(pct));
+    }, 100);
+    return () => clearInterval(interval);
+  }, [stageInfo.prefix]);
+
+  return (
+    <div className="boot-progress">
+      <div className="progress-bar">
+        <div className="progress-fill teal boot-progress-fill" style={{ width: `${bootPercent}%` }} />
+      </div>
+      <div className="boot-stage-label">{stage}</div>
+    </div>
   );
 }

@@ -13,7 +13,7 @@ import {
   GetScanoutStats,
   GetLicenseStatus,
 } from '../wailsjs/go/main/App';
-import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
+import { EventsOn, EventsOff, WindowToggleMaximise } from '../wailsjs/runtime/runtime';
 import { HomeView } from './views/HomeView';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ConsoleDrawer } from './components/ConsoleDrawer';
@@ -171,13 +171,13 @@ export function App() {
   return (
     <>
       {/* Titlebar control bar */}
-      <header className="titlebar">
+      <header className="titlebar" onDoubleClick={WindowToggleMaximise}>
         <div className="titlebar-logo">
           <img src="/helix-logo.png" alt="Helix" />
           <span>Helix</span>
         </div>
 
-        <div className="titlebar-status">
+        <div className="titlebar-status" onDoubleClick={e => e.stopPropagation()}>
           <span className={`status-pill ${vmStatus.state}`} title={stateLabel}>
             <span className={`status-indicator ${vmStatus.state}`} />
             {stateLabel}
@@ -216,7 +216,7 @@ export function App() {
 
         <div className="titlebar-spacer" />
 
-        <div className="titlebar-actions">
+        <div className="titlebar-actions" onDoubleClick={e => e.stopPropagation()}>
           {/* Console toggle */}
           <button
             className={`titlebar-btn ${consoleOpen ? 'active' : ''}`}

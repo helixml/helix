@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -287,15 +290,57 @@ func (a *App) GetHelixURL() string {
 	return fmt.Sprintf("http://localhost:%d", a.vm.GetConfig().APIPort)
 }
 
-// GetAutoLoginURL returns the desktop auto-login callback URL.
-// The iframe navigates here first to transparently log in the user as admin.
+// GetAutoLoginURL returns the Helix URL with an auth token in the hash fragment.
+// WKWebView blocks third-party cookies in cross-origin iframes, so we pass
+// a JWT token via the URL hash instead. The Helix frontend detects it and
+// uses it as a Bearer token for all API requests.
 func (a *App) GetAutoLoginURL() string {
-	secret := a.settings.Get().DesktopSecret
-	if secret == "" {
+	token, err := a.fetchAuthToken()
+	if err != nil {
+		log.Printf("Failed to fetch auth token: %v", err)
 		return fmt.Sprintf("http://localhost:%d", a.vm.GetConfig().APIPort)
 	}
-	return fmt.Sprintf("http://localhost:%d/api/v1/auth/desktop-callback?token=%s",
+	return fmt.Sprintf("http://localhost:%d/#token=%s", a.vm.GetConfig().APIPort, token)
+}
+
+// fetchAuthToken calls the desktop-callback endpoint and extracts the JWT
+// from the response body.
+func (a *App) fetchAuthToken() (string, error) {
+	secret := a.settings.Get().DesktopSecret
+	if secret == "" {
+		return "", fmt.Errorf("no desktop secret configured")
+	}
+	url := fmt.Sprintf("http://localhost:%d/api/v1/auth/desktop-callback?token=%s",
 		a.vm.GetConfig().APIPort, secret)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("callback request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("callback returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read callback response: %w", err)
+	}
+
+	// Extract JWT from the JavaScript: document.cookie="access_token=JWT;..."
+	bodyStr := string(body)
+	marker := `access_token=`
+	start := strings.Index(bodyStr, marker)
+	if start == -1 {
+		return "", fmt.Errorf("no access_token in callback response")
+	}
+	start += len(marker)
+	end := strings.Index(bodyStr[start:], ";")
+	if end == -1 {
+		return "", fmt.Errorf("malformed access_token in callback response")
+	}
+	return bodyStr[start : start+end], nil
 }
 
 // GetSettings returns the current application settings
