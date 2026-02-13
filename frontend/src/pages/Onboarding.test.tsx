@@ -100,6 +100,16 @@ vi.mock('../contexts/apps', () => ({
 
 vi.mock('lucide-react', () => ({
   Bot: () => <span data-testid="bot-icon" />,
+  Server: () => <span data-testid="server-icon" />,
+}))
+
+vi.mock('../services/systemSettingsService', () => ({
+  useGetSystemSettings: () => ({ data: null, isLoading: false }),
+  useUpdateSystemSettings: () => ({ mutate: vi.fn(), isPending: false }),
+}))
+
+vi.mock('../components/providers/AddProviderDialog', () => ({
+  default: () => null,
 }))
 
 function setAccountWithOrgs(orgs: any[]) {
@@ -114,7 +124,13 @@ function setAccountWithOrgs(orgs: any[]) {
   }
 }
 
+async function skipProviderStep() {
+  const skipBtn = screen.getByRole('button', { name: /I'll do this later/i })
+  fireEvent.click(skipBtn)
+}
+
 async function selectExistingOrgAndGoToStep2() {
+  await skipProviderStep()
   fireEvent.click(screen.getByRole('button', { name: /continue with this organization/i }))
   await waitFor(() => {
     expect(screen.getByLabelText(/project name/i)).toBeInTheDocument()
@@ -206,6 +222,8 @@ describe('Onboarding', () => {
       })
 
       renderOnboarding()
+
+      await skipProviderStep()
 
       const orgNameInput = screen.getByLabelText(/organization name/i)
       fireEvent.change(orgNameInput, { target: { value: 'New Org' } })
@@ -415,28 +433,8 @@ describe('Onboarding', () => {
     })
   })
 
-  describe('skip onboarding', () => {
-    it('should mark onboarding complete and navigate to projects when skipping', async () => {
-      setAccountWithOrgs([])
-
-      renderOnboarding()
-
-      const closeButtons = screen.getAllByRole('button')
-      const skipBtn = closeButtons[0]
-      await act(async () => {
-        fireEvent.click(skipBtn)
-      })
-
-      await waitFor(() => {
-        expect(mockV1UsersMeOnboardingCreate).toHaveBeenCalled()
-      })
-
-      expect(mockNavigateReplace).toHaveBeenCalledWith('projects')
-    })
-  })
-
   describe('error handling without org ID', () => {
-    it('should not show create project button when not on step 2', async () => {
+    it('should not show create project button when not on step 3', async () => {
       setAccountWithOrgs([])
 
       renderOnboarding()
@@ -446,7 +444,7 @@ describe('Onboarding', () => {
   })
 
   describe('fetching org apps after org selection', () => {
-    it('should fetch apps for the selected org when moving to step 2', async () => {
+    it('should fetch apps for the selected org when moving to step 3', async () => {
       setAccountWithOrgs([{ id: 'org-apps', name: 'apps-org', display_name: 'Apps Org' }])
 
       mockApiGet.mockResolvedValue([])

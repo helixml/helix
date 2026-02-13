@@ -293,7 +293,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500(err.Error())
 	}
 	// Override the config with the system settings
-	config.ProvidersManagementEnabled = systemSettings.ProvidersManagementEnabled
+	config.ProvidersManagementEnabled = systemSettings.ProvidersManagementEnabled || apiServer.Cfg.Providers.EnableCustomUserProviders
 	config.MaxConcurrentDesktops = systemSettings.MaxConcurrentDesktops
 
 	return config, nil

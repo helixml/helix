@@ -324,7 +324,7 @@ export function App() {
           title="Deploy Helix on your own infrastructure"
         >
           <span className="upsell-sparkle">&#x2728;</span>
-          Deploy for your team &mdash; your servers, your data
+          Deploy for your team &mdash; your infra, your IP
           <svg viewBox="0 0 16 16" width="12" height="12">
             <path
               d="M5 3l6 5-6 5"
