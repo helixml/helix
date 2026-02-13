@@ -6,6 +6,9 @@ trigger:
   event:
     - push
     - tag
+  branch:
+    exclude:
+      - multi-arch-builds
 
 workspace:
   base: /go
