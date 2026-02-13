@@ -41,8 +41,8 @@ See also: `.cursor/rules/*.mdc`
 - **NEVER** stop sessions you didn't create in the current conversation — always ask first
 
 ### Stack Commands
-- **NEVER** run `./stack start` — user runs this (needs interactive terminal)
-- ✅ OK: `./stack build`, `build-zed`, `build-ubuntu`, `build-sandbox`, `update_openapi`
+- **NEVER** run `./stack start-tmux` — user runs this (needs interactive terminal)
+- ✅ OK: `./stack start`, `./stack build`, `build-zed`, `build-ubuntu`, `build-sandbox`, `update_openapi`
 
 ### Hot Reloading
 - **API**: Uses [Air](https://github.com/air-verse/air) — Go changes auto-rebuild
