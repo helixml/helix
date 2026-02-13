@@ -82,6 +82,8 @@ type VMManager struct {
 	desktopSecret string
 	// VM console login password (set from AppSettings before VM start)
 	consolePassword string
+	// License key to inject into the VM (set from AppSettings before VM start)
+	licenseKey string
 }
 
 // getSpiceSocketPath returns the path for the SPICE Unix socket
@@ -942,7 +944,10 @@ echo 'ZFS storage ready'
 // restores .env.vm. Idempotent — only modifies files if values changed.
 func (vm *VMManager) injectDesktopSecret() error {
 	script := fmt.Sprintf(`
-ENV_FILE=/home/ubuntu/helix/.env.vm
+ENV_FILE=/home/ubuntu/helix/.env
+if [ ! -f "$ENV_FILE" ]; then
+    ENV_FILE=/home/ubuntu/helix/.env.vm
+fi
 if [ ! -f "$ENV_FILE" ]; then
     exit 0
 fi
@@ -967,6 +972,21 @@ if ! grep -q '^ADMIN_USER_IDS=' "$ENV_FILE" 2>/dev/null; then
     CHANGED=1
 fi
 
+# License key
+LICENSE_KEY="%s"
+if [ -n "$LICENSE_KEY" ]; then
+    if grep -q '^LICENSE_KEY=' "$ENV_FILE" 2>/dev/null; then
+        CURRENT=$(grep '^LICENSE_KEY=' "$ENV_FILE" | cut -d= -f2-)
+        if [ "$CURRENT" != "$LICENSE_KEY" ]; then
+            sed -i "s|^LICENSE_KEY=.*|LICENSE_KEY=$LICENSE_KEY|" "$ENV_FILE"
+            CHANGED=1
+        fi
+    else
+        echo "LICENSE_KEY=$LICENSE_KEY" >> "$ENV_FILE"
+        CHANGED=1
+    fi
+fi
+
 # Persist env to ZFS
 if [ $CHANGED -eq 1 ]; then
     sudo cp "$ENV_FILE" /helix/config/env.vm
@@ -986,6 +1006,7 @@ if [ "$CURRENT_PASS" != "%s" ]; then
     echo 'PASS_UPDATED'
 fi
 `, vm.desktopSecret, vm.desktopSecret, vm.desktopSecret,
+		vm.licenseKey,
 		vm.consolePassword, vm.consolePassword, vm.consolePassword)
 
 	cmd := vm.sshCommand(script)
@@ -996,7 +1017,7 @@ fi
 	outStr := string(out)
 	if strings.Contains(outStr, "ENV_UPDATED") {
 		log.Printf("Desktop secret injected into .env.vm — restarting API container")
-		restart := vm.sshCommand("cd ~/helix && docker compose --env-file .env.vm restart api 2>&1 || true")
+		restart := vm.sshCommand("cd ~/helix && docker compose down api && docker compose up -d api 2>&1 || true")
 		restartOut, _ := restart.CombinedOutput()
 		log.Printf("API restart: %s", string(restartOut))
 	}

@@ -56,6 +56,7 @@ func (a *App) startup(ctx context.Context) {
 	a.vm.SetAppContext(ctx)
 	a.vm.desktopSecret = a.settings.Get().DesktopSecret
 	a.vm.consolePassword = a.settings.Get().ConsolePassword
+	a.vm.licenseKey = a.settings.Get().LicenseKey
 
 	// Wire VM state changes to system tray
 	a.vm.onStateChange = func(state string) {
