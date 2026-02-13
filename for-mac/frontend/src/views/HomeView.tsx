@@ -98,45 +98,50 @@ export function HomeView({
 
   // First boot: need to download VM images
   if (needsDownload) {
+    const isDownloading = p && (p.status === 'downloading' || p.status === 'verifying');
     return (
       <div className="home-view">
         <div className="home-placeholder download-screen">
           <img src="/helix-logo.png" alt="Helix" className="home-logo" />
           <h2>Welcome to Helix</h2>
           <p>
-            Download the Helix environment to get started. This is a one-time download of
-            approximately 16 GB.
+            Download the Helix environment to get started. This is a one-time download and
+            may take a few minutes depending on your connection.
           </p>
           <HomeDownloadSection
             downloadProgress={p}
             onProgressCleared={onProgressCleared}
             showToast={showToast}
           />
-          <div className="download-extras">
-            <div className="download-extras-divider">
-              <span>While you wait</span>
+          {isDownloading && (
+            <div className="download-extras">
+              <div className="download-extras-divider">
+                <span>While you wait</span>
+              </div>
+              <button
+                className="demo-video-link"
+                onClick={() => BrowserOpenURL(DEMO_VIDEO_URL)}
+              >
+                <div className="demo-video-thumb-wrap">
+                  <img src="/demo-thumb.png" alt="Demo video" className="demo-video-thumb" />
+                  <span className="demo-video-play-overlay">&#9654;</span>
+                </div>
+                <div className="demo-video-text">
+                  Watch the demo video
+                  <svg viewBox="0 0 16 16" width="12" height="12">
+                    <path d="M5 3l6 5-6 5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </div>
+              </button>
+              {licenseStatus.state !== 'licensed' && (
+                <LicenseCard
+                  licenseStatus={licenseStatus}
+                  onLicenseUpdated={onLicenseUpdated}
+                  showToast={showToast}
+                />
+              )}
             </div>
-            <button
-              className="demo-video-link"
-              onClick={() => BrowserOpenURL(DEMO_VIDEO_URL)}
-            >
-              <div className="demo-video-thumb-wrap">
-                <img src="/demo-thumb.png" alt="Demo video" className="demo-video-thumb" />
-                <span className="demo-video-play-overlay">&#9654;</span>
-              </div>
-              <div className="demo-video-text">
-                Watch the demo video
-                <svg viewBox="0 0 16 16" width="12" height="12">
-                  <path d="M5 3l6 5-6 5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </div>
-            </button>
-            <LicenseCard
-              licenseStatus={licenseStatus}
-              onLicenseUpdated={onLicenseUpdated}
-              showToast={showToast}
-            />
-          </div>
+          )}
         </div>
       </div>
     );

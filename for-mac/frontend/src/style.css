@@ -747,6 +747,8 @@ body {
 
 .license-card {
     border-color: rgba(245, 158, 11, 0.3);
+    text-align: left;
+    width: 100%;
 }
 
 .license-badge {
@@ -986,8 +988,9 @@ body {
 
 .download-extras {
     width: 100%;
-    max-width: 560px;
+    max-width: 480px;
     margin-top: 24px;
+    text-align: left;
 }
 
 .download-extras-divider {
