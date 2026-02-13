@@ -214,6 +214,11 @@ if [ "$UPDATE" = true ]; then
     run_ssh "cd ~/helix && git fetch origin && git checkout ${BRANCH} && git pull origin ${BRANCH}"
     log "Helix at: $(run_ssh 'cd ~/helix && git log --oneline -1' 2>/dev/null)"
 
+    # Ensure build dependencies are cloned (cleaned up after full provision)
+    log "Ensuring Zed and Qwen Code repos..."
+    run_ssh "[ -d ~/zed ] || git clone https://github.com/helixml/zed.git ~/zed" || true
+    run_ssh "[ -d ~/qwen-code ] || git clone https://github.com/helixml/qwen-code.git ~/qwen-code" || true
+
     # Rebuild desktop image
     log "Rebuilding desktop image..."
     run_ssh "cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 DOCKER_BUILDKIT=1 bash stack build-ubuntu 2>&1" || {
