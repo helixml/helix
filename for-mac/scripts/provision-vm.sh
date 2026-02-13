@@ -16,15 +16,18 @@ set -euo pipefail
 #   5. Installs: Docker, Go 1.25, ZFS 2.4.0, helix-drm-manager
 #   6. Clones helix repo, builds desktop Docker image
 #   7. Sets up docker-compose for Helix control plane
-#   8. Creates UTM .utm bundle ready to launch
+#   8. Primes the stack (pull/build/start/verify/stop)
+#   9. Creates UTM .utm bundle ready to launch
+#  10. Optionally compresses + uploads disk image to R2 CDN
 #
 # Prerequisites:
-#   brew install qemu  (for initial provisioning)
+#   brew install qemu mtools  (for initial provisioning)
 #   Custom QEMU in UTM.app (for production with scanout pipeline)
 #
 # Usage:
 #   ./provision-vm.sh [--disk-size 256G] [--cpus 8] [--memory 16384]
-#   ./provision-vm.sh --resume   # Resume from last step if interrupted
+#   ./provision-vm.sh --resume    # Resume from last step if interrupted
+#   ./provision-vm.sh --upload    # Also compress + upload to R2 after provisioning
 
 # =============================================================================
 # Configuration
@@ -50,15 +53,19 @@ EFI_VARS_TEMPLATE="/opt/homebrew/share/qemu/edk2-arm-vars.fd"
 
 # Parse arguments
 RESUME=false
+UPLOAD=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --disk-size) DISK_SIZE="$2"; shift 2 ;;
         --cpus) CPUS="$2"; shift 2 ;;
         --memory) MEMORY_MB="$2"; shift 2 ;;
         --resume) RESUME=true; shift ;;
+        --upload) UPLOAD=true; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # State tracking (for resumability)
 STATE_FILE="${VM_DIR}/.provision-state"
@@ -488,9 +495,11 @@ if ! step_done "install_go"; then
 fi
 
 if ! step_done "clone_helix"; then
-    log "Cloning helix repository..."
-    run_ssh "git clone https://github.com/helixml/helix.git ~/helix 2>/dev/null || (cd ~/helix && git pull)"
-    run_ssh "cd ~/helix && git checkout feature/macos-arm-desktop-port-working2"
+    BRANCH="feature/macos-arm-desktop-port-working2"
+    log "Setting up helix repository (branch: ${BRANCH})..."
+    run_ssh "git clone https://github.com/helixml/helix.git ~/helix 2>/dev/null || true"
+    run_ssh "cd ~/helix && git fetch origin && git checkout ${BRANCH} && git pull origin ${BRANCH}"
+    log "Helix at: $(run_ssh 'cd ~/helix && git log --oneline -1' 2>/dev/null)"
     mark_step "clone_helix"
 fi
 
@@ -525,9 +534,9 @@ fi
 if ! step_done "clone_deps"; then
     log "Cloning Zed and Qwen Code repositories..."
     # Zed IDE fork (needed for external_websocket_sync)
-    run_ssh "git clone https://github.com/helixml/zed.git ~/zed 2>/dev/null || (cd ~/zed && git pull)" || true
+    run_ssh "git clone https://github.com/helixml/zed.git ~/zed 2>/dev/null || (cd ~/zed && git fetch && git pull)" || true
     # Qwen Code agent
-    run_ssh "git clone https://github.com/helixml/qwen-code.git ~/qwen-code 2>/dev/null || (cd ~/qwen-code && git pull)" || true
+    run_ssh "git clone https://github.com/helixml/qwen-code.git ~/qwen-code 2>/dev/null || (cd ~/qwen-code && git fetch && git pull)" || true
     mark_step "clone_deps"
 fi
 
@@ -635,9 +644,12 @@ if ! step_done "prime_stack"; then
         run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml logs api --tail 20 2>&1" || true
     fi
 
-    # Stop the stack — images stay cached on root disk
-    log "Stopping Helix stack..."
-    run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml down 2>&1"
+    # Stop the stack and delete volumes — images stay cached on root disk.
+    # -v removes named volumes so there's no stale data on the root disk.
+    # Real user data will be on ZFS; if ZFS fails to mount, we don't want
+    # leftover priming volumes masquerading as user data.
+    log "Stopping Helix stack (removing volumes)..."
+    run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml down -v 2>&1"
 
     # Stop Docker (it will be started by the desktop app on user's first boot)
     run_ssh "sudo systemctl stop docker"
@@ -887,6 +899,19 @@ PLISTEOF
 fi
 
 # =============================================================================
+# Step 9: Upload to R2 CDN
+# =============================================================================
+
+if [ "$UPLOAD" = true ]; then
+    if ! step_done "upload"; then
+        log ""
+        log "=== Uploading VM image to R2 CDN ==="
+        bash "${SCRIPT_DIR}/upload-vm-images.sh"
+        mark_step "upload"
+    fi
+fi
+
+# =============================================================================
 # Done
 # =============================================================================
 
@@ -895,19 +920,15 @@ log "================================================"
 log "VM provisioning complete!"
 log "================================================"
 log ""
-log "UTM bundle: ${VM_DIR}/${VM_NAME}.utm"
 log "Disk image: ${VM_DIR}/disk.qcow2"
 log ""
-log "To use with UTM:"
-log "  1. Make sure custom QEMU is installed in UTM.app"
-log "     (run: ./for-mac/qemu-helix/build-qemu-standalone.sh)"
-log "  2. Open UTM - the VM should appear as 'Helix Desktop'"
-log "  3. Start the VM"
-log "  4. SSH in: ssh -p ${SSH_PORT} ${VM_USER}@localhost"
+if [ "$UPLOAD" = true ]; then
+    log "VM image uploaded to R2. Manifest updated at for-mac/vm-manifest.json."
+    log "Commit and push to deploy."
+else
+    log "To upload to R2: ./provision-vm.sh --resume --upload"
+fi
 log ""
-log "helix-drm-manager starts automatically on boot."
-log "To start the Helix stack:"
-log "  ssh helix-vm"
-log "  cd ~/helix"
-log "  docker compose -f docker-compose.dev.yaml up -d api postgres frontend"
+log "To test the first-launch flow:"
+log "  cd for-mac && wails dev"
 log ""
