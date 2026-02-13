@@ -763,6 +763,20 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
               )}
             </RadioGroup>
           </FormControl>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+            Can't see the user? Invite them to your{' '}
+            <Link
+              href={`/orgs/${organization?.name}/people`}
+              onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
+                e.preventDefault()
+                e.stopPropagation()
+                router.navigate('org_people', { org_id: organization?.name })
+              }}
+            >
+              org
+            </Link>
+            .
+          </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseUserDialog}>Cancel</Button>
