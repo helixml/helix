@@ -2014,6 +2014,7 @@ steps:
         echo "Building helix-ubuntu..."
         docker build --pull --provenance=false \
           -f Dockerfile.ubuntu-helix \
+          --build-arg CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04 \
           -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64 \
           .
         docker push registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64
