@@ -8,3 +8,4 @@ helix-desktop
 *.a
 .env.signing
 .env.r2
+for-mac.exe
