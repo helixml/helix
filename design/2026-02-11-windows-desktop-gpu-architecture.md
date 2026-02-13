@@ -8,6 +8,19 @@
 
 The Windows port replaces QEMU with WSL2. GPU acceleration and hardware video encoding use Microsoft's GPU-PV (GPU Paravirtualization) and a D3D12-backed VAAPI driver, respectively.
 
+## Security: VM Boundary as Sandbox Isolation
+
+A key architectural benefit shared across all desktop platforms is that agent code always runs inside a VM boundary — QEMU on macOS, WSL2 on Windows, or (in production) a dedicated host on Linux. This is not incidental; the VM boundary is a deliberate and important security layer for agent sandbox isolation.
+
+AI agents executing arbitrary code on a user's machine are a fundamentally dangerous surface. Docker container isolation alone is not sufficient — container escapes are a well-documented class of vulnerability, and a compromised container on a flat network can pivot to other services. The VM boundary provides:
+
+- **Hardware-enforced isolation**: The hypervisor (Virtualization.framework on macOS, Hyper-V on Windows) enforces memory and process isolation at the CPU level. A container escape inside the VM still leaves the agent trapped inside the VM.
+- **Separate kernel**: The VM runs its own Linux kernel. Kernel exploits inside the VM don't affect the host OS.
+- **Controlled attack surface**: The only communication channels between the VM and host are explicit: SSH (macOS), `wsl.exe` stdio (Windows), and WebSocket for video streaming. No shared filesystem, no shared Docker socket, no ambient network access to host services.
+- **Defense in depth**: The isolation stack is Container → VM → Host. An agent must escape both the Docker container _and_ the VM to reach the host — two independent security boundaries rather than one.
+
+This is the same isolation model used by cloud providers (each tenant gets a VM, not just a container) and by other agent sandboxing products. The GPU-PV and VAAPI-over-D3D12 architecture on Windows preserves this property: GPU acceleration crosses the VM boundary via a narrow, well-audited paravirtualization interface (`/dev/dxg`), not by giving the container direct hardware access.
+
 ## Architecture: WSL2 with GPU-PV
 
 ### Why WSL2 Instead of QEMU
