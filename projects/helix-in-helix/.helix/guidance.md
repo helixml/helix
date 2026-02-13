@@ -2,164 +2,97 @@
 
 This project sets up a development environment for working on Helix itself inside a Helix cloud desktop.
 
-## Prerequisites
+## Architecture Overview (docker-in-desktop mode)
 
-Your session must be running with **privileged mode enabled** (`HYDRA_PRIVILEGED_MODE_ENABLED=true` on the production sandbox). This provides access to the host Docker socket at `/var/run/host-docker.sock`.
-
-## Architecture Overview
+With docker-in-desktop mode, each desktop container runs its own dockerd with a
+volume-backed `/var/lib/docker`. Helix-in-Helix now works natively — just run
+`./stack start` inside the desktop container.
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ Production Helix                                                             │
-│   └── Sandbox (HYDRA_PRIVILEGED_MODE_ENABLED=true)                          │
-│         │                                                                    │
-│         ├── /var/run/docker.sock (Inner Docker - Hydra's DinD)              │
-│         └── /var/run/host-docker.sock (Outer Docker - Host)                 │
-│                                                                              │
-│         ┌────────────────────────────────────────────────────────────────┐  │
-│         │ Developer Desktop (this environment)                           │  │
-│         │                                                                 │  │
-│         │  Inner Docker (/var/run/docker.sock)                           │  │
-│         │  ├── helix-api (dev control plane on port 8080)                │  │
-│         │  ├── helix-postgres                                            │  │
-│         │  ├── helix-frontend                                            │  │
-│         │  └── other services                                            │  │
-│         │                                                                 │  │
-│         │  ↓ Expose port 8080 via API's proxy endpoint                   │  │
-│         │                                                                 │  │
-│         └────────────────────────────────────────────────────────────────┘  │
-│                                                                              │
-│         Exposed URL: https://helix.example.com/api/v1/sessions/{id}/proxy/8080/
-│                        ↓                                                     │
-└────────────────────────│─────────────────────────────────────────────────────┘
-                         │
-                         ↓ RevDial
-┌────────────────────────────────────────────────────────────────────────────┐
-│ Host Docker (via /var/run/host-docker.sock)                                 │
-│   └── helix-sandbox-dev-* (RevDials to exposed inner API)                  │
-│         └── DinD with desktop containers for testing                       │
-└────────────────────────────────────────────────────────────────────────────┘
+Host Docker (Level 0)
+└── Outer Sandbox (Level 1, /var/lib/docker = volume)
+    └── Outer Desktop (Level 2, /var/lib/docker = volume)
+        │  GNOME desktop, Zed IDE, video streaming
+        │  Local dockerd (runs natively inside desktop)
+        │
+        │  User runs: ./stack start
+        │
+        ├── Inner Helix API, Postgres, Frontend (on desktop's dockerd)
+        │
+        └── Inner Sandbox (Level 3, /var/lib/docker = volume)
+            └── Inner Desktop (Level 4, /var/lib/docker = volume)
+                └── User's containers (Level 5)
 ```
 
-## Key Insight: Service Exposure
-
-The **Service Exposure** feature allows you to expose ports from your dev container to the outside world via the Helix API. This is how the sandbox on host Docker reaches your inner control plane:
-
-1. Inner control plane runs on inner Docker (port 8080)
-2. You call `POST /api/v1/sessions/{id}/expose` to expose port 8080
-3. Production Helix API proxies requests to your desktop via RevDial
-4. Sandbox on host Docker sets `HELIX_API_URL` to the exposed URL
-5. Sandbox RevDials to your inner API through the proxy
-
-## Two Docker Endpoints
-
-| Endpoint | Socket Path | Purpose |
-|----------|-------------|---------|
-| Inner Docker | `/var/run/docker.sock` | Run Helix control plane |
-| Outer Docker | `/var/run/host-docker.sock` | Run test sandboxes |
+No special configuration, no two Docker endpoints, no host socket exposure.
+Each level is structurally identical and self-contained.
 
 ## Setup Steps
 
-1. **Run the setup script** (first time only):
+1. **Clone the Helix repository** inside the desktop:
    ```bash
-   ~/helix-dev-setup.sh
+   cd ~/work
+   git clone https://github.com/helixml/helix.git
+   cd helix
    ```
 
-2. **Source the environment**:
+2. **Start the inner control plane**:
    ```bash
-   source ~/.helix-dev-env
+   ./stack start
    ```
+   This starts Helix on the desktop's local dockerd. The inner sandbox runs
+   inside the desktop's dockerd at Level 3.
 
-3. **Start the inner control plane**:
-   ```bash
-   cd ~/helix-workspace/helix
-   ./start-inner-stack.sh
-   ```
+3. **Access the inner Helix UI** at `http://localhost:8080`
 
-4. **Expose the inner API**:
-   ```bash
-   export SESSION_ID=ses_xxx  # Your session ID from the URL
-   ./expose-inner-api.sh
-   ```
+## How It Works
 
-5. **Start a test sandbox on host Docker**:
-   ```bash
-   ./start-outer-sandbox.sh
-   ```
-
-## Helper Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `start-inner-stack.sh` | Start Helix control plane on inner Docker |
-| `expose-inner-api.sh` | Expose port 8080 via the API proxy |
-| `start-outer-sandbox.sh` | Start a sandbox on host Docker |
-
-## Docker Commands
-
-```bash
-# Inner Docker (control plane)
-docker-inner ps
-docker-inner logs api -f
-compose-inner logs -f
-
-# Outer Docker (host)
-docker-outer ps
-docker-outer logs helix-sandbox-dev-* -f
-```
+- **Single Docker endpoint**: The desktop's own dockerd handles everything.
+  `docker` commands work normally — no `docker-inner`/`docker-outer` split.
+- **GPU passthrough**: NVIDIA runtime cascades through all levels via
+  device mounts and cgroup rules.
+- **Shared BuildKit cache**: Available at `/buildkit-cache` via the sandbox's
+  shared BuildKit container (TCP endpoint via `BUILDKIT_HOST`).
+- **Arbitrary nesting**: Each level's `/var/lib/docker` is a Docker volume
+  backed by ext4, resetting overlay2 stacking depth to 1.
 
 ## Building Components
 
 ```bash
-cd ~/helix-workspace/helix
+cd ~/work/helix
 
 # Build API
 ./stack build
 
-# Build Zed IDE
-./stack build-zed
-
 # Build desktop images
-./stack build-sway
 ./stack build-ubuntu
+
+# Build sandbox
+./stack build-sandbox
 ```
 
 ## Troubleshooting
 
-### Host Docker socket not available
+### Docker not working inside desktop
 
-Privileged mode must be enabled on the production sandbox:
+Check that dockerd is running:
 ```bash
-# Check for socket
-ls -la /var/run/host-docker.sock
+docker info
 ```
 
-If missing, the session was started without `HYDRA_PRIVILEGED_MODE_ENABLED=true`.
-
-### Cannot expose port
-
-Ensure you have the correct session ID and API credentials:
+If not, check the init script logs:
 ```bash
-echo $SESSION_ID
-echo $HELIX_API_URL
-echo $HELIX_API_KEY
+cat /config/logs/17-start-dockerd.sh.log
 ```
 
-### Sandbox not connecting to inner API
+### Kind (Kubernetes) not working
 
-1. Verify inner API is running: `curl http://localhost:8080/health`
-2. Verify port is exposed: Check the response from `expose-inner-api.sh`
-3. Check sandbox logs: `docker-outer logs helix-sandbox-dev-*`
+Verify cgroup v2 controllers are delegated:
+```bash
+cat /sys/fs/cgroup/cgroup.subtree_control
+# Should include: cpuset cpu io memory hugetlb pids
+```
 
 ## Repository Structure
 
-- `~/helix-workspace/helix/` - Main Helix repository
-- `~/helix-workspace/zed/` - Zed IDE fork
-- `~/helix-workspace/qwen-code/` - Qwen Code agent fork
-
-## Important Notes
-
-1. **Use unique sandbox names** - The scripts auto-generate unique names
-2. **Clean up test sandboxes** when done: `docker-outer stop helix-sandbox-dev-* && docker-outer rm helix-sandbox-dev-*`
-3. **Changes to desktop images** require rebuild + new session
-4. **The exposed URL routes through production Helix** - this adds latency but provides secure access
+- `~/work/helix/` - Main Helix repository

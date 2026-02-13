@@ -110,21 +110,14 @@ func (s *PostgresStore) GetSandboxesOlderThanHeartbeat(ctx context.Context, olde
 }
 
 // FindAvailableSandbox finds a sandbox that is online, has recent heartbeat, and has the required desktop version.
-// If requirePrivileged is true, only sandboxes with PrivilegedMode enabled will be returned.
 // Returns nil if no suitable sandbox is found.
-func (s *PostgresStore) FindAvailableSandbox(ctx context.Context, desktopType string, requirePrivileged bool) (*types.SandboxInstance, error) {
+func (s *PostgresStore) FindAvailableSandbox(ctx context.Context, desktopType string) (*types.SandboxInstance, error) {
 	// Get sandboxes that are online and have sent heartbeat in the last 2 minutes
 	staleThreshold := time.Now().Add(-2 * time.Minute)
 	var instances []*types.SandboxInstance
-	query := s.gdb.WithContext(ctx).
-		Where("status = ? AND last_seen > ?", "online", staleThreshold)
-
-	// Filter by privileged mode if required
-	if requirePrivileged {
-		query = query.Where("privileged_mode = ?", true)
-	}
-
-	err := query.Order("active_sandboxes ASC"). // Prefer less loaded sandboxes
+	err := s.gdb.WithContext(ctx).
+		Where("status = ? AND last_seen > ?", "online", staleThreshold).
+		Order("active_sandboxes ASC"). // Prefer less loaded sandboxes
 		Find(&instances).Error
 	if err != nil {
 		return nil, fmt.Errorf("error finding available sandboxes: %w", err)
@@ -144,20 +137,6 @@ func (s *PostgresStore) FindAvailableSandbox(ctx context.Context, desktopType st
 	}
 
 	return nil, nil // No suitable sandbox found
-}
-
-// HasPrivilegedSandbox checks if any online privileged sandbox is available.
-// Used to determine if UseHostDocker projects should be shown to admin users.
-func (s *PostgresStore) HasPrivilegedSandbox(ctx context.Context) (bool, error) {
-	staleThreshold := time.Now().Add(-2 * time.Minute)
-	var count int64
-	err := s.gdb.WithContext(ctx).Model(&types.SandboxInstance{}).
-		Where("status = ? AND last_seen > ? AND privileged_mode = ?", "online", staleThreshold, true).
-		Count(&count).Error
-	if err != nil {
-		return false, fmt.Errorf("error checking for privileged sandbox: %w", err)
-	}
-	return count > 0, nil
 }
 
 // Disk usage history methods

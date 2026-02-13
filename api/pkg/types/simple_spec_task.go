@@ -43,7 +43,6 @@ type CreateTaskRequest struct {
 	UserEmail     string           `json:"user_email,omitempty"` // Optional: User email for audit trail
 	AppID         string           `json:"app_id"`               // Optional: Helix agent to use for spec generation
 	JustDoItMode  bool             `json:"just_do_it_mode"`      // Optional: Skip spec planning, go straight to implementation
-	UseHostDocker bool             `json:"use_host_docker"`      // Optional: Use host Docker socket (requires privileged sandbox)
 
 	// Branch configuration
 	BranchMode    BranchMode `json:"branch_mode,omitempty"`    // "new" or "existing" - defaults to "new"
@@ -122,7 +121,6 @@ type SpecTask struct {
 	SpecApproval      *SpecApprovalResponse `json:"spec_approval,omitempty" gorm:"type:jsonb;serializer:json"`
 	SpecRevisionCount int                   `json:"spec_revision_count"`                                   // Number of spec revisions requested
 	JustDoItMode      bool                  `json:"just_do_it_mode" gorm:"column:yolo_mode;default:false"` // Skip spec planning, go straight to implementation
-	UseHostDocker     bool                  `json:"use_host_docker" gorm:"default:false"`                  // Use host Docker socket (requires privileged sandbox)
 
 	// Implementation tracking
 	ImplementationApprovedBy string     `json:"implementation_approved_by,omitempty"` // User who approved implementation

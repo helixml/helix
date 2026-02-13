@@ -478,22 +478,30 @@ RUN echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     echo "retro ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-# Docker CLI
+# Docker Engine (dockerd + CLI + containerd + runc) for docker-in-desktop mode
+# In docker-in-desktop mode, each desktop container runs its own dockerd with a
+# volume-backed /var/lib/docker. This eliminates the need for per-session sibling
+# dockerds and all the bridge/veth/DNS infrastructure that connected them.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gnupg ca-certificates curl lsb-release \
+    && apt-get install -y --no-install-recommends gnupg ca-certificates curl lsb-release iptables \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
     && chmod a+r /etc/apt/keyrings/docker.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
-    && apt-get install -y docker-ce-cli docker-compose-plugin \
+    && apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
-# Docker shim for Hydra compatibility and shared BuildKit cache
-# The Go-based docker-shim replaces the bash wrappers with:
-# - Path translation for Hydra bind mounts
-# - BuildKit cache injection for shared caching across sessions
-# - Docker Compose project isolation per session
+# Kind (Kubernetes in Docker) + kubectl
+# Enables creating local Kubernetes clusters inside the desktop container
+RUN curl -Lo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64 \
+    && chmod +x /usr/local/bin/kind \
+    && curl -Lo /usr/local/bin/kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+    && chmod +x /usr/local/bin/kubectl
+
+# Docker shim for shared BuildKit cache
+# The Go-based docker-shim intercepts docker/docker-compose commands to inject
+# BuildKit cache flags for shared caching across sessions.
 COPY --from=go-build-env /docker-shim /usr/local/bin/docker-shim
 RUN mv /usr/bin/docker /usr/bin/docker.real \
     && ln -s /usr/local/bin/docker-shim /usr/bin/docker \
@@ -635,6 +643,10 @@ ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
 # Docker group init script
 ADD desktop/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
 RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
+
+# Start dockerd inside desktop container if /var/lib/docker is volume-mounted
+ADD desktop/ubuntu-config/cont-init.d/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
+RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh
 
 # Workspace README
 RUN mkdir -p /opt/helix
