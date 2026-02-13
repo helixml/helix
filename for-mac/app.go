@@ -239,7 +239,7 @@ func (a *App) GetLicenseStatus() LicenseStatus {
 	return a.licenseValidator.GetLicenseStatus(a.settings.Get())
 }
 
-// ValidateLicenseKey validates and saves a license key
+// ValidateLicenseKey validates and saves a license key, then injects it into the VM.
 func (a *App) ValidateLicenseKey(key string) error {
 	if a.licenseValidator == nil {
 		return fmt.Errorf("license validator not initialized")
@@ -253,7 +253,20 @@ func (a *App) ValidateLicenseKey(key string) error {
 	// Save the valid license key to settings
 	settings := a.settings.Get()
 	settings.LicenseKey = key
-	return a.settings.Save(settings)
+	if err := a.settings.Save(settings); err != nil {
+		return err
+	}
+
+	// Update the VM manager and re-inject into the running VM
+	a.vm.licenseKey = key
+	if a.vm.GetStatus().State == VMStateRunning {
+		go func() {
+			if err := a.vm.injectDesktopSecret(); err != nil {
+				log.Printf("Failed to inject license key into VM: %v", err)
+			}
+		}()
+	}
+	return nil
 }
 
 // StartTrial starts the 24-hour free trial
