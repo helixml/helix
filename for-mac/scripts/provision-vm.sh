@@ -233,9 +233,14 @@ if [ "$UPDATE" = true ]; then
         exit 1
     fi
 
-    # Pull latest code
+    # Pull latest code (re-clone if repo is corrupted from non-clean shutdown)
     log "Pulling latest code (branch: ${BRANCH})..."
-    run_ssh "cd ~/helix && git fetch origin && git checkout ${BRANCH} && git pull origin ${BRANCH}"
+    if ! run_ssh "cd ~/helix && git fetch origin 2>&1"; then
+        log "Git fetch failed — re-cloning repository..."
+        run_ssh "rm -rf ~/helix && git clone -b ${BRANCH} https://github.com/helixml/helix.git ~/helix"
+    else
+        run_ssh "cd ~/helix && git checkout ${BRANCH} && git pull origin ${BRANCH}"
+    fi
     log "Helix at: $(run_ssh 'cd ~/helix && git log --oneline -1' 2>/dev/null)"
 
     # Ensure build dependencies are cloned (cleaned up after full provision)
