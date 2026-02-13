@@ -874,30 +874,28 @@ volumes:
 
 steps:
   - name: publish-image
-    image: plugins/docker
-    pull: always
-    settings:
-      dockerfile: Dockerfile
-      auto_tag: true
-      auto_tag_suffix: linux-amd64
-      daemon_off: true
-      pull_image: true
-      registry: registry.helixml.tech
-      repo: registry.helixml.tech/helix/controlplane
-      username: admin
-      password:
+    image: docker:cli
+    commands:
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        echo "Building controlplane:$${VERSION}-linux-amd64"
+        docker build --pull --provenance=false \
+          -f Dockerfile \
+          --build-arg APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}} \
+          -t registry.helixml.tech/helix/controlplane:$${VERSION}-linux-amd64 \
+          .
+        echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+        docker push registry.helixml.tech/helix/controlplane:$${VERSION}-linux-amd64
+    environment:
+      REGISTRY_PASSWORD:
         from_secret: helix_registry_password
-      build_args:
-        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
-    when:
-      ref:
-        include:
-          - refs/heads/main
-          - refs/heads/multi-arch-builds
-          - refs/tags/*
 
 ---
 kind: pipeline
@@ -930,9 +928,9 @@ steps:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
         if [ -n "${DRONE_TAG}" ]; then
-          VERSION="$${DRONE_TAG#v}"
+          VERSION="${DRONE_TAG}"
         else
-          VERSION="latest"
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         fi
         docker build --pull --provenance=false \
           -f Dockerfile \
@@ -975,9 +973,9 @@ steps:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
         if [ -n "${DRONE_TAG}" ]; then
-          VERSION="$${DRONE_TAG#v}"
+          VERSION="${DRONE_TAG}"
         else
-          VERSION="latest"
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         fi
         REPO="registry.helixml.tech/helix/controlplane"
         docker manifest create --amend $${REPO}:$${VERSION} \
@@ -1012,31 +1010,28 @@ volumes:
 
 steps:
   - name: publish-image
-    image: plugins/docker
-    pull: always
-    settings:
-      context: haystack_service
-      dockerfile: haystack_service/Dockerfile
-      auto_tag: true
-      auto_tag_suffix: linux-amd64
-      daemon_off: true
-      pull_image: true
-      registry: registry.helixml.tech
-      repo: registry.helixml.tech/helix/haystack
-      username: admin
-      password:
+    image: docker:cli
+    commands:
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        echo "Building haystack:$${VERSION}-linux-amd64"
+        docker build --pull --provenance=false \
+          -f haystack_service/Dockerfile \
+          --build-arg APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}} \
+          -t registry.helixml.tech/helix/haystack:$${VERSION}-linux-amd64 \
+          haystack_service
+        echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+        docker push registry.helixml.tech/helix/haystack:$${VERSION}-linux-amd64
+    environment:
+      REGISTRY_PASSWORD:
         from_secret: helix_registry_password
-      build_args:
-        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
-    when:
-      ref:
-        include:
-          - refs/heads/main
-          - refs/heads/multi-arch-builds
-          - refs/tags/*
 
 ---
 kind: pipeline
@@ -1069,9 +1064,9 @@ steps:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
         if [ -n "${DRONE_TAG}" ]; then
-          VERSION="$${DRONE_TAG#v}"
+          VERSION="${DRONE_TAG}"
         else
-          VERSION="latest"
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         fi
         docker build --pull --provenance=false \
           -f haystack_service/Dockerfile \
@@ -1114,9 +1109,9 @@ steps:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
         if [ -n "${DRONE_TAG}" ]; then
-          VERSION="$${DRONE_TAG#v}"
+          VERSION="${DRONE_TAG}"
         else
-          VERSION="latest"
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         fi
         REPO="registry.helixml.tech/helix/haystack"
         docker manifest create --amend $${REPO}:$${VERSION} \
@@ -1349,28 +1344,27 @@ volumes:
 
 steps:
   - name: publish-typesense
-    image: plugins/docker
-    pull: always
-    settings:
-      dockerfile: Dockerfile.typesense
-      auto_tag: true
-      auto_tag_suffix: linux-amd64
-      daemon_off: true
-      pull_image: true
-      registry: registry.helixml.tech
-      repo: registry.helixml.tech/helix/typesense
-      username: admin
-      password:
+    image: docker:cli
+    commands:
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        echo "Building typesense:$${VERSION}-linux-amd64"
+        docker build --pull --provenance=false \
+          -f Dockerfile.typesense \
+          -t registry.helixml.tech/helix/typesense:$${VERSION}-linux-amd64 \
+          .
+        echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+        docker push registry.helixml.tech/helix/typesense:$${VERSION}-linux-amd64
+    environment:
+      REGISTRY_PASSWORD:
         from_secret: helix_registry_password
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
-    when:
-      ref:
-        include:
-          - refs/heads/main
-          - refs/heads/multi-arch-builds
-          - refs/tags/*
 
 ---
 kind: pipeline
@@ -1403,9 +1397,9 @@ steps:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
         if [ -n "${DRONE_TAG}" ]; then
-          VERSION="$${DRONE_TAG#v}"
+          VERSION="${DRONE_TAG}"
         else
-          VERSION="latest"
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         fi
         docker build --pull --provenance=false \
           -f Dockerfile.typesense \
@@ -1447,9 +1441,9 @@ steps:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
         if [ -n "${DRONE_TAG}" ]; then
-          VERSION="$${DRONE_TAG#v}"
+          VERSION="${DRONE_TAG}"
         else
-          VERSION="latest"
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         fi
         REPO="registry.helixml.tech/helix/typesense"
         docker manifest create --amend $${REPO}:$${VERSION} \
