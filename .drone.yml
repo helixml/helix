@@ -2498,3 +2498,67 @@ steps:
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
+
+# ====================================================================
+# macOS DMG Build Pipeline
+# Builds Helix.app, signs with Developer ID, creates DMG, notarizes,
+# and uploads to Cloudflare R2.
+# Runs on flight-arm64 (native macOS exec, not Docker).
+# ====================================================================
+---
+kind: pipeline
+type: exec
+name: build-macos-dmg
+
+platform:
+  os: darwin
+  arch: arm64
+
+node:
+  hostname: flight-arm64
+
+trigger:
+  ref:
+    include:
+      - refs/tags/*
+      - refs/heads/multi-arch-builds
+
+steps:
+  - name: build-app
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
+      KEYCHAIN_PASSWORD:
+        from_secret: keychain_password
+    commands:
+      # Unlock CI keychain for codesign access to Developer ID cert
+      - security unlock-keychain -p "$KEYCHAIN_PASSWORD" ~/Library/Keychains/Helix-Dev.keychain-db
+      # Ensure CI keychain is in the search list so codesign finds the cert
+      - security list-keychains -d user -s ~/Library/Keychains/Helix-Dev.keychain-db ~/Library/Keychains/login.keychain-db
+      # Build the Wails app + package QEMU + frameworks + EFI firmware + sign
+      - cd for-mac
+      - ./scripts/build-helix-app.sh
+
+  - name: create-dmg
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
+      KEYCHAIN_PASSWORD:
+        from_secret: keychain_password
+      R2_ACCOUNT_ID:
+        from_secret: r2_account_id
+      R2_ACCESS_KEY_ID:
+        from_secret: r2_access_key_id
+      R2_SECRET_ACCESS_KEY:
+        from_secret: r2_secret_access_key
+    commands:
+      # Unlock CI keychain again (each step is a fresh shell)
+      - security unlock-keychain -p "$KEYCHAIN_PASSWORD" ~/Library/Keychains/Helix-Dev.keychain-db
+      - security list-keychains -d user -s ~/Library/Keychains/Helix-Dev.keychain-db ~/Library/Keychains/login.keychain-db
+      # Determine version
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+      - cd for-mac
+      - ./scripts/create-dmg.sh --skip-styling --notarize --upload --version $VERSION
