@@ -253,6 +253,10 @@ if [ "$UPDATE" = true ]; then
     run_ssh "[ -d ~/zed ] || git clone https://github.com/helixml/zed.git ~/zed" || true
     run_ssh "[ -d ~/qwen-code ] || git clone https://github.com/helixml/qwen-code.git ~/qwen-code" || true
 
+    # Clear stale Docker build cache (the provisioning VM's cache may have
+    # stale COPY layers from the original provision or failed update attempts)
+    run_ssh "docker builder prune -f 2>/dev/null" || true
+
     # Rebuild desktop image
     log "Rebuilding desktop image..."
     run_ssh "cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 DOCKER_BUILDKIT=1 bash stack build-ubuntu 2>&1" || {
