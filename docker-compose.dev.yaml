@@ -299,10 +299,10 @@ services:
       # Config template - bind-mounted for faster iteration (no rebuild needed)
       - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
-      - sandbox-docker-storage:/var/lib/docker
+      - ${SANDBOX_DOCKER_STORAGE:-sandbox-docker-storage}:/var/lib/docker
       # Hydra nested dockerd storage - MUST be a real volume (not overlay)
       # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
-      - hydra-storage:/hydra-data
+      - ${SANDBOX_HYDRA_STORAGE:-hydra-storage}:/hydra-data
       - /dev/:/dev/:rw
       - /run/udev:/run/udev:rw
       - /var/run/sandbox:/var/run/sandbox:rw
@@ -386,10 +386,10 @@ services:
       # Config template - bind-mounted for faster iteration (no rebuild needed)
       - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
-      - sandbox-docker-storage:/var/lib/docker
+      - ${SANDBOX_DOCKER_STORAGE:-sandbox-docker-storage}:/var/lib/docker
       # Hydra nested dockerd storage - MUST be a real volume (not overlay)
       # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
-      - hydra-storage:/hydra-data
+      - ${SANDBOX_HYDRA_STORAGE:-hydra-storage}:/hydra-data
       - /dev/:/dev/:rw
       - /run/udev:/run/udev:rw
       - /var/run/sandbox:/var/run/sandbox:rw
@@ -471,10 +471,10 @@ services:
       # Config template - bind-mounted for faster iteration (no rebuild needed)
       - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
-      - sandbox-docker-storage:/var/lib/docker
+      - ${SANDBOX_DOCKER_STORAGE:-sandbox-docker-storage}:/var/lib/docker
       # Hydra nested dockerd storage - MUST be a real volume (not overlay)
       # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
-      - hydra-storage:/hydra-data
+      - ${SANDBOX_HYDRA_STORAGE:-hydra-storage}:/hydra-data
       - /run/udev:/run/udev:rw
       - /var/run/sandbox:/var/run/sandbox:rw
       # Dev bind-mounts for hot reload (Zed + desktop configs)
@@ -552,10 +552,10 @@ services:
       # Config template - bind-mounted for faster iteration (no rebuild needed)
       - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
-      - sandbox-docker-storage:/var/lib/docker
+      - ${SANDBOX_DOCKER_STORAGE:-sandbox-docker-storage}:/var/lib/docker
       # Hydra nested dockerd storage - MUST be a real volume (not overlay)
       # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
-      - hydra-storage:/hydra-data
+      - ${SANDBOX_HYDRA_STORAGE:-hydra-storage}:/hydra-data
       - /run/udev:/run/udev:rw
       - /var/run/sandbox:/var/run/sandbox:rw
       # DRM lease manager socket (helix-drm-manager systemd service on VM host)

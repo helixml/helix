@@ -46,6 +46,8 @@ const defaultZFSStats = new main.ZFSStats({
   pool_available: 0,
   dedup_ratio: 1,
   compression_ratio: 1,
+  dedup_saved_bytes: 0,
+  datasets: [],
   last_updated: '',
 });
 

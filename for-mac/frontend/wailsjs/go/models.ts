@@ -243,6 +243,24 @@ export namespace main {
 	        this.api_ready = source["api_ready"];
 	    }
 	}
+	export class ZFSDatasetStats {
+	    name: string;
+	    used: number;
+	    referenced: number;
+	    type: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ZFSDatasetStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.used = source["used"];
+	        this.referenced = source["referenced"];
+	        this.type = source["type"];
+	    }
+	}
 	export class ZFSStats {
 	    pool_name: string;
 	    pool_size: number;
@@ -250,6 +268,8 @@ export namespace main {
 	    pool_available: number;
 	    dedup_ratio: number;
 	    compression_ratio: number;
+	    dedup_saved_bytes: number;
+	    datasets: ZFSDatasetStats[];
 	    last_updated: string;
 	    error?: string;
 	
@@ -265,9 +285,29 @@ export namespace main {
 	        this.pool_available = source["pool_available"];
 	        this.dedup_ratio = source["dedup_ratio"];
 	        this.compression_ratio = source["compression_ratio"];
+	        this.dedup_saved_bytes = source["dedup_saved_bytes"];
+	        this.datasets = this.convertValues(source["datasets"], ZFSDatasetStats);
 	        this.last_updated = source["last_updated"];
 	        this.error = source["error"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

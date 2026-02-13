@@ -261,10 +261,35 @@ export function SettingsPanel({
                   <span className="label">Available</span>
                   <span className="value">{formatBytes(zfs.pool_available)}</span>
                 </div>
-                {zfs.dedup_ratio > 1 && (
+                {zfs.compression_ratio > 1 && (
                   <div className="storage-row">
-                    <span className="label">Dedup ratio</span>
-                    <span className="value" style={{ color: 'var(--teal)' }}>{zfs.dedup_ratio.toFixed(2)}x</span>
+                    <span className="label">Compression</span>
+                    <span className="value">{zfs.compression_ratio.toFixed(2)}x</span>
+                  </div>
+                )}
+                {zfs.dedup_ratio > 1 && (
+                  <>
+                    <div className="storage-row">
+                      <span className="label">Dedup ratio</span>
+                      <span className="value" style={{ color: 'var(--teal)' }}>{zfs.dedup_ratio.toFixed(2)}x</span>
+                    </div>
+                    {zfs.dedup_saved_bytes > 0 && (
+                      <div className="storage-row">
+                        <span className="label">Dedup saved</span>
+                        <span className="value" style={{ color: 'var(--teal)' }}>{formatBytes(zfs.dedup_saved_bytes)}</span>
+                      </div>
+                    )}
+                  </>
+                )}
+                {zfs.datasets && zfs.datasets.length > 0 && (
+                  <div style={{ marginTop: 8, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+                    <div className="form-label" style={{ fontSize: 11, marginBottom: 4 }}>Datasets</div>
+                    {zfs.datasets.map((ds) => (
+                      <div className="storage-row" key={ds.name}>
+                        <span className="label">{ds.name}{ds.type === 'volume' ? ' (zvol)' : ''}</span>
+                        <span className="value">{formatBytes(ds.used)}</span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

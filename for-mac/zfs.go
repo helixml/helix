@@ -9,16 +9,26 @@ import (
 	"time"
 )
 
+// ZFSDatasetStats holds per-dataset usage
+type ZFSDatasetStats struct {
+	Name       string `json:"name"`
+	Used       int64  `json:"used"`       // bytes
+	Referenced int64  `json:"referenced"` // bytes
+	Type       string `json:"type"`       // "dataset" or "zvol"
+}
+
 // ZFSStats holds ZFS pool statistics
 type ZFSStats struct {
-	PoolName         string  `json:"pool_name"`
-	PoolSize         int64   `json:"pool_size"`          // bytes
-	PoolUsed         int64   `json:"pool_used"`          // bytes
-	PoolAvailable    int64   `json:"pool_available"`     // bytes
-	DedupRatio       float64 `json:"dedup_ratio"`        // e.g., 2.5x
-	CompressionRatio float64 `json:"compression_ratio"`  // e.g., 1.3x
-	LastUpdated      string  `json:"last_updated"`
-	Error            string  `json:"error,omitempty"`
+	PoolName         string            `json:"pool_name"`
+	PoolSize         int64             `json:"pool_size"`          // bytes
+	PoolUsed         int64             `json:"pool_used"`          // bytes
+	PoolAvailable    int64             `json:"pool_available"`     // bytes
+	DedupRatio       float64           `json:"dedup_ratio"`        // e.g., 2.5x
+	CompressionRatio float64           `json:"compression_ratio"`  // e.g., 1.3x
+	DedupSavedBytes  int64             `json:"dedup_saved_bytes"`  // estimated bytes saved by dedup
+	Datasets         []ZFSDatasetStats `json:"datasets"`           // per-dataset breakdown
+	LastUpdated      string            `json:"last_updated"`
+	Error            string            `json:"error,omitempty"`
 }
 
 // DiskUsage holds disk usage information
@@ -156,6 +166,29 @@ func (z *ZFSCollector) fetchZFSStats() (ZFSStats, error) {
 	if err == nil && out != "" {
 		out = strings.TrimSuffix(out, "x")
 		stats.CompressionRatio, _ = strconv.ParseFloat(out, 64)
+	}
+
+	// Calculate dedup savings: logical_used * (1 - 1/dedup_ratio)
+	if stats.DedupRatio > 1.0 && stats.PoolUsed > 0 {
+		logicalUsed := float64(stats.PoolUsed) * stats.DedupRatio
+		stats.DedupSavedBytes = int64(logicalUsed - float64(stats.PoolUsed))
+	}
+
+	// Per-dataset breakdown
+	out, err = z.sshCmd("sudo zfs list -Hp -o name,used,refer,type -r helix 2>/dev/null")
+	if err == nil && out != "" {
+		for _, line := range strings.Split(out, "\n") {
+			fields := strings.Fields(line)
+			if len(fields) >= 4 && fields[0] != "helix" {
+				ds := ZFSDatasetStats{
+					Name: strings.TrimPrefix(fields[0], "helix/"),
+					Type: fields[3],
+				}
+				ds.Used, _ = strconv.ParseInt(fields[1], 10, 64)
+				ds.Referenced, _ = strconv.ParseInt(fields[2], 10, 64)
+				stats.Datasets = append(stats.Datasets, ds)
+			}
+		}
 	}
 
 	return stats, nil
