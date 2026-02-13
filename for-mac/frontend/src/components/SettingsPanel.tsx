@@ -483,7 +483,7 @@ export function SettingsPanel({
           <div className="panel-section">
             <div className="panel-section-title">License</div>
             <div className="form-group">
-              <label className="form-label" htmlFor="settingLicenseKey">License Key</label>
+              <label className="form-label" htmlFor="settingLicenseKey">License Key — <a href="https://deploy.helix.ml/licenses" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--teal)' }}>Get one free</a></label>
               <div style={{ display: 'flex', gap: 6 }}>
                 <input
                   className="form-input"
