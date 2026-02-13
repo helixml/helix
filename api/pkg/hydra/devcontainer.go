@@ -578,25 +578,28 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 func (dm *DevContainerManager) buildExtraHosts() []string {
 	var extraHosts []string
 
-	// "api" hostname: resolve from sandbox's perspective for direct access.
-	// This works until an inner compose stack shadows the "api" hostname.
+	// Resolve "api" from the sandbox's perspective (via compose DNS).
 	ips, err := net.LookupHost("api")
 	if err == nil && len(ips) > 0 {
 		apiIP := ips[0]
+
+		// "api" hostname: direct access to the outer API.
 		extraHosts = append(extraHosts, "api:"+apiIP)
 		log.Debug().Str("api_ip", apiIP).Msg("Added API host entry for dev container")
+
+		// "outer-api" hostname: same IP, but survives inner compose DNS
+		// shadowing. In Helix-in-Helix, docker compose creates its own "api"
+		// service that shadows the /etc/hosts entry. "outer-api" always points
+		// to the real outer API because compose DNS doesn't override /etc/hosts.
+		//
+		// Note: We resolve the IP here rather than using "host-gateway" because
+		// host-gateway on the sandbox's inner dockerd resolves to the sandbox's
+		// bridge gateway, not the actual host — making it unreachable.
+		extraHosts = append(extraHosts, "outer-api:"+apiIP)
+		log.Debug().Str("outer_api_ip", apiIP).Msg("Added outer-api host entry (same as api, survives H-in-H DNS shadowing)")
 	} else {
 		log.Warn().Err(err).Msg("Could not resolve 'api' hostname, container may not connect to API")
 	}
-
-	// "outer-api" hostname: use host-gateway for stable access to the host.
-	// Docker resolves "host-gateway" to the daemon host's gateway IP, which
-	// for sandbox's dockerd is the compose network gateway (the actual host).
-	// The API publishes port 8080 on the host, so outer-api:8080 reaches the
-	// API even after API restarts — Docker updates iptables DNAT automatically.
-	// Used by Helix-in-Helix when the inner compose stack shadows "api".
-	extraHosts = append(extraHosts, "outer-api:host-gateway")
-	log.Debug().Msg("Added outer-api:host-gateway for stable API access via host")
 
 	return extraHosts
 }

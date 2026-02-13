@@ -558,13 +558,13 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 	if helixAPIURL == "" {
 		helixAPIURL = "http://api:8080"
 	}
-	// In Helix-in-Helix mode, the inner compose stack shadows the "api" hostname.
-	// If "outer-api" resolves (added by H-in-H startup script), use it so Zed
-	// connects to the outer API for LLM inference, not the inner API.
+	// Use "outer-api" instead of "api" for the Zed inference URL. Both resolve
+	// to the same IP in the desktop's /etc/hosts, but "outer-api" survives
+	// Helix-in-Helix scenarios where an inner compose stack shadows "api".
 	if strings.Contains(helixAPIURL, "://api:") {
 		if _, err := net.LookupHost("outer-api"); err == nil {
 			helixAPIURL = strings.Replace(helixAPIURL, "://api:", "://outer-api:", 1)
-			log.Info().Str("url", helixAPIURL).Msg("Helix-in-Helix: rewrote API URL for Zed config")
+			log.Info().Str("url", helixAPIURL).Msg("Rewrote API URL to outer-api for Zed config")
 		}
 	}
 
