@@ -209,13 +209,21 @@ export default function Onboarding() {
   }, [providers])
   const hasUserProviders = connectedProviderIds.size > 0
 
-  // Auto-complete provider step if providers already exist on initial load
+  // Check if any providers (including system/global) have enabled models
+  const hasAnyEnabledModels = useMemo(() => {
+    if (!providers) return false
+    return providers.some(p =>
+      (p.available_models || []).some(m => m.enabled && m.type === 'chat')
+    )
+  }, [providers])
+
+  // Auto-complete provider step if any providers already exist on initial load
+  // (either user-configured or system/global providers)
   useEffect(() => {
     if (initialProvidersChecked.current || isLoadingProviders || !providers) return
     initialProvidersChecked.current = true
 
-    const hasUser = providers.some(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser)
-    if (hasUser) {
+    if (hasAnyEnabledModels) {
       setCompletedSteps(prev => new Set([...prev, 1]))
       if (activeStep === 1) {
         setActiveStep(2)
