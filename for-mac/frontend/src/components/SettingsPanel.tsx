@@ -386,13 +386,13 @@ export function SettingsPanel({
             <div className="form-group">
               <label className="form-label">Helix URL</label>
               <div className="form-hint" style={{ marginBottom: 6 }}>
-                {exposeOnNetwork && s.expose_on_network
+                {exposeOnNetwork
                   ? 'Share this URL with anyone on your local network.'
                   : 'Access Helix in your browser.'}
               </div>
               {(() => {
-                const port = s.api_port || 41080;
-                const displayURL = lanIP ? `http://${lanIP}:${port}` : `http://localhost:${port}`;
+                const port = apiPort || 41080;
+                const displayURL = (exposeOnNetwork && lanIP) ? `http://${lanIP}:${port}` : `http://localhost:${port}`;
                 return (
                   <div style={{ display: 'flex', gap: 6 }}>
                     <input

@@ -96,6 +96,11 @@ type VMManager struct {
 	// Used to gate API restarts in injectDesktopSecret — during boot, we don't
 	// want to restart just the API before the full stack is up.
 	stackStarted bool
+	// envUpdated is set by injectDesktopSecret when .env.vm was modified during
+	// boot (before stack start). startHelixStack checks this: if containers are
+	// already running (Docker auto-restart from a non-clean shutdown), it restarts
+	// them to pick up the new env values.
+	envUpdated bool
 }
 
 // getSpiceSocketPath returns the path for the SPICE Unix socket
@@ -571,6 +576,7 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 	zfsInitialized := false
 	secretInjected := false
 	vm.stackStarted = false
+	vm.envUpdated = false
 	stackStartedAt := time.Time{}
 	apiReady := false
 	apiCheckCount := 0
@@ -787,7 +793,21 @@ fi
 	if err != nil {
 		return fmt.Errorf("failed to start Helix stack: %w (output: %s)", err, string(out))
 	}
-	log.Printf("Helix stack: %s", strings.TrimSpace(string(out)))
+	outStr := strings.TrimSpace(string(out))
+	log.Printf("Helix stack: %s", outStr)
+
+	// If containers were auto-started by Docker (non-clean shutdown) and
+	// injectDesktopSecret() updated the env, restart the API to pick up
+	// the new values. We do a full `up -d` instead of just restarting API
+	// to ensure all containers read the updated .env.
+	if strings.Contains(outStr, "ALREADY_RUNNING") && vm.envUpdated {
+		log.Printf("Containers already running with stale env — restarting stack to apply updated settings")
+		restart := vm.sshCommand("cd ~/helix && docker compose -f docker-compose.dev.yaml up -d --force-recreate 2>&1")
+		restartOut, _ := restart.CombinedOutput()
+		log.Printf("Stack restart: %s", strings.TrimSpace(string(restartOut)))
+		vm.envUpdated = false
+	}
+
 	return nil
 }
 
@@ -1059,17 +1079,19 @@ fi
 	}
 	outStr := string(out)
 	if strings.Contains(outStr, "ENV_UPDATED") {
-		// Only restart API if the full stack is already running. During boot,
-		// the stack hasn't started yet — restarting just the API here would
-		// cause startHelixStack() to see an API container and skip starting
-		// the rest (postgres, keycloak, etc.), leading to a boot hang.
 		if vm.stackStarted {
+			// Stack is already running (runtime settings change, e.g. user
+			// activated a license key). Restart API to pick up new env.
 			log.Printf("Desktop secret injected into .env.vm — restarting API container")
 			restart := vm.sshCommand("cd ~/helix && docker compose -f docker-compose.dev.yaml down api && docker compose -f docker-compose.dev.yaml up -d api 2>&1 || true")
 			restartOut, _ := restart.CombinedOutput()
 			log.Printf("API restart: %s", string(restartOut))
 		} else {
-			log.Printf("Desktop secret injected into .env.vm — stack not started yet, skipping API restart")
+			// During boot — mark env as updated so startHelixStack() can
+			// restart containers if they were auto-started by Docker with
+			// stale env from a previous non-clean shutdown.
+			vm.envUpdated = true
+			log.Printf("Desktop secret injected into .env.vm — flagged for restart if containers already running")
 		}
 	}
 	if strings.Contains(outStr, "PASS_UPDATED") {
