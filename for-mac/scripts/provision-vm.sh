@@ -37,7 +37,7 @@ set -euo pipefail
 VM_NAME="helix-desktop"
 VM_DIR="${HELIX_VM_DIR:-/Volumes/Big/helix-vm/${VM_NAME}}"
 DISK_SIZE="128G"      # Root disk (OS only — Docker data lives on ZFS data disk)
-CPUS=24
+CPUS=8
 MEMORY_MB=32768
 SSH_PORT="${HELIX_VM_SSH_PORT:-2223}"  # Use 2223 during provisioning to avoid conflicts
 VM_USER="ubuntu"
