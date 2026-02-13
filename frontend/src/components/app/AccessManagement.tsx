@@ -37,6 +37,8 @@ interface AccessManagementProps {
   accessGrants: TypesAccessGrant[];
   isLoading: boolean;
   isReadOnly: boolean;
+  currentUser?: { full_name?: string; email?: string; id?: string; admin?: boolean };
+  projectOwnerId?: string;
   onCreateGrant: (request: TypesCreateAccessGrantRequest) => Promise<TypesAccessGrant | null>;
   onDeleteGrant: (grantId: string) => Promise<boolean>;
 }
@@ -46,6 +48,8 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   accessGrants,
   isLoading,
   isReadOnly,
+  currentUser,
+  projectOwnerId,
   onCreateGrant,
   onDeleteGrant
 }) => {
@@ -71,8 +75,8 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
 
   // Filter grants into users and teams
   const userGrants = useMemo(() => {
-    return accessGrants.filter(grant => grant.user_id);
-  }, [accessGrants]);
+    return accessGrants.filter(grant => grant.user_id && grant.user_id !== currentUser?.id);
+  }, [accessGrants, currentUser?.id]);
 
   const teamGrants = useMemo(() => {
     return accessGrants.filter(grant => grant.team_id);
@@ -82,6 +86,10 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   const teams = useMemo(() => {
     return organization?.teams || [];
   }, [organization]);
+
+  const ownerDisplayName = currentUser?.full_name || currentUser?.email || 'You';
+  const ownerDisplayEmail = currentUser?.email || '-';
+  const hasOwnerRow = !!currentUser?.id;
 
   // Get organization members 
   const members = useMemo(() => {
@@ -196,11 +204,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
   }, [organization?.id]);
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h6">Access Management</Typography>
-      </Box>
-
+    <Box>      
       {isLoading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
           <CircularProgress />
@@ -227,12 +231,12 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                   },
                 }}
               >
-                Add User Access
+                Add User
               </Button>
             )}
           </Box>
           
-          {userGrants.length === 0 ? (
+          {!hasOwnerRow && userGrants.length === 0 ? (
             <Box sx={{ 
               border: '1px solid #353945', 
               borderRadius: 2, 
@@ -265,7 +269,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
               }}>
                 <PersonIcon fontSize="small" sx={{ color: '#A0AEC0' }} />
                 <Typography variant="subtitle2" sx={{ color: '#A0AEC0', fontWeight: 500 }}>
-                  Users with Access ({userGrants.length})
+                  Users with Access ({userGrants.length + (hasOwnerRow ? 1 : 0)})
                 </Typography>
               </Box>
               
@@ -319,6 +323,50 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                     </Box>
                   </Box>
                   <Box component="tbody">
+                    {hasOwnerRow && (
+                      <Box
+                        component="tr"
+                        sx={{
+                          bgcolor: '#1E2028',
+                          borderBottom: userGrants.length > 0 ? '1px solid #353945' : 'none'
+                        }}
+                      >
+                        <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
+                          <Typography
+                            sx={{
+                              color: '#7D8597',
+                              fontWeight: 500,
+                              fontSize: '0.875rem'
+                            }}
+                          >
+                            {ownerDisplayName}
+                          </Typography>
+                        </Box>
+                        <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
+                          <Typography
+                            sx={{
+                              color: '#6B7280',
+                              fontSize: '0.875rem'
+                            }}
+                          >
+                            {ownerDisplayEmail}
+                          </Typography>
+                        </Box>
+                        <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
+                          <Chip
+                            label={projectOwnerId && currentUser?.id === projectOwnerId ? 'Owner' : 'You'}
+                            size="small"
+                            sx={{
+                              mr: 0.5,
+                              mb: 0.5,
+                              backgroundColor: '#374151',
+                              color: '#D1D5DB'
+                            }}
+                          />
+                        </Box>
+                        {!isReadOnly && <Box component="td" sx={{ p: 2, verticalAlign: 'top' }} />}
+                      </Box>
+                    )}
                     {userGrants.map((grant, index) => {
                       const user = (grant.user || {}) as any
                       return (
@@ -410,7 +458,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                   },
                 }}
               >
-                Add Team Access
+                Add Team
               </Button>
             )}
           </Box>
@@ -653,7 +701,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
 
       {/* Add User Access Dialog */}
       <Dialog open={openUserDialog} onClose={handleCloseUserDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>Add User Access</DialogTitle>
+        <DialogTitle>Add User</DialogTitle>
         <DialogContent>
           <FormControl fullWidth sx={{ mb: 3, mt: 2 }}>
             <InputLabel id="user-select-label">User</InputLabel>

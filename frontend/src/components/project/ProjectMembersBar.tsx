@@ -26,11 +26,15 @@ interface MemberInfo {
 interface ProjectMembersAvatarsProps {
   members: MemberInfo[];
   overflowCount: number;
+  onClick?: () => void;
 }
 
-const ProjectMembersAvatars: FC<ProjectMembersAvatarsProps> = ({ members, overflowCount }) => {
+const ProjectMembersAvatars: FC<ProjectMembersAvatarsProps> = ({ members, overflowCount, onClick }) => {
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+    <Box
+      onClick={onClick}
+      sx={{ display: 'flex', alignItems: 'center', cursor: onClick ? 'pointer' : undefined }}
+    >
       {members.map((member, index) => (
         member.isPlaceholder ? (
           <Avatar
@@ -99,6 +103,8 @@ interface InviteDialogProps {
   projectId: string;
   organizationId?: string;
   isOwnerOrAdmin: boolean;
+  currentUser?: { full_name?: string; email?: string; id?: string; admin?: boolean };
+  projectOwnerId?: string;
   accessGrants: TypesAccessGrant[];
   onCreateGrant: (request: TypesCreateAccessGrantRequest) => Promise<TypesAccessGrant | null>;
   onDeleteGrant: (grantId: string) => Promise<boolean>;
@@ -110,6 +116,8 @@ const InviteDialog: FC<InviteDialogProps> = ({
   projectId,
   organizationId,
   isOwnerOrAdmin,
+  currentUser,
+  projectOwnerId,
   accessGrants,
   onCreateGrant,
   onDeleteGrant,
@@ -120,7 +128,7 @@ const InviteDialog: FC<InviteDialogProps> = ({
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <PeopleIcon />
-            Members & Access
+            Manage Access
           </Box>
           <IconButton size="small" onClick={onClose} aria-label="close">
             <X size={18} />
@@ -134,6 +142,8 @@ const InviteDialog: FC<InviteDialogProps> = ({
             accessGrants={accessGrants}
             isLoading={false}
             isReadOnly={!isOwnerOrAdmin}
+            currentUser={currentUser}
+            projectOwnerId={projectOwnerId}
             onCreateGrant={onCreateGrant}
             onDeleteGrant={onDeleteGrant}
           />
@@ -204,7 +214,7 @@ const ProjectMembersBar: FC<ProjectMembersBarProps> = ({
   return (
     <>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <ProjectMembersAvatars members={members} overflowCount={overflowCount} />
+        <ProjectMembersAvatars members={members} overflowCount={overflowCount} onClick={onOpenInvite} />
         <InviteButton onClick={onOpenInvite} />
       </Box>
 
@@ -214,6 +224,8 @@ const ProjectMembersBar: FC<ProjectMembersBarProps> = ({
         projectId={projectId}
         organizationId={organizationId}
         isOwnerOrAdmin={isOwnerOrAdmin}
+        currentUser={currentUser}
+        projectOwnerId={projectOwnerId}
         accessGrants={accessGrants}
         onCreateGrant={onCreateGrant}
         onDeleteGrant={onDeleteGrant}
