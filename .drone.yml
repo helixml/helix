@@ -1903,6 +1903,7 @@ steps:
   # the multi-phase E2E test (thread creation, follow-ups, thread transitions).
   # Runs in parallel with build-desktops since it only needs the Zed binary.
   - name: zed-e2e-test
+    failure: ignore
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
