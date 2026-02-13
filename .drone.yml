@@ -988,7 +988,11 @@ steps:
 ---
 kind: pipeline
 type: docker
-name: build-haystack
+name: build-haystack-amd64
+
+platform:
+  os: linux
+  arch: amd64
 
 trigger:
   ref:
@@ -1009,6 +1013,7 @@ steps:
       context: haystack_service
       dockerfile: haystack_service/Dockerfile
       auto_tag: true
+      auto_tag_suffix: linux-amd64
       daemon_off: true
       pull_image: true
       registry: registry.helixml.tech
@@ -1026,6 +1031,94 @@ steps:
         include:
           - refs/heads/main
           - refs/tags/*
+
+---
+kind: pipeline
+type: docker
+name: build-haystack-arm64
+
+platform:
+  os: linux
+  arch: arm64
+
+trigger:
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+  - name: publish-image
+    image: docker:cli
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="$${DRONE_TAG#v}"
+        else
+          VERSION="latest"
+        fi
+        docker build --pull --provenance=false \
+          -f haystack_service/Dockerfile \
+          --build-arg APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}} \
+          -t registry.helixml.tech/helix/haystack:$${VERSION}-linux-arm64 \
+          haystack_service
+        docker push registry.helixml.tech/helix/haystack:$${VERSION}-linux-arm64
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+
+---
+kind: pipeline
+type: docker
+name: manifest-haystack
+
+depends_on:
+  - build-haystack-amd64
+  - build-haystack-arm64
+
+trigger:
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+  - name: manifest
+    image: docker:cli
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="$${DRONE_TAG#v}"
+        else
+          VERSION="latest"
+        fi
+        REPO="registry.helixml.tech/helix/haystack"
+        docker manifest create --amend $${REPO}:$${VERSION} \
+          $${REPO}:$${VERSION}-linux-amd64 \
+          $${REPO}:$${VERSION}-linux-arm64
+        docker manifest push $${REPO}:$${VERSION}
+        echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
 
 ---
 kind: pipeline
@@ -1225,7 +1318,11 @@ steps:
 ---
 kind: pipeline
 type: docker
-name: build-typesense_baked_models
+name: build-typesense-amd64
+
+platform:
+  os: linux
+  arch: amd64
 
 trigger:
   ref:
@@ -1239,12 +1336,13 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-  - name: publish-typesense_baked_models
+  - name: publish-typesense
     image: plugins/docker
     pull: always
     settings:
       dockerfile: Dockerfile.typesense
       auto_tag: true
+      auto_tag_suffix: linux-amd64
       daemon_off: true
       pull_image: true
       registry: registry.helixml.tech
@@ -1260,6 +1358,93 @@ steps:
         include:
           - refs/heads/main
           - refs/tags/*
+
+---
+kind: pipeline
+type: docker
+name: build-typesense-arm64
+
+platform:
+  os: linux
+  arch: arm64
+
+trigger:
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+  - name: publish-typesense
+    image: docker:cli
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="$${DRONE_TAG#v}"
+        else
+          VERSION="latest"
+        fi
+        docker build --pull --provenance=false \
+          -f Dockerfile.typesense \
+          -t registry.helixml.tech/helix/typesense:$${VERSION}-linux-arm64 \
+          .
+        docker push registry.helixml.tech/helix/typesense:$${VERSION}-linux-arm64
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+
+---
+kind: pipeline
+type: docker
+name: manifest-typesense
+
+depends_on:
+  - build-typesense-amd64
+  - build-typesense-arm64
+
+trigger:
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+  - name: manifest
+    image: docker:cli
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="$${DRONE_TAG#v}"
+        else
+          VERSION="latest"
+        fi
+        REPO="registry.helixml.tech/helix/typesense"
+        docker manifest create --amend $${REPO}:$${VERSION} \
+          $${REPO}:$${VERSION}-linux-amd64 \
+          $${REPO}:$${VERSION}-linux-arm64
+        docker manifest push $${REPO}:$${VERSION}
+        echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
 
 ---
 kind: pipeline
@@ -1493,7 +1678,11 @@ services:
 # ====================================================================
 kind: pipeline
 type: docker
-name: build-sandbox
+name: build-sandbox-amd64
+
+platform:
+  os: linux
+  arch: amd64
 
 trigger:
   event:
@@ -1799,30 +1988,28 @@ steps:
         echo "Building helix-sway..."
         docker build --pull --provenance=false \
           -f Dockerfile.sway-helix \
-          -t registry.helixml.tech/helix/helix-sway:$${VERSION} \
-          -t registry.helixml.tech/helix/helix-sway:latest \
+          -t registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-amd64 \
           .
-        docker push registry.helixml.tech/helix/helix-sway:$${VERSION}
-        echo "helix-sway:$${VERSION} pushed to registry"
+        docker push registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-amd64
+        echo "helix-sway:$${VERSION}-linux-amd64 pushed to registry"
       # Build and push helix-ubuntu
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
         echo "Building helix-ubuntu..."
         docker build --pull --provenance=false \
           -f Dockerfile.ubuntu-helix \
-          -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION} \
-          -t registry.helixml.tech/helix/helix-ubuntu:latest \
+          -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64 \
           .
-        docker push registry.helixml.tech/helix/helix-ubuntu:$${VERSION}
-        echo "helix-ubuntu:$${VERSION} pushed to registry"
+        docker push registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64
+        echo "helix-ubuntu:$${VERSION}-linux-amd64 pushed to registry"
       # Write version refs for sandbox
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
         mkdir -p sandbox-images
-        echo "registry.helixml.tech/helix/helix-sway:$${VERSION}" > sandbox-images/helix-sway.ref
-        echo "registry.helixml.tech/helix/helix-ubuntu:$${VERSION}" > sandbox-images/helix-ubuntu.ref
-        echo "$${VERSION}" > sandbox-images/helix-sway.version
-        echo "$${VERSION}" > sandbox-images/helix-ubuntu.version
+        echo "registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-amd64" > sandbox-images/helix-sway.ref
+        echo "registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.ref
+        echo "$${VERSION}-linux-amd64" > sandbox-images/helix-sway.version
+        echo "$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.version
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1846,10 +2033,9 @@ steps:
         COMMIT=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         echo "Building sandbox with version: $${VERSION}, commit: $${COMMIT}"
         docker build --pull -f Dockerfile.sandbox \
-          -t helix-sandbox:latest \
-          -t helix-sandbox:$${VERSION} \
-          -t registry.helixml.tech/helix/helix-sandbox:$${COMMIT} \
-          -t registry.helixml.tech/helix/helix-sandbox:$${VERSION} \
+          -t helix-sandbox:$${VERSION}-linux-amd64 \
+          -t registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-amd64 \
+          -t registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-amd64 \
           .
         echo "Sandbox image built successfully"
         docker images helix-sandbox
@@ -1879,14 +2065,11 @@ steps:
         COMMIT=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         echo "Logging in to registry..."
         echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-        echo "Pushing helix-sandbox:$${COMMIT}..."
-        docker push registry.helixml.tech/helix/helix-sandbox:$${COMMIT}
+        echo "Pushing helix-sandbox:$${COMMIT}-linux-amd64..."
+        docker push registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-amd64
         if [ "$${IS_RELEASE}" = "true" ]; then
-          echo "Pushing release tag: $${VERSION}..."
-          docker push registry.helixml.tech/helix/helix-sandbox:$${VERSION}
-          echo "Tagging and pushing latest..."
-          docker tag helix-sandbox:$${VERSION} registry.helixml.tech/helix/helix-sandbox:latest
-          docker push registry.helixml.tech/helix/helix-sandbox:latest
+          echo "Pushing release tag: $${VERSION}-linux-amd64..."
+          docker push registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-amd64
         fi
         echo "Push complete!"
     volumes:
@@ -1895,3 +2078,407 @@ steps:
     depends_on:
       - build-sandbox
       - zed-e2e-test
+
+---
+# ====================================================================
+# ARM64 Sandbox Pipeline
+# Mirrors build-sandbox-amd64 but runs on macOS Docker Desktop (flight)
+# Key differences:
+# - Uses docker:cli (not plugins/docker) for all steps
+# - Volume host paths under /Volumes/Big/drone-cache/ (Docker Desktop VM mount)
+# - DinD volume paths also use /Volumes/Big/drone-cache/
+# - --provenance=false on all docker builds
+# - --build-arg CUDA_BASE_IMAGE=ubuntu:25.10 for ubuntu-helix (no CUDA on ARM)
+# - Skips zed-e2e-test (add later)
+# ====================================================================
+kind: pipeline
+type: docker
+name: build-sandbox-arm64
+
+platform:
+  os: linux
+  arch: arm64
+
+trigger:
+  event:
+    - push
+    - tag
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+  - name: sandbox-build-cache
+    host:
+      path: /Volumes/Big/drone-cache/sandbox-build
+  - name: cargo-cache
+    host:
+      path: /Volumes/Big/drone-cache/cargo
+  - name: npm-cache
+    host:
+      path: /Volumes/Big/drone-cache/npm
+
+steps:
+  # Step 1: Clone external repositories (same as amd64)
+  - name: clone-dependencies
+    image: alpine/git:latest
+    commands:
+      - apk add --no-cache flock
+      - mkdir -p /drone/src/external /drone/src/cache
+      - |
+        . /drone/src/sandbox-versions.txt
+        echo "Pinned versions: ZED=$${ZED_COMMIT} QWEN=$${QWEN_COMMIT}"
+        echo "$${ZED_COMMIT}" > /drone/src/zed-commit.txt
+        echo "$${QWEN_COMMIT}" > /drone/src/qwen-code-commit.txt
+      - |
+        . /drone/src/sandbox-versions.txt
+        ZED_HEAD=$$(git ls-remote https://github.com/helixml/zed.git HEAD | cut -f1)
+        QWEN_HEAD=$$(git ls-remote https://github.com/helixml/qwen-code.git HEAD | cut -f1)
+        if [ "$${ZED_COMMIT}" != "$${ZED_HEAD}" ]; then
+          echo "⚠️  ZED_COMMIT is behind upstream HEAD ($${ZED_HEAD:0:12})"
+        fi
+        if [ "$${QWEN_COMMIT}" != "$${QWEN_HEAD}" ]; then
+          echo "⚠️  QWEN_COMMIT is behind upstream HEAD ($${QWEN_HEAD:0:12})"
+        fi
+      - |
+        . /drone/src/sandbox-versions.txt
+        ZED_SHORT=$${ZED_COMMIT:0:12}
+        flock /drone/src/cache/zed-source.lock -c "
+          if [ -f '/drone/src/cache/zed-$${ZED_SHORT}/zed' ] && [ -f '/drone/src/cache/zed-$${ZED_SHORT}/app-icon.png' ]; then
+            echo '✓ Zed binary+icon cached for $${ZED_SHORT}'
+          else
+            echo 'Cloning Zed at commit $${ZED_COMMIT}...'
+            rm -rf /drone/src/cache/zed-source
+            mkdir -p /drone/src/cache/zed-source
+            cd /drone/src/cache/zed-source
+            git init
+            git fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
+            git checkout FETCH_HEAD
+          fi
+        "
+      - |
+        . /drone/src/sandbox-versions.txt
+        QWEN_SHORT=$${QWEN_COMMIT:0:12}
+        flock /drone/src/cache/qwen-source.lock -c "
+          if [ -f '/drone/src/cache/qwen-$${QWEN_SHORT}/dist/index.js' ]; then
+            echo '✓ qwen-code cached for $${QWEN_SHORT}'
+          else
+            echo 'Cloning qwen-code at commit $${QWEN_COMMIT}...'
+            rm -rf /drone/src/cache/qwen-source
+            mkdir -p /drone/src/cache/qwen-source
+            cd /drone/src/cache/qwen-source
+            git init
+            git fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
+            git checkout FETCH_HEAD
+          fi
+        "
+      - echo "=== Dependency versions ==="
+      - echo "Zed:" && cat /drone/src/zed-commit.txt
+      - echo "qwen-code:" && cat /drone/src/qwen-code-commit.txt
+    volumes:
+      - name: sandbox-build-cache
+        path: /drone/src/cache
+
+  # Step 2: Build qwen-code (same as amd64)
+  - name: build-qwen-code
+    image: node:20-slim
+    commands:
+      - apt-get update && apt-get install -y git flock && rm -rf /var/lib/apt/lists/*
+      - |
+        QWEN_COMMIT=$$(cat /drone/src/qwen-code-commit.txt | head -c 12)
+        flock /drone/src/cache/qwen-build.lock -c "
+          if [ -f '/drone/src/cache/qwen-$${QWEN_COMMIT}/dist/index.js' ]; then
+            echo 'Using cached qwen-code for commit $${QWEN_COMMIT}'
+            mkdir -p /drone/src/qwen-code-build
+            cp -r /drone/src/cache/qwen-$${QWEN_COMMIT}/* /drone/src/qwen-code-build/
+            exit 0
+          fi
+
+          echo 'Building qwen-code for commit $${QWEN_COMMIT}...'
+          mkdir -p /drone/src/qwen-code-build
+          cd /drone/src/cache/qwen-source
+          npm ci --ignore-scripts
+          npm run bundle
+
+          cp -r package.json package-lock.json dist/ /drone/src/qwen-code-build/
+          cp -r packages/ /drone/src/qwen-code-build/ 2>/dev/null || true
+          cp -r node_modules/ /drone/src/qwen-code-build/
+          cat /drone/src/qwen-code-commit.txt > /drone/src/qwen-code-build/.git-commit-hash
+          echo 'qwen-code build complete'
+          ls -la /drone/src/qwen-code-build/
+
+          mkdir -p /drone/src/cache/qwen-$${QWEN_COMMIT}
+          cp -r /drone/src/qwen-code-build/* /drone/src/cache/qwen-$${QWEN_COMMIT}/
+        "
+      - mkdir -p qwen-code-build && cp -r /drone/src/qwen-code-build/* qwen-code-build/ 2>/dev/null || true
+    volumes:
+      - name: sandbox-build-cache
+        path: /drone/src/cache
+      - name: npm-cache
+        path: /root/.npm
+    depends_on:
+      - clone-dependencies
+
+  # Step 3: Build Zed binary (DinD with macOS Docker Desktop paths)
+  - name: build-zed
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    commands:
+      - apk add --no-cache flock
+      - |
+        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
+        CACHE_KEY="zed-$${ZED_COMMIT}"
+        flock /drone/src/cache/zed-build.lock -c "
+          if [ -f '/drone/src/cache/$${CACHE_KEY}/zed' ] && [ -f '/drone/src/cache/$${CACHE_KEY}/app-icon.png' ]; then
+            echo 'Using cached Zed binary + icon for commit $${ZED_COMMIT}'
+            mkdir -p zed-build
+            cp /drone/src/cache/$${CACHE_KEY}/zed zed-build/zed
+            cp /drone/src/cache/$${CACHE_KEY}/app-icon.png zed-build/app-icon.png
+            chmod +x zed-build/zed
+            exit 0
+          fi
+
+          echo 'Building Zed binary (this may take 15-20 minutes on first run)...'
+
+          docker build --pull --provenance=false -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
+
+          mkdir -p /drone/src/cache/$${CACHE_KEY}
+          docker run --rm \\
+            -v '/Volumes/Big/drone-cache/sandbox-build/zed-source:/zed:ro' \\
+            -v '/Volumes/Big/drone-cache/cargo/registry:/root/.cargo/registry' \\
+            -v '/Volumes/Big/drone-cache/cargo/git:/root/.cargo/git' \\
+            -v '/Volumes/Big/drone-cache/cargo/zed-target:/zed-target' \\
+            -v \"/Volumes/Big/drone-cache/sandbox-build/$${CACHE_KEY}:/output\" \\
+            -w /zed \\
+            zed-builder:ubuntu25 \\
+            bash -c '
+              export CARGO_TARGET_DIR=/zed-target
+              RUSTFLAGS=\"-C link-arg=-s\" cargo build --locked --release --features external_websocket_sync
+              cp /zed-target/release/zed /output/zed
+              cp /zed/crates/zed/resources/app-icon.png /output/app-icon.png
+            '
+
+          ls -la /drone/src/cache/$${CACHE_KEY}/
+
+          mkdir -p zed-build
+          cp /drone/src/cache/$${CACHE_KEY}/zed zed-build/zed
+          cp /drone/src/cache/$${CACHE_KEY}/app-icon.png zed-build/app-icon.png
+          chmod +x zed-build/zed
+        "
+      - chmod +x zed-build/zed
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+      - name: sandbox-build-cache
+        path: /drone/src/cache
+      - name: cargo-cache
+        path: /drone/src/cargo-registry
+    depends_on:
+      - clone-dependencies
+
+  # Step 4: Build and push desktop images (arm64, with CUDA_BASE_IMAGE override)
+  - name: build-desktops
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        echo "Building ARM64 desktop images with version: $${VERSION}"
+      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+      # Build and push helix-sway (arm64)
+      - |
+        VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
+        echo "Building helix-sway (arm64)..."
+        docker build --pull --provenance=false \
+          -f Dockerfile.sway-helix \
+          -t registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-arm64 \
+          .
+        docker push registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-arm64
+        echo "helix-sway:$${VERSION}-linux-arm64 pushed to registry"
+      # Build and push helix-ubuntu (arm64, no CUDA)
+      - |
+        VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
+        echo "Building helix-ubuntu (arm64, no CUDA)..."
+        docker build --pull --provenance=false \
+          -f Dockerfile.ubuntu-helix \
+          --build-arg CUDA_BASE_IMAGE=ubuntu:25.10 \
+          -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64 \
+          .
+        docker push registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64
+        echo "helix-ubuntu:$${VERSION}-linux-arm64 pushed to registry"
+      # Write version refs for sandbox
+      - |
+        VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
+        mkdir -p sandbox-images
+        echo "registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-arm64" > sandbox-images/helix-sway.ref
+        echo "registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64" > sandbox-images/helix-ubuntu.ref
+        echo "$${VERSION}-linux-arm64" > sandbox-images/helix-sway.version
+        echo "$${VERSION}-linux-arm64" > sandbox-images/helix-ubuntu.version
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    depends_on:
+      - build-qwen-code
+      - build-zed
+
+  # Step 5: Build sandbox image (arm64)
+  - name: build-sandbox
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    commands:
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        COMMIT=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        echo "Building ARM64 sandbox with version: $${VERSION}, commit: $${COMMIT}"
+        docker build --pull --provenance=false -f Dockerfile.sandbox \
+          -t helix-sandbox:$${VERSION}-linux-arm64 \
+          -t registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-arm64 \
+          -t registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-arm64 \
+          .
+        echo "ARM64 sandbox image built successfully"
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    depends_on:
+      - build-desktops
+
+  # Step 6: Push to registry (arm64)
+  - name: push-sandbox
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+          IS_RELEASE="true"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+          IS_RELEASE="false"
+        fi
+        COMMIT=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        echo "Logging in to registry..."
+        echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+        echo "Pushing helix-sandbox:$${COMMIT}-linux-arm64..."
+        docker push registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-arm64
+        if [ "$${IS_RELEASE}" = "true" ]; then
+          echo "Pushing release tag: $${VERSION}-linux-arm64..."
+          docker push registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-arm64
+        fi
+        echo "ARM64 push complete!"
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    depends_on:
+      - build-sandbox
+
+---
+# ====================================================================
+# Multi-arch manifest pipelines for sandbox and desktop images
+# ====================================================================
+kind: pipeline
+type: docker
+name: manifest-sandbox
+
+depends_on:
+  - build-sandbox-amd64
+  - build-sandbox-arm64
+
+trigger:
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+  - name: manifest-helix-sandbox
+    image: docker:cli
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        REPO="registry.helixml.tech/helix/helix-sandbox"
+        echo "Creating multi-arch manifest for $${REPO}:$${VERSION}"
+        docker manifest create --amend $${REPO}:$${VERSION} \
+          $${REPO}:$${VERSION}-linux-amd64 \
+          $${REPO}:$${VERSION}-linux-arm64
+        docker manifest push $${REPO}:$${VERSION}
+        echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+
+  - name: manifest-helix-sway
+    image: docker:cli
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        REPO="registry.helixml.tech/helix/helix-sway"
+        echo "Creating multi-arch manifest for $${REPO}:$${VERSION}"
+        docker manifest create --amend $${REPO}:$${VERSION} \
+          $${REPO}:$${VERSION}-linux-amd64 \
+          $${REPO}:$${VERSION}-linux-arm64
+        docker manifest push $${REPO}:$${VERSION}
+        echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+
+  - name: manifest-helix-ubuntu
+    image: docker:cli
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        REPO="registry.helixml.tech/helix/helix-ubuntu"
+        echo "Creating multi-arch manifest for $${REPO}:$${VERSION}"
+        docker manifest create --amend $${REPO}:$${VERSION} \
+          $${REPO}:$${VERSION}-linux-amd64 \
+          $${REPO}:$${VERSION}-linux-arm64
+        docker manifest push $${REPO}:$${VERSION}
+        echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
