@@ -2557,10 +2557,7 @@ steps:
       - security unlock-keychain -p "$KEYCHAIN_PASSWORD" /Users/luke/Library/Keychains/Helix-Dev.keychain-db
       - security list-keychains -d user -s /Users/luke/Library/Keychains/Helix-Dev.keychain-db /Users/luke/Library/Keychains/login.keychain-db
       # Create .env.signing for create-dmg's signing step
-      - |
-        cat > for-mac/.env.signing << ENVEOF
-        APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY
-        ENVEOF
+      - echo "APPLE_SIGNING_IDENTITY='$APPLE_SIGNING_IDENTITY'" > for-mac/.env.signing
       # Determine version
       - |
         if [ -n "${DRONE_TAG}" ]; then
