@@ -12,6 +12,7 @@ import {
   GetSettings,
   GetScanoutStats,
   GetLicenseStatus,
+  StartVM,
 } from "../wailsjs/go/main/App";
 import {
   EventsOn,
@@ -151,6 +152,8 @@ export function App() {
         setNeedsDownload(false);
         setVmImageReady(true);
         setDownloadProgress(null);
+        // Auto-start VM after download completes
+        StartVM().catch((err: unknown) => console.error("Auto-start after download failed:", err));
       } else if (progress.status === "error") {
         setDownloadProgress(progress);
       } else {
