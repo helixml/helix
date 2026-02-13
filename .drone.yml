@@ -2524,10 +2524,11 @@ steps:
         from_secret: keychain_password
     commands:
       # Unlock CI keychain for codesign access to Developer ID cert
-      - security unlock-keychain -p "$KEYCHAIN_PASSWORD" ~/Library/Keychains/Helix-Dev.keychain-db
-      # Ensure CI keychain is in the search list so codesign finds the cert
-      - security list-keychains -d user -s ~/Library/Keychains/Helix-Dev.keychain-db ~/Library/Keychains/login.keychain-db
+      # Must use absolute path — exec runner sets HOME to a temp dir
+      - security unlock-keychain -p "$KEYCHAIN_PASSWORD" /Users/luke/Library/Keychains/Helix-Dev.keychain-db
+      - security list-keychains -d user -s /Users/luke/Library/Keychains/Helix-Dev.keychain-db /Users/luke/Library/Keychains/login.keychain-db
       # Build the Wails app + package QEMU + frameworks + EFI firmware + sign
+      - export HOME=/Users/luke
       - cd for-mac
       - ./scripts/build-helix-app.sh
 
@@ -2544,8 +2545,9 @@ steps:
         from_secret: r2_secret_access_key
     commands:
       # Unlock CI keychain again (each step is a fresh shell)
-      - security unlock-keychain -p "$KEYCHAIN_PASSWORD" ~/Library/Keychains/Helix-Dev.keychain-db
-      - security list-keychains -d user -s ~/Library/Keychains/Helix-Dev.keychain-db ~/Library/Keychains/login.keychain-db
+      - security unlock-keychain -p "$KEYCHAIN_PASSWORD" /Users/luke/Library/Keychains/Helix-Dev.keychain-db
+      - security list-keychains -d user -s /Users/luke/Library/Keychains/Helix-Dev.keychain-db /Users/luke/Library/Keychains/login.keychain-db
+      - export HOME=/Users/luke
       # Determine version
       - |
         if [ -n "${DRONE_TAG}" ]; then
