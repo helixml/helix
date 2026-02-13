@@ -2526,13 +2526,18 @@ steps:
       PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
       KEYCHAIN_PASSWORD:
         from_secret: keychain_password
+      APPLE_SIGNING_IDENTITY:
+        from_secret: apple_signing_identity
     commands:
+      - export HOME=/Users/luke
       # Unlock CI keychain for codesign access to Developer ID cert
-      # Must use absolute path — exec runner sets HOME to a temp dir
       - security unlock-keychain -p "$KEYCHAIN_PASSWORD" /Users/luke/Library/Keychains/Helix-Dev.keychain-db
       - security list-keychains -d user -s /Users/luke/Library/Keychains/Helix-Dev.keychain-db /Users/luke/Library/Keychains/login.keychain-db
-      # Build the Wails app + package QEMU + frameworks + EFI firmware + sign
-      - export HOME=/Users/luke
+      # Create .env.signing so build scripts use Developer ID instead of ad-hoc
+      - |
+        cat > for-mac/.env.signing << ENVEOF
+        APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY
+        ENVEOF
       - cd for-mac
       - ./scripts/build-helix-app.sh
 
@@ -2541,6 +2546,8 @@ steps:
       PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
       KEYCHAIN_PASSWORD:
         from_secret: keychain_password
+      APPLE_SIGNING_IDENTITY:
+        from_secret: apple_signing_identity
       R2_ACCOUNT_ID:
         from_secret: r2_account_id
       R2_ACCESS_KEY_ID:
@@ -2548,10 +2555,15 @@ steps:
       R2_SECRET_ACCESS_KEY:
         from_secret: r2_secret_access_key
     commands:
-      # Unlock CI keychain again (each step is a fresh shell)
+      - export HOME=/Users/luke
+      # Unlock CI keychain
       - security unlock-keychain -p "$KEYCHAIN_PASSWORD" /Users/luke/Library/Keychains/Helix-Dev.keychain-db
       - security list-keychains -d user -s /Users/luke/Library/Keychains/Helix-Dev.keychain-db /Users/luke/Library/Keychains/login.keychain-db
-      - export HOME=/Users/luke
+      # Create .env.signing for create-dmg's signing step
+      - |
+        cat > for-mac/.env.signing << ENVEOF
+        APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY
+        ENVEOF
       # Determine version
       - |
         if [ -n "${DRONE_TAG}" ]; then
@@ -2560,4 +2572,5 @@ steps:
           VERSION=$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         fi
       - cd for-mac
-      - ./scripts/create-dmg.sh --skip-styling --notarize --upload --version $VERSION
+      # Skip --notarize for now (notarize profile not in CI keychain yet)
+      - ./scripts/create-dmg.sh --skip-styling --upload --version $VERSION
