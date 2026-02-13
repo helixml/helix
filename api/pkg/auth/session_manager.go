@@ -285,9 +285,10 @@ func (sm *SessionManager) setSessionCookie(w http.ResponseWriter, sessionID stri
 	})
 }
 
-// setDesktopSessionCookie sets cookies with SameSite=None for cross-origin
-// iframe contexts (Helix Desktop WKWebView). This is necessary because
-// SameSite=Lax cookies are not sent in cross-origin iframe navigations.
+// setDesktopSessionCookie sets cookies for the Helix Desktop app.
+// Uses SameSite=Lax which is the correct setting for same-origin cookies
+// on localhost. SameSite=None requires Secure=true per the spec, and
+// browsers silently reject SameSite=None cookies without Secure.
 func (sm *SessionManager) setDesktopSessionCookie(w http.ResponseWriter, sessionID string, expiresAt time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
@@ -297,7 +298,7 @@ func (sm *SessionManager) setDesktopSessionCookie(w http.ResponseWriter, session
 		MaxAge:   int(time.Until(expiresAt).Seconds()),
 		HttpOnly: true,
 		Secure:   false, // localhost doesn't use HTTPS
-		SameSite: http.SameSiteNoneMode,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	csrfToken := generateCSRFToken()
@@ -309,7 +310,7 @@ func (sm *SessionManager) setDesktopSessionCookie(w http.ResponseWriter, session
 		MaxAge:   int(time.Until(expiresAt).Seconds()),
 		HttpOnly: false,
 		Secure:   false,
-		SameSite: http.SameSiteNoneMode,
+		SameSite: http.SameSiteLaxMode,
 	})
 }
 

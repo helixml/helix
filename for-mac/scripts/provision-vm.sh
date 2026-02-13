@@ -345,6 +345,8 @@ users:
 package_update: true
 package_upgrade: false
 
+locale: en_US.UTF-8
+
 packages:
   - ca-certificates
   - curl
@@ -356,6 +358,7 @@ packages:
   - dkms
   - python3-websockets
   - openssh-server
+  - locales
 
 runcmd:
   # Install Docker CE from official repository (includes buildx + compose)
@@ -381,6 +384,11 @@ runcmd:
   - update-grub
   - growpart /dev/vda 1 || growpart /dev/vda 2 || true
   - resize2fs /dev/vda1 || resize2fs /dev/vda2 || true
+  # Set up UTF-8 locale for serial console
+  - locale-gen en_US.UTF-8
+  - update-locale LANG=en_US.UTF-8
+  # Configure serial-getty on ttyAMA0 for clean output (no DSR queries, UTF-8)
+  - mkdir -p /etc/systemd/system/serial-getty@ttyAMA0.service.d
   - touch /var/lib/cloud/instance/provision-ready
 
 write_files:
@@ -398,6 +406,13 @@ write_files:
     content: |
       PasswordAuthentication yes
       PubkeyAuthentication yes
+  # Serial console getty override: UTF-8 mode, no DSR terminal probes, clean login prompt
+  - path: /etc/systemd/system/serial-getty@ttyAMA0.service.d/override.conf
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=-/sbin/agetty -8 --noclear --noissue --nohints %I 115200 linux
+      Environment=LANG=en_US.UTF-8
   - path: /etc/systemd/system/helix-storage-init.service
     content: |
       [Unit]
@@ -500,9 +515,9 @@ write_files:
           chown ubuntu:ubuntu /home/ubuntu/helix/.env.vm
       fi
 
-      # Start Docker now that /var/lib/docker is mounted
-      log "Starting Docker..."
-      systemctl start docker
+      # Docker starts automatically via systemd ordering (Before=docker.service).
+      # Do NOT call "systemctl start docker" here — it deadlocks because this
+      # service must complete before docker.service can start.
 
       log "Helix storage initialization complete"
 USERDATA
