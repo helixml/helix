@@ -237,7 +237,7 @@ if [ "$UPDATE" = true ]; then
     log "Pulling latest code (branch: ${BRANCH})..."
     if ! run_ssh "cd ~/helix && git fetch origin 2>&1"; then
         log "Git fetch failed — re-cloning repository..."
-        run_ssh "rm -rf ~/helix && git clone -b ${BRANCH} https://github.com/helixml/helix.git ~/helix"
+        run_ssh "sudo rm -rf ~/helix && git clone -b ${BRANCH} https://github.com/helixml/helix.git ~/helix"
     else
         run_ssh "cd ~/helix && git checkout ${BRANCH} && git pull origin ${BRANCH}"
     fi
