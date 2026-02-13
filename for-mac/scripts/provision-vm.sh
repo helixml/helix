@@ -191,23 +191,47 @@ if [ "$UPDATE" = true ]; then
     SSH_CMD="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p $SSH_PORT ${VM_USER}@localhost"
     run_ssh() { $SSH_CMD "$@"; }
 
-    # Fix the helix-storage-init.sh deadlock: the script calls "systemctl start docker"
-    # but it has Before=docker.service, creating a circular dependency.
-    # Patch it, kill the stuck process, then wait for Docker to start automatically.
+    # Fix the helix-storage-init.sh deadlock: the old script calls "systemctl start docker"
+    # but it has Before=docker.service, creating a circular dependency where docker.service
+    # waits for helix-storage-init.service to complete, but the init script waits for docker.
+    #
+    # Fix: (1) patch the script, (2) kill the stuck child, (3) wait for the init service
+    # to finish (which unblocks docker.service), (4) then start Docker.
     log "Fixing storage init script and starting Docker..."
     run_ssh "sudo sed -i '/^systemctl start docker/d' /usr/local/bin/helix-storage-init.sh" || true
     run_ssh "CHILD=\$(pgrep -f 'systemctl start docker' 2>/dev/null) && sudo kill \$CHILD 2>/dev/null" || true
-    sleep 3
-    # Docker should now start automatically via systemd ordering
+
+    # Wait for helix-storage-init to finish (it should exit quickly after we killed the stuck child)
+    INIT_WAIT=0
+    while [ $INIT_WAIT -lt 30 ]; do
+        INIT_STATE=$(run_ssh "systemctl is-active helix-storage-init 2>/dev/null" 2>/dev/null || echo "unknown")
+        if [ "$INIT_STATE" = "active" ] || [ "$INIT_STATE" = "inactive" ] || [ "$INIT_STATE" = "failed" ]; then
+            log "Storage init service: $INIT_STATE"
+            break
+        fi
+        sleep 2
+        INIT_WAIT=$((INIT_WAIT + 2))
+    done
+
+    # Now Docker should be unblocked — start it explicitly
+    run_ssh "sudo systemctl start docker" || true
     DOCKER_WAIT=0
-    while [ $DOCKER_WAIT -lt 30 ]; do
+    while [ $DOCKER_WAIT -lt 60 ]; do
         if run_ssh "systemctl is-active docker" 2>/dev/null | grep -q "^active"; then
             log "Docker is running"
             break
         fi
-        sleep 2
-        DOCKER_WAIT=$((DOCKER_WAIT + 2))
+        sleep 3
+        DOCKER_WAIT=$((DOCKER_WAIT + 3))
+        if [ $((DOCKER_WAIT % 15)) -eq 0 ]; then
+            log "Waiting for Docker... (${DOCKER_WAIT}s)"
+        fi
     done
+    if ! run_ssh "systemctl is-active docker" 2>/dev/null | grep -q "^active"; then
+        log "ERROR: Docker did not start within 60 seconds"
+        run_ssh "sudo systemctl status helix-storage-init docker 2>&1; sudo journalctl -u docker --no-pager -n 20 2>&1" || true
+        exit 1
+    fi
 
     # Pull latest code
     log "Pulling latest code (branch: ${BRANCH})..."
