@@ -896,6 +896,7 @@ steps:
       ref:
         include:
           - refs/heads/main
+          - refs/heads/multi-arch-builds
           - refs/tags/*
 
 ---
@@ -1034,6 +1035,7 @@ steps:
       ref:
         include:
           - refs/heads/main
+          - refs/heads/multi-arch-builds
           - refs/tags/*
 
 ---
@@ -1367,6 +1369,7 @@ steps:
       ref:
         include:
           - refs/heads/main
+          - refs/heads/multi-arch-builds
           - refs/tags/*
 
 ---
