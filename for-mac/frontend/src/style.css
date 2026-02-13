@@ -70,6 +70,10 @@ body {
     -webkit-user-select: none;
 }
 
+.titlebar.fullscreen {
+    padding-left: 16px;
+}
+
 .titlebar-logo {
     display: flex;
     align-items: center;
@@ -178,6 +182,24 @@ body {
 
 .upsell-sparkle {
     font-size: 12px;
+}
+
+/* ---- Trial Badge (titlebar) ---- */
+
+.trial-badge-titlebar {
+    --wails-draggable: no-drag;
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--warning);
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+    flex-shrink: 0;
+    cursor: default;
 }
 
 .titlebar-actions {
@@ -952,6 +974,122 @@ body {
 .home-download-progress {
     width: 100%;
     max-width: 400px;
+}
+
+/* ---- Download / Boot Screen (scrollable with extras) ---- */
+
+.home-placeholder.download-screen {
+    justify-content: flex-start;
+    padding: 40px 20px;
+    overflow-y: auto;
+}
+
+.download-extras {
+    width: 100%;
+    max-width: 560px;
+    margin-top: 24px;
+}
+
+.download-extras-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    color: var(--text-faded);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+}
+
+.download-extras-divider::before,
+.download-extras-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+}
+
+.demo-video-link {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid rgba(239, 46, 198, 0.25);
+    background: linear-gradient(135deg, rgba(239, 46, 198, 0.08) 0%, rgba(0, 200, 255, 0.06) 100%);
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    margin-bottom: 16px;
+    overflow: hidden;
+    padding: 0;
+    --wails-draggable: no-drag;
+}
+
+.demo-video-link:hover {
+    border-color: rgba(239, 46, 198, 0.45);
+    background: linear-gradient(135deg, rgba(239, 46, 198, 0.14) 0%, rgba(0, 200, 255, 0.1) 100%);
+    box-shadow: 0 0 12px rgba(239, 46, 198, 0.1);
+}
+
+.demo-video-thumb-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border-bottom: 1px solid rgba(239, 46, 198, 0.15);
+}
+
+.demo-video-thumb {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.demo-video-play-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-left: 3px;
+    transition: all var(--transition-fast);
+    backdrop-filter: blur(4px);
+}
+
+.demo-video-link:hover .demo-video-play-overlay {
+    background: rgba(239, 46, 198, 0.7);
+    transform: translate(-50%, -50%) scale(1.1);
+}
+
+.demo-video-text {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    width: 100%;
+}
+
+.demo-video-text svg {
+    opacity: 0.5;
+    margin-left: auto;
+    flex-shrink: 0;
+    transition: transform var(--transition-fast);
+}
+
+.demo-video-link:hover .demo-video-text svg {
+    opacity: 1;
+    transform: translateX(2px);
 }
 
 /* ---- Storage in panel ---- */

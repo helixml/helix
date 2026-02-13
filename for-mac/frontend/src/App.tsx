@@ -13,10 +13,11 @@ import {
   GetScanoutStats,
   GetLicenseStatus,
 } from '../wailsjs/go/main/App';
-import { EventsOn, EventsOff, WindowToggleMaximise, BrowserOpenURL } from '../wailsjs/runtime/runtime';
+import { EventsOn, EventsOff, WindowToggleMaximise, WindowIsFullscreen, BrowserOpenURL } from '../wailsjs/runtime/runtime';
 import { HomeView } from './views/HomeView';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ConsoleDrawer } from './components/ConsoleDrawer';
+import { getTrialRemaining } from './lib/helpers';
 
 const defaultVMStatus = new main.VMStatus({
   state: 'stopped',
@@ -77,6 +78,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -150,6 +152,23 @@ export function App() {
     };
   }, []);
 
+  // Detect macOS fullscreen mode (traffic lights disappear, so collapse padding)
+  useEffect(() => {
+    let prev = false;
+    const interval = setInterval(async () => {
+      try {
+        const fs = await WindowIsFullscreen();
+        if (fs !== prev) {
+          prev = fs;
+          setIsFullscreen(fs);
+        }
+      } catch {
+        // ignore
+      }
+    }, 200);
+    return () => clearInterval(interval);
+  }, []);
+
   // Poll for stats, and re-fetch autoLoginURL when API becomes ready
   useEffect(() => {
     let prevAPIReady = false;
@@ -187,7 +206,7 @@ export function App() {
   if (!initialized) {
     return (
       <>
-        <header className="titlebar" onDoubleClick={WindowToggleMaximise}>
+        <header className={`titlebar${isFullscreen ? ' fullscreen' : ''}`} onDoubleClick={WindowToggleMaximise}>
           <div className="titlebar-logo">
             <img src="/helix-logo.png" alt="Helix" />
             <span>Helix</span>
@@ -211,7 +230,7 @@ export function App() {
   return (
     <>
       {/* Titlebar control bar */}
-      <header className="titlebar" onDoubleClick={WindowToggleMaximise}>
+      <header className={`titlebar${isFullscreen ? ' fullscreen' : ''}`} onDoubleClick={WindowToggleMaximise}>
         <div className="titlebar-logo">
           <img src="/helix-logo.png" alt="Helix" />
           <span>Helix</span>
@@ -255,6 +274,12 @@ export function App() {
         </div>
 
         <div className="titlebar-spacer" />
+
+        {licenseStatus.state === 'trial_active' && (
+          <span className="trial-badge-titlebar" onDoubleClick={e => e.stopPropagation()}>
+            Trial: {getTrialRemaining(licenseStatus.trial_ends_at)}
+          </span>
+        )}
 
         <button
           className="upsell-banner"

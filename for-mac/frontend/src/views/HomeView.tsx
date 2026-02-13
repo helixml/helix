@@ -5,15 +5,18 @@ import {
   DownloadVMImages,
   CancelDownload,
 } from '../../wailsjs/go/main/App';
+import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { formatBytes } from '../lib/helpers';
 import { LicenseCard } from '../components/LicenseCard';
 
+const DEMO_VIDEO_URL = 'https://www.youtube.com/watch?v=_dv4V1pYbKU';
+
 const BOOT_STAGES = [
-  { prefix: 'Booting', startPct: 3, endPct: 28, durationMs: 30000 },
-  { prefix: 'Setting up storage', startPct: 30, endPct: 38, durationMs: 5000 },
-  { prefix: 'Configuring', startPct: 40, endPct: 48, durationMs: 5000 },
-  { prefix: 'Starting Helix', startPct: 50, endPct: 58, durationMs: 5000 },
-  { prefix: 'Starting app', startPct: 60, endPct: 98, durationMs: 90000 },
+  { prefix: 'Booting', startPct: 3, endPct: 25, durationMs: 45000 },
+  { prefix: 'Setting up storage', startPct: 27, endPct: 45, durationMs: 60000 },
+  { prefix: 'Configuring', startPct: 47, endPct: 55, durationMs: 15000 },
+  { prefix: 'Starting Helix', startPct: 57, endPct: 75, durationMs: 30000 },
+  { prefix: 'Starting app', startPct: 77, endPct: 98, durationMs: 120000 },
 ];
 
 interface HomeViewProps {
@@ -60,10 +63,34 @@ export function HomeView({
   if (vmStatus.state === 'starting' || (vmStatus.state === 'running' && !vmStatus.api_ready)) {
     return (
       <div className="home-view">
-        <div className="home-placeholder">
+        <div className="home-placeholder download-screen">
           <img src="/helix-logo.png" alt="Helix" className="home-logo" />
           <h2>Starting Helix</h2>
           <BootProgress stage={vmStatus.boot_stage || 'Booting VM...'} />
+          <div className="download-extras">
+            <button
+              className="demo-video-link"
+              onClick={() => BrowserOpenURL(DEMO_VIDEO_URL)}
+            >
+              <div className="demo-video-thumb-wrap">
+                <img src="/demo-thumb.png" alt="Demo video" className="demo-video-thumb" />
+                <span className="demo-video-play-overlay">&#9654;</span>
+              </div>
+              <div className="demo-video-text">
+                Watch the demo video while you wait
+                <svg viewBox="0 0 16 16" width="12" height="12">
+                  <path d="M5 3l6 5-6 5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+            </button>
+            {licenseStatus.state !== 'licensed' && (
+              <LicenseCard
+                licenseStatus={licenseStatus}
+                onLicenseUpdated={onLicenseUpdated}
+                showToast={showToast}
+              />
+            )}
+          </div>
         </div>
       </div>
     );
@@ -73,7 +100,7 @@ export function HomeView({
   if (needsDownload) {
     return (
       <div className="home-view">
-        <div className="home-placeholder">
+        <div className="home-placeholder download-screen">
           <img src="/helix-logo.png" alt="Helix" className="home-logo" />
           <h2>Welcome to Helix</h2>
           <p>
@@ -85,6 +112,31 @@ export function HomeView({
             onProgressCleared={onProgressCleared}
             showToast={showToast}
           />
+          <div className="download-extras">
+            <div className="download-extras-divider">
+              <span>While you wait</span>
+            </div>
+            <button
+              className="demo-video-link"
+              onClick={() => BrowserOpenURL(DEMO_VIDEO_URL)}
+            >
+              <div className="demo-video-thumb-wrap">
+                <img src="/demo-thumb.png" alt="Demo video" className="demo-video-thumb" />
+                <span className="demo-video-play-overlay">&#9654;</span>
+              </div>
+              <div className="demo-video-text">
+                Watch the demo video
+                <svg viewBox="0 0 16 16" width="12" height="12">
+                  <path d="M5 3l6 5-6 5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+            </button>
+            <LicenseCard
+              licenseStatus={licenseStatus}
+              onLicenseUpdated={onLicenseUpdated}
+              showToast={showToast}
+            />
+          </div>
         </div>
       </div>
     );

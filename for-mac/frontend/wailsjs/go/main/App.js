@@ -10,8 +10,8 @@ export function DownloadVMImages() {
   return window['go']['main']['App']['DownloadVMImages']();
 }
 
-export function FactoryReset() {
-  return window['go']['main']['App']['FactoryReset']();
+export function FactoryReset(arg1) {
+  return window['go']['main']['App']['FactoryReset'](arg1);
 }
 
 export function GetAutoLoginURL() {

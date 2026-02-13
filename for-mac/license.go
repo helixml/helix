@@ -32,11 +32,12 @@ type LicenseEnvelope struct {
 
 // LicenseData is the payload inside the envelope
 type LicenseData struct {
-	ID           string         `json:"id"`
-	Valid        bool           `json:"valid"`
-	Organization string         `json:"organization"`
-	Issued       time.Time      `json:"issued"`
-	ValidUntil   time.Time      `json:"valid_until"`
+	ID           string          `json:"id"`
+	Valid        bool            `json:"valid"`
+	Organization string          `json:"organization"`
+	Email        string          `json:"email,omitempty"` // Licensee email (if included by Launchpad)
+	Issued       time.Time       `json:"issued"`
+	ValidUntil   time.Time       `json:"valid_until"`
 	Features     LicenseFeatures `json:"features"`
 	Limits       LicenseLimits   `json:"limits"`
 }
@@ -110,6 +111,18 @@ func (v *LicenseValidator) GetLicenseStatus(settings AppSettings) LicenseStatus 
 		State:       "trial_active",
 		TrialEndsAt: trialEnd.Format(time.RFC3339),
 	}
+}
+
+// GetLicenseeEmail extracts the email from a valid license key, or returns "".
+func (v *LicenseValidator) GetLicenseeEmail(settings AppSettings) string {
+	if settings.LicenseKey == "" {
+		return ""
+	}
+	license, err := v.ValidateLicenseKey(settings.LicenseKey)
+	if err != nil || license == nil {
+		return ""
+	}
+	return license.Email
 }
 
 // ValidateLicenseKey validates a base64-encoded license key string

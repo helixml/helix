@@ -86,6 +86,10 @@ type VMManager struct {
 	consolePassword string
 	// License key to inject into the VM (set from AppSettings before VM start)
 	licenseKey string
+	// stackStarted tracks whether the full docker compose stack has been started.
+	// Used to gate API restarts in injectDesktopSecret — during boot, we don't
+	// want to restart just the API before the full stack is up.
+	stackStarted bool
 }
 
 // getSpiceSocketPath returns the path for the SPICE Unix socket
@@ -307,6 +311,8 @@ func (vm *VMManager) Start() error {
 	}
 	vm.status.State = VMStateStarting
 	vm.status.ErrorMsg = ""
+	vm.status.APIReady = false
+	vm.status.BootStage = ""
 	vm.statusMu.Unlock()
 
 	vm.emitStatus()
@@ -528,7 +534,10 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	// Wait for process to exit
 	err = vm.cmd.Wait()
 
+	vm.stackStarted = false
 	vm.statusMu.Lock()
+	vm.status.APIReady = false
+	vm.status.BootStage = ""
 	if ctx.Err() != nil {
 		// Normal shutdown
 		vm.status.State = VMStateStopped
@@ -555,7 +564,7 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 	sshReady := false
 	zfsInitialized := false
 	secretInjected := false
-	stackStarted := false
+	vm.stackStarted = false
 	stackStartedAt := time.Time{}
 	apiReady := false
 	apiCheckCount := 0
@@ -629,12 +638,12 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 
 			// Start the Helix compose stack after ZFS + Docker + secret are ready.
 			// ZFS init ensures Docker is running before returning.
-			if zfsInitialized && !stackStarted {
+			if zfsInitialized && !vm.stackStarted {
 				setBootStage("Starting Helix services...")
 				if err := vm.startHelixStack(); err != nil {
 					log.Printf("Helix stack start: %v", err)
 				} else {
-					stackStarted = true
+					vm.stackStarted = true
 					stackStartedAt = time.Now()
 				}
 			}
@@ -642,7 +651,7 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 			// Check if API is responding (HTTP health check, not just TCP)
 			// TCP port checks give false positives because QEMU opens the
 			// host-side port forwarding before anything is listening in the guest.
-			if stackStarted && !apiReady {
+			if vm.stackStarted && !apiReady {
 				apiCheckCount++
 				elapsed := time.Since(stackStartedAt)
 				if elapsed > apiTimeout {
@@ -777,8 +786,14 @@ fi
 }
 
 // initZFSPool initializes the ZFS pool on the data disk via SSH.
-// Creates the full ZFS layout: workspaces dataset, Docker zvol (ext4),
-// swap zvol, and config dataset for persistent state across root disk upgrades.
+// Creates the ZFS layout: workspaces dataset and config dataset for
+// persistent state across root disk upgrades.
+//
+// Host Docker runs on the root disk (NOT on a ZFS zvol). This means
+// Docker images pre-pulled during VM provisioning are preserved across
+// boots. Only sandbox inner Docker storage and workspace data use ZFS
+// for dedup benefits.
+//
 // All steps are idempotent — safe to run on every boot.
 func (vm *VMManager) initZFSPool() error {
 	script := `
@@ -818,7 +833,7 @@ fi
 sudo zpool online -e helix $(sudo zpool list -vHP helix 2>/dev/null | awk '/dev/{print $1}' | head -1) 2>/dev/null || true
 
 # =========================================================================
-# Step 2: Create datasets and zvols
+# Step 2: Create datasets
 # =========================================================================
 
 # Workspaces dataset (dedup + compression for user workspace data)
@@ -827,38 +842,17 @@ if ! sudo zfs list helix/workspaces 2>/dev/null; then
     sudo zfs create -o dedup=on -o compression=lz4 -o atime=off -o mountpoint=/helix/workspaces helix/workspaces
 fi
 
-# Docker zvol (200GB, ext4-formatted, ZFS block-level dedup)
-if ! sudo zfs list helix/docker 2>/dev/null; then
-    echo 'Creating helix/docker zvol (200GB)...'
-    sudo zfs create -V 200G -o dedup=on -o compression=lz4 -o volblocksize=64k helix/docker
-    # Wait for zvol device to appear
-    sleep 2
-    ZVOL_DEV=$(ls /dev/zvol/helix/docker 2>/dev/null || echo "/dev/zd0")
-    echo "Formatting $ZVOL_DEV as ext4..."
-    sudo mkfs.ext4 -L helix-docker "$ZVOL_DEV"
+# Docker volumes dataset — persists user data (postgres, keycloak, etc.)
+# across root disk upgrades. Mounted at /var/lib/docker/volumes/ so Docker
+# named volumes survive while images stay on root disk (pre-baked).
+if ! sudo zfs list helix/docker-volumes 2>/dev/null; then
+    echo 'Creating helix/docker-volumes dataset...'
+    sudo zfs create -o compression=lz4 -o atime=off -o mountpoint=/var/lib/docker/volumes helix/docker-volumes
 fi
-
-# Mount Docker zvol at /var/lib/docker if not already mounted
-if ! mountpoint -q /var/lib/docker 2>/dev/null; then
-    ZVOL_DEV=$(ls /dev/zvol/helix/docker 2>/dev/null || echo "/dev/zd0")
-    if [ -b "$ZVOL_DEV" ]; then
-        echo "Mounting Docker zvol at /var/lib/docker..."
-        sudo mkdir -p /var/lib/docker
-        sudo mount "$ZVOL_DEV" /var/lib/docker 2>/dev/null || {
-            # Race with fstab auto-mount — check if it got mounted anyway
-            if mountpoint -q /var/lib/docker 2>/dev/null; then
-                echo "Docker zvol already mounted (fstab race)"
-            else
-                echo "WARNING: Failed to mount Docker zvol"
-            fi
-        }
-        # Add to fstab if not already there
-        if ! grep -q 'helix-docker' /etc/fstab 2>/dev/null; then
-            echo "LABEL=helix-docker /var/lib/docker ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
-        fi
-    fi
-else
-    echo "Docker zvol already mounted at /var/lib/docker"
+# Ensure mount exists even if dataset was already created (e.g., after reboot)
+if ! mountpoint -q /var/lib/docker/volumes 2>/dev/null; then
+    sudo mkdir -p /var/lib/docker/volumes
+    sudo zfs mount helix/docker-volumes 2>/dev/null || true
 fi
 
 # Config dataset (persistent state surviving root disk swaps)
@@ -915,22 +909,15 @@ elif [ -f /helix/config/env.vm ] && [ ! -f /home/ubuntu/helix/.env.vm ]; then
 fi
 
 # =========================================================================
-# Step 4: Ensure Docker is running on the correct /var/lib/docker
+# Step 4: Ensure Docker is running
 # =========================================================================
-# Always restart Docker to ensure it uses the zvol-backed /var/lib/docker.
-# If Docker was started before the zvol mount (e.g., by systemd), it would
-# be running on the root disk and the mount replaced its working directory.
-if systemctl is-active docker >/dev/null 2>&1; then
-    # Check if Docker is already running on the zvol
-    if mountpoint -q /var/lib/docker 2>/dev/null; then
-        echo 'Docker already running on zvol'
-    else
-        echo 'Docker running but not on zvol — restarting...'
-        sudo systemctl restart docker
-    fi
-else
+# Host Docker runs on root disk (images pre-baked during provisioning).
+# Only sandbox inner Docker and workspace data use ZFS.
+if ! systemctl is-active docker >/dev/null 2>&1; then
     echo 'Starting Docker...'
     sudo systemctl start docker
+else
+    echo 'Docker already running'
 fi
 
 echo 'ZFS storage ready'
@@ -974,6 +961,18 @@ fi
 # Ensure all desktop users are admin
 if ! grep -q '^ADMIN_USER_IDS=' "$ENV_FILE" 2>/dev/null; then
     echo 'ADMIN_USER_IDS=all' >> "$ENV_FILE"
+    CHANGED=1
+fi
+
+# Enable user-configured inference providers (OpenAI, Anthropic, etc.)
+if ! grep -q '^ENABLE_CUSTOM_USER_PROVIDERS=' "$ENV_FILE" 2>/dev/null; then
+    echo 'ENABLE_CUSTOM_USER_PROVIDERS=true' >> "$ENV_FILE"
+    CHANGED=1
+fi
+
+# Identify this as the Mac Desktop edition for Launchpad telemetry
+if ! grep -q '^HELIX_EDITION=' "$ENV_FILE" 2>/dev/null; then
+    echo 'HELIX_EDITION=mac-desktop' >> "$ENV_FILE"
     CHANGED=1
 fi
 
@@ -1021,10 +1020,18 @@ fi
 	}
 	outStr := string(out)
 	if strings.Contains(outStr, "ENV_UPDATED") {
-		log.Printf("Desktop secret injected into .env.vm — restarting API container")
-		restart := vm.sshCommand("cd ~/helix && docker compose -f docker-compose.dev.yaml down api && docker compose -f docker-compose.dev.yaml up -d api 2>&1 || true")
-		restartOut, _ := restart.CombinedOutput()
-		log.Printf("API restart: %s", string(restartOut))
+		// Only restart API if the full stack is already running. During boot,
+		// the stack hasn't started yet — restarting just the API here would
+		// cause startHelixStack() to see an API container and skip starting
+		// the rest (postgres, keycloak, etc.), leading to a boot hang.
+		if vm.stackStarted {
+			log.Printf("Desktop secret injected into .env.vm — restarting API container")
+			restart := vm.sshCommand("cd ~/helix && docker compose -f docker-compose.dev.yaml down api && docker compose -f docker-compose.dev.yaml up -d api 2>&1 || true")
+			restartOut, _ := restart.CombinedOutput()
+			log.Printf("API restart: %s", string(restartOut))
+		} else {
+			log.Printf("Desktop secret injected into .env.vm — stack not started yet, skipping API restart")
+		}
 	}
 	if strings.Contains(outStr, "PASS_UPDATED") {
 		log.Printf("Console password updated for ubuntu user")

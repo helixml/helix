@@ -6,7 +6,7 @@ export function CancelDownload():Promise<void>;
 
 export function DownloadVMImages():Promise<void>;
 
-export function FactoryReset():Promise<void>;
+export function FactoryReset(arg1:boolean):Promise<void>;
 
 export function GetAutoLoginURL():Promise<string>;
 

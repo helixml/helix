@@ -42,6 +42,8 @@ type ServerConfig struct {
 	LicenseKey string `envconfig:"LICENSE_KEY"`
 	// Launchpad URL for version pings
 	LaunchpadURL string `envconfig:"LAUNCHPAD_URL" default:"https://deploy.helix.ml"`
+	// Edition identifies the deployment type (e.g., "mac-desktop", "server", "cloud")
+	Edition string `envconfig:"HELIX_EDITION" default:""`
 
 	SBMessage string `envconfig:"SB_MESSAGE" default:""`
 }

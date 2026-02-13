@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -341,8 +342,14 @@ func (a *App) ensureAuthProxy() {
 		log.Printf("[AUTH] Auth proxy started on %s", a.authProxy.GetURL())
 	}
 
-	// Authenticate (or re-authenticate)
-	if err := a.authProxy.Authenticate(secret); err != nil {
+	// Authenticate (or re-authenticate), passing the macOS user's display name
+	// and licensee email (if a valid license key is configured)
+	userName := getMacOSUserFullName()
+	var licenseeEmail string
+	if a.licenseValidator != nil {
+		licenseeEmail = a.licenseValidator.GetLicenseeEmail(a.settings.Get())
+	}
+	if err := a.authProxy.Authenticate(secret, userName, licenseeEmail); err != nil {
 		log.Printf("[AUTH] Auth proxy authentication failed: %v", err)
 	} else {
 		log.Printf("[AUTH] Auth proxy authenticated successfully")
@@ -541,9 +548,11 @@ func (a *App) GetSystemInfo() map[string]interface{} {
 	}
 }
 
-// FactoryReset stops the VM, deletes all VM disk images and settings,
-// and quits the app. On next launch it will re-download and provision from scratch.
-func (a *App) FactoryReset() error {
+// FactoryReset stops the VM, deletes VM disk images, and quits the app.
+// When fullWipe is false, settings (license key, trial, secrets) are preserved.
+// When fullWipe is true (shift-click), everything including settings is deleted.
+// On next launch it will re-download and provision from scratch.
+func (a *App) FactoryReset(fullWipe bool) error {
 	// Stop VM if running
 	if a.vm.GetStatus().State == VMStateRunning || a.vm.GetStatus().State == VMStateStarting {
 		log.Println("Factory reset: stopping VM...")
@@ -566,12 +575,16 @@ func (a *App) FactoryReset() error {
 	}
 	log.Printf("Factory reset: deleted %s", vmDir)
 
-	// Delete settings file
-	settingsPath := filepath.Join(getHelixDataDir(), "settings.json")
-	if err := os.Remove(settingsPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to delete settings: %w", err)
+	// Only delete settings on full wipe (shift-click)
+	if fullWipe {
+		settingsPath := filepath.Join(getHelixDataDir(), "settings.json")
+		if err := os.Remove(settingsPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to delete settings: %w", err)
+		}
+		log.Println("Factory reset: deleted settings.json (full wipe)")
+	} else {
+		log.Println("Factory reset: preserving settings.json")
 	}
-	log.Println("Factory reset: deleted settings.json")
 
 	log.Println("Factory reset complete — quitting app")
 
@@ -582,6 +595,19 @@ func (a *App) FactoryReset() error {
 	}()
 
 	return nil
+}
+
+// getMacOSUserFullName returns the macOS user's display name (e.g., "Luke Marsden").
+// Falls back to the system username if the full name is not available.
+func getMacOSUserFullName() string {
+	u, err := user.Current()
+	if err != nil {
+		return ""
+	}
+	if u.Name != "" {
+		return u.Name
+	}
+	return u.Username
 }
 
 // openBrowser opens a URL in the default browser

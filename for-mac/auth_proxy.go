@@ -88,9 +88,19 @@ func (p *AuthProxy) Start() error {
 
 // Authenticate calls the desktop-callback endpoint, extracts the session
 // cookie from the response, and stores it for injection into proxied requests.
-func (p *AuthProxy) Authenticate(secret string) error {
+// If userName is non-empty, it's passed to the callback so the API uses the
+// user's real name instead of a generic "Desktop Admin" label.
+// If email is non-empty (extracted from the license key), it's used as the
+// user's email instead of admin@helix-desktop.local.
+func (p *AuthProxy) Authenticate(secret string, userName string, email string) error {
 	callbackURL := fmt.Sprintf("http://localhost:%d/api/v1/auth/desktop-callback?token=%s",
-		p.targetPort, secret)
+		p.targetPort, url.QueryEscape(secret))
+	if userName != "" {
+		callbackURL += "&name=" + url.QueryEscape(userName)
+	}
+	if email != "" {
+		callbackURL += "&email=" + url.QueryEscape(email)
+	}
 
 	// Use a client that doesn't follow redirects — we just want the Set-Cookie headers
 	client := &http.Client{

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { main } from '../../wailsjs/go/models';
-import { SaveSettings, GetSettings, ResizeDataDisk, GetHelixURL, FactoryReset, GetLANAddress, ValidateLicenseKey, GetLicenseStatus } from '../../wailsjs/go/main/App';
+import { SaveSettings, GetSettings, ResizeDataDisk, GetHelixURL, FactoryReset as FactoryResetGo, GetLANAddress, ValidateLicenseKey, GetLicenseStatus } from '../../wailsjs/go/main/App';
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { formatBytes } from '../lib/helpers';
 
@@ -69,7 +69,9 @@ export function SettingsPanel({
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmResize, setConfirmResize] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [fullWipe, setFullWipe] = useState(false);
   const [lanIP, setLanIP] = useState('');
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
   const [licenseKey, setLicenseKey] = useState(s.license_key || '');
   const [licenseStatus, setLicenseStatus] = useState('');
   const [licenseActivating, setLicenseActivating] = useState(false);
@@ -347,41 +349,97 @@ export function SettingsPanel({
             </div>
           </div>
 
-          {/* Credentials */}
+          {/* Access */}
           <div className="panel-section">
-            <div className="panel-section-title">Credentials</div>
+            <div className="panel-section-title">Access</div>
             <div className="form-group">
-              <label className="form-label">Admin Login URL</label>
+              <label className="form-label">Helix URL</label>
               <div className="form-hint" style={{ marginBottom: 6 }}>
-                Open this URL to log in as admin (username: admin@helix-desktop.local).
+                {exposeOnNetwork && lanIP && s.expose_on_network && vmState === 'running'
+                  ? 'Share this URL with others on your network. They can create their own accounts.'
+                  : 'Access Helix in your browser.'}
               </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <input
-                  className="form-input"
-                  type="text"
-                  value={loginURL}
-                  readOnly
-                  style={{ flex: 1, fontSize: 12, fontFamily: 'monospace' }}
-                  onClick={(e) => (e.target as HTMLInputElement).select()}
-                />
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => {
-                    navigator.clipboard.writeText(loginURL);
-                    showToast('Login URL copied');
-                  }}
-                  title="Copy"
-                >
-                  <CopyIcon />
-                </button>
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => BrowserOpenURL(loginURL)}
-                  title="Open in browser"
-                >
-                  Open
-                </button>
-              </div>
+              {(() => {
+                const port = s.api_port || 41080;
+                const localURL = `http://localhost:${port}`;
+                const networkURL = exposeOnNetwork && lanIP && s.expose_on_network ? `http://${lanIP}:${port}` : '';
+                const displayURL = networkURL || localURL;
+                return (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input
+                      className="form-input"
+                      type="text"
+                      value={displayURL}
+                      readOnly
+                      style={{ flex: 1, fontSize: 12, fontFamily: 'monospace' }}
+                      onClick={(e) => (e.target as HTMLInputElement).select()}
+                    />
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText(displayURL);
+                        showToast('URL copied');
+                      }}
+                      title="Copy"
+                    >
+                      <CopyIcon />
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => BrowserOpenURL(displayURL)}
+                      title="Open in browser"
+                    >
+                      Open
+                    </button>
+                  </div>
+                );
+              })()}
+            </div>
+            <div className="form-group">
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setShowAdminLogin(!showAdminLogin)}
+                style={{ fontSize: 11, padding: '4px 10px' }}
+              >
+                {showAdminLogin ? 'Hide' : 'Show'} admin login
+              </button>
+              {showAdminLogin && (
+                <div style={{ marginTop: 10 }}>
+                  <div className="form-hint" style={{ marginBottom: 8 }}>
+                    Use this to log in as admin from another device on your network.
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
+                    <span className="form-label" style={{ marginBottom: 0, minWidth: 60 }}>User</span>
+                    <input
+                      className="form-input"
+                      type="text"
+                      value="admin@helix-desktop.local"
+                      readOnly
+                      style={{ flex: 1, fontSize: 12, fontFamily: 'monospace' }}
+                      onClick={(e) => (e.target as HTMLInputElement).select()}
+                    />
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText('admin@helix-desktop.local');
+                        showToast('Username copied');
+                      }}
+                      title="Copy"
+                    >
+                      <CopyIcon />
+                    </button>
+                  </div>
+                  <div className="form-hint" style={{ marginBottom: 4 }}>
+                    Opens in your browser and logs you in automatically.
+                  </div>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => BrowserOpenURL(loginURL)}
+                  >
+                    Log in as admin
+                  </button>
+                </div>
+              )}
             </div>
             {s.console_password && (
               <div className="form-group">
@@ -469,8 +527,10 @@ export function SettingsPanel({
             <div className="panel-section-title" style={{ color: 'var(--error)' }}>Danger Zone</div>
             <div className="form-group">
               <div className="form-hint" style={{ marginBottom: 12 }}>
-                Delete all VM disk images, settings, and downloaded files.
-                The app will quit and re-download everything on next launch.
+                Delete VM disk images and downloaded files. Your license key and settings will be preserved.
+              </div>
+              <div className="form-hint" style={{ marginBottom: 12, color: 'var(--text-faded)' }}>
+                Hold Shift for full wipe including settings and license key.
               </div>
               {resetting ? (
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -480,20 +540,25 @@ export function SettingsPanel({
               ) : !confirmReset ? (
                 <button
                   className="btn btn-danger"
-                  onClick={() => setConfirmReset(true)}
+                  onClick={(e) => {
+                    setFullWipe(e.shiftKey);
+                    setConfirmReset(true);
+                  }}
                 >
                   Factory Reset
                 </button>
               ) : (
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span style={{ color: 'var(--error)', fontSize: 13 }}>Are you sure?</span>
+                  <span style={{ color: 'var(--error)', fontSize: 13 }}>
+                    {fullWipe ? 'Delete everything including settings?' : 'Reset VM? Settings will be kept.'}
+                  </span>
                   <button
                     className="btn btn-danger"
                     onClick={async () => {
                       setResetting(true);
                       setConfirmReset(false);
                       try {
-                        await FactoryReset();
+                        await FactoryResetGo(fullWipe);
                       } catch (err) {
                         console.error('Factory reset failed:', err);
                         showToast('Factory reset failed: ' + err);
@@ -501,7 +566,7 @@ export function SettingsPanel({
                       }
                     }}
                   >
-                    Yes, delete everything
+                    {fullWipe ? 'Yes, delete everything' : 'Yes, reset VM'}
                   </button>
                   <button
                     className="btn btn-secondary"

@@ -1166,8 +1166,18 @@ func (s *HelixAPIServer) desktopCallback(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Find or create the desktop admin user
-	const desktopEmail = "admin@helix-desktop.local"
+	// Find or create the desktop admin user.
+	// The email defaults to a local placeholder but can be overridden by the
+	// desktop app if a license key contains the licensee's email.
+	desktopEmail := "admin@helix-desktop.local"
+	if emailParam := r.URL.Query().Get("email"); emailParam != "" {
+		desktopEmail = emailParam
+	}
+	displayName := r.URL.Query().Get("name")
+	if displayName == "" {
+		displayName = "Desktop Admin"
+	}
+
 	user, err := s.Store.GetUser(ctx, &store.GetUserQuery{Email: desktopEmail})
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		log.Error().Err(err).Msg("Failed to look up desktop admin user")
@@ -1181,7 +1191,7 @@ func (s *HelixAPIServer) desktopCallback(w http.ResponseWriter, r *http.Request)
 		newUser := &types.User{
 			ID:           userID,
 			Email:        desktopEmail,
-			FullName:     "Desktop Admin",
+			FullName:     displayName,
 			Username:     desktopEmail,
 			Admin:        true,
 			Type:         types.OwnerTypeUser,
@@ -1195,14 +1205,22 @@ func (s *HelixAPIServer) desktopCallback(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "Failed to create user", http.StatusInternalServerError)
 			return
 		}
-		log.Info().Str("user_id", user.ID).Msg("Created desktop admin user")
+		log.Info().Str("user_id", user.ID).Str("name", displayName).Msg("Created desktop admin user")
 	}
 
-	// Ensure admin flag is set
+	// Update the display name if it changed (e.g., macOS user renamed)
+	needsUpdate := false
 	if !user.Admin {
 		user.Admin = true
+		needsUpdate = true
+	}
+	if user.FullName != displayName {
+		user.FullName = displayName
+		needsUpdate = true
+	}
+	if needsUpdate {
 		if _, err := s.Store.UpdateUser(ctx, user); err != nil {
-			log.Warn().Err(err).Msg("Failed to set admin flag on desktop user")
+			log.Warn().Err(err).Msg("Failed to update desktop user")
 		}
 	}
 

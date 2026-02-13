@@ -261,23 +261,18 @@ write_files:
       # Expand pool if disk was resized
       zpool online -e helix \$(zpool list -vHP helix 2>/dev/null | awk '/dev/{print \$1}' | head -1) 2>/dev/null || true
 
-      # Mount Docker zvol if it exists
-      if zfs list helix/docker 2>/dev/null; then
-          if ! mountpoint -q /var/lib/docker 2>/dev/null; then
-              ZVOL_DEV=\$(ls /dev/zvol/helix/docker 2>/dev/null || echo "")
-              if [ -n "\$ZVOL_DEV" ] && [ -b "\$ZVOL_DEV" ]; then
-                  log "Mounting Docker zvol at /var/lib/docker..."
-                  mkdir -p /var/lib/docker
-                  mount "\$ZVOL_DEV" /var/lib/docker 2>/dev/null || {
-                      if mountpoint -q /var/lib/docker 2>/dev/null; then
-                          log "Docker zvol already mounted (fstab race)"
-                      else
-                          log "WARNING: Failed to mount Docker zvol"
-                      fi
-                  }
-              fi
+      # Mount Docker volumes dataset if it exists.
+      # Host Docker images stay on root disk (pre-baked during provisioning).
+      # Only named volumes (postgres data, etc.) persist on ZFS across upgrades.
+      if zfs list helix/docker-volumes 2>/dev/null; then
+          if ! mountpoint -q /var/lib/docker/volumes 2>/dev/null; then
+              log "Mounting Docker volumes dataset..."
+              mkdir -p /var/lib/docker/volumes
+              zfs mount helix/docker-volumes 2>/dev/null || {
+                  log "Docker volumes dataset already mounted or mount failed"
+              }
           else
-              log "Docker zvol already mounted at /var/lib/docker"
+              log "Docker volumes already mounted"
           fi
       fi
 
@@ -351,7 +346,7 @@ trap cleanup EXIT
 
 # Check if there are remaining steps that need SSH access
 NEED_SSH=false
-for step in install_zfs setup_zfs_pool install_go clone_helix build_drm_manager clone_deps build_desktop_image setup_compose cleanup shutdown; do
+for step in install_zfs setup_zfs_pool install_go clone_helix build_drm_manager clone_deps build_desktop_image setup_compose prime_stack cleanup shutdown; do
     if ! step_done "$step"; then
         NEED_SSH=true
         break
@@ -580,6 +575,63 @@ HELIX_DESKTOP_IMAGE=helix-ubuntu:latest
 HELIX_SANDBOX_DATA=/helix/workspaces
 ENVEOF"
     mark_step "setup_compose"
+fi
+
+if ! step_done "prime_stack"; then
+    log "Priming Helix stack (pulling/building all Docker images)..."
+    log "This ensures first user boot doesn't need to pull images."
+
+    # Create .env symlink so docker compose picks up config
+    run_ssh "cd ~/helix && [ ! -e .env ] && ln -s .env.vm .env || true"
+
+    # Start Docker (it's disabled on boot — we need it for compose)
+    run_ssh "sudo systemctl start docker"
+
+    # Pull all pre-built images and build locally-built images
+    run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml pull 2>&1" || {
+        log "WARNING: Some images failed to pull (may be optional services)"
+    }
+    run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml build 2>&1" || {
+        log "WARNING: Some images failed to build"
+    }
+
+    # Start the stack and wait for API health check
+    log "Starting Helix stack to verify all services work..."
+    run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml up -d 2>&1"
+
+    # Wait for API to become healthy (up to 5 minutes)
+    ELAPSED=0
+    MAX_WAIT=300
+    while [ $ELAPSED -lt $MAX_WAIT ]; do
+        if run_ssh "curl -sf http://localhost:8080/api/v1/status >/dev/null 2>&1"; then
+            log "API is healthy! Stack priming complete."
+            break
+        fi
+        sleep 10
+        ELAPSED=$((ELAPSED + 10))
+        if [ $((ELAPSED % 60)) -eq 0 ]; then
+            log "Waiting for API... (${ELAPSED}s)"
+        fi
+    done
+
+    if [ $ELAPSED -ge $MAX_WAIT ]; then
+        log "WARNING: API did not become healthy within ${MAX_WAIT}s"
+        log "Checking container status..."
+        run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml ps 2>&1" || true
+        run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml logs api --tail 20 2>&1" || true
+    fi
+
+    # Stop the stack — images stay cached on root disk
+    log "Stopping Helix stack..."
+    run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml down 2>&1"
+
+    # Stop Docker (it will be started by the desktop app on user's first boot)
+    run_ssh "sudo systemctl stop docker"
+
+    # List cached images for verification
+    run_ssh "sudo systemctl start docker && docker images --format 'table {{.Repository}}\t{{.Tag}}\t{{.Size}}' && sudo systemctl stop docker"
+
+    mark_step "prime_stack"
 fi
 
 # =============================================================================
