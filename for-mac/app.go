@@ -155,6 +155,9 @@ func (a *App) StartVM() error {
 	a.vm.desktopSecret = s.DesktopSecret
 	a.vm.consolePassword = s.ConsolePassword
 	a.vm.licenseKey = s.LicenseKey
+	if s.LicenseKey != "" {
+		log.Printf("StartVM: license key loaded from settings (length=%d)", len(s.LicenseKey))
+	}
 
 	if err := a.vm.Start(); err != nil {
 		if err == ErrVMImagesNotDownloaded {
@@ -278,12 +281,15 @@ func (a *App) ValidateLicenseKey(key string) error {
 
 	// Update the VM manager and re-inject into the running VM
 	a.vm.licenseKey = key
+	log.Printf("License key saved to settings (length=%d)", len(key))
 	if a.vm.GetStatus().State == VMStateRunning {
 		go func() {
 			if err := a.vm.injectDesktopSecret(); err != nil {
 				log.Printf("Failed to inject license key into VM: %v", err)
 			}
 		}()
+	} else {
+		log.Printf("VM not running — license key will be injected on next boot")
 	}
 	return nil
 }

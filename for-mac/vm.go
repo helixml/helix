@@ -650,7 +650,9 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 
 			// Start the Helix compose stack after ZFS + Docker + secret are ready.
 			// ZFS init ensures Docker is running before returning.
-			if zfsInitialized && !vm.stackStarted {
+			// Wait for secretInjected so LICENSE_KEY and other env vars are in
+			// .env.vm before docker compose reads them.
+			if zfsInitialized && secretInjected && !vm.stackStarted {
 				setBootStage("Starting Helix services...")
 				if err := vm.startHelixStack(); err != nil {
 					log.Printf("Helix stack start: %v", err)
@@ -992,7 +994,8 @@ if [ ! -f "$ENV_FILE" ]; then
     ENV_FILE=/home/ubuntu/helix/.env.vm
 fi
 if [ ! -f "$ENV_FILE" ]; then
-    exit 0
+    # Create .env.vm if neither file exists (e.g., after factory reset re-download)
+    touch "$ENV_FILE"
 fi
 
 CHANGED=0
