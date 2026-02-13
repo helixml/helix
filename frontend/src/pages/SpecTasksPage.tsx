@@ -998,31 +998,6 @@ const SpecTasksPage: FC = () => {
                 </Button>
               </span>
             </Tooltip>
-            {defaultRepoId && (
-              <Button
-                variant="outlined"
-                startIcon={<FolderOpen size={18} />}
-                href={account.organizationTools.organization?.name
-                  ? `/org/${account.organizationTools.organization.name}/git-repos/${defaultRepoId}`
-                  : `/git-repos/${defaultRepoId}`}
-                onClick={(e: React.MouseEvent) => {
-                  if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return
-                  e.preventDefault()
-                  account.orgNavigate('git-repo-detail', { repoId: defaultRepoId })
-                }}
-                sx={{ flexShrink: 0 }}
-              >
-                Files
-              </Button>
-            )}
-            <Button
-              variant="outlined"
-              startIcon={<Settings size={18} />}
-              onClick={() => account.orgNavigate('project-settings', { id: projectId })}
-              sx={{ flexShrink: 0 }}
-            >
-              Settings
-            </Button>
           </Box>
           {/* Hide menu button on mobile - it will be in the bottom nav */}
           <Box sx={{ display: { xs: 'none', md: 'block' } }}>
@@ -1048,13 +1023,13 @@ const SpecTasksPage: FC = () => {
               },
             }}
           >
-            {isMobile && defaultRepoId && (
+            {defaultRepoId && (
               <MenuItem onClick={() => { account.orgNavigate('git-repo-detail', { repoId: defaultRepoId }); setViewMenuAnchorEl(null); }}>
                 <FolderOpen style={{ marginRight: 12, width: 20, height: 20 }} />
                 Files
               </MenuItem>
             )}
-            {isMobile && projectId && (
+            {projectId && (
               <MenuItem onClick={() => { account.orgNavigate('project-settings', { id: projectId }); setViewMenuAnchorEl(null); }}>
                 <Settings style={{ marginRight: 12, width: 20, height: 20 }} />
                 Settings
