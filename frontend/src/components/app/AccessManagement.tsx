@@ -258,21 +258,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
               borderRadius: 2,
               overflow: 'hidden',
               mb: 3
-            }}>
-              <Box sx={{ 
-                bgcolor: '#23262F', 
-                p: 2, 
-                borderBottom: '1px solid #353945',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1
-              }}>
-                <PersonIcon fontSize="small" sx={{ color: '#A0AEC0' }} />
-                <Typography variant="subtitle2" sx={{ color: '#A0AEC0', fontWeight: 500 }}>
-                  Users with Access ({userGrants.length + (hasOwnerRow ? 1 : 0)})
-                </Typography>
-              </Box>
-              
+            }}>                            
               <Box sx={{ maxHeight: '400px', overflow: 'auto' }}>
                 <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse' }}>
                   <Box component="thead" sx={{ bgcolor: '#181A20' }}>
@@ -483,21 +469,7 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
               border: '1px solid #353945', 
               borderRadius: 2,
               overflow: 'hidden'
-            }}>
-              <Box sx={{ 
-                bgcolor: '#23262F', 
-                p: 2, 
-                borderBottom: '1px solid #353945',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1
-              }}>
-                <GroupsIcon fontSize="small" sx={{ color: '#A0AEC0' }} />
-                <Typography variant="subtitle2" sx={{ color: '#A0AEC0', fontWeight: 500 }}>
-                  Teams with Access ({teamGrants.length})
-                </Typography>
-              </Box>
-              
+            }}>              
               <Box sx={{ maxHeight: '400px', overflow: 'auto' }}>
                 <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse' }}>
                   <Box component="thead" sx={{ bgcolor: '#181A20' }}>
