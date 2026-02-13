@@ -2510,6 +2510,10 @@ kind: pipeline
 type: exec
 name: build-macos-dmg
 
+platform:
+  os: darwin
+  arch: arm64
+
 trigger:
   ref:
     include:
