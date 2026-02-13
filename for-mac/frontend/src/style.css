@@ -66,6 +66,8 @@ body {
     --wails-draggable: drag;
     z-index: 50;
     gap: 12px;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .titlebar-logo {
