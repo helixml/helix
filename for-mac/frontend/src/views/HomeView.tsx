@@ -103,11 +103,14 @@ export function HomeView({
       <div className="home-view">
         <div className={`home-placeholder${isDownloading ? ' download-screen' : ''}`}>
           <img src="/helix-logo.png" alt="Helix" className="home-logo" />
-          <h2>Welcome to Helix</h2>
-          <p>
-            Download the Helix environment to get started. This is a one-time download and
-            may take a few minutes depending on your connection.
-          </p>
+          <h2>Helix Desktop</h2>
+          <p className="home-tagline">Your Private Agent Swarm</p>
+          {!isDownloading && (
+            <p>
+              Download the Helix environment to get started. This is a one-time download and
+              may take a few minutes depending on your connection.
+            </p>
+          )}
           <HomeDownloadSection
             downloadProgress={p}
             onProgressCleared={onProgressCleared}
