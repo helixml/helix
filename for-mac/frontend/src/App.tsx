@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import './style.css';
-import { main } from '../wailsjs/go/models';
+import { useState, useEffect, useCallback } from "react";
+import "./style.css";
+import { main } from "../wailsjs/go/models";
 import {
   GetVMStatus,
   GetVMConfig,
@@ -12,15 +12,21 @@ import {
   GetSettings,
   GetScanoutStats,
   GetLicenseStatus,
-} from '../wailsjs/go/main/App';
-import { EventsOn, EventsOff, WindowToggleMaximise, WindowIsFullscreen, BrowserOpenURL } from '../wailsjs/runtime/runtime';
-import { HomeView } from './views/HomeView';
-import { SettingsPanel } from './components/SettingsPanel';
-import { ConsoleDrawer } from './components/ConsoleDrawer';
-import { getTrialRemaining } from './lib/helpers';
+} from "../wailsjs/go/main/App";
+import {
+  EventsOn,
+  EventsOff,
+  WindowToggleMaximise,
+  WindowIsFullscreen,
+  BrowserOpenURL,
+} from "../wailsjs/runtime/runtime";
+import { HomeView } from "./views/HomeView";
+import { SettingsPanel } from "./components/SettingsPanel";
+import { ConsoleDrawer } from "./components/ConsoleDrawer";
+import { getTrialRemaining } from "./lib/helpers";
 
 const defaultVMStatus = new main.VMStatus({
-  state: 'stopped',
+  state: "stopped",
   cpu_percent: 0,
   memory_used: 0,
   uptime: 0,
@@ -29,10 +35,10 @@ const defaultVMStatus = new main.VMStatus({
 });
 
 const defaultVMConfig = new main.VMConfig({
-  name: '',
+  name: "",
   cpus: 4,
   memory_mb: 8192,
-  disk_path: '',
+  disk_path: "",
   vsock_cid: 0,
   ssh_port: 2222,
   api_port: 8080,
@@ -40,7 +46,7 @@ const defaultVMConfig = new main.VMConfig({
 });
 
 const defaultZFSStats = new main.ZFSStats({
-  pool_name: '',
+  pool_name: "",
   pool_size: 0,
   pool_used: 0,
   pool_available: 0,
@@ -48,7 +54,7 @@ const defaultZFSStats = new main.ZFSStats({
   compression_ratio: 1,
   dedup_saved_bytes: 0,
   datasets: [],
-  last_updated: '',
+  last_updated: "",
 });
 
 const defaultSettings = new main.AppSettings({
@@ -58,11 +64,11 @@ const defaultSettings = new main.AppSettings({
   ssh_port: 41222,
   api_port: 41080,
   auto_start_vm: false,
-  vm_disk_path: '',
+  vm_disk_path: "",
 });
 
 const defaultLicenseStatus = new main.LicenseStatus({
-  state: 'no_trial',
+  state: "no_trial",
 });
 
 export function App() {
@@ -70,12 +76,14 @@ export function App() {
   const [vmConfig, setVmConfig] = useState<main.VMConfig>(defaultVMConfig);
   const [vmImageReady, setVmImageReady] = useState(false);
   const [needsDownload, setNeedsDownload] = useState(false);
-  const [helixURL, setHelixURL] = useState('');
-  const [autoLoginURL, setAutoLoginURL] = useState('');
+  const [helixURL, setHelixURL] = useState("");
+  const [autoLoginURL, setAutoLoginURL] = useState("");
   const [zfsStats, setZfsStats] = useState<main.ZFSStats>(defaultZFSStats);
   const [settings, setSettings] = useState<main.AppSettings>(defaultSettings);
-  const [downloadProgress, setDownloadProgress] = useState<main.DownloadProgress | null>(null);
-  const [licenseStatus, setLicenseStatus] = useState<main.LicenseStatus>(defaultLicenseStatus);
+  const [downloadProgress, setDownloadProgress] =
+    useState<main.DownloadProgress | null>(null);
+  const [licenseStatus, setLicenseStatus] =
+    useState<main.LicenseStatus>(defaultLicenseStatus);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [consoleOpen, setConsoleOpen] = useState(false);
@@ -97,17 +105,25 @@ export function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [imageReady, _sysInfo, status, config, url, loginURL, appSettings, license] =
-          await Promise.all([
-            IsVMImageReady(),
-            GetSystemInfo(),
-            GetVMStatus(),
-            GetVMConfig(),
-            GetHelixURL(),
-            GetAutoLoginURL(),
-            GetSettings(),
-            GetLicenseStatus(),
-          ]);
+        const [
+          imageReady,
+          _sysInfo,
+          status,
+          config,
+          url,
+          loginURL,
+          appSettings,
+          license,
+        ] = await Promise.all([
+          IsVMImageReady(),
+          GetSystemInfo(),
+          GetVMStatus(),
+          GetVMConfig(),
+          GetHelixURL(),
+          GetAutoLoginURL(),
+          GetSettings(),
+          GetLicenseStatus(),
+        ]);
         setVmImageReady(imageReady);
         setNeedsDownload(!imageReady);
         setVmStatus(status);
@@ -117,7 +133,7 @@ export function App() {
         setSettings(appSettings);
         setLicenseStatus(license);
       } catch (err) {
-        console.error('Failed to load initial state:', err);
+        console.error("Failed to load initial state:", err);
       } finally {
         setInitialized(true);
       }
@@ -126,16 +142,16 @@ export function App() {
 
   // Subscribe to events
   useEffect(() => {
-    EventsOn('vm:status', (status: main.VMStatus) => {
+    EventsOn("vm:status", (status: main.VMStatus) => {
       setVmStatus(status);
     });
 
-    EventsOn('download:progress', (progress: main.DownloadProgress) => {
-      if (progress.status === 'complete') {
+    EventsOn("download:progress", (progress: main.DownloadProgress) => {
+      if (progress.status === "complete") {
         setNeedsDownload(false);
         setVmImageReady(true);
         setDownloadProgress(null);
-      } else if (progress.status === 'error') {
+      } else if (progress.status === "error") {
         setDownloadProgress(progress);
       } else {
         setDownloadProgress(progress);
@@ -143,14 +159,14 @@ export function App() {
     });
 
     // Listen for settings:show event from system tray
-    EventsOn('settings:show', () => {
+    EventsOn("settings:show", () => {
       setSettingsOpen(true);
     });
 
     return () => {
-      EventsOff('vm:status');
-      EventsOff('download:progress');
-      EventsOff('settings:show');
+      EventsOff("vm:status");
+      EventsOff("download:progress");
+      EventsOff("settings:show");
     };
   }, []);
 
@@ -180,16 +196,16 @@ export function App() {
         const status = await GetVMStatus();
         setVmStatus(status);
 
-        if (status.state === 'running') {
+        if (status.state === "running") {
           const zfs = await GetZFSStats();
           setZfsStats(zfs);
         }
 
         // Re-fetch autoLoginURL when API transitions to ready
         if (status.api_ready && !prevAPIReady) {
-          console.log('[AUTH] API became ready, fetching autoLoginURL...');
+          console.log("[AUTH] API became ready, fetching autoLoginURL...");
           const loginURL = await GetAutoLoginURL();
-          console.log('[AUTH] autoLoginURL:', loginURL);
+          console.log("[AUTH] autoLoginURL:", loginURL);
           setAutoLoginURL(loginURL);
         }
         prevAPIReady = status.api_ready;
@@ -201,14 +217,18 @@ export function App() {
     return () => clearInterval(interval);
   }, []);
 
-  const stateLabel = vmStatus.state.charAt(0).toUpperCase() + vmStatus.state.slice(1);
+  const stateLabel =
+    vmStatus.state.charAt(0).toUpperCase() + vmStatus.state.slice(1);
 
   // Don't render content until initial state is loaded to avoid flashing
   // stale defaults (e.g., license form when a key is already configured)
   if (!initialized) {
     return (
       <>
-        <header className={`titlebar${isFullscreen ? ' fullscreen' : ''}`} onDoubleClick={WindowToggleMaximise}>
+        <header
+          className={`titlebar${isFullscreen ? " fullscreen" : ""}`}
+          onDoubleClick={WindowToggleMaximise}
+        >
           <div className="titlebar-logo">
             <img src="/helix-logo.png" alt="Helix" />
             <span>Helix</span>
@@ -232,22 +252,30 @@ export function App() {
   return (
     <>
       {/* Titlebar control bar */}
-      <header className={`titlebar${isFullscreen ? ' fullscreen' : ''}`} onDoubleClick={WindowToggleMaximise}>
+      <header
+        className={`titlebar${isFullscreen ? " fullscreen" : ""}`}
+        onDoubleClick={WindowToggleMaximise}
+      >
         <div className="titlebar-logo">
           <img src="/helix-logo.png" alt="Helix" />
           <span>Helix</span>
         </div>
 
-        <div className="titlebar-status" onDoubleClick={e => e.stopPropagation()}>
+        <div
+          className="titlebar-status"
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
           <span className={`status-pill ${vmStatus.state}`} title={stateLabel}>
             <span className={`status-indicator ${vmStatus.state}`} />
             {stateLabel}
           </span>
-          {vmStatus.state === 'running' && vmStatus.api_ready && (
+          {vmStatus.state === "running" && vmStatus.api_ready && (
             <button
               className="titlebar-btn refresh-btn"
               onClick={() => {
-                const iframe = document.querySelector('.home-view iframe') as HTMLIFrameElement;
+                const iframe = document.querySelector(
+                  ".home-view iframe",
+                ) as HTMLIFrameElement;
                 if (iframe) {
                   iframe.src = iframe.src;
                 }
@@ -277,29 +305,42 @@ export function App() {
 
         <div className="titlebar-spacer" />
 
-        {licenseStatus.state === 'trial_active' && (
-          <span className="trial-badge-titlebar" onDoubleClick={e => e.stopPropagation()}>
+        {licenseStatus.state === "trial_active" && (
+          <span
+            className="trial-badge-titlebar"
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
             Trial: {getTrialRemaining(licenseStatus.trial_ends_at)}
           </span>
         )}
 
         <button
           className="upsell-banner"
-          onDoubleClick={e => e.stopPropagation()}
-          onClick={() => BrowserOpenURL('https://helix.ml/cluster')}
+          onDoubleClick={(e) => e.stopPropagation()}
+          onClick={() => BrowserOpenURL("https://helix.ml/docs/on-prem")}
           title="Deploy Helix on your own infrastructure"
         >
           <span className="upsell-sparkle">&#x2728;</span>
           Deploy for your team &mdash; your servers, your data
           <svg viewBox="0 0 16 16" width="12" height="12">
-            <path d="M5 3l6 5-6 5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path
+              d="M5 3l6 5-6 5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </button>
 
-        <div className="titlebar-actions" onDoubleClick={e => e.stopPropagation()}>
+        <div
+          className="titlebar-actions"
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
           {/* Console toggle */}
           <button
-            className={`titlebar-btn ${consoleOpen ? 'active' : ''}`}
+            className={`titlebar-btn ${consoleOpen ? "active" : ""}`}
             onClick={() => setConsoleOpen((v) => !v)}
             title="Console"
           >
@@ -323,7 +364,7 @@ export function App() {
 
           {/* Settings gear */}
           <button
-            className={`titlebar-btn ${settingsOpen ? 'active' : ''}`}
+            className={`titlebar-btn ${settingsOpen ? "active" : ""}`}
             onClick={() => setSettingsOpen((v) => !v)}
             title="Settings"
           >
