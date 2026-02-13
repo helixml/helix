@@ -2514,9 +2514,6 @@ platform:
   os: darwin
   arch: arm64
 
-node:
-  hostname: flight-arm64
-
 trigger:
   ref:
     include:
