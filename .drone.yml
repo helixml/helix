@@ -2552,6 +2552,7 @@ steps:
       R2_SECRET_ACCESS_KEY:
         from_secret: r2_secret_access_key
       R2_BUCKET_NAME: helix-desktop
+      VM_DIR: /nonexistent
     commands:
       - export HOME=/Users/luke
       # Unlock CI keychain
