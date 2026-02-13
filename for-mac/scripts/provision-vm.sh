@@ -37,7 +37,7 @@ set -euo pipefail
 VM_NAME="helix-desktop"
 VM_DIR="${HELIX_VM_DIR:-/Volumes/Big/helix-vm/${VM_NAME}}"
 DISK_SIZE="128G"      # Root disk (OS only — Docker data lives on ZFS data disk)
-CPUS=8
+CPUS=24
 MEMORY_MB=32768
 SSH_PORT="${HELIX_VM_SSH_PORT:-2223}"  # Use 2223 during provisioning to avoid conflicts
 VM_USER="ubuntu"
@@ -253,10 +253,6 @@ if [ "$UPDATE" = true ]; then
     run_ssh "[ -d ~/zed ] || git clone https://github.com/helixml/zed.git ~/zed" || true
     run_ssh "[ -d ~/qwen-code ] || git clone https://github.com/helixml/qwen-code.git ~/qwen-code" || true
 
-    # Clear stale Docker build cache (the provisioning VM's cache may have
-    # stale COPY layers from the original provision or failed update attempts)
-    run_ssh "docker builder prune -f 2>/dev/null" || true
-
     # Rebuild desktop image
     log "Rebuilding desktop image..."
     run_ssh "cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 DOCKER_BUILDKIT=1 bash stack build-ubuntu 2>&1" || {
@@ -293,7 +289,9 @@ if [ "$UPDATE" = true ]; then
     # Cleanup
     run_ssh "rm -rf ~/zed ~/qwen-code ~/.cache/go-build" || true
     run_ssh "sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*" || true
-    run_ssh "docker builder prune -f 2>/dev/null" || true
+    # NOTE: Do NOT run `docker builder prune` here — it destroys BuildKit cache
+    # mounts (cargo registry, rustup toolchain, Rust build artifacts) that make
+    # subsequent --update rebuilds fast. Only prune dangling images.
     run_ssh "docker image prune -f 2>/dev/null" || true
     run_ssh "sudo rm -rf /tmp/* /var/tmp/*" || true
 
@@ -863,8 +861,9 @@ if ! step_done "cleanup"; then
     run_ssh "rm -rf ~/.cache/go-build /tmp/go*.tar.gz" || true
     # apt package cache
     run_ssh "sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*" || true
-    # Docker build cache (intermediate layers used during image build)
-    run_ssh "docker builder prune -f 2>/dev/null" || true
+    # NOTE: Do NOT run `docker builder prune` — it destroys BuildKit cache mounts
+    # (cargo registry, rustup toolchain, Rust build artifacts) that make subsequent
+    # --update rebuilds fast (minutes instead of 30-60 min Rust compile).
     # Dangling images (untagged intermediates)
     run_ssh "docker image prune -f 2>/dev/null" || true
     # Temp files
