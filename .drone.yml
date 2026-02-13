@@ -2568,5 +2568,4 @@ steps:
           VERSION=$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         fi
       - cd for-mac
-      # Skip --notarize for now (notarize profile not in CI keychain yet)
-      - ./scripts/create-dmg.sh --skip-styling --upload --version $VERSION
+      - ./scripts/create-dmg.sh --skip-styling --notarize --upload --version $VERSION
