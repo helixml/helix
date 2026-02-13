@@ -783,6 +783,15 @@ HELIX_DESKTOP_IMAGE=helix-ubuntu:latest
 
 # Workspace storage on ZFS with dedup (saves disk space on Mac)
 HELIX_SANDBOX_DATA=/helix/workspaces
+
+# Desktop edition identifier (used by Launchpad telemetry)
+HELIX_EDITION=mac-desktop
+
+# All desktop users are admins (single-user environment)
+ADMIN_USER_IDS=all
+
+# Allow users to configure their own inference providers
+ENABLE_CUSTOM_USER_PROVIDERS=true
 ENVEOF"
     mark_step "setup_compose"
 fi
