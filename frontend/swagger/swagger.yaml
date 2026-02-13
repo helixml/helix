@@ -4615,6 +4615,8 @@ definitions:
         items:
           $ref: '#/definitions/types.Modality'
         type: array
+      permaslug:
+        type: string
       pricing:
         $ref: '#/definitions/types.Pricing'
       provider_model_id:
@@ -7680,7 +7682,7 @@ definitions:
           type: integer
         type: array
       helix_session_id:
-        description: 1:1 mapping
+        description: Maps to Helix session (multiple Zed threads can share one session)
         type: string
       id:
         type: string
@@ -8585,6 +8587,8 @@ definitions:
         type: boolean
       token:
         type: string
+      waitlisted:
+        type: boolean
     type: object
   types.UserSearchResponse:
     properties:
@@ -17576,4 +17580,9 @@ paths:
       - BearerAuth: []
 schemes:
 - https
+securityDefinitions:
+  ApiKeyAuth:
+    in: header
+    name: Authorization
+    type: apiKey
 swagger: "2.0"

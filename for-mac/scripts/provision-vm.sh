@@ -276,19 +276,18 @@ write_files:
           fi
       fi
 
-      # Mount nested-docker zvol if it exists (dedup-enabled ext4 for sandbox DinD)
-      ZVOL_DEV=/dev/zvol/helix/nested-docker
-      if zfs list helix/nested-docker 2>/dev/null && [ -e "\$ZVOL_DEV" ]; then
-          if ! mountpoint -q /helix/nested-docker 2>/dev/null; then
-              log "Mounting nested-docker zvol..."
-              mkdir -p /helix/nested-docker
-              mount "\$ZVOL_DEV" /helix/nested-docker || {
-                  log "nested-docker zvol mount failed"
+      # Mount sandbox-docker zvol if it exists (dedup-enabled ext4 for sandbox DinD)
+      ZVOL_DEV=/dev/zvol/helix/sandbox-docker
+      if zfs list helix/sandbox-docker 2>/dev/null && [ -e "\$ZVOL_DEV" ]; then
+          if ! mountpoint -q /helix/sandbox-docker 2>/dev/null; then
+              log "Mounting sandbox-docker zvol..."
+              mkdir -p /helix/sandbox-docker
+              mount "\$ZVOL_DEV" /helix/sandbox-docker || {
+                  log "sandbox-docker zvol mount failed"
               }
           else
-              log "nested-docker already mounted"
+              log "sandbox-docker already mounted"
           fi
-          mkdir -p /helix/nested-docker/sandbox-docker /helix/nested-docker/hydra
       fi
 
       # Restore persistent config if available

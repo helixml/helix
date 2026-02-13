@@ -24,12 +24,6 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -ldflags "-s -w" -o /sandbox-heartbeat ./api/cmd/sandbox-heartbeat
 
-# Build dns-proxy (forwards DNS from nested containers to outer Docker DNS)
-COPY sandbox/dns-proxy/ ./dns-proxy/
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    cd dns-proxy && CGO_ENABLED=0 go build -ldflags "-s -w" -o /dns-proxy .
-
 # ====================================================================
 # Stage 2: Final sandbox image (based on GOW base pattern)
 # ====================================================================
@@ -194,17 +188,11 @@ RUN chmod +x /entrypoint.sh \
 # ====================================================================
 COPY --from=go-builder /hydra /usr/local/bin/hydra
 COPY --from=go-builder /sandbox-heartbeat /usr/local/bin/sandbox-heartbeat
-COPY --from=go-builder /dns-proxy /usr/local/bin/dns-proxy
-RUN chmod +x /usr/local/bin/hydra /usr/local/bin/sandbox-heartbeat /usr/local/bin/dns-proxy
+RUN chmod +x /usr/local/bin/hydra /usr/local/bin/sandbox-heartbeat
 
 # ====================================================================
 # Copy Helix sandbox init scripts (run after GOW base scripts)
 # ====================================================================
-
-# Start DNS proxy AFTER dockerd (binds to 10.213.0.1:53 for sandbox docker0,
-# leaving 10.200.X.1:53 free for Hydra's per-session DNS servers)
-COPY sandbox/05-start-dns-proxy.sh /etc/cont-init.d/45-start-dns-proxy.sh
-RUN chmod +x /etc/cont-init.d/45-start-dns-proxy.sh
 
 # Start dockerd script
 COPY sandbox/04-start-dockerd.sh /etc/cont-init.d/40-start-dockerd.sh
@@ -241,7 +229,6 @@ ENV HELIX_API_URL="" \
     HELIX_DEV_MODE="false" \
     ZED_IMAGE="helix-sway:latest" \
     HYDRA_ENABLED="true" \
-    HYDRA_PRIVILEGED_MODE_ENABLED="false" \
     HELIX_KEEP_DEAD_CONTAINERS="false" \
     HELIX_SANDBOX_REGISTRY=""
 

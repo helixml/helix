@@ -35,6 +35,7 @@ import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker'
 import BrowseProvidersDialog from '../components/project/BrowseProvidersDialog'
 import { SELECTED_ORG_STORAGE_KEY } from '../utils/localStorage'
 import { useCreateOrg } from '../services/orgService'
+import { useListProviders } from '../services/providersService'
 
 const RECOMMENDED_MODELS = [
   'claude-opus-4-6',
@@ -50,6 +51,7 @@ const RECOMMENDED_MODELS = [
   'Qwen/Qwen3-Coder-30B-A3B-Instruct',
   'Qwen/Qwen3-235B-A22B-fp8-tput',
 ]
+const DEFAULT_ONBOARDING_AGENT_MODEL = 'claude-opus-4-6'
 import type { TypesExternalRepositoryType, TypesRepositoryInfo, TypesGitHub, TypesGitLab, TypesAzureDevOps, TypesBitbucket } from '../api/api'
 
 const ACCENT = '#00e891'
@@ -159,6 +161,7 @@ export default function Onboarding() {
   const [selectedAgentId, setSelectedAgentId] = useState('')
   const [selectedProvider, setSelectedProvider] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
+  const [hasUserSelectedModel, setHasUserSelectedModel] = useState(false)
   const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent')
   const [newAgentName, setNewAgentName] = useState('-')
   const [userModifiedAgentName, setUserModifiedAgentName] = useState(false)
@@ -174,6 +177,11 @@ export default function Onboarding() {
 
   const existingOrgs = account.organizationTools.organizations
   const hasExistingOrgs = existingOrgs.length > 0
+
+  const { data: providers, isLoading: isLoadingProviders } = useListProviders({
+    loadModels: true,
+    enabled: true,
+  })
 
   useEffect(() => {
     if (hasExistingOrgs) {
@@ -214,6 +222,35 @@ export default function Onboarding() {
       setOrgApps(result || [])
     })
   }, [activeStep, createdOrgId])
+
+  useEffect(() => {
+    if (agentMode !== 'create' || selectedModel || hasUserSelectedModel || isLoadingProviders || !providers?.length) {
+      return
+    }
+
+    const providerWithDefault = providers.find((provider) =>
+      (provider.available_models || []).some((model) =>
+        model.enabled && model.type === 'chat' && model.id === DEFAULT_ONBOARDING_AGENT_MODEL
+      )
+    )
+
+    if (providerWithDefault) {
+      setSelectedProvider(providerWithDefault.name || '')
+      setSelectedModel(DEFAULT_ONBOARDING_AGENT_MODEL)
+      return
+    }
+
+    const firstAvailableModel = providers
+      .flatMap((provider) =>
+        (provider.available_models || []).map((model) => ({ provider, model }))
+      )
+      .find(({ model }) => model.enabled && model.type === 'chat')
+
+    if (!firstAvailableModel?.model.id) return
+
+    setSelectedProvider(firstAvailableModel.provider.name || '')
+    setSelectedModel(firstAvailableModel.model.id)
+  }, [agentMode, selectedModel, hasUserSelectedModel, isLoadingProviders, providers])
 
   // Auto-generate agent name when model or runtime changes
   useEffect(() => {
@@ -960,10 +997,12 @@ export default function Onboarding() {
 
                   <AdvancedModelPicker
                     recommendedModels={RECOMMENDED_MODELS}
+                    autoSelectFirst={false}
                     hint="Choose a capable model for agentic coding."
                     selectedProvider={selectedProvider}
                     selectedModelId={selectedModel}
                     onSelectModel={(provider, model) => {
+                      setHasUserSelectedModel(true)
                       setSelectedProvider(provider)
                       setSelectedModel(model)
                     }}

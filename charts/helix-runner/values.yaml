@@ -41,6 +41,12 @@ runner:
 # The runner will automatically detect and use all allocated GPUs
 gpuCount: 1
 
+# GKE-specific setup for GPU containers
+# Enables NVIDIA library path registration with ldconfig so that
+# Ollama and vLLM can find libcuda.so on GKE nodes
+# Set to true when running on Google Kubernetes Engine
+gkeSetup: false
+
 # Both node selectors and resources need to target
 resources:
   limits:

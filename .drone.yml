@@ -854,7 +854,11 @@ volumes:
 ---
 kind: pipeline
 type: docker
-name: build-controlplane
+name: build-controlplane-amd64
+
+platform:
+  os: linux
+  arch: amd64
 
 trigger:
   ref:
@@ -874,6 +878,7 @@ steps:
     settings:
       dockerfile: Dockerfile
       auto_tag: true
+      auto_tag_suffix: linux-amd64
       daemon_off: true
       pull_image: true
       registry: registry.helixml.tech
@@ -891,6 +896,94 @@ steps:
         include:
           - refs/heads/main
           - refs/tags/*
+
+---
+kind: pipeline
+type: docker
+name: build-controlplane-arm64
+
+platform:
+  os: linux
+  arch: arm64
+
+trigger:
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+  - name: publish-image
+    image: docker:cli
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="$${DRONE_TAG#v}"
+        else
+          VERSION="latest"
+        fi
+        docker build --pull --provenance=false \
+          -f Dockerfile \
+          --build-arg APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}} \
+          -t registry.helixml.tech/helix/controlplane:$${VERSION}-linux-arm64 \
+          .
+        docker push registry.helixml.tech/helix/controlplane:$${VERSION}-linux-arm64
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+
+---
+kind: pipeline
+type: docker
+name: manifest-controlplane
+
+depends_on:
+  - build-controlplane-amd64
+  - build-controlplane-arm64
+
+trigger:
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+  - name: manifest
+    image: docker:cli
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="$${DRONE_TAG#v}"
+        else
+          VERSION="latest"
+        fi
+        REPO="registry.helixml.tech/helix/controlplane"
+        docker manifest create --amend $${REPO}:$${VERSION} \
+          $${REPO}:$${VERSION}-linux-amd64 \
+          $${REPO}:$${VERSION}-linux-arm64
+        docker manifest push $${REPO}:$${VERSION}
+        echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
 
 ---
 kind: pipeline

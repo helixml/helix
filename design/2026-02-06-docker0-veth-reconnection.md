@@ -1,7 +1,7 @@
 # Sandbox Bridge Protection and Veth Reconnection
 
 **Date:** 2026-02-06
-**Status:** Implemented (pending testing)
+**Status:** OUTDATED - The per-session sibling dockerd architecture this fixed has been removed. Docker-in-desktop mode eliminates bridge/veth issues by design (see `2026-02-10-arbitrary-dind-nesting-simplification.md`).
 **Branch:** feature/bff-auth-clean
 **Solution:** Use custom bridge name "sandbox0" instead of "docker0"
 

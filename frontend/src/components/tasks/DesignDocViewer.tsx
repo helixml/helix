@@ -52,7 +52,8 @@ const DesignDocViewer: React.FC<DesignDocViewerProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [sendingComment, setSendingComment] = useState(false);
 
-  // Fetch design docs
+  // Fetch design docs — poll while dialog is open so updates from
+  // the agent (git pushes to helix-specs) appear without manual refresh.
   const { data, isLoading, error } = useQuery({
     queryKey: ['design-docs', taskId],
     queryFn: async () => {
@@ -60,6 +61,7 @@ const DesignDocViewer: React.FC<DesignDocViewerProps> = ({
       return response.data;
     },
     enabled: open && !!taskId,
+    refetchInterval: 5000,
   });
 
   const handleApprove = async () => {

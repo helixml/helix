@@ -855,28 +855,30 @@ if ! mountpoint -q /var/lib/docker/volumes 2>/dev/null; then
     sudo zfs mount helix/docker-volumes 2>/dev/null || true
 fi
 
-# Nested Docker zvol — sandbox DinD and per-session (Hydra) Docker storage.
+# Sandbox Docker zvol — the sandbox container's Docker storage including all
+# desktop container images and per-session Docker named volumes (docker-data-*).
 # Uses a ZFS zvol formatted as ext4 so overlay2 works correctly, while ZFS
 # block-level dedup deduplicates identical Docker layers across sessions.
+# With docker-in-desktop mode (PR #1608), each desktop runs its own dockerd
+# with a named volume inside this storage, so dedup catches identical layers
+# pulled by multiple sessions.
 ZVOL_SIZE=200G
-ZVOL_DEV=/dev/zvol/helix/nested-docker
-if ! sudo zfs list helix/nested-docker 2>/dev/null; then
-    echo "Creating helix/nested-docker zvol (${ZVOL_SIZE}, dedup + compression)..."
-    sudo zfs create -V "$ZVOL_SIZE" -s -o dedup=on -o compression=lz4 helix/nested-docker
+ZVOL_DEV=/dev/zvol/helix/sandbox-docker
+if ! sudo zfs list helix/sandbox-docker 2>/dev/null; then
+    echo "Creating helix/sandbox-docker zvol (${ZVOL_SIZE}, dedup + compression)..."
+    sudo zfs create -V "$ZVOL_SIZE" -s -o dedup=on -o compression=lz4 helix/sandbox-docker
     # Wait for device node
     for i in $(seq 1 10); do [ -e "$ZVOL_DEV" ] && break; sleep 1; done
-    echo 'Formatting nested-docker zvol as ext4...'
-    sudo mkfs.ext4 -q -L nested-docker "$ZVOL_DEV"
+    echo 'Formatting sandbox-docker zvol as ext4...'
+    sudo mkfs.ext4 -q -L sandbox-docker "$ZVOL_DEV"
 fi
 # Mount the zvol
-if ! mountpoint -q /helix/nested-docker 2>/dev/null; then
-    sudo mkdir -p /helix/nested-docker
+if ! mountpoint -q /helix/sandbox-docker 2>/dev/null; then
+    sudo mkdir -p /helix/sandbox-docker
     if [ -e "$ZVOL_DEV" ]; then
-        sudo mount "$ZVOL_DEV" /helix/nested-docker
+        sudo mount "$ZVOL_DEV" /helix/sandbox-docker
     fi
 fi
-# Create subdirectories for sandbox and hydra storage
-sudo mkdir -p /helix/nested-docker/sandbox-docker /helix/nested-docker/hydra
 
 # Config dataset (persistent state surviving root disk swaps)
 if ! sudo zfs list helix/config 2>/dev/null; then
@@ -999,13 +1001,11 @@ if ! grep -q '^HELIX_EDITION=' "$ENV_FILE" 2>/dev/null; then
     CHANGED=1
 fi
 
-# Nested Docker storage paths — point sandbox DinD at ZFS zvol (dedup-enabled ext4)
+# Sandbox Docker storage — point sandbox's /var/lib/docker at ZFS zvol (dedup-enabled ext4).
+# With docker-in-desktop mode, per-session Docker named volumes (docker-data-*)
+# live inside this storage, so ZFS dedup catches identical layers across sessions.
 if ! grep -q '^SANDBOX_DOCKER_STORAGE=' "$ENV_FILE" 2>/dev/null; then
-    echo 'SANDBOX_DOCKER_STORAGE=/helix/nested-docker/sandbox-docker' >> "$ENV_FILE"
-    CHANGED=1
-fi
-if ! grep -q '^SANDBOX_HYDRA_STORAGE=' "$ENV_FILE" 2>/dev/null; then
-    echo 'SANDBOX_HYDRA_STORAGE=/helix/nested-docker/hydra' >> "$ENV_FILE"
+    echo 'SANDBOX_DOCKER_STORAGE=/helix/sandbox-docker' >> "$ENV_FILE"
     CHANGED=1
 fi
 
