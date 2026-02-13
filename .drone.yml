@@ -2568,4 +2568,11 @@ steps:
           VERSION=$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         fi
       - cd for-mac
-      - ./scripts/create-dmg.sh --skip-styling --notarize --upload --version $VERSION
+      - ./scripts/create-dmg.sh --skip-styling --upload --version $VERSION
+      # Notarize separately so we can specify the Helix-Dev keychain
+      - |
+        xcrun notarytool submit build/bin/Helix-for-Mac.dmg \
+          --keychain-profile "helix-notarize" \
+          --keychain /Users/luke/Library/Keychains/Helix-Dev.keychain-db \
+          --wait
+      - xcrun stapler staple build/bin/Helix-for-Mac.dmg
