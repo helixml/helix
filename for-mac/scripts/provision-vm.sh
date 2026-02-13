@@ -191,8 +191,23 @@ if [ "$UPDATE" = true ]; then
     SSH_CMD="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p $SSH_PORT ${VM_USER}@localhost"
     run_ssh() { $SSH_CMD "$@"; }
 
-    # Start Docker (disabled on boot)
-    run_ssh "sudo systemctl start docker"
+    # Fix the helix-storage-init.sh deadlock: the script calls "systemctl start docker"
+    # but it has Before=docker.service, creating a circular dependency.
+    # Patch it, kill the stuck process, then wait for Docker to start automatically.
+    log "Fixing storage init script and starting Docker..."
+    run_ssh "sudo sed -i '/^systemctl start docker/d' /usr/local/bin/helix-storage-init.sh" || true
+    run_ssh "CHILD=\$(pgrep -f 'systemctl start docker' 2>/dev/null) && sudo kill \$CHILD 2>/dev/null" || true
+    sleep 3
+    # Docker should now start automatically via systemd ordering
+    DOCKER_WAIT=0
+    while [ $DOCKER_WAIT -lt 30 ]; do
+        if run_ssh "systemctl is-active docker" 2>/dev/null | grep -q "^active"; then
+            log "Docker is running"
+            break
+        fi
+        sleep 2
+        DOCKER_WAIT=$((DOCKER_WAIT + 2))
+    done
 
     # Pull latest code
     log "Pulling latest code (branch: ${BRANCH})..."

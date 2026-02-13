@@ -149,6 +149,13 @@ func (a *App) StartVM() error {
 		}
 	}
 
+	// Refresh VM settings from current state — the user may have changed
+	// settings (e.g., added a license key) while the VM was stopped.
+	s := a.settings.Get()
+	a.vm.desktopSecret = s.DesktopSecret
+	a.vm.consolePassword = s.ConsolePassword
+	a.vm.licenseKey = s.LicenseKey
+
 	if err := a.vm.Start(); err != nil {
 		if err == ErrVMImagesNotDownloaded {
 			return fmt.Errorf("needs_download: VM images must be downloaded before starting")
