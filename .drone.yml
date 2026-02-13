@@ -2568,11 +2568,21 @@ steps:
           VERSION=$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         fi
       - cd for-mac
-      - ./scripts/create-dmg.sh --skip-styling --upload --version $VERSION
-      # Notarize separately so we can specify the Helix-Dev keychain
+      # Build DMG (no upload yet — notarize first)
+      - ./scripts/create-dmg.sh --skip-styling --version $VERSION
+      # Notarize with Helix-Dev keychain, then staple ticket into DMG
       - |
         xcrun notarytool submit build/bin/Helix-for-Mac.dmg \
           --keychain-profile "helix-notarize" \
           --keychain /Users/luke/Library/Keychains/Helix-Dev.keychain-db \
           --wait
       - xcrun stapler staple build/bin/Helix-for-Mac.dmg
+      # Upload notarized+stapled DMG to R2
+      - |
+        export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
+        export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
+        R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+        aws s3 cp build/bin/Helix-for-Mac.dmg \
+          "s3://${R2_BUCKET_NAME}/desktop/${VERSION}/Helix-for-Mac.dmg" \
+          --endpoint-url "$R2_ENDPOINT" \
+          --no-progress
