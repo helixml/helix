@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"net/url"
 	"os"
 	"os/exec"
 	"os/user"
@@ -26,6 +25,7 @@ type App struct {
 	downloader       *VMDownloader
 	licenseValidator *LicenseValidator
 	tray             *TrayManager
+	authProxy        *AuthProxy
 }
 
 // NewApp creates a new App application struct
@@ -67,6 +67,11 @@ func (a *App) startup(ctx context.Context) {
 		}
 	}
 
+	// Wire API ready callback to start the auth proxy
+	a.vm.onAPIReady = func() {
+		a.ensureAuthProxy()
+	}
+
 	// Start ZFS stats collector
 	a.zfsCollector.Start()
 
@@ -97,6 +102,11 @@ func (a *App) shutdown(ctx context.Context) {
 	// Stop system tray
 	if a.tray != nil {
 		a.tray.Stop()
+	}
+
+	// Stop auth proxy
+	if a.authProxy != nil {
+		a.authProxy.Stop()
 	}
 
 	// Stop ZFS collector
@@ -289,35 +299,57 @@ func (a *App) GetHelixURL() string {
 	return fmt.Sprintf("http://localhost:%d", a.vm.GetConfig().APIPort)
 }
 
-// GetAutoLoginURL returns the desktop-callback URL that the iframe navigates
-// to on first load. The server creates/updates the admin user, sets session +
-// CSRF cookies, and redirects to /. Everything is same-origin (localhost) so
-// cookies work without a proxy.
+// GetAutoLoginURL returns the URL for the authenticated proxy.
+// The proxy injects the helix_session cookie server-side, working around
+// WKWebView's iframe cookie isolation.
 func (a *App) GetAutoLoginURL() string {
-	secret := a.settings.Get().DesktopSecret
-	if secret == "" {
-		url := fmt.Sprintf("http://localhost:%d", a.vm.GetConfig().APIPort)
-		log.Printf("[AUTH] GetAutoLoginURL: no secret configured, returning %s", url)
-		return url
-	}
-
-	callbackURL := fmt.Sprintf("http://localhost:%d/api/v1/auth/desktop-callback?token=%s",
-		a.vm.GetConfig().APIPort, url.QueryEscape(secret))
-
-	// Pass macOS user's display name so the Helix user gets a proper name
-	userName := getMacOSUserFullName()
-	if userName != "" {
-		callbackURL += "&name=" + url.QueryEscape(userName)
-	}
-
-	// Pass licensee email if available from a valid license key
-	if a.licenseValidator != nil {
-		if email := a.licenseValidator.GetLicenseeEmail(a.settings.Get()); email != "" {
-			callbackURL += "&email=" + url.QueryEscape(email)
+	if a.authProxy != nil {
+		if u := a.authProxy.GetURL(); u != "" {
+			return u
 		}
 	}
+	secret := a.settings.Get().DesktopSecret
+	if secret != "" {
+		callbackURL := fmt.Sprintf("http://localhost:%d/api/v1/auth/desktop-callback?token=%s",
+			a.vm.GetConfig().APIPort, secret)
+		return callbackURL
+	}
+	return fmt.Sprintf("http://localhost:%d", a.vm.GetConfig().APIPort)
+}
 
-	return callbackURL
+// ensureAuthProxy starts the auth proxy and authenticates it against the API.
+// Called when the API becomes ready (health check passes).
+func (a *App) ensureAuthProxy() {
+	secret := a.settings.Get().DesktopSecret
+	if secret == "" {
+		log.Println("[AUTH] No desktop secret configured, skipping auth proxy")
+		return
+	}
+
+	apiPort := a.vm.GetConfig().APIPort
+
+	// Start the proxy if not already running
+	if a.authProxy == nil {
+		a.authProxy = NewAuthProxy(apiPort)
+		if err := a.authProxy.Start(); err != nil {
+			log.Printf("[AUTH] Failed to start auth proxy: %v", err)
+			return
+		}
+		log.Printf("[AUTH] Auth proxy started on %s", a.authProxy.GetURL())
+	}
+
+	// Authenticate (or re-authenticate), passing the macOS user's display name
+	// and licensee email (if a valid license key is configured)
+	userName := getMacOSUserFullName()
+	var licenseeEmail string
+	if a.licenseValidator != nil {
+		licenseeEmail = a.licenseValidator.GetLicenseeEmail(a.settings.Get())
+	}
+	if err := a.authProxy.Authenticate(secret, userName, licenseeEmail); err != nil {
+		log.Printf("[AUTH] Auth proxy authentication failed: %v", err)
+	} else {
+		log.Printf("[AUTH] Auth proxy authenticated successfully")
+	}
 }
 
 // GetSettings returns the current application settings
