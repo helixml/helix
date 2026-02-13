@@ -233,15 +233,19 @@ if [ "$UPDATE" = true ]; then
         exit 1
     fi
 
-    # Pull latest code. If git refs are corrupted (non-clean shutdown), fix them
-    # in place rather than re-cloning — we need to preserve build artifacts
-    # (zed-build/, qwen-code-build/) that take a long time to rebuild.
+    # Pull latest code. If the repo is missing (previous failed run deleted it)
+    # or git refs are corrupted (non-clean shutdown), handle gracefully.
     log "Pulling latest code (branch: ${BRANCH})..."
-    if ! run_ssh "cd ~/helix && git fetch origin 2>&1"; then
+    if ! run_ssh "[ -d ~/helix/.git ]"; then
+        log "Helix repo not found — cloning fresh..."
+        run_ssh "git clone -b ${BRANCH} https://github.com/helixml/helix.git ~/helix"
+    elif ! run_ssh "cd ~/helix && git fetch origin 2>&1"; then
         log "Git fetch failed — resetting remote refs..."
         run_ssh "cd ~/helix && rm -rf .git/refs/remotes/origin && git fetch origin 2>&1"
+        run_ssh "cd ~/helix && git checkout ${BRANCH} && git pull origin ${BRANCH}"
+    else
+        run_ssh "cd ~/helix && git checkout ${BRANCH} && git pull origin ${BRANCH}"
     fi
-    run_ssh "cd ~/helix && git checkout ${BRANCH} && git pull origin ${BRANCH}"
     log "Helix at: $(run_ssh 'cd ~/helix && git log --oneline -1' 2>/dev/null)"
 
     # Ensure build dependencies are cloned (cleaned up after full provision)
