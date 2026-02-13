@@ -2534,7 +2534,7 @@ steps:
       - security unlock-keychain -p "$KEYCHAIN_PASSWORD" /Users/luke/Library/Keychains/Helix-Dev.keychain-db
       - security list-keychains -d user -s /Users/luke/Library/Keychains/Helix-Dev.keychain-db /Users/luke/Library/Keychains/login.keychain-db
       # Create .env.signing so build scripts use Developer ID instead of ad-hoc
-      - echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" > for-mac/.env.signing
+      - echo "APPLE_SIGNING_IDENTITY='$APPLE_SIGNING_IDENTITY'" > for-mac/.env.signing
       - cd for-mac
       - ./scripts/build-helix-app.sh
 
