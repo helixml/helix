@@ -864,6 +864,7 @@ trigger:
   ref:
     include:
       - refs/heads/main
+      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -910,6 +911,7 @@ trigger:
   ref:
     include:
       - refs/heads/main
+      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -954,6 +956,7 @@ trigger:
   ref:
     include:
       - refs/heads/main
+      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -998,6 +1001,7 @@ trigger:
   ref:
     include:
       - refs/heads/main
+      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -1045,6 +1049,7 @@ trigger:
   ref:
     include:
       - refs/heads/main
+      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -1089,6 +1094,7 @@ trigger:
   ref:
     include:
       - refs/heads/main
+      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -1129,6 +1135,7 @@ trigger:
   ref:
     include:
       - refs/heads/main
+      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -1174,6 +1181,7 @@ trigger:
   ref:
     include:
       - refs/heads/main
+      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -1249,6 +1257,7 @@ trigger:
   ref:
     include:
       - refs/heads/main
+      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -1328,6 +1337,7 @@ trigger:
   ref:
     include:
       - refs/heads/main
+      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -1372,6 +1382,7 @@ trigger:
   ref:
     include:
       - refs/heads/main
+      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -1415,6 +1426,7 @@ trigger:
   ref:
     include:
       - refs/heads/main
+      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -1455,6 +1467,7 @@ trigger:
   ref:
     include:
       - refs/heads/main
+      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -2403,6 +2416,7 @@ trigger:
   ref:
     include:
       - refs/heads/main
+      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
