@@ -101,7 +101,7 @@ export function HomeView({
     const isDownloading = p && (p.status === 'downloading' || p.status === 'verifying');
     return (
       <div className="home-view">
-        <div className="home-placeholder download-screen">
+        <div className={`home-placeholder${isDownloading ? ' download-screen' : ''}`}>
           <img src="/helix-logo.png" alt="Helix" className="home-logo" />
           <h2>Welcome to Helix</h2>
           <p>
