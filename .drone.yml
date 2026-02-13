@@ -1754,6 +1754,7 @@ steps:
             echo '✓ Zed binary+icon cached for $${ZED_SHORT}'
           else
             echo 'Cloning Zed at commit $${ZED_COMMIT}...'
+            cd /
             rm -rf /drone/src/cache/zed-source
             mkdir -p /drone/src/cache/zed-source
             cd /drone/src/cache/zed-source
@@ -1771,6 +1772,7 @@ steps:
             echo '✓ qwen-code cached for $${QWEN_SHORT}'
           else
             echo 'Cloning qwen-code at commit $${QWEN_COMMIT}...'
+            cd /
             rm -rf /drone/src/cache/qwen-source
             mkdir -p /drone/src/cache/qwen-source
             cd /drone/src/cache/qwen-source
@@ -2162,6 +2164,7 @@ steps:
             echo '✓ Zed binary+icon cached for $${ZED_SHORT}'
           else
             echo 'Cloning Zed at commit $${ZED_COMMIT}...'
+            cd /
             rm -rf /drone/src/cache/zed-source
             mkdir -p /drone/src/cache/zed-source
             cd /drone/src/cache/zed-source
@@ -2178,6 +2181,7 @@ steps:
             echo '✓ qwen-code cached for $${QWEN_SHORT}'
           else
             echo 'Cloning qwen-code at commit $${QWEN_COMMIT}...'
+            cd /
             rm -rf /drone/src/cache/qwen-source
             mkdir -p /drone/src/cache/qwen-source
             cd /drone/src/cache/qwen-source
