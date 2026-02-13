@@ -103,7 +103,7 @@ const STEPS: StepConfig[] = [
   {
     icon: <Server size={20} />,
     title: 'Connect an AI provider',
-    subtitle: 'Your infra, your IP. Add an API key so your agents can use AI models.',
+    subtitle: 'Add an API key so your agents can use AI models.',
   },
   {
     icon: <BusinessIcon />,

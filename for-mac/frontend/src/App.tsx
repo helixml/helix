@@ -166,10 +166,19 @@ export function App() {
       setSettingsOpen(true);
     });
 
+    // Listen for external URL requests from the Helix iframe
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'open-external-url' && typeof event.data.url === 'string') {
+        BrowserOpenURL(event.data.url);
+      }
+    };
+    window.addEventListener('message', handleMessage);
+
     return () => {
       EventsOff("vm:status");
       EventsOff("download:progress");
       EventsOff("settings:show");
+      window.removeEventListener('message', handleMessage);
     };
   }, []);
 
