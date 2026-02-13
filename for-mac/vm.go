@@ -951,12 +951,6 @@ else
     echo 'Docker already running'
 fi
 
-# Patch helix-storage-init.sh to remove the "systemctl start docker" line
-# that causes a systemd deadlock (the service has Before=docker.service,
-# so calling systemctl start docker inside it creates a circular wait).
-# This is a hotfix for disk images that have the buggy script baked in.
-sudo sed -i '/^systemctl start docker/d' /usr/local/bin/helix-storage-init.sh 2>/dev/null || true
-
 echo 'ZFS storage ready'
 `
 	cmd := vm.sshCommand(script)
