@@ -77,6 +77,12 @@ export function SettingsPanel({
   const [licenseActivating, setLicenseActivating] = useState(false);
 
   useEffect(() => {
+    // Re-fetch settings in case license key was added outside the panel
+    GetSettings().then((fresh) => {
+      if (fresh.license_key && !licenseKey) {
+        setLicenseKey(fresh.license_key);
+      }
+    }).catch(() => {});
     GetHelixURL().then((url) => {
       setLoginURL(`${url}/api/v1/auth/desktop-callback?token=${s.desktop_secret || ''}`);
     }).catch(() => {});
@@ -380,15 +386,13 @@ export function SettingsPanel({
             <div className="form-group">
               <label className="form-label">Helix URL</label>
               <div className="form-hint" style={{ marginBottom: 6 }}>
-                {exposeOnNetwork && lanIP && s.expose_on_network && vmState === 'running'
-                  ? 'Share this URL with others on your network. They can create their own accounts.'
+                {exposeOnNetwork && s.expose_on_network
+                  ? 'Share this URL with anyone on your local network.'
                   : 'Access Helix in your browser.'}
               </div>
               {(() => {
                 const port = s.api_port || 41080;
-                const localURL = `http://localhost:${port}`;
-                const networkURL = exposeOnNetwork && lanIP && s.expose_on_network ? `http://${lanIP}:${port}` : '';
-                const displayURL = networkURL || localURL;
+                const displayURL = lanIP ? `http://${lanIP}:${port}` : `http://localhost:${port}`;
                 return (
                   <div style={{ display: 'flex', gap: 6 }}>
                     <input
@@ -431,31 +435,7 @@ export function SettingsPanel({
               {showAdminLogin && (
                 <div style={{ marginTop: 10 }}>
                   <div className="form-hint" style={{ marginBottom: 8 }}>
-                    Use this to log in as admin from another device on your network.
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
-                    <span className="form-label" style={{ marginBottom: 0, minWidth: 60 }}>User</span>
-                    <input
-                      className="form-input"
-                      type="text"
-                      value="admin@helix-desktop.local"
-                      readOnly
-                      style={{ flex: 1, fontSize: 12, fontFamily: 'monospace' }}
-                      onClick={(e) => (e.target as HTMLInputElement).select()}
-                    />
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => {
-                        navigator.clipboard.writeText('admin@helix-desktop.local');
-                        showToast('Username copied');
-                      }}
-                      title="Copy"
-                    >
-                      <CopyIcon />
-                    </button>
-                  </div>
-                  <div className="form-hint" style={{ marginBottom: 4 }}>
-                    Opens in your browser and logs you in automatically.
+                    Opens in your browser and logs you in as admin automatically.
                   </div>
                   <button
                     className="btn btn-primary btn-sm"
