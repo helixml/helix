@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { main } from '../../wailsjs/go/models';
-import { SaveSettings, GetSettings, ResizeDataDisk, GetHelixURL, FactoryReset, GetLANAddress } from '../../wailsjs/go/main/App';
+import { SaveSettings, GetSettings, ResizeDataDisk, GetHelixURL, FactoryReset, GetLANAddress, ValidateLicenseKey, GetLicenseStatus } from '../../wailsjs/go/main/App';
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { formatBytes } from '../lib/helpers';
 
@@ -70,12 +70,18 @@ export function SettingsPanel({
   const [confirmResize, setConfirmResize] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [lanIP, setLanIP] = useState('');
+  const [licenseKey, setLicenseKey] = useState(s.license_key || '');
+  const [licenseStatus, setLicenseStatus] = useState('');
+  const [licenseActivating, setLicenseActivating] = useState(false);
 
   useEffect(() => {
     GetHelixURL().then((url) => {
       setLoginURL(`${url}/api/v1/auth/desktop-callback?token=${s.desktop_secret || ''}`);
     }).catch(() => {});
     GetLANAddress().then(setLanIP).catch(() => {});
+    GetLicenseStatus().then((status) => {
+      setLicenseStatus(status.state || '');
+    }).catch(() => {});
   }, []);
 
   const currentDiskSize = s.data_disk_size_gb || 256;
@@ -407,6 +413,54 @@ export function SettingsPanel({
                 />
                 <span>Start VM when app opens</span>
               </label>
+            </div>
+          </div>
+
+          {/* License */}
+          <div className="panel-section">
+            <div className="panel-section-title">License</div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="settingLicenseKey">License Key</label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input
+                  className="form-input"
+                  id="settingLicenseKey"
+                  type="text"
+                  value={licenseKey}
+                  onChange={(e) => setLicenseKey(e.target.value)}
+                  placeholder="Paste your license key"
+                  style={{ flex: 1, fontSize: 12, fontFamily: 'monospace' }}
+                />
+                <button
+                  className="btn btn-primary btn-sm"
+                  disabled={licenseActivating || !licenseKey.trim()}
+                  onClick={async () => {
+                    setLicenseActivating(true);
+                    try {
+                      await ValidateLicenseKey(licenseKey.trim());
+                      const status = await GetLicenseStatus();
+                      setLicenseStatus(status.state || '');
+                      showToast('License activated');
+                    } catch (err) {
+                      showToast('Invalid license key: ' + err);
+                    } finally {
+                      setLicenseActivating(false);
+                    }
+                  }}
+                >
+                  {licenseActivating ? 'Activating...' : 'Activate'}
+                </button>
+              </div>
+              {licenseStatus === 'valid' && (
+                <div className="form-hint" style={{ color: 'var(--teal)', marginTop: 4 }}>
+                  License active
+                </div>
+              )}
+              {licenseStatus === 'expired' && (
+                <div className="form-hint" style={{ color: 'var(--warning)', marginTop: 4 }}>
+                  License expired
+                </div>
+              )}
             </div>
           </div>
 
