@@ -436,7 +436,7 @@ EOF
   echo "  3. Start services: ./stack start"
 }
 
-# _start_services: common startup logic shared by start and start-headless
+# _start_services: common startup logic shared by start and start-tmux
 function _start_services() {
   # Check for Zed dependency and build if needed
   if [ ! -d "$PROJECTS_ROOT/zed" ]; then
@@ -532,7 +532,7 @@ function _start_services() {
   fi
 }
 
-function start() {
+function start-tmux() {
   if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
     echo "📺 Session $TMUX_SESSION already exists. Attaching..."
     sleep 1
@@ -644,16 +644,16 @@ function start() {
   tmux -2 attach-session -t $TMUX_SESSION
 }
 
-# start-headless: same as start but without tmux (for non-interactive/CI use)
-function start-headless() {
+function start() {
   _start_services
 
   echo ""
-  echo "✅ Stack started (headless mode)"
+  echo "✅ Stack started"
   docker compose -f docker-compose.dev.yaml ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || docker compose -f docker-compose.dev.yaml ps
   echo ""
   echo "View logs: docker compose -f docker-compose.dev.yaml logs -f api"
   echo "Stop:      ./stack stop"
+  echo "Tmux UI:   ./stack start-tmux"
 }
 
 function stop() {
@@ -1822,7 +1822,8 @@ function help() {
   echo "  build-runner       - Build the helix-runner binary locally"
   echo "  build-runner-image - Build the runner Docker image (includes ROCm vLLM)"
   echo "  static-compile     - Build static Go binary"
-  echo "  start              - Start the development environment with tmux"
+  echo "  start              - Start the development environment"
+  echo "  start-tmux         - Start the development environment with tmux session attached to watch logs"
   echo "  stop               - Stop docker containers"
   echo "  mock-runner        - Start a mock runner for testing"
   echo "  up [services]      - Start specific docker services"
