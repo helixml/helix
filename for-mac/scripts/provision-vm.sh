@@ -28,13 +28,14 @@ set -euo pipefail
 #   ./provision-vm.sh [--disk-size 256G] [--cpus 8] [--memory 16384]
 #   ./provision-vm.sh --resume    # Resume from last step if interrupted
 #   ./provision-vm.sh --upload    # Also compress + upload to R2 after provisioning
+#   ./provision-vm.sh --update [--upload]  # Update existing image (pull code, rebuild, re-prime)
 
 # =============================================================================
 # Configuration
 # =============================================================================
 
 VM_NAME="helix-desktop"
-VM_DIR="${HOME}/Library/Application Support/Helix/vm/${VM_NAME}"
+VM_DIR="${HELIX_VM_DIR:-/Volumes/Big/helix-vm/${VM_NAME}}"
 DISK_SIZE="128G"      # Root disk (OS only — Docker data lives on ZFS data disk)
 CPUS=8
 MEMORY_MB=32768
@@ -54,6 +55,7 @@ EFI_VARS_TEMPLATE="/opt/homebrew/share/qemu/edk2-arm-vars.fd"
 # Parse arguments
 RESUME=false
 UPLOAD=false
+UPDATE=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --disk-size) DISK_SIZE="$2"; shift 2 ;;
@@ -61,6 +63,7 @@ while [[ $# -gt 0 ]]; do
         --memory) MEMORY_MB="$2"; shift 2 ;;
         --resume) RESUME=true; shift ;;
         --upload) UPLOAD=true; shift ;;
+        --update) UPDATE=true; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -93,8 +96,182 @@ if [ ! -f "$EFI_CODE" ]; then
 fi
 
 mkdir -p "$VM_DIR"
-if [ "$RESUME" = false ]; then
+if [ "$RESUME" = false ] && [ "$UPDATE" = false ]; then
     rm -f "$STATE_FILE"
+fi
+
+# =============================================================================
+# QEMU boot function (used by both fresh provisioning and update mode)
+# =============================================================================
+
+QEMU_PID=""
+cleanup() {
+    if [ -n "$QEMU_PID" ] && kill -0 "$QEMU_PID" 2>/dev/null; then
+        log "Shutting down QEMU (PID $QEMU_PID)..."
+        kill "$QEMU_PID" 2>/dev/null || true
+        wait "$QEMU_PID" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+
+boot_provisioning_vm() {
+    log "Booting VM with QEMU for provisioning..."
+    log "(This uses homebrew QEMU - no GPU, headless mode)"
+    log "SSH port: ${SSH_PORT} (dev VM on 2222 is untouched)"
+
+    SEED_DISK="${VM_DIR}/seed-fat.img"
+
+    # Start QEMU in background
+    # Disks: vda=root (ext4), vdb=cloud-init seed (if exists)
+    # ZFS data disk is NOT attached during provisioning — it's created on first boot.
+    QEMU_ARGS=(
+        -machine virt,accel=hvf
+        -cpu host
+        -smp "$CPUS"
+        -m "$MEMORY_MB"
+        -drive if=pflash,format=raw,file="$EFI_CODE",readonly=on
+        -drive if=pflash,format=raw,file="${VM_DIR}/efi_vars.fd"
+        -drive file="${VM_DIR}/disk.qcow2",format=qcow2,if=virtio
+        -device virtio-net-pci,netdev=net0
+        -netdev user,id=net0,hostfwd=tcp::${SSH_PORT}-:22
+        -nographic
+        -serial mon:stdio
+    )
+    # Attach cloud-init seed disk if it exists (fresh provision only)
+    if [ -f "$SEED_DISK" ]; then
+        QEMU_ARGS+=(-drive file="${SEED_DISK}",format=raw,if=virtio,readonly=on)
+        QEMU_ARGS+=(-smbios type=1,serial=ds=nocloud)
+    fi
+
+    qemu-system-aarch64 "${QEMU_ARGS[@]}" > "${VM_DIR}/qemu-boot.log" 2>&1 &
+    QEMU_PID=$!
+
+    log "QEMU started (PID $QEMU_PID), waiting for SSH..."
+
+    MAX_WAIT=600
+    ELAPSED=0
+    while [ $ELAPSED -lt $MAX_WAIT ]; do
+        if ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+               -p "$SSH_PORT" "${VM_USER}@localhost" "echo ready" 2>/dev/null; then
+            log "SSH is ready!"
+            break
+        fi
+        sleep 10
+        ELAPSED=$((ELAPSED + 10))
+        if [ $((ELAPSED % 60)) -eq 0 ]; then
+            log "Still waiting for SSH... (${ELAPSED}s)"
+        fi
+    done
+
+    if [ $ELAPSED -ge $MAX_WAIT ]; then
+        log "ERROR: Timed out waiting for SSH (${MAX_WAIT}s)"
+        log "Check ${VM_DIR}/qemu-boot.log for details"
+        exit 1
+    fi
+}
+
+# =============================================================================
+# Update mode: boot existing golden image, pull code, rebuild, re-prime, upload
+# =============================================================================
+
+if [ "$UPDATE" = true ]; then
+    if [ ! -f "${VM_DIR}/disk.qcow2" ]; then
+        log "ERROR: No existing disk.qcow2 found at ${VM_DIR}/disk.qcow2"
+        log "Run without --update first to create a fresh image."
+        exit 1
+    fi
+
+    BRANCH=$(git -C "$(cd "$SCRIPT_DIR/../.." && pwd)" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+    log "=== Incremental Update Mode ==="
+    log "Branch: $BRANCH"
+    log "Existing image: ${VM_DIR}/disk.qcow2"
+
+    boot_provisioning_vm
+
+    SSH_CMD="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p $SSH_PORT ${VM_USER}@localhost"
+    run_ssh() { $SSH_CMD "$@"; }
+
+    # Start Docker (disabled on boot)
+    run_ssh "sudo systemctl start docker"
+
+    # Pull latest code
+    log "Pulling latest code (branch: ${BRANCH})..."
+    run_ssh "cd ~/helix && git fetch origin && git checkout ${BRANCH} && git pull origin ${BRANCH}"
+    log "Helix at: $(run_ssh 'cd ~/helix && git log --oneline -1' 2>/dev/null)"
+
+    # Rebuild desktop image
+    log "Rebuilding desktop image..."
+    run_ssh "cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 DOCKER_BUILDKIT=1 bash stack build-ubuntu 2>&1" || {
+        log "WARNING: Desktop image build failed."
+        exit 1
+    }
+
+    # Re-prime the stack
+    log "Re-priming Helix stack..."
+    run_ssh "cd ~/helix && [ ! -e .env ] && ln -s .env.vm .env || true"
+    run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml pull 2>&1" || true
+    run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml build 2>&1" || true
+
+    log "Starting stack to verify..."
+    run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml up -d 2>&1"
+
+    ELAPSED=0
+    MAX_WAIT=300
+    while [ $ELAPSED -lt $MAX_WAIT ]; do
+        if run_ssh "curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/v1/status 2>/dev/null" 2>/dev/null | grep -qE '^[1234]'; then
+            log "API is healthy!"
+            break
+        fi
+        sleep 10
+        ELAPSED=$((ELAPSED + 10))
+        if [ $((ELAPSED % 60)) -eq 0 ]; then
+            log "Waiting for API... (${ELAPSED}s)"
+        fi
+    done
+
+    log "Stopping stack (removing volumes)..."
+    run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml down -v 2>&1"
+
+    # Cleanup
+    run_ssh "rm -rf ~/zed ~/qwen-code ~/.cache/go-build" || true
+    run_ssh "sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*" || true
+    run_ssh "docker builder prune -f 2>/dev/null" || true
+    run_ssh "docker image prune -f 2>/dev/null" || true
+    run_ssh "sudo rm -rf /tmp/* /var/tmp/*" || true
+
+    # Stop Docker
+    run_ssh "sudo systemctl stop docker"
+
+    # Trim and shutdown
+    log "Trimming free space..."
+    run_ssh "sudo fstrim -av 2>/dev/null || true" 2>/dev/null || true
+    log "Shutting down VM..."
+    run_ssh "sudo shutdown -h now" 2>/dev/null || true
+    sleep 5
+    if [ -n "$QEMU_PID" ] && kill -0 "$QEMU_PID" 2>/dev/null; then
+        kill "$QEMU_PID" 2>/dev/null || true
+        wait "$QEMU_PID" 2>/dev/null || true
+    fi
+    QEMU_PID=""
+
+    # Upload if requested
+    if [ "$UPLOAD" = true ]; then
+        log ""
+        log "=== Uploading updated VM image to R2 CDN ==="
+        VM_DIR="$VM_DIR" bash "${SCRIPT_DIR}/upload-vm-images.sh"
+    fi
+
+    log ""
+    log "================================================"
+    log "Incremental update complete!"
+    log "================================================"
+    log "Disk image: ${VM_DIR}/disk.qcow2"
+    if [ "$UPLOAD" = true ]; then
+        log "Uploaded to R2. Commit and push vm-manifest.json to deploy."
+    else
+        log "To upload: ./provision-vm.sh --update --upload"
+    fi
+    exit 0
 fi
 
 # =============================================================================
@@ -355,16 +532,6 @@ fi
 # Step 5: Boot VM for provisioning
 # =============================================================================
 
-QEMU_PID=""
-cleanup() {
-    if [ -n "$QEMU_PID" ] && kill -0 "$QEMU_PID" 2>/dev/null; then
-        log "Shutting down QEMU (PID $QEMU_PID)..."
-        kill "$QEMU_PID" 2>/dev/null || true
-        wait "$QEMU_PID" 2>/dev/null || true
-    fi
-}
-trap cleanup EXIT
-
 # Check if there are remaining steps that need SSH access
 NEED_SSH=false
 for step in install_zfs setup_zfs_pool install_go clone_helix build_drm_manager clone_deps build_desktop_image setup_compose prime_stack cleanup shutdown; do
@@ -373,57 +540,6 @@ for step in install_zfs setup_zfs_pool install_go clone_helix build_drm_manager 
         break
     fi
 done
-
-boot_provisioning_vm() {
-    log "Booting VM with QEMU for provisioning..."
-    log "(This uses homebrew QEMU - no GPU, headless mode)"
-    log "SSH port: ${SSH_PORT} (dev VM on 2222 is untouched)"
-
-    SEED_DISK="${VM_DIR}/seed-fat.img"
-
-    # Start QEMU in background
-    # Disks: vda=root (ext4), vdb=cloud-init seed
-    # ZFS data disk is NOT attached during provisioning — it's created on first boot.
-    qemu-system-aarch64 \
-        -machine virt,accel=hvf \
-        -cpu host \
-        -smp "$CPUS" \
-        -m "$MEMORY_MB" \
-        -drive if=pflash,format=raw,file="$EFI_CODE",readonly=on \
-        -drive if=pflash,format=raw,file="${VM_DIR}/efi_vars.fd" \
-        -drive file="${VM_DIR}/disk.qcow2",format=qcow2,if=virtio \
-        -drive file="${SEED_DISK}",format=raw,if=virtio,readonly=on \
-        -device virtio-net-pci,netdev=net0 \
-        -netdev user,id=net0,hostfwd=tcp::${SSH_PORT}-:22 \
-        -smbios type=1,serial=ds=nocloud \
-        -nographic \
-        -serial mon:stdio \
-        > "${VM_DIR}/qemu-boot.log" 2>&1 &
-    QEMU_PID=$!
-
-    log "QEMU started (PID $QEMU_PID), waiting for SSH..."
-
-    MAX_WAIT=600
-    ELAPSED=0
-    while [ $ELAPSED -lt $MAX_WAIT ]; do
-        if ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-               -p "$SSH_PORT" "${VM_USER}@localhost" "echo ready" 2>/dev/null; then
-            log "SSH is ready!"
-            break
-        fi
-        sleep 10
-        ELAPSED=$((ELAPSED + 10))
-        if [ $((ELAPSED % 60)) -eq 0 ]; then
-            log "Still waiting for SSH... (${ELAPSED}s)"
-        fi
-    done
-
-    if [ $ELAPSED -ge $MAX_WAIT ]; then
-        log "ERROR: Timed out waiting for SSH (${MAX_WAIT}s)"
-        log "Check ${VM_DIR}/qemu-boot.log for details"
-        exit 1
-    fi
-}
 
 if ! step_done "boot_setup"; then
     boot_provisioning_vm
@@ -626,7 +742,9 @@ if ! step_done "prime_stack"; then
     ELAPSED=0
     MAX_WAIT=300
     while [ $ELAPSED -lt $MAX_WAIT ]; do
-        if run_ssh "curl -sf http://localhost:8080/api/v1/status >/dev/null 2>&1"; then
+        # API returns 401 without auth cookie — that's fine, it means the API is up.
+        # Match vm.go checkAPIHealth: status < 500 means healthy.
+        if run_ssh "curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/v1/status 2>/dev/null" 2>/dev/null | grep -qE '^[1234]'; then
             log "API is healthy! Stack priming complete."
             break
         fi
@@ -906,7 +1024,7 @@ if [ "$UPLOAD" = true ]; then
     if ! step_done "upload"; then
         log ""
         log "=== Uploading VM image to R2 CDN ==="
-        bash "${SCRIPT_DIR}/upload-vm-images.sh"
+        VM_DIR="$VM_DIR" bash "${SCRIPT_DIR}/upload-vm-images.sh"
         mark_step "upload"
     fi
 fi

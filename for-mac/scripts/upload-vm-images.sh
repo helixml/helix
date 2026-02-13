@@ -39,7 +39,7 @@ export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
 export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
 
 # VM image directory
-VM_DIR="${VM_DIR:-$HOME/Library/Application Support/Helix/vm/helix-desktop}"
+VM_DIR="${VM_DIR:-/Volumes/Big/helix-vm/helix-desktop}"
 
 # Version tag
 VM_VERSION="${VM_VERSION:-$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo "dev")}"
@@ -77,7 +77,12 @@ fi
 # Step 1: Compress disk image
 # =============================================================================
 
-UPLOAD_DIR=$(mktemp -d)
+# Use /Volumes/Big for temp if available (compressed image can be 5+ GB)
+if [ -d /Volumes/Big ]; then
+    UPLOAD_DIR=$(mktemp -d /Volumes/Big/helix-upload.XXXXXX)
+else
+    UPLOAD_DIR=$(mktemp -d)
+fi
 trap "rm -rf '$UPLOAD_DIR'" EXIT
 
 ORIG_SIZE=$(stat -f%z "${VM_DIR}/disk.qcow2" 2>/dev/null || stat -c%s "${VM_DIR}/disk.qcow2" 2>/dev/null)
