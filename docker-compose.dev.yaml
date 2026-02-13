@@ -302,9 +302,6 @@ services:
       - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
       - ${SANDBOX_DOCKER_STORAGE:-sandbox-docker-storage}:/var/lib/docker
-      # Hydra nested dockerd storage - MUST be a real volume (not overlay)
-      # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
-      - ${SANDBOX_HYDRA_STORAGE:-hydra-storage}:/hydra-data
       - /dev/:/dev/:rw
       - /run/udev:/run/udev:rw
       - /var/run/sandbox:/var/run/sandbox:rw
@@ -391,9 +388,6 @@ services:
       - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
       - ${SANDBOX_DOCKER_STORAGE:-sandbox-docker-storage}:/var/lib/docker
-      # Hydra nested dockerd storage - MUST be a real volume (not overlay)
-      # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
-      - ${SANDBOX_HYDRA_STORAGE:-hydra-storage}:/hydra-data
       - /dev/:/dev/:rw
       - /run/udev:/run/udev:rw
       - /var/run/sandbox:/var/run/sandbox:rw
@@ -478,9 +472,6 @@ services:
       - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
       - ${SANDBOX_DOCKER_STORAGE:-sandbox-docker-storage}:/var/lib/docker
-      # Hydra nested dockerd storage - MUST be a real volume (not overlay)
-      # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
-      - ${SANDBOX_HYDRA_STORAGE:-hydra-storage}:/hydra-data
       - /run/udev:/run/udev:rw
       - /var/run/sandbox:/var/run/sandbox:rw
       # Dev bind-mounts for hot reload (Zed + desktop configs)
@@ -559,9 +550,6 @@ services:
       - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
       - ${SANDBOX_DOCKER_STORAGE:-sandbox-docker-storage}:/var/lib/docker
-      # Hydra nested dockerd storage - MUST be a real volume (not overlay)
-      # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
-      - ${SANDBOX_HYDRA_STORAGE:-hydra-storage}:/hydra-data
       - /run/udev:/run/udev:rw
       - /var/run/sandbox:/var/run/sandbox:rw
       # DRM lease manager socket (helix-drm-manager systemd service on VM host)
@@ -746,7 +734,6 @@ volumes:
   sandbox-socket:
   sandbox-docker-storage: # Sandbox isolated dockerd storage (sandboxes + devcontainers)
   sandbox-data: # Workspace data for dev containers - mounted at /data in sandbox and dev containers
-  hydra-storage: # Hydra nested dockerd storage - must be real volume (overlay2 can't stack on overlay)
   zed-work:
   registry-data: # Local registry storage for efficient desktop image transfers
 
