@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -142,16 +143,6 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}
 	defer dockerClient.Close()
 
-	// Ensure sandbox0 bridge exists when using the main sandbox dockerd.
-	// This is a defensive measure against the sandbox bridge mysteriously disappearing.
-	// Only do this for the default socket (main dockerd uses sandbox0);
-	// session dockerds use their own hydra{N} bridges.
-	if req.DockerSocket == "" {
-		if err := dm.manager.EnsureSandboxBridge(); err != nil {
-			log.Warn().Err(err).Str("bridge", SandboxBridgeName).Msg("Failed to ensure sandbox bridge, container networking may fail")
-		}
-	}
-
 	// Build container configuration
 	containerConfig := &container.Config{
 		Image:    resolvedImage,
@@ -171,6 +162,10 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 
 	// Ensure mount source directories exist before creating container
 	for _, m := range req.Mounts {
+		// Skip volume mounts (Docker creates named volumes automatically)
+		if m.Type == "volume" {
+			continue
+		}
 		// Skip socket files and runtime directories - they're not directories to create
 		if m.Source == "" ||
 			strings.HasPrefix(m.Source, "/run/") ||
@@ -442,11 +437,22 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 		}
 	}
 
+	// Pass Docker nesting depth for address pool isolation.
+	// Each nesting level's dockerd uses a different subnet range (10.(212+depth).0.0/16)
+	// to prevent routing conflicts between inner and outer Docker networks.
+	currentDepth := 1 // sandbox default
+	if depthStr := os.Getenv("HELIX_DOCKER_DEPTH"); depthStr != "" {
+		if d, err := strconv.Atoi(depthStr); err == nil {
+			currentDepth = d
+		}
+	}
+	env = append(env, fmt.Sprintf("HELIX_DOCKER_DEPTH=%d", currentDepth+1))
+
 	// Add BUILDKIT_HOST for shared BuildKit cache support
 	// Dev containers mount their per-session Docker socket, but helix-buildkit runs
 	// on the sandbox's main dockerd. Pass the BuildKit endpoint directly so docker-shim
 	// can create the buildx builder without looking up the container.
-	if buildkitHost := getBuildKitHost(); buildkitHost != "" {
+	if buildkitHost := GetBuildKitHost(); buildkitHost != "" {
 		env = append(env, fmt.Sprintf("BUILDKIT_HOST=%s", buildkitHost))
 		log.Debug().Str("buildkit_host", buildkitHost).Msg("Added BUILDKIT_HOST to dev container env")
 	}
@@ -506,8 +512,7 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *
 	hostConfig := &container.HostConfig{
 		NetworkMode: networkMode,
 		IpcMode:     "host",
-		Privileged:  false,
-		CapAdd:      []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"},
+		Privileged:  req.Privileged,
 		SecurityOpt: []string{"seccomp=unconfined", "apparmor=unconfined"},
 		Resources: container.Resources{
 			DeviceCgroupRules: dm.getDeviceCgroupRules(),
@@ -515,6 +520,12 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *
 				{Name: "nofile", Soft: 65536, Hard: 65536},
 			},
 		},
+	}
+
+	// Only add explicit capabilities when not in privileged mode
+	// (privileged mode already grants all capabilities)
+	if !req.Privileged {
+		hostConfig.CapAdd = []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
 	}
 
 	// Add ExtraHosts so the container can resolve "api" hostname.
@@ -534,8 +545,12 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 	var mounts []mount.Mount
 
 	for _, m := range req.Mounts {
+		mountType := mount.TypeBind
+		if m.Type == "volume" {
+			mountType = mount.TypeVolume
+		}
 		mounts = append(mounts, mount.Mount{
-			Type:     mount.TypeBind,
+			Type:     mountType,
 			Source:   m.Source,
 			Target:   m.Destination,
 			ReadOnly: m.ReadOnly,
@@ -558,25 +573,30 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 	return mounts
 }
 
-// buildExtraHosts resolves hostnames that the container needs to reach
-// and returns them as Docker ExtraHosts entries (format: "hostname:ip").
-// This is needed because containers on bridge network can't resolve
-// the "api" hostname which lives on the helix_* Docker Compose network.
+// buildExtraHosts returns Docker ExtraHosts entries (format: "hostname:ip")
+// so the desktop container can reach services on the helix compose network.
 func (dm *DevContainerManager) buildExtraHosts() []string {
 	var extraHosts []string
 
-	// Resolve "api" hostname from the sandbox's perspective
-	// The sandbox is connected to the helix network and can resolve "api"
+	// "api" hostname: resolve from sandbox's perspective for direct access.
+	// This works until an inner compose stack shadows the "api" hostname.
 	ips, err := net.LookupHost("api")
 	if err == nil && len(ips) > 0 {
 		apiIP := ips[0]
 		extraHosts = append(extraHosts, "api:"+apiIP)
 		log.Debug().Str("api_ip", apiIP).Msg("Added API host entry for dev container")
 	} else {
-		// Fallback: try common Docker network gateway patterns
-		// In Docker Compose, the API is typically on 172.19.0.x
 		log.Warn().Err(err).Msg("Could not resolve 'api' hostname, container may not connect to API")
 	}
+
+	// "outer-api" hostname: use host-gateway for stable access to the host.
+	// Docker resolves "host-gateway" to the daemon host's gateway IP, which
+	// for sandbox's dockerd is the compose network gateway (the actual host).
+	// The API publishes port 8080 on the host, so outer-api:8080 reaches the
+	// API even after API restarts — Docker updates iptables DNAT automatically.
+	// Used by Helix-in-Helix when the inner compose stack shadows "api".
+	extraHosts = append(extraHosts, "outer-api:host-gateway")
+	log.Debug().Msg("Added outer-api:host-gateway for stable API access via host")
 
 	return extraHosts
 }
@@ -1007,10 +1027,10 @@ func (dm *DevContainerManager) streamContainerLogs(ctx context.Context, containe
 	log.Debug().Str("container", containerName).Msg("Stopped streaming container logs")
 }
 
-// getBuildKitHost returns the BuildKit endpoint URL (e.g., "tcp://172.17.0.5:1234")
+// GetBuildKitHost returns the BuildKit endpoint URL (e.g., "tcp://172.17.0.5:1234")
 // by querying the helix-buildkit container's IP address on the sandbox's main dockerd.
 // Returns empty string if BuildKit is not available.
-func getBuildKitHost() string {
+func GetBuildKitHost() string {
 	// Query helix-buildkit container IP using the sandbox's main Docker socket
 	// (not the per-session socket that dev containers use)
 	cmd := exec.Command("docker", "-H", "unix:///var/run/docker.sock",

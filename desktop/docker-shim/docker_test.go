@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"reflect"
 	"testing"
 )
@@ -112,38 +111,14 @@ func TestSanitizeForPath(t *testing.T) {
 		imageName string
 		want      string
 	}{
-		{
-			imageName: "myimage",
-			want:      "myimage",
-		},
-		{
-			imageName: "myimage:latest",
-			want:      "myimage",
-		},
-		{
-			imageName: "registry.example.com/foo/bar:v1",
-			want:      "foo_bar",
-		},
-		{
-			imageName: "docker.io/library/nginx:latest",
-			want:      "library_nginx",
-		},
-		{
-			imageName: "foo/bar/baz",
-			want:      "foo_bar_baz",
-		},
-		{
-			imageName: "image@sha256:abc123",
-			want:      "image",
-		},
-		{
-			imageName: "",
-			want:      "default",
-		},
-		{
-			imageName: "my-image_v2.0",
-			want:      "my-image_v2.0",
-		},
+		{"myimage", "myimage"},
+		{"myimage:latest", "myimage"},
+		{"registry.example.com/foo/bar:v1", "foo_bar"},
+		{"docker.io/library/nginx:latest", "library_nginx"},
+		{"foo/bar/baz", "foo_bar_baz"},
+		{"image@sha256:abc123", "image"},
+		{"", "default"},
+		{"my-image_v2.0", "my-image_v2.0"},
 	}
 
 	for _, tt := range tests {
@@ -195,18 +170,6 @@ func TestHasCacheFlags(t *testing.T) {
 }
 
 func TestInjectBuildCacheFlags(t *testing.T) {
-	// Create a temporary cache directory for testing
-	tmpDir, err := os.MkdirTemp("", "buildkit-cache-test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	// Temporarily override the cache directory constant
-	originalCacheDir := BuildKitCacheDir
-	// We can't actually override a const, so we'll test with the directory not existing
-	// and then create it to test the injection
-
 	t.Run("no cache dir - no injection", func(t *testing.T) {
 		args := []string{"build", "-t", "myimage", "."}
 		got, err := injectBuildCacheFlags(args)
@@ -239,49 +202,23 @@ func TestInjectBuildCacheFlags(t *testing.T) {
 			t.Errorf("Expected no change when cache flags present, got %v", got)
 		}
 	})
-
-	// Restore original (not needed for const, but good practice)
-	_ = originalCacheDir
 }
 
 func TestProcessDockerArgs(t *testing.T) {
-	os.Setenv("WORKSPACE_DIR", "/data/workspaces/123")
-	defer os.Unsetenv("WORKSPACE_DIR")
-
 	tests := []struct {
 		name string
 		args []string
 		want []string
 	}{
 		{
-			name: "volume short flag",
-			args: []string{"run", "-v", "/home/retro/work/project:/app", "ubuntu"},
-			want: []string{"run", "-v", "/data/workspaces/123/project:/app", "ubuntu"},
+			name: "non-build passthrough",
+			args: []string{"run", "-v", "/home/user/project:/app", "ubuntu"},
+			want: []string{"run", "-v", "/home/user/project:/app", "ubuntu"},
 		},
 		{
-			name: "volume long flag",
-			args: []string{"run", "--volume", "/home/retro/work/project:/app:ro", "ubuntu"},
-			want: []string{"run", "--volume", "/data/workspaces/123/project:/app:ro", "ubuntu"},
-		},
-		{
-			name: "volume with equals",
-			args: []string{"run", "-v=/home/retro/work/project:/app", "ubuntu"},
-			want: []string{"run", "-v=/data/workspaces/123/project:/app", "ubuntu"},
-		},
-		{
-			name: "mount flag",
-			args: []string{"run", "--mount", "type=bind,source=/home/retro/work/project,target=/app", "ubuntu"},
-			want: []string{"run", "--mount", "type=bind,source=/data/workspaces/123/project,target=/app", "ubuntu"},
-		},
-		{
-			name: "named volume unchanged",
+			name: "named volume passthrough",
 			args: []string{"run", "-v", "myvolume:/data", "ubuntu"},
 			want: []string{"run", "-v", "myvolume:/data", "ubuntu"},
-		},
-		{
-			name: "multiple volumes",
-			args: []string{"run", "-v", "/home/retro/work/a:/a", "-v", "/home/retro/work/b:/b", "ubuntu"},
-			want: []string{"run", "-v", "/data/workspaces/123/a:/a", "-v", "/data/workspaces/123/b:/b", "ubuntu"},
 		},
 	}
 

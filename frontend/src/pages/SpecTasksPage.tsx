@@ -263,7 +263,6 @@ const SpecTasksPage: FC = () => {
   const [taskPriority, setTaskPriority] = useState('medium');
   const [selectedHelixAgent, setSelectedHelixAgent] = useState('');
   const [justDoItMode, setJustDoItMode] = useState(false); // Just Do It mode: skip spec, go straight to implementation
-  const [useHostDocker, setUseHostDocker] = useState(false); // Use host Docker socket (requires privileged sandbox)
 
   // Branch configuration state
   const [branchMode, setBranchMode] = useState<TypesBranchMode>(TypesBranchMode.BranchModeNew);
@@ -507,7 +506,7 @@ const SpecTasksPage: FC = () => {
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
     }
-  }, [createDialogOpen, taskPrompt, justDoItMode, selectedHelixAgent, useHostDocker]);
+  }, [createDialogOpen, taskPrompt, justDoItMode, selectedHelixAgent]);
 
   // Keyboard shortcut: ESC to close create task panel or chat panel
   useEffect(() => {
@@ -625,7 +624,6 @@ const SpecTasksPage: FC = () => {
         project_id: projectId || 'default', // Use project ID from route, or 'default'
         app_id: agentId || undefined, // Include selected or created agent if provided
         just_do_it_mode: justDoItMode, // Just Do It mode: skip spec, go straight to implementation
-        use_host_docker: useHostDocker, // Use host Docker socket (requires privileged sandbox)
         // Branch configuration
         branch_mode: branchMode,
         base_branch: branchMode === TypesBranchMode.BranchModeNew ? baseBranch : undefined,
@@ -648,7 +646,6 @@ const SpecTasksPage: FC = () => {
         setTaskPriority('medium');
         setSelectedHelixAgent(''); // Reset agent selection
         setJustDoItMode(false); // Reset Just Do It mode
-        setUseHostDocker(false); // Reset host Docker mode
         // Reset branch configuration
         setBranchMode(TypesBranchMode.BranchModeNew);
         setBaseBranch(defaultBranchName);
@@ -1600,7 +1597,6 @@ const SpecTasksPage: FC = () => {
               setTaskPriority('medium');
               setSelectedHelixAgent('');
               setJustDoItMode(false);
-              setUseHostDocker(false);
               // Reset branch configuration
               setBranchMode(TypesBranchMode.BranchModeNew);
               setBaseBranch(defaultBranchName);

@@ -29,6 +29,7 @@ See also: `.cursor/rules/*.mdc`
 - **Commit and push frequently** — after every self-contained change (feature, fix, cleanup)
 - **Update design docs** — when completing roadmap items, update the design doc to reflect progress
 - **Keep commits atomic** — one logical change per commit, easier to review and revert
+- **No unsubstantiated claims** — don't state things as fact that you don't actually know (e.g., "the most bug-prone area of the codebase", "the biggest performance bottleneck"). Describe what code does and what changes accomplish without editorializing about relative severity, importance, or ranking unless you have concrete evidence.
 
 ### Debugging
 - **Ask user to verify after changes** — UI/behavior changes can break things silently

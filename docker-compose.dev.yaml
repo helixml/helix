@@ -272,6 +272,8 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=all
       - NVIDIA_VISIBLE_DEVICES=all
       - GPU_VENDOR=${GPU_VENDOR:-nvidia}
+      # Docker nesting depth for address pool isolation (incremented at each level)
+      - HELIX_DOCKER_DEPTH=${HELIX_DOCKER_DEPTH:-1}
       # Helix dev mode (enables bind-mounts for hot reload)
       - HELIX_DEV_MODE=true
       - ZED_IMAGE=helix-sway:latest
@@ -320,8 +322,8 @@ services:
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
       # Set HELIX_SANDBOX_DATA to a host path (e.g., /prod/helix-workspaces) for ZFS dedup
       - ${HELIX_SANDBOX_DATA:-sandbox-data}:/data
-      # Host Docker socket for privileged mode (Helix-in-Helix development)
-      # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
+      # Host Docker socket (legacy, may be removed — docker-in-desktop mode
+      # runs dockerd inside the desktop container instead)
       - /var/run/docker.sock:/var/run/host-docker.sock:rw
       # Desktop image tarballs and versions (bind-mounted for hot-reload)
       # Adding new desktops requires no changes here - just add to sandbox-images/
@@ -359,6 +361,8 @@ services:
     environment:
       # AMD/Intel GPU configuration (no NVIDIA variables)
       - GPU_VENDOR=${GPU_VENDOR:-intel}
+      # Docker nesting depth for address pool isolation (incremented at each level)
+      - HELIX_DOCKER_DEPTH=${HELIX_DOCKER_DEPTH:-1}
       # Helix dev mode (enables bind-mounts for hot reload)
       - HELIX_DEV_MODE=true
       - ZED_IMAGE=helix-sway:latest
@@ -407,8 +411,8 @@ services:
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
       # Set HELIX_SANDBOX_DATA to a host path (e.g., /prod/helix-workspaces) for ZFS dedup
       - ${HELIX_SANDBOX_DATA:-sandbox-data}:/data
-      # Host Docker socket for privileged mode (Helix-in-Helix development)
-      # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
+      # Host Docker socket (legacy, may be removed — docker-in-desktop mode
+      # runs dockerd inside the desktop container instead)
       - /var/run/docker.sock:/var/run/host-docker.sock:rw
       # Desktop image tarballs and versions (bind-mounted for hot-reload)
       # Adding new desktops requires no changes here - just add to sandbox-images/
@@ -444,6 +448,8 @@ services:
       - GPU_VENDOR=none
       - LIBGL_ALWAYS_SOFTWARE=1
       - MESA_GL_VERSION_OVERRIDE=4.5
+      # Docker nesting depth for address pool isolation (incremented at each level)
+      - HELIX_DOCKER_DEPTH=${HELIX_DOCKER_DEPTH:-1}
       # Helix dev mode (enables bind-mounts for hot reload)
       - HELIX_DEV_MODE=true
       - ZED_IMAGE=helix-sway:latest
@@ -491,8 +497,8 @@ services:
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
       # Set HELIX_SANDBOX_DATA to a host path (e.g., /prod/helix-workspaces) for ZFS dedup
       - ${HELIX_SANDBOX_DATA:-sandbox-data}:/data
-      # Host Docker socket for privileged mode (Helix-in-Helix development)
-      # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
+      # Host Docker socket (legacy, may be removed — docker-in-desktop mode
+      # runs dockerd inside the desktop container instead)
       - /var/run/docker.sock:/var/run/host-docker.sock:rw
       # Desktop image tarballs and versions (bind-mounted for hot-reload)
       # Adding new desktops requires no changes here - just add to sandbox-images/

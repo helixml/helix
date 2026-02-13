@@ -1939,10 +1939,6 @@ type DesktopAgent struct {
 	ZoomLevel    int    `json:"zoom_level,omitempty"`    // GNOME zoom percentage (100 default, 200 for 4k/5k)
 	DisplayScale int    `json:"display_scale,omitempty"` // KDE/Qt display scale factor (1=100%, 2=200%)
 
-	// Privileged mode - use host Docker socket instead of isolated dockerd
-	// Only works when HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox
-	UseHostDocker bool `json:"use_host_docker,omitempty"`
-
 	// Hydra executor settings
 	SandboxID      string `json:"sandbox_id,omitempty"`       // Target sandbox for container (default: "default")
 	UseHydraDocker bool   `json:"use_hydra_docker,omitempty"` // Use Hydra's isolated dockerd for dev containers

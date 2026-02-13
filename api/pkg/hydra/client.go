@@ -24,7 +24,6 @@ func NewClient(socketPath string) *Client {
 		socketPath = DefaultSocketPath
 	}
 
-	// Create HTTP client with Unix socket transport
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return net.Dial("unix", socketPath)
@@ -36,7 +35,7 @@ func NewClient(socketPath string) *Client {
 			Transport: transport,
 			Timeout:   60 * time.Second,
 		},
-		baseURL: "http://hydra", // Fake hostname, connection is via Unix socket
+		baseURL: "http://hydra",
 	}
 }
 
@@ -62,174 +61,6 @@ func NewRevDialClient(connman connmanInterface, deviceID string) *RevDialClient 
 // DeviceID returns the device ID used for RevDial connections
 func (c *RevDialClient) DeviceID() string {
 	return c.deviceID
-}
-
-// CreateDockerInstance creates or resumes a Docker instance for the given scope
-func (c *Client) CreateDockerInstance(ctx context.Context, req *CreateDockerInstanceRequest) (*DockerInstanceResponse, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/v1/docker-instances", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("hydra API error (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	var result DockerInstanceResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &result, nil
-}
-
-// DeleteDockerInstance stops a Docker instance (preserves data)
-func (c *Client) DeleteDockerInstance(ctx context.Context, scopeType ScopeType, scopeID string) (*DeleteDockerInstanceResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/docker-instances/%s/%s", c.baseURL, scopeType, scopeID)
-
-	httpReq, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("hydra API error (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	var result DeleteDockerInstanceResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &result, nil
-}
-
-// GetDockerInstance gets the status of a Docker instance
-func (c *Client) GetDockerInstance(ctx context.Context, scopeType ScopeType, scopeID string) (*DockerInstanceStatusResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/docker-instances/%s/%s", c.baseURL, scopeType, scopeID)
-
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("hydra API error (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	var result DockerInstanceStatusResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &result, nil
-}
-
-// ListDockerInstances lists all Docker instances
-func (c *Client) ListDockerInstances(ctx context.Context) (*ListDockerInstancesResponse, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/v1/docker-instances", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("hydra API error (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	var result ListDockerInstancesResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &result, nil
-}
-
-// PurgeDockerInstance stops a Docker instance and deletes all data
-func (c *Client) PurgeDockerInstance(ctx context.Context, scopeType ScopeType, scopeID string) (*PurgeDockerInstanceResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/docker-instances/%s/%s/data", c.baseURL, scopeType, scopeID)
-
-	httpReq, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("hydra API error (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	var result PurgeDockerInstanceResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &result, nil
-}
-
-// GetPrivilegedModeStatus checks if privileged mode is available
-func (c *Client) GetPrivilegedModeStatus(ctx context.Context) (*PrivilegedModeStatusResponse, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/v1/privileged-mode/status", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("hydra API error (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	var result PrivilegedModeStatusResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &result, nil
 }
 
 // Health checks if Hydra is healthy
@@ -372,111 +203,7 @@ func (c *Client) ListDevContainers(ctx context.Context) (*ListDevContainersRespo
 	return &result, nil
 }
 
-// BridgeDesktop bridges a desktop container to a Hydra network for the given session
-func (c *Client) BridgeDesktop(ctx context.Context, req *BridgeDesktopRequest) (*BridgeDesktopResponse, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/v1/bridge-desktop", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("hydra API error (status %d): %s", resp.StatusCode, string(respBody))
-	}
-
-	var result BridgeDesktopResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &result, nil
-}
-
 // RevDial client methods - these make HTTP requests over RevDial connections
-
-// CreateDockerInstance creates or resumes a Docker instance via RevDial
-func (c *RevDialClient) CreateDockerInstance(ctx context.Context, req *CreateDockerInstanceRequest) (*DockerInstanceResponse, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	respBody, err := c.doRequest(ctx, "POST", "/api/v1/docker-instances", body)
-	if err != nil {
-		return nil, err
-	}
-
-	var result DockerInstanceResponse
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &result, nil
-}
-
-// DeleteDockerInstance stops a Docker instance via RevDial
-func (c *RevDialClient) DeleteDockerInstance(ctx context.Context, scopeType ScopeType, scopeID string) (*DeleteDockerInstanceResponse, error) {
-	path := fmt.Sprintf("/api/v1/docker-instances/%s/%s", scopeType, scopeID)
-
-	respBody, err := c.doRequest(ctx, "DELETE", path, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var result DeleteDockerInstanceResponse
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &result, nil
-}
-
-// GetPrivilegedModeStatus checks if privileged mode is available via RevDial
-func (c *RevDialClient) GetPrivilegedModeStatus(ctx context.Context) (*PrivilegedModeStatusResponse, error) {
-	respBody, err := c.doRequest(ctx, "GET", "/api/v1/privileged-mode/status", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var result PrivilegedModeStatusResponse
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &result, nil
-}
-
-// BridgeDesktop bridges a desktop container to a Hydra network via RevDial
-func (c *RevDialClient) BridgeDesktop(ctx context.Context, req *BridgeDesktopRequest) (*BridgeDesktopResponse, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	respBody, err := c.doRequest(ctx, "POST", "/api/v1/bridge-desktop", body)
-	if err != nil {
-		return nil, err
-	}
-
-	var result BridgeDesktopResponse
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &result, nil
-}
 
 // CreateDevContainer creates a dev container via RevDial
 func (c *RevDialClient) CreateDevContainer(ctx context.Context, req *CreateDevContainerRequest) (*DevContainerResponse, error) {
@@ -564,8 +291,8 @@ func (c *RevDialClient) GetSystemStats(ctx context.Context) (*SystemStatsRespons
 
 // DevContainerClientsResponse is the response from the /clients endpoint
 type DevContainerClientsResponse struct {
-	SessionID string             `json:"session_id"`
-	Clients   []ConnectedClient  `json:"clients"`
+	SessionID string            `json:"session_id"`
+	Clients   []ConnectedClient `json:"clients"`
 }
 
 // ConnectedClient represents a connected WebSocket client
@@ -647,7 +374,6 @@ func (c *RevDialClient) doRequest(ctx context.Context, method, path string, body
 	}
 	defer conn.Close()
 
-	// Build HTTP request
 	var reqBody io.Reader
 	if body != nil {
 		reqBody = bytes.NewReader(body)
@@ -661,12 +387,10 @@ func (c *RevDialClient) doRequest(ctx context.Context, method, path string, body
 		httpReq.Header.Set("Content-Type", "application/json")
 	}
 
-	// Write request to connection
 	if err := httpReq.Write(conn); err != nil {
 		return nil, fmt.Errorf("failed to write request: %w", err)
 	}
 
-	// Read response using buffered reader
 	bufReader := bufio.NewReader(conn)
 	resp, err := http.ReadResponse(bufReader, httpReq)
 	if err != nil {

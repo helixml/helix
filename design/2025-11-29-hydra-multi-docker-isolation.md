@@ -1,7 +1,7 @@
 # Hydra: Multi-Docker Isolation for Zed Agent Desktop Environments
 
 **Date:** 2025-11-29
-**Status:** Design
+**Status:** OUTDATED - Superseded by docker-in-desktop mode (see `2026-02-10-arbitrary-dind-nesting-simplification.md`). Per-session sibling dockerd, bridge/veth/DNS infrastructure has been removed.
 **Author:** Claude
 
 ## Problem Statement
