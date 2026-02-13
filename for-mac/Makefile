@@ -98,4 +98,6 @@ sign-dev-qemu:
 
 # Wails dev mode with hot reload
 dev:
+	@mkdir -p build/bin/Helix.app/Contents/Resources/vm
+	@cp -f vm-manifest.json build/bin/Helix.app/Contents/Resources/vm/vm-manifest.json 2>/dev/null || true
 	wails dev
