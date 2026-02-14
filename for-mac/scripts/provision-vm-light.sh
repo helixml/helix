@@ -647,24 +647,51 @@ fi
 if ! step_done "fix_arm64_images"; then
     log "Fixing ARM64 image tags (multi-arch manifest workaround)..."
 
-    # Some images (typesense, sandbox) don't have multi-arch manifests due to a
-    # Drone CI bug. They're published with -linux-arm64 suffix tags instead.
-    # Pull the arm64-specific tags and retag to match what compose expects.
+    # RC/feature branch builds may not have multi-arch manifests for any images.
+    # They're published with -linux-arm64 suffix tags instead.
+    # Discover which helix images compose needs, then pull arm64-specific tags
+    # and retag to match what compose expects.
     run_ssh "sudo systemctl start docker" || true
-    for image in typesense helix-sandbox; do
-        FULL="registry.helixml.tech/helix/${image}:${HELIX_VERSION}"
-        ARM64="registry.helixml.tech/helix/${image}:${HELIX_VERSION}-linux-arm64"
-        log "  Checking ${image}..."
+
+    # Get all helix registry images from the compose file
+    COMPOSE_IMAGES=$(run_ssh "cd ~/helix && docker compose config --images 2>/dev/null" 2>/dev/null | grep "registry.helixml.tech/helix/" || echo "")
+    if [ -z "$COMPOSE_IMAGES" ]; then
+        # Fallback: known images
+        COMPOSE_IMAGES="registry.helixml.tech/helix/controlplane:${HELIX_VERSION}
+registry.helixml.tech/helix/typesense:${HELIX_VERSION}
+registry.helixml.tech/helix/haystack:${HELIX_VERSION}
+registry.helixml.tech/helix/helix-sandbox:${HELIX_VERSION}"
+    fi
+
+    for FULL in $COMPOSE_IMAGES; do
+        # Extract image name for logging
+        IMAGE_NAME=$(echo "$FULL" | sed 's|registry.helixml.tech/helix/||' | cut -d: -f1)
+        TAG=$(echo "$FULL" | cut -d: -f2)
+        ARM64="registry.helixml.tech/helix/${IMAGE_NAME}:${TAG}-linux-arm64"
+        log "  Checking ${IMAGE_NAME}..."
         if ! run_ssh "docker pull ${FULL} 2>/dev/null"; then
-            log "  Multi-arch pull failed for ${image}, trying arm64-specific tag..."
+            log "  Multi-arch pull failed for ${IMAGE_NAME}, trying arm64-specific tag..."
             if run_ssh "docker pull ${ARM64} 2>&1"; then
                 run_ssh "docker tag ${ARM64} ${FULL}"
                 log "  Retagged ${ARM64} → ${FULL}"
             else
-                log "  WARNING: Could not pull ${image} at all"
+                log "  WARNING: Could not pull ${IMAGE_NAME} at all"
             fi
         fi
     done
+
+    # Also handle sandbox (may not be in compose file since sandbox.sh runs it separately)
+    SANDBOX_FULL="registry.helixml.tech/helix/helix-sandbox:${HELIX_VERSION}"
+    SANDBOX_ARM64="registry.helixml.tech/helix/helix-sandbox:${HELIX_VERSION}-linux-arm64"
+    if ! run_ssh "docker image inspect ${SANDBOX_FULL} >/dev/null 2>&1"; then
+        log "  Checking helix-sandbox (standalone)..."
+        if ! run_ssh "docker pull ${SANDBOX_FULL} 2>/dev/null"; then
+            if run_ssh "docker pull ${SANDBOX_ARM64} 2>&1"; then
+                run_ssh "docker tag ${SANDBOX_ARM64} ${SANDBOX_FULL}"
+                log "  Retagged ${SANDBOX_ARM64} → ${SANDBOX_FULL}"
+            fi
+        fi
+    fi
 
     mark_step "fix_arm64_images"
 fi
