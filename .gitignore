@@ -94,3 +94,7 @@ desktop/gst-pipewire-zerocopy/Cargo.lock
 
 # Docker shim binary
 desktop/docker-shim/docker-shim
+
+# Settings-sync-daemon binaries
+api/cmd/settings-sync-daemon/settings-sync-daemon
+api/settings-sync-daemon
