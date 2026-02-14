@@ -2553,7 +2553,7 @@ steps:
       # Run provisioning with upload
       # Uses /Volumes/Big for VM disk (fast SSD on the runner)
       - |
-        PROV_VERSION="${DRONE_TAG:-$(echo ${DRONE_COMMIT_SHA} | head -c 9)}"
+        if [ -n "$DRONE_TAG" ]; then PROV_VERSION="$DRONE_TAG"; else PROV_VERSION=$(echo $DRONE_COMMIT_SHA | head -c 9); fi
         cd for-mac
         HELIX_VM_DIR=/Volumes/Big/helix-vm/ci-provision \
         VM_VERSION="$PROV_VERSION" \
@@ -2602,7 +2602,9 @@ steps:
       - echo "APPLE_SIGNING_IDENTITY='$APPLE_SIGNING_IDENTITY'" > for-mac/.env.signing
       - cd for-mac
       # Build DMG (no upload yet — notarize first)
-      - ./scripts/create-dmg.sh --skip-styling --version ${DRONE_TAG:-$(echo ${DRONE_COMMIT_SHA} | head -c 7)}
+      - |
+        if [ -n "$DRONE_TAG" ]; then DMG_VER="$DRONE_TAG"; else DMG_VER=$(echo $DRONE_COMMIT_SHA | head -c 7); fi
+        ./scripts/create-dmg.sh --skip-styling --version "$DMG_VER"
       # Notarize with Helix-Dev keychain, then staple ticket into DMG
       - |
         xcrun notarytool submit build/bin/Helix-for-Mac.dmg \
@@ -2614,7 +2616,7 @@ steps:
       - |
         export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
         export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
-        DMG_VERSION="${DRONE_TAG:-$(echo ${DRONE_COMMIT_SHA} | head -c 7)}"
+        if [ -n "$DRONE_TAG" ]; then DMG_VERSION="$DRONE_TAG"; else DMG_VERSION=$(echo $DRONE_COMMIT_SHA | head -c 7); fi
         echo "Uploading DMG for version: $DMG_VERSION"
         aws s3 cp build/bin/Helix-for-Mac.dmg \
           "s3://helix-desktop/desktop/${DMG_VERSION}/Helix-for-Mac.dmg" \
