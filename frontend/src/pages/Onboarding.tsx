@@ -10,6 +10,9 @@ import Select from '@mui/material/Select'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import Divider from '@mui/material/Divider'
+import Radio from '@mui/material/Radio'
+import RadioGroup from '@mui/material/RadioGroup'
+import FormControlLabel from '@mui/material/FormControlLabel'
 
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
@@ -184,6 +187,7 @@ export default function Onboarding() {
   const [selectedModel, setSelectedModel] = useState('')
   const [hasUserSelectedModel, setHasUserSelectedModel] = useState(false)
   const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent')
+  const [claudeCodeMode, setClaudeCodeMode] = useState<'subscription' | 'api_key'>('subscription')
   const [newAgentName, setNewAgentName] = useState('-')
   const [userModifiedAgentName, setUserModifiedAgentName] = useState(false)
   const [creatingAgent, setCreatingAgent] = useState(false)
@@ -217,6 +221,7 @@ export default function Onboarding() {
     })
     return ids
   }, [providers])
+  const hasAnthropicProvider = connectedProviderIds.has('anthropic')
   // Consider Claude subscription as a valid provider for the "Continue" button
   const hasUserProviders = connectedProviderIds.size > 0 || hasClaudeSubscription
 
@@ -447,7 +452,7 @@ export default function Onboarding() {
       snackbar.error('Please select an agent')
       return
     }
-    if (agentMode === 'create' && !selectedModel) {
+    if (agentMode === 'create' && !selectedModel && !(codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription')) {
       snackbar.error('Please select a model for the agent')
       return
     }
@@ -1186,46 +1191,106 @@ export default function Onboarding() {
                         <Box>
                           <Typography sx={{ fontSize: '0.82rem', color: '#fff' }}>Claude Code</Typography>
                           <Typography sx={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)' }}>
-                            Claude subscription or Anthropic API key
+                            Anthropic's coding agent
                           </Typography>
                         </Box>
                       </MenuItem>
                     </Select>
                   </FormControl>
 
-                  {codeAgentRuntime === 'claude_code' && (
-                    <Box sx={{ p: 1.5, borderRadius: 1.5, border: '1px solid rgba(255,255,255,0.06)', bgcolor: 'rgba(255,255,255,0.02)' }}>
-                      <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.78rem', mb: hasClaudeSubscription ? 0 : 1 }}>
-                        Leave model empty to use your Claude subscription, or select an Anthropic model to use via API key.
-                      </Typography>
-                      {hasClaudeSubscription ? (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
-                          <CheckCircleIcon sx={{ fontSize: 16, color: ACCENT }} />
-                          <Typography sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.78rem' }}>
-                            Claude subscription connected.
+                  {codeAgentRuntime === 'claude_code' ? (
+                    <>
+                      <Box sx={{ p: 1.5, borderRadius: 1.5, border: '1px solid rgba(255,255,255,0.06)', bgcolor: 'rgba(255,255,255,0.02)' }}>
+                        <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.78rem', mb: 0.5 }}>
+                          Credentials
+                        </Typography>
+                        <FormControl>
+                          <RadioGroup
+                            value={claudeCodeMode}
+                            onChange={(e) => {
+                              const mode = e.target.value as 'subscription' | 'api_key'
+                              setClaudeCodeMode(mode)
+                              if (mode === 'subscription') {
+                                setSelectedProvider('')
+                                setSelectedModel('')
+                                setHasUserSelectedModel(false)
+                              }
+                            }}
+                          >
+                            <FormControlLabel
+                              value="subscription"
+                              control={<Radio size="small" sx={{ color: 'rgba(255,255,255,0.3)', '&.Mui-checked': { color: ACCENT } }} />}
+                              disabled={!hasClaudeSubscription}
+                              label={
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <Typography sx={{ fontSize: '0.78rem', color: '#fff' }}>Claude Subscription</Typography>
+                                  {hasClaudeSubscription ? (
+                                    <CheckCircleIcon sx={{ fontSize: 14, color: ACCENT }} />
+                                  ) : (
+                                    <Typography sx={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)' }}>(not connected)</Typography>
+                                  )}
+                                </Box>
+                              }
+                            />
+                            <FormControlLabel
+                              value="api_key"
+                              control={<Radio size="small" sx={{ color: 'rgba(255,255,255,0.3)', '&.Mui-checked': { color: ACCENT } }} />}
+                              disabled={!hasAnthropicProvider}
+                              label={
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <Typography sx={{ fontSize: '0.78rem', color: '#fff' }}>Anthropic API Key</Typography>
+                                  {hasAnthropicProvider ? (
+                                    <CheckCircleIcon sx={{ fontSize: 14, color: ACCENT }} />
+                                  ) : (
+                                    <Typography sx={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)' }}>(not configured)</Typography>
+                                  )}
+                                </Box>
+                              }
+                            />
+                          </RadioGroup>
+                        </FormControl>
+                        {!hasClaudeSubscription && !hasAnthropicProvider && (
+                          <Typography sx={{ color: 'warning.main', fontSize: '0.72rem', mt: 0.5 }}>
+                            Connect a Claude subscription or add an Anthropic API key in Providers.
                           </Typography>
-                        </Box>
-                      ) : (
-                        <ClaudeSubscriptionConnect variant="inline" />
-                      )}
-                    </Box>
-                  )}
+                        )}
+                      </Box>
 
-                  <AdvancedModelPicker
-                    recommendedModels={RECOMMENDED_MODELS}
-                    autoSelectFirst={false}
-                    hint="Choose a capable model for agentic coding."
-                    selectedProvider={selectedProvider}
-                    selectedModelId={selectedModel}
-                    onSelectModel={(provider, model) => {
-                      setHasUserSelectedModel(true)
-                      setSelectedProvider(provider)
-                      setSelectedModel(model)
-                    }}
-                    currentType="text"
-                    displayMode="full"
-                    disabled={creatingAgent}
-                  />
+                      {claudeCodeMode === 'api_key' && (
+                        <AdvancedModelPicker
+                          recommendedModels={RECOMMENDED_MODELS}
+                          autoSelectFirst={false}
+                          hint="Choose a Claude model for code generation."
+                          selectedProvider={selectedProvider}
+                          selectedModelId={selectedModel}
+                          onSelectModel={(provider, model) => {
+                            setHasUserSelectedModel(true)
+                            setSelectedProvider(provider)
+                            setSelectedModel(model)
+                          }}
+                          currentType="text"
+                          displayMode="full"
+                          disabled={creatingAgent}
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <AdvancedModelPicker
+                      recommendedModels={RECOMMENDED_MODELS}
+                      autoSelectFirst={false}
+                      hint="Choose a capable model for agentic coding."
+                      selectedProvider={selectedProvider}
+                      selectedModelId={selectedModel}
+                      onSelectModel={(provider, model) => {
+                        setHasUserSelectedModel(true)
+                        setSelectedProvider(provider)
+                        setSelectedModel(model)
+                      }}
+                      currentType="text"
+                      displayMode="full"
+                      disabled={creatingAgent}
+                    />
+                  )}
 
                   <TextField
                     fullWidth
@@ -1252,7 +1317,7 @@ export default function Onboarding() {
                   creatingProject || creatingAgent || !projectName.trim() || !createdOrgId ||
                   (repoMode === 'external' && !linkedExternalRepo) ||
                   (agentMode === 'select' && !selectedAgentId) ||
-                  (agentMode === 'create' && !selectedModel)
+                  (agentMode === 'create' && !selectedModel && !(codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription'))
                 }
                 sx={btnSx}
                 startIcon={(creatingProject || creatingAgent) ? <CircularProgress size={14} sx={{ color: '#000' }} /> : <FolderIcon sx={{ fontSize: 16 }} />}
