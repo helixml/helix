@@ -104,6 +104,10 @@ type VMManager struct {
 	// already running (Docker auto-restart from a non-clean shutdown), it restarts
 	// them to pick up the new env values.
 	envUpdated bool
+	// composeFile is the detected docker compose file name inside the VM.
+	// Set by startHelixStack(): "docker-compose.dev.yaml" (dev/build-from-source)
+	// or "docker-compose.yaml" (prod/install.sh with pre-built images).
+	composeFile string
 }
 
 // getSpiceSocketPath returns the path for the SPICE Unix socket
@@ -724,7 +728,11 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 
 // diagnoseAPIFailure checks docker compose inside the VM to determine why the API isn't starting
 func (vm *VMManager) diagnoseAPIFailure() string {
-	cmd := vm.sshCommand(`cd ~/helix 2>/dev/null && docker compose -f docker-compose.dev.yaml ps --format '{{.Service}}: {{.Status}}' 2>/dev/null | head -20`)
+	composeFile := vm.composeFile
+	if composeFile == "" {
+		composeFile = "docker-compose.dev.yaml"
+	}
+	cmd := vm.sshCommand(fmt.Sprintf(`cd ~/helix 2>/dev/null && docker compose -f %s ps --format '{{.Service}}: {{.Status}}' 2>/dev/null | head -20`, composeFile))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Sprintf("could not check container status: %v", err)
@@ -736,7 +744,7 @@ func (vm *VMManager) diagnoseAPIFailure() string {
 	log.Printf("Container status:\n%s", status)
 
 	// Also grab recent API logs if available
-	logCmd := vm.sshCommand(`cd ~/helix 2>/dev/null && docker compose -f docker-compose.dev.yaml logs api --tail 10 2>/dev/null`)
+	logCmd := vm.sshCommand(fmt.Sprintf(`cd ~/helix 2>/dev/null && docker compose -f %s logs api --tail 10 2>/dev/null`, composeFile))
 	logOut, _ := logCmd.CombinedOutput()
 	if len(logOut) > 0 {
 		log.Printf("API container logs:\n%s", string(logOut))
@@ -788,11 +796,13 @@ func (vm *VMManager) ensureDockerRunning() error {
 }
 
 // startHelixStack starts the Helix docker-compose services inside the VM.
-// Uses .env.vm for configuration and docker-compose.dev.yaml for the compose file.
+// Auto-detects compose file: docker-compose.dev.yaml (dev/build-from-source)
+// or docker-compose.yaml (prod/install.sh with pre-built images).
+// In prod mode, also starts sandbox.sh separately (sandbox is not a compose service).
 func (vm *VMManager) startHelixStack() error {
 	script := `
 cd ~/helix 2>/dev/null || exit 0
-if [ ! -f .env.vm ]; then
+if [ ! -f .env ] && [ ! -f .env.vm ]; then
     echo 'NO_ENV_FILE'
     exit 0
 fi
@@ -800,12 +810,30 @@ fi
 if [ ! -e .env ]; then
     ln -s .env.vm .env
 fi
+# Detect compose file: dev (build-from-source) vs prod (install.sh)
+COMPOSE_FILE=""
+if [ -f docker-compose.dev.yaml ]; then
+    COMPOSE_FILE="docker-compose.dev.yaml"
+elif [ -f docker-compose.yaml ]; then
+    COMPOSE_FILE="docker-compose.yaml"
+else
+    echo 'NO_COMPOSE_FILE'
+    exit 0
+fi
+echo "COMPOSE_FILE=$COMPOSE_FILE"
 # Check if stack is already running
-if docker compose -f docker-compose.dev.yaml ps --format '{{.Service}}' 2>/dev/null | grep -q api; then
+if docker compose -f "$COMPOSE_FILE" ps --format '{{.Service}}' 2>/dev/null | grep -q api; then
     echo 'ALREADY_RUNNING'
 else
     echo 'Starting Helix stack...'
-    docker compose -f docker-compose.dev.yaml up -d 2>&1
+    docker compose -f "$COMPOSE_FILE" up -d 2>&1
+    # In prod mode (install.sh), start sandbox separately via sandbox.sh
+    if [ "$COMPOSE_FILE" = "docker-compose.yaml" ] && [ -f sandbox.sh ]; then
+        docker stop helix-sandbox 2>/dev/null || true
+        docker rm helix-sandbox 2>/dev/null || true
+        nohup bash sandbox.sh > /tmp/sandbox.log 2>&1 &
+        echo 'SANDBOX_STARTED'
+    fi
     echo 'STARTED'
 fi
 `
@@ -817,13 +845,24 @@ fi
 	outStr := strings.TrimSpace(string(out))
 	log.Printf("Helix stack: %s", outStr)
 
+	// Extract detected compose file from output
+	for _, line := range strings.Split(outStr, "\n") {
+		if strings.HasPrefix(line, "COMPOSE_FILE=") {
+			vm.composeFile = strings.TrimPrefix(line, "COMPOSE_FILE=")
+		}
+	}
+
 	// If containers were auto-started by Docker (non-clean shutdown) and
 	// injectDesktopSecret() updated the env, restart the API to pick up
 	// the new values. We do a full `up -d` instead of just restarting API
 	// to ensure all containers read the updated .env.
 	if strings.Contains(outStr, "ALREADY_RUNNING") && vm.envUpdated {
+		composeFile := vm.composeFile
+		if composeFile == "" {
+			composeFile = "docker-compose.dev.yaml"
+		}
 		log.Printf("Containers already running with stale env — restarting stack to apply updated settings")
-		restart := vm.sshCommand("cd ~/helix && docker compose -f docker-compose.dev.yaml up -d --force-recreate 2>&1")
+		restart := vm.sshCommand(fmt.Sprintf("cd ~/helix && docker compose -f %s up -d --force-recreate 2>&1", composeFile))
 		restartOut, _ := restart.CombinedOutput()
 		log.Printf("Stack restart: %s", strings.TrimSpace(string(restartOut)))
 		vm.envUpdated = false
@@ -1158,8 +1197,12 @@ fi
 		if vm.stackStarted {
 			// Stack is already running (runtime settings change, e.g. user
 			// activated a license key). Restart API to pick up new env.
-			log.Printf("Desktop secret injected into .env.vm — restarting API container")
-			restart := vm.sshCommand("cd ~/helix && docker compose -f docker-compose.dev.yaml down api && docker compose -f docker-compose.dev.yaml up -d api 2>&1 || true")
+			composeFile := vm.composeFile
+			if composeFile == "" {
+				composeFile = "docker-compose.dev.yaml"
+			}
+			log.Printf("Desktop secret injected into .env — restarting API container")
+			restart := vm.sshCommand(fmt.Sprintf("cd ~/helix && docker compose -f %s down api && docker compose -f %s up -d api 2>&1 || true", composeFile, composeFile))
 			restartOut, _ := restart.CombinedOutput()
 			log.Printf("API restart: %s", string(restartOut))
 		} else {

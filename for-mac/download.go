@@ -13,7 +13,10 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 // VMManifest describes the VM images required for download
@@ -28,6 +31,11 @@ type VMManifestFile struct {
 	Name   string `json:"name"`
 	Size   int64  `json:"size"`
 	SHA256 string `json:"sha256"`
+
+	// Compression fields (optional — if set, file is compressed on CDN)
+	Compression      string `json:"compression,omitempty"`       // "zstd" or empty
+	DecompressedName string `json:"decompressed_name,omitempty"` // final filename after decompression
+	DecompressedSize int64  `json:"decompressed_size,omitempty"` // size after decompression
 }
 
 // DownloadProgress reports download status to the frontend
@@ -133,9 +141,16 @@ func (d *VMDownloader) CheckFilesExist() (allExist bool, missing []VMManifestFil
 
 	vmDir := filepath.Join(getHelixDataDir(), "vm", "helix-desktop")
 	for _, f := range d.manifest.Files {
-		path := filepath.Join(vmDir, f.Name)
+		// For compressed files, check the decompressed output
+		checkName := f.Name
+		checkSize := f.Size
+		if f.Compression != "" && f.DecompressedName != "" {
+			checkName = f.DecompressedName
+			checkSize = f.DecompressedSize
+		}
+		path := filepath.Join(vmDir, checkName)
 		info, err := os.Stat(path)
-		if err != nil || info.Size() != f.Size {
+		if err != nil || info.Size() != checkSize {
 			missing = append(missing, f)
 		}
 	}
@@ -179,6 +194,20 @@ func (d *VMDownloader) DownloadAll(ctx interface{ EventsEmit(string, ...interfac
 		return fmt.Errorf("failed to create VM directory: %w", err)
 	}
 
+	// Disk space preflight check: for compressed files we need both the
+	// compressed download AND the decompressed output temporarily on disk.
+	var totalRequired int64
+	for _, f := range missing {
+		totalRequired += f.Size
+		if f.Compression != "" && f.DecompressedSize > 0 {
+			totalRequired += f.DecompressedSize
+		}
+	}
+	headroom := int64(10 * 1024 * 1024 * 1024) // 10 GB
+	if err := checkDiskSpace(vmDir, uint64(totalRequired+headroom)); err != nil {
+		return err
+	}
+
 	for _, f := range missing {
 		select {
 		case <-d.cancel:
@@ -193,6 +222,31 @@ func (d *VMDownloader) DownloadAll(ctx interface{ EventsEmit(string, ...interfac
 				Error:  err.Error(),
 			})
 			return err
+		}
+
+		// Decompress if needed
+		if f.Compression == "zstd" && f.DecompressedName != "" {
+			compressedPath := filepath.Join(vmDir, f.Name)
+			decompressedPath := filepath.Join(vmDir, f.DecompressedName)
+
+			d.emitProgress(ctx, DownloadProgress{
+				File:       f.DecompressedName,
+				BytesDone:  0,
+				BytesTotal: f.DecompressedSize,
+				Status:     "decompressing",
+			})
+
+			if err := d.decompressZstd(ctx, compressedPath, decompressedPath, f); err != nil {
+				d.emitProgress(ctx, DownloadProgress{
+					File:   f.DecompressedName,
+					Status: "error",
+					Error:  err.Error(),
+				})
+				return err
+			}
+
+			// Remove the compressed file to free disk space
+			os.Remove(compressedPath)
 		}
 	}
 
@@ -662,6 +716,99 @@ func (d *VMDownloader) downloadFileSingle(ctx interface{ EventsEmit(string, ...i
 	return nil
 }
 
+// decompressZstd decompresses a .zst file with progress reporting.
+func (d *VMDownloader) decompressZstd(ctx interface{ EventsEmit(string, ...interface{}) }, srcPath, dstPath string, f VMManifestFile) error {
+	log.Printf("Decompressing %s → %s (zstd)", srcPath, dstPath)
+
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return fmt.Errorf("failed to open compressed file: %w", err)
+	}
+	defer src.Close()
+
+	decoder, err := zstd.NewReader(src)
+	if err != nil {
+		return fmt.Errorf("failed to create zstd decoder: %w", err)
+	}
+	defer decoder.Close()
+
+	tmpPath := dstPath + ".decomp.tmp"
+	dst, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to create decompressed file: %w", err)
+	}
+
+	buf := make([]byte, 4*1024*1024) // 4 MB buffer for throughput
+	var written int64
+	lastReport := time.Now()
+
+	for {
+		select {
+		case <-d.cancel:
+			dst.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("decompression cancelled")
+		default:
+		}
+
+		n, readErr := decoder.Read(buf)
+		if n > 0 {
+			if _, writeErr := dst.Write(buf[:n]); writeErr != nil {
+				dst.Close()
+				os.Remove(tmpPath)
+				return fmt.Errorf("failed to write decompressed data: %w", writeErr)
+			}
+			written += int64(n)
+
+			if time.Since(lastReport) > 500*time.Millisecond {
+				pct := float64(written) / float64(f.DecompressedSize) * 100
+				if pct > 100 {
+					pct = 100
+				}
+				d.emitProgress(ctx, DownloadProgress{
+					File:       f.DecompressedName,
+					BytesDone:  written,
+					BytesTotal: f.DecompressedSize,
+					Percent:    pct,
+					Status:     "decompressing",
+				})
+				lastReport = time.Now()
+			}
+		}
+
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			dst.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("zstd decompression error: %w", readErr)
+		}
+	}
+
+	dst.Close()
+
+	// Verify decompressed size
+	info, err := os.Stat(tmpPath)
+	if err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to stat decompressed file: %w", err)
+	}
+	if f.DecompressedSize > 0 && info.Size() != f.DecompressedSize {
+		os.Remove(tmpPath)
+		return fmt.Errorf("decompressed size mismatch: expected %d, got %d", f.DecompressedSize, info.Size())
+	}
+
+	// Atomic rename
+	if err := os.Rename(tmpPath, dstPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to move decompressed file into place: %w", err)
+	}
+
+	log.Printf("Decompressed %s: %d bytes", dstPath, written)
+	return nil
+}
+
 // Cancel stops an in-progress download
 func (d *VMDownloader) Cancel() {
 	d.mu.Lock()
@@ -736,6 +883,37 @@ func formatDuration(seconds float64) string {
 		return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
 	}
 	return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
+}
+
+// checkDiskSpace verifies that the directory's filesystem has enough free space.
+// Returns an error if available space is less than requiredBytes.
+func checkDiskSpace(path string, requiredBytes uint64) error {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return fmt.Errorf("failed to check disk space: %w", err)
+	}
+	available := stat.Bavail * uint64(stat.Bsize)
+	if available < requiredBytes {
+		return fmt.Errorf("insufficient disk space: %s available, need %s. Free up space and try again",
+			humanizeBytes(available), humanizeBytes(requiredBytes))
+	}
+	// Warn (but don't fail) if total disk < 256 GB
+	totalBytes := stat.Blocks * uint64(stat.Bsize)
+	if totalBytes < 256*1024*1024*1024 {
+		log.Printf("WARNING: Total disk is %s (recommended: 256 GB+)", humanizeBytes(totalBytes))
+	}
+	return nil
+}
+
+// humanizeBytes formats a byte count as a human-readable string
+func humanizeBytes(b uint64) string {
+	if b >= 1024*1024*1024 {
+		return fmt.Sprintf("%.1f GB", float64(b)/(1024*1024*1024))
+	}
+	if b >= 1024*1024 {
+		return fmt.Sprintf("%.0f MB", float64(b)/(1024*1024))
+	}
+	return fmt.Sprintf("%.0f KB", float64(b)/1024)
 }
 
 // getAppBundlePath returns the path to the running .app bundle, if any.

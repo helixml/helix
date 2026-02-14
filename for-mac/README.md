@@ -2,7 +2,7 @@
 
 A standalone macOS app that runs an Ubuntu VM with the Helix AI development platform. Embeds QEMU, open-source GPU rendering frameworks, and EFI firmware — no need to install UTM or Homebrew.
 
-The app bundle is ~300MB. VM disk images (~18GB) are downloaded from Cloudflare R2 on first launch with progress UI and resume support.
+The app bundle is ~300MB. VM disk images (~9GB compressed, ~20GB decompressed) are downloaded from Cloudflare R2 on first launch with progress UI, resume support, and zstd decompression.
 
 ## Building from Scratch
 
@@ -141,37 +141,48 @@ The app includes a 24-hour free trial and offline license key validation.
 
 ## Provisioning a VM
 
-The app needs a VM image to run. The provisioning script creates one from scratch.
+The app needs a VM image to run. There are two approaches:
 
-### Run Provisioning
+### Recommended: Lightweight Provisioning (install.sh + pre-built images)
+
+Uses `install.sh` and pre-built ARM64 images from `registry.helixml.tech`. No toolchain install, no source builds. Produces a ~9 GB compressed download (vs ~29 GB with the build-from-source approach).
 
 ```bash
 # From the helix repo root
+./for-mac/scripts/provision-vm-light.sh --helix-version 2.6.2-rc2 --upload
+```
+
+This:
+1. Downloads Ubuntu 25.10 ARM64 cloud image
+2. Creates a 128GB root disk (thin-provisioned)
+3. Boots a headless QEMU VM, installs Docker + ZFS
+4. Runs `install.sh` to pull pre-built ARM64 Docker images
+5. Applies macOS-specific config (.env overrides, sandbox.sh patches)
+6. Primes the stack (starts services, transfers desktop image into sandbox)
+7. Compacts the disk, compresses with zstd, and uploads to R2
+
+**Resumable:** If interrupted, run with `--resume` to continue from the last completed step.
+
+**Flags:**
+- `--helix-version VERSION` — required, e.g. `2.6.2-rc2`
+- `--upload` — compress with zstd and upload to R2 CDN
+- `--resume` — continue from last completed step
+- `--disk-size SIZE` — override disk size (default: 128G)
+
+### Alternative: Build from Source (Dev)
+
+Builds all Docker images from source inside the VM. Produces larger images (~29 GB) but useful for development when you need custom image builds.
+
+```bash
 ./for-mac/scripts/provision-vm.sh
 ```
 
-This takes 30-60 minutes on first run and:
-
-1. Downloads Ubuntu 25.10 ARM64 cloud image
-2. Creates 128GB root disk + 128GB ZFS data disk (thin-provisioned)
-3. Boots a headless QEMU on port **2223** (avoids conflicts with any dev VM on 2222)
-4. SSHs in to install Docker, ZFS 2.4.0, Go 1.25, helix-drm-manager
-5. Clones helix repo, builds the desktop Docker image
-6. Shuts down and creates a UTM bundle
-
-**Resumable:** If interrupted, run `./for-mac/scripts/provision-vm.sh --resume` to continue from the last completed step.
+This takes 30-60 minutes and clones the repo, installs Go/Rust/Node toolchains, and builds all images from source.
 
 ### Output
 
 - VM directory: `~/Library/Application Support/Helix/vm/helix-desktop/`
-- UTM bundle: `~/Library/Application Support/Helix/vm/helix-desktop/helix-desktop.utm` (auto-linked into UTM's documents)
 - Disk image: `~/Library/Application Support/Helix/vm/helix-desktop/disk.qcow2`
-
-### Custom Options
-
-```bash
-./for-mac/scripts/provision-vm.sh --disk-size 256G --cpus 8 --memory 16384
-```
 
 ## What's in the App Bundle
 
@@ -200,7 +211,7 @@ helix-for-mac.app/
       NOTICES.md                            # Open-source license notices
 ```
 
-VM disk images (~18GB) are downloaded from the CDN on first launch and stored at `~/Library/Application Support/Helix/vm/helix-desktop/`.
+VM disk images (~9GB download, ~20GB on disk) are downloaded from the CDN on first launch, decompressed from zstd, and stored at `~/Library/Application Support/Helix/vm/helix-desktop/`.
 
 All bundled libraries are open-source (MIT, BSD, LGPL, GPL). See `design/2026-02-08-helix-app-dmg-packaging.md` for the full dependency tree and licensing details.
 
@@ -241,5 +252,7 @@ go run virgl_probe.go        # Probe virglrenderer availability
 | `scripts/build-helix-app.sh` | Build .app with embedded QEMU + VM manifest |
 | `scripts/create-dmg.sh` | Package into .dmg + upload to R2 |
 | `scripts/sign-app.sh` | Code signing + notarization |
-| `scripts/provision-vm.sh` | Create VM from scratch |
+| `scripts/provision-vm.sh` | Create VM from scratch (build-from-source, dev) |
+| `scripts/provision-vm-light.sh` | Create VM from pre-built images (recommended) |
+| `scripts/upload-vm-images.sh` | Compress with zstd + upload to R2 CDN |
 | `.env.r2.example` | Template for Cloudflare R2 credentials |

@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	github.com/energye/systray v1.0.3
+	github.com/klauspost/compress v1.18.4
 	github.com/wailsapp/wails/v2 v2.11.0
 )
 

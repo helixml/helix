@@ -1,4 +1,4 @@
-import React, { useState, useEffect, FC, useRef, useCallback } from 'react'
+import React, { useState, useEffect, FC, useRef, useCallback, useMemo } from 'react'
 import Box from '@mui/material/Box'
 import Checkbox from '@mui/material/Checkbox'
 import FormControlLabel from '@mui/material/FormControlLabel'
@@ -18,6 +18,8 @@ import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import Menu from '@mui/material/Menu'
 import { styled } from '@mui/material/styles'
 
+import { useQuery } from '@tanstack/react-query'
+
 import {
   IAppFlatState,
   IAgentType,
@@ -26,6 +28,8 @@ import {
   AGENT_TYPE_HELIX_AGENT,
   AGENT_TYPE_ZED_EXTERNAL,
 } from '../../types'
+
+import * as api from '../../api/api'
 
 
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
@@ -263,6 +267,35 @@ const AppSettings: FC<AppSettingsProps> = ({
 
   // Track if component has been initialized
   const isInitialized = useRef(false)
+
+  // Query sandboxes to determine which desktop types are available
+  const apiClient = api.getApiClient()
+  const { data: sandboxInstances } = useQuery({
+    queryKey: ['sandbox-instances-desktop-types'],
+    queryFn: async () => {
+      const response = await apiClient.v1SandboxesList()
+      return response.data
+    },
+    staleTime: 60000,
+  })
+
+  const availableDesktopTypes = useMemo(() => {
+    const types = new Set<string>()
+    if (sandboxInstances) {
+      for (const sandbox of sandboxInstances) {
+        // desktop_versions is Record<string, string> from the API but typed as number[] due to codegen bug
+        const versions = sandbox.desktop_versions as unknown as Record<string, string> | undefined
+        if (versions) {
+          for (const key of Object.keys(versions)) {
+            types.add(key)
+          }
+        }
+      }
+    }
+    // Always include ubuntu as it's the default
+    types.add('ubuntu')
+    return types
+  }, [sandboxInstances])
 
   // Update local state ONLY on initial mount, not when app prop changes
   useEffect(() => {
@@ -744,37 +777,41 @@ const AppSettings: FC<AppSettingsProps> = ({
                 </MenuItem>
               </Select>
             </FormControl>
-            <FormControl size="small" sx={{ minWidth: 180 }}>
-              <Select
-                value={desktopType}
-                onChange={(e) => {
-                  const newDesktopType = e.target.value as 'ubuntu' | 'sway';
-                  setDesktopType(newDesktopType);
-                  const updatedConfig = { ...external_agent_config, desktop_type: newDesktopType };
-                  setExternalAgentConfig(updatedConfig);
-                  onUpdate({ ...app, external_agent_config: updatedConfig });
-                }}
-                disabled={readOnly}
-                renderValue={(value) => value === 'ubuntu' ? 'Ubuntu Desktop' : 'Sway'}
-              >
-                <MenuItem value="ubuntu">
-                  <Box>
-                    <Typography variant="body2">Ubuntu Desktop (25.10)</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Ubuntu GNOME desktop, user friendly and recommended
-                    </Typography>
-                  </Box>
-                </MenuItem>
-                <MenuItem value="sway">
-                  <Box>
-                    <Typography variant="body2">Sway (Ubuntu 25.10)</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      i3-compatible tiling WM, for advanced users
-                    </Typography>
-                  </Box>
-                </MenuItem>
-              </Select>
-            </FormControl>
+            {availableDesktopTypes.size > 1 && (
+              <FormControl size="small" sx={{ minWidth: 180 }}>
+                <Select
+                  value={desktopType}
+                  onChange={(e) => {
+                    const newDesktopType = e.target.value as 'ubuntu' | 'sway';
+                    setDesktopType(newDesktopType);
+                    const updatedConfig = { ...external_agent_config, desktop_type: newDesktopType };
+                    setExternalAgentConfig(updatedConfig);
+                    onUpdate({ ...app, external_agent_config: updatedConfig });
+                  }}
+                  disabled={readOnly}
+                  renderValue={(value) => value === 'ubuntu' ? 'Ubuntu Desktop' : 'Sway'}
+                >
+                  <MenuItem value="ubuntu">
+                    <Box>
+                      <Typography variant="body2">Ubuntu Desktop (25.10)</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Ubuntu GNOME desktop, user friendly and recommended
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                  {availableDesktopTypes.has('sway') && (
+                    <MenuItem value="sway">
+                      <Box>
+                        <Typography variant="body2">Sway (Ubuntu 25.10)</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          i3-compatible tiling WM, for advanced users
+                        </Typography>
+                      </Box>
+                    </MenuItem>
+                  )}
+                </Select>
+              </FormControl>
+            )}
             <FormControl size="small" sx={{ minWidth: 100 }}>
               <Select
                 value={refreshRate}

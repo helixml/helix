@@ -74,7 +74,7 @@ if [ ! -f "${VM_DIR}/efi_vars.fd" ]; then
 fi
 
 # =============================================================================
-# Step 1: Compress disk image
+# Step 1: Compress disk image with zstd
 # =============================================================================
 
 # Use /Volumes/Big for temp if available (compressed image can be 5+ GB)
@@ -90,13 +90,28 @@ ORIG_SIZE=$(stat -f%z "${VM_DIR}/disk.qcow2" 2>/dev/null || stat -c%s "${VM_DIR}
 if [ "$SKIP_COMPRESS" = "1" ]; then
     log "Skipping compression (SKIP_COMPRESS=1)"
     DISK_PATH="${VM_DIR}/disk.qcow2"
+    USE_ZSTD=false
 else
-    log "Step 1: Compressing disk.qcow2 (original: $(echo "$ORIG_SIZE" | awk '{printf "%.1f GB", $1/1073741824}'))..."
-    DISK_PATH="${UPLOAD_DIR}/disk.qcow2"
-    qemu-img convert -c -f qcow2 -O qcow2 "${VM_DIR}/disk.qcow2" "$DISK_PATH"
+    if ! command -v zstd &>/dev/null; then
+        log "ERROR: zstd not found. Install with: brew install zstd"
+        exit 1
+    fi
+
+    # First ensure the qcow2 is uncompressed (for best zstd compression)
+    log "Step 1a: Creating uncompressed qcow2 for optimal zstd compression..."
+    UNCOMPRESSED="${UPLOAD_DIR}/disk.qcow2"
+    qemu-img convert -O qcow2 "${VM_DIR}/disk.qcow2" "$UNCOMPRESSED"
+    UNCOMPRESSED_SIZE=$(stat -f%z "$UNCOMPRESSED" 2>/dev/null || stat -c%s "$UNCOMPRESSED" 2>/dev/null)
+    log "  Uncompressed qcow2: $(echo "$UNCOMPRESSED_SIZE" | awk '{printf "%.1f GB", $1/1073741824}')"
+
+    log "Step 1b: Compressing with zstd -15 (this may take a few minutes)..."
+    DISK_PATH="${UPLOAD_DIR}/disk.qcow2.zst"
+    zstd -T0 -15 "$UNCOMPRESSED" -o "$DISK_PATH" --force 2>&1
     COMP_SIZE=$(stat -f%z "$DISK_PATH" 2>/dev/null || stat -c%s "$DISK_PATH" 2>/dev/null)
-    RATIO=$(echo "scale=0; $ORIG_SIZE * 100 / $COMP_SIZE" | bc)
-    log "  Compressed: $(echo "$COMP_SIZE" | awk '{printf "%.1f GB", $1/1073741824}') (${RATIO}% of original)"
+    RATIO=$(echo "scale=1; 100 - $COMP_SIZE * 100 / $UNCOMPRESSED_SIZE" | bc)
+    log "  Compressed: $(echo "$COMP_SIZE" | awk '{printf "%.1f GB", $1/1073741824}') (${RATIO}% smaller than uncompressed)"
+
+    USE_ZSTD=true
 fi
 
 # =============================================================================
@@ -112,12 +127,20 @@ log ""
 
 DISK_SIZE=$(stat -f%z "$DISK_PATH" 2>/dev/null || stat -c%s "$DISK_PATH" 2>/dev/null)
 EFI_SIZE=$(stat -f%z "${VM_DIR}/efi_vars.fd" 2>/dev/null || stat -c%s "${VM_DIR}/efi_vars.fd" 2>/dev/null)
-log "  disk.qcow2:  $(echo "$DISK_SIZE" | awk '{printf "%.1f GB", $1/1073741824}')"
+
+# Determine the upload filename
+if [ "$USE_ZSTD" = true ]; then
+    DISK_UPLOAD_NAME="disk.qcow2.zst"
+else
+    DISK_UPLOAD_NAME="disk.qcow2"
+fi
+
+log "  ${DISK_UPLOAD_NAME}:  $(echo "$DISK_SIZE" | awk '{printf "%.1f GB", $1/1073741824}')"
 log "  efi_vars.fd: $(echo "$EFI_SIZE" | awk '{printf "%.0f MB", $1/1048576}')"
 log ""
 
-log "Uploading disk.qcow2..."
-aws s3 cp "$DISK_PATH" "s3://${R2_BUCKET}/vm/${VM_VERSION}/disk.qcow2" \
+log "Uploading ${DISK_UPLOAD_NAME}..."
+aws s3 cp "$DISK_PATH" "s3://${R2_BUCKET}/vm/${VM_VERSION}/${DISK_UPLOAD_NAME}" \
     --endpoint-url "$R2_ENDPOINT" \
     --no-progress 2>&1
 log "  Done."
@@ -156,7 +179,28 @@ DISK_SHA256=$(shasum -a 256 "$DISK_PATH" | awk '{print $1}')
 EFI_SHA256=$(shasum -a 256 "${VM_DIR}/efi_vars.fd" | awk '{print $1}')
 
 MANIFEST_PATH="${FOR_MAC_DIR}/vm-manifest.json"
-cat > "$MANIFEST_PATH" << MANIFEST_EOF
+
+if [ "$USE_ZSTD" = true ]; then
+    DECOMPRESSED_SIZE=$(stat -f%z "$UNCOMPRESSED" 2>/dev/null || stat -c%s "$UNCOMPRESSED" 2>/dev/null)
+    cat > "$MANIFEST_PATH" << MANIFEST_EOF
+{
+  "version": "${VM_VERSION}",
+  "base_url": "https://dl.helix.ml/vm",
+  "files": [
+    {
+      "name": "disk.qcow2.zst",
+      "size": ${DISK_SIZE},
+      "sha256": "${DISK_SHA256}",
+      "compression": "zstd",
+      "decompressed_name": "disk.qcow2",
+      "decompressed_size": ${DECOMPRESSED_SIZE}
+    },
+    {"name": "efi_vars.fd", "size": ${EFI_SIZE}, "sha256": "${EFI_SHA256}"}
+  ]
+}
+MANIFEST_EOF
+else
+    cat > "$MANIFEST_PATH" << MANIFEST_EOF
 {
   "version": "${VM_VERSION}",
   "base_url": "https://dl.helix.ml/vm",
@@ -166,6 +210,7 @@ cat > "$MANIFEST_PATH" << MANIFEST_EOF
   ]
 }
 MANIFEST_EOF
+fi
 
 log "  Written to: ${MANIFEST_PATH}"
 cat "$MANIFEST_PATH"
@@ -176,8 +221,8 @@ log "Upload complete!"
 log "================================================"
 log ""
 log "Version:     ${VM_VERSION}"
-log "Download:    https://dl.helix.ml/vm/${VM_VERSION}/disk.qcow2"
-log "Disk size:   $(echo "$DISK_SIZE" | awk '{printf "%.1f GB", $1/1073741824}') (compressed from $(echo "$ORIG_SIZE" | awk '{printf "%.1f GB", $1/1073741824}'))"
+log "Download:    https://dl.helix.ml/vm/${VM_VERSION}/${DISK_UPLOAD_NAME}"
+log "Disk size:   $(echo "$DISK_SIZE" | awk '{printf "%.1f GB", $1/1073741824}') (from $(echo "$ORIG_SIZE" | awk '{printf "%.1f GB", $1/1073741824}') on disk)"
 log ""
 log "The vm-manifest.json has been written to ${MANIFEST_PATH}"
 log "Run ./scripts/build-helix-app.sh to embed it in the app."

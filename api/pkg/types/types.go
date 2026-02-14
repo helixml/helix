@@ -3061,7 +3061,7 @@ type SandboxInstance struct {
 
 	// Desktop image versions available on this sandbox
 	// Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
-	DesktopVersions datatypes.JSON `json:"desktop_versions,omitempty" gorm:"type:jsonb"`
+	DesktopVersions datatypes.JSON `json:"desktop_versions,omitempty" gorm:"type:jsonb" swaggertype:"object,string"`
 
 	// GPU configuration
 	GPUVendor  string `json:"gpu_vendor,omitempty" gorm:"type:varchar(50)"`  // "nvidia", "amd", "intel", "none"
