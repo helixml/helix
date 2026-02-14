@@ -1077,6 +1077,18 @@ if ! grep -q '^SANDBOX_DOCKER_STORAGE=' "$ENV_FILE" 2>/dev/null; then
     CHANGED=1
 fi
 
+# Enable code-macos compose profile so sandbox-macos starts with docker compose up -d
+if grep -q '^COMPOSE_PROFILES=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^COMPOSE_PROFILES=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "code-macos" ]; then
+        sed -i "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=code-macos|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo 'COMPOSE_PROFILES=code-macos' >> "$ENV_FILE"
+    CHANGED=1
+fi
+
 # License key
 LICENSE_KEY="%s"
 if [ -n "$LICENSE_KEY" ]; then

@@ -260,6 +260,12 @@ if [ "$UPDATE" = true ]; then
         exit 1
     }
 
+    # Rebuild sandbox image (Docker-in-Docker container host)
+    log "Rebuilding sandbox image for arm64..."
+    run_ssh "cd ~/helix && DOCKER_BUILDKIT=1 docker build -f Dockerfile.sandbox -t helix-sandbox:latest . 2>&1" || {
+        log "WARNING: Sandbox image build failed."
+    }
+
     # Re-prime the stack
     log "Re-priming Helix stack..."
     run_ssh "cd ~/helix && [ ! -e .env ] && ln -s .env.vm .env || true"
@@ -737,6 +743,13 @@ if ! step_done "build_desktop_image"; then
         log "WARNING: Desktop image build failed."
         log "Retry manually: ssh helix-vm 'cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 bash stack build-ubuntu'"
     }
+    # Build sandbox image (Docker-in-Docker container host for desktop sessions)
+    log "Building sandbox image for arm64..."
+    run_ssh "cd ~/helix && DOCKER_BUILDKIT=1 docker build -f Dockerfile.sandbox -t helix-sandbox:latest . 2>&1" || {
+        log "WARNING: Sandbox image build failed."
+        log "Retry manually: ssh helix-vm 'cd ~/helix && docker build -f Dockerfile.sandbox -t helix-sandbox:latest .'"
+    }
+
     # Verify the image was actually created — don't mark step done if it wasn't
     if run_ssh "docker images helix-ubuntu:latest --format '{{.Size}}'" 2>/dev/null | grep -q .; then
         log "Desktop image built successfully: $(run_ssh 'docker images helix-ubuntu:latest --format "{{.Size}}"' 2>/dev/null)"
@@ -792,6 +805,9 @@ ADMIN_USER_IDS=all
 
 # Allow users to configure their own inference providers
 ENABLE_CUSTOM_USER_PROVIDERS=true
+
+# Enable sandbox-macos compose profile so sandbox starts with docker compose up -d
+COMPOSE_PROFILES=code-macos
 ENVEOF"
     mark_step "setup_compose"
 fi
