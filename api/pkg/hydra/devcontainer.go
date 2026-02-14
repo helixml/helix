@@ -562,11 +562,32 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *
 func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mount.Mount {
 	var mounts []mount.Mount
 
+	// CONTAINER_DOCKER_PATH: if set, per-session inner dockerd data uses bind mounts
+	// from a ZFS-backed path instead of Docker named volumes. This keeps the sandbox's
+	// own Docker storage on the root disk (so provisioned desktop images persist)
+	// while inner dockerd data benefits from ZFS dedup+compression.
+	containerDockerPath := os.Getenv("CONTAINER_DOCKER_PATH")
+
 	for _, m := range req.Mounts {
 		mountType := mount.TypeBind
 		if m.Type == "volume" {
 			mountType = mount.TypeVolume
 		}
+
+		// Redirect inner dockerd volumes to ZFS-backed bind mounts when configured.
+		// The API sends docker-data-{sessionID} as a named volume for /var/lib/docker;
+		// we convert it to a bind mount from /container-docker/sessions/{sessionID}/docker/.
+		if containerDockerPath != "" && m.Destination == "/var/lib/docker" && m.Type == "volume" {
+			sessionDir := filepath.Join("/container-docker/sessions", m.Source, "docker")
+			if err := os.MkdirAll(sessionDir, 0755); err != nil {
+				log.Warn().Err(err).Str("path", sessionDir).Msg("Failed to create container-docker session dir, falling back to named volume")
+			} else {
+				mountType = mount.TypeBind
+				m.Source = sessionDir
+				log.Debug().Str("source", sessionDir).Msg("Using ZFS-backed bind mount for inner dockerd")
+			}
+		}
+
 		mounts = append(mounts, mount.Mount{
 			Type:     mountType,
 			Source:   m.Source,

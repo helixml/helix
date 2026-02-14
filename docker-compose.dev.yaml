@@ -281,6 +281,8 @@ services:
       - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
+      # Container Docker path for ZFS-backed inner dockerd (macOS desktop app)
+      - CONTAINER_DOCKER_PATH=${CONTAINER_DOCKER_PATH:-}
       # RevDial configuration (connect sandbox to API)
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
@@ -302,6 +304,8 @@ services:
       - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
       - ${SANDBOX_DOCKER_STORAGE:-sandbox-docker-storage}:/var/lib/docker
+      # Container Docker path for per-session inner dockerd (ZFS on macOS, named volume on Linux)
+      - ${CONTAINER_DOCKER_PATH:-sandbox-container-docker}:/container-docker
       # Hydra data dir — shared BuildKit cache for cross-session build caching
       - hydra-data:/hydra-data
       - /dev/:/dev/:rw
@@ -369,6 +373,8 @@ services:
       - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
+      # Container Docker path for ZFS-backed inner dockerd (macOS desktop app)
+      - CONTAINER_DOCKER_PATH=${CONTAINER_DOCKER_PATH:-}
       # RevDial configuration (connect sandbox to API)
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
@@ -390,6 +396,8 @@ services:
       - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
       - ${SANDBOX_DOCKER_STORAGE:-sandbox-docker-storage}:/var/lib/docker
+      # Container Docker path for per-session inner dockerd (ZFS on macOS, named volume on Linux)
+      - ${CONTAINER_DOCKER_PATH:-sandbox-container-docker}:/container-docker
       # Hydra data dir — shared BuildKit cache for cross-session build caching
       - hydra-data:/hydra-data
       - /dev/:/dev/:rw
@@ -455,6 +463,8 @@ services:
       - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
+      # Container Docker path for ZFS-backed inner dockerd (macOS desktop app)
+      - CONTAINER_DOCKER_PATH=${CONTAINER_DOCKER_PATH:-}
       # RevDial configuration (connect sandbox to API)
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
@@ -476,6 +486,8 @@ services:
       - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
       - ${SANDBOX_DOCKER_STORAGE:-sandbox-docker-storage}:/var/lib/docker
+      # Container Docker path for per-session inner dockerd (ZFS on macOS, named volume on Linux)
+      - ${CONTAINER_DOCKER_PATH:-sandbox-container-docker}:/container-docker
       # Hydra data dir — shared BuildKit cache for cross-session build caching
       - hydra-data:/hydra-data
       - /run/udev:/run/udev:rw
@@ -535,6 +547,10 @@ services:
       - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
+      # Container Docker path — ZFS-backed storage for per-session inner dockerd
+      # and BuildKit state. Hydra bind-mounts subdirs into desktop containers.
+      # Set by macOS desktop app; unset on Linux (uses Docker named volumes instead).
+      - CONTAINER_DOCKER_PATH=${CONTAINER_DOCKER_PATH:-}
       # RevDial configuration (connect sandbox to API)
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
@@ -555,7 +571,13 @@ services:
       # Config template - bind-mounted for faster iteration (no rebuild needed)
       - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
-      - ${SANDBOX_DOCKER_STORAGE:-sandbox-docker-storage}:/var/lib/docker
+      # Sandbox's own Docker storage — uses named volume on root disk so
+      # desktop images baked during provisioning persist without transfer.
+      - sandbox-docker-storage:/var/lib/docker
+      # Container Docker path — ZFS zvol mounted by macOS desktop app for
+      # per-session inner dockerd data (dedup + compression).
+      # CONTAINER_DOCKER_PATH is set by the macOS desktop app in .env.vm.
+      - ${CONTAINER_DOCKER_PATH:-sandbox-container-docker}:/container-docker
       # Hydra data dir — shared BuildKit cache for cross-session build caching
       - hydra-data:/hydra-data
       - /run/udev:/run/udev:rw

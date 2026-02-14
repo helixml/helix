@@ -902,30 +902,40 @@ if ! mountpoint -q /var/lib/docker/volumes 2>/dev/null; then
     sudo zfs mount helix/docker-volumes 2>/dev/null || true
 fi
 
-# Sandbox Docker zvol — the sandbox container's Docker storage including all
-# desktop container images and per-session Docker named volumes (docker-data-*).
-# Uses a ZFS zvol formatted as ext4 so overlay2 works correctly, while ZFS
-# block-level dedup deduplicates identical Docker layers across sessions.
-# With docker-in-desktop mode (PR #1608), each desktop runs its own dockerd
-# with a named volume inside this storage, so dedup catches identical layers
-# pulled by multiple sessions.
+# Container Docker zvol — stores per-session inner dockerd data and BuildKit state.
+# The sandbox's own Docker storage stays on the root disk (default named volume)
+# so desktop images baked during provisioning persist without transfer.
+# This zvol is for data that benefits from ZFS dedup+compression:
+#   - Per-session inner dockerd (/helix/container-docker/sessions/{id}/docker/)
+#   - BuildKit state (/helix/container-docker/buildkit/)
+# Hydra bind-mounts these paths into desktop containers and the BuildKit container.
 ZVOL_SIZE=200G
-ZVOL_DEV=/dev/zvol/helix/sandbox-docker
-if ! sudo zfs list helix/sandbox-docker 2>/dev/null; then
-    echo "Creating helix/sandbox-docker zvol (${ZVOL_SIZE}, dedup + compression)..."
-    sudo zfs create -V "$ZVOL_SIZE" -s -o dedup=on -o compression=lz4 helix/sandbox-docker
-    # Wait for device node
-    for i in $(seq 1 10); do [ -e "$ZVOL_DEV" ] && break; sleep 1; done
-    echo 'Formatting sandbox-docker zvol as ext4...'
-    sudo mkfs.ext4 -q -L sandbox-docker "$ZVOL_DEV"
-fi
-# Mount the zvol
-if ! mountpoint -q /helix/sandbox-docker 2>/dev/null; then
-    sudo mkdir -p /helix/sandbox-docker
-    if [ -e "$ZVOL_DEV" ]; then
-        sudo mount "$ZVOL_DEV" /helix/sandbox-docker
+ZVOL_DEV=/dev/zvol/helix/container-docker
+if ! sudo zfs list helix/container-docker 2>/dev/null; then
+    # Migrate from old name if it exists
+    if sudo zfs list helix/sandbox-docker 2>/dev/null; then
+        echo "Renaming helix/sandbox-docker zvol to helix/container-docker..."
+        sudo umount /helix/sandbox-docker 2>/dev/null || true
+        sudo zfs rename helix/sandbox-docker helix/container-docker
+    else
+        echo "Creating helix/container-docker zvol (${ZVOL_SIZE}, dedup + compression)..."
+        sudo zfs create -V "$ZVOL_SIZE" -s -o dedup=on -o compression=lz4 helix/container-docker
+        # Wait for device node
+        for i in $(seq 1 10); do [ -e "$ZVOL_DEV" ] && break; sleep 1; done
+        echo 'Formatting container-docker zvol as ext4...'
+        sudo mkfs.ext4 -q -L container-docker "$ZVOL_DEV"
     fi
 fi
+# Mount the zvol
+if ! mountpoint -q /helix/container-docker 2>/dev/null; then
+    sudo mkdir -p /helix/container-docker
+    if [ -e "$ZVOL_DEV" ]; then
+        sudo mount "$ZVOL_DEV" /helix/container-docker
+    fi
+fi
+# Create subdirectories for Hydra
+sudo mkdir -p /helix/container-docker/sessions
+sudo mkdir -p /helix/container-docker/buildkit
 
 # Config dataset (persistent state surviving root disk swaps)
 if ! sudo zfs list helix/config 2>/dev/null; then
@@ -1063,17 +1073,28 @@ if ! grep -q '^ENABLE_CUSTOM_USER_PROVIDERS=' "$ENV_FILE" 2>/dev/null; then
     CHANGED=1
 fi
 
+# Max concurrent desktops (hard limit: 15 QEMU video outputs)
+if ! grep -q '^PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS=' "$ENV_FILE" 2>/dev/null; then
+    echo 'PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS=15' >> "$ENV_FILE"
+    CHANGED=1
+fi
+
 # Identify this as the Mac Desktop edition for Launchpad telemetry
 if ! grep -q '^HELIX_EDITION=' "$ENV_FILE" 2>/dev/null; then
     echo 'HELIX_EDITION=mac-desktop' >> "$ENV_FILE"
     CHANGED=1
 fi
 
-# Sandbox Docker storage — point sandbox's /var/lib/docker at ZFS zvol (dedup-enabled ext4).
-# With docker-in-desktop mode, per-session Docker named volumes (docker-data-*)
-# live inside this storage, so ZFS dedup catches identical layers across sessions.
-if ! grep -q '^SANDBOX_DOCKER_STORAGE=' "$ENV_FILE" 2>/dev/null; then
-    echo 'SANDBOX_DOCKER_STORAGE=/helix/sandbox-docker' >> "$ENV_FILE"
+# Container Docker storage — Hydra bind-mounts this into desktop containers for their
+# inner dockerd and BuildKit state. The sandbox's own Docker uses a named volume on
+# the root disk so desktop images from provisioning persist without transfer.
+if ! grep -q '^CONTAINER_DOCKER_PATH=' "$ENV_FILE" 2>/dev/null; then
+    echo 'CONTAINER_DOCKER_PATH=/helix/container-docker' >> "$ENV_FILE"
+    CHANGED=1
+fi
+# Remove old SANDBOX_DOCKER_STORAGE if present (migrated to CONTAINER_DOCKER_PATH)
+if grep -q '^SANDBOX_DOCKER_STORAGE=' "$ENV_FILE" 2>/dev/null; then
+    sed -i '/^SANDBOX_DOCKER_STORAGE=/d' "$ENV_FILE"
     CHANGED=1
 fi
 
