@@ -92,6 +92,9 @@ type VMManager struct {
 	consolePassword string
 	// License key to inject into the VM (set from AppSettings before VM start)
 	licenseKey string
+	// Auth settings injected into the VM's .env.vm
+	newUsersAreAdmin bool
+	allowRegistration bool
 	// stackStarted tracks whether the full docker compose stack has been started.
 	// Used to gate API restarts in injectDesktopSecret — during boot, we don't
 	// want to restart just the API before the full stack is up.
@@ -115,6 +118,22 @@ func (vm *VMManager) bindAddr() string {
 		return "0.0.0.0"
 	}
 	return ""
+}
+
+// adminUserIDs returns the ADMIN_USER_IDS env var value.
+func (vm *VMManager) adminUserIDs() string {
+	if vm.newUsersAreAdmin {
+		return "all"
+	}
+	return ""
+}
+
+// registrationEnabled returns the AUTH_REGISTRATION_ENABLED env var value.
+func (vm *VMManager) registrationEnabled() string {
+	if vm.allowRegistration {
+		return "true"
+	}
+	return "false"
 }
 
 // NewVMManager creates a new VM manager
@@ -1012,9 +1031,29 @@ else
     CHANGED=1
 fi
 
-# Ensure all desktop users are admin
-if ! grep -q '^ADMIN_USER_IDS=' "$ENV_FILE" 2>/dev/null; then
-    echo 'ADMIN_USER_IDS=all' >> "$ENV_FILE"
+# Admin user config
+ADMIN_VAL="%s"
+if grep -q '^ADMIN_USER_IDS=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^ADMIN_USER_IDS=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "$ADMIN_VAL" ]; then
+        sed -i "s|^ADMIN_USER_IDS=.*|ADMIN_USER_IDS=$ADMIN_VAL|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo "ADMIN_USER_IDS=$ADMIN_VAL" >> "$ENV_FILE"
+    CHANGED=1
+fi
+
+# Registration
+REG_VAL="%s"
+if grep -q '^AUTH_REGISTRATION_ENABLED=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^AUTH_REGISTRATION_ENABLED=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "$REG_VAL" ]; then
+        sed -i "s|^AUTH_REGISTRATION_ENABLED=.*|AUTH_REGISTRATION_ENABLED=$REG_VAL|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo "AUTH_REGISTRATION_ENABLED=$REG_VAL" >> "$ENV_FILE"
     CHANGED=1
 fi
 
@@ -1072,6 +1111,7 @@ if [ "$CURRENT_PASS" != "%s" ]; then
     echo 'PASS_UPDATED'
 fi
 `, vm.desktopSecret, vm.desktopSecret, vm.desktopSecret,
+		vm.adminUserIDs(), vm.registrationEnabled(),
 		vm.licenseKey,
 		vm.consolePassword, vm.consolePassword, vm.consolePassword)
 

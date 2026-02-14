@@ -56,9 +56,12 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.vm.SetAppContext(ctx)
-	a.vm.desktopSecret = a.settings.Get().DesktopSecret
-	a.vm.consolePassword = a.settings.Get().ConsolePassword
-	a.vm.licenseKey = a.settings.Get().LicenseKey
+	s := a.settings.Get()
+	a.vm.desktopSecret = s.DesktopSecret
+	a.vm.consolePassword = s.ConsolePassword
+	a.vm.licenseKey = s.LicenseKey
+	a.vm.newUsersAreAdmin = s.NewUsersAreAdmin
+	a.vm.allowRegistration = s.AllowRegistration
 
 	// Wire VM state changes to system tray
 	a.vm.onStateChange = func(state string) {
@@ -396,6 +399,10 @@ func (a *App) SaveSettings(s AppSettings) error {
 		old.VMDiskPath != s.VMDiskPath ||
 		old.ExposeOnNetwork != s.ExposeOnNetwork
 
+	// Always update VMManager fields used by injectDesktopSecret (runs during boot or hot-apply)
+	a.vm.newUsersAreAdmin = s.NewUsersAreAdmin
+	a.vm.allowRegistration = s.AllowRegistration
+
 	if needsReboot && a.vm.GetStatus().State == VMStateRunning {
 		log.Println("VM-affecting settings changed — restarting VM...")
 		go func() {
@@ -430,10 +437,8 @@ func (a *App) SaveSettings(s AppSettings) error {
 		return nil
 	}
 
-	// If VM is stopped, apply config so next start uses the new values.
-	// If VM is running and no reboot needed, settings are already saved to
-	// disk — they'll take effect on the next VM start.
 	if a.vm.GetStatus().State == VMStateStopped {
+		// VM stopped — apply config so next start uses the new values
 		config := a.vm.GetConfig()
 		config.CPUs = s.VMCPUs
 		config.MemoryMB = s.VMMemoryMB
@@ -443,6 +448,14 @@ func (a *App) SaveSettings(s AppSettings) error {
 		config.ExposeOnNetwork = s.ExposeOnNetwork
 		return a.vm.SetConfig(config)
 	}
+
+	// VM running, no reboot needed — hot-apply env var changes (admin, registration, etc.)
+	// injectDesktopSecret is idempotent: only restarts API if .env.vm actually changed.
+	go func() {
+		if err := a.vm.injectDesktopSecret(); err != nil {
+			log.Printf("Failed to hot-apply settings: %v", err)
+		}
+	}()
 
 	return nil
 }
