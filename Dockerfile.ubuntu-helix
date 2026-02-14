@@ -12,6 +12,11 @@
 # - ubuntu:25.10 -> sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
 # - golang:1.25  -> sha256:ce63a16e0f7063787ebb4eb28e72d477b00b4726f79874b3205a965ffd797ab2
 
+# Global ARG: must be before the first FROM to be visible to --build-arg
+# amd64 (default): uses nvidia/cuda to extract CUDA runtime libs
+# arm64: pipeline passes --build-arg CUDA_BASE_IMAGE=ubuntu:25.10
+ARG CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04
+
 # ====================================================================
 # Go build stage for Helix binaries
 # ====================================================================
@@ -150,15 +155,19 @@ _BUILD_PLUGINS
 # ====================================================================
 # CUDA libraries stage - extract libnvrtc for GStreamer cudascale
 # ====================================================================
-# On amd64: extract real CUDA libs from NVIDIA image
-# On arm64: create empty placeholders (no CUDA, encoding on macOS host)
-# No --platform directive — builds natively on any CI runner.
-FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS cuda-libs
-ARG TARGETARCH
-RUN if [ "${TARGETARCH}" = "amd64" ]; then \
-        echo "CUDA libs would be copied from nvidia/cuda image in production"; \
-    fi && \
-    touch /libnvrtc.so.12 /libnvrtc-builtins.so.12.6
+# amd64: uses nvidia/cuda image (default) to get real CUDA runtime libs
+# arm64: pipeline passes --build-arg CUDA_BASE_IMAGE=ubuntu:25.10
+#        which creates empty placeholders (no CUDA on ARM, encoding on macOS host)
+ARG CUDA_BASE_IMAGE
+FROM ${CUDA_BASE_IMAGE} AS cuda-libs
+# On amd64 (nvidia/cuda base): libnvrtc is in /usr/local/cuda/lib64/
+# On arm64 (ubuntu base): create empty placeholders
+RUN if [ -f /usr/local/cuda/lib64/libnvrtc.so.12 ]; then \
+        cp /usr/local/cuda/lib64/libnvrtc.so.12 /libnvrtc.so.12 && \
+        cp /usr/local/cuda/lib64/libnvrtc-builtins.so.12.6 /libnvrtc-builtins.so.12.6; \
+    else \
+        touch /libnvrtc.so.12 /libnvrtc-builtins.so.12.6; \
+    fi
 
 # ====================================================================
 # Ubuntu GNOME Desktop - Ubuntu 25.10 base with Wayland
