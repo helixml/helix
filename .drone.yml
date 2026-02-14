@@ -2535,15 +2535,21 @@ steps:
   - name: provision-vm
     environment:
       PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
-      R2_ACCOUNT_ID:
-        from_secret: r2_account_id
       R2_ACCESS_KEY_ID:
         from_secret: r2_access_key_id
       R2_SECRET_ACCESS_KEY:
         from_secret: r2_secret_access_key
+      R2_ENDPOINT: https://f0150e619c6dc08f55aea6d2248b1c6c.r2.cloudflarestorage.com
       R2_BUCKET: helix-desktop
     commands:
       - export HOME=/Users/luke
+      # Fail fast if R2 credentials are missing
+      - |
+        if [ -z "$R2_ACCESS_KEY_ID" ] || [ -z "$R2_SECRET_ACCESS_KEY" ]; then
+          echo "ERROR: R2 credentials not set. Check Drone secrets r2_access_key_id and r2_secret_access_key."
+          exit 1
+        fi
+        echo "R2 credentials verified (endpoint: $R2_ENDPOINT)"
       # Determine version from tag or commit
       - |
         if [ -n "${DRONE_TAG}" ]; then
@@ -2551,11 +2557,8 @@ steps:
         else
           VERSION=$(echo ${DRONE_COMMIT_SHA} | head -c 9)
         fi
-      # Derive R2_ENDPOINT for upload script
-      - export R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
       # Run provisioning with upload
       # Uses /Volumes/Big for VM disk (fast SSD on the runner)
-      # SSH port 2223 avoids conflict with any dev VM on 2222
       - |
         cd for-mac
         HELIX_VM_DIR=/Volumes/Big/helix-vm/ci-provision \
@@ -2592,12 +2595,11 @@ steps:
         from_secret: keychain_password
       APPLE_SIGNING_IDENTITY:
         from_secret: apple_signing_identity
-      R2_ACCOUNT_ID:
-        from_secret: r2_account_id
       R2_ACCESS_KEY_ID:
         from_secret: r2_access_key_id
       R2_SECRET_ACCESS_KEY:
         from_secret: r2_secret_access_key
+      R2_ENDPOINT: https://f0150e619c6dc08f55aea6d2248b1c6c.r2.cloudflarestorage.com
       R2_BUCKET_NAME: helix-desktop
     commands:
       - export HOME=/Users/luke
@@ -2627,7 +2629,6 @@ steps:
       - |
         export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
         export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
-        R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
         aws s3 cp build/bin/Helix-for-Mac.dmg \
           "s3://${R2_BUCKET_NAME}/desktop/${VERSION}/Helix-for-Mac.dmg" \
           --endpoint-url "$R2_ENDPOINT" \
@@ -2637,7 +2638,6 @@ steps:
         if [ -n "${DRONE_TAG}" ]; then
           export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
           export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
-          R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
           echo "{\"version\":\"${DRONE_TAG}\",\"dmg_url\":\"https://dl.helix.ml/desktop/${DRONE_TAG}/Helix-for-Mac.dmg\",\"vm_url\":\"https://dl.helix.ml/vm/${DRONE_TAG}/disk.qcow2.zst\"}" | \
             aws s3 cp - "s3://${R2_BUCKET_NAME}/desktop/latest.json" \
               --endpoint-url "$R2_ENDPOINT" \
