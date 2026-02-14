@@ -707,24 +707,35 @@ const AppSettings: FC<AppSettingsProps> = ({
               </FormControl>
             </Box>
 
-            <Box>
-              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                Model
-              </Typography>
-              <AdvancedModelPicker
-                recommendedModels={RECOMMENDED_MODELS.zedExternal}
-                hint="Select the LLM for code generation"
-                selectedProvider={generation_model_provider}
-                selectedModelId={generation_model}
-                onSelectModel={(provider, modelId) => {
-                  setGenerationModel(modelId);
-                  setGenerationModelProvider(provider);
-                  onUpdate({ ...app, generation_model: modelId, generation_model_provider: provider });
-                }}
-                currentType="text"
-                displayMode="short"
-              />
-            </Box>
+            {code_agent_runtime === 'claude_code' ? (
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                  Model
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Claude Code manages its own model selection using your Claude subscription.
+                </Typography>
+              </Box>
+            ) : (
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                  Model
+                </Typography>
+                <AdvancedModelPicker
+                  recommendedModels={RECOMMENDED_MODELS.zedExternal}
+                  hint="Select the LLM for code generation"
+                  selectedProvider={generation_model_provider}
+                  selectedModelId={generation_model}
+                  onSelectModel={(provider, modelId) => {
+                    setGenerationModel(modelId);
+                    setGenerationModelProvider(provider);
+                    onUpdate({ ...app, generation_model: modelId, generation_model_provider: provider });
+                  }}
+                  currentType="text"
+                  displayMode="short"
+                />
+              </Box>
+            )}
           </Stack>
 
           <Divider sx={{ my: 2 }} />

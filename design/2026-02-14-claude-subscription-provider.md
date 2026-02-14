@@ -284,15 +284,53 @@ Claude Code handles token refresh natively inside each container. Each container
 | `frontend/src/components/dashboard/ClaudeSubscriptionSection.tsx` | Create | UI component |
 | `frontend/src/components/dashboard/ConnectClaudeDialog.tsx` | Create | Paste dialog |
 
+## Implementation Progress
+
+### Completed
+
+- [x] **Phase 1: Data Model** - `claude_subscription.go`, store CRUD, AutoMigrate, mock generation
+- [x] **Phase 2: API Endpoints** - All handlers, route registration, swagger annotations
+- [x] **Phase 3: Settings-Sync-Daemon** - `claude_code` runtime config, credential sync
+- [x] **Phase 4: Zed Config** - `buildCodeAgentConfig` handles `claude_code`, `ClaudeSubscriptionAvailable` flag
+- [x] **Phase 5: Desktop Image** - Claude Code CLI installed, privacy config, exec allowlist updated
+- [x] **Phase 6: Frontend UI** - Account settings section with paste + browser login
+- [x] **Phase 7: Interactive Login** - Desktop session with `claude auth login`, polling, auto-capture
+- [x] **Onboarding** - Claude subscription card in provider step, `claude_code` in runtime dropdown
+- [x] **Providers page** - Claude subscription section with connect/connected state
+- [x] **AppSettings** - `claude_code` runtime option, model picker hidden when selected
+- [x] **Error messaging** - Clear error when only Claude subscription present and user tries regular chat
+- [x] **Zed: Re-enable Claude Code** - Moved Claude Code menu item outside cfg gate in agent_panel.rs
+
+### Claude Code Modes
+
+Claude Code in Zed works via one path:
+- **Claude Subscription** (`claude_code` runtime): Claude Code ACP in Zed talks directly to Anthropic using OAuth credentials synced from the user's Claude subscription. No Helix API proxy involved.
+
+This is distinct from:
+- **Zed Agent with Anthropic API key**: Uses Zed's built-in agent panel with an Anthropic API key routed through Helix's provider proxy. This is NOT Claude Code - it's Zed Agent.
+
+### Important: Claude Subscription is NOT an Inference Provider
+
+Claude subscriptions only work with Claude Code inside desktop agents. They cannot be used for:
+- Regular chat sessions
+- Helix Agent (multi-turn)
+- Basic Agent (RAG)
+- Any non-desktop-agent feature
+
+The frontend shows clear messaging about this distinction in the onboarding flow, providers page, and error messages.
+
 ## Verification
 
 1. Build: `cd api && go build ./... && cd ..`
 2. Unit tests: `cd api && go test ./pkg/store/... ./pkg/server/... && cd ..`
 3. Frontend: `cd frontend && yarn test && yarn build && cd ..`
 4. Desktop image: `./stack build-ubuntu`
-5. Manual test:
-   - Connect a Claude subscription via the UI (paste credentials)
-   - Verify it shows as "active"
+5. Zed: `cd ../zed && ./stack build-zed` (Claude Code re-enabled)
+6. Manual test:
+   - Connect a Claude subscription via browser login or paste credentials
+   - Verify it shows as "Connected" in Providers page, Onboarding, and Account settings
    - Start a spec task with `claude_code` runtime
+   - Verify Claude Code appears in Zed's agent panel dropdown
    - Verify Claude Code works inside Zed
    - Check settings-sync-daemon logs for credential sync
+   - Verify error message when trying regular chat with only Claude subscription

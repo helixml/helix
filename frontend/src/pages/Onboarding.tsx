@@ -24,6 +24,8 @@ import CloseIcon from '@mui/icons-material/Close'
 import IconButton from '@mui/material/IconButton'
 import { Bot, Server } from 'lucide-react'
 
+import Alert from '@mui/material/Alert'
+
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 import useApps from '../hooks/useApps'
@@ -39,6 +41,8 @@ import { useListProviders } from '../services/providersService'
 import { useGetSystemSettings, useUpdateSystemSettings } from '../services/systemSettingsService'
 import { PROVIDERS, Provider } from '../components/providers/types'
 import AddProviderDialog from '../components/providers/AddProviderDialog'
+import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from '../components/account/ClaudeSubscriptionConnect'
+import AnthropicLogo from '../components/providers/logos/anthropic'
 
 const RECOMMENDED_MODELS = [
   'claude-opus-4-6',
@@ -198,6 +202,10 @@ export default function Onboarding() {
     enabled: true,
   })
 
+  // Claude subscription state
+  const { data: claudeSubscriptions } = useClaudeSubscriptions()
+  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
+
   // Derived provider state
   const connectedProviderIds = useMemo(() => {
     if (!providers) return new Set<string>()
@@ -209,7 +217,8 @@ export default function Onboarding() {
     })
     return ids
   }, [providers])
-  const hasUserProviders = connectedProviderIds.size > 0
+  // Consider Claude subscription as a valid provider for the "Continue" button
+  const hasUserProviders = connectedProviderIds.size > 0 || hasClaudeSubscription
 
   // Check if any providers (including system/global) have enabled models
   const hasAnyEnabledModels = useMemo(() => {
@@ -660,6 +669,39 @@ export default function Onboarding() {
           <Fade in={isStepActive(1)} timeout={400}>
             <Box sx={{ mt: 2.5 }}>
               <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 1.5, mb: 2.5 }}>
+
+                {/* Claude Subscription - special card at the top */}
+                <Box
+                  sx={{
+                    gridColumn: '1 / -1',
+                    p: 1.5,
+                    borderRadius: 1.5,
+                    border: `1px solid ${hasClaudeSubscription ? CARD_BORDER_ACTIVE : CARD_BORDER}`,
+                    bgcolor: hasClaudeSubscription ? ACCENT_DIM : 'transparent',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1.5,
+                  }}
+                >
+                  <Box sx={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <AnthropicLogo style={{ width: 24, height: 24 }} />
+                  </Box>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography sx={{ color: '#fff', fontWeight: 500, fontSize: '0.78rem' }}>
+                      Claude Subscription
+                    </Typography>
+                    <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.7rem' }}>
+                      Use your Claude account with Claude Code in desktop agents
+                    </Typography>
+                  </Box>
+                  <ClaudeSubscriptionConnect variant="button" />
+                </Box>
+
+                <Divider sx={{ gridColumn: '1 / -1', borderColor: 'rgba(255,255,255,0.06)', my: 0.5 }} />
+                <Typography sx={{ gridColumn: '1 / -1', color: 'rgba(255,255,255,0.3)', fontSize: '0.72rem' }}>
+                  API Key Providers (for chat, Zed Agent, and Qwen Code)
+                </Typography>
+
                 {PROVIDERS.map((prov) => {
                   const isConnected = connectedProviderIds.has(prov.id)
                   const Logo = prov.logo
@@ -1140,9 +1182,36 @@ export default function Onboarding() {
                           </Typography>
                         </Box>
                       </MenuItem>
+                      <MenuItem value="claude_code" sx={{ fontSize: '0.82rem' }}>
+                        <Box>
+                          <Typography sx={{ fontSize: '0.82rem', color: '#fff' }}>Claude Code</Typography>
+                          <Typography sx={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)' }}>
+                            Uses your Claude subscription via OAuth
+                          </Typography>
+                        </Box>
+                      </MenuItem>
                     </Select>
                   </FormControl>
 
+                  {codeAgentRuntime === 'claude_code' ? (
+                    <Box sx={{ p: 1.5, borderRadius: 1.5, border: '1px solid rgba(255,255,255,0.06)', bgcolor: 'rgba(255,255,255,0.02)' }}>
+                      {hasClaudeSubscription ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <CheckCircleIcon sx={{ fontSize: 16, color: ACCENT }} />
+                          <Typography sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.78rem' }}>
+                            Claude subscription connected. Claude Code manages its own model selection.
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <Box>
+                          <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.78rem', mb: 1 }}>
+                            Claude Code requires a Claude subscription. Connect one above in the provider step, or from your account settings.
+                          </Typography>
+                          <ClaudeSubscriptionConnect variant="inline" />
+                        </Box>
+                      )}
+                    </Box>
+                  ) : (
                   <AdvancedModelPicker
                     recommendedModels={RECOMMENDED_MODELS}
                     autoSelectFirst={false}
@@ -1158,6 +1227,7 @@ export default function Onboarding() {
                     displayMode="full"
                     disabled={creatingAgent}
                   />
+                  )}
 
                   <TextField
                     fullWidth
