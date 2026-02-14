@@ -385,6 +385,7 @@ func (apiServer *HelixAPIServer) startClaudeLogin(_ http.ResponseWriter, req *ht
 	}
 
 	// Create a desktop agent with minimal configuration
+	// HELIX_SKIP_ZED=1 prevents the workspace setup terminal from launching
 	zedAgent := &types.DesktopAgent{
 		OrganizationID: orgID,
 		SessionID:      createdSession.ID,
@@ -394,6 +395,7 @@ func (apiServer *HelixAPIServer) startClaudeLogin(_ http.ResponseWriter, req *ht
 		DisplayWidth:   1920,
 		DisplayHeight:  1080,
 		DesktopType:    "ubuntu",
+		Env:            []string{"HELIX_SKIP_ZED=1"},
 	}
 
 	// Add user's API token

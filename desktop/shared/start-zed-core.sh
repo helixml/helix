@@ -133,6 +133,15 @@ start_zed_helix() {
     echo "========================================="
     echo ""
 
+    # HELIX_SKIP_ZED=1 skips Zed and workspace setup entirely
+    # Used for login-only sessions (e.g., Claude OAuth login)
+    if [ "$HELIX_SKIP_ZED" = "1" ]; then
+        echo "HELIX_SKIP_ZED=1 - skipping Zed and workspace setup"
+        # Touch the complete signal so settings-sync-daemon doesn't wait
+        touch "$COMPLETE_SIGNAL"
+        exit 0
+    fi
+
     # Prevent duplicate Zed instances after compositor crash/restart
     # The compositor's exec command runs again on restart, but we're already running
     ZED_LOCK_FILE="/tmp/helix-zed-startup.lock"
