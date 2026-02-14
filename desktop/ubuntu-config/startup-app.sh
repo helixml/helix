@@ -197,6 +197,19 @@ gsettings set org.gnome.shell.extensions.just-perfection screen-recording-indica
 gsettings set org.gnome.shell.extensions.just-perfection screen-sharing-indicator false
 gow_log "[start] Just Perfection extension configured"
 
+# Disable Super key overlay (Activities view) and window tiling shortcuts.
+# macOS users press Command (= Super) for copy/paste and cursor navigation.
+# The desktop-bridge remaps Super+key at the input injection layer, but GNOME's
+# built-in Super key handlers must also be disabled to prevent conflicts.
+gsettings set org.gnome.mutter overlay-key ''
+gsettings set org.gnome.desktop.wm.keybindings move-to-side-e "[]"
+gsettings set org.gnome.desktop.wm.keybindings move-to-side-w "[]"
+gsettings set org.gnome.desktop.wm.keybindings move-to-side-n "[]"
+gsettings set org.gnome.desktop.wm.keybindings move-to-side-s "[]"
+gsettings set org.gnome.desktop.wm.keybindings maximize "[]"
+gsettings set org.gnome.desktop.wm.keybindings unmaximize "[]"
+gow_log "[start] Disabled Super key overlay and window tiling shortcuts (macOS keyboard support)"
+
 # Set global scaling factor before gnome-shell starts
 # This tells Mutter to use this scale for ALL monitors (including virtual ones)
 # The scaling-factor gsetting is read by meta_settings_get_global_scaling_factor()
