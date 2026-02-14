@@ -412,7 +412,9 @@ Each `/16` gives 256 `/24` subnets per level, supporting up to depth 43 (10.255.
 
 ### Solved: Outer API Resolution
 
-Each desktop container gets `outer-api:host-gateway` as a Docker ExtraHost. Docker resolves `host-gateway` to the compose network gateway (the host machine). Since the API publishes port 8080 on the host, `outer-api:8080` reaches the API dynamically — Docker updates iptables DNAT rules when the API restarts.
+Each desktop container gets both `api:<resolved-ip>` and `outer-api:<resolved-ip>` baked into `/etc/hosts` by Hydra at container creation time. Both resolve to the same IP (the outer API container's address on the compose network). The `outer-api` hostname exists so that Helix-in-Helix inner compose stacks can distinguish the outer API from their own `api` service — Docker compose DNS shadows `/etc/hosts` entries for the `api` hostname, but `outer-api` is unaffected.
+
+**Note:** We previously used `outer-api:host-gateway`, but `host-gateway` on the sandbox's inner dockerd resolves to the sandbox's bridge gateway (not the actual host), making it unreachable. Resolving the IP at container creation time is reliable.
 
 For H-in-H, the startup script resolves `outer-api` to an IP and exports `OUTER_API_IP`. The inner compose file picks this up via `extra_hosts: "outer-api:${OUTER_API_IP:-127.0.0.1}"`, propagating the address into inner containers.
 

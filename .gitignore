@@ -101,3 +101,6 @@ qemu-utm/
 /logind-stub
 /mutter-lease-launcher
 desktop-bridge
+
+# Docker shim binary
+desktop/docker-shim/docker-shim

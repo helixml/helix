@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -305,15 +304,9 @@ func main() {
 	if helixURL == "" {
 		helixURL = "http://api:8080"
 	}
-	// In Helix-in-Helix mode, the inner compose stack shadows the "api" hostname.
-	// If "outer-api" resolves (added by startup script), use it instead so the
-	// daemon always talks to the outer API for config fetches.
-	if strings.Contains(helixURL, "://api:") {
-		if _, err := net.LookupHost("outer-api"); err == nil {
-			helixURL = strings.Replace(helixURL, "://api:", "://outer-api:", 1)
-			log.Printf("Helix-in-Helix: rewrote API URL to %s", helixURL)
-		}
-	}
+	// The "api" hostname is baked into /etc/hosts by Hydra at container
+	// creation time, so it always resolves to the outer API's IP even if
+	// an inner compose stack later creates its own "api" service.
 	sessionID := os.Getenv("HELIX_SESSION_ID")
 	port := os.Getenv("SETTINGS_SYNC_PORT")
 	if port == "" {

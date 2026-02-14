@@ -32,7 +32,6 @@ import {
   Switch,
 } from "@mui/material";
 import CodeIcon from "@mui/icons-material/Code";
-import PeopleIcon from "@mui/icons-material/People";
 import AddIcon from "@mui/icons-material/Add";
 import WarningIcon from "@mui/icons-material/Warning";
 import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
@@ -53,7 +52,6 @@ import Page from "../components/system/Page";
 import Skills from "../components/app/Skills";
 import { TypesAssistantSkills, TypesProject } from "../api/api";
 import SavingToast from "../components/widgets/SavingToast";
-import AccessManagement from "../components/app/AccessManagement";
 import StartupScriptEditor from "../components/project/StartupScriptEditor";
 import { AdvancedModelPicker } from "../components/create/AdvancedModelPicker";
 import {
@@ -106,11 +104,6 @@ import {
   useGetProjectGuidelinesHistory,
 } from "../services";
 import { useGitRepositories } from "../services/gitRepositoryService";
-import {
-  useListProjectAccessGrants,
-  useCreateProjectAccessGrant,
-  useDeleteProjectAccessGrant,
-} from "../services/projectAccessGrantService";
 
 const ProjectSettings: FC = () => {
   const account = useAccount();
@@ -138,12 +131,6 @@ const ProjectSettings: FC = () => {
       ? { organizationId: currentOrg.id }
       : { ownerId: account.user?.id },
   );
-
-  // Access grants for RBAC
-  const { data: accessGrants = [], isLoading: accessGrantsLoading } =
-    useListProjectAccessGrants(projectId, !!project?.organization_id);
-  const createAccessGrantMutation = useCreateProjectAccessGrant(projectId);
-  const deleteAccessGrantMutation = useDeleteProjectAccessGrant(projectId);
 
   // Exploratory session
   const { data: exploratorySessionData } =
@@ -666,31 +653,6 @@ const ProjectSettings: FC = () => {
       account.orgNavigate("projects");
     } catch (err) {
       snackbar.error("Failed to delete project");
-    }
-  };
-
-  const handleCreateAccessGrant = async (request: any) => {
-    try {
-      const result = await createAccessGrantMutation.mutateAsync(request);
-      if (result) {
-        snackbar.success("Access grant created successfully");
-        return result;
-      }
-      return null;
-    } catch (err) {
-      snackbar.error("Failed to create access grant");
-      return null;
-    }
-  };
-
-  const handleDeleteAccessGrant = async (grantId: string) => {
-    try {
-      await deleteAccessGrantMutation.mutateAsync(grantId);
-      snackbar.success("Access grant removed successfully");
-      return true;
-    } catch (err) {
-      snackbar.error("Failed to remove access grant");
-      return false;
     }
   };
 
@@ -1417,34 +1379,6 @@ const ProjectSettings: FC = () => {
               )}
             </Paper>
 
-            {/* Members & Access Control */}
-            {project?.organization_id ? (
-              <Paper sx={{ p: { xs: 2, sm: 3 } }}>
-                <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
-                  <PeopleIcon sx={{ mr: 1 }} />
-                  <Typography variant="h6">Members & Access</Typography>
-                </Box>
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                  sx={{ mb: 2 }}
-                >
-                  Manage who has access to this project and their roles.
-                </Typography>
-                <Divider sx={{ mb: 3 }} />
-
-                <AccessManagement
-                  appId={projectId}
-                  accessGrants={accessGrants}
-                  isLoading={accessGrantsLoading}
-                  isReadOnly={
-                    project.user_id !== account.user?.id && !account.user?.admin
-                  }
-                  onCreateGrant={handleCreateAccessGrant}
-                  onDeleteGrant={handleDeleteAccessGrant}
-                />
-              </Paper>
-            ) : null}
             {/* Danger Zone */}
             <Paper
               sx={{
