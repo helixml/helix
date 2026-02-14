@@ -272,7 +272,7 @@ if [ "$UPDATE" = true ]; then
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml pull 2>&1" || true
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml build 2>&1" || true
 
-    log "Starting stack to verify..."
+    log "Starting stack to verify and transfer desktop images..."
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml up -d 2>&1"
 
     ELAPSED=0
@@ -289,8 +289,20 @@ if [ "$UPDATE" = true ]; then
         fi
     done
 
-    log "Stopping stack (removing volumes)..."
-    run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml down -v 2>&1"
+    # Transfer desktop image into sandbox's nested dockerd via local registry.
+    # The sandbox runs its own Docker daemon (DinD), so desktop images built on
+    # the host Docker must be pushed through the local registry (port 5000) and
+    # pulled inside the sandbox. Without this, Hydra gets "No such image" errors.
+    log "Transferring desktop image to sandbox..."
+    run_ssh "cd ~/helix && bash stack transfer-ubuntu-to-sandbox 2>&1" || {
+        log "WARNING: Desktop image transfer failed. Will retry on first boot."
+    }
+
+    # Stop the stack but keep named volumes — sandbox-docker-storage contains
+    # the desktop images we just transferred into the sandbox's nested dockerd.
+    # Using -v would wipe those images, causing "No such image" on first boot.
+    log "Stopping stack (keeping volumes)..."
+    run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml down 2>&1"
 
     # Cleanup
     run_ssh "rm -rf ~/zed ~/qwen-code ~/.cache/go-build" || true
@@ -858,12 +870,19 @@ if ! step_done "prime_stack"; then
         run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml logs api --tail 20 2>&1" || true
     fi
 
-    # Stop the stack and delete volumes — images stay cached on root disk.
-    # -v removes named volumes so there's no stale data on the root disk.
-    # Real user data will be on ZFS; if ZFS fails to mount, we don't want
-    # leftover priming volumes masquerading as user data.
-    log "Stopping Helix stack (removing volumes)..."
-    run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml down -v 2>&1"
+    # Transfer desktop image into sandbox's nested dockerd via local registry.
+    # The sandbox runs Docker-in-Docker, so images built on the host Docker must
+    # be pushed through the local registry and pulled inside the sandbox.
+    log "Transferring desktop image to sandbox..."
+    run_ssh "cd ~/helix && bash stack transfer-ubuntu-to-sandbox 2>&1" || {
+        log "WARNING: Desktop image transfer failed. Will retry on first boot."
+    }
+
+    # Stop the stack but keep named volumes — sandbox-docker-storage contains
+    # the desktop images we just transferred into the sandbox's nested dockerd.
+    # Using -v would wipe those images, causing "No such image" on first boot.
+    log "Stopping Helix stack (keeping volumes)..."
+    run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml down 2>&1"
 
     # Stop Docker (it will be started by the desktop app on user's first boot)
     run_ssh "sudo systemctl stop docker"
