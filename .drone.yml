@@ -2599,22 +2599,23 @@ steps:
         from_secret: r2_access_key_id
       R2_SECRET_ACCESS_KEY:
         from_secret: r2_secret_access_key
-      R2_ENDPOINT: https://f0150e619c6dc08f55aea6d2248b1c6c.r2.cloudflarestorage.com
-      R2_BUCKET_NAME: helix-desktop
     commands:
       - export HOME=/Users/luke
+      # Set version and R2 config for all subsequent commands
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          export VERSION="${DRONE_TAG}"
+        else
+          export VERSION=$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        export R2_ENDPOINT="https://f0150e619c6dc08f55aea6d2248b1c6c.r2.cloudflarestorage.com"
+        export R2_BUCKET="helix-desktop"
+        echo "VERSION=$VERSION R2_ENDPOINT=$R2_ENDPOINT R2_BUCKET=$R2_BUCKET"
       # Unlock CI keychain
       - security unlock-keychain -p "$KEYCHAIN_PASSWORD" /Users/luke/Library/Keychains/Helix-Dev.keychain-db
       - security list-keychains -d user -s /Users/luke/Library/Keychains/Helix-Dev.keychain-db /Users/luke/Library/Keychains/login.keychain-db
       # Create .env.signing for create-dmg's signing step
       - echo "APPLE_SIGNING_IDENTITY='$APPLE_SIGNING_IDENTITY'" > for-mac/.env.signing
-      # Determine version
-      - |
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION=$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        fi
       - cd for-mac
       # Build DMG (no upload yet — notarize first)
       - ./scripts/create-dmg.sh --skip-styling --version $VERSION
@@ -2630,8 +2631,8 @@ steps:
         export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
         export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
         aws s3 cp build/bin/Helix-for-Mac.dmg \
-          "s3://${R2_BUCKET_NAME}/desktop/${VERSION}/Helix-for-Mac.dmg" \
-          --endpoint-url "$R2_ENDPOINT" \
+          "s3://helix-desktop/desktop/${VERSION}/Helix-for-Mac.dmg" \
+          --endpoint-url "https://f0150e619c6dc08f55aea6d2248b1c6c.r2.cloudflarestorage.com" \
           --no-progress
       # Upload latest.json pointer for update checking
       - |
@@ -2639,8 +2640,8 @@ steps:
           export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
           export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
           echo "{\"version\":\"${DRONE_TAG}\",\"dmg_url\":\"https://dl.helix.ml/desktop/${DRONE_TAG}/Helix-for-Mac.dmg\",\"vm_url\":\"https://dl.helix.ml/vm/${DRONE_TAG}/disk.qcow2.zst\"}" | \
-            aws s3 cp - "s3://${R2_BUCKET_NAME}/desktop/latest.json" \
-              --endpoint-url "$R2_ENDPOINT" \
+            aws s3 cp - "s3://helix-desktop/desktop/latest.json" \
+              --endpoint-url "https://f0150e619c6dc08f55aea6d2248b1c6c.r2.cloudflarestorage.com" \
               --content-type "application/json" \
               --no-progress
         fi
