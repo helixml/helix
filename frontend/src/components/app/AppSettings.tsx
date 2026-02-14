@@ -240,7 +240,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [reasoning_model_effort, setReasoningModelEffort] = useState(app.reasoning_model_effort || 'none')
   const [generation_model, setGenerationModel] = useState(app.generation_model || '')
   const [generation_model_provider, setGenerationModelProvider] = useState(app.generation_model_provider || '')
-  const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code'>(app.code_agent_runtime || 'zed_agent')
+  const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code' | 'claude_code'>(app.code_agent_runtime || 'zed_agent')
   // External agent display settings
   const [resolution, setResolution] = useState<'1080p' | '4k' | '5k'>(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
   const [desktopType, setDesktopType] = useState<'ubuntu' | 'sway'>(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
@@ -635,12 +635,16 @@ const AppSettings: FC<AppSettingsProps> = ({
                 <Select
                   value={code_agent_runtime}
                   onChange={(e) => {
-                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code';
+                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code' | 'claude_code';
                     setCodeAgentRuntime(newRuntime);
                     onUpdate({ ...app, code_agent_runtime: newRuntime });
                   }}
                   disabled={readOnly}
-                  renderValue={(value) => value === 'zed_agent' ? 'Zed Agent' : 'Qwen Code'}
+                  renderValue={(value) => {
+                    if (value === 'claude_code') return 'Claude Code'
+                    if (value === 'qwen_code') return 'Qwen Code'
+                    return 'Zed Agent'
+                  }}
                 >
                   <MenuItem value="zed_agent">
                     <Box>
@@ -655,6 +659,14 @@ const AppSettings: FC<AppSettingsProps> = ({
                       <Typography variant="body2">Qwen Code</Typography>
                       <Typography variant="caption" color="text.secondary">
                         Optimized for Qwen, including smaller models
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                  <MenuItem value="claude_code">
+                    <Box>
+                      <Typography variant="body2">Claude Code</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Uses your Claude subscription via OAuth
                       </Typography>
                     </Box>
                   </MenuItem>
