@@ -73,7 +73,7 @@ export function HomeView({
               onClick={() => BrowserOpenURL(DEMO_VIDEO_URL)}
             >
               <div className="demo-video-thumb-wrap">
-                <img src="/demo-thumb.png" alt="Demo video" className="demo-video-thumb" />
+                <img src="/demo-thumb.jpg" alt="Demo video" className="demo-video-thumb" />
                 <span className="demo-video-play-overlay">&#9654;</span>
               </div>
               <div className="demo-video-text">
@@ -98,7 +98,7 @@ export function HomeView({
 
   // First boot: need to download VM images
   if (needsDownload) {
-    const isDownloading = p && (p.status === 'downloading' || p.status === 'verifying');
+    const isDownloading = p && (p.status === 'downloading' || p.status === 'verifying' || p.status === 'decompressing');
     return (
       <div className="home-view">
         <div className={`home-placeholder${isDownloading ? ' download-screen' : ''}`}>
@@ -126,7 +126,7 @@ export function HomeView({
                 onClick={() => BrowserOpenURL(DEMO_VIDEO_URL)}
               >
                 <div className="demo-video-thumb-wrap">
-                  <img src="/demo-thumb.png" alt="Demo video" className="demo-video-thumb" />
+                  <img src="/demo-thumb.jpg" alt="Demo video" className="demo-video-thumb" />
                   <span className="demo-video-play-overlay">&#9654;</span>
                 </div>
                 <div className="demo-video-text">
@@ -237,7 +237,7 @@ function HomeDownloadSection({
   onProgressCleared: () => void;
   showToast: (msg: string) => void;
 }) {
-  if (p && (p.status === 'downloading' || p.status === 'verifying')) {
+  if (p && (p.status === 'downloading' || p.status === 'verifying' || p.status === 'decompressing')) {
     return (
       <div className="home-download-progress">
         <div className="download-file-info">
@@ -252,7 +252,7 @@ function HomeDownloadSection({
         <div className="download-stats">
           <span className="download-speed">{p.speed || '--'}</span>
           <span className="download-eta">
-            {p.status === 'verifying' ? 'Verifying...' : p.eta ? `${p.eta} remaining` : `${(p.percent || 0).toFixed(1)}%`}
+            {p.status === 'verifying' ? 'Verifying...' : p.status === 'decompressing' ? 'Decompressing...' : p.eta ? `${p.eta} remaining` : `${(p.percent || 0).toFixed(1)}%`}
           </span>
         </div>
         <button

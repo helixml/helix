@@ -784,16 +784,19 @@ if ! step_done "prime_stack"; then
         fi
 
         if [ -n "$PULL_TAG" ]; then
-            # Tag as latest for Hydra to find
-            run_ssh "docker exec helix-sandbox docker tag registry.helixml.tech/helix/helix-ubuntu:${PULL_TAG} helix-ubuntu:latest" || true
+            # Tag with version for Hydra to find (never use :latest — Hydra rejects it)
             run_ssh "docker exec helix-sandbox docker tag registry.helixml.tech/helix/helix-ubuntu:${PULL_TAG} helix-ubuntu:${HELIX_VERSION}" || true
-            log "helix-ubuntu tagged as latest and ${HELIX_VERSION}"
+            log "helix-ubuntu tagged as ${HELIX_VERSION}"
 
             # Create version file so the sandbox heartbeat reports available desktop images.
             # The heartbeat daemon scans /opt/images/helix-*.version and reports them
             # in desktop_versions, which FindAvailableSandbox uses to match sessions to sandboxes.
-            run_ssh "echo 'latest' > ~/helix/sandbox-images/helix-ubuntu.version"
-            log "Created sandbox-images/helix-ubuntu.version"
+            run_ssh "echo '${HELIX_VERSION}' > ~/helix/sandbox-images/helix-ubuntu.version"
+
+            # Create .ref file so sandbox startup can re-pull the image if it's missing
+            # (e.g., if the disk image was compressed before Docker fully flushed)
+            run_ssh "echo 'registry.helixml.tech/helix/helix-ubuntu:${PULL_TAG}' > ~/helix/sandbox-images/helix-ubuntu.ref"
+            log "Created sandbox-images/helix-ubuntu.version and .ref"
         fi
     fi
 
