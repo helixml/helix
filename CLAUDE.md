@@ -393,12 +393,18 @@ LLM ←(OpenAI API)→ Qwen Code Agent ←(ACP)→ Zed IDE
 
 ## Verification
 
+### Testing Strategy
+**Rely on CI (Drone) to run the full test suite.** Don't run `go test ./pkg/store/...` locally — store tests require a running PostgreSQL database and will timeout without one. Instead:
+- **Go**: Run `go build ./pkg/server/ ./pkg/store/ ./pkg/types/` to verify compilation
+- **Frontend**: Run `cd frontend && yarn build` to verify the build succeeds
+- **Full tests**: Push to branch and check CI with `gh pr checks` or the Drone API
+
 ### Frontend Pre-commit Check (matches Drone CI)
 **ALWAYS run before committing frontend changes:**
 ```bash
-cd frontend && yarn test && yarn build && cd ..
+cd frontend && yarn build && cd ..
 ```
-This runs the same checks as Drone CI. Fix any errors before committing.
+This verifies the frontend compiles. Full test suite runs in Drone CI.
 
 ### Quick Checks
 
