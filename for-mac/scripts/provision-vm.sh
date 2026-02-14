@@ -272,7 +272,7 @@ if [ "$UPDATE" = true ]; then
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml pull 2>&1" || true
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml build 2>&1" || true
 
-    log "Starting stack to verify and transfer desktop images..."
+    log "Starting stack to verify and load desktop images into sandbox..."
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml up -d 2>&1"
 
     ELAPSED=0
@@ -817,6 +817,9 @@ ADMIN_USER_IDS=all
 
 # Allow users to configure their own inference providers
 ENABLE_CUSTOM_USER_PROVIDERS=true
+
+# Max concurrent desktops (hard limit: 15 QEMU video outputs)
+PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS=15
 
 # Enable sandbox-macos compose profile so sandbox starts with docker compose up -d
 COMPOSE_PROFILES=code-macos

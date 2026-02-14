@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/user"
@@ -521,6 +523,44 @@ func (a *App) GetZFSStats() ZFSStats {
 }
 
 
+
+// DesktopQuota represents active and max concurrent desktop sessions
+type DesktopQuota struct {
+	Active int `json:"active"`
+	Max    int `json:"max"`
+}
+
+// GetDesktopQuota returns the current desktop session count and limit
+// by calling the Helix API's unauthenticated /config endpoint.
+func (a *App) GetDesktopQuota() DesktopQuota {
+	if a.vm.GetStatus().State != VMStateRunning {
+		return DesktopQuota{}
+	}
+	port := a.vm.GetConfig().APIPort
+	if port == 0 {
+		port = 41080
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/config", port))
+	if err != nil {
+		return DesktopQuota{}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return DesktopQuota{}
+	}
+	var config struct {
+		ActiveConcurrentDesktops int `json:"active_concurrent_desktops"`
+		MaxConcurrentDesktops    int `json:"max_concurrent_desktops"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
+		return DesktopQuota{}
+	}
+	return DesktopQuota{
+		Active: config.ActiveConcurrentDesktops,
+		Max:    config.MaxConcurrentDesktops,
+	}
+}
 
 // GetDiskUsage returns disk usage breakdown
 func (a *App) GetDiskUsage() DiskUsage {

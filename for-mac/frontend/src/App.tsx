@@ -12,6 +12,7 @@ import {
   GetSettings,
   GetScanoutStats,
   GetLicenseStatus,
+  GetDesktopQuota,
   StartVM,
 } from "../wailsjs/go/main/App";
 import {
@@ -86,6 +87,7 @@ export function App() {
   const [licenseStatus, setLicenseStatus] =
     useState<main.LicenseStatus>(defaultLicenseStatus);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [desktopQuota, setDesktopQuota] = useState({ active: 0, max: 0 });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [initialized, setInitialized] = useState(false);
@@ -209,8 +211,12 @@ export function App() {
         setVmStatus(status);
 
         if (status.state === "running") {
-          const zfs = await GetZFSStats();
+          const [zfs, quota] = await Promise.all([
+            GetZFSStats(),
+            GetDesktopQuota(),
+          ]);
           setZfsStats(zfs);
+          setDesktopQuota(quota);
         }
 
         // Re-fetch autoLoginURL when API transitions to ready
@@ -314,6 +320,32 @@ export function App() {
             </button>
           )}
         </div>
+
+        {vmStatus.state === "running" && vmStatus.api_ready && desktopQuota.max > 0 && (
+          <div
+            className="quota-pill"
+            onDoubleClick={(e) => e.stopPropagation()}
+            title={`${desktopQuota.active} of ${desktopQuota.max} desktop sessions`}
+          >
+            <div className="quota-segments">
+              {Array.from({ length: desktopQuota.max }, (_, i) => (
+                <div
+                  key={i}
+                  className={`quota-segment ${
+                    i < desktopQuota.active
+                      ? desktopQuota.active / desktopQuota.max >= 1
+                        ? 'full'
+                        : desktopQuota.active / desktopQuota.max >= 0.8
+                          ? 'warn'
+                          : 'active'
+                      : ''
+                  }`}
+                />
+              ))}
+            </div>
+            <span className="quota-label">{desktopQuota.active}/{desktopQuota.max}</span>
+          </div>
+        )}
 
         <div className="titlebar-spacer" />
 

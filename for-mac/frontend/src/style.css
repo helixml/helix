@@ -202,6 +202,53 @@ body {
     cursor: default;
 }
 
+/* Desktop session quota pill — segmented bar showing active/max sessions */
+.quota-pill {
+    --wails-draggable: no-drag;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.04);
+    cursor: default;
+    flex-shrink: 0;
+}
+
+.quota-segments {
+    display: flex;
+    gap: 1.5px;
+    align-items: center;
+}
+
+.quota-segment {
+    width: 3px;
+    height: 12px;
+    border-radius: 1px;
+    background: rgba(255, 255, 255, 0.1);
+    transition: background 0.2s;
+}
+
+.quota-segment.active {
+    background: var(--teal);
+}
+
+.quota-segment.warn {
+    background: var(--warning);
+}
+
+.quota-segment.full {
+    background: var(--error);
+}
+
+.quota-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
 .titlebar-actions {
     display: flex;
     align-items: center;

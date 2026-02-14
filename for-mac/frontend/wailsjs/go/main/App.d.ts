@@ -14,6 +14,8 @@ export function GetConsoleOutput():Promise<string>;
 
 export function GetConsolePassword():Promise<string>;
 
+export function GetDesktopQuota():Promise<main.DesktopQuota>;
+
 export function GetDiskUsage():Promise<main.DiskUsage>;
 
 export function GetDownloadStatus():Promise<main.DownloadProgress>;

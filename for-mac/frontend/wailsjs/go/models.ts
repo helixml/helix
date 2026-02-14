@@ -59,6 +59,20 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class DesktopQuota {
+	    active: number;
+	    max: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DesktopQuota(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.active = source["active"];
+	        this.max = source["max"];
+	    }
+	}
 	export class DiskUsage {
 	    root_disk_total: number;
 	    root_disk_used: number;

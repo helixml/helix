@@ -26,6 +26,10 @@ export function GetConsolePassword() {
   return window['go']['main']['App']['GetConsolePassword']();
 }
 
+export function GetDesktopQuota() {
+  return window['go']['main']['App']['GetDesktopQuota']();
+}
+
 export function GetDiskUsage() {
   return window['go']['main']['App']['GetDiskUsage']();
 }
