@@ -2619,7 +2619,7 @@ steps:
         if [ -n "$DRONE_TAG" ]; then DMG_VERSION="$DRONE_TAG"; else DMG_VERSION=$(echo $DRONE_COMMIT_SHA | head -c 7); fi
         echo "Uploading DMG for version: $DMG_VERSION"
         aws s3 cp build/bin/Helix-for-Mac.dmg \
-          "s3://helix-desktop/desktop/${DMG_VERSION}/Helix-for-Mac.dmg" \
+          "s3://helix-desktop/desktop/$DMG_VERSION/Helix-for-Mac.dmg" \
           --endpoint-url "https://f0150e619c6dc08f55aea6d2248b1c6c.r2.cloudflarestorage.com" \
           --no-progress
       # Upload latest.json pointer for update checking
