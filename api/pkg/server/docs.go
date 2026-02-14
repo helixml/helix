@@ -1597,6 +1597,231 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/claude-subscriptions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List Claude subscriptions for the current user and their org",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Claude"
+                ],
+                "summary": "List Claude subscriptions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.ClaudeSubscription"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Connect a Claude subscription by providing OAuth credentials",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Claude"
+                ],
+                "summary": "Create a Claude subscription",
+                "parameters": [
+                    {
+                        "description": "Claude subscription credentials",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateClaudeSubscriptionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ClaudeSubscription"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/claude-subscriptions/models": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List Claude models available through Claude Code subscriptions",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Claude"
+                ],
+                "summary": "List available Claude models",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/server.ClaudeModel"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/claude-subscriptions/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get details of a specific Claude subscription (no secrets)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Claude"
+                ],
+                "summary": "Get a Claude subscription",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Subscription ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ClaudeSubscription"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Disconnect a Claude subscription",
+                "tags": [
+                    "Claude"
+                ],
+                "summary": "Delete a Claude subscription",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Subscription ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/clone-groups/{groupId}/progress": {
             "get": {
                 "security": [
@@ -9935,6 +10160,64 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/claude-credentials": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get decrypted Claude credentials for use inside a desktop container.\nOnly accepts runner/session-scoped tokens.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Claude"
+                ],
+                "summary": "Get Claude credentials for a session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ClaudeOAuthCredentials"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/expose": {
             "get": {
                 "description": "Returns all ports currently exposed from the session's dev container",
@@ -14979,6 +15262,20 @@ const docTemplate = `{
                 }
             }
         },
+        "server.ClaudeModel": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "server.ClientBufferStats": {
             "type": "object",
             "properties": {
@@ -15803,10 +16100,6 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
-                },
-                "use_host_docker": {
-                    "description": "Enable host Docker access (for Helix-in-Helix dev)",
-                    "type": "boolean"
                 }
             }
         },
@@ -17479,6 +17772,90 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ClaudeOAuthCredentials": {
+            "type": "object",
+            "properties": {
+                "accessToken": {
+                    "type": "string"
+                },
+                "expiresAt": {
+                    "description": "Unix milliseconds",
+                    "type": "integer"
+                },
+                "rateLimitTier": {
+                    "type": "string"
+                },
+                "refreshToken": {
+                    "type": "string"
+                },
+                "scopes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "subscriptionType": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ClaudeSubscription": {
+            "type": "object",
+            "properties": {
+                "access_token_expires_at": {
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "last_refreshed_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "string"
+                },
+                "owner_type": {
+                    "description": "\"user\" or \"org\"",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OwnerType"
+                        }
+                    ]
+                },
+                "rate_limit_tier": {
+                    "type": "string"
+                },
+                "scopes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "status": {
+                    "description": "\"active\", \"expired\", \"error\"",
+                    "type": "string"
+                },
+                "subscription_type": {
+                    "description": "\"max\", \"pro\"",
+                    "type": "string"
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
         "types.ClipboardData": {
             "type": "object",
             "properties": {
@@ -17932,6 +18309,34 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CreateClaudeSubscriptionRequest": {
+            "type": "object",
+            "properties": {
+                "credentials": {
+                    "type": "object",
+                    "properties": {
+                        "claudeAiOauth": {
+                            "$ref": "#/definitions/types.ClaudeOAuthCredentials"
+                        }
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "description": "Required for org-level, auto-set for user",
+                    "type": "string"
+                },
+                "owner_type": {
+                    "description": "\"user\" or \"org\"",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OwnerType"
+                        }
+                    ]
+                }
+            }
+        },
         "types.CreatePullRequestRequest": {
             "type": "object",
             "properties": {
@@ -18040,10 +18445,6 @@ const docTemplate = `{
                 },
                 "type": {
                     "type": "string"
-                },
-                "use_host_docker": {
-                    "description": "Optional: Use host Docker socket (requires privileged sandbox)",
-                    "type": "boolean"
                 },
                 "user_email": {
                     "description": "Optional: User email for audit trail",
@@ -21163,10 +21564,6 @@ const docTemplate = `{
                 "updated_at": {
                     "type": "string"
                 },
-                "use_host_docker": {
-                    "description": "Sandbox settings",
-                    "type": "boolean"
-                },
                 "user_id": {
                     "type": "string"
                 }
@@ -23870,10 +24267,6 @@ const docTemplate = `{
                 "updated_at": {
                     "type": "string"
                 },
-                "use_host_docker": {
-                    "description": "Use host Docker socket (requires privileged sandbox)",
-                    "type": "boolean"
-                },
                 "user_id": {
                     "description": "Owner user ID for search",
                     "type": "string"
@@ -24551,10 +24944,6 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "string"
-                },
-                "use_host_docker": {
-                    "description": "Use host Docker socket (requires privileged sandbox)",
-                    "type": "boolean"
                 },
                 "user_id": {
                     "description": "Owner user ID for search",
@@ -26077,6 +26466,10 @@ const docTemplate = `{
                 "assistant": {
                     "type": "object",
                     "additionalProperties": true
+                },
+                "claude_subscription_available": {
+                    "description": "True if user has an active Claude subscription for credential sync",
+                    "type": "boolean"
                 },
                 "code_agent_config": {
                     "description": "Code agent configuration for Zed agentic coding",
