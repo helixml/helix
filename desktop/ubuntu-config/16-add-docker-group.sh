@@ -11,7 +11,7 @@ set -e  # Exit on any error
 if ! id retro >/dev/null 2>&1; then
     echo "**** FATAL: retro user does not exist! ****"
     echo "**** This init script must run AFTER 10-setup_user.sh ****"
-    exit 1
+    return 1
 fi
 
 # Get the GID of the docker socket (mounted from sandbox)
@@ -49,5 +49,5 @@ if id retro | grep -q "$SOCKET_GID"; then
 else
     echo "**** FATAL: usermod succeeded but retro is NOT in group $SOCKET_GID! ****"
     echo "**** retro groups: $(id retro) ****"
-    exit 1
+    return 1
 fi

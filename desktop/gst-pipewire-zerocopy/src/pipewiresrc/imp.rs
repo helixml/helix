@@ -18,6 +18,7 @@ use gst_video::{VideoCapsBuilder, VideoFormat, VideoInfo, VideoInfoDmaDrm};
 use gstreamer_allocators::{DmaBufAllocator, FdMemoryFlags};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
+use std::os::unix::io::AsRawFd;
 use smithay::backend::allocator::Buffer;
 use smithay::backend::drm::{DrmNode, NodeType};
 use smithay::backend::egl::ffi::egl::types::EGLDisplay as RawEGLDisplay;
@@ -108,6 +109,18 @@ fn get_nvidia_dmabuf_caps() -> DmaBufCapabilities {
     }
 }
 
+/// Get LINEAR DmaBuf caps for virtio-gpu (no vendor-specific modifiers).
+/// virtio-gpu uses LINEAR layout (0x0). This tells PipeWire we accept DMA-BUF
+/// with LINEAR modifier, which is what Mutter exports on virtio-gpu.
+fn get_virtgpu_dmabuf_caps() -> DmaBufCapabilities {
+    DmaBufCapabilities {
+        modifiers: vec![
+            0x0, // DRM_FORMAT_MOD_LINEAR
+        ],
+        dmabuf_available: true,
+    }
+}
+
 /// Capture source - explicitly set by Go code
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CaptureSource {
@@ -129,14 +142,16 @@ impl CaptureSource {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BufferType {
     #[default]
-    Shm, // SHM/MemFd - works everywhere
-    DmaBuf, // DMA-BUF with NVIDIA modifiers - GNOME+NVIDIA only
+    Shm,              // SHM/MemFd - works everywhere
+    DmaBuf,           // DMA-BUF with NVIDIA modifiers + CUDA
+    DmaBufPassthrough, // DMA-BUF with LINEAR modifier, pass FD to downstream (virtio-gpu)
 }
 
 impl BufferType {
     fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "dmabuf" | "dma-buf" | "gpu" | "cuda" => Self::DmaBuf,
+            "dmabuf-passthrough" | "passthrough" | "virtgpu" => Self::DmaBufPassthrough,
             _ => Self::Shm,
         }
     }
@@ -463,6 +478,7 @@ impl ObjectImpl for PipeWireZeroCopySrc {
             "buffer-type" => match s.buffer_type {
                 BufferType::Shm => "shm",
                 BufferType::DmaBuf => "dmabuf",
+                BufferType::DmaBufPassthrough => "dmabuf-passthrough",
             }
             .to_value(),
             _ => unreachable!(),
@@ -692,6 +708,25 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                         })?;
                 state.stream = Some(FrameStream::PipeWire(stream));
             }
+            BufferType::DmaBufPassthrough => {
+                // virtio-gpu: DmaBuf with LINEAR modifier, pass FD to downstream (vsockenc).
+                // No CUDA, no EGL - we just want the DMA-BUF FD to extract virtio-gpu resource_id.
+                // vsockenc sends the resource_id to QEMU, which reads GPU memory directly.
+                eprintln!("[PIPEWIRESRC] Using PipeWire DmaBuf passthrough (virtio-gpu, LINEAR modifier)");
+                state.output_mode = OutputMode::DmaBuf;
+
+                // Connect with LINEAR modifier caps - no CUDA resources
+                let dmabuf_caps = get_virtgpu_dmabuf_caps();
+                let stream =
+                    PipeWireStream::connect(node_id, pipewire_fd, Some(dmabuf_caps), target_fps, None)
+                        .map_err(|e| {
+                            gst::error_msg!(
+                                gst::LibraryError::Init,
+                                ("PipeWire DmaBuf passthrough failed: {}", e)
+                            )
+                        })?;
+                state.stream = Some(FrameStream::PipeWire(stream));
+            }
             BufferType::Shm => {
                 // GNOME + AMD/Intel or any SHM case: No DmaBuf, no CUDA
                 eprintln!("[PIPEWIRESRC] Using PipeWire SHM (GNOME+AMD or fallback)");
@@ -747,7 +782,8 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                 // Determine output mode from settings (buffer-type property)
                 let settings = self.settings.lock();
                 match settings.buffer_type {
-                    BufferType::DmaBuf => OutputMode::Cuda, // dmabuf → CUDA output
+                    BufferType::DmaBuf => OutputMode::Cuda,
+                    BufferType::DmaBufPassthrough => OutputMode::DmaBuf,
                     BufferType::Shm => OutputMode::System,
                 }
             });
@@ -774,7 +810,7 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                 .build(),
             OutputMode::DmaBuf => VideoCapsBuilder::new()
                 .features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF])
-                .format(VideoFormat::DmaDrm)
+                .format_list(formats) // Use standard pixel formats, not DmaDrm
                 .build(),
             OutputMode::System => VideoCapsBuilder::new().format_list(formats).build(),
         };
@@ -889,8 +925,72 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 eprintln!("[PIPEWIRESRC] ERROR: Received DmaBuf in CUDA mode - CUDA processing failed in PipeWire thread");
                 return Err(gst::FlowError::Error);
             }
+            FrameData::DmaBuf { dmabuf, pts_ns } if state.output_mode == OutputMode::DmaBuf => {
+                // DmaBuf passthrough: output the DMA-BUF FD directly as a GstDmaBuf buffer.
+                // Downstream (vsockenc) extracts the resource_id from the FD.
+                let w = dmabuf.width() as u32;
+                let h = dmabuf.height() as u32;
+                let video_format = drm_fourcc_to_video_format(dmabuf.format().code);
+
+                // Get FD from first plane and create GstDmaBuf memory
+                let planes: Vec<_> = dmabuf.handles().collect();
+                if planes.is_empty() {
+                    eprintln!("[PIPEWIRESRC] DmaBuf passthrough: no planes!");
+                    return Err(gst::FlowError::Error);
+                }
+
+                let fd = planes[0].as_raw_fd();
+                let offset = dmabuf.offsets().next().unwrap_or(0) as usize;
+                let stride = dmabuf.strides().next().unwrap_or(0) as i32;
+                let size = (h as usize) * (stride as usize);
+
+                // Dup the FD so GStreamer can own it independently
+                let duped_fd = unsafe { libc::dup(fd) };
+                if duped_fd < 0 {
+                    eprintln!("[PIPEWIRESRC] DmaBuf passthrough: dup() failed");
+                    return Err(gst::FlowError::Error);
+                }
+
+                // Create GstDmaBuf memory from the FD
+                let allocator = state.dmabuf_allocator.get_or_insert_with(|| {
+                    gstreamer_allocators::DmaBufAllocator::new()
+                });
+                let mem = unsafe {
+                    allocator.alloc(duped_fd, size)
+                }.map_err(|e| {
+                    eprintln!("[PIPEWIRESRC] DmaBuf passthrough: alloc failed: {:?}", e);
+                    gst::FlowError::Error
+                })?;
+
+                let mut buf = gst::Buffer::new();
+                {
+                    let buf_ref = buf.get_mut().unwrap();
+                    buf_ref.append_memory(mem);
+                    // Add video meta so downstream knows the format
+                    gst_video::VideoMeta::add_full(
+                        buf_ref,
+                        gst_video::VideoFrameFlags::empty(),
+                        video_format,
+                        w,
+                        h,
+                        &[offset],
+                        &[stride],
+                    ).ok();
+                }
+
+                static PASSTHROUGH_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                let count = PASSTHROUGH_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                if count == 1 || count % 100 == 0 {
+                    eprintln!("[PIPEWIRESRC] DmaBuf passthrough #{}: {}x{} fd={} stride={} format={:?}",
+                        count, w, h, duped_fd, stride, video_format);
+                }
+
+                state.timing.path_name = "DmaBuf-Passthrough";
+
+                (buf, video_format, w, h, pts_ns)
+            }
             FrameData::DmaBuf { dmabuf, pts_ns } => {
-                // Should not happen with explicit buffer_type, but handle gracefully
+                // Fallback: DmaBuf received but not in passthrough or CUDA mode
                 let t_start = std::time::Instant::now();
                 let w = dmabuf.width() as u32;
                 let h = dmabuf.height() as u32;
@@ -963,14 +1063,11 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                     .framerate(fps)
                     .build(),
                 OutputMode::DmaBuf => {
-                    let drm_fmt = state
-                        .drm_format_string
-                        .clone()
-                        .unwrap_or_else(|| "XR24".to_string());
+                    // Use standard pixel format with DMABuf feature (not DmaDrm)
+                    // so downstream elements (vsockenc) can match caps
                     VideoCapsBuilder::new()
                         .features([gstreamer_allocators::CAPS_FEATURE_MEMORY_DMABUF])
-                        .format(VideoFormat::DmaDrm)
-                        .field("drm-format", &drm_fmt)
+                        .format(actual_format)
                         .width(width as i32)
                         .height(height as i32)
                         .framerate(fps)

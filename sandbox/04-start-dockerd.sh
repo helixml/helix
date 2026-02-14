@@ -228,7 +228,7 @@ load_desktop_image() {
 }
 
 # Load desktop images (sway is required, others are optional)
-load_desktop_image "sway" "true"
+load_desktop_image "sway" "false"
 load_desktop_image "zorin" "false"
 load_desktop_image "ubuntu" "false"
 load_desktop_image "kde" "false"

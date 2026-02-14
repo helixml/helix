@@ -98,6 +98,10 @@ type Server struct {
 	screenWidth  int
 	screenHeight int
 
+	// Monitor connector name for ScreenCast RecordMonitor calls.
+	// "Meta-0" in headless mode, real connector (e.g., "Virtual-2") in DRM scanout mode.
+	monitorName string
+
 	// Display scale factor for Sway (from HELIX_ZOOM_LEVEL, default: 1.0)
 	// With scale 2.0, physical 3840x2160 becomes logical 1920x1080
 	// GNOME handles scaling internally so this is only used for Sway
@@ -231,79 +235,92 @@ func (s *Server) Run(ctx context.Context) error {
 			return fmt.Errorf("create session: %w", err)
 		}
 
-		// 3. Start session, get PipeWire node ID
-		if err := s.startSession(ctx); err != nil {
-			return fmt.Errorf("start session: %w", err)
-		}
+		isScanoutMode := getVideoMode("") == VideoModeScanout
 
-		// 4. Prime keyboard input with a dummy Escape key press+release
-		// GNOME's RemoteDesktop keyboard handling requires "priming" - the very first
-		// keyboard event is silently dropped. By sending a harmless Escape key at startup,
-		// we ensure the user's first real keypress works correctly.
-		s.primeKeyboardInput()
+		if isScanoutMode {
+			// Scanout mode: video comes from QEMU TCP, not PipeWire ScreenCast.
+			// We still need the linked ScreenCast session for absolute mouse positioning —
+			// Mutter's NotifyPointerMotionAbsolute requires an active screen cast stream
+			// to map coordinates to the correct monitor.
+			s.logger.Info("scanout mode: starting RemoteDesktop+ScreenCast session (input coordinates)")
+			if err := s.startSession(ctx); err != nil {
+				s.logger.Warn("failed to start linked session in scanout mode, absolute mouse may not work", "err", err)
+				// Try starting RemoteDesktop alone as fallback (keyboard + relative mouse will work)
+				rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+				if err := rdSession.Call(remoteDesktopSessionIface+".Start", 0).Err; err != nil {
+					s.logger.Warn("failed to start RemoteDesktop session in scanout mode", "err", err)
+				}
+			}
+			s.primeKeyboardInput()
 
-		// 5. Create input socket
-		if err := s.createInputSocket(); err != nil {
-			return fmt.Errorf("create input socket: %w", err)
-		}
-		defer s.inputListener.Close()
-		defer os.Remove(s.inputSocketPath)
+			if err := s.createInputSocket(); err != nil {
+				return fmt.Errorf("create input socket: %w", err)
+			}
+			defer s.inputListener.Close()
+			defer os.Remove(s.inputSocketPath)
 
-		// 6. Both GNOME and Sway now use pipewirezerocopysrc directly
-		// The shmsink/shmsrc approach (video forwarder) has been eliminated.
-		// Both compositors use the same zero-copy DMA-BUF pipeline.
-		s.logger.Info("GNOME: using pipewirezerocopysrc (zero-copy DMA-BUF)")
-
-		// 7. Create standalone ScreenCast session for VIDEO STREAMING
-		// CRITICAL: Linked sessions don't offer DmaBuf modifiers in GNOME headless mode!
-		// This standalone session offers DmaBuf with NVIDIA modifiers for true zero-copy.
-		// Input continues to use the linked session's stream path for NotifyPointerMotionAbsolute.
-		if err := s.createVideoSession(ctx); err != nil {
-			// Non-fatal - fall back to linked session (SHM path)
-			s.logger.Warn("failed to create standalone video session, falling back to linked session",
-				"err", err,
-				"note", "video will use SHM path instead of DmaBuf zero-copy")
+			s.logger.Info("scanout mode: input ready (absolute+relative), video via QEMU TCP",
+				"stream_path", s.scStreamPath)
 		} else {
-			s.logger.Info("video session ready (standalone, DmaBuf enabled)",
-				"video_node_id", s.videoNodeID,
-				"input_node_id", s.nodeID)
-		}
+			// Standard mode: PipeWire ScreenCast for video capture
 
-		// 8. Create dedicated screenshot ScreenCast session (separate from video streaming)
-		// This is a THIRD standalone session to avoid buffer renegotiation conflicts
-		// when capturing screenshots while video is streaming.
-		// This session has cursor-mode=1 (Embedded) for MCP/agent screenshots.
-		if err := s.createScreenshotSession(ctx); err != nil {
-			// Non-fatal - fall back to D-Bus Screenshot API
-			s.logger.Warn("failed to create screenshot session, will use D-Bus Screenshot API",
-				"err", err)
-		} else {
-			s.logger.Info("screenshot session ready",
-				"screenshot_node_id", s.ssNodeID,
-				"video_node_id", s.videoNodeID)
-		}
+			// 3. Start session, get PipeWire node ID
+			if err := s.startSession(ctx); err != nil {
+				return fmt.Errorf("start session: %w", err)
+			}
 
-		// 9. Create no-cursor screenshot session for video polling mode
-		// This is a FOURTH standalone session with cursor-mode=0 (Hidden).
-		// Video polling screenshots use this so the frontend can render its own cursor overlay.
-		if err := s.createNoCursorScreenshotSession(ctx); err != nil {
-			// Non-fatal - fall back to cursor screenshots
-			s.logger.Warn("failed to create no-cursor screenshot session, will use cursor session",
-				"err", err)
-		} else {
-			s.logger.Info("no-cursor screenshot session ready",
-				"no_cursor_node_id", s.ssNoCursorNodeID,
-				"cursor_node_id", s.ssNodeID)
-		}
+			// 4. Prime keyboard input with a dummy Escape key press+release
+			s.primeKeyboardInput()
 
-		// 10. Cursor session is already created as part of createSession/startSession
-		// It's a second linked ScreenCast session that gives us our own PipeWire node for cursor
-		if s.cursorNodeID != 0 {
-			s.logger.Info("cursor session ready (linked)",
-				"cursor_node_id", s.cursorNodeID,
-				"video_node_id", s.nodeID)
-		} else {
-			s.logger.Warn("cursor session not available, cursor monitoring disabled")
+			// 5. Create input socket
+			if err := s.createInputSocket(); err != nil {
+				return fmt.Errorf("create input socket: %w", err)
+			}
+			defer s.inputListener.Close()
+			defer os.Remove(s.inputSocketPath)
+
+			// 6. Both GNOME and Sway now use pipewirezerocopysrc directly
+			s.logger.Info("GNOME: using pipewirezerocopysrc (zero-copy DMA-BUF)")
+
+			// 7. Create standalone ScreenCast session for VIDEO STREAMING
+			if err := s.createVideoSession(ctx); err != nil {
+				s.logger.Warn("failed to create standalone video session, falling back to linked session",
+					"err", err,
+					"note", "video will use SHM path instead of DmaBuf zero-copy")
+			} else {
+				s.logger.Info("video session ready (standalone, DmaBuf enabled)",
+					"video_node_id", s.videoNodeID,
+					"input_node_id", s.nodeID)
+			}
+
+			// 8. Create dedicated screenshot ScreenCast session
+			if err := s.createScreenshotSession(ctx); err != nil {
+				s.logger.Warn("failed to create screenshot session, will use D-Bus Screenshot API",
+					"err", err)
+			} else {
+				s.logger.Info("screenshot session ready",
+					"screenshot_node_id", s.ssNodeID,
+					"video_node_id", s.videoNodeID)
+			}
+
+			// 9. Create no-cursor screenshot session for video polling mode
+			if err := s.createNoCursorScreenshotSession(ctx); err != nil {
+				s.logger.Warn("failed to create no-cursor screenshot session, will use cursor session",
+					"err", err)
+			} else {
+				s.logger.Info("no-cursor screenshot session ready",
+					"no_cursor_node_id", s.ssNoCursorNodeID,
+					"cursor_node_id", s.ssNodeID)
+			}
+
+			// 10. Cursor session
+			if s.cursorNodeID != 0 {
+				s.logger.Info("cursor session ready (linked)",
+					"cursor_node_id", s.cursorNodeID,
+					"video_node_id", s.nodeID)
+			} else {
+				s.logger.Warn("cursor session not available, cursor monitoring disabled")
+			}
 		}
 
 		// Mark as running BEFORE starting goroutines that check isRunning()
@@ -323,6 +340,15 @@ func (s *Server) Run(ctx context.Context) error {
 		go func() {
 			defer s.wg.Done()
 			s.monitorSession(ctx)
+		}()
+
+		// 13. Start damage keepalive (prevents PipeWire stall on static screens)
+		// PipeWire ScreenCast is damage-based: no screen changes = no frames.
+		// This toggles a 1x1 pixel via GNOME Shell D-Bus to ensure at least 2 FPS.
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.runDamageKeepalive(ctx)
 		}()
 	} else if isSwayEnvironment() {
 		// Sway: Use native Wayland protocols for video capture
@@ -472,16 +498,16 @@ func (s *Server) handleWSStream(w http.ResponseWriter, r *http.Request) {
 			"standalone_node_id", s.videoNodeID)
 	}
 
-	// For Sway: nodeID can be 0 because pipewirezerocopysrc uses ext-image-copy-capture
-	// directly via native Wayland protocols (bypasses PipeWire entirely).
-	// The plugin detects Sway via XDG_CURRENT_DESKTOP and uses the appropriate capture method.
-	if nodeID == 0 && s.compositorType != "sway" {
+	// Scanout mode: nodeID is irrelevant - H.264 comes from QEMU TCP, not PipeWire.
+	// Sway: nodeID can be 0 because pipewirezerocopysrc uses ext-image-copy-capture.
+	if nodeID == 0 && getVideoMode("") == VideoModeScanout {
+		s.logger.Info("scanout mode: video from QEMU TCP (no PipeWire node needed)")
+		nodeID = 1 // Dummy value - VideoStreamer will use scanout source instead
+	} else if nodeID == 0 && s.compositorType != "sway" {
 		s.logger.Error("cannot stream video: no PipeWire node ID available (GNOME requires portal)")
 		http.Error(w, "Video streaming not available - no screen capture session", http.StatusServiceUnavailable)
 		return
-	}
-
-	if nodeID == 0 {
+	} else if nodeID == 0 {
 		// Sway: use dummy node ID (pipewirezerocopysrc will ignore it and use ext-image-copy-capture)
 		s.logger.Info("Sway mode: using ext-image-copy-capture (no PipeWire node needed)")
 		nodeID = 1 // Dummy value - ignored by pipewirezerocopysrc for Sway

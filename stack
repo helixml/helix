@@ -106,6 +106,9 @@ function get_sandbox_names() {
   elif [[ "$profile" == *"code-amd-intel"* ]]; then
     export SANDBOX_SERVICE="sandbox-amd-intel"
     export SANDBOX_CONTAINER="helix-sandbox-amd-intel-1"
+  elif [[ "$profile" == *"code-macos"* ]]; then
+    export SANDBOX_SERVICE="sandbox-macos"
+    export SANDBOX_CONTAINER="helix-sandbox-macos-1"
   else
     # Default to NVIDIA (code-nvidia profile)
     export SANDBOX_SERVICE="sandbox-nvidia"
@@ -129,18 +132,21 @@ function setup_sandbox_profile() {
   fi
 
   # Stop conflicting sandbox containers before starting
-  # All sandbox variants use the same static IP (172.19.0.50), so only one can run at a time
+  # Only one sandbox can run at a time (they provide the same service endpoint)
   # Silently remove any sandbox containers that might conflict with the one we're about to start
   local current_profile="${COMPOSE_PROFILES:-}"
   if [[ "$current_profile" == *"code-software"* ]]; then
     # Starting software sandbox - stop GPU sandboxes
-    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-amd-intel-1 2>/dev/null || true
+    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-amd-intel-1 helix-sandbox-macos-1 2>/dev/null || true
   elif [[ "$current_profile" == *"code-amd-intel"* ]]; then
     # Starting AMD/Intel sandbox - stop other sandboxes
-    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-software-1 2>/dev/null || true
+    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-software-1 helix-sandbox-macos-1 2>/dev/null || true
+  elif [[ "$current_profile" == *"code-macos"* ]]; then
+    # Starting macOS sandbox - stop other sandboxes
+    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-amd-intel-1 helix-sandbox-software-1 2>/dev/null || true
   else
     # Starting NVIDIA sandbox (default) - stop other sandboxes
-    docker rm -f helix-sandbox-software-1 helix-sandbox-amd-intel-1 2>/dev/null || true
+    docker rm -f helix-sandbox-software-1 helix-sandbox-amd-intel-1 helix-sandbox-macos-1 2>/dev/null || true
   fi
 
   # If COMPOSE_PROFILES was set in environment before .env (even to empty), respect it
@@ -1039,6 +1045,11 @@ function build-desktop() {
   echo "✅ ${DESKTOP_NAME} container built successfully"
   echo "📦 Image hash: ${IMAGE_HASH_FULL} (tag: ${IMAGE_TAG})"
 
+  # Always write version file (even if image unchanged, fixes stale version files)
+  mkdir -p sandbox-images
+  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
+  echo "📦 Version file: ${IMAGE_TAG}"
+
   # Check if image actually changed
   if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ]; then
     echo "✅ Image unchanged - skipping transfer"
@@ -1048,13 +1059,9 @@ function build-desktop() {
   # Transfer to running sandbox via local registry
   # Skip if SKIP_DESKTOP_TRANSFER is set (called from build-sandbox)
   if [ -z "${SKIP_DESKTOP_TRANSFER:-}" ]; then
-    transfer-desktop-to-sandbox "$DESKTOP_NAME"
+    transfer-desktop-to-sandbox "$DESKTOP_NAME" "$IMAGE_TAG"
   fi
 
-  # Write version file AFTER successful transfer
-  mkdir -p sandbox-images
-  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
-  echo "📦 Version file updated: ${IMAGE_TAG}"
 }
 
 # Generic transfer function - transfers any desktop image to sandbox's dockerd
@@ -1063,9 +1070,10 @@ function build-desktop() {
 function transfer-desktop-to-sandbox() {
   local DESKTOP_NAME="$1"
   local IMAGE_NAME="helix-${DESKTOP_NAME}"
+  local IMAGE_TAG_OVERRIDE="${2:-}"  # Optional: pre-calculated image tag from build-desktop
 
   if [ -z "$DESKTOP_NAME" ]; then
-    echo "Usage: transfer-desktop-to-sandbox <name>"
+    echo "Usage: transfer-desktop-to-sandbox <name> [image-tag]"
     return 1
   fi
 
@@ -1111,10 +1119,14 @@ function transfer-desktop-to-sandbox() {
     return 0
   fi
 
-  # Get image hash for versioned tag (content-addressable, survives push/pull)
-  local IMAGE_HASH_FULL=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' | sed 's/sha256://')
-  # Use first 6 chars as tag - avoids Docker showing just hash when tag matches image ID
-  local IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
+  # Get image tag - use pre-calculated value if provided, otherwise compute from image hash
+  local IMAGE_TAG=""
+  if [ -n "$IMAGE_TAG_OVERRIDE" ]; then
+    IMAGE_TAG="$IMAGE_TAG_OVERRIDE"
+  else
+    local IMAGE_HASH_FULL=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' | sed 's/sha256://')
+    IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
+  fi
 
   # Check if sandbox already has this exact image by version tag (skip transfer if so)
   local SANDBOX_HAS_TAG=$(sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker images "${IMAGE_NAME}:${IMAGE_TAG}" --format '{{.ID}}' 2>/dev/null)
@@ -1364,12 +1376,12 @@ function build-sandbox() {
   echo "✅ helix-sandbox container built successfully"
   echo ""
 
-  # Step 6: Restart sandbox and transfer fresh image
+  # Step 6: Start sandbox and transfer desktop images
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [6/6] Restarting sandbox container..."
+  echo "📝 [6/6] Starting sandbox and transferring desktop images..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  # Restart sandbox to pick up new image
+  # Load sandbox service name from .env
   if [[ -f "$DIR/.env" ]]; then
     source "$DIR/.env"
   fi
@@ -1394,12 +1406,31 @@ function build-sandbox() {
     ELAPSED=$((ELAPSED + 1))
   done
 
-  # Transfer desktop images to sandbox via local registry
+  # Transfer all production desktop images to sandbox
   echo ""
   echo "📦 Transferring desktop images to sandbox..."
   for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
-    transfer-desktop-to-sandbox "$desktop"
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📤 Transferring helix-${desktop} to sandbox..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    if ! transfer-desktop-to-sandbox "$desktop"; then
+      echo "⚠️  Failed to transfer helix-${desktop} - continuing anyway"
+    fi
   done
+
+  # Transfer experimental desktops if built
+  if [ ${#EXPERIMENTAL_DESKTOPS_ARR[@]} -gt 0 ]; then
+    for desktop in "${EXPERIMENTAL_DESKTOPS_ARR[@]}"; do
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "📤 Transferring helix-${desktop} to sandbox (experimental)..."
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      if ! transfer-desktop-to-sandbox "$desktop"; then
+        echo "⚠️  Failed to transfer helix-${desktop} - continuing anyway"
+      fi
+    done
+  fi
 
   echo ""
   echo "📦 Sandbox ready: helix-sandbox:latest"
@@ -1562,6 +1593,186 @@ function update_openapi() {
   npx swagger2openapi ./api/pkg/server/swagger.json --resolve --outfile ./openapi.json
 
 	echo "✅ OpenAPI update complete"
+}
+
+function build-utm() {
+	# Build custom QEMU with helix-frame-export for UTM (macOS only)
+	echo "🖥️  Building custom QEMU with helix-frame-export for UTM..."
+	echo ""
+
+	# Check platform
+	if [[ "$OSTYPE" != "darwin"* ]]; then
+		echo "❌ build-utm is only supported on macOS"
+		return 1
+	fi
+
+	# Check Homebrew dependencies
+	echo "🔍 Checking build dependencies..."
+	MISSING_DEPS=()
+
+	# Check for Homebrew
+	if ! command -v brew &> /dev/null; then
+		echo "❌ Homebrew not found - install from https://brew.sh"
+		return 1
+	fi
+
+	# Required packages from UTM's CI (.github/workflows/build.yml line 89)
+	# brew install bison pkg-config gettext glib-utils libgpg-error nasm make meson cmake
+	REQUIRED_PKGS=("bison" "pkg-config" "gettext" "glib-utils" "libgpg-error" "nasm" "make" "meson" "cmake" "libclc")
+
+	for pkg in "${REQUIRED_PKGS[@]}"; do
+		if brew list "$pkg" &>/dev/null; then
+			VERSION=$(brew list --versions "$pkg" | awk '{print $2}')
+			echo "  ✓ $pkg $VERSION"
+		else
+			MISSING_DEPS+=("$pkg")
+		fi
+	done
+
+	# Special check for bison (need >= 3.0, macOS ships with 2.3)
+	BISON_PATH="/opt/homebrew/opt/bison/bin/bison"
+	if [ ! -f "$BISON_PATH" ]; then
+		echo "  ⚠️  bison installed but not in PATH - add /opt/homebrew/opt/bison/bin to PATH"
+	fi
+
+	# Report missing dependencies
+	if [ ${#MISSING_DEPS[@]} -ne 0 ]; then
+		echo ""
+		echo "❌ Missing required Homebrew packages:"
+		for dep in "${MISSING_DEPS[@]}"; do
+			echo "   - $dep"
+		done
+		echo ""
+		echo "Install with:"
+		echo "  brew install ${MISSING_DEPS[*]}"
+		return 1
+	fi
+
+	# Check Python packages (from UTM CI line 90)
+	# pip3 install --break-system-packages --user six pyparsing pyyaml setuptools distlib mako
+	echo ""
+	echo "🐍 Checking Python dependencies..."
+	PYTHON_PKGS=("six" "pyparsing" "pyyaml" "setuptools" "distlib" "mako")
+	MISSING_PYTHON=()
+
+	for pkg in "${PYTHON_PKGS[@]}"; do
+		if python3 -c "import ${pkg/pyyaml/yaml}" &>/dev/null; then
+			echo "  ✓ $pkg"
+		else
+			MISSING_PYTHON+=("$pkg")
+		fi
+	done
+
+	if [ ${#MISSING_PYTHON[@]} -ne 0 ]; then
+		echo ""
+		echo "❌ Missing required Python packages:"
+		for dep in "${MISSING_PYTHON[@]}"; do
+			echo "   - $dep"
+		done
+		echo ""
+		echo "Install with:"
+		echo "  pip3 install --break-system-packages --user ${MISSING_PYTHON[*]}"
+		return 1
+	fi
+
+	echo ""
+
+	# Check dependencies
+	if [ ! -d "$PROJECTS_ROOT/qemu-utm" ]; then
+		echo "❌ QEMU fork not found at $PROJECTS_ROOT/qemu-utm"
+		echo "   Clone: git clone -b utm-edition-venus-helix https://github.com/helixml/qemu-utm $PROJECTS_ROOT/qemu-utm"
+		return 1
+	fi
+
+	# Auto-clone UTM if needed (it's just a build dependency, not our code)
+	UTM_VERSION="8d34e35b"  # v5.0.1+ - tested working version
+	if [ ! -d "$PROJECTS_ROOT/UTM" ]; then
+		echo "📦 UTM build scripts not found - cloning automatically..."
+		echo "   (UTM v5.0.1+ at $UTM_VERSION - used for build scripts only)"
+		cd "$PROJECTS_ROOT"
+		git clone https://github.com/utmapp/UTM.git || {
+			echo "❌ Failed to clone UTM"
+			return 1
+		}
+		cd UTM
+		git checkout "$UTM_VERSION" || {
+			echo "❌ Failed to checkout UTM version $UTM_VERSION"
+			return 1
+		}
+		echo "✅ UTM build scripts ready at $PROJECTS_ROOT/UTM"
+	else
+		# Verify we have the right version
+		cd "$PROJECTS_ROOT/UTM"
+		CURRENT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+		if [[ "$CURRENT_COMMIT" != "$UTM_VERSION"* ]]; then
+			echo "⚠️  UTM is at commit $CURRENT_COMMIT, expected $UTM_VERSION"
+			echo "   Checking out correct version..."
+			git fetch origin && git checkout "$UTM_VERSION" || {
+				echo "❌ Failed to checkout correct UTM version"
+				return 1
+			}
+		fi
+	fi
+
+	# Check if dependencies are already built
+	BUILD_DIR="$PROJECTS_ROOT/UTM/build-macOS-arm64"
+	SYSROOT="$PROJECTS_ROOT/UTM/sysroot-macOS-arm64"
+
+	if [ ! -d "$SYSROOT/lib" ] || [ ! -f "$SYSROOT/lib/libvirglrenderer.1.dylib" ]; then
+		echo "📦 Building all dependencies (first time - this takes 30-60 minutes)..."
+		echo "   This includes:"
+		echo "   • virglrenderer (critical for GPU texture access)"
+		echo "   • SPICE, GLib, GStreamer, and 25+ other dependencies"
+		echo ""
+
+		cd "$PROJECTS_ROOT/UTM"
+
+		# Add Homebrew bison to PATH
+		export PATH="/opt/homebrew/opt/bison/bin:/opt/homebrew/bin:$PATH"
+
+		# Build all dependencies
+		./Scripts/build_dependencies.sh -p macos -a arm64
+
+		if [ $? -ne 0 ]; then
+			echo "❌ Dependency build failed"
+			return 1
+		fi
+
+		echo "✅ Dependencies built successfully"
+	else
+		echo "✅ Dependencies already built (using cached sysroot)"
+	fi
+
+	echo ""
+	echo "🔨 Building custom QEMU (2-5 minutes with cached dependencies)..."
+	echo "   • helix-frame-export module for GPU frame sharing"
+	echo "   • SPICE GL support (gl=es parameter)"
+	echo "   • All UTM venus/Vulkan patches"
+	echo ""
+	echo "   Using standalone build from for-mac/qemu-helix/"
+	echo ""
+
+	# Use the standalone rebuild script (doesn't require UTM checkout)
+	bash "$DIR/for-mac/qemu-helix/build-qemu-standalone.sh"
+
+	if [ $? -ne 0 ]; then
+		echo "❌ QEMU build failed"
+		return 1
+	fi
+
+	# build-qemu-standalone.sh handles everything:
+	# - Build QEMU
+	# - Install to correct framework location in UTM.app
+	# - Fix library paths
+	# - Clear UTM caches
+	# - Restart UTM if running
+	echo ""
+	echo "✅ QEMU build and install complete!"
+	echo ""
+	echo "🚀 Next steps:"
+	echo "   1. Start VM: /Applications/UTM.app/Contents/MacOS/utmctl start <UUID>"
+	echo "   2. Test: python3 /tmp/test_helix_frame_export.py"
+	echo ""
 }
 
 function build-frontend() {
@@ -1838,6 +2049,7 @@ function help() {
   echo "  build-zorin        - Build Zorin+Zed container (alias for build-desktop zorin)"
   echo "  build-ubuntu       - Build Ubuntu+Zed container (alias for build-desktop ubuntu)"
   echo "  build-xfce         - Build XFCE+Zed container (alias for build-desktop xfce)"
+  echo "  build-utm          - Build custom QEMU with helix-frame-export for UTM (macOS only)"
   echo ""
   echo "Zed Agent commands:"
   echo "  build-zed [dev|release] - Build Zed binary in Docker (glibc 2.35 compatible)"

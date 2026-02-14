@@ -119,11 +119,24 @@ func (m *Manager) setupSharedBuildKit(ctx context.Context) error {
 		Str("cache_dir", buildkitCacheDir).
 		Msg("Creating shared BuildKit container")
 
+	// BuildKit state volume: use ZFS-backed bind mount if CONTAINER_DOCKER_PATH is set,
+	// otherwise use a Docker named volume. ZFS provides dedup for content-addressed data.
+	buildkitStateMount := "buildkit_state:/var/lib/buildkit"
+	if containerDockerPath := os.Getenv("CONTAINER_DOCKER_PATH"); containerDockerPath != "" {
+		buildkitStateDir := "/container-docker/buildkit"
+		if err := os.MkdirAll(buildkitStateDir, 0755); err != nil {
+			log.Warn().Err(err).Msg("Failed to create buildkit state dir on ZFS, using named volume")
+		} else {
+			buildkitStateMount = buildkitStateDir + ":/var/lib/buildkit"
+			log.Info().Str("path", buildkitStateDir).Msg("Using ZFS-backed bind mount for BuildKit state")
+		}
+	}
+
 	createCmd := exec.CommandContext(ctx, "docker", "run", "-d",
 		"--name", SharedBuildKitContainerName,
 		"--privileged",
 		"-v", buildkitCacheDir+":/buildkit-cache",
-		"-v", "buildkit_state:/var/lib/buildkit",
+		"-v", buildkitStateMount,
 		"--restart", "unless-stopped",
 		SharedBuildKitImage,
 		"--addr", "unix:///run/buildkit/buildkitd.sock",

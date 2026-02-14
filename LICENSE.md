@@ -1,7 +1,13 @@
 Helix Subscription Service Agreement
 Last updated November 1, 2023
 
-This Helix Subscription Service Agreement (the “Agreement”) is between you and HelixML Inc. (“Helix”).  The terms also apply to your use of the Service and any updates to the Service, except to the extent they are provided pursuant to separate terms.
+IMPORTANT: The following subdirectories of this repository are licensed under
+separate terms and are NOT covered by this Agreement:
+
+- `for-mac/` — Helix Desktop is proprietary software licensed under the terms
+  in `for-mac/LICENSE`. All rights reserved by HelixML Inc.
+
+This Helix Subscription Service Agreement (the "Agreement") is between you and HelixML Inc. ("Helix").  The terms also apply to your use of the Service and any updates to the Service, except to the extent they are provided pursuant to separate terms.
 
 BY INSTALLING, DOWNLOADING, OR OTHERWISE ACCESSING THE SERVICE YOU EXPRESSLY ACCEPT AND AGREE TO THE TERMS OF THIS AGREEMENT. IF YOU ARE AN INDIVIDUAL AGREEING TO THE TERMS OF THIS AGREEMENT ON BEHALF OF AN ENTITY, SUCH AS YOUR EMPLOYER, YOU REPRESENT THAT YOU HAVE THE LEGAL AUTHORITY TO BIND THAT ENTITY. IF YOU DO NOT HAVE SUCH AUTHORITY, OR IF YOU DO NOT AGREE WITH THE TERMS OF THIS AGREEMENT, YOU MAY NOT USE THE SERVICE EITHER YOURSELF OR ON BEHALF OF THE ENTITY.
 

@@ -1019,6 +1019,7 @@ type ServerConfigForFrontend struct {
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
 	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
 	MaxConcurrentDesktops                  int                  `json:"max_concurrent_desktops"`
+	ActiveConcurrentDesktops               int                  `json:"active_concurrent_desktops"`
 }
 
 // a short version of a session that we keep for the dashboard
@@ -3061,7 +3062,7 @@ type SandboxInstance struct {
 
 	// Desktop image versions available on this sandbox
 	// Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
-	DesktopVersions datatypes.JSON `json:"desktop_versions,omitempty" gorm:"type:jsonb"`
+	DesktopVersions datatypes.JSON `json:"desktop_versions,omitempty" gorm:"type:jsonb" swaggertype:"object,string"`
 
 	// GPU configuration
 	GPUVendor  string `json:"gpu_vendor,omitempty" gorm:"type:varchar(50)"`  // "nvidia", "amd", "intel", "none"

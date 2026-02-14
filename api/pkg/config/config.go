@@ -42,6 +42,8 @@ type ServerConfig struct {
 	LicenseKey string `envconfig:"LICENSE_KEY"`
 	// Launchpad URL for version pings
 	LaunchpadURL string `envconfig:"LAUNCHPAD_URL" default:"https://deploy.helix.ml"`
+	// Edition identifies the deployment type (e.g., "mac-desktop", "server", "cloud")
+	Edition string `envconfig:"HELIX_EDITION" default:""`
 
 	SBMessage string `envconfig:"SB_MESSAGE" default:""`
 }
@@ -156,6 +158,11 @@ type Auth struct {
 	OIDC                OIDC
 	Regular             Regular
 	Waitlist            bool `envconfig:"AUTH_WAITLIST_ENABLED" default:"false"`
+
+	// DesktopAutoLoginSecret is a shared secret that enables automatic admin login
+	// for the Helix Desktop app. When set, GET /api/v1/auth/desktop-callback?token=<secret>
+	// creates an admin session and redirects to /.
+	DesktopAutoLoginSecret string `envconfig:"DESKTOP_AUTO_LOGIN_SECRET"`
 }
 
 type Regular struct {

@@ -1,0 +1,15 @@
+{
+  "version": "7ca5637c8",
+  "base_url": "https://dl.helix.ml/vm",
+  "files": [
+    {
+      "name": "disk.qcow2.zst",
+      "size": 10544524140,
+      "sha256": "7cc79ea7547624969c124aa1a95082be592ae0944a0e5ae3430575d1fd748fab",
+      "compression": "zstd",
+      "decompressed_name": "disk.qcow2",
+      "decompressed_size": 25813975040
+    },
+    {"name": "efi_vars.fd", "size": 67108864, "sha256": "32f4502d02de91966d42c52cf43b71595f258856252f7eca0f2ed9937cc9f2bf"}
+  ]
+}

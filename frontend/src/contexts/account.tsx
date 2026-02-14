@@ -1,5 +1,5 @@
 import bluebird from 'bluebird'
-import { createContext, FC, useCallback, useEffect, useMemo, useState, useContext, ReactNode } from 'react'
+import { createContext, FC, useCallback, useEffect, useMemo, useRef, useState, useContext, ReactNode } from 'react'
 import useApi from '../hooks/useApi'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
 import useLoading from '../hooks/useLoading'
@@ -43,6 +43,8 @@ export interface IAccountContext {
   // an org aware navigate function that will prepend `org_` to the route name
   // and include the org_id in the params if we are currently looking at an org
   orgNavigate: (routeName: string, params?: Record<string, string | undefined>, queryParams?: Record<string, string>) => void,
+  // Dismiss onboarding for this page session (resets on refresh)
+  dismissOnboarding: () => void,
 }
 
 export const AccountContext = createContext<IAccountContext>({
@@ -76,6 +78,7 @@ export const AccountContext = createContext<IAccountContext>({
   models: [],
   hasImageModels: false,
   orgNavigate: () => {},
+  dismissOnboarding: () => {},
 })
 
 export const useAccount = () => {
@@ -443,6 +446,12 @@ export const useAccountContext = (): IAccountContext => {
     router.navigateReplace('waitlist')
   }, [initialized, user, router.name])
 
+  // Dismiss onboarding for this page session (in-memory, resets on refresh)
+  const onboardingDismissedRef = useRef(false)
+  const dismissOnboarding = useCallback(() => {
+    onboardingDismissedRef.current = true
+  }, [])
+
   // Redirect to onboarding if user hasn't completed it and has no orgs
   useEffect(() => {
     if (!initialized || !user) return
@@ -452,6 +461,8 @@ export const useAccountContext = (): IAccountContext => {
     if (router.name === 'onboarding') return
     // Don't redirect if onboarding is already completed
     if (user.onboarding_completed) return
+    // Don't redirect if user dismissed onboarding this session
+    if (onboardingDismissedRef.current) return
     // Don't redirect if user already has organizations (not a fresh account)
     if (organizationTools.organizations.length > 0) return
     // Wait for organizations to be loaded before deciding
@@ -485,6 +496,7 @@ export const useAccountContext = (): IAccountContext => {
     isOrgMember,
     hasImageModels,
     orgNavigate,
+    dismissOnboarding,
   }
 }
 
