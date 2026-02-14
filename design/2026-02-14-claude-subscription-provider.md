@@ -46,10 +46,10 @@ Daemon calls GET /sessions/{id}/claude-credentials
 Daemon writes ~/.claude/.credentials.json inside container
     |
     v
-Daemon generates agent_servers config: {"claude": {command: "claude", args: ["--experimental-acp"]}}
+Daemon generates agent_servers config: {"claude": {env: {ANTHROPIC_BASE_URL: "..."}}}
     |
     v
-Zed launches Claude Code via ACP, Claude Code reads credentials file
+Zed launches built-in Claude Code ACP (@zed-industries/claude-code-acp) with env vars
     |
     v
 Claude Code handles token refresh internally when needed
@@ -168,13 +168,11 @@ case "claude_code":
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         "DISABLE_TELEMETRY": "1",
     }
+    // Only set env — Zed uses its built-in @zed-industries/claude-code-acp.
+    // The raw `claude` CLI does NOT support --experimental-acp.
     return map[string]interface{}{
         "claude": map[string]interface{}{
-            "name":    "claude",
-            "type":    "custom",
-            "command": "claude",
-            "args":    []string{"--experimental-acp"},
-            "env":     env,
+            "env": env,
         },
     }
 ```
@@ -209,9 +207,13 @@ In `getZedConfig()`, after building codeAgentConfig:
 
 Install Claude Code CLI (after the qwen-code section ~line 808):
 ```dockerfile
-# Claude Code CLI (for ACP agent support)
-RUN npm install -g @anthropic/claude-code@latest
+# Claude Code CLI (for interactive OAuth login and direct CLI usage)
+RUN npm install -g @anthropic-ai/claude-code@latest
 ```
+
+Note: The Claude Code CLI is needed for the interactive OAuth login flow (Phase 7),
+NOT for ACP agent support. ACP is handled by Zed's built-in `@zed-industries/claude-code-acp`
+npm package which Zed installs automatically. The raw `claude` CLI does NOT support `--experimental-acp`.
 
 The existing `~/.claude/settings.json` privacy config (line 674) already disables telemetry.
 
@@ -260,7 +262,7 @@ This is lower priority than the paste flow and can be deferred if needed.
 - **Encryption at rest**: Credentials encrypted with AES-256-GCM via existing `crypto.EncryptAES256GCM`, keyed by `HELIX_ENCRYPTION_KEY`
 - **No credentials in API responses**: `ClaudeSubscription` uses `json:"-"` on `EncryptedCredentials`
 - **Session-scoped credential delivery**: `/sessions/{id}/claude-credentials` only accepts runner/session tokens
-- **No credentials in env vars**: Written to file by daemon, not passed as container env vars
+- **OAuth token in env vars**: `CLAUDE_CODE_OAUTH_TOKEN` passed via agent_servers env (access token only, not refresh token). Required because the bundled CLI's credential reader is memoized — if the file read returns null on first call (race condition), it's cached forever
 - **Org sharing**: Org admin connects once, members use it. `GetEffectiveClaudeSubscription` checks user-level first (takes priority)
 
 ## Token Refresh
@@ -301,14 +303,16 @@ Claude Code handles token refresh natively inside each container. Each container
 - [x] **Error messaging** - Clear error when only Claude subscription present and user tries regular chat
 - [x] **Zed: Re-enable Claude Code** - Moved Claude Code menu item outside cfg gate in agent_panel.rs
 - [x] **Dual-mode Claude Code** - API key mode (through Helix proxy) and subscription mode (direct to Anthropic)
+- [x] **End-to-end verified** - Claude Code ACP successfully authenticates via `CLAUDE_CODE_OAUTH_TOKEN` env var and streams from Anthropic API
 
 ### Claude Code Dual-Mode Architecture
 
 Claude Code ACP in Zed supports **two credential modes**:
 
 1. **Subscription mode** (no provider/model set):
-   - Claude Code talks directly to Anthropic using OAuth credentials from `~/.claude/.credentials.json`
-   - Credentials synced from user's Claude subscription by settings-sync-daemon
+   - Claude Code talks directly to Anthropic using OAuth credentials
+   - Daemon passes `CLAUDE_CODE_OAUTH_TOKEN` env var via agent_servers config (checked FIRST by Claude Code, before file-based credentials)
+   - Credentials also written to `~/.claude/.credentials.json` as backup (for Claude Code's native token refresh)
    - Claude Code manages its own model selection internally
    - `baseURL=""`, `apiType=""` in CodeAgentConfig
    - Daemon sets `ANTHROPIC_BASE_URL=https://api.anthropic.com` to override Hydra's container-level env var

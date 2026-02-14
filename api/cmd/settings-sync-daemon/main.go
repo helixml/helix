@@ -41,6 +41,10 @@ type SettingsDaemon struct {
 	// Whether user has a Claude subscription available for credential sync
 	claudeSubscriptionAvailable bool
 
+	// Cached Claude OAuth access token (from last syncClaudeCredentials call)
+	// Used to pass via CLAUDE_CODE_OAUTH_TOKEN env var to the ACP wrapper
+	claudeAccessToken string
+
 	// Current state
 	helixSettings map[string]interface{}
 	userOverrides map[string]interface{}
@@ -133,7 +137,8 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		}
 
 	case "claude_code":
-		// Claude Code: Uses the claude command as a custom agent_server.
+		// Claude Code: Uses Zed's built-in Claude Code ACP (@zed-industries/claude-code-acp).
+		// We only set env vars — Zed handles installing and launching the ACP wrapper.
 		// Two modes based on whether baseURL is set:
 		// 1. API key mode (baseURL set): Claude Code uses Helix API proxy
 		// 2. Subscription mode (no baseURL): Claude Code uses OAuth credentials
@@ -151,23 +156,30 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 			}
 			log.Printf("Using claude_code runtime (API key mode): base_url=%s", baseURL)
 		} else {
-			// Subscription mode: Claude Code reads credentials from
-			// ~/.claude/.credentials.json (synced by syncClaudeCredentials).
+			// Subscription mode: Claude Code uses OAuth credentials.
 			// IMPORTANT: Hydra sets ANTHROPIC_BASE_URL on ALL containers, which
 			// leaks into Claude Code's process via env inheritance. We must
 			// explicitly override it to the real Anthropic API so Claude Code
 			// talks directly to Anthropic with OAuth credentials.
 			env["ANTHROPIC_BASE_URL"] = "https://api.anthropic.com"
-			log.Printf("Using claude_code runtime (subscription mode)")
+			// Pass the OAuth access token via env var. The ACP wrapper spawns
+			// Claude Code via the SDK, and the credential reader inside Claude
+			// Code is memoized — if the file read fails or returns null on the
+			// first call, it's cached forever. CLAUDE_CODE_OAUTH_TOKEN is
+			// checked FIRST (before file read), so it's the most reliable way
+			// to provide credentials.
+			if d.claudeAccessToken != "" {
+				env["CLAUDE_CODE_OAUTH_TOKEN"] = d.claudeAccessToken
+			}
+			log.Printf("Using claude_code runtime (subscription mode, token_set=%v)", d.claudeAccessToken != "")
 		}
 
+		// Only set env — no command/args. Zed uses its built-in
+		// @zed-industries/claude-code-acp npm package which speaks ACP.
+		// The raw `claude` CLI does NOT support --experimental-acp.
 		return map[string]interface{}{
 			"claude": map[string]interface{}{
-				"name":    "claude",
-				"type":    "custom",
-				"command": "claude",
-				"args":    []string{"--experimental-acp"},
-				"env":     env,
+				"env": env,
 			},
 		}
 
@@ -391,6 +403,9 @@ func (d *SettingsDaemon) syncClaudeCredentials() {
 		log.Printf("Failed to parse Claude credentials: %v", err)
 		return
 	}
+
+	// Cache the access token for use in env vars
+	d.claudeAccessToken = creds.AccessToken
 
 	// Build the credentials file in Claude's expected format
 	credFile := map[string]interface{}{
