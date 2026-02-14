@@ -121,6 +121,7 @@ function setAccountWithOrgs(orgs: any[]) {
       orgID: '',
       loadOrganizations: mockLoadOrganizations,
     },
+    dismissOnboarding: jest.fn(),
   }
 }
 

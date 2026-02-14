@@ -20,6 +20,8 @@ import RocketLaunchIcon from '@mui/icons-material/RocketLaunch'
 import PersonIcon from '@mui/icons-material/Person'
 import GitHubIcon from '@mui/icons-material/GitHub'
 import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolder'
+import CloseIcon from '@mui/icons-material/Close'
+import IconButton from '@mui/material/IconButton'
 import { Bot, Server } from 'lucide-react'
 
 import useAccount from '../hooks/useAccount'
@@ -617,6 +619,11 @@ export default function Onboarding() {
       setCreatingTask(false)
     }
   }, [taskPrompt, createdProjectId, createdAgentId, api, markComplete, snackbar, handleComplete])
+
+  const handleDismiss = useCallback(() => {
+    account.dismissOnboarding()
+    router.navigateReplace('projects')
+  }, [router])
 
   const userName = account.user?.name?.split(' ')[0] || account.user?.email?.split('@')[0] || 'there'
 
@@ -1254,6 +1261,20 @@ export default function Onboarding() {
         pb: 6,
       }}
     >
+      {/* Dismiss button */}
+      <IconButton
+        onClick={handleDismiss}
+        sx={{
+          position: 'fixed',
+          top: 16,
+          right: 16,
+          color: 'rgba(255,255,255,0.3)',
+          '&:hover': { color: 'rgba(255,255,255,0.6)' },
+          zIndex: 1301,
+        }}
+      >
+        <CloseIcon />
+      </IconButton>
       <Box
         sx={{
           width: '100%',
