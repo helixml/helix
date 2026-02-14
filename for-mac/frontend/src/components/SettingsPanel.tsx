@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { main } from '../../wailsjs/go/models';
-import { SaveSettings, GetSettings, ResizeDataDisk, GetHelixURL, FactoryReset as FactoryResetGo, GetLANAddress, ValidateLicenseKey, GetLicenseStatus } from '../../wailsjs/go/main/App';
+import { SaveSettings, GetSettings, ResizeDataDisk, GetAutoLoginURL, FactoryReset as FactoryResetGo, GetLANAddress, ValidateLicenseKey, GetLicenseStatus } from '../../wailsjs/go/main/App';
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { formatBytes } from '../lib/helpers';
 
@@ -66,16 +66,16 @@ export function SettingsPanel({
   const [exposeOnNetwork, setExposeOnNetwork] = useState(s.expose_on_network || false);
   const [newUsersAdmin, setNewUsersAdmin] = useState(s.new_users_are_admin || false);
   const [allowRegistration, setAllowRegistration] = useState(s.allow_registration !== false);
+  const [showStorageStats, setShowStorageStats] = useState(false);
   const [resizing, setResizing] = useState(false);
-  const [loginURL, setLoginURL] = useState('');
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmResize, setConfirmResize] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [fullWipe, setFullWipe] = useState(false);
   const [lanIP, setLanIP] = useState('');
-  const [showAdminLogin, setShowAdminLogin] = useState(false);
   const [licenseKey, setLicenseKey] = useState(s.license_key || '');
-  const [licenseStatus, setLicenseStatus] = useState('');
+  const [activatedKey, setActivatedKey] = useState(s.license_key || '');
+  const [licenseInfo, setLicenseInfo] = useState<main.LicenseStatus | null>(null);
   const [licenseActivating, setLicenseActivating] = useState(false);
 
   useEffect(() => {
@@ -83,14 +83,12 @@ export function SettingsPanel({
     GetSettings().then((fresh) => {
       if (fresh.license_key && !licenseKey) {
         setLicenseKey(fresh.license_key);
+        setActivatedKey(fresh.license_key);
       }
-    }).catch(() => {});
-    GetHelixURL().then((url) => {
-      setLoginURL(`${url}/api/v1/auth/desktop-callback?token=${s.desktop_secret || ''}`);
     }).catch(() => {});
     GetLANAddress().then(setLanIP).catch(() => {});
     GetLicenseStatus().then((status) => {
-      setLicenseStatus(status.state || '');
+      setLicenseInfo(status);
     }).catch(() => {});
   }, []);
 
@@ -103,6 +101,10 @@ export function SettingsPanel({
 
   const hasStorageData = zfs.pool_size > 0;
   const poolPct = hasStorageData ? Math.round((zfs.pool_used / zfs.pool_size) * 100) : 0;
+  const overallRatio = (zfs.dedup_ratio || 1) * (zfs.compression_ratio || 1);
+  const logicalSize = zfs.pool_used * overallRatio;
+  const totalSaved = logicalSize - zfs.pool_used;
+  const hasSavings = overallRatio > 1.01;
 
   async function handleSave() {
     const settings = new main.AppSettings({
@@ -126,24 +128,6 @@ export function SettingsPanel({
     } catch (err) {
       console.error('Failed to save settings:', err);
       showToast('Failed to save settings: ' + (err instanceof Error ? err.message : String(err)));
-    }
-  }
-
-  async function handleReset() {
-    try {
-      const fresh = await GetSettings();
-      onSettingsUpdated(fresh);
-      setCpus(String(fresh.vm_cpus || 4));
-      setMemoryGB(String(Math.round((fresh.vm_memory_mb || 8192) / 1024)));
-      setDataDiskSize(String(fresh.data_disk_size_gb || 256));
-      setApiPort(String(fresh.api_port || 41080));
-      setAutoStart(fresh.auto_start_vm || false);
-      setExposeOnNetwork(fresh.expose_on_network || false);
-      setNewUsersAdmin(fresh.new_users_are_admin || false);
-      setAllowRegistration(fresh.allow_registration !== false);
-      showToast('Settings reset');
-    } catch (err) {
-      console.error('Failed to reset settings:', err);
     }
   }
 
@@ -254,53 +238,109 @@ export function SettingsPanel({
               </div>
             </div>
 
-            {hasStorageData && vmState === 'running' && (
+            {vmState === 'running' && hasStorageData && (
               <div style={{ marginTop: 8 }}>
-                <div className="progress-bar" style={{ marginBottom: 8 }}>
-                  <div
-                    className={`progress-fill ${poolPct > 90 ? 'error' : poolPct > 75 ? 'warning' : 'teal'}`}
-                    style={{ width: `${poolPct}%` }}
-                  />
-                </div>
-                <div className="storage-row">
-                  <span className="label">Used</span>
-                  <span className="value">{formatBytes(zfs.pool_used)}</span>
-                </div>
-                <div className="storage-row">
-                  <span className="label">Available</span>
-                  <span className="value">{formatBytes(zfs.pool_available)}</span>
-                </div>
-                {zfs.compression_ratio > 1 && (
-                  <div className="storage-row">
-                    <span className="label">Compression</span>
-                    <span className="value">{zfs.compression_ratio.toFixed(2)}x</span>
-                  </div>
-                )}
-                {zfs.dedup_ratio > 1 && (
-                  <>
-                    <div className="storage-row">
-                      <span className="label">Dedup ratio</span>
-                      <span className="value" style={{ color: 'var(--teal)' }}>{zfs.dedup_ratio.toFixed(2)}x</span>
+                <button
+                  className="toggle-stats-btn"
+                  onClick={() => setShowStorageStats(v => !v)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-secondary)',
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    padding: '4px 0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  <svg
+                    viewBox="0 0 16 16"
+                    width="10"
+                    height="10"
+                    style={{
+                      transform: showStorageStats ? 'rotate(90deg)' : 'rotate(0deg)',
+                      transition: 'transform 0.15s',
+                    }}
+                  >
+                    <path
+                      d="M5 3l6 5-6 5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  {formatBytes(zfs.pool_used)} / {formatBytes(zfs.pool_size)} used ({poolPct}%)
+                  {hasSavings && (
+                    <span style={{ color: 'var(--teal)', marginLeft: 4 }}>
+                      saving {formatBytes(totalSaved)} ({overallRatio.toFixed(1)}x)
+                    </span>
+                  )}
+                </button>
+                {showStorageStats && (
+                  <div style={{ marginTop: 4 }}>
+                    <div className="progress-bar" style={{ marginBottom: 8 }}>
+                      <div
+                        className={`progress-fill ${poolPct > 90 ? 'error' : poolPct > 75 ? 'warning' : 'teal'}`}
+                        style={{ width: `${poolPct}%` }}
+                      />
                     </div>
-                    {zfs.dedup_saved_bytes > 0 && (
-                      <div className="storage-row">
-                        <span className="label">Dedup saved</span>
-                        <span className="value" style={{ color: 'var(--teal)' }}>{formatBytes(zfs.dedup_saved_bytes)}</span>
+                    <div className="storage-row">
+                      <span className="label">Physical disk used</span>
+                      <span className="value">{formatBytes(zfs.pool_used)}</span>
+                    </div>
+                    <div className="storage-row">
+                      <span className="label">Available</span>
+                      <span className="value">{formatBytes(zfs.pool_available)}</span>
+                    </div>
+                    {hasSavings && (
+                      <>
+                        <div className="storage-row">
+                          <span className="label">Logical data</span>
+                          <span className="value">{formatBytes(logicalSize)}</span>
+                        </div>
+                        <div className="storage-row">
+                          <span className="label">Total saved</span>
+                          <span className="value" style={{ color: 'var(--teal)' }}>{formatBytes(totalSaved)} ({overallRatio.toFixed(1)}x)</span>
+                        </div>
+                      </>
+                    )}
+                    {zfs.compression_ratio > 1 && zfs.dedup_ratio > 1 && (
+                      <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-faded)' }}>
+                        Compression {zfs.compression_ratio.toFixed(2)}x &middot; Dedup {zfs.dedup_ratio.toFixed(2)}x
                       </div>
                     )}
-                  </>
-                )}
-                {zfs.datasets && zfs.datasets.length > 0 && (
-                  <div style={{ marginTop: 8, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
-                    <div className="form-label" style={{ fontSize: 11, marginBottom: 4 }}>Datasets</div>
-                    {zfs.datasets.map((ds) => (
-                      <div className="storage-row" key={ds.name}>
-                        <span className="label">{ds.name}{ds.type === 'volume' ? ' (zvol)' : ''}</span>
-                        <span className="value">{formatBytes(ds.used)}</span>
+                    {zfs.compression_ratio > 1 && zfs.dedup_ratio <= 1 && (
+                      <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-faded)' }}>
+                        Compression {zfs.compression_ratio.toFixed(2)}x
                       </div>
-                    ))}
+                    )}
+                    {zfs.compression_ratio <= 1 && zfs.dedup_ratio > 1 && (
+                      <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-faded)' }}>
+                        Dedup {zfs.dedup_ratio.toFixed(2)}x
+                      </div>
+                    )}
+                    {zfs.datasets && zfs.datasets.length > 0 && (
+                      <div style={{ marginTop: 8, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+                        <div className="form-label" style={{ fontSize: 11, marginBottom: 4 }}>Datasets</div>
+                        {zfs.datasets.map((ds) => (
+                          <div className="storage-row" key={ds.name}>
+                            <span className="label">{ds.name}{ds.type === 'volume' ? ' (zvol)' : ''}</span>
+                            <span className="value">{formatBytes(ds.used)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
+              </div>
+            )}
+            {vmState === 'running' && !hasStorageData && zfs.error && (
+              <div className="form-hint" style={{ marginTop: 8, color: 'var(--error)', fontSize: 11 }}>
+                {zfs.error}
               </div>
             )}
           </div>
@@ -430,24 +470,25 @@ export function SettingsPanel({
             <div className="form-group">
               <button
                 className="btn btn-secondary btn-sm"
-                onClick={() => setShowAdminLogin(!showAdminLogin)}
                 style={{ fontSize: 11, padding: '4px 10px' }}
+                onClick={async () => {
+                  try {
+                    const url = await GetAutoLoginURL();
+                    if (url) {
+                      BrowserOpenURL(url);
+                    } else {
+                      showToast('Helix API not ready yet');
+                    }
+                  } catch {
+                    showToast('Failed to get login URL');
+                  }
+                }}
               >
-                {showAdminLogin ? 'Hide' : 'Show'} admin login
+                Open in browser (admin)
               </button>
-              {showAdminLogin && (
-                <div style={{ marginTop: 10 }}>
-                  <div className="form-hint" style={{ marginBottom: 8 }}>
-                    Opens in your browser and logs you in as admin automatically.
-                  </div>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => BrowserOpenURL(loginURL)}
-                  >
-                    Log in as admin
-                  </button>
-                </div>
-              )}
+              <div className="form-hint">
+                Opens Helix in your default browser, logged in as admin.
+              </div>
             </div>
             {s.console_password && (
               <div className="form-group">
@@ -486,7 +527,7 @@ export function SettingsPanel({
           <div className="panel-section">
             <div className="panel-section-title">License</div>
             <div className="form-group">
-              <label className="form-label" htmlFor="settingLicenseKey">License Key — <span onClick={() => BrowserOpenURL('https://deploy.helix.ml/licenses')} style={{ color: 'var(--teal)', cursor: 'pointer' }}>Buy a license</span></label>
+              <label className="form-label" htmlFor="settingLicenseKey">License Key{licenseInfo?.state !== 'licensed' && (<> — <span onClick={() => BrowserOpenURL('https://deploy.helix.ml/licenses')} style={{ color: 'var(--teal)', cursor: 'pointer' }}>Buy a license</span></>)}</label>
               <div style={{ display: 'flex', gap: 6 }}>
                 <input
                   className="form-input"
@@ -498,14 +539,15 @@ export function SettingsPanel({
                   style={{ flex: 1, fontSize: 12, fontFamily: 'monospace' }}
                 />
                 <button
-                  className="btn btn-primary btn-sm"
+                  className={`btn btn-sm ${licenseInfo?.state === 'licensed' && licenseKey.trim() === activatedKey ? 'btn-secondary' : 'btn-primary'}`}
                   disabled={licenseActivating || !licenseKey.trim()}
                   onClick={async () => {
                     setLicenseActivating(true);
                     try {
                       await ValidateLicenseKey(licenseKey.trim());
+                      setActivatedKey(licenseKey.trim());
                       const status = await GetLicenseStatus();
-                      setLicenseStatus(status.state || '');
+                      setLicenseInfo(status);
                       onLicenseUpdated(status);
                       showToast('License activated');
                     } catch (err) {
@@ -518,14 +560,71 @@ export function SettingsPanel({
                   {licenseActivating ? 'Activating...' : 'Activate'}
                 </button>
               </div>
-              {licenseStatus === 'valid' && (
-                <div className="form-hint" style={{ color: 'var(--teal)', marginTop: 4 }}>
-                  License active
+              {licenseInfo?.state === 'licensed' && (
+                <div style={{
+                  marginTop: 8,
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  background: 'rgba(251, 191, 36, 0.12)',
+                  border: '1px solid rgba(251, 191, 36, 0.3)',
+                  boxShadow: '0 0 12px rgba(251, 191, 36, 0.1)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                    <span style={{ color: 'var(--warning)', fontSize: 14 }}>&#x2714;</span>
+                    <span style={{ color: 'var(--warning)', fontWeight: 600, fontSize: 13 }}>License active</span>
+                  </div>
+                  {licenseInfo.licensed_to && (
+                    <div style={{ color: 'var(--text-secondary)', fontSize: 11 }}>
+                      Licensed to {licenseInfo.licensed_to}
+                    </div>
+                  )}
+                  {licenseInfo.expires_at && (
+                    <div style={{ color: 'var(--text-faded)', fontSize: 11 }}>
+                      Expires {new Date(licenseInfo.expires_at).toLocaleDateString()}
+                    </div>
+                  )}
+                  <div style={{ marginTop: 4 }}>
+                    <span
+                      onClick={() => BrowserOpenURL('https://deploy.helix.ml/licenses')}
+                      style={{ color: 'var(--warning)', cursor: 'pointer', fontSize: 11 }}
+                    >
+                      Manage license
+                    </span>
+                  </div>
                 </div>
               )}
-              {licenseStatus === 'expired' && (
-                <div className="form-hint" style={{ color: 'var(--warning)', marginTop: 4 }}>
-                  License expired
+              {licenseInfo?.state === 'trial_expired' && (
+                <div style={{
+                  marginTop: 8,
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  background: 'rgba(239, 68, 68, 0.08)',
+                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ color: 'var(--error)', fontSize: 14 }}>&#x26A0;</span>
+                    <span style={{ color: 'var(--error)', fontWeight: 600, fontSize: 13 }}>License expired</span>
+                  </div>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: 11, marginTop: 2 }}>
+                    <span onClick={() => BrowserOpenURL('https://deploy.helix.ml/licenses')} style={{ color: 'var(--teal)', cursor: 'pointer' }}>Renew your license</span> to continue using Helix.
+                  </div>
+                </div>
+              )}
+              {licenseInfo?.state === 'trial_active' && licenseInfo.trial_ends_at && (
+                <div style={{
+                  marginTop: 8,
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  background: 'rgba(251, 191, 36, 0.08)',
+                  border: '1px solid rgba(251, 191, 36, 0.2)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 14 }}>&#x23F3;</span>
+                    <span style={{ color: 'var(--warning)', fontWeight: 600, fontSize: 13 }}>Trial active</span>
+                  </div>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: 11, marginTop: 2 }}>
+                    Expires {new Date(licenseInfo.trial_ends_at).toLocaleString()}
+                  </div>
                 </div>
               )}
             </div>
@@ -592,7 +691,6 @@ export function SettingsPanel({
         <div className="panel-footer">
           <div className="btn-group">
             <button className="btn btn-primary" onClick={handleSave}>Save</button>
-            <button className="btn btn-secondary" onClick={handleReset}>Reset</button>
           </div>
         </div>
       </div>

@@ -124,13 +124,14 @@ func (z *ZFSCollector) sshCmd(command string) (string, error) {
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=5",
+		"-o", "LogLevel=ERROR",
 		"-p", fmt.Sprintf("%d", z.sshPort),
 		"ubuntu@localhost",
 		command,
 	)
-	out, err := cmd.CombinedOutput()
+	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("ssh command failed: %w: %s", err, string(out))
+		return "", fmt.Errorf("ssh command failed: %w", err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }

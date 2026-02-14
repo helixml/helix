@@ -430,15 +430,21 @@ func (a *App) SaveSettings(s AppSettings) error {
 		return nil
 	}
 
-	// VM not running — just apply config directly
-	config := a.vm.GetConfig()
-	config.CPUs = s.VMCPUs
-	config.MemoryMB = s.VMMemoryMB
-	config.SSHPort = s.SSHPort
-	config.APIPort = s.APIPort
-	config.DiskPath = s.VMDiskPath
-	config.ExposeOnNetwork = s.ExposeOnNetwork
-	return a.vm.SetConfig(config)
+	// If VM is stopped, apply config so next start uses the new values.
+	// If VM is running and no reboot needed, settings are already saved to
+	// disk — they'll take effect on the next VM start.
+	if a.vm.GetStatus().State == VMStateStopped {
+		config := a.vm.GetConfig()
+		config.CPUs = s.VMCPUs
+		config.MemoryMB = s.VMMemoryMB
+		config.SSHPort = s.SSHPort
+		config.APIPort = s.APIPort
+		config.DiskPath = s.VMDiskPath
+		config.ExposeOnNetwork = s.ExposeOnNetwork
+		return a.vm.SetConfig(config)
+	}
+
+	return nil
 }
 
 // ResizeDataDisk resizes the ZFS data disk to the specified size in GB.
