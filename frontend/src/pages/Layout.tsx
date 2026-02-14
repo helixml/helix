@@ -431,8 +431,10 @@ const Layout: FC<{
           )
         }
         {
-          (account.serverConfig?.license && !account.serverConfig.license.valid) ||
-          account.serverConfig?.deployment_id === "unknown" ?
+          account.serverConfig?.edition !== "mac-desktop" && (
+            (account.serverConfig?.license && !account.serverConfig.license.valid) ||
+            account.serverConfig?.deployment_id === "unknown"
+          ) ?
             <LicenseKeyPrompt /> :
             null
         }

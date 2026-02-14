@@ -286,6 +286,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		DeploymentID:                           deploymentID,
 		License:                                licenseInfo,
 		OrganizationsCreateEnabledForNonAdmins: apiServer.Cfg.Organizations.CreateEnabledForNonAdmins,
+		Edition:                                apiServer.Cfg.Edition,
 	}
 
 	systemSettings, err := apiServer.Store.GetSystemSettings(ctx)

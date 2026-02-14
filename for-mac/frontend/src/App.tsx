@@ -349,14 +349,30 @@ export function App() {
 
         <div className="titlebar-spacer" />
 
-        {licenseStatus.state === "trial_active" && (
-          <span
-            className="trial-badge-titlebar"
-            onDoubleClick={(e) => e.stopPropagation()}
-          >
-            Trial: {getTrialRemaining(licenseStatus.trial_ends_at)}
-          </span>
-        )}
+        {licenseStatus.state === "trial_active" && (() => {
+          const remaining = getTrialRemaining(licenseStatus.trial_ends_at);
+          const endsAt = licenseStatus.trial_ends_at ? new Date(licenseStatus.trial_ends_at).getTime() : 0;
+          const hoursLeft = endsAt ? (endsAt - Date.now()) / (1000 * 60 * 60) : 24;
+          const urgent = hoursLeft < 4;
+          return (
+            <>
+              <button
+                className={`trial-badge-titlebar${urgent ? ' trial-urgent' : ''}`}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onClick={() => BrowserOpenURL("https://deploy.helix.ml/licenses")}
+              >
+                Trial: {remaining}
+              </button>
+              <button
+                className="buy-license-btn"
+                onDoubleClick={(e) => e.stopPropagation()}
+                onClick={() => BrowserOpenURL("https://deploy.helix.ml/licenses")}
+              >
+                Get a License
+              </button>
+            </>
+          );
+        })()}
 
         <button
           className="upsell-banner"

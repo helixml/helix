@@ -625,6 +625,10 @@ if ! step_done "patch_sandbox"; then
         run_ssh "cd ~/helix && sed -i 's|helix-sway|helix-ubuntu|g' sandbox.sh" || true
         # Remove NVIDIA-specific docker flags (not needed for virtio)
         run_ssh "cd ~/helix && sed -i 's/--gpus all//g; s/--runtime=nvidia//g' sandbox.sh" || true
+        # Mount version files directory so heartbeat daemon can report available desktop images.
+        # Without this, FindAvailableSandbox returns nil and sessions fail with "record not found".
+        run_ssh "cd ~/helix && mkdir -p sandbox-images"
+        run_ssh "cd ~/helix && sed -i 's|--name helix-sandbox|--name helix-sandbox -v \$(pwd)/sandbox-images:/opt/images|' sandbox.sh" || true
         log "sandbox.sh patched"
     else
         log "WARNING: sandbox.sh not found — install.sh may have skipped sandbox setup"
@@ -755,6 +759,12 @@ if ! step_done "prime_stack"; then
             run_ssh "docker exec helix-sandbox docker tag registry.helixml.tech/helix/helix-ubuntu:${PULL_TAG} helix-ubuntu:latest" || true
             run_ssh "docker exec helix-sandbox docker tag registry.helixml.tech/helix/helix-ubuntu:${PULL_TAG} helix-ubuntu:${HELIX_VERSION}" || true
             log "helix-ubuntu tagged as latest and ${HELIX_VERSION}"
+
+            # Create version file so the sandbox heartbeat reports available desktop images.
+            # The heartbeat daemon scans /opt/images/helix-*.version and reports them
+            # in desktop_versions, which FindAvailableSandbox uses to match sessions to sandboxes.
+            run_ssh "echo 'latest' > ~/helix/sandbox-images/helix-ubuntu.version"
+            log "Created sandbox-images/helix-ubuntu.version"
         fi
     fi
 
