@@ -1,8 +1,8 @@
 {
-  "version": "be31d897b",
+  "version": "2a3a4f12e",
   "base_url": "https://dl.helix.ml/vm",
   "files": [
-    {"name": "disk.qcow2", "size": 25350373376, "sha256": "c6453a3e8eca4b12be5ebf7c45e4af8ad2a7b6ba2fe138c86dcf09ccc26c2b7b"},
-    {"name": "efi_vars.fd", "size": 67108864, "sha256": "b0e3fdf5b4db9db59432830daa7a36896aa817d7ddc0351fbb47d4db56b1de4d"}
+    {"name": "disk.qcow2", "size": 30804672512, "sha256": "f12e22ca05a7bb2b3d62fd4d2e4392ff7cdad4f46fdf824a4f9d1566595588c2"},
+    {"name": "efi_vars.fd", "size": 67108864, "sha256": "a974f5e7e6ac2172001b5e19861d88ba18f56b15bc135c2fa961be23f82b6b69"}
   ]
 }
