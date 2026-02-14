@@ -482,7 +482,7 @@ const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
         <Box>
           <Typography variant="h6">Sign in to Claude</Typography>
           <Typography variant="body2" color="text.secondary">
-            Complete the login in the browser below. Your credentials will be captured automatically.
+            Complete the login in the browser below. Your credentials will automatically be reused in desktop sessions configured to use Claude Code.
           </Typography>
         </Box>
         {loginCommandSent && (
