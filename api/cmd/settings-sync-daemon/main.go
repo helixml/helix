@@ -38,6 +38,9 @@ type SettingsDaemon struct {
 	// Code agent configuration (from Helix API)
 	codeAgentConfig *CodeAgentConfig
 
+	// Whether user has a Claude subscription available for credential sync
+	claudeSubscriptionAvailable bool
+
 	// Current state
 	helixSettings map[string]interface{}
 	userOverrides map[string]interface{}
@@ -67,14 +70,15 @@ type AvailableModel struct {
 
 // helixConfigResponse is the response structure from the Helix API's zed-config endpoint
 type helixConfigResponse struct {
-	ContextServers  map[string]interface{} `json:"context_servers"`
-	LanguageModels  map[string]interface{} `json:"language_models"`
-	Assistant       map[string]interface{} `json:"assistant"`
-	ExternalSync    map[string]interface{} `json:"external_sync"`
-	Agent           map[string]interface{} `json:"agent"`
-	Theme           string                 `json:"theme"`
-	Version         int64                  `json:"version"`
-	CodeAgentConfig *CodeAgentConfig       `json:"code_agent_config"`
+	ContextServers              map[string]interface{} `json:"context_servers"`
+	LanguageModels              map[string]interface{} `json:"language_models"`
+	Assistant                   map[string]interface{} `json:"assistant"`
+	ExternalSync                map[string]interface{} `json:"external_sync"`
+	Agent                       map[string]interface{} `json:"agent"`
+	Theme                       string                 `json:"theme"`
+	Version                     int64                  `json:"version"`
+	CodeAgentConfig             *CodeAgentConfig       `json:"code_agent_config"`
+	ClaudeSubscriptionAvailable bool                   `json:"claude_subscription_available,omitempty"`
 }
 
 // generateAgentServerConfig creates the agent_servers configuration for custom agents (like qwen).
@@ -125,6 +129,26 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 					"--include-directories", "/home/retro/work",
 				},
 				"env": env,
+			},
+		}
+
+	case "claude_code":
+		// Claude Code: Uses the claude command as a custom agent_server
+		// Claude Code reads credentials from ~/.claude/.credentials.json (synced by syncClaudeCredentials)
+		env := map[string]interface{}{
+			"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+			"DISABLE_TELEMETRY":                        "1",
+		}
+
+		log.Printf("Using claude_code runtime")
+
+		return map[string]interface{}{
+			"claude": map[string]interface{}{
+				"name":    "claude",
+				"type":    "custom",
+				"command": "claude",
+				"args":    []string{"--experimental-acp"},
+				"env":     env,
 			},
 		}
 
@@ -299,6 +323,95 @@ func (d *SettingsDaemon) injectKoditAuth() {
 	log.Printf("Injected user API key into Kodit context_server Authorization header")
 }
 
+const (
+	ClaudeCredentialsPath = "/home/retro/.claude/.credentials.json"
+)
+
+// syncClaudeCredentials fetches Claude OAuth credentials from the Helix API
+// and writes them to ~/.claude/.credentials.json for Claude Code to use.
+// Claude Code handles its own token refresh natively.
+func (d *SettingsDaemon) syncClaudeCredentials() {
+	if !d.claudeSubscriptionAvailable {
+		return
+	}
+
+	ctx := context.Background()
+	url := fmt.Sprintf("%s/api/v1/sessions/%s/claude-credentials", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		log.Printf("Failed to create Claude credentials request: %v", err)
+		return
+	}
+
+	if d.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		log.Printf("Failed to fetch Claude credentials: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Failed to fetch Claude credentials: status %d", resp.StatusCode)
+		return
+	}
+
+	// Parse the credentials from the API response
+	var creds struct {
+		AccessToken      string   `json:"accessToken"`
+		RefreshToken     string   `json:"refreshToken"`
+		ExpiresAt        int64    `json:"expiresAt"`
+		Scopes           []string `json:"scopes"`
+		SubscriptionType string   `json:"subscriptionType"`
+		RateLimitTier    string   `json:"rateLimitTier"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&creds); err != nil {
+		log.Printf("Failed to parse Claude credentials: %v", err)
+		return
+	}
+
+	// Build the credentials file in Claude's expected format
+	credFile := map[string]interface{}{
+		"claudeAiOauth": map[string]interface{}{
+			"accessToken":      creds.AccessToken,
+			"refreshToken":     creds.RefreshToken,
+			"expiresAt":        creds.ExpiresAt,
+			"scopes":           creds.Scopes,
+			"subscriptionType": creds.SubscriptionType,
+			"rateLimitTier":    creds.RateLimitTier,
+		},
+	}
+
+	credJSON, err := json.MarshalIndent(credFile, "", "  ")
+	if err != nil {
+		log.Printf("Failed to marshal Claude credentials: %v", err)
+		return
+	}
+
+	// Ensure directory exists
+	credDir := filepath.Dir(ClaudeCredentialsPath)
+	if err := os.MkdirAll(credDir, 0700); err != nil {
+		log.Printf("Failed to create Claude credentials directory: %v", err)
+		return
+	}
+
+	// Atomic write
+	tmpFile := ClaudeCredentialsPath + ".tmp"
+	if err := os.WriteFile(tmpFile, credJSON, 0600); err != nil {
+		log.Printf("Failed to write Claude credentials temp file: %v", err)
+		return
+	}
+	if err := os.Rename(tmpFile, ClaudeCredentialsPath); err != nil {
+		log.Printf("Failed to rename Claude credentials file: %v", err)
+		return
+	}
+
+	log.Printf("Synced Claude credentials to %s", ClaudeCredentialsPath)
+}
+
 func main() {
 	// Environment variables
 	helixURL := os.Getenv("HELIX_API_URL")
@@ -423,6 +536,10 @@ func (d *SettingsDaemon) syncFromHelix() error {
 
 	// Store code agent config for generating agent_servers
 	d.codeAgentConfig = config.CodeAgentConfig
+	d.claudeSubscriptionAvailable = config.ClaudeSubscriptionAvailable
+
+	// Sync Claude credentials if available
+	d.syncClaudeCredentials()
 
 	d.helixSettings = map[string]interface{}{
 		"context_servers": config.ContextServers,
@@ -737,6 +854,10 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 	if config.Theme != "" {
 		newHelixSettings["theme"] = config.Theme
 	}
+
+	// Update Claude subscription availability and sync credentials
+	d.claudeSubscriptionAvailable = config.ClaudeSubscriptionAvailable
+	d.syncClaudeCredentials()
 
 	// Check if Helix settings or code agent config changed
 	codeAgentChanged := !deepEqual(config.CodeAgentConfig, d.codeAgentConfig)

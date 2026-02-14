@@ -255,18 +255,28 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		}
 	}
 
+	// Check if user has an active Claude subscription (for credential sync in containers)
+	var claudeSubAvailable bool
+	if codeAgentConfig != nil && codeAgentConfig.Runtime == types.CodeAgentRuntimeClaudeCode {
+		sub, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, session.Owner, session.OrganizationID)
+		if err == nil && sub.Status == "active" {
+			claudeSubAvailable = true
+		}
+	}
+
 	// Note: Zed keybindings for system clipboard (Ctrl+C/V → editor::Copy/Paste)
 	// are configured in keymap.json created by start-zed-helix.sh startup script
 
 	response := &types.ZedConfigResponse{
-		ContextServers:  contextServers,
-		LanguageModels:  languageModels,
-		Assistant:       assistant,
-		ExternalSync:    externalSync,
-		Agent:           agentConfig,
-		Theme:           zedConfig.Theme,
-		Version:         version,
-		CodeAgentConfig: codeAgentConfig,
+		ContextServers:              contextServers,
+		LanguageModels:              languageModels,
+		Assistant:                   assistant,
+		ExternalSync:                externalSync,
+		Agent:                       agentConfig,
+		Theme:                       zedConfig.Theme,
+		Version:                     version,
+		CodeAgentConfig:             codeAgentConfig,
+		ClaudeSubscriptionAvailable: claudeSubAvailable,
 	}
 
 	return response, nil
@@ -530,6 +540,15 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		apiType = "openai"
 		agentName = "qwen"
 		model = fmt.Sprintf("%s/%s", providerName, modelName)
+
+	case types.CodeAgentRuntimeClaudeCode:
+		// Claude Code: Uses the claude command as a custom agent_server
+		// Claude Code talks directly to Anthropic using its own OAuth credentials,
+		// not through Helix proxy. No baseURL or apiType needed.
+		baseURL = ""
+		apiType = ""
+		agentName = "claude"
+		model = modelName
 
 	default: // CodeAgentRuntimeZedAgent
 		// Zed Agent: Uses Zed's built-in agent panel with env vars
