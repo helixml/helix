@@ -1,0 +1,10 @@
+build/bin
+build/dev-qemu
+node_modules
+frontend/dist
+for-mac
+helix-desktop
+*.dylib
+*.a
+.env.signing
+.env.r2

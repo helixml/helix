@@ -742,6 +742,7 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 
 		// Debug logging
 		"RUST_LOG=info,gst_wayland_display=debug",
+		"GST_DEBUG=vsockenc:5", // TODO: Remove after fixing vsockenc receive thread
 		"SHOW_ACP_DEBUG_LOGS=true",
 
 		// Settings sync daemon port
@@ -843,6 +844,13 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	// which runs inside the sandbox where it can query the helix-buildkit container IP.
 
 	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)
+	// Pass through HELIX_ENCODER from outer environment to desktop containers.
+	// This allows selecting the video encoder without rebuilding the desktop image.
+	// Supported values: vsock (default auto-detect), openh264, x264, nvenc
+	if encoderOverride := os.Getenv("HELIX_ENCODER"); encoderOverride != "" {
+		env = append(env, fmt.Sprintf("HELIX_ENCODER=%s", encoderOverride))
+	}
+
 	// These come LAST so they can override defaults (e.g., use user's token instead of runner token)
 	hasUserAPIToken := false
 	for _, e := range agent.Env {

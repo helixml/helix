@@ -41,6 +41,11 @@ const (
 	// - AMD/Intel: DMA-BUF via EGL for zero-copy
 	// Requires gst-plugin-pipewire-zerocopy to be installed
 	VideoModePlugin VideoMode = "zerocopy"
+
+	// VideoModeScanout receives pre-encoded H.264 directly from QEMU via TCP.
+	// Used on macOS ARM where QEMU captures virtio-gpu scanouts and encodes
+	// with VideoToolbox. Bypasses PipeWire and GStreamer entirely.
+	VideoModeScanout VideoMode = "scanout"
 )
 
 // getVideoMode returns the configured video mode from the stream config
@@ -53,7 +58,21 @@ func getVideoMode(configOverride string) VideoMode {
 		return VideoModePlugin
 	case "shm":
 		return VideoModeSHM
+	case "scanout":
+		return VideoModeScanout
 	default:
+		// Check HELIX_VIDEO_MODE env var for auto-detection
+		// (set by detect-render-node.sh for macOS ARM virtio-gpu)
+		if envMode := os.Getenv("HELIX_VIDEO_MODE"); envMode != "" {
+			switch strings.ToLower(envMode) {
+			case "scanout":
+				return VideoModeScanout
+			case "shm":
+				return VideoModeSHM
+			case "native", "dmabuf":
+				return VideoModeNative
+			}
+		}
 		// Default to zerocopy (custom pipewirezerocopysrc plugin)
 		return VideoModePlugin
 	}
@@ -203,6 +222,9 @@ type VideoStreamer struct {
 	// Cursor tracking
 	cursorUpdateCount uint64 // Number of cursor updates sent
 
+	// Scanout source (macOS ARM - H.264 from QEMU TCP, no GStreamer)
+	scanoutSource *ScanoutSource
+
 	// Multi-player presence
 	sessionClient *ConnectedClient // This client's registration in the session
 }
@@ -243,6 +265,11 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 
 	ctx, v.cancel = context.WithCancel(ctx)
 	v.startTime = time.Now()
+
+	// Scanout mode: receive H.264 from QEMU TCP (macOS ARM, no GStreamer)
+	if v.videoMode == VideoModeScanout {
+		return v.startScanoutMode(ctx)
+	}
 
 	// Determine encoder based on available hardware
 	encoder := v.selectEncoder()
@@ -338,8 +365,97 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 	return nil
 }
 
+// startScanoutMode starts the scanout video path (macOS ARM).
+// Receives pre-encoded H.264 from QEMU via TCP instead of PipeWire/GStreamer.
+// Uses SharedVideoSource for frame broadcasting, GOP buffer (mid-stream joins),
+// and keepalive (re-sends last frame on static screens).
+func (v *VideoStreamer) startScanoutMode(ctx context.Context) error {
+	v.logger.Info("starting scanout mode (QEMU H.264 via TCP)",
+		"resolution", fmt.Sprintf("%dx%d", v.config.Width, v.config.Height))
+
+	// Check if a SharedVideoSource already exists for this node (another client already connected).
+	// Only create a new ScanoutSource for the first client — subsequent clients reuse the
+	// existing shared source. Creating multiple ScanoutSources would open multiple TCP
+	// connections to QEMU and consume multiple DRM leases, causing frame routing confusion.
+	registry := GetSharedVideoRegistry()
+	existing := registry.GetExisting(v.nodeID)
+	if existing != nil {
+		// Reuse existing shared source — no new ScanoutSource needed
+		v.sharedSource = existing
+		v.logger.Info("reusing existing scanout source (shared)")
+	} else {
+		// First client — create and start the scanout source
+		scanoutSrc := NewScanoutSource(v.logger)
+		// Set encoder bitrate from client's requested bitrate (kbps)
+		if v.config.Bitrate > 0 {
+			scanoutSrc.SetBitrate(v.config.Bitrate)
+		}
+		if err := scanoutSrc.Start(ctx, 0); err != nil {
+			return fmt.Errorf("start scanout source: %w", err)
+		}
+		v.scanoutSource = scanoutSrc
+		v.sharedSource = registry.GetOrCreateWithSource(v.nodeID, scanoutSrc)
+		v.logger.Info("scanout source created (first client)",
+			"bitrate_kbps", v.config.Bitrate)
+	}
+
+	// Subscribe to receive frames from the shared source
+	var err error
+	v.frameCh, v.errorCh, v.sharedClientID, err = v.sharedSource.Subscribe()
+	if err != nil {
+		return fmt.Errorf("subscribe to shared scanout source: %w", err)
+	}
+
+	v.logger.Info("subscribed to shared scanout source",
+		"node_id", v.nodeID,
+		"client_id", v.sharedClientID,
+		"total_clients", v.sharedSource.GetClientCount())
+
+	v.running.Store(true)
+
+	// Send StreamInit to client
+	if err := v.sendStreamInit(); err != nil {
+		v.logger.Error("failed to send StreamInit", "err", err)
+	}
+
+	// Send ConnectionComplete
+	if err := v.sendConnectionComplete(); err != nil {
+		v.logger.Error("failed to send ConnectionComplete", "err", err)
+	}
+
+	// Register for multi-player presence
+	if v.config.SessionID != "" {
+		userName := v.config.UserName
+		if userName == "" {
+			userName = "User"
+		}
+		v.sessionClient = GetSessionRegistry().RegisterClient(
+			v.config.SessionID,
+			v.config.UserID,
+			userName,
+			v.config.AvatarURL,
+			v.ws,
+			&v.wsMu,
+		)
+	}
+
+	// Start cursor monitoring (GNOME Shell extension sends cursor name via Unix socket)
+	if os.Getenv("HELIX_DISABLE_CURSOR_MONITORING") != "1" {
+		go v.monitorCursor(ctx)
+	}
+
+	// Read frames from shared source and send to WebSocket
+	go v.readFramesAndSend(ctx)
+
+	// Handle ping/pong
+	go v.heartbeat(ctx)
+
+	return nil
+}
+
 // selectEncoder chooses the best available encoder
 // Priority order:
+// 0. HELIX_ENCODER env var override (for testing/benchmarking)
 // 1. NVIDIA NVENC (nvh264enc) - fastest, lowest latency
 // 2. Intel QSV (qsvh264enc) - Intel Quick Sync Video
 // 3. VA-API (vah264enc) - Intel/AMD VA-API
@@ -348,7 +464,34 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 // 6. OpenH264 (openh264enc) - Cisco's software encoder (installed by default)
 // 7. x264 (x264enc) - software fallback (requires gst-plugins-ugly)
 func (v *VideoStreamer) selectEncoder() string {
-	// Try NVENC first (NVIDIA)
+	// Check for explicit encoder override via environment variable
+	if override := os.Getenv("HELIX_ENCODER"); override != "" {
+		switch strings.ToLower(override) {
+		case "vsock":
+			v.logger.Info("using vsockenc (forced via HELIX_ENCODER)")
+			return "vsock"
+		case "openh264":
+			v.logger.Info("using OpenH264 software encoder (forced via HELIX_ENCODER)")
+			return "openh264"
+		case "x264":
+			v.logger.Info("using x264 software encoder (forced via HELIX_ENCODER)")
+			return "x264"
+		case "nvenc":
+			v.logger.Info("using NVIDIA NVENC encoder (forced via HELIX_ENCODER)")
+			return "nvenc"
+		default:
+			v.logger.Warn("unknown HELIX_ENCODER value, using auto-detect", "value", override)
+		}
+	}
+
+	// Try vsockenc first (macOS/UTM virtio-gpu VideoToolbox encoding)
+	// This delegates encoding to host VideoToolbox via vsock for zero-copy on macOS
+	if checkGstElement("vsockenc") {
+		v.logger.Info("using vsockenc (macOS VideoToolbox via vsock)")
+		return "vsock"
+	}
+
+	// Try NVENC (NVIDIA)
 	if checkGstElement("nvh264enc") {
 		v.logger.Info("using NVIDIA NVENC encoder")
 		return "nvenc"
@@ -460,15 +603,50 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			os.Getenv("SWAYSOCK") != ""
 
 		// Detect GPU: Only GNOME+NVIDIA gets DmaBuf/CUDA, everything else uses SHM
+		// Detect GPU: GNOME+NVIDIA gets DmaBuf/CUDA, vsock gets DmaBuf, everything else uses SHM
+		// vsockenc requires DMA-BUF to extract resource IDs for VideoToolbox encoding
 		isNvidiaGnome := !isSway && (encoder == "nvenc" || checkGstElement("nvh264enc"))
 
 		// GNOME + AMD/Intel: Fall back to native pipewiresrc
 		// Our pipewirezerocopysrc requests MemFd but Mutter ONLY supports DmaBuf on AMD.
 		// Mutter ignores MemFd request and allocates DmaBuf, which we can't mmap (tiled format).
 		// Native pipewiresrc properly handles DmaBuf→vapostproc→GPU detiling.
-		isAmdGnome := !isSway && !isNvidiaGnome
+		// vsockenc: use native pipewiresrc with DMA-BUF (no always-copy)
+		//
+		// macOS ARM (virtio-gpu) detection: vsockenc element exists even if we're using
+		// a software encoder override (HELIX_ENCODER). We need the same pipewiresrc config
+		// (no always-copy, convert+scale before queue) for any encoder on this platform.
+		isMacOSVirtioGpu := !isSway && checkGstElement("vsockenc")
 
-		if isAmdGnome {
+		isAmdGnome := !isSway && !isNvidiaGnome && !isMacOSVirtioGpu
+
+		if isMacOSVirtioGpu {
+			// macOS ARM / UTM virtio-gpu: Mutter does NOT export DMA-BUF for ScreenCast
+			// on virtio-gpu (tested: "no more input formats" with LINEAR modifier).
+			// Fall back to native pipewiresrc with NV12 conversion over TCP.
+			//
+			// TODO: Zero-copy path needs either:
+			// 1. Mutter patch to export DMA-BUF on virtio-gpu ScreenCast
+			// 2. Multiple scanout approach (bypass PipeWire entirely)
+			// 3. pipewirezerocopysrc with SHM + VIRTGPU_RESOURCE_INFO on the SHM fd
+			pixelFormat := "NV12"
+			if encoder == "openh264" || encoder == "x264" {
+				pixelFormat = "I420"
+			}
+			slog.Info("[STREAM] macOS ARM virtio-gpu detected, using native pipewiresrc with NV12",
+				"encoder", encoder, "format", pixelFormat)
+			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true keepalive-time=500", v.nodeID)
+			if v.pipeWireFd > 0 {
+				srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
+			}
+			parts = []string{
+				srcPart,
+				"videoconvert",
+				fmt.Sprintf("video/x-raw,format=%s", pixelFormat),
+			}
+			v.useRealtimeClock = true
+		} else if isAmdGnome {
+
 			// Case 2: GNOME + AMD/Intel → use native pipewiresrc with always-copy=true
 			// This forces SHM path (like Sway) instead of DmaBuf which has latency issues.
 			// IMPORTANT: Do NOT add a capsfilter like "video/x-raw,framerate=60/1" here!
@@ -507,9 +685,14 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			}
 
 			if bufferType == "dmabuf" {
-				// GNOME + NVIDIA: pipewirezerocopysrc outputs CUDAMemory
-				// Add caps filter here (before queue is appended) to force CUDAMemory negotiation
-				parts = []string{srcPart, "video/x-raw(memory:CUDAMemory)"}
+				if encoder == "nvenc" {
+					// GNOME + NVIDIA: pipewirezerocopysrc outputs CUDAMemory
+					// Add caps filter here (before queue is appended) to force CUDAMemory negotiation
+					parts = []string{srcPart, "video/x-raw(memory:CUDAMemory)"}
+				} else {
+					// vsockenc: Use raw DMA-BUF without CUDA caps
+					parts = []string{srcPart}
+				}
 			} else {
 				parts = []string{srcPart}
 			}
@@ -561,6 +744,26 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 	// Each encoder type has its own GPU-optimized path
 	// Note: VideoModePlugin may provide GPU memory (CUDA/DMABuf) or SHM depending on compositor
 	switch encoder {
+	case "vsock":
+		// macOS/UTM virtio-gpu VideoToolbox encoding via vsock
+		// Pipeline: PipeWire → videoconvert (NV12) → vsockenc (sends raw pixels via TCP)
+		//           → QEMU helix-frame-export (IOSurface → VideoToolbox H.264)
+		//           → H.264 NAL units back via TCP → h264parse → appsink
+		//
+		// Convert to NV12 at native 1920x1080 resolution before sending to host.
+		// NV12 at 1080p = 3.1MB/frame (~15 FPS over SLiRP TCP).
+		// Future: zero-copy via virtio-gpu resource IDs would eliminate TCP transfer.
+		// VideoToolbox natively encodes from NV12, skipping internal colorspace conversion.
+		//
+		// Connection: TCP to 10.0.2.2:15937 (QEMU user-mode networking)
+		// SLiRP forwards guest 10.0.2.2:15937 → host 127.0.0.1:15937
+		parts = append(parts,
+			fmt.Sprintf("vsockenc tcp-host=10.0.2.2 tcp-port=15937 bitrate=%d keyframe-interval=%d",
+				v.config.Bitrate, v.getEffectiveGOPSize()),
+			"h264parse",
+			"video/x-h264,stream-format=byte-stream",
+		)
+
 	case "nvenc":
 		// NVIDIA NVENC encoding
 		// nvh264enc accepts BGRA/BGRx CUDAMemory directly and does conversion internally.
@@ -669,21 +872,31 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 
 	case "openh264":
 		// OpenH264 software encoder (Cisco's implementation)
-		// videoscale allows clients to request different resolutions
+		// On macOS ARM (virtio-gpu), source already does videoconvert+videoscale to I420,960x540
+		// before the queue, so we skip redundant conversion. On other platforms, add conversion.
+		if !checkGstElement("vsockenc") {
+			// Standard path: add conversion + scaling
+			parts = append(parts,
+				"videoconvert",
+				"videoscale add-borders=true",
+				fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height),
+			)
+		}
 		parts = append(parts,
-			"videoconvert",
-			"videoscale add-borders=true",
-			fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height),
 			fmt.Sprintf("openh264enc complexity=low bitrate=%d gop-size=%d", v.config.Bitrate*1000, v.getEffectiveGOPSize()),
 		)
 
 	case "x264":
 		// x264 software encoder - high quality but requires gst-plugins-ugly
-		// videoscale allows clients to request different resolutions
+		// On macOS ARM (virtio-gpu), source already does videoconvert+videoscale to I420,960x540
+		if !checkGstElement("vsockenc") {
+			parts = append(parts,
+				"videoconvert",
+				"videoscale add-borders=true",
+				fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height),
+			)
+		}
 		parts = append(parts,
-			"videoconvert",
-			"videoscale add-borders=true",
-			fmt.Sprintf("video/x-raw,width=%d,height=%d", v.config.Width, v.config.Height),
 			fmt.Sprintf("x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1 key-int-max=%d bitrate=%d aud=false", v.getEffectiveGOPSize(), v.config.Bitrate),
 		)
 
@@ -872,7 +1085,10 @@ func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 				avgSend := totalSendTime / time.Duration(logFrameCount)
 				encoderLatMs := float64(v.encoderLatencyUs.Load()) / 1000.0
 				// Get pipeline frame stats to track drops
-				pipelineReceived, pipelineDropped := v.sharedSource.GetFrameStats()
+				var pipelineReceived, pipelineDropped uint64
+				if v.sharedSource != nil {
+					pipelineReceived, pipelineDropped = v.sharedSource.GetFrameStats()
+				}
 
 				// Calculate frame timing stats
 				var avgIntervalMs int64
@@ -1381,8 +1597,15 @@ func (v *VideoStreamer) Stop() {
 		v.cancel()
 	}
 
+	// Don't stop scanoutSource directly — SharedVideoSource owns its lifecycle.
+	// SharedVideoSource.stop() calls externalSource.Stop() when the grace period
+	// expires (no clients reconnected). If we stop it here, the TCP connection to
+	// QEMU is closed immediately, and a reconnecting client gets a dead shared source
+	// with no frames. This is why reconnect works on NVIDIA (GStreamer pipeline is
+	// managed by SharedVideoSource) but hung on macOS (ScanoutSource was killed here).
+
 	// Unsubscribe from shared video source
-	// This will stop the pipeline if we're the last client
+	// This will schedule pipeline stop if we're the last client (with grace period)
 	if v.sharedSource != nil && v.sharedClientID > 0 {
 		v.sharedSource.Unsubscribe(v.sharedClientID)
 		v.logger.Info("unsubscribed from shared video source",

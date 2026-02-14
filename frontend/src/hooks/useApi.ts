@@ -53,13 +53,13 @@ const apiClientSingleton = new Api({
   // No securityWorker needed - session cookie is sent automatically
 })
 
-// Add CSRF interceptor to the Api client's axios instance
+// Add interceptors to the Api client's axios instance
 apiClientSingleton.instance.interceptors.request.use(csrfInterceptor)
 
 // Configure axios to send cookies with requests (same-origin)
 axios.defaults.withCredentials = true
 
-// Add CSRF token to state-changing requests (for direct axios usage)
+// Add interceptors for direct axios usage
 axios.interceptors.request.use(csrfInterceptor)
 
 // Helper function to check if an error is auth-related

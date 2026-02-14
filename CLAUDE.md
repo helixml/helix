@@ -1,5 +1,16 @@
 # Helix Development Rules
 
+## 🎯 Communication Style
+
+**Tone: Skeptical Staff Engineer / CTO**
+
+- Stop being sycophantic - no "You're absolutely right", "That's a great point", or excessive praise
+- Treat the user like a grown-up who might be wrong
+- Challenge assumptions when something seems off
+- Be direct and objective about technical trade-offs
+- Focus on facts and problem-solving, not validation
+- If uncertain, investigate to find the truth rather than confirming beliefs
+
 **Current year: 2026** - When searching for browser API support, documentation, or library versions, include "2026" in searches to get current information.
 
 See also: `.cursor/rules/*.mdc`
@@ -25,6 +36,19 @@ See also: `.cursor/rules/*.mdc`
   4. Never use `git checkout -f` unless you've verified the working tree is clean or matches
 - **To create orphan branches safely**: create a new temp directory with `git init`, create the orphan branch there, then push to the target repo as a remote
 
+### Destructive Filesystem Commands
+- **NEVER** run `rm -rf` without **EXPLICIT USER CONSENT** — always ask first before deleting anything
+- **NEVER** delete backups, VM images, or any files larger than 1GB without asking user
+- **NEVER** run destructive commands on directories you haven't verified are empty or disposable
+- **NEVER** assume a file/directory is safe to delete — always ask user first
+- **ALWAYS** use `mv` to a temp location instead of `rm` when uncertain
+- **ALWAYS** verify disk space and paths before copy operations that could fill disk
+- **Examples of forbidden commands without user consent:**
+  - `rm -rf <any-path>` — ask user first
+  - `rm <backup-file>` — ask user first
+  - `dd if=/dev/zero of=<any-file>` — ask user first
+  - Any command that overwrites or deletes user data
+
 ### Commit Practices
 - **Commit and push frequently** — after every self-contained change (feature, fix, cleanup)
 - **Update design docs** — when completing roadmap items, update the design doc to reflect progress
@@ -35,10 +59,15 @@ See also: `.cursor/rules/*.mdc`
 - **Ask user to verify after changes** — UI/behavior changes can break things silently
 - **When stuck, bisect** — don't panic-fix. Use `git log --oneline -20` and `git bisect` to find the breaking commit
 - **Design docs survive compaction** — write debugging notes to `design/YYYY-MM-DD-*.md` so context persists across sessions
+- **TEST EVERY CHANGE IMMEDIATELY** — Never commit a code change without deploying and testing it in the same session. Untested changes create invisible landmines: the gap between cause and effect makes debugging exponentially harder. If you change desktop container code, rebuild the image (`./stack build-ubuntu`) and start a new session to verify. If you change QEMU code, rebuild and restart the VM. If a change can't be tested right now, flag it explicitly to the user: "WARNING: this change has NOT been tested yet." A 13-minute gap between an untested commit and the next image build once cost us an entire day of debugging.
 
 ### Sessions
 - **NEVER** run `spectask stop --all` without explicit user permission — user may have active sessions you can't see
 - **NEVER** stop sessions you didn't create in the current conversation — always ask first
+
+### Workflow
+- **NEVER** ask if the user wants to take a break — just keep working
+- **NEVER** ask "should I continue?" or similar — assume yes and proceed
 
 ### Stack Commands
 - **NEVER** run `./stack start-tmux` — user runs this (needs interactive terminal)
@@ -85,6 +114,37 @@ cd frontend && yarn build
 sed -i '/^FRONTEND_URL=/d' .env
 docker compose -f docker-compose.dev.yaml up -d api
 ```
+
+### UTM Virtual Machines
+
+**See `design/2026-02-04-macos-dev-environment-setup.md` for complete repository setup and build instructions.**
+
+- **Control VMs with utmctl** — Don't wait for user to start VMs manually
+  ```bash
+  # utmctl is in /Applications/UTM.app/Contents/MacOS/utmctl
+  utmctl list                    # List all VMs
+  utmctl start <UUID>            # Start a VM
+  utmctl stop <UUID>             # Stop a VM
+  utmctl status <UUID>           # Check VM status
+  ```
+- **Expanding VM disks**:
+  ```bash
+  # 1. Expand the qcow2 file (VM must be stopped)
+  qemu-img resize /path/to/vm.qcow2 1T
+
+  # 2. Start the VM and expand the partition inside
+  sudo growpart /dev/vda 2
+  sudo resize2fs /dev/vda2
+  df -h  # Verify new space
+  ```
+- **QEMU build requirements**: Custom QEMU builds must include SPICE support (`--enable-spice`) or UTM will fail with "-spice: invalid option"
+- **Building and installing QEMU into UTM**: NEVER modify UTM source code. Instead, rebuild our QEMU fork and install the binary into UTM.app:
+  ```bash
+  cd ~/pm/helix
+  ./for-mac/qemu-helix/build-qemu-standalone.sh  # Builds QEMU and installs into UTM.app
+  ```
+  The script uses the UTM sysroot at `~/pm/UTM/sysroot-macOS-arm64` for dependencies.
+  QEMU source is at `~/pm/qemu-utm` (branch `utm-edition-venus-helix`).
 
 ### Docker
 # ⛔⛔⛔ CRITICAL - READ THIS BEFORE TOUCHING DOCKER ⛔⛔⛔
@@ -177,6 +237,36 @@ docker compose exec -T sandbox-nvidia docker pull registry:5000/helix-ubuntu:$(c
 
 **Key point:** New sessions auto-pull from the sandbox's local dockerd. Existing containers keep their old image - you must start a NEW session to use the updated image.
 
+### macOS Desktop App (for-mac) — Deploying Changes to the VM
+
+When modifying backend code (`api/pkg/server/`, `api/pkg/auth/`, etc.) while working on the macOS desktop app, changes must be deployed to the VM. The API runs inside Docker Compose in the VM, built from the repo checked out at `~/helix`.
+
+**CRITICAL**: Always deploy API/backend changes to the VM. The desktop app's Go code (`for-mac/`) is rebuilt by `wails dev` automatically, but the API server inside the VM uses a separate checkout.
+
+```bash
+# 1. Commit and push your changes on the host
+git add -A && git commit -m "description" && git push
+
+# 2. Pull changes in the VM (SSH as ubuntu)
+ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 41222 ubuntu@localhost \
+  "cd ~/helix && git fetch && git checkout BRANCH_NAME && git pull"
+
+# 3. Restart the API container (Air hot-reload rebuilds Go automatically)
+ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 41222 ubuntu@localhost \
+  "cd ~/helix && docker compose -f docker-compose.dev.yaml restart api"
+```
+
+**When the VM branch is wrong**: Check `git branch` in the VM and switch to the correct branch before pulling.
+
+**What auto-rebuilds:**
+- `for-mac/*.go` — Wails dev hot-reloads the Go backend automatically
+- `for-mac/frontend/src/` — Vite HMR hot-reloads the React frontend
+- `api/` changes inside the VM — Air hot-reloads after `docker compose restart api`
+
+**What requires manual deployment:**
+- Any changes to `api/pkg/` — must be committed, pushed, pulled in VM
+- Docker Compose config changes — must be pulled in VM and `docker compose up -d`
+
 ## Code Patterns
 
 ### Go
@@ -185,7 +275,8 @@ docker compose exec -T sandbox-nvidia docker pull registry:5000/helix-ubuntu:$(c
 - Use structs, not `map[string]interface{}` for API responses
 - GORM AutoMigrate only — no SQL migration files
 - Use gomock, not testify/mock
-- **NO FALLBACKS**: Pick one approach that works and stick to it. Fallback code paths are rarely tested and add complexity. If something doesn't work, fix it properly instead of adding a fallback.
+- **NO FALLBACKS**: Pick one approach that works and stick to it. Fallback code paths are rarely tested, add complexity, and make it impossible to tell which code path is actually running. If something doesn't work, fix it properly instead of adding a fallback. Use explicit modes with clear errors instead.
+- **CLEAN UP DEAD CODE**: When removing a feature or switching approaches, delete the old code immediately. Don't leave dead functions, unused fields, or `#if 0` blocks lying around. There's no time like the present.
 
 For unit tests, use the test suite pattern, exmaple:
 
@@ -439,18 +530,36 @@ docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT id, name FR
 
 ## Testing CLI Commands
 
+### Where Commands Run
+
+The Helix stack runs **inside the UTM VM**, not on the macOS host. All `spectask` commands, `docker compose` commands, and database queries must be run inside the VM via SSH (`ssh -p 2222 luke@127.0.0.1`). The only things that run on the macOS host are: UTM/QEMU, the QEMU build scripts, and `utmctl`.
+
 ### Helix CLI (spectask subcommand)
 
-Build the CLI first:
+Build the CLI on the macOS host, then deploy to the VM:
 ```bash
+# For macOS host usage (limited - can reach API via port forward)
 cd api && CGO_ENABLED=0 go build -o /tmp/helix . && cd ..
+
+# For VM usage (required for most operations)
+cd api && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/helix-linux . && cd ..
+scp -P 2222 /tmp/helix-linux luke@127.0.0.1:/tmp/helix
 ```
 
-Set up environment:
+Set up environment (inside the VM):
 ```bash
-source .env.userkey
-export HELIX_URL="http://localhost:8080"
-# HELIX_API_KEY is already set from .env.userkey
+# Create .env.usercreds if it doesn't exist
+# Get API key from: docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT token FROM api_keys WHERE owner_type='user' LIMIT 1;"
+# Get project ID from: docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT id, name FROM projects LIMIT 5;"
+cat > ~/.env.usercreds << 'EOF'
+HELIX_API_KEY=hl-xxxxx
+HELIX_URL=http://localhost:8080
+HELIX_PROJECT=prj_xxxxx
+HELIX_UBUNTU_AGENT=app_ubuntu01
+EOF
+
+# Export the variables
+set -a && source ~/.env.usercreds && set +a
 ```
 
 **Session Management:**
@@ -499,17 +608,22 @@ export HELIX_URL="http://localhost:8080"
 ```
 
 ### Sandbox Service Names
-The sandbox service name depends on GPU type:
-- `sandbox-nvidia` - Systems with NVIDIA GPU
-- `sandbox` - Systems without GPU (uses software encoding)
+The sandbox service name depends on the environment:
+- `sandbox-nvidia` - Linux servers with NVIDIA GPU
+- `sandbox` - Linux servers without GPU (uses software encoding)
+- `sandbox-macos` - macOS UTM VM (the container name is `helix-sandbox-macos-1`)
 
-Use the correct service name when running docker compose exec commands:
+Use the correct service name when running docker compose exec commands (inside the VM):
 ```bash
-# NVIDIA GPU systems
-docker compose exec -T sandbox-nvidia docker images | grep helix-
+# NVIDIA GPU systems (Linux servers)
+docker compose -f docker-compose.dev.yaml exec -T sandbox-nvidia docker images | grep helix-
 
-# Non-GPU systems
-docker compose exec -T sandbox docker images | grep helix-
+# Non-GPU systems (Linux servers)
+docker compose -f docker-compose.dev.yaml exec -T sandbox docker images | grep helix-
+
+# macOS UTM VM — use the container name directly
+docker exec helix-sandbox-macos-1 docker images | grep helix-
+docker exec helix-sandbox-macos-1 docker ps --format '{{.Names}} {{.Status}}'
 ```
 
 ### Image Versions
@@ -654,6 +768,106 @@ docker compose exec -T sandbox-nvidia docker logs {CONTAINER_NAME} 2>&1 | grep "
 # Force zerocopy mode in benchmark
 /tmp/helix spectask benchmark ses_xxx --video-mode zerocopy --duration 30
 ```
+
+## End-to-End Multi-Desktop Streaming Test
+
+This test verifies the full Helix stack by starting multiple desktop sessions and streaming video from all of them in parallel. It tests the container video pipeline (PipeWire → GStreamer → H.264 → WebSocket), not the QEMU scanout path.
+
+### Prerequisites
+
+1. **VM must be running** — the entire Helix stack (API, sandbox, postgres, etc.) runs inside the UTM VM
+2. **Helix CLI must be compiled for Linux arm64** — the macOS CLI won't work inside the VM
+3. **API credentials** — need a valid `hl-` prefixed API key
+
+### Step 1: Build and Deploy CLI to VM
+
+```bash
+# Cross-compile the Helix CLI for Linux arm64 (run on macOS host)
+cd ~/pm/helix/api && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/helix-linux . && cd ..
+
+# Copy to VM (SSH port 2222 is forwarded from the UTM VM)
+scp -P 2222 /tmp/helix-linux luke@127.0.0.1:/tmp/helix
+```
+
+### Step 2: Find Credentials
+
+All commands from here run **inside the VM via SSH**, NOT on the macOS host.
+
+```bash
+# SSH into the VM
+ssh -p 2222 luke@127.0.0.1
+
+# Find a user API key from the database
+docker exec helix-postgres-1 psql -U postgres -d postgres -c \
+  "SELECT token FROM api_keys WHERE owner_type='user' LIMIT 1;"
+
+# Find a project ID
+docker exec helix-postgres-1 psql -U postgres -d postgres -c \
+  "SELECT id, name FROM projects LIMIT 5;"
+
+# Set environment variables (replace with actual values)
+export HELIX_API_KEY='hl-xxxxx'
+export HELIX_URL='http://localhost:8080'
+```
+
+### Step 3: Start Multiple Desktop Sessions
+
+```bash
+# List available agents (need one with external assistant support)
+/tmp/helix spectask list-agents
+
+# Start 3 sessions (replace PROJECT_ID and AGENT_ID with actual values)
+/tmp/helix spectask start --project PROJECT_ID --agent AGENT_ID -n "Stream test 1"
+/tmp/helix spectask start --project PROJECT_ID --agent AGENT_ID -n "Stream test 2"
+/tmp/helix spectask start --project PROJECT_ID --agent AGENT_ID -n "Stream test 3"
+
+# Note the session IDs from the output (ses_01xxx format)
+# Wait ~20 seconds for GNOME to initialize in all containers
+sleep 20
+```
+
+### Step 4: Stream Video from All Sessions in Parallel
+
+```bash
+# Stream all 3 for 30 seconds each (run in parallel with &)
+/tmp/helix spectask stream ses_01xxx --duration 30 > /tmp/stream1.log 2>&1 &
+/tmp/helix spectask stream ses_01yyy --duration 30 > /tmp/stream2.log 2>&1 &
+/tmp/helix spectask stream ses_01zzz --duration 30 > /tmp/stream3.log 2>&1 &
+wait
+
+# Check results
+cat /tmp/stream1.log
+cat /tmp/stream2.log
+cat /tmp/stream3.log
+```
+
+### What to Look For
+
+- **StreamInit received**: Confirms WebSocket connection and video pipeline negotiation
+- **Video frames > 0**: Confirms H.264 frames are being produced and delivered
+- **FPS > 0**: Static desktop gives ~10 FPS, active content gives higher
+- **All 3 streams running simultaneously**: Confirms the stack handles concurrent sessions
+- **VM stays responsive**: SSH should remain accessible during the test
+
+### Common Issues
+
+- **0 video frames**: PipeWire/GStreamer pipeline not started yet. Wait longer (30s+) for GNOME ScreenCast to initialize. Check container logs for errors.
+- **SSH timeout during test**: VM may be OOM. 3 desktop containers + Docker overhead can exhaust the 65GB VM allocation. Try with 2 sessions instead of 3.
+- **"Sandbox not connected"**: The session's container was stopped. Start a fresh session with `spectask start`.
+- **QEMU crash (no QEMU process on host)**: Check `~/Library/Logs/DiagnosticReports/QEMULauncher-*.ips` for crash reports. Restart VM: quit UTM (`pkill -9 UTM`), reopen (`open -a UTM`), start VM (`utmctl start UUID`).
+
+### Running from Claude Code (via SSH)
+
+When running this test from Claude Code on the macOS host, SSH into the VM for each command:
+
+```bash
+# Pattern for running commands inside the VM from the macOS host
+ssh -p 2222 -o StrictHostKeyChecking=no luke@127.0.0.1 \
+  "export HELIX_API_KEY='hl-xxx' && export HELIX_URL='http://localhost:8080' && \
+   /tmp/helix spectask list"
+```
+
+**Important**: Do NOT use `run_in_background` with `&` in the SSH command — use one or the other, not both, or output will be empty.
 
 ## CLI Development
 

@@ -610,6 +610,18 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 		return fmt.Errorf("failed to get available providers: %w", err)
 	}
 
+	// When creating org apps, also include the user's personal providers
+	if app.OrganizationID != "" {
+		userProviders, err := s.providerManager.ListProviders(ctx, user.ID)
+		if err == nil {
+			for _, p := range userProviders {
+				if !slices.Contains(providers, p) {
+					providers = append(providers, p)
+				}
+			}
+		}
+	}
+
 	log.Info().
 		Str("user_id", user.ID).
 		Interface("available_providers", providers).

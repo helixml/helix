@@ -1,9 +1,8 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react'
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import TextField from '@mui/material/TextField'
 import Button from '@mui/material/Button'
-import IconButton from '@mui/material/IconButton'
 import CircularProgress from '@mui/material/CircularProgress'
 import Fade from '@mui/material/Fade'
 import MenuItem from '@mui/material/MenuItem'
@@ -12,7 +11,6 @@ import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import Divider from '@mui/material/Divider'
 
-import CloseIcon from '@mui/icons-material/Close'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
 import BusinessIcon from '@mui/icons-material/Business'
@@ -22,7 +20,9 @@ import RocketLaunchIcon from '@mui/icons-material/RocketLaunch'
 import PersonIcon from '@mui/icons-material/Person'
 import GitHubIcon from '@mui/icons-material/GitHub'
 import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolder'
-import { Bot } from 'lucide-react'
+import CloseIcon from '@mui/icons-material/Close'
+import IconButton from '@mui/material/IconButton'
+import { Bot, Server } from 'lucide-react'
 
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
@@ -36,6 +36,9 @@ import BrowseProvidersDialog from '../components/project/BrowseProvidersDialog'
 import { SELECTED_ORG_STORAGE_KEY } from '../utils/localStorage'
 import { useCreateOrg } from '../services/orgService'
 import { useListProviders } from '../services/providersService'
+import { useGetSystemSettings, useUpdateSystemSettings } from '../services/systemSettingsService'
+import { PROVIDERS, Provider } from '../components/providers/types'
+import AddProviderDialog from '../components/providers/AddProviderDialog'
 
 const RECOMMENDED_MODELS = [
   'claude-opus-4-6',
@@ -53,6 +56,7 @@ const RECOMMENDED_MODELS = [
 ]
 const DEFAULT_ONBOARDING_AGENT_MODEL = 'claude-opus-4-6'
 import type { TypesExternalRepositoryType, TypesRepositoryInfo, TypesGitHub, TypesGitLab, TypesAzureDevOps, TypesBitbucket } from '../api/api'
+import { TypesProviderEndpointType } from '../api/api'
 
 const ACCENT = '#00e891'
 const ACCENT_DIM = 'rgba(0, 232, 145, 0.08)'
@@ -99,6 +103,11 @@ const STEPS: StepConfig[] = [
     subtitle: 'To get started, please sign in with your account credentials.',
   },
   {
+    icon: <Server size={20} />,
+    title: 'Connect an AI provider',
+    subtitle: 'Add an API key so your agents can use AI models.',
+  },
+  {
     icon: <BusinessIcon />,
     title: 'Set up your organization',
     subtitle: 'Organizations help you collaborate with your team and manage projects together.',
@@ -126,7 +135,15 @@ export default function Onboarding() {
   const [activeStep, setActiveStep] = useState(1)
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set([0]))
 
-  // Step 1: Organization
+  // Step 1: Provider
+  const [selectedOnboardingProvider, setSelectedOnboardingProvider] = useState<Provider | null>(null)
+  const [addProviderDialogOpen, setAddProviderDialogOpen] = useState(false)
+  const [hasAutoSetKodit, setHasAutoSetKodit] = useState(false)
+  const initialProvidersChecked = useRef(false)
+  const systemSettings = useGetSystemSettings()
+  const updateSystemSettings = useUpdateSystemSettings()
+
+  // Step 2: Organization
   const [orgMode, setOrgMode] = useState<'select' | 'create'>('select')
   const [selectedOrgId, setSelectedOrgId] = useState<string>('')
   const [orgDisplayName, setOrgDisplayName] = useState('')
@@ -134,7 +151,7 @@ export default function Onboarding() {
   const [createdOrgName, setCreatedOrgName] = useState<string>('')
   const createOrgMutation = useCreateOrg()
 
-  // Step 2: Project + Agent
+  // Step 3: Project + Agent
   const [projectName, setProjectName] = useState('')
   const [projectDescription, setProjectDescription] = useState('')
   const [repoMode, setRepoMode] = useState<'new' | 'external'>('new')
@@ -168,12 +185,10 @@ export default function Onboarding() {
   const [creatingAgent, setCreatingAgent] = useState(false)
   const [createdAgentId, setCreatedAgentId] = useState<string>('')
 
-  // Step 3: Task
+  // Step 4: Task
   const [taskPrompt, setTaskPrompt] = useState('')
   const [creatingTask, setCreatingTask] = useState(false)
 
-  // Skipping
-  const [skipping, setSkipping] = useState(false)
 
   const existingOrgs = account.organizationTools.organizations
   const hasExistingOrgs = existingOrgs.length > 0
@@ -182,6 +197,71 @@ export default function Onboarding() {
     loadModels: true,
     enabled: true,
   })
+
+  // Derived provider state
+  const connectedProviderIds = useMemo(() => {
+    if (!providers) return new Set<string>()
+    const ids = new Set<string>()
+    providers.forEach(p => {
+      if (p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser && p.name) {
+        ids.add(p.name)
+      }
+    })
+    return ids
+  }, [providers])
+  const hasUserProviders = connectedProviderIds.size > 0
+
+  // Check if any providers (including system/global) have enabled models
+  const hasAnyEnabledModels = useMemo(() => {
+    if (!providers) return false
+    return providers.some(p =>
+      (p.available_models || []).some(m => m.enabled && m.type === 'chat')
+    )
+  }, [providers])
+
+  // Auto-complete provider step if any providers already exist on initial load
+  // (either user-configured or system/global providers)
+  useEffect(() => {
+    if (initialProvidersChecked.current || isLoadingProviders || !providers) return
+    initialProvidersChecked.current = true
+
+    if (hasAnyEnabledModels) {
+      setCompletedSteps(prev => new Set([...prev, 1]))
+      if (activeStep === 1) {
+        setActiveStep(2)
+      }
+    }
+  }, [isLoadingProviders])
+
+  // Auto-set kodit enrichment model after first provider connection during onboarding
+  useEffect(() => {
+    if (hasAutoSetKodit || !providers?.length) return
+    const userProviders = providers.filter(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser)
+    if (userProviders.length === 0) return
+    // Don't auto-set if already configured
+    if (systemSettings.data?.kodit_enrichment_model) return
+
+    const firstProvider = userProviders[0]
+    const providerName = firstProvider.name || ''
+    const modelMap: Record<string, { model: string; provider: string }> = {
+      'user/openai': { model: 'gpt-4o-mini', provider: 'user/openai' },
+      'user/anthropic': { model: 'claude-haiku-4-5-20251001', provider: 'user/anthropic' },
+      'user/google': { model: 'gemini-2.5-flash', provider: 'user/google' },
+      'user/groq': { model: 'llama-3.1-8b-instant', provider: 'user/groq' },
+      'user/togetherai': { model: 'Qwen/Qwen3-30B-A3B', provider: 'user/togetherai' },
+      'user/cerebras': { model: 'llama-3.3-70b', provider: 'user/cerebras' },
+    }
+
+    const mapping = modelMap[providerName]
+    if (!mapping) return
+
+    setHasAutoSetKodit(true)
+    updateSystemSettings.mutate({
+      kodit_enrichment_model: mapping.model,
+      kodit_enrichment_provider: mapping.provider,
+      providers_management_enabled: true,
+    })
+  }, [providers, systemSettings.data, hasAutoSetKodit])
 
   useEffect(() => {
     if (hasExistingOrgs) {
@@ -214,7 +294,7 @@ export default function Onboarding() {
   }, [zedExternalAgents, selectedAgentId])
 
   useEffect(() => {
-    if (activeStep !== 2 || !createdOrgId) return
+    if (activeStep !== 3 || !createdOrgId) return
 
     api.get<IApp[]>('/api/v1/apps', {
       params: { organization_id: createdOrgId },
@@ -264,17 +344,6 @@ export default function Onboarding() {
     setActiveStep(step + 1)
   }, [])
 
-  const handleSkip = useCallback(async () => {
-    setSkipping(true)
-    try {
-      await api.getApiClient().v1UsersMeOnboardingCreate()
-      router.navigateReplace('projects')
-    } catch (err) {
-      console.error('Failed to skip onboarding:', err)
-      router.navigateReplace('projects')
-    }
-  }, [api, router])
-
   const handleComplete = useCallback(async () => {
     try {
       await api.getApiClient().v1UsersMeOnboardingCreate()
@@ -303,7 +372,7 @@ export default function Onboarding() {
     }
     setCreatedOrgId(org.id)
     setCreatedOrgName(org.name || org.id)
-    markComplete(1)
+    markComplete(2)
   }, [selectedOrgId, existingOrgs, markComplete, snackbar])
 
   const handleCreateOrg = useCallback(async () => {
@@ -319,7 +388,7 @@ export default function Onboarding() {
         setCreatedOrgId(newOrg.id)
         setCreatedOrgName(newOrg.name || newOrg.id)
         await account.organizationTools.loadOrganizations()
-        markComplete(1)
+        markComplete(2)
       }
     } catch (err) {
       console.error('Failed to create org:', err)
@@ -353,7 +422,7 @@ export default function Onboarding() {
     setLinkRepoDialogOpen(false)
   }, [projectName])
 
-  // Step 2: Create project (includes agent creation/selection)
+  // Step 3: Create project (includes agent creation/selection)
   const handleCreateProject = useCallback(async () => {
     if (!projectName.trim()) {
       snackbar.error('Please enter a project name')
@@ -508,7 +577,7 @@ export default function Onboarding() {
         if (agentMode === 'select') {
           setCreatedAgentId(selectedAgentId)
         }
-        markComplete(2)
+        markComplete(3)
       }
     } catch (err: any) {
       console.error('Failed to create project:', err)
@@ -519,7 +588,7 @@ export default function Onboarding() {
     }
   }, [projectName, projectDescription, repoMode, linkedExternalRepo, createdOrgId, account, api, apps, markComplete, snackbar, agentMode, selectedAgentId, selectedModel, selectedProvider, codeAgentRuntime, newAgentName])
 
-  // Step 3: Create task
+  // Step 4: Create task
   const handleCreateTask = useCallback(async () => {
     if (!taskPrompt.trim()) {
       snackbar.error('Please describe what you want to build')
@@ -538,7 +607,7 @@ export default function Onboarding() {
       })
 
       if (response.data) {
-        markComplete(3)
+        markComplete(4)
         snackbar.success('Task created! Your AI agent will start working on it.')
         setTimeout(() => handleComplete(), 1500)
       }
@@ -550,6 +619,11 @@ export default function Onboarding() {
       setCreatingTask(false)
     }
   }, [taskPrompt, createdProjectId, createdAgentId, api, markComplete, snackbar, handleComplete])
+
+  const handleDismiss = useCallback(() => {
+    account.dismissOnboarding()
+    router.navigateReplace('projects')
+  }, [router])
 
   const userName = account.user?.name?.split(' ')[0] || account.user?.email?.split('@')[0] || 'there'
 
@@ -584,6 +658,80 @@ export default function Onboarding() {
       case 1:
         return (
           <Fade in={isStepActive(1)} timeout={400}>
+            <Box sx={{ mt: 2.5 }}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 1.5, mb: 2.5 }}>
+                {PROVIDERS.map((prov) => {
+                  const isConnected = connectedProviderIds.has(prov.id)
+                  const Logo = prov.logo
+                  return (
+                    <Box
+                      key={prov.id}
+                      onClick={() => {
+                        setSelectedOnboardingProvider(prov)
+                        setAddProviderDialogOpen(true)
+                      }}
+                      sx={{
+                        p: 1.5,
+                        borderRadius: 1.5,
+                        border: `1px solid ${isConnected ? CARD_BORDER_ACTIVE : CARD_BORDER}`,
+                        bgcolor: isConnected ? ACCENT_DIM : 'transparent',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        '&:hover': { borderColor: 'rgba(255,255,255,0.15)', bgcolor: 'rgba(255,255,255,0.02)' },
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1.5,
+                      }}
+                    >
+                      <Box sx={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        {typeof Logo === 'string' ? (
+                          <img src={Logo} alt="" style={{ width: 24, height: 24 }} />
+                        ) : (
+                          <Logo style={{ width: 24, height: 24 }} />
+                        )}
+                      </Box>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography sx={{ color: '#fff', fontWeight: 500, fontSize: '0.78rem' }}>
+                          {prov.name}
+                        </Typography>
+                      </Box>
+                      {isConnected && (
+                        <CheckCircleIcon sx={{ fontSize: 16, color: ACCENT, flexShrink: 0 }} />
+                      )}
+                    </Box>
+                  )
+                })}
+              </Box>
+
+              <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+                <Button
+                  variant="contained"
+                  onClick={() => markComplete(1)}
+                  disabled={!hasUserProviders}
+                  sx={btnSx}
+                >
+                  Continue
+                </Button>
+                <Button
+                  variant="text"
+                  onClick={() => markComplete(1)}
+                  sx={{
+                    color: 'rgba(255,255,255,0.3)',
+                    textTransform: 'none',
+                    fontSize: '0.78rem',
+                    '&:hover': { color: 'rgba(255,255,255,0.6)' },
+                  }}
+                >
+                  I'll do this later
+                </Button>
+              </Box>
+            </Box>
+          </Fade>
+        )
+
+      case 2:
+        return (
+          <Fade in={isStepActive(2)} timeout={400}>
             <Box sx={{ mt: 2.5 }}>
               {hasExistingOrgs && (
                 <Box sx={{ display: 'flex', gap: 1.5, mb: 2.5 }}>
@@ -716,9 +864,9 @@ export default function Onboarding() {
           </Fade>
         )
 
-      case 2:
+      case 3:
         return (
-          <Fade in={isStepActive(2)} timeout={400}>
+          <Fade in={isStepActive(3)} timeout={400}>
             <Box sx={{ mt: 2.5 }}>
               <TextField
                 fullWidth
@@ -1047,9 +1195,9 @@ export default function Onboarding() {
           </Fade>
         )
 
-      case 3:
+      case 4:
         return (
-          <Fade in={isStepActive(3)} timeout={400}>
+          <Fade in={isStepActive(4)} timeout={400}>
             <Box sx={{ mt: 2.5 }}>
               <TextField
                 fullWidth
@@ -1113,21 +1261,20 @@ export default function Onboarding() {
         pb: 6,
       }}
     >
-      {/* Skip button */}
+      {/* Dismiss button */}
       <IconButton
-        onClick={handleSkip}
-        disabled={skipping}
+        onClick={handleDismiss}
         sx={{
           position: 'fixed',
           top: 16,
           right: 16,
-          color: 'rgba(255,255,255,0.2)',
-          '&:hover': { color: 'rgba(255,255,255,0.5)', bgcolor: 'rgba(255,255,255,0.04)' },
+          color: 'rgba(255,255,255,0.3)',
+          '&:hover': { color: 'rgba(255,255,255,0.6)' },
+          zIndex: 1301,
         }}
       >
-        <CloseIcon sx={{ fontSize: 20 }} />
+        <CloseIcon />
       </IconButton>
-
       <Box
         sx={{
           width: '100%',
@@ -1220,6 +1367,16 @@ export default function Onboarding() {
           onSelectRepository={handleBrowseSelectRepository}
           isLinking={linkingRepo}
         />
+
+        {selectedOnboardingProvider && (
+          <AddProviderDialog
+            open={addProviderDialogOpen}
+            onClose={() => setAddProviderDialogOpen(false)}
+            onClosed={() => setSelectedOnboardingProvider(null)}
+            orgId=""
+            provider={selectedOnboardingProvider}
+          />
+        )}
 
         {/* All done message */}
         {completedSteps.size === STEPS.length && (

@@ -27,14 +27,17 @@ export interface StreamSettings {
 }
 
 // Get default bitrate (in kbps) based on resolution
-// 4K (3840x2160 or higher): 10 Mbps
-// 1080p and below: 5 Mbps
+// Scale ~4 bits/pixel for good quality H.264:
+//   1080p (2M px): 8 Mbps
+//   1440p (3.7M px): 15 Mbps
+//   4K (8.3M px): 30 Mbps
+//   5K (14.7M px): 50 Mbps
 export const getDefaultBitrateForResolution = (width: number, height: number): number => {
-  // 4K is 3840x2160, so check if either dimension exceeds 1080p thresholds
-  if (width >= 3840 || height >= 2160) {
-    return 10000; // 10 Mbps for 4K
-  }
-  return 5000; // 5 Mbps for 1080p and below
+  const pixels = width * height;
+  // ~4 bits/pixel, converted to kbps (divide by 1000)
+  const bitrate = Math.round(pixels * 4 / 1000);
+  // Clamp to reasonable range: 5 Mbps minimum, 80 Mbps maximum
+  return Math.max(5000, Math.min(80000, bitrate));
 };
 
 export const defaultStreamSettings = (): StreamSettings => ({
