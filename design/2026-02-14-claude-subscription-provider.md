@@ -311,7 +311,7 @@ Claude Code ACP in Zed supports **two credential modes**:
    - Credentials synced from user's Claude subscription by settings-sync-daemon
    - Claude Code manages its own model selection internally
    - `baseURL=""`, `apiType=""` in CodeAgentConfig
-   - Daemon sets no `ANTHROPIC_*` env vars
+   - Daemon sets `ANTHROPIC_BASE_URL=https://api.anthropic.com` to override Hydra's container-level env var
 
 2. **API key mode** (Anthropic provider selected):
    - Claude Code routes through Helix API proxy (same as Zed Agent with Anthropic)

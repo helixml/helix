@@ -152,7 +152,12 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 			log.Printf("Using claude_code runtime (API key mode): base_url=%s", baseURL)
 		} else {
 			// Subscription mode: Claude Code reads credentials from
-			// ~/.claude/.credentials.json (synced by syncClaudeCredentials)
+			// ~/.claude/.credentials.json (synced by syncClaudeCredentials).
+			// IMPORTANT: Hydra sets ANTHROPIC_BASE_URL on ALL containers, which
+			// leaks into Claude Code's process via env inheritance. We must
+			// explicitly override it to the real Anthropic API so Claude Code
+			// talks directly to Anthropic with OAuth credentials.
+			env["ANTHROPIC_BASE_URL"] = "https://api.anthropic.com"
 			log.Printf("Using claude_code runtime (subscription mode)")
 		}
 
