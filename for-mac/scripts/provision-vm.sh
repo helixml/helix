@@ -269,10 +269,16 @@ if [ "$UPDATE" = true ]; then
     # Re-prime the stack
     log "Re-priming Helix stack..."
     run_ssh "cd ~/helix && [ ! -e .env ] && ln -s .env.vm .env || true"
+
+    # Ensure critical env vars are present in .env.vm (may be missing from older provisions)
+    run_ssh "grep -q '^COMPOSE_PROFILES=' ~/helix/.env.vm 2>/dev/null || echo 'COMPOSE_PROFILES=code-macos' >> ~/helix/.env.vm"
+    run_ssh "grep -q '^CONTAINER_DOCKER_PATH=' ~/helix/.env.vm 2>/dev/null || echo 'CONTAINER_DOCKER_PATH=/helix/container-docker' >> ~/helix/.env.vm"
+    run_ssh "grep -q '^ENABLE_CUSTOM_USER_PROVIDERS=' ~/helix/.env.vm 2>/dev/null || echo 'ENABLE_CUSTOM_USER_PROVIDERS=true' >> ~/helix/.env.vm"
+
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml pull 2>&1" || true
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml build 2>&1" || true
 
-    log "Starting stack to verify and load desktop images into sandbox..."
+    log "Starting stack (with sandbox) to verify and load desktop images..."
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml up -d 2>&1"
 
     ELAPSED=0
@@ -288,6 +294,22 @@ if [ "$UPDATE" = true ]; then
             log "Waiting for API... (${ELAPSED}s)"
         fi
     done
+
+    # Wait for sandbox's inner dockerd to be ready before transferring images.
+    # The sandbox runs Docker-in-Docker — its dockerd takes a few seconds to start.
+    log "Waiting for sandbox's inner dockerd..."
+    SANDBOX_READY=0
+    for i in $(seq 1 30); do
+        if run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml exec -T sandbox-macos docker info >/dev/null 2>&1"; then
+            SANDBOX_READY=1
+            break
+        fi
+        sleep 2
+    done
+    if [ "$SANDBOX_READY" = "0" ]; then
+        log "WARNING: Sandbox dockerd not ready after 60s. Checking status..."
+        run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml ps sandbox-macos 2>&1" || true
+    fi
 
     # Transfer desktop image into sandbox's nested dockerd via local registry.
     # The sandbox runs its own Docker daemon (DinD), so desktop images built on
@@ -871,6 +893,21 @@ if ! step_done "prime_stack"; then
         log "Checking container status..."
         run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml ps 2>&1" || true
         run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml logs api --tail 20 2>&1" || true
+    fi
+
+    # Wait for sandbox's inner dockerd to be ready before transferring images.
+    log "Waiting for sandbox's inner dockerd..."
+    SANDBOX_READY=0
+    for i in $(seq 1 30); do
+        if run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml exec -T sandbox-macos docker info >/dev/null 2>&1"; then
+            SANDBOX_READY=1
+            break
+        fi
+        sleep 2
+    done
+    if [ "$SANDBOX_READY" = "0" ]; then
+        log "WARNING: Sandbox dockerd not ready after 60s. Checking status..."
+        run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml ps sandbox-macos 2>&1" || true
     fi
 
     # Transfer desktop image into sandbox's nested dockerd via local registry.
