@@ -551,6 +551,8 @@ if ! step_done "run_install_sh"; then
     COMPOSE_SIZE=$(run_ssh "wc -c < /opt/HelixML/docker-compose.yaml 2>/dev/null || echo 0")
     if [ "${COMPOSE_SIZE:-0}" -lt 100 ]; then
         log "docker-compose.yaml is missing or empty — downloading directly..."
+        # Try raw GitHub URL first (works for tags without GitHub releases), then releases URL
+        run_ssh "curl -sL 'https://raw.githubusercontent.com/helixml/helix/${HELIX_VERSION}/docker-compose.yaml' -o /opt/HelixML/docker-compose.yaml" || \
         run_ssh "curl -sL 'https://get.helixml.tech/helixml/helix/releases/download/${HELIX_VERSION}/docker-compose.yaml' -o /opt/HelixML/docker-compose.yaml"
         COMPOSE_SIZE=$(run_ssh "wc -c < /opt/HelixML/docker-compose.yaml 2>/dev/null || echo 0")
         if [ "${COMPOSE_SIZE:-0}" -lt 100 ]; then
