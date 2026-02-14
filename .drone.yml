@@ -2514,6 +2514,13 @@ platform:
   os: darwin
   arch: arm64
 
+# Wait for ARM64 Docker images to be built before provisioning the VM
+depends_on:
+  - build-controlplane-arm64
+  - build-haystack-arm64
+  - build-typesense-arm64
+  - build-sandbox-arm64
+
 trigger:
   ref:
     include:
@@ -2521,6 +2528,45 @@ trigger:
       - refs/heads/multi-arch-builds
 
 steps:
+  # Step 1: Provision VM image and upload to R2
+  # Boots a QEMU VM, installs Helix using pre-built ARM64 Docker images,
+  # compresses the disk with zstd, and uploads to R2 CDN.
+  # This updates vm-manifest.json in the working tree for build-app to embed.
+  - name: provision-vm
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
+      R2_ACCOUNT_ID:
+        from_secret: r2_account_id
+      R2_ACCESS_KEY_ID:
+        from_secret: r2_access_key_id
+      R2_SECRET_ACCESS_KEY:
+        from_secret: r2_secret_access_key
+      R2_BUCKET: helix-desktop
+    commands:
+      - export HOME=/Users/luke
+      # Determine version from tag or commit
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$(echo ${DRONE_COMMIT_SHA} | head -c 9)
+        fi
+      # Derive R2_ENDPOINT for upload script
+      - export R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+      # Run provisioning with upload
+      # Uses /Volumes/Big for VM disk (fast SSD on the runner)
+      # SSH port 2223 avoids conflict with any dev VM on 2222
+      - |
+        cd for-mac
+        HELIX_VM_DIR=/Volumes/Big/helix-vm/ci-provision \
+        VM_VERSION="$VERSION" \
+        bash scripts/provision-vm-light.sh \
+          --helix-version "$VERSION" \
+          --upload
+      # Clean up VM disk (no longer needed after upload to R2)
+      - rm -rf /Volumes/Big/helix-vm/ci-provision
+
+  # Step 2: Build Helix.app with embedded QEMU, frameworks, and vm-manifest.json
   - name: build-app
     environment:
       PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
@@ -2538,6 +2584,7 @@ steps:
       - cd for-mac
       - ./scripts/build-helix-app.sh
 
+  # Step 3: Create DMG, sign, notarize, upload to R2
   - name: create-dmg
     environment:
       PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
@@ -2552,7 +2599,6 @@ steps:
       R2_SECRET_ACCESS_KEY:
         from_secret: r2_secret_access_key
       R2_BUCKET_NAME: helix-desktop
-      VM_DIR: /nonexistent
     commands:
       - export HOME=/Users/luke
       # Unlock CI keychain
@@ -2586,3 +2632,15 @@ steps:
           "s3://${R2_BUCKET_NAME}/desktop/${VERSION}/Helix-for-Mac.dmg" \
           --endpoint-url "$R2_ENDPOINT" \
           --no-progress
+      # Upload latest.json pointer for update checking
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
+          export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
+          R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          echo "{\"version\":\"${DRONE_TAG}\",\"dmg_url\":\"https://dl.helix.ml/desktop/${DRONE_TAG}/Helix-for-Mac.dmg\",\"vm_url\":\"https://dl.helix.ml/vm/${DRONE_TAG}/disk.qcow2.zst\"}" | \
+            aws s3 cp - "s3://${R2_BUCKET_NAME}/desktop/latest.json" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --content-type "application/json" \
+              --no-progress
+        fi

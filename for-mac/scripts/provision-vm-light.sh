@@ -867,7 +867,7 @@ if [ "$UPLOAD" = true ]; then
     if ! step_done "upload"; then
         log ""
         log "=== Uploading VM image to R2 CDN ==="
-        VM_DIR="$VM_DIR" bash "${SCRIPT_DIR}/upload-vm-images.sh"
+        VM_DIR="$VM_DIR" VM_VERSION="${VM_VERSION:-}" bash "${SCRIPT_DIR}/upload-vm-images.sh"
         mark_step "upload"
     fi
 fi
