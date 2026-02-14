@@ -104,12 +104,20 @@ func (z *ZFSCollector) pollLoop() {
 func (z *ZFSCollector) collect() {
 	stats, err := z.fetchZFSStats()
 	if err != nil {
+		// SSH connection failures (exit status 255) are expected during VM boot.
+		// Don't update stats — keep previous values (or empty) and skip silently.
+		if strings.Contains(err.Error(), "exit status 255") {
+			return
+		}
 		stats.Error = err.Error()
 	}
 	stats.LastUpdated = time.Now().Format(time.RFC3339)
 
 	disk, err := z.fetchDiskUsage()
 	if err != nil {
+		if strings.Contains(err.Error(), "exit status 255") {
+			return
+		}
 		disk.Error = err.Error()
 	}
 
