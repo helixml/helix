@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback } from 'react'
+import React, { FC, useState, useCallback, useEffect, useRef } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
@@ -13,10 +13,12 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContentText from '@mui/material/DialogContentText'
 import Alert from '@mui/material/Alert'
+import CircularProgress from '@mui/material/CircularProgress'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import useThemeConfig from '../../hooks/useThemeConfig'
+import ExternalAgentDesktopViewer, { useSandboxState } from '../external-agent/ExternalAgentDesktopViewer'
 
 interface ClaudeSubscriptionData {
   id: string
@@ -41,6 +43,14 @@ const ClaudeSubscription: FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<string>('')
   const [credentialsText, setCredentialsText] = useState('')
   const [subscriptionName, setSubscriptionName] = useState('My Claude Subscription')
+
+  // Interactive login state
+  const [loginDialogOpen, setLoginDialogOpen] = useState(false)
+  const [loginSessionId, setLoginSessionId] = useState<string>('')
+  const [loginStarting, setLoginStarting] = useState(false)
+  const [loginCommandSent, setLoginCommandSent] = useState(false)
+  const [loginPolling, setLoginPolling] = useState(false)
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Fetch existing subscriptions
   const { data: subscriptions, isLoading } = useQuery({
@@ -104,7 +114,7 @@ const ClaudeSubscription: FC = () => {
         claudeAiOauth: creds,
       },
     })
-  }, [credentialsText, subscriptionName, createMutation])
+  }, [credentialsText, subscriptionName])
 
   const handleDeleteClick = useCallback((id: string) => {
     setDeleteTarget(id)
@@ -115,7 +125,58 @@ const ClaudeSubscription: FC = () => {
     if (deleteTarget) {
       deleteMutation.mutate(deleteTarget)
     }
-  }, [deleteTarget, deleteMutation])
+  }, [deleteTarget])
+
+  // Start interactive login flow
+  const handleStartLogin = useCallback(async () => {
+    setLoginStarting(true)
+    try {
+      const result = await api.post<{ session_id: string }>('/api/v1/claude-subscriptions/start-login', {})
+      if (result && result.session_id) {
+        setLoginSessionId(result.session_id)
+        setLoginDialogOpen(true)
+        setLoginCommandSent(false)
+        setLoginPolling(false)
+      }
+    } catch (err: any) {
+      snackbar.error('Failed to start login session: ' + (err?.message || 'unknown error'))
+    } finally {
+      setLoginStarting(false)
+    }
+  }, [])
+
+  // Stop login session and clean up
+  const stopLoginSession = useCallback(async (sessionId: string) => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+      pollIntervalRef.current = null
+    }
+    try {
+      const apiClient = api.getApiClient()
+      await apiClient.v1SessionsStopExternalAgentDelete(sessionId)
+    } catch {
+      // Ignore errors when stopping
+    }
+  }, [])
+
+  const handleCloseLoginDialog = useCallback(() => {
+    if (loginSessionId) {
+      stopLoginSession(loginSessionId)
+    }
+    setLoginDialogOpen(false)
+    setLoginSessionId('')
+    setLoginCommandSent(false)
+    setLoginPolling(false)
+  }, [loginSessionId])
+
+  // Clean up polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+      }
+    }
+  }, [])
 
   const hasSubscription = subscriptions && subscriptions.length > 0
 
@@ -131,13 +192,23 @@ const ClaudeSubscription: FC = () => {
               </Typography>
             </Box>
             {!hasSubscription && (
-              <Button
-                variant="contained"
-                color="secondary"
-                onClick={() => setConnectDialogOpen(true)}
-              >
-                Connect
-              </Button>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  onClick={handleStartLogin}
+                  disabled={loginStarting}
+                >
+                  {loginStarting ? 'Starting...' : 'Login with Browser'}
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="secondary"
+                  onClick={() => setConnectDialogOpen(true)}
+                >
+                  Paste Credentials
+                </Button>
+              </Box>
             )}
           </Box>
 
@@ -179,9 +250,10 @@ const ClaudeSubscription: FC = () => {
                     variant="outlined"
                     color="secondary"
                     size="small"
-                    onClick={() => setConnectDialogOpen(true)}
+                    onClick={handleStartLogin}
+                    disabled={loginStarting}
                   >
-                    Update
+                    {loginStarting ? 'Starting...' : 'Re-login'}
                   </Button>
                   <IconButton
                     color="error"
@@ -196,19 +268,39 @@ const ClaudeSubscription: FC = () => {
           ) : (
             <Box sx={{ p: 2, borderRadius: 1, border: '1px dashed', borderColor: 'divider', textAlign: 'center' }}>
               <Typography variant="body2" color="text.secondary">
-                No Claude subscription connected. Connect your subscription to use Claude Code in desktop sessions.
+                No Claude subscription connected. Click "Login with Browser" to sign in with your Claude account.
               </Typography>
             </Box>
           )}
         </Grid>
       </Grid>
 
-      {/* Connect Dialog */}
+      {/* Interactive Login Dialog */}
+      {loginDialogOpen && loginSessionId && (
+        <ClaudeLoginDialog
+          sessionId={loginSessionId}
+          open={loginDialogOpen}
+          onClose={handleCloseLoginDialog}
+          loginCommandSent={loginCommandSent}
+          setLoginCommandSent={setLoginCommandSent}
+          loginPolling={loginPolling}
+          setLoginPolling={setLoginPolling}
+          pollIntervalRef={pollIntervalRef}
+          subscriptionName={subscriptionName}
+          onCredentialsCaptured={() => {
+            queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
+            snackbar.success('Claude subscription connected via browser login')
+            handleCloseLoginDialog()
+          }}
+        />
+      )}
+
+      {/* Paste Credentials Dialog */}
       <Dialog open={connectDialogOpen} onClose={() => setConnectDialogOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>Connect Claude Subscription</DialogTitle>
+        <DialogTitle>Paste Claude Credentials</DialogTitle>
         <DialogContent>
           <Alert severity="info" sx={{ mb: 2 }}>
-            To connect your Claude subscription, paste the contents of your local Claude credentials file.
+            Paste the contents of your local Claude credentials file.
             This file is located at <code>~/.claude/.credentials.json</code> on your computer.
           </Alert>
 
@@ -269,6 +361,160 @@ const ClaudeSubscription: FC = () => {
         </DialogActions>
       </Dialog>
     </>
+  )
+}
+
+// Separate component for the login dialog to properly use useSandboxState
+interface ClaudeLoginDialogProps {
+  sessionId: string
+  open: boolean
+  onClose: () => void
+  loginCommandSent: boolean
+  setLoginCommandSent: (v: boolean) => void
+  loginPolling: boolean
+  setLoginPolling: (v: boolean) => void
+  pollIntervalRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>
+  subscriptionName: string
+  onCredentialsCaptured: () => void
+}
+
+const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
+  sessionId,
+  open,
+  onClose,
+  loginCommandSent,
+  setLoginCommandSent,
+  loginPolling,
+  setLoginPolling,
+  pollIntervalRef,
+  subscriptionName,
+  onCredentialsCaptured,
+}) => {
+  const api = useApi()
+  const snackbar = useSnackbar()
+  const { isRunning } = useSandboxState(sessionId)
+
+  // Once the desktop is running, send the `claude auth login` command
+  useEffect(() => {
+    if (!isRunning || loginCommandSent) return
+
+    const sendLoginCommand = async () => {
+      try {
+        const apiClient = api.getApiClient()
+        await apiClient.v1ExternalAgentsExecCreate(sessionId, {
+          command: ['claude', 'auth', 'login'],
+          background: true,
+          env: {
+            DISPLAY: ':0',
+          },
+        })
+        setLoginCommandSent(true)
+      } catch (err: any) {
+        console.error('Failed to send claude auth login command:', err)
+      }
+    }
+
+    // Small delay to let GNOME initialize
+    const timeout = setTimeout(sendLoginCommand, 3000)
+    return () => clearTimeout(timeout)
+  }, [isRunning, loginCommandSent, sessionId])
+
+  // Once login command is sent, start polling for credentials
+  useEffect(() => {
+    if (!loginCommandSent || loginPolling) return
+
+    setLoginPolling(true)
+
+    const pollForCredentials = async () => {
+      try {
+        const result = await api.get<{ found: boolean; credentials: string }>(
+          `/api/v1/claude-subscriptions/poll-login/${sessionId}`,
+          {}
+        )
+        if (result && result.found && result.credentials) {
+          // Parse and save credentials
+          let parsed: any
+          try {
+            parsed = JSON.parse(result.credentials)
+          } catch {
+            return // Not valid JSON yet, keep polling
+          }
+
+          const creds = parsed.claudeAiOauth || parsed
+          if (!creds.accessToken || !creds.refreshToken) return
+
+          // Create the subscription
+          await api.post('/api/v1/claude-subscriptions', {
+            name: subscriptionName,
+            credentials: {
+              claudeAiOauth: creds,
+            },
+          })
+
+          onCredentialsCaptured()
+        }
+      } catch {
+        // Ignore polling errors
+      }
+    }
+
+    pollIntervalRef.current = setInterval(pollForCredentials, 3000)
+
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
+      }
+    }
+  }, [loginCommandSent, loginPolling, sessionId, subscriptionName])
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="lg"
+      fullWidth
+      PaperProps={{
+        sx: { height: '80vh', maxHeight: '80vh' },
+      }}
+    >
+      <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Box>
+          <Typography variant="h6">Sign in to Claude</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Complete the login in the browser below. Your credentials will be captured automatically.
+          </Typography>
+        </Box>
+        {loginCommandSent && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <CircularProgress size={16} />
+            <Typography variant="body2" color="text.secondary">
+              Waiting for login...
+            </Typography>
+          </Box>
+        )}
+      </DialogTitle>
+      <DialogContent sx={{ p: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {!isRunning ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 2 }}>
+            <CircularProgress />
+            <Typography variant="body2" color="text.secondary">
+              Starting desktop session...
+            </Typography>
+          </Box>
+        ) : (
+          <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+            <ExternalAgentDesktopViewer
+              sessionId={sessionId}
+              mode="stream"
+            />
+          </Box>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+      </DialogActions>
+    </Dialog>
   )
 }
 

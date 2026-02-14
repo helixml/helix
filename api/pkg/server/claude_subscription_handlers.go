@@ -1,9 +1,12 @@
 package server
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -324,4 +327,208 @@ func (apiServer *HelixAPIServer) getSessionClaudeCredentials(_ http.ResponseWrit
 	}
 
 	return &creds, nil
+}
+
+// ClaudeLoginSessionResponse is returned when starting a Claude login session
+type ClaudeLoginSessionResponse struct {
+	SessionID string `json:"session_id"`
+}
+
+// @Summary Start a Claude login session
+// @Description Launch a temporary desktop session for interactive Claude OAuth login
+// @Tags Claude
+// @Produce json
+// @Success 200 {object} ClaudeLoginSessionResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/claude-subscriptions/start-login [post]
+func (apiServer *HelixAPIServer) startClaudeLogin(_ http.ResponseWriter, req *http.Request) (*ClaudeLoginSessionResponse, *system.HTTPError) {
+	user := getRequestUser(req)
+	if user == nil {
+		return nil, system.NewHTTPError401("authentication required")
+	}
+
+	// Get user's org ID (use first org membership)
+	orgID := ""
+	memberships, err := apiServer.Store.ListOrganizationMemberships(req.Context(), &store.ListOrganizationMembershipsQuery{
+		UserID: user.ID,
+	})
+	if err == nil && len(memberships) > 0 {
+		orgID = memberships[0].OrganizationID
+	}
+
+	// Create a minimal session for the login flow
+	session := &types.Session{
+		ID:             system.GenerateSessionID(),
+		Name:           "Claude Login",
+		Created:        time.Now(),
+		Updated:        time.Now(),
+		Mode:           types.SessionModeInference,
+		Type:           types.SessionTypeText,
+		Provider:       "anthropic",
+		ModelName:      "external_agent",
+		Owner:          user.ID,
+		OwnerType:      types.OwnerTypeUser,
+		OrganizationID: orgID,
+		Metadata: types.SessionMetadata{
+			Stream:      true,
+			AgentType:   "zed_external",
+			SessionRole: "exploratory",
+		},
+	}
+
+	createdSession, err := apiServer.Store.CreateSession(req.Context(), *session)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to create Claude login session")
+		return nil, system.NewHTTPError500("failed to create session")
+	}
+
+	// Create a desktop agent with minimal configuration
+	zedAgent := &types.DesktopAgent{
+		OrganizationID: orgID,
+		SessionID:      createdSession.ID,
+		UserID:         user.ID,
+		Input:          "Claude Code login",
+		ProjectPath:    "workspace",
+		DisplayWidth:   1920,
+		DisplayHeight:  1080,
+		DesktopType:    "ubuntu",
+	}
+
+	// Add user's API token
+	if addErr := apiServer.addUserAPITokenToAgent(req.Context(), zedAgent, user.ID); addErr != nil {
+		log.Error().Err(addErr).Str("user_id", user.ID).Msg("Failed to add user API token for Claude login session")
+		return nil, system.NewHTTPError500("failed to configure session")
+	}
+
+	// Start the desktop container
+	agentResp, startErr := apiServer.externalAgentExecutor.StartDesktop(req.Context(), zedAgent)
+	if startErr != nil {
+		log.Error().Err(startErr).Str("session_id", createdSession.ID).Msg("Failed to start Claude login desktop")
+		return nil, system.NewHTTPError500("failed to start desktop session")
+	}
+
+	// Update session with container info
+	if agentResp.DevContainerID != "" || agentResp.SandboxID != "" {
+		createdSession.Metadata.DevContainerID = agentResp.DevContainerID
+		createdSession.SandboxID = agentResp.SandboxID
+		if _, updateErr := apiServer.Store.UpdateSession(req.Context(), *createdSession); updateErr != nil {
+			log.Error().Err(updateErr).Str("session_id", createdSession.ID).Msg("Failed to store container data")
+		}
+	}
+
+	log.Info().
+		Str("session_id", createdSession.ID).
+		Str("user_id", user.ID).
+		Msg("Started Claude login desktop session")
+
+	return &ClaudeLoginSessionResponse{
+		SessionID: createdSession.ID,
+	}, nil
+}
+
+// ClaudePollLoginResponse is returned when polling for Claude credentials
+type ClaudePollLoginResponse struct {
+	Found       bool   `json:"found"`
+	Credentials string `json:"credentials,omitempty"` // Raw credentials JSON
+}
+
+// @Summary Poll for Claude login credentials
+// @Description Check if Claude credentials file has been written inside the desktop container
+// @Tags Claude
+// @Produce json
+// @Param sessionId path string true "Session ID"
+// @Success 200 {object} ClaudePollLoginResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/claude-subscriptions/poll-login/{sessionId} [get]
+func (apiServer *HelixAPIServer) pollClaudeLogin(_ http.ResponseWriter, req *http.Request) (*ClaudePollLoginResponse, *system.HTTPError) {
+	user := getRequestUser(req)
+	if user == nil {
+		return nil, system.NewHTTPError401("authentication required")
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionId"]
+
+	// Verify session ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+	if session.Owner != user.ID {
+		return nil, system.NewHTTPError403("access denied")
+	}
+
+	// Connect to desktop container via RevDial and read credentials file
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	if err != nil {
+		// Container not ready yet
+		return &ClaudePollLoginResponse{Found: false}, nil
+	}
+	defer revDialConn.Close()
+
+	// Execute: cat /home/retro/.claude/.credentials.json
+	execReq := map[string]interface{}{
+		"command": []string{"cat", "/home/retro/.claude/.credentials.json"},
+		"timeout": 5,
+	}
+	execBody, _ := json.Marshal(execReq)
+
+	httpReq, err := http.NewRequest("POST", "http://localhost:9876/exec", bytes.NewReader(execBody))
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to create exec request")
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	if err := httpReq.Write(revDialConn); err != nil {
+		return &ClaudePollLoginResponse{Found: false}, nil
+	}
+
+	execResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		return &ClaudePollLoginResponse{Found: false}, nil
+	}
+	defer execResp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(execResp.Body)
+	if err != nil {
+		return &ClaudePollLoginResponse{Found: false}, nil
+	}
+
+	var execResult struct {
+		Success  bool   `json:"success"`
+		Output   string `json:"output"`
+		ExitCode int    `json:"exit_code"`
+	}
+	if err := json.Unmarshal(bodyBytes, &execResult); err != nil {
+		return &ClaudePollLoginResponse{Found: false}, nil
+	}
+
+	if !execResult.Success || execResult.ExitCode != 0 || execResult.Output == "" {
+		return &ClaudePollLoginResponse{Found: false}, nil
+	}
+
+	// Validate it's valid JSON with expected structure
+	var credCheck map[string]interface{}
+	if err := json.Unmarshal([]byte(execResult.Output), &credCheck); err != nil {
+		return &ClaudePollLoginResponse{Found: false}, nil
+	}
+
+	// Check for either claudeAiOauth wrapper or direct accessToken
+	if _, ok := credCheck["claudeAiOauth"]; !ok {
+		if _, ok := credCheck["accessToken"]; !ok {
+			return &ClaudePollLoginResponse{Found: false}, nil
+		}
+	}
+
+	return &ClaudePollLoginResponse{
+		Found:       true,
+		Credentials: execResult.Output,
+	}, nil
 }
