@@ -2281,7 +2281,8 @@ type ZedConfigResponse struct {
 	Agent           map[string]interface{} `json:"agent,omitempty"`
 	Theme           string                 `json:"theme,omitempty"`
 	Version         int64                  `json:"version"`                     // Unix timestamp of app config update
-	CodeAgentConfig *CodeAgentConfig       `json:"code_agent_config,omitempty"` // Code agent configuration for Zed agentic coding
+	CodeAgentConfig                *CodeAgentConfig `json:"code_agent_config,omitempty"`                  // Code agent configuration for Zed agentic coding
+	ClaudeSubscriptionAvailable    bool             `json:"claude_subscription_available,omitempty"`      // True if user has an active Claude subscription for credential sync
 }
 
 // CodeAgentConfig contains configuration for Zed's code agent (agentic coding).

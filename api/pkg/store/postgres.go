@@ -206,6 +206,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.PromptHistoryEntry{},
 		&types.GlobalCounter{},
 		&types.CloneGroup{},
+		&types.ClaudeSubscription{},
 	)
 	if err != nil {
 		return err
