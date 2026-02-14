@@ -524,7 +524,8 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	}
 
 	// If still no provider/model, return nil (can't configure code agent without these)
-	if providerName == "" || modelName == "" {
+	// Exception: claude_code in subscription mode doesn't require provider/model
+	if (providerName == "" || modelName == "") && runtime != types.CodeAgentRuntimeClaudeCode {
 		return nil
 	}
 
@@ -542,13 +543,23 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		model = fmt.Sprintf("%s/%s", providerName, modelName)
 
 	case types.CodeAgentRuntimeClaudeCode:
-		// Claude Code: Uses the claude command as a custom agent_server
-		// Claude Code talks directly to Anthropic using its own OAuth credentials,
-		// not through Helix proxy. No baseURL or apiType needed.
-		baseURL = ""
-		apiType = ""
+		// Claude Code: Uses the claude command as a custom agent_server.
+		// Two modes:
+		// 1. API key mode (provider set): Claude Code uses Helix API proxy with ANTHROPIC_API_KEY
+		// 2. Subscription mode (no provider): Claude Code uses OAuth credentials directly
 		agentName = "claude"
-		model = modelName
+		if provider != "" && providerName != "" {
+			// API key mode: route through Helix proxy (same as Zed Agent with Anthropic)
+			baseURL = helixURL + "/v1"
+			apiType = "anthropic"
+			model = modelName
+		} else {
+			// Subscription mode: Claude Code talks directly to Anthropic
+			// using OAuth credentials from ~/.claude/.credentials.json
+			baseURL = ""
+			apiType = ""
+			model = ""
+		}
 
 	default: // CodeAgentRuntimeZedAgent
 		// Zed Agent: Uses Zed's built-in agent panel with env vars

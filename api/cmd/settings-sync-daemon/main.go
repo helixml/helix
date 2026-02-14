@@ -133,14 +133,28 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		}
 
 	case "claude_code":
-		// Claude Code: Uses the claude command as a custom agent_server
-		// Claude Code reads credentials from ~/.claude/.credentials.json (synced by syncClaudeCredentials)
+		// Claude Code: Uses the claude command as a custom agent_server.
+		// Two modes based on whether baseURL is set:
+		// 1. API key mode (baseURL set): Claude Code uses Helix API proxy
+		// 2. Subscription mode (no baseURL): Claude Code uses OAuth credentials
 		env := map[string]interface{}{
 			"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
 			"DISABLE_TELEMETRY":                        "1",
 		}
 
-		log.Printf("Using claude_code runtime")
+		if d.codeAgentConfig.BaseURL != "" {
+			// API key mode: route through Helix API proxy
+			baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+			env["ANTHROPIC_BASE_URL"] = baseURL
+			if d.userAPIKey != "" {
+				env["ANTHROPIC_API_KEY"] = d.userAPIKey
+			}
+			log.Printf("Using claude_code runtime (API key mode): base_url=%s", baseURL)
+		} else {
+			// Subscription mode: Claude Code reads credentials from
+			// ~/.claude/.credentials.json (synced by syncClaudeCredentials)
+			log.Printf("Using claude_code runtime (subscription mode)")
+		}
 
 		return map[string]interface{}{
 			"claude": map[string]interface{}{

@@ -1186,32 +1186,31 @@ export default function Onboarding() {
                         <Box>
                           <Typography sx={{ fontSize: '0.82rem', color: '#fff' }}>Claude Code</Typography>
                           <Typography sx={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)' }}>
-                            Uses your Claude subscription via OAuth
+                            Claude subscription or Anthropic API key
                           </Typography>
                         </Box>
                       </MenuItem>
                     </Select>
                   </FormControl>
 
-                  {codeAgentRuntime === 'claude_code' ? (
+                  {codeAgentRuntime === 'claude_code' && (
                     <Box sx={{ p: 1.5, borderRadius: 1.5, border: '1px solid rgba(255,255,255,0.06)', bgcolor: 'rgba(255,255,255,0.02)' }}>
+                      <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.78rem', mb: hasClaudeSubscription ? 0 : 1 }}>
+                        Leave model empty to use your Claude subscription, or select an Anthropic model to use via API key.
+                      </Typography>
                       {hasClaudeSubscription ? (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
                           <CheckCircleIcon sx={{ fontSize: 16, color: ACCENT }} />
                           <Typography sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.78rem' }}>
-                            Claude subscription connected. Claude Code manages its own model selection.
+                            Claude subscription connected.
                           </Typography>
                         </Box>
                       ) : (
-                        <Box>
-                          <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.78rem', mb: 1 }}>
-                            Claude Code requires a Claude subscription. Connect one above in the provider step, or from your account settings.
-                          </Typography>
-                          <ClaudeSubscriptionConnect variant="inline" />
-                        </Box>
+                        <ClaudeSubscriptionConnect variant="inline" />
                       )}
                     </Box>
-                  ) : (
+                  )}
+
                   <AdvancedModelPicker
                     recommendedModels={RECOMMENDED_MODELS}
                     autoSelectFirst={false}
@@ -1227,7 +1226,6 @@ export default function Onboarding() {
                     displayMode="full"
                     disabled={creatingAgent}
                   />
-                  )}
 
                   <TextField
                     fullWidth

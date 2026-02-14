@@ -297,17 +297,30 @@ Claude Code handles token refresh natively inside each container. Each container
 - [x] **Phase 7: Interactive Login** - Desktop session with `claude auth login`, polling, auto-capture
 - [x] **Onboarding** - Claude subscription card in provider step, `claude_code` in runtime dropdown
 - [x] **Providers page** - Claude subscription section with connect/connected state
-- [x] **AppSettings** - `claude_code` runtime option, model picker hidden when selected
+- [x] **AppSettings** - `claude_code` runtime option, model picker with dual-mode note
 - [x] **Error messaging** - Clear error when only Claude subscription present and user tries regular chat
 - [x] **Zed: Re-enable Claude Code** - Moved Claude Code menu item outside cfg gate in agent_panel.rs
+- [x] **Dual-mode Claude Code** - API key mode (through Helix proxy) and subscription mode (direct to Anthropic)
 
-### Claude Code Modes
+### Claude Code Dual-Mode Architecture
 
-Claude Code in Zed works via one path:
-- **Claude Subscription** (`claude_code` runtime): Claude Code ACP in Zed talks directly to Anthropic using OAuth credentials synced from the user's Claude subscription. No Helix API proxy involved.
+Claude Code ACP in Zed supports **two credential modes**:
 
-This is distinct from:
-- **Zed Agent with Anthropic API key**: Uses Zed's built-in agent panel with an Anthropic API key routed through Helix's provider proxy. This is NOT Claude Code - it's Zed Agent.
+1. **Subscription mode** (no provider/model set):
+   - Claude Code talks directly to Anthropic using OAuth credentials from `~/.claude/.credentials.json`
+   - Credentials synced from user's Claude subscription by settings-sync-daemon
+   - Claude Code manages its own model selection internally
+   - `baseURL=""`, `apiType=""` in CodeAgentConfig
+   - Daemon sets no `ANTHROPIC_*` env vars
+
+2. **API key mode** (Anthropic provider selected):
+   - Claude Code routes through Helix API proxy (same as Zed Agent with Anthropic)
+   - `baseURL=helixURL+"/v1"`, `apiType="anthropic"` in CodeAgentConfig
+   - Daemon sets `ANTHROPIC_BASE_URL` and `ANTHROPIC_API_KEY` env vars on the claude process
+   - User selects model in app settings (e.g., `claude-sonnet-4-5-latest`)
+
+The frontend shows the model picker for all runtimes (including `claude_code`) with a note:
+"Leave empty to use your Claude subscription, or select an Anthropic model to use via API key."
 
 ### Important: Claude Subscription is NOT an Inference Provider
 
