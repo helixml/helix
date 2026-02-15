@@ -124,8 +124,24 @@ sign-dev-qemu:
 	fi
 	@codesign -vvv $(DEV_QEMU_DIR)/qemu-system-aarch64 2>&1 && echo "[dev-qemu] Signature verified OK"
 
-# Wails dev mode with hot reload
+# Default golden image path (provisioned by provision-vm.sh / provision-vm-light.sh)
+GOLDEN_IMAGE ?= /Volumes/Big/helix-vm/helix-desktop/disk.qcow2
+
+# Wails dev mode with hot reload.
+# Auto-sets HELIX_DEV_IMAGE if a golden image exists at GOLDEN_IMAGE path,
+# skipping the CDN download flow entirely.
 dev:
 	@mkdir -p build/bin/Helix.app/Contents/Resources/vm
 	@cp -f vm-manifest.json build/bin/Helix.app/Contents/Resources/vm/vm-manifest.json 2>/dev/null || true
-	wails dev
+	@if [ -z "$$HELIX_DEV_IMAGE" ] && [ -f "$(GOLDEN_IMAGE)" ]; then \
+		echo "[dev] Using golden image: $(GOLDEN_IMAGE)"; \
+		export HELIX_DEV_IMAGE="$(GOLDEN_IMAGE)"; \
+		wails dev; \
+	else \
+		if [ -n "$$HELIX_DEV_IMAGE" ]; then \
+			echo "[dev] Using HELIX_DEV_IMAGE=$$HELIX_DEV_IMAGE"; \
+		else \
+			echo "[dev] No golden image found at $(GOLDEN_IMAGE) — using CDN download flow"; \
+		fi; \
+		wails dev; \
+	fi
