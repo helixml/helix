@@ -12,6 +12,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -28,6 +29,8 @@ type App struct {
 	licenseValidator *LicenseValidator
 	tray             *TrayManager
 	authProxy        *AuthProxy
+	authReady        bool
+	authReadyMu      sync.Mutex
 }
 
 // NewApp creates a new App application struct
@@ -69,6 +72,12 @@ func (a *App) startup(ctx context.Context) {
 	a.vm.onStateChange = func(state string) {
 		if a.tray != nil {
 			a.tray.UpdateState(state)
+		}
+		// Reset auth readiness when VM stops so next boot starts clean
+		if state == string(VMStateStopped) || state == string(VMStateError) {
+			a.authReadyMu.Lock()
+			a.authReady = false
+			a.authReadyMu.Unlock()
 		}
 	}
 
@@ -247,8 +256,14 @@ func (a *App) GetSSHCommand() string {
 	return a.vm.GetSSHCommand()
 }
 
-// IsVMImageReady checks if the root disk image exists (ZFS disk is created on first boot)
+// IsVMImageReady checks if the root disk image exists (ZFS disk is created on first boot).
+// In dev mode (HELIX_DEV_IMAGE set), checks that the golden image exists —
+// the overlay is created on start, so no download screen is needed.
 func (a *App) IsVMImageReady() bool {
+	if goldenPath := os.Getenv("HELIX_DEV_IMAGE"); goldenPath != "" {
+		_, err := os.Stat(goldenPath)
+		return err == nil
+	}
 	vmDir := filepath.Join(getHelixDataDir(), "vm", "helix-desktop")
 	rootDisk := filepath.Join(vmDir, "disk.qcow2")
 
@@ -320,7 +335,15 @@ func (a *App) GetHelixURL() string {
 // GetAutoLoginURL returns the URL for the authenticated proxy.
 // The proxy injects the helix_session cookie server-side, working around
 // WKWebView's iframe cookie isolation.
+// Returns "" if auth proxy hasn't completed yet — the frontend shows
+// boot progress until the auth:ready event fires.
 func (a *App) GetAutoLoginURL() string {
+	a.authReadyMu.Lock()
+	ready := a.authReady
+	a.authReadyMu.Unlock()
+	if !ready {
+		return ""
+	}
 	if a.authProxy != nil {
 		if u := a.authProxy.GetURL(); u != "" {
 			return u
@@ -337,7 +360,18 @@ func (a *App) GetAutoLoginURL() string {
 
 // ensureAuthProxy starts the auth proxy and authenticates it against the API.
 // Called when the API becomes ready (health check passes).
+// Always marks auth as ready on exit (success or failure) so the frontend
+// can fall through to the callback URL if the proxy fails.
 func (a *App) ensureAuthProxy() {
+	defer func() {
+		a.authReadyMu.Lock()
+		a.authReady = true
+		a.authReadyMu.Unlock()
+		if a.ctx != nil {
+			wailsRuntime.EventsEmit(a.ctx, "auth:ready")
+		}
+	}()
+
 	secret := a.settings.Get().DesktopSecret
 	if secret == "" {
 		log.Println("[AUTH] No desktop secret configured, skipping auth proxy")

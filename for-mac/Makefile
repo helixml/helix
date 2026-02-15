@@ -1,10 +1,11 @@
 # Helix Desktop build targets
 #
 # Usage:
-#   make build      - Quick rebuild (Wails + re-sign)
-#   make build-full - Full rebuild with QEMU + frameworks packaging
-#   make sign       - Re-sign existing app bundle + dev QEMU
-#   make dev        - Start Wails dev mode (hot reload)
+#   make build       - Quick rebuild (Wails + re-sign)
+#   make build-full  - Full rebuild with QEMU + frameworks packaging
+#   make rebuild-qemu - Rebuild QEMU from source + install into dev-qemu (no Wails rebuild)
+#   make sign        - Re-sign existing app bundle + dev QEMU
+#   make dev         - Start Wails dev mode (hot reload)
 
 APP_BUNDLE := build/bin/Helix.app
 MACOS_DIR := $(APP_BUNDLE)/Contents/MacOS
@@ -15,7 +16,10 @@ QEMU_ENTITLEMENTS := build/darwin/entitlements.plist
 SIGNING_ENV := .env.signing
 SIGN_SCRIPT := scripts/sign-app.sh
 
-.PHONY: build build-full sign sign-dev-qemu dev
+QEMU_SRC ?= $(HOME)/pm/qemu-utm
+SYSROOT ?= $(HOME)/pm/UTM/sysroot-macOS-arm64
+
+.PHONY: build build-full rebuild-qemu sign sign-dev-qemu dev
 
 # Quick rebuild: wails build + re-sign
 build:
@@ -26,6 +30,30 @@ build:
 build-full:
 	./scripts/build-helix-app.sh
 	@$(MAKE) sign-dev-qemu
+
+# Rebuild QEMU from source and install into dev-qemu.
+# Use this after modifying QEMU source (~/pm/qemu-utm).
+# Requires: VM stopped (kill QEMU process first).
+rebuild-qemu:
+	@echo "[rebuild-qemu] Building QEMU from source..."
+	./qemu-helix/build-qemu-standalone.sh
+	@echo "[rebuild-qemu] Copying QEMU to app bundle..."
+	@mkdir -p $(MACOS_DIR)
+	@cp -f $(SYSROOT)/bin/qemu-system-aarch64 $(MACOS_DIR)/qemu-system-aarch64
+	@cp -f $(SYSROOT)/lib/libqemu-aarch64-softmmu.dylib $(MACOS_DIR)/libqemu-aarch64-softmmu.dylib
+	@# Fix dylib paths (same as build-helix-app.sh Step 6)
+	@install_name_tool -id "@rpath/libqemu-aarch64-softmmu.dylib" \
+		$(MACOS_DIR)/libqemu-aarch64-softmmu.dylib 2>/dev/null || true
+	@install_name_tool -change "$(SYSROOT)/lib/libqemu-aarch64-softmmu.dylib" \
+		"@executable_path/libqemu-aarch64-softmmu.dylib" \
+		$(MACOS_DIR)/qemu-system-aarch64 2>/dev/null || true
+	@install_name_tool -add_rpath "@executable_path/../Frameworks" \
+		$(MACOS_DIR)/qemu-system-aarch64 2>/dev/null || true
+	@install_name_tool -add_rpath "@executable_path/../Frameworks" \
+		$(MACOS_DIR)/libqemu-aarch64-softmmu.dylib 2>/dev/null || true
+	@echo "[rebuild-qemu] Creating dev QEMU..."
+	@$(MAKE) sign-dev-qemu
+	@echo "[rebuild-qemu] Done. Restart the VM to use the new QEMU."
 
 # Re-sign the app bundle + create standalone dev QEMU
 sign: sign-dev-qemu
@@ -78,6 +106,9 @@ sign-dev-qemu:
 	@# Sign with entitlements + hardened runtime (Developer ID if available, ad-hoc otherwise)
 	@if [ -f "$(SIGNING_ENV)" ]; then \
 		. $(SIGNING_ENV) && \
+		if [ -n "$$KEYCHAIN_NAME" ] && [ -n "$$KEYCHAIN_PASSWORD" ]; then \
+			security unlock-keychain -p "$$KEYCHAIN_PASSWORD" "$$KEYCHAIN_NAME" 2>/dev/null || true; \
+		fi && \
 		codesign --force --sign "$$APPLE_SIGNING_IDENTITY" --timestamp --options runtime \
 			--entitlements $(QEMU_ENTITLEMENTS) \
 			$(DEV_QEMU_DIR)/libqemu-aarch64-softmmu.dylib && \
@@ -96,8 +127,24 @@ sign-dev-qemu:
 	fi
 	@codesign -vvv $(DEV_QEMU_DIR)/qemu-system-aarch64 2>&1 && echo "[dev-qemu] Signature verified OK"
 
-# Wails dev mode with hot reload
+# Default golden image path (provisioned by provision-vm.sh / provision-vm-light.sh)
+GOLDEN_IMAGE ?= /Volumes/Big/helix-vm/helix-desktop/disk.qcow2
+
+# Wails dev mode with hot reload.
+# Auto-sets HELIX_DEV_IMAGE if a golden image exists at GOLDEN_IMAGE path,
+# skipping the CDN download flow entirely.
 dev:
 	@mkdir -p build/bin/Helix.app/Contents/Resources/vm
 	@cp -f vm-manifest.json build/bin/Helix.app/Contents/Resources/vm/vm-manifest.json 2>/dev/null || true
-	wails dev
+	@if [ -z "$$HELIX_DEV_IMAGE" ] && [ -f "$(GOLDEN_IMAGE)" ]; then \
+		echo "[dev] Using golden image: $(GOLDEN_IMAGE)"; \
+		export HELIX_DEV_IMAGE="$(GOLDEN_IMAGE)"; \
+		wails dev; \
+	else \
+		if [ -n "$$HELIX_DEV_IMAGE" ]; then \
+			echo "[dev] Using HELIX_DEV_IMAGE=$$HELIX_DEV_IMAGE"; \
+		else \
+			echo "[dev] No golden image found at $(GOLDEN_IMAGE) — using CDN download flow"; \
+		fi; \
+		wails dev; \
+	fi

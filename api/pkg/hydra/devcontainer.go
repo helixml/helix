@@ -452,6 +452,11 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 			"HELIX_VIDEO_MODE=scanout",
 			"XDG_RUNTIME_DIR=/run/user/1000",
 		)
+		// Pass QEMU frame export port so desktop-bridge connects to the right port.
+		// The macOS desktop app sets this in .env.vm; default 15937 for backwards compat.
+		if fePort := os.Getenv("HELIX_FRAME_EXPORT_PORT"); fePort != "" {
+			env = append(env, "HELIX_FRAME_EXPORT_PORT="+fePort)
+		}
 		log.Debug().Str("socket", drmSock).Msg("DRM manager socket found, setting scanout env vars")
 	}
 

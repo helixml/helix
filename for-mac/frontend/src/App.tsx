@@ -168,6 +168,14 @@ export function App() {
       setSettingsOpen(true);
     });
 
+    // Auth proxy ready — fetch and set the auto-login URL immediately
+    EventsOn("auth:ready", async () => {
+      const loginURL = await GetAutoLoginURL();
+      if (loginURL) {
+        setAutoLoginURL(loginURL);
+      }
+    });
+
     // Listen for external URL requests from the Helix iframe
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'open-external-url' && typeof event.data.url === 'string') {
@@ -180,6 +188,7 @@ export function App() {
       EventsOff("vm:status");
       EventsOff("download:progress");
       EventsOff("settings:show");
+      EventsOff("auth:ready");
       window.removeEventListener('message', handleMessage);
     };
   }, []);
@@ -349,14 +358,30 @@ export function App() {
 
         <div className="titlebar-spacer" />
 
-        {licenseStatus.state === "trial_active" && (
-          <span
-            className="trial-badge-titlebar"
-            onDoubleClick={(e) => e.stopPropagation()}
-          >
-            Trial: {getTrialRemaining(licenseStatus.trial_ends_at)}
-          </span>
-        )}
+        {licenseStatus.state === "trial_active" && (() => {
+          const remaining = getTrialRemaining(licenseStatus.trial_ends_at);
+          const endsAt = licenseStatus.trial_ends_at ? new Date(licenseStatus.trial_ends_at).getTime() : 0;
+          const hoursLeft = endsAt ? (endsAt - Date.now()) / (1000 * 60 * 60) : 24;
+          const urgent = hoursLeft < 4;
+          return (
+            <>
+              <button
+                className={`trial-badge-titlebar${urgent ? ' trial-urgent' : ''}`}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onClick={() => BrowserOpenURL("https://deploy.helix.ml/licenses")}
+              >
+                Trial: {remaining}
+              </button>
+              <button
+                className="buy-license-btn"
+                onDoubleClick={(e) => e.stopPropagation()}
+                onClick={() => BrowserOpenURL("https://deploy.helix.ml/licenses")}
+              >
+                Get a License
+              </button>
+            </>
+          );
+        })()}
 
         <button
           className="upsell-banner"

@@ -1020,6 +1020,7 @@ type ServerConfigForFrontend struct {
 	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
 	MaxConcurrentDesktops                  int                  `json:"max_concurrent_desktops"`
 	ActiveConcurrentDesktops               int                  `json:"active_concurrent_desktops"`
+	Edition                                string               `json:"edition,omitempty"` // "mac-desktop", "server", "cloud", etc.
 }
 
 // a short version of a session that we keep for the dashboard

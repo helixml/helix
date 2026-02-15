@@ -564,6 +564,10 @@ services:
       - GST_DEBUG=3
       - GOP_SIZE=${GOP_SIZE:-240}
       - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
+      # QEMU frame export port — helix-frame-export listens on this port on the host.
+      # Desktop containers connect to 10.0.2.2:<port> via SLiRP to reach it.
+      # Default 15937; macOS desktop app overrides via .env.vm.
+      - HELIX_FRAME_EXPORT_PORT=${HELIX_FRAME_EXPORT_PORT:-15937}
     privileged: true # Required for Docker-in-Docker
     volumes:
       # Desktop configuration and state
