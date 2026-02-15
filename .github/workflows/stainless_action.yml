@@ -31,18 +31,18 @@ jobs:
         with:
           fetch-depth: 2
 
+      # TODO: Stainless project config for helix-ml/helix-sdk is invalid
+      # on their platform (400 "Existing config is invalid"). This is a
+      # Stainless server-side bug that needs to be fixed via their dashboard.
+      # Using continue-on-error until then to prevent false CI failures.
       - name: Run preview builds
+        continue-on-error: true
         uses: stainless-api/upload-openapi-spec-action/preview@v1
         with:
           org: ${{ env.STAINLESS_ORG }}
           project: ${{ env.STAINLESS_PROJECT }}
           oas_path: ${{ env.OAS_PATH }}
           guess_config: true
-          # TODO: Stainless project config for helix-ml/helix-sdk is invalid
-          # on their platform (400 "Existing config is invalid"). This needs
-          # to be fixed via the Stainless dashboard. Using 'never' to prevent
-          # false CI failures until then.
-          fail_on: never
 
   merge:
     if: github.event.action == 'closed' && github.event.pull_request.merged == true
@@ -58,10 +58,10 @@ jobs:
           fetch-depth: 2
 
       - name: Run merge build
+        continue-on-error: true
         uses: stainless-api/upload-openapi-spec-action/merge@v1
         with:
           org: ${{ env.STAINLESS_ORG }}
           project: ${{ env.STAINLESS_PROJECT }}
           oas_path: ${{ env.OAS_PATH }}
           guess_config: true
-          fail_on: never
