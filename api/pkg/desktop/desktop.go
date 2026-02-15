@@ -121,11 +121,6 @@ type Server struct {
 	cursorName string // CSS cursor name (e.g., "default", "pointer", "text")
 
 	// macOS keyboard remapping state
-	// Tracks whether Super/Meta key was held and converted to Ctrl for macOS-style shortcuts.
-	// When Meta is pressed, we buffer it. When a remappable key arrives with Meta held,
-	// we send Ctrl instead of Meta. When Meta is released, we release Ctrl.
-	macMetaHeld      bool // True when Meta/Super is physically held (buffered, not yet sent)
-	macMetaConverted bool // True when we sent Ctrl instead of Meta
 }
 
 // NewServer creates a new desktop server with the given config.

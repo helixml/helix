@@ -124,89 +124,20 @@ func (s *Server) handleWSKeyboard(data []byte) {
 
 // handleWSKeyboardKeycode handles evdev keycode keyboard messages.
 // Format: [subType:1][isDown:1][modifiers:1][keycode:2 BE]
-//
-// Includes macOS keyboard remapping: when the user presses Super (Command on Mac),
-// we convert it to Ctrl for common shortcuts and to Home/End for navigation keys.
-// This happens transparently at the input injection layer so ALL desktop apps benefit.
 func (s *Server) handleWSKeyboardKeycode(data []byte) {
 	if len(data) < 5 {
 		return
 	}
 
 	isDown := data[1] != 0
-	modifiers := data[2]
+	// modifiers := data[2] // Currently unused, could be used for modifier sync
 	evdevCode := int(binary.BigEndian.Uint16(data[3:5]))
 
 	if evdevCode == 0 {
 		return
 	}
 
-	const KEY_RIGHTMETA = 126
-
-	// Step 1: Intercept Meta/Super key events for macOS remapping.
-	// Buffer Meta key presses instead of sending them immediately.
-	// This allows us to decide later whether to send Ctrl or Meta
-	// depending on what key the user presses next.
-	if evdevCode == KEY_LEFTMETA || evdevCode == KEY_RIGHTMETA {
-		if isDown {
-			s.macMetaHeld = true
-			s.macMetaConverted = false
-			// Don't send Meta to GNOME yet - wait to see what key follows
-			return
-		}
-		// Meta key released
-		s.macMetaHeld = false
-		if s.macMetaConverted {
-			// We sent Ctrl instead of Meta, so release Ctrl
-			s.macMetaConverted = false
-			s.sendEvdevKeyRaw(KEY_LEFTCTRL, false)
-			return
-		}
-		// Meta was pressed and released without a remappable key.
-		// Send the buffered Meta press+release so tap-Super still works
-		// (though we disable the GNOME overlay, other uses may exist).
-		s.sendEvdevKeyRaw(KEY_LEFTMETA, true)
-		s.sendEvdevKeyRaw(KEY_LEFTMETA, false)
-		return
-	}
-
-	// Step 2: If Meta is held, check for macOS remapping.
-	if s.macMetaHeld {
-		if replacement, ok := macOSEvdevRemap(evdevCode); ok {
-			if replacement.stripMeta {
-				// Navigation remap (e.g., Super+Left → Home, Super+Up → Ctrl+Home)
-				// Replace the key entirely, don't send Meta at all.
-				// Shift is preserved from the original modifiers for selection
-				// (e.g., Super+Shift+Left → Shift+Home to select to line start).
-				hasShift := modifiers&ModifierShift != 0
-				s.sendEvdevNavKey(replacement.evdevCode, isDown, replacement.addCtrl, hasShift)
-				return
-			}
-			// Modifier swap (e.g., Super+C → Ctrl+C)
-			// Send Ctrl down if we haven't already
-			if !s.macMetaConverted {
-				s.macMetaConverted = true
-				s.sendEvdevKeyRaw(KEY_LEFTCTRL, true)
-			}
-			// Send the key normally (Ctrl is already held)
-			s.sendEvdevKeyRaw(evdevCode, isDown)
-			return
-		}
-		// Non-remappable key with Meta held - send the buffered Meta and continue
-		if !s.macMetaConverted {
-			s.sendEvdevKeyRaw(KEY_LEFTMETA, true)
-			// Mark as not converted - Meta UP will send Meta release
-			s.macMetaHeld = true
-			s.macMetaConverted = false
-		}
-	}
-
-	// Step 3: Normal key event (no Meta remapping needed)
-	s.sendEvdevKeyRaw(evdevCode, isDown)
-}
-
-// sendEvdevKeyRaw sends a single evdev keycode press or release.
-func (s *Server) sendEvdevKeyRaw(evdevCode int, isDown bool) {
+	// Try D-Bus RemoteDesktop first (GNOME)
 	if s.conn != nil && s.rdSessionPath != "" {
 		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
 		err := rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, uint32(evdevCode), isDown).Err
@@ -215,6 +146,8 @@ func (s *Server) sendEvdevKeyRaw(evdevCode int, isDown bool) {
 		}
 		return
 	}
+
+	// Fallback to Wayland-native virtual keyboard for Sway/wlroots
 	if s.waylandInput != nil {
 		var err error
 		if isDown {
@@ -228,114 +161,26 @@ func (s *Server) sendEvdevKeyRaw(evdevCode int, isDown bool) {
 	}
 }
 
-// sendEvdevNavKey sends an evdev keycode for navigation remapping,
-// optionally adding Ctrl and/or preserving Shift modifiers.
-// Used for macOS navigation keys like Super+Left → Home, Super+Shift+Right → Shift+End.
-func (s *Server) sendEvdevNavKey(evdevCode int, isDown bool, withCtrl bool, withShift bool) {
-	if isDown {
-		if withShift {
-			s.sendEvdevKeyRaw(KEY_LEFTSHIFT, true)
-		}
-		if withCtrl {
-			s.sendEvdevKeyRaw(KEY_LEFTCTRL, true)
-		}
-		s.sendEvdevKeyRaw(evdevCode, true)
-	} else {
-		s.sendEvdevKeyRaw(evdevCode, false)
-		if withCtrl {
-			s.sendEvdevKeyRaw(KEY_LEFTCTRL, false)
-		}
-		if withShift {
-			s.sendEvdevKeyRaw(KEY_LEFTSHIFT, false)
-		}
-	}
-}
-
 // handleWSKeyboardKeysym handles X11 keysym keyboard messages.
 // Format: [subType:1][isDown:1][modifiers:1][keysym:4 BE]
 //
 // Keysyms provide layout-independent character input, used when
 // event.code is unavailable (iPad/iOS keyboards).
-// Includes macOS remapping: Super+key → Ctrl+key.
 func (s *Server) handleWSKeyboardKeysym(data []byte) {
 	if len(data) < 7 {
 		return
 	}
 
 	isDown := data[1] != 0
-	modifiers := data[2]
+	// modifiers := data[2] // Currently unused
 	keysym := binary.BigEndian.Uint32(data[3:7])
 
 	if keysym == 0 {
 		return
 	}
 
-	const XK_Super_R = 0xffec
-
-	// macOS remapping for keysym path:
-	// Buffer Super key, convert to Ctrl when a remappable key follows.
-	if keysym == XK_Super_L || keysym == XK_Super_R {
-		if isDown {
-			s.macMetaHeld = true
-			s.macMetaConverted = false
-			return
-		}
-		// Super released
-		s.macMetaHeld = false
-		if s.macMetaConverted {
-			s.macMetaConverted = false
-			s.sendKeysymRaw(XK_Control_L, false)
-			return
-		}
-		s.sendKeysymRaw(XK_Super_L, true)
-		s.sendKeysymRaw(XK_Super_L, false)
-		return
-	}
-
-	// Check for macOS remapping when Meta is held
-	if s.macMetaHeld || modifiers&ModifierMeta != 0 {
-		if replacement, ok := macOSKeysymRemap(keysym); ok {
-			if replacement.replaceKeysym != 0 {
-				// Navigation remap: replace the keysym entirely
-				hasShift := modifiers&ModifierShift != 0
-				if isDown {
-					if hasShift {
-						s.sendKeysymRaw(XK_Shift_L, true)
-					}
-					if replacement.addCtrl {
-						s.sendKeysymRaw(XK_Control_L, true)
-					}
-					s.sendKeysymRaw(replacement.replaceKeysym, true)
-				} else {
-					s.sendKeysymRaw(replacement.replaceKeysym, false)
-					if replacement.addCtrl {
-						s.sendKeysymRaw(XK_Control_L, false)
-					}
-					if hasShift {
-						s.sendKeysymRaw(XK_Shift_L, false)
-					}
-				}
-				return
-			}
-			// Modifier swap: send Ctrl instead of Meta
-			if !s.macMetaConverted {
-				s.macMetaConverted = true
-				s.sendKeysymRaw(XK_Control_L, true)
-			}
-			s.sendKeysymRaw(keysym, isDown)
-			return
-		}
-		// Non-remappable key with Meta held - pass Meta through
-		if s.macMetaHeld && !s.macMetaConverted {
-			s.sendKeysymRaw(XK_Super_L, true)
-		}
-	}
-
-	s.sendKeysymRaw(keysym, isDown)
-}
-
-// sendKeysymRaw sends a single keysym press or release.
-func (s *Server) sendKeysymRaw(keysym uint32, isDown bool) {
+	// Try D-Bus RemoteDesktop first (GNOME)
+	// NotifyKeyboardKeysym sends the character directly, independent of layout
 	if s.conn != nil && s.rdSessionPath != "" {
 		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
 		err := rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeysym", 0, keysym, isDown).Err
@@ -344,13 +189,18 @@ func (s *Server) sendKeysymRaw(keysym uint32, isDown bool) {
 		}
 		return
 	}
+
+	// Fallback to Wayland-native virtual keyboard for Sway/wlroots
+	// Convert keysym to evdev keycode using xkbcommon (layout-aware) or static mapping
 	if s.waylandInput != nil {
+		// Try xkbcommon first for layout-aware mapping
 		evdevCode := XKBKeysymToEvdev(keysym)
 		if evdevCode == 0 {
+			// Fall back to static QWERTY mapping
 			evdevCode = keysymToEvdev(keysym)
 		}
 		if evdevCode == 0 {
-			s.logger.Debug("No evdev mapping for keysym", "keysym", keysym)
+			s.logger.Debug("No evdev mapping for keysym", "keysym", keysym, "xkbAvailable", IsXKBAvailable())
 			return
 		}
 		var err error
@@ -389,123 +239,6 @@ const (
 	KEY_LEFTMETA  = 125
 )
 
-// macOSEvdevRemapEntry describes how to remap an evdev keycode when Super is held.
-type macOSEvdevRemapEntry struct {
-	evdevCode int  // Replacement evdev keycode (0 = use original key with Ctrl)
-	stripMeta bool // If true, replace the key entirely (navigation); if false, just swap Super→Ctrl
-	addCtrl   bool // If true, inject Ctrl modifier with the replacement key
-}
-
-// macOSEvdevRemap checks if an evdev keycode should be remapped when Super (Meta)
-// is held, providing macOS-style keyboard shortcuts on the Linux desktop.
-//
-// Two types of remapping:
-// 1. Modifier swap: Super+C → Ctrl+C (stripMeta=false, handled by converting Meta key to Ctrl)
-// 2. Key replacement: Super+Left → Home (stripMeta=true, replaces the entire key event)
-func macOSEvdevRemap(evdevCode int) (macOSEvdevRemapEntry, bool) {
-	// Evdev keycodes for common keys
-	const (
-		evKEY_A         = 30
-		evKEY_B         = 48
-		evKEY_C         = 46
-		evKEY_D         = 32
-		evKEY_F         = 33
-		evKEY_L         = 38
-		evKEY_N         = 49
-		evKEY_P         = 25
-		evKEY_R         = 19
-		evKEY_S         = 31
-		evKEY_T         = 20
-		evKEY_V         = 47
-		evKEY_W         = 17
-		evKEY_X         = 45
-		evKEY_Z         = 44
-		evKEY_LEFT      = 105
-		evKEY_RIGHT     = 106
-		evKEY_UP        = 103
-		evKEY_DOWN      = 108
-		evKEY_BACKSPACE = 14
-		evKEY_HOME      = 102
-		evKEY_END       = 107
-	)
-
-	switch evdevCode {
-	// Standard shortcuts: Super+key → Ctrl+key (modifier swap)
-	case evKEY_C, evKEY_V, evKEY_X, evKEY_A, evKEY_Z, evKEY_S, evKEY_F,
-		evKEY_W, evKEY_T, evKEY_N, evKEY_L, evKEY_R, evKEY_P, evKEY_D, evKEY_B:
-		return macOSEvdevRemapEntry{evdevCode: evdevCode, stripMeta: false}, true
-
-	// Navigation: Super+Left → Home (move to line start)
-	case evKEY_LEFT:
-		return macOSEvdevRemapEntry{evdevCode: evKEY_HOME, stripMeta: true}, true
-
-	// Navigation: Super+Right → End (move to line end)
-	case evKEY_RIGHT:
-		return macOSEvdevRemapEntry{evdevCode: evKEY_END, stripMeta: true}, true
-
-	// Navigation: Super+Up → Ctrl+Home (move to document start)
-	case evKEY_UP:
-		return macOSEvdevRemapEntry{evdevCode: evKEY_HOME, stripMeta: true, addCtrl: true}, true
-
-	// Navigation: Super+Down → Ctrl+End (move to document end)
-	case evKEY_DOWN:
-		return macOSEvdevRemapEntry{evdevCode: evKEY_END, stripMeta: true, addCtrl: true}, true
-
-	// Navigation: Super+Backspace → select-all-before-cursor (line delete)
-	// In most apps, Home then Shift+End Delete works, but simplest is Ctrl+Shift+K (delete line in most editors)
-	// For broad compatibility, map to Ctrl+Backspace (delete word) as closest approximation
-	case evKEY_BACKSPACE:
-		return macOSEvdevRemapEntry{evdevCode: evKEY_BACKSPACE, stripMeta: false}, true
-	}
-	return macOSEvdevRemapEntry{}, false
-}
-
-// macOSKeysymRemapEntry describes how to remap a keysym when Super is held.
-type macOSKeysymRemapEntry struct {
-	replaceKeysym uint32 // Replacement keysym (0 = use original keysym with Ctrl)
-	addCtrl       bool   // If true, add Ctrl modifier with the replacement keysym
-}
-
-// macOSKeysymRemap checks if a keysym should be remapped when Super (Meta) is held.
-// This is the keysym-path equivalent of macOSEvdevRemap, used by iPad/iOS/Android input.
-func macOSKeysymRemap(keysym uint32) (macOSKeysymRemapEntry, bool) {
-	// X11 keysyms for navigation keys
-	const (
-		XKLeft      = 0xff51
-		XKUp        = 0xff52
-		XKRight     = 0xff53
-		XKDown      = 0xff54
-		XKHome      = 0xff50
-		XKEnd       = 0xff57
-		XKBackSpace = 0xff08
-	)
-
-	switch keysym {
-	// Standard shortcuts: Super+key → Ctrl+key
-	case 'c', 'C', 'v', 'V', 'x', 'X', 'a', 'A', 'z', 'Z',
-		's', 'S', 'f', 'F', 'w', 'W', 't', 'T', 'n', 'N',
-		'l', 'L', 'r', 'R', 'p', 'P', 'd', 'D', 'b', 'B':
-		return macOSKeysymRemapEntry{}, true
-
-	// Navigation: Super+Left → Home
-	case XKLeft:
-		return macOSKeysymRemapEntry{replaceKeysym: XKHome}, true
-	// Navigation: Super+Right → End
-	case XKRight:
-		return macOSKeysymRemapEntry{replaceKeysym: XKEnd}, true
-	// Navigation: Super+Up → Ctrl+Home
-	case XKUp:
-		return macOSKeysymRemapEntry{replaceKeysym: XKHome, addCtrl: true}, true
-	// Navigation: Super+Down → Ctrl+End
-	case XKDown:
-		return macOSKeysymRemapEntry{replaceKeysym: XKEnd, addCtrl: true}, true
-	// Super+Backspace → Ctrl+Backspace (delete word)
-	case XKBackSpace:
-		return macOSKeysymRemapEntry{}, true
-	}
-	return macOSKeysymRemapEntry{}, false
-}
-
 // handleWSKeyboardKeysymTap handles X11 keysym "tap" messages (press + release).
 // Format: [subType:1][modifiers:1][keysym:4 BE]
 //
@@ -515,9 +248,6 @@ func macOSKeysymRemap(keysym uint32) (macOSKeysymRemapEntry, bool) {
 //
 // If modifiers are specified (e.g., Ctrl for deleteWordBackward), the backend
 // sends modifier key down, keysym tap, modifier key up.
-//
-// macOS remapping: If Meta modifier is set and the keysym is remappable,
-// converts Meta to Ctrl (or replaces navigation keys).
 func (s *Server) handleWSKeyboardKeysymTap(data []byte) {
 	if len(data) < 6 {
 		return
@@ -530,34 +260,6 @@ func (s *Server) handleWSKeyboardKeysymTap(data []byte) {
 		return
 	}
 
-	// macOS remapping for keysym tap path
-	if modifiers&ModifierMeta != 0 {
-		if replacement, ok := macOSKeysymRemap(keysym); ok {
-			if replacement.replaceKeysym != 0 {
-				// Navigation remap: replace keysym and modifiers entirely
-				tapModifiers := byte(0)
-				if modifiers&ModifierShift != 0 {
-					tapModifiers |= ModifierShift
-				}
-				if replacement.addCtrl {
-					tapModifiers |= ModifierCtrl
-				}
-				s.sendKeysymTapWithModifiers(replacement.replaceKeysym, tapModifiers)
-				return
-			}
-			// Modifier swap: convert Meta to Ctrl
-			newModifiers := (modifiers &^ ModifierMeta) | ModifierCtrl
-			s.sendKeysymTapWithModifiers(keysym, newModifiers)
-			return
-		}
-	}
-
-	// Normal tap (no remapping needed)
-	s.sendKeysymTapWithModifiers(keysym, modifiers)
-}
-
-// sendKeysymTapWithModifiers sends a keysym tap (press+release) with specified modifiers.
-func (s *Server) sendKeysymTapWithModifiers(keysym uint32, modifiers byte) {
 	// Try D-Bus RemoteDesktop first (GNOME)
 	if s.conn != nil && s.rdSessionPath != "" {
 		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
@@ -601,9 +303,12 @@ func (s *Server) sendKeysymTapWithModifiers(keysym uint32, modifiers byte) {
 	}
 
 	// Fallback to Wayland-native virtual keyboard for Sway/wlroots
+	// Convert keysym to evdev keycode using xkbcommon (layout-aware) or static mapping
 	if s.waylandInput != nil {
+		// Try xkbcommon first for layout-aware mapping
 		evdevCode := XKBKeysymToEvdev(keysym)
 		if evdevCode == 0 {
+			// Fall back to static QWERTY mapping
 			evdevCode = keysymToEvdev(keysym)
 		}
 		if evdevCode == 0 {

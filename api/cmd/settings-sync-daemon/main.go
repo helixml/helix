@@ -19,7 +19,6 @@ import (
 
 const (
 	SettingsPath = "/home/retro/.config/zed/settings.json"
-	KeymapPath   = "/home/retro/.config/zed/keymap.json"
 	PollInterval = 30 * time.Second
 	DebounceTime = 500 * time.Millisecond
 )
@@ -497,11 +496,6 @@ func main() {
 		userAPIKey: userAPIKey,
 	}
 
-	// Write Zed keymap with macOS-style Super keybindings
-	if err := writeZedKeymap(); err != nil {
-		log.Printf("Warning: Failed to write Zed keymap: %v", err)
-	}
-
 	// Initial sync from Helix → local with retry
 	// Retry handles race condition where daemon starts before API token is fully available
 	maxRetries := 5
@@ -977,85 +971,3 @@ func deepEqual(a, b interface{}) bool {
 	return string(aJSON) == string(bJSON)
 }
 
-// writeZedKeymap writes Zed keymap.json with macOS-style Super key bindings.
-// This adds Super (Command) key shortcuts alongside the existing Ctrl shortcuts,
-// so macOS users can use their muscle memory (Cmd+C, Cmd+V, etc.).
-//
-// Note: The desktop-bridge also remaps Super→Ctrl at the input injection layer,
-// which handles Chrome and other apps. Zed-specific bindings here provide
-// defense-in-depth and support Zed-specific actions (like buffer_search::Deploy).
-func writeZedKeymap() error {
-	dir := filepath.Dir(KeymapPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create keymap directory: %w", err)
-	}
-
-	// Don't overwrite if user has customized their keymap
-	if _, err := os.Stat(KeymapPath); err == nil {
-		data, readErr := os.ReadFile(KeymapPath)
-		if readErr == nil && len(data) > 0 {
-			log.Printf("Zed keymap already exists, skipping write")
-			return nil
-		}
-	}
-
-	keymap := `[
-  {
-    "context": "Editor",
-    "bindings": {
-      "super-c": "editor::Copy",
-      "super-v": "editor::Paste",
-      "super-x": "editor::Cut",
-      "super-a": "editor::SelectAll",
-      "super-z": "editor::Undo",
-      "super-shift-z": "editor::Redo",
-      "super-s": "workspace::Save",
-      "super-f": "buffer_search::Deploy",
-      "super-shift-f": "project_search::Deploy",
-      "super-d": "editor::SelectNext",
-      "super-shift-d": "editor::SelectAllMatches",
-      "super-left": "editor::MoveToBeginningOfLine",
-      "super-right": "editor::MoveToEndOfLine",
-      "super-up": "editor::MoveToBeginning",
-      "super-down": "editor::MoveToEnd",
-      "super-shift-left": "editor::SelectToBeginningOfLine",
-      "super-shift-right": "editor::SelectToEndOfLine",
-      "super-shift-up": "editor::SelectToBeginning",
-      "super-shift-down": "editor::SelectToEnd",
-      "super-backspace": "editor::DeleteToBeginningOfLine"
-    }
-  },
-  {
-    "context": "Workspace",
-    "bindings": {
-      "super-s": "workspace::Save",
-      "super-shift-s": "workspace::SaveAll",
-      "super-w": "pane::CloseActiveItem",
-      "super-n": "workspace::NewFile",
-      "super-p": "file_finder::Toggle",
-      "super-shift-p": "command_palette::Toggle",
-      "super-b": "workspace::ToggleLeftDock",
-      "super-t": "workspace::NewFile"
-    }
-  },
-  {
-    "context": "Pane",
-    "bindings": {
-      "super-f": "buffer_search::Deploy",
-      "super-shift-f": "project_search::Deploy"
-    }
-  }
-]
-`
-
-	tmpFile := KeymapPath + ".tmp"
-	if err := os.WriteFile(tmpFile, []byte(keymap), 0644); err != nil {
-		return fmt.Errorf("failed to write keymap temp file: %w", err)
-	}
-	if err := os.Rename(tmpFile, KeymapPath); err != nil {
-		return fmt.Errorf("failed to rename keymap file: %w", err)
-	}
-
-	log.Printf("Wrote Zed keymap with macOS-style Super key bindings to %s", KeymapPath)
-	return nil
-}

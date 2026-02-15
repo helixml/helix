@@ -30,14 +30,3 @@ copy-on-select = clipboard
 
 # Confirm close if there are running processes
 confirm-close-surface = false
-
-# macOS-style keyboard shortcuts
-# Super (Command on Mac) key shortcuts for copy/paste.
-# "performable:" prefix means Super+C only copies when text is selected,
-# otherwise the keypress passes through to the running program.
-keybind = performable:super+c=copy_to_clipboard
-keybind = super+v=paste_from_clipboard
-keybind = super+a=select_all
-keybind = super+n=new_window
-keybind = super+t=new_tab
-keybind = super+w=close_surface

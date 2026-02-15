@@ -9,107 +9,47 @@ macOS users expect Command+C/V/X/A/Z/etc. for common shortcuts. On the Helix
 headless Ubuntu desktop, macOS Command maps to Super/Meta, but:
 
 1. **Super+C/V/X doesn't copy/paste** - GNOME doesn't map these by default
-2. **Super+Left/Right tiles windows** instead of moving the cursor to line
-   start/end (Home/End), which macOS users expect from Command+Left/Right
-3. **Ghostty and Zed** need their own Super-key bindings configured
-4. **Chrome** has no app-level config for this - needs system-level handling
+2. **Super+Left/Right tiles windows** instead of being available for apps
+3. **Chrome and GTK4 apps** can't be configured to respond to Super+key shortcuts
 
-## Architecture
+## Approach: XKB System-Level Remap
 
-Input flows: **Browser** -> **WebSocket** -> **desktop-bridge (Go)** -> **GNOME D-Bus RemoteDesktop**
+Use XKB `altwin:ctrl_win` to remap Super (Command) to Ctrl at the keyboard layout
+level. This makes ALL apps (Chrome, GTK3, GTK4, Electron, etc.) see Ctrl+C when
+the user presses Command+C, with zero per-app configuration needed.
 
-The browser sends `event.metaKey` as the `ModifierMeta` bit (0x08) and the
-physical key as an evdev keycode. Modifier keys (MetaLeft/MetaRight) are sent
-as their own evdev keycodes (125/126).
+Also use `caps:ctrl_nocaps` to remap Caps Lock to Ctrl.
 
-Since this is a headless GNOME container with no physical keyboard, system-level
-tools like `keyd` don't work (they filter out virtual input devices). The
-remapping must happen either:
+### How It Works
 
-- **At the input injection layer** (desktop-bridge Go code) - works for ALL apps
-- **Per-application** (Zed keymap, Ghostty config) - defense in depth
-
-## Approach: Layered Solution
-
-### Layer 1: Input Injection Remapping (Go - desktop-bridge)
-
-In `api/pkg/desktop/ws_input.go`, remap Super+key combinations before injecting
-into GNOME via D-Bus. This catches everything including Chrome.
-
-**Evdev keycode path** (`handleWSKeyboardKeycode`):
-- When evdev keycode for a shortcut key (C, V, X, A, Z, S, F, etc.) arrives
-  with `ModifierMeta` set, replace Super modifier press/release with Ctrl
-
-**Keysym path** (`handleWSKeyboardKeysym`, `handleWSKeyboardKeysymTap`):
-- When keysym arrives with `ModifierMeta`, replace `XK_Super_L` with `XK_Control_L`
-
-**Navigation keys** (Super+Left/Right/Up/Down):
-- Super+Left -> Home
-- Super+Right -> End
-- Super+Up -> Ctrl+Home (document start)
-- Super+Down -> Ctrl+End (document end)
-- Super+Backspace -> Ctrl+Backspace (delete word, or select-all + delete for line)
-
-### Layer 2: GNOME Keybinding Overrides (dconf)
-
-Disable GNOME's default Super+Left/Right window tiling shortcuts that conflict:
-
-```ini
-[org/gnome/desktop/wm/keybindings]
-move-to-side-e=['']
-move-to-side-w=['']
+```bash
+gsettings set org.gnome.desktop.input-sources xkb-options "['altwin:ctrl_win', 'caps:ctrl_nocaps']"
+gsettings set org.gnome.mutter overlay-key ''
 ```
 
-Also disable the Super key overlay (Activities view):
+- `altwin:ctrl_win` — Super/Win keys produce Ctrl modifier
+- `caps:ctrl_nocaps` — Caps Lock produces Ctrl
+- `overlay-key=''` — Disable GNOME Activities overlay on Super tap
 
-```ini
-[org/gnome/mutter]
-overlay-key=''
-```
+The original Ctrl keys still produce Ctrl, so terminal Ctrl+C for SIGINT works.
 
-### Layer 3: Application Keybindings (Zed + Ghostty)
+### Why Not Per-App Configuration?
 
-**Zed** (`~/.config/zed/keymap.json`): Add `super-` bindings for common actions.
-Written by the settings-sync-daemon alongside settings.json.
+We investigated configuring each application to respond to Super+key shortcuts:
+- **GTK3**: Supports `@binding-set` CSS rules with `<Super>` modifier
+- **GTK4**: Removed `@binding-set` entirely — no system-level keybinding config
+- **Chrome**: Does not support Super+key shortcuts at all
 
-**Ghostty** (`~/.config/ghostty/config`): Add `super+c`/`super+v` copy/paste
-bindings.
-
-## What Gets Remapped
-
-| macOS Shortcut | Linux Equivalent | Context |
-|----------------|------------------|---------|
-| Cmd+C | Ctrl+C | Copy (all apps) |
-| Cmd+V | Ctrl+V | Paste (all apps) |
-| Cmd+X | Ctrl+X | Cut (all apps) |
-| Cmd+A | Ctrl+A | Select All |
-| Cmd+Z | Ctrl+Z | Undo |
-| Cmd+Shift+Z | Ctrl+Shift+Z | Redo |
-| Cmd+S | Ctrl+S | Save |
-| Cmd+F | Ctrl+F | Find |
-| Cmd+W | Ctrl+W | Close tab |
-| Cmd+T | Ctrl+T | New tab |
-| Cmd+N | Ctrl+N | New window |
-| Cmd+L | Ctrl+L | Address bar / Go to line |
-| Cmd+R | Ctrl+R | Reload |
-| Cmd+P | Ctrl+P | Print / Quick open |
-| Cmd+Left | Home | Line start |
-| Cmd+Right | End | Line end |
-| Cmd+Up | Ctrl+Home | Document start |
-| Cmd+Down | Ctrl+End | Document end |
-| Cmd+Backspace | Select-line+Delete | Delete line (macOS behavior) |
+XKB remapping is the only approach that works universally across all toolkits.
 
 ## Files Modified
 
-1. `api/pkg/desktop/ws_input.go` - Core remapping logic in input handlers
-2. `desktop/ubuntu-config/dconf-settings.ini` - Disable conflicting GNOME shortcuts
-3. `desktop/ubuntu-config/ghostty-config` - Add Super+C/V copy/paste
-4. `desktop/ubuntu-config/startup-app.sh` - gsettings for overlay-key disable
-5. `api/cmd/settings-sync-daemon/main.go` - Write Zed keymap.json
+1. `desktop/ubuntu-config/dconf-settings.ini` — XKB options in `[org/gnome/desktop/input-sources]`
+2. `desktop/ubuntu-config/startup-app.sh` — gsettings for XKB options + overlay-key disable
 
 ## Not Changed
 
-- Frontend keyboard.ts - no changes needed, it already sends MetaLeft/MetaRight
-  keycodes and the ModifierMeta bit correctly
-- The remapping is always-on since we control the desktop environment and know
-  that macOS users are the primary audience
+- `api/pkg/desktop/ws_input.go` — No input-layer remapping. Keys pass through unchanged.
+- `desktop/ubuntu-config/ghostty-config` — No Super keybindings needed (XKB handles it)
+- `api/cmd/settings-sync-daemon/main.go` — No Zed keymap.json needed (XKB handles it)
+- Frontend keyboard.ts — No changes needed, sends MetaLeft/MetaRight keycodes correctly
