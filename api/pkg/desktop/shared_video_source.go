@@ -892,9 +892,18 @@ func (s *SharedVideoSource) broadcastFrames() {
 			return
 
 		case <-keepaliveTimer.C:
-			// No new frames from PipeWire for frameKeepaliveInterval.
-			// Re-send the last frame from the GOP buffer to keep clients alive.
+			// No new frames for frameKeepaliveInterval.
+			// Only needed for external sources (scanout/macOS) where there's no
+			// PipeWire keepalive. GStreamer pipelines have keepalive-time on
+			// pipewiresrc/pipewirezerocopysrc which handles static screens natively.
+			// Re-sending P-frames to the H.264 decoder causes corruption because
+			// duplicate NALUs desync the decoder's reference picture list.
 			keepaliveTimer.Reset(frameKeepaliveInterval)
+
+			// Skip keepalive for GStreamer pipeline sources — PipeWire handles it
+			if s.externalSource == nil {
+				continue
+			}
 
 			s.clientsMu.RLock()
 			clientCount := len(s.clients)
