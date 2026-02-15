@@ -637,12 +637,6 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		// Matches UTM plist RNGDevice=true.
 		"-device", "virtio-rng-pci",
 
-		// Audio — intel-hda with duplex codec. GNOME Shell expects an audio
-		// device; PipeWire/WirePlumber enumerate it for the desktop pipeline.
-		// Matches UTM plist Sound: intel-hda.
-		"-device", "intel-hda",
-		"-device", "hda-duplex",
-
 		// Serial console — captured and shown in the app UI
 		"-serial", "mon:stdio",
 
