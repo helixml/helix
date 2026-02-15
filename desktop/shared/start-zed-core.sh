@@ -73,6 +73,38 @@ wait_for_zed_config() {
     return 1
 }
 
+wait_for_claude_credentials() {
+    # If settings.json contains a "claude" agent_server, wait for the credentials
+    # file before starting Zed. Claude Code's credential reader is memoized — if
+    # it reads before the file exists, it caches null permanently and auth fails.
+    local SETTINGS_FILE="$HOME/.config/zed/settings.json"
+    local CREDS_FILE="$HOME/.claude/.credentials.json"
+
+    if ! grep -q '"agent_servers"' "$SETTINGS_FILE" 2>/dev/null || \
+       ! grep -q '"claude"' "$SETTINGS_FILE" 2>/dev/null; then
+        return 0
+    fi
+
+    echo "Claude Code agent configured, waiting for credentials file..."
+    local WAIT_COUNT=0
+    local MAX_WAIT=60
+
+    while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+        if [ -f "$CREDS_FILE" ]; then
+            echo "Claude credentials file ready"
+            return 0
+        fi
+        sleep 1
+        WAIT_COUNT=$((WAIT_COUNT + 1))
+        if [ $((WAIT_COUNT % 10)) -eq 0 ]; then
+            echo "Still waiting for Claude credentials... ($WAIT_COUNT seconds)"
+        fi
+    done
+
+    echo "Warning: Claude credentials not ready after ${MAX_WAIT}s, proceeding anyway..."
+    return 1
+}
+
 read_zed_folders() {
     ZED_FOLDERS=()
     if [ -f "$FOLDERS_FILE" ]; then
@@ -202,6 +234,11 @@ start_zed_helix() {
     # Step 2: Wait for Zed configuration
     # =========================================
     wait_for_zed_config
+
+    # =========================================
+    # Step 2b: Wait for Claude credentials (if using Claude Code)
+    # =========================================
+    wait_for_claude_credentials
 
     # =========================================
     # Step 3: Launch Zed
