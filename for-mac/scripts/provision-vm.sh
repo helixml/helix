@@ -332,7 +332,8 @@ if [ "$UPDATE" = true ]; then
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml down 2>&1"
 
     # Cleanup
-    run_ssh "rm -rf ~/zed ~/qwen-code ~/.cache/go-build" || true
+    run_ssh "rm -rf ~/.cache/go-build" || true
+    # NOTE: Keep ~/zed and ~/qwen-code — they're reused by --update mode
     run_ssh "sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*" || true
     # NOTE: Do NOT run `docker builder prune` here — it destroys BuildKit cache
     # mounts (cargo registry, rustup toolchain, Rust build artifacts) that make
