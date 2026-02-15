@@ -56,7 +56,7 @@ type FrameSource interface {
 // - ONE source per session (identified by node ID)
 // - Broadcasts encoded H.264 frames to all subscribers
 // - Caches the last keyframe (GOP buffer) for mid-stream joins
-// - Re-sends last frame every 100ms on static screens (keepalive)
+// - Static screen keepalive handled at source level (PipeWire keepalive-time + damage keepalive)
 // - Automatically stops when the last client disconnects
 // - Propagates source errors to all clients
 type SharedVideoSource struct {
@@ -873,7 +873,6 @@ func (s *SharedVideoSource) broadcastFrames() {
 	}
 	var frameCount uint64
 	var keyframeCount uint64
-	var keepaliveCount uint64
 	var restartCount int
 
 	// Stall detection timer - fires when no frames arrive for stallRestartTimeout
@@ -892,70 +891,20 @@ func (s *SharedVideoSource) broadcastFrames() {
 			return
 
 		case <-keepaliveTimer.C:
-			// No new frames for frameKeepaliveInterval.
-			// Only needed for external sources (scanout/macOS) where there's no
-			// PipeWire keepalive. GStreamer pipelines have keepalive-time on
-			// pipewiresrc/pipewirezerocopysrc which handles static screens natively.
-			// Re-sending P-frames to the H.264 decoder causes corruption because
-			// duplicate NALUs desync the decoder's reference picture list.
+			// DISABLED: Re-sending H.264 frames as keepalive causes decoder corruption.
+			// Duplicate P-frames desync the decoder's reference picture list (DPB),
+			// causing visual artifacts on all platforms (NVIDIA Linux, macOS VideoToolbox).
+			// This was the root cause of the P-frame corruption that led to the
+			// "all-keyframe mode" workaround on macOS.
+			//
+			// Static screen handling:
+			// - GStreamer/PipeWire: keepalive-time on pipewiresrc handles it natively
+			// - Scanout/macOS: the damage keepalive goroutine injects cursor movements
+			//   to generate real frames from PipeWire (Embedded cursor mode)
+			//
+			// The timer is kept running (not stopped) to avoid complicating the
+			// select loop, but we just drain and continue.
 			keepaliveTimer.Reset(frameKeepaliveInterval)
-
-			// Skip keepalive for GStreamer pipeline sources — PipeWire handles it
-			if s.externalSource == nil {
-				continue
-			}
-
-			s.clientsMu.RLock()
-			clientCount := len(s.clients)
-			s.clientsMu.RUnlock()
-			if clientCount == 0 {
-				continue
-			}
-
-			s.gopBufferMu.RLock()
-			gopLen := len(s.gopBuffer)
-			var lastFrame VideoFrame
-			if gopLen > 0 {
-				lastFrame = s.gopBuffer[gopLen-1]
-			}
-			s.gopBufferMu.RUnlock()
-
-			if gopLen == 0 {
-				continue
-			}
-
-			// Re-send the last frame with updated timestamp
-			keepaliveFrame := lastFrame
-			keepaliveFrame.Timestamp = time.Now()
-			keepaliveCount++
-
-			if keepaliveCount == 1 {
-				fmt.Printf("[SHARED_VIDEO] Frame keepalive started for node %d (re-sending last %d-byte frame)\n",
-					s.nodeID, len(keepaliveFrame.Data))
-			} else if keepaliveCount%60 == 0 {
-				fmt.Printf("[SHARED_VIDEO] Frame keepalive active for node %d (%d keepalive frames sent)\n",
-					s.nodeID, keepaliveCount)
-			}
-
-			// Broadcast keepalive frame to all live clients (skip catching_up)
-			s.clientsMu.RLock()
-			for _, client := range s.clients {
-				if client.state.Load() == clientStateLive {
-					func() {
-						defer func() {
-							if r := recover(); r != nil {
-								// Channel was closed
-							}
-						}()
-						select {
-						case client.frameCh <- keepaliveFrame:
-						default:
-							// Buffer full - skip keepalive for slow client
-						}
-					}()
-				}
-			}
-			s.clientsMu.RUnlock()
 
 		case <-stallTimer.C:
 			// No frames for stallRestartTimeout - source is stalled
@@ -1062,7 +1011,6 @@ func (s *SharedVideoSource) broadcastFrames() {
 				}
 			}
 			keepaliveTimer.Reset(frameKeepaliveInterval)
-			keepaliveCount = 0 // Reset counter so first keepalive after stall is logged
 
 			// Maintain GOP buffer for mid-stream joins
 			// On keyframe: reset buffer and start fresh GOP
