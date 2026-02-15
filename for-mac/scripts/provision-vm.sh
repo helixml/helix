@@ -269,16 +269,30 @@ if [ "$UPDATE" = true ]; then
     run_ssh "/usr/local/go/bin/go version"
 
     # Rebuild helix-drm-manager (runs on VM host, not in Docker)
-    log "Rebuilding helix-drm-manager..."
+    log "Rebuilding and installing helix-drm-manager..."
     run_ssh "sudo systemctl stop helix-drm-manager 2>/dev/null || true"
     run_ssh "cd ~/helix/api && CGO_ENABLED=0 /usr/local/go/bin/go build -o /tmp/helix-drm-manager ./cmd/helix-drm-manager/ && \
              sudo cp /tmp/helix-drm-manager /usr/local/bin/helix-drm-manager && \
              sudo chmod +x /usr/local/bin/helix-drm-manager"
-    # Ensure systemd service has EnvironmentFile (may be missing from older images)
-    if ! run_ssh "grep -q EnvironmentFile /etc/systemd/system/helix-drm-manager.service" 2>/dev/null; then
-        run_ssh "sudo sed -i '/^ExecStart=/i EnvironmentFile=-/etc/helix-drm-manager.env' /etc/systemd/system/helix-drm-manager.service"
-        run_ssh "sudo systemctl daemon-reload"
-    fi
+    # Write the complete systemd service (same as initial provision)
+    run_ssh "sudo tee /etc/systemd/system/helix-drm-manager.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=Helix DRM Lease Manager
+After=systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/helix-drm-manager.env
+ExecStart=/usr/local/bin/helix-drm-manager
+Restart=on-failure
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF"
+    run_ssh "sudo systemctl daemon-reload && sudo systemctl enable helix-drm-manager"
     run_ssh "sudo systemctl start helix-drm-manager 2>/dev/null || true"
     log "helix-drm-manager rebuilt and restarted."
 
