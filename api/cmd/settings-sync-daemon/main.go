@@ -164,6 +164,9 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 				log.Printf("Claude credentials file not yet available, deferring claude_code agent_servers: %v", err)
 				return nil
 			}
+			// Write marker so start-zed-core.sh knows to wait for credentials
+			// before launching Zed (belt-and-suspenders with the os.Stat gate above).
+			_ = os.WriteFile(ClaudeSubscriptionMarkerPath, []byte("1"), 0644)
 			// IMPORTANT: Hydra sets ANTHROPIC_BASE_URL on ALL containers, which
 			// leaks into Claude Code's process via env inheritance. We must
 			// explicitly override it to the real Anthropic API so Claude Code
@@ -353,7 +356,8 @@ func (d *SettingsDaemon) injectKoditAuth() {
 }
 
 const (
-	ClaudeCredentialsPath = "/home/retro/.claude/.credentials.json"
+	ClaudeCredentialsPath          = "/home/retro/.claude/.credentials.json"
+	ClaudeSubscriptionMarkerPath   = "/tmp/helix-claude-subscription-mode"
 )
 
 // syncClaudeCredentials fetches Claude OAuth credentials from the Helix API

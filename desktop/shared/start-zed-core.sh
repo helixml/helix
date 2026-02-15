@@ -74,21 +74,15 @@ wait_for_zed_config() {
 }
 
 wait_for_claude_credentials() {
-    # If settings.json contains a "claude" agent_server, wait for the credentials
-    # file before starting Zed. Claude Code's credential reader is memoized — if
-    # it reads before the file exists, it caches null permanently and auth fails.
-    local SETTINGS_FILE="$HOME/.config/zed/settings.json"
+    # In Claude Code subscription mode, wait for the credentials file before
+    # starting Zed. Claude Code's credential reader is memoized — if it starts
+    # before the file exists, it caches null permanently and auth fails.
+    # The settings-sync-daemon writes /tmp/helix-claude-subscription-mode when
+    # subscription mode is active. API key mode doesn't need this wait.
+    local MARKER_FILE="/tmp/helix-claude-subscription-mode"
     local CREDS_FILE="$HOME/.claude/.credentials.json"
 
-    if ! grep -q '"agent_servers"' "$SETTINGS_FILE" 2>/dev/null || \
-       ! grep -q '"claude"' "$SETTINGS_FILE" 2>/dev/null; then
-        return 0
-    fi
-
-    # API key mode uses ANTHROPIC_API_KEY env var, no credentials file needed.
-    # Only subscription mode (no API key) requires the credentials file.
-    if grep -q 'ANTHROPIC_API_KEY' "$SETTINGS_FILE" 2>/dev/null; then
-        echo "Claude Code using API key mode, no credentials file needed"
+    if [ ! -f "$MARKER_FILE" ]; then
         return 0
     fi
 
