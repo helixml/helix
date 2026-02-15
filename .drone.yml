@@ -2514,6 +2514,13 @@ platform:
   os: darwin
   arch: arm64
 
+# Wait for ARM64 Docker images to be built before provisioning the VM
+depends_on:
+  - build-controlplane-arm64
+  - build-haystack-arm64
+  - build-typesense-arm64
+  - build-sandbox-arm64
+
 trigger:
   ref:
     include:
@@ -2521,6 +2528,42 @@ trigger:
       - refs/heads/multi-arch-builds
 
 steps:
+  # Step 1: Provision VM image and upload to R2
+  # Boots a QEMU VM, installs Helix using pre-built ARM64 Docker images,
+  # compresses the disk with zstd, and uploads to R2 CDN.
+  # This updates vm-manifest.json in the working tree for build-app to embed.
+  - name: provision-vm
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
+      R2_ACCESS_KEY_ID:
+        from_secret: r2_access_key_id
+      R2_SECRET_ACCESS_KEY:
+        from_secret: r2_secret_access_key
+      R2_ENDPOINT: https://f0150e619c6dc08f55aea6d2248b1c6c.r2.cloudflarestorage.com
+      R2_BUCKET: helix-desktop
+    commands:
+      - export HOME=/Users/luke
+      # Fail fast if R2 credentials are missing
+      - |
+        if [ -z "$R2_ACCESS_KEY_ID" ] || [ -z "$R2_SECRET_ACCESS_KEY" ]; then
+          echo "ERROR: R2 credentials not set. Check Drone secrets r2_access_key_id and r2_secret_access_key."
+          exit 1
+        fi
+        echo "R2 credentials verified (endpoint: $R2_ENDPOINT)"
+      # Run provisioning with upload
+      # Uses /Volumes/Big for VM disk (fast SSD on the runner)
+      - |
+        if [ -n "$DRONE_TAG" ]; then PROV_VERSION="$DRONE_TAG"; else PROV_VERSION=$(echo $DRONE_COMMIT_SHA | head -c 9); fi
+        cd for-mac
+        HELIX_VM_DIR=/Volumes/Big/helix-vm/ci-provision \
+        VM_VERSION="$PROV_VERSION" \
+        bash scripts/provision-vm-light.sh \
+          --helix-version "$PROV_VERSION" \
+          --upload
+      # Clean up VM disk (no longer needed after upload to R2)
+      - rm -rf /Volumes/Big/helix-vm/ci-provision
+
+  # Step 2: Build Helix.app with embedded QEMU, frameworks, and vm-manifest.json
   - name: build-app
     environment:
       PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
@@ -2538,6 +2581,7 @@ steps:
       - cd for-mac
       - ./scripts/build-helix-app.sh
 
+  # Step 3: Create DMG, sign, notarize, upload to R2
   - name: create-dmg
     environment:
       PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
@@ -2545,14 +2589,10 @@ steps:
         from_secret: keychain_password
       APPLE_SIGNING_IDENTITY:
         from_secret: apple_signing_identity
-      R2_ACCOUNT_ID:
-        from_secret: r2_account_id
       R2_ACCESS_KEY_ID:
         from_secret: r2_access_key_id
       R2_SECRET_ACCESS_KEY:
         from_secret: r2_secret_access_key
-      R2_BUCKET_NAME: helix-desktop
-      VM_DIR: /nonexistent
     commands:
       - export HOME=/Users/luke
       # Unlock CI keychain
@@ -2560,16 +2600,11 @@ steps:
       - security list-keychains -d user -s /Users/luke/Library/Keychains/Helix-Dev.keychain-db /Users/luke/Library/Keychains/login.keychain-db
       # Create .env.signing for create-dmg's signing step
       - echo "APPLE_SIGNING_IDENTITY='$APPLE_SIGNING_IDENTITY'" > for-mac/.env.signing
-      # Determine version
-      - |
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION=$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        fi
       - cd for-mac
       # Build DMG (no upload yet — notarize first)
-      - ./scripts/create-dmg.sh --skip-styling --version $VERSION
+      - |
+        if [ -n "$DRONE_TAG" ]; then DMG_VER="$DRONE_TAG"; else DMG_VER=$(echo $DRONE_COMMIT_SHA | head -c 7); fi
+        ./scripts/create-dmg.sh --skip-styling --version "$DMG_VER"
       # Notarize with Helix-Dev keychain, then staple ticket into DMG
       - |
         xcrun notarytool submit build/bin/Helix-for-Mac.dmg \
@@ -2581,8 +2616,20 @@ steps:
       - |
         export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
         export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
-        R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+        if [ -n "$DRONE_TAG" ]; then DMG_VERSION="$DRONE_TAG"; else DMG_VERSION=$(echo $DRONE_COMMIT_SHA | head -c 7); fi
+        echo "Uploading DMG for version: $DMG_VERSION"
         aws s3 cp build/bin/Helix-for-Mac.dmg \
-          "s3://${R2_BUCKET_NAME}/desktop/${VERSION}/Helix-for-Mac.dmg" \
-          --endpoint-url "$R2_ENDPOINT" \
+          "s3://helix-desktop/desktop/$DMG_VERSION/Helix-for-Mac.dmg" \
+          --endpoint-url "https://f0150e619c6dc08f55aea6d2248b1c6c.r2.cloudflarestorage.com" \
           --no-progress
+      # Upload latest.json pointer for update checking
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
+          export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
+          echo "{\"version\":\"${DRONE_TAG}\",\"dmg_url\":\"https://dl.helix.ml/desktop/${DRONE_TAG}/Helix-for-Mac.dmg\",\"vm_url\":\"https://dl.helix.ml/vm/${DRONE_TAG}/disk.qcow2.zst\"}" | \
+            aws s3 cp - "s3://helix-desktop/desktop/latest.json" \
+              --endpoint-url "https://f0150e619c6dc08f55aea6d2248b1c6c.r2.cloudflarestorage.com" \
+              --content-type "application/json" \
+              --no-progress
+        fi

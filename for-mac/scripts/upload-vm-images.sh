@@ -24,16 +24,30 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FOR_MAC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$FOR_MAC_DIR/.." && pwd)"
 
-# Load R2 credentials
+# Load R2 credentials (from .env.r2 file or environment variables)
 R2_ENV="${FOR_MAC_DIR}/.env.r2"
-if [ ! -f "$R2_ENV" ]; then
-    echo "ERROR: R2 credentials not found at: $R2_ENV"
-    echo "Create .env.r2 with R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY"
-    exit 1
+if [ -f "$R2_ENV" ]; then
+    # shellcheck disable=SC1090
+    source "$R2_ENV"
 fi
 
-# shellcheck disable=SC1090
-source "$R2_ENV"
+# Verify required vars are set (from .env.r2 or environment)
+for var in R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY; do
+    if [ -z "${!var:-}" ]; then
+        echo "ERROR: $var not set. Either create for-mac/.env.r2 or export it."
+        exit 1
+    fi
+done
+
+# Derive R2_ENDPOINT from R2_ACCOUNT_ID if not set directly
+if [ -z "${R2_ENDPOINT:-}" ]; then
+    if [ -z "${R2_ACCOUNT_ID:-}" ]; then
+        echo "ERROR: Either R2_ENDPOINT or R2_ACCOUNT_ID must be set"
+        exit 1
+    fi
+    R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+fi
+R2_BUCKET="${R2_BUCKET:-helix-desktop}"
 
 export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
 export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"

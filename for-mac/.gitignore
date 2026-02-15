@@ -2,6 +2,7 @@ build/bin
 build/dev-qemu
 node_modules
 frontend/dist
+frontend/.vite
 for-mac
 helix-desktop
 *.dylib

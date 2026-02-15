@@ -144,7 +144,22 @@ docker compose -f docker-compose.dev.yaml up -d api
   ./for-mac/qemu-helix/build-qemu-standalone.sh  # Builds QEMU and installs into UTM.app
   ```
   The script uses the UTM sysroot at `~/pm/UTM/sysroot-macOS-arm64` for dependencies.
-  QEMU source is at `~/pm/qemu-utm` (branch `utm-edition-venus-helix`).
+  QEMU source is at `~/pm/qemu-utm` (use the default branch; QEMU changes should go through PRs).
+- **Rebuilding QEMU for dev mode** (`wails dev`): After modifying QEMU source, rebuild and install into the dev-qemu directory:
+  ```bash
+  cd ~/pm/helix/for-mac
+  make rebuild-qemu   # Builds QEMU from source, copies to app bundle + dev-qemu, signs
+  ```
+  This runs `build-qemu-standalone.sh`, copies the output to the app bundle, fixes dylib paths, and creates a signed standalone copy in `build/dev-qemu/`. The VM must be stopped first (kill any running QEMU process). After rebuilding, restart the VM from the Helix app.
+
+  If `make rebuild-qemu` fails on code signing with `errSecInternalComponent`, sign manually with ad-hoc:
+  ```bash
+  codesign --force --sign - --timestamp=none --options runtime \
+    --entitlements build/darwin/entitlements.plist \
+    build/dev-qemu/libqemu-aarch64-softmmu.dylib build/dev-qemu/qemu-system-aarch64
+  ```
+- **Verifying QEMU version**: When the VM boots, the serial console shows the HELIX version string (e.g., `[HELIX] VERSION: 2026-02-15-v9-isv-fix`). This is defined in `~/pm/qemu-utm/hw/display/helix/helix-frame-export.m` in `helix_frame_export_init()`. Update the version string when making QEMU changes so you can verify the correct binary is running.
+- **Dev-mode QEMU binary location**: In `wails dev` mode, the app uses `build/dev-qemu/qemu-system-aarch64` (priority 2 in the search hierarchy). This is separate from the app bundle binary so that Wails frontend rebuilds don't invalidate QEMU's code signature. If the dev-qemu binary is outdated, the app runs old QEMU code even if you rebuilt and installed to UTM.app.
 
 ### Docker
 # ⛔⛔⛔ CRITICAL - READ THIS BEFORE TOUCHING DOCKER ⛔⛔⛔

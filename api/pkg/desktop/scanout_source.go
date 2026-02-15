@@ -31,7 +31,8 @@ func getScreenDimensions() (uint32, uint32) {
 }
 
 const (
-	defaultQEMUAddr  = "10.0.2.2:15937"
+	defaultQEMUHost  = "10.0.2.2"
+	defaultQEMUPort  = "15937"
 	defaultDRMSocket = "/run/helix-drm.sock"
 )
 
@@ -66,8 +67,18 @@ type ScanoutSource struct {
 
 // NewScanoutSource creates a new scanout H.264 source.
 // Resolution is read from GAMESCOPE_WIDTH/GAMESCOPE_HEIGHT env vars (default: 1920x1080).
+// getQEMUAddr returns the QEMU frame export address (host:port).
+// Reads HELIX_FRAME_EXPORT_PORT env var, defaults to 15937.
+func getQEMUAddr() string {
+	port := defaultQEMUPort
+	if p := os.Getenv("HELIX_FRAME_EXPORT_PORT"); p != "" {
+		port = p
+	}
+	return defaultQEMUHost + ":" + port
+}
+
 func NewScanoutSource(logger *slog.Logger) *ScanoutSource {
-	qemuAddr := defaultQEMUAddr
+	qemuAddr := getQEMUAddr()
 	drmSocket := defaultDRMSocket
 	w, h := getScreenDimensions()
 	logger.Info("scanout source resolution", "width", w, "height", h)

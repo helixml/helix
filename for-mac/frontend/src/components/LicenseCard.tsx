@@ -64,10 +64,21 @@ export function LicenseCard({ licenseStatus: ls, onLicenseUpdated, showToast }: 
 
   if (ls.state === 'trial_active') {
     const remaining = getTrialRemaining(ls.trial_ends_at);
+    const endsAt = ls.trial_ends_at ? new Date(ls.trial_ends_at).getTime() : 0;
+    const hoursLeft = endsAt ? (endsAt - Date.now()) / (1000 * 60 * 60) : 24;
+    const urgent = hoursLeft < 4;
     return (
-      <div className="license-badge trial-active">
-        <span className="license-badge-icon">&#9201;</span>
-        Trial: {remaining} remaining
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+        <div className={`license-badge trial-active${urgent ? ' trial-urgent' : ''}`} style={{ marginBottom: 0 }}>
+          <span className="license-badge-icon">&#9201;</span>
+          <span>Trial: {remaining} remaining</span>
+        </div>
+        <button
+          className="buy-license-card-btn"
+          onClick={() => BrowserOpenURL('https://deploy.helix.ml/licenses')}
+        >
+          Get a License
+        </button>
       </div>
     );
   }

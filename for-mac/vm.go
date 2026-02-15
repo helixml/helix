@@ -226,6 +226,14 @@ func (vm *VMManager) ensureVMExtracted() error {
 	vmDir := vm.getVMDir()
 	rootDisk := vm.getVMImagePath()
 
+	// Dev mode: create overlay backed by golden image
+	if goldenPath := os.Getenv("HELIX_DEV_IMAGE"); goldenPath != "" {
+		if err := vm.ensureDevImage(goldenPath, vmDir); err != nil {
+			return err
+		}
+		// Overlay created at rootDisk path — fall through to ZFS disk creation
+	}
+
 	// Root disk is required (downloaded from CDN)
 	if _, err := os.Stat(rootDisk); err != nil {
 		log.Printf("VM root disk not found at %s — download required", vmDir)
@@ -258,6 +266,66 @@ func (vm *VMManager) ensureVMExtracted() error {
 			return fmt.Errorf("failed to create ZFS data disk: %w", err)
 		}
 		log.Printf("ZFS data disk created")
+	}
+
+	return nil
+}
+
+// ensureDevImage copies the golden image into the working directory.
+// Uses a simple full copy instead of qcow2 overlays — more disk usage but
+// avoids overlay invalidation headaches when the golden image gets updated.
+// Factory reset = delete the copy, next start re-copies from golden.
+func (vm *VMManager) ensureDevImage(goldenPath, vmDir string) error {
+	// Validate golden image exists
+	if _, err := os.Stat(goldenPath); err != nil {
+		return fmt.Errorf("HELIX_DEV_IMAGE not found: %s", goldenPath)
+	}
+
+	absGolden, err := filepath.Abs(goldenPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve HELIX_DEV_IMAGE path: %w", err)
+	}
+
+	os.MkdirAll(vmDir, 0755)
+	diskCopy := filepath.Join(vmDir, "disk.qcow2")
+
+	// Reuse existing copy (user runs factory reset to get a fresh one)
+	if _, err := os.Stat(diskCopy); err == nil {
+		log.Printf("Dev mode: reusing existing disk copy at %s", diskCopy)
+		return nil
+	}
+
+	// Copy golden image to working directory
+	log.Printf("Dev mode: copying golden image %s → %s", absGolden, diskCopy)
+	if err := copyFile(absGolden, diskCopy); err != nil {
+		os.Remove(diskCopy) // clean up partial copy
+		return fmt.Errorf("failed to copy golden image: %w", err)
+	}
+	log.Printf("Dev mode: golden image copied successfully")
+
+	// Copy EFI vars from golden image's directory, fall back to app bundle
+	goldenDir := filepath.Dir(absGolden)
+	efiSrc := filepath.Join(goldenDir, "efi_vars.fd")
+	efiDst := filepath.Join(vmDir, "efi_vars.fd")
+	if _, err := os.Stat(efiDst); os.IsNotExist(err) {
+		if _, err := os.Stat(efiSrc); err == nil {
+			log.Printf("Dev mode: copying EFI vars from %s", efiSrc)
+			if err := copyFile(efiSrc, efiDst); err != nil {
+				log.Printf("Warning: failed to copy EFI vars: %v", err)
+			}
+		} else {
+			// Fall back to app bundle EFI vars
+			bundlePath := vm.getAppBundlePath()
+			if bundlePath != "" {
+				bundledEFI := filepath.Join(bundlePath, "Contents", "Resources", "vm", "efi_vars.fd")
+				if _, err := os.Stat(bundledEFI); err == nil {
+					log.Printf("Dev mode: copying EFI vars from app bundle")
+					if err := copyFile(bundledEFI, efiDst); err != nil {
+						log.Printf("Warning: failed to copy EFI vars from bundle: %v", err)
+					}
+				}
+			}
+		}
 	}
 
 	return nil
@@ -467,11 +535,20 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	//   Frames forwarded to host via port forward → VideoToolbox encode on host
 	//   virtio-gpu provides rendering acceleration for the VM
 	args := []string{
-		// Machine configuration with HVF acceleration
-		"-machine", "virt,accel=hvf,highmem=on",
+		// Machine configuration — matches UTM's approach:
+		// Separate -machine and -accel flags (rather than accel= in machine).
+		// gic-version=3 for GICv3 interrupt controller (required for >8 CPUs).
+		// ipa-granule-size=0x1000 sets stage-2 page table granule to 4KB,
+		// matching the Linux guest's page size. Without this, macOS HVF uses
+		// 16KB pages which can cause alignment issues with GPU memory mappings.
+		"-machine", "virt,gic-version=3,highmem=on",
+		"-accel", "hvf,ipa-granule-size=0x1000",
 		"-cpu", "host",
 		"-smp", fmt.Sprintf("%d", vm.config.CPUs),
 		"-m", fmt.Sprintf("%d", vm.config.MemoryMB),
+		// Disable QEMU default devices — we specify everything explicitly
+		"-nodefaults",
+		"-vga", "none",
 
 		// EFI firmware
 		"-drive", fmt.Sprintf("if=pflash,format=raw,readonly=on,file=%s", efiCode),
@@ -911,7 +988,10 @@ else
     fi
     if [ "$DATA_DISK" != "imported" ]; then
         echo "Creating ZFS pool on $DATA_DISK..."
-        sudo zpool create -f helix "$DATA_DISK"
+        # Clear stale /helix from golden image (ZFS won't mount over non-empty dir)
+        sudo rm -rf /helix 2>/dev/null || true
+        sudo mkdir -p /helix
+        sudo zpool create -f -m /helix helix "$DATA_DISK"
     fi
 fi
 
@@ -1137,6 +1217,20 @@ if grep -q '^SANDBOX_DOCKER_STORAGE=' "$ENV_FILE" 2>/dev/null; then
     CHANGED=1
 fi
 
+# QEMU frame export port — tells sandbox/hydra which port helix-frame-export
+# listens on, so desktop containers connect to the right QEMU instance.
+FRAME_PORT="%d"
+if grep -q '^HELIX_FRAME_EXPORT_PORT=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^HELIX_FRAME_EXPORT_PORT=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "$FRAME_PORT" ]; then
+        sed -i "s|^HELIX_FRAME_EXPORT_PORT=.*|HELIX_FRAME_EXPORT_PORT=$FRAME_PORT|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo "HELIX_FRAME_EXPORT_PORT=$FRAME_PORT" >> "$ENV_FILE"
+    CHANGED=1
+fi
+
 # Enable code-macos compose profile so sandbox-macos starts with docker compose up -d
 if grep -q '^COMPOSE_PROFILES=' "$ENV_FILE" 2>/dev/null; then
     CURRENT=$(grep '^COMPOSE_PROFILES=' "$ENV_FILE" | cut -d= -f2-)
@@ -1184,6 +1278,7 @@ if [ "$CURRENT_PASS" != "%s" ]; then
 fi
 `, vm.desktopSecret, vm.desktopSecret, vm.desktopSecret,
 		vm.adminUserIDs(), vm.registrationEnabled(),
+		vm.config.FrameExportPort,
 		vm.licenseKey,
 		vm.consolePassword, vm.consolePassword, vm.consolePassword)
 
@@ -1427,6 +1522,12 @@ func (vm *VMManager) findVulkanICD() string {
 // GNOME sessions with virglrenderer's Venus Vulkan path.
 func (vm *VMManager) buildQEMUEnv() []string {
 	env := os.Environ()
+
+	// Tell ANGLE to use the Metal backend for EGL/GLES on macOS.
+	// Without this, ANGLE can't initialize and QEMU fails with
+	// "No provider of eglCreateImageKHR found". UTM sets this in
+	// UTMQemuSystem.m's setRendererBackend().
+	env = append(env, "ANGLE_DEFAULT_PLATFORM=metal")
 
 	// Use KosmicKrisp Vulkan driver — check bundled location first, then UTM.app
 	icdPath := vm.findVulkanICD()
