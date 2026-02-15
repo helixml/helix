@@ -988,7 +988,10 @@ else
     fi
     if [ "$DATA_DISK" != "imported" ]; then
         echo "Creating ZFS pool on $DATA_DISK..."
-        sudo zpool create -f helix "$DATA_DISK"
+        # Clear stale /helix from golden image (ZFS won't mount over non-empty dir)
+        sudo rm -rf /helix 2>/dev/null || true
+        sudo mkdir -p /helix
+        sudo zpool create -f -m /helix helix "$DATA_DISK"
     fi
 fi
 

@@ -144,7 +144,7 @@ docker compose -f docker-compose.dev.yaml up -d api
   ./for-mac/qemu-helix/build-qemu-standalone.sh  # Builds QEMU and installs into UTM.app
   ```
   The script uses the UTM sysroot at `~/pm/UTM/sysroot-macOS-arm64` for dependencies.
-  QEMU source is at `~/pm/qemu-utm` (branch `utm-edition-venus-helix-working2`).
+  QEMU source is at `~/pm/qemu-utm` (use the default branch; QEMU changes should go through PRs).
 - **Rebuilding QEMU for dev mode** (`wails dev`): After modifying QEMU source, rebuild and install into the dev-qemu directory:
   ```bash
   cd ~/pm/helix/for-mac
