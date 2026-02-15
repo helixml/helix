@@ -14,7 +14,10 @@ import Typography from '@mui/material/Typography'
 import Stack from '@mui/material/Stack'
 import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
+import Radio from '@mui/material/Radio'
+import RadioGroup from '@mui/material/RadioGroup'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import Menu from '@mui/material/Menu'
 import { styled } from '@mui/material/styles'
 
@@ -32,9 +35,14 @@ import {
 import * as api from '../../api/api'
 
 
+import useApi from '../../hooks/useApi'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { AgentTypeSelector } from '../agent'
 import Divider from '@mui/material/Divider'
+import { useListProviders } from '../../services/providersService'
+import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
+import useRouter from '../../hooks/useRouter'
+import { useGetOrgByName } from '../../services/orgService'
 
 // Recommended models configuration
 const RECOMMENDED_MODELS = {
@@ -244,7 +252,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [reasoning_model_effort, setReasoningModelEffort] = useState(app.reasoning_model_effort || 'none')
   const [generation_model, setGenerationModel] = useState(app.generation_model || '')
   const [generation_model_provider, setGenerationModelProvider] = useState(app.generation_model_provider || '')
-  const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code'>(app.code_agent_runtime || 'zed_agent')
+  const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code' | 'claude_code'>(app.code_agent_runtime || 'zed_agent')
   // External agent display settings
   const [resolution, setResolution] = useState<'1080p' | '4k' | '5k'>(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
   const [desktopType, setDesktopType] = useState<'ubuntu' | 'sway'>(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
@@ -255,6 +263,27 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [small_reasoning_model_effort, setSmallReasoningModelEffort] = useState(app.small_reasoning_model_effort || 'none')
   const [small_generation_model, setSmallGenerationModel] = useState(app.small_generation_model || '')
   const [small_generation_model_provider, setSmallGenerationModelProvider] = useState(app.small_generation_model_provider || '')
+
+  // Claude Code mode: 'subscription' (OAuth) or 'api_key' (Anthropic provider)
+  // Derive initial mode from whether generation_model_provider is set
+  const [claudeCodeMode, setClaudeCodeMode] = useState<'subscription' | 'api_key'>(
+    app.generation_model_provider ? 'api_key' : 'subscription'
+  )
+
+  // Provider availability checks for Claude Code mode selector
+  const router = useRouter()
+  const orgName = router.params.org_id
+  const { data: orgForProviders } = useGetOrgByName(orgName, orgName !== undefined)
+  const { data: providerEndpoints = [] } = useListProviders({
+    loadModels: false,
+    orgId: orgForProviders?.id,
+    enabled: true,
+  })
+  const { data: claudeSubscriptions } = useClaudeSubscriptions()
+  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
+  const hasAnthropicProvider = providerEndpoints.some(
+    ep => ep.endpoint_type === 'user' && ep.name === 'anthropic'
+  )
 
   // Advanced settings state
   const [contextLimit, setContextLimit] = useState(app.context_limit || 0)
@@ -269,11 +298,11 @@ const AppSettings: FC<AppSettingsProps> = ({
   const isInitialized = useRef(false)
 
   // Query sandboxes to determine which desktop types are available
-  const apiClient = api.getApiClient()
+  const apiHook = useApi()
   const { data: sandboxInstances } = useQuery({
     queryKey: ['sandbox-instances-desktop-types'],
     queryFn: async () => {
-      const response = await apiClient.v1SandboxesList()
+      const response = await apiHook.getApiClient().v1SandboxesList()
       return response.data
     },
     staleTime: 60000,
@@ -668,12 +697,16 @@ const AppSettings: FC<AppSettingsProps> = ({
                 <Select
                   value={code_agent_runtime}
                   onChange={(e) => {
-                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code';
+                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code' | 'claude_code';
                     setCodeAgentRuntime(newRuntime);
                     onUpdate({ ...app, code_agent_runtime: newRuntime });
                   }}
                   disabled={readOnly}
-                  renderValue={(value) => value === 'zed_agent' ? 'Zed Agent' : 'Qwen Code'}
+                  renderValue={(value) => {
+                    if (value === 'claude_code') return 'Claude Code'
+                    if (value === 'qwen_code') return 'Qwen Code'
+                    return 'Zed Agent'
+                  }}
                 >
                   <MenuItem value="zed_agent">
                     <Box>
@@ -691,28 +724,118 @@ const AppSettings: FC<AppSettingsProps> = ({
                       </Typography>
                     </Box>
                   </MenuItem>
+                  <MenuItem value="claude_code">
+                    <Box>
+                      <Typography variant="body2">Claude Code</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Anthropic's coding agent
+                      </Typography>
+                    </Box>
+                  </MenuItem>
                 </Select>
               </FormControl>
             </Box>
 
-            <Box>
-              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                Model
-              </Typography>
-              <AdvancedModelPicker
-                recommendedModels={RECOMMENDED_MODELS.zedExternal}
-                hint="Select the LLM for code generation"
-                selectedProvider={generation_model_provider}
-                selectedModelId={generation_model}
-                onSelectModel={(provider, modelId) => {
-                  setGenerationModel(modelId);
-                  setGenerationModelProvider(provider);
-                  onUpdate({ ...app, generation_model: modelId, generation_model_provider: provider });
-                }}
-                currentType="text"
-                displayMode="short"
-              />
-            </Box>
+            {code_agent_runtime === 'claude_code' ? (
+              <>
+                <Box>
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                    Credentials
+                  </Typography>
+                  <FormControl>
+                    <RadioGroup
+                      value={claudeCodeMode}
+                      onChange={(e) => {
+                        const mode = e.target.value as 'subscription' | 'api_key'
+                        setClaudeCodeMode(mode)
+                        if (mode === 'subscription') {
+                          // Clear provider/model for subscription mode
+                          setGenerationModel('')
+                          setGenerationModelProvider('')
+                          onUpdate({ ...app, generation_model: '', generation_model_provider: '' })
+                        }
+                      }}
+                    >
+                      <FormControlLabel
+                        value="subscription"
+                        control={<Radio size="small" />}
+                        disabled={readOnly || !hasClaudeSubscription}
+                        label={
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="body2">Claude Subscription</Typography>
+                            {hasClaudeSubscription ? (
+                              <CheckCircleIcon sx={{ fontSize: 14, color: 'success.main' }} />
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">(not connected)</Typography>
+                            )}
+                          </Box>
+                        }
+                      />
+                      <FormControlLabel
+                        value="api_key"
+                        control={<Radio size="small" />}
+                        disabled={readOnly || !hasAnthropicProvider}
+                        label={
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="body2">Anthropic API Key</Typography>
+                            {hasAnthropicProvider ? (
+                              <CheckCircleIcon sx={{ fontSize: 14, color: 'success.main' }} />
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">(not configured)</Typography>
+                            )}
+                          </Box>
+                        }
+                      />
+                    </RadioGroup>
+                  </FormControl>
+                  {!hasClaudeSubscription && !hasAnthropicProvider && (
+                    <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 0.5 }}>
+                      Connect a Claude subscription or add an Anthropic API key in Settings &gt; Providers.
+                    </Typography>
+                  )}
+                </Box>
+
+                {claudeCodeMode === 'api_key' && (
+                  <Box>
+                    <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                      Model
+                    </Typography>
+                    <AdvancedModelPicker
+                      recommendedModels={RECOMMENDED_MODELS.zedExternal}
+                      hint="Select the Claude model for code generation"
+                      selectedProvider={generation_model_provider}
+                      selectedModelId={generation_model}
+                      onSelectModel={(provider, modelId) => {
+                        setGenerationModel(modelId);
+                        setGenerationModelProvider(provider);
+                        onUpdate({ ...app, generation_model: modelId, generation_model_provider: provider });
+                      }}
+                      currentType="text"
+                      displayMode="short"
+                    />
+                  </Box>
+                )}
+              </>
+            ) : (
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                  Model
+                </Typography>
+                <AdvancedModelPicker
+                  recommendedModels={RECOMMENDED_MODELS.zedExternal}
+                  hint="Select the LLM for code generation"
+                  selectedProvider={generation_model_provider}
+                  selectedModelId={generation_model}
+                  onSelectModel={(provider, modelId) => {
+                    setGenerationModel(modelId);
+                    setGenerationModelProvider(provider);
+                    onUpdate({ ...app, generation_model: modelId, generation_model_provider: provider });
+                  }}
+                  currentType="text"
+                  displayMode="short"
+                />
+              </Box>
+            )}
           </Stack>
 
           <Divider sx={{ my: 2 }} />

@@ -125,14 +125,20 @@ function setAccountWithOrgs(orgs: any[]) {
   }
 }
 
+async function selectExistingOrgAndContinue() {
+  // Step 1 is now org setup - click continue with existing org
+  fireEvent.click(screen.getByRole('button', { name: /continue with this organization/i }))
+}
+
 async function skipProviderStep() {
   const skipBtn = screen.getByRole('button', { name: /I'll do this later/i })
   fireEvent.click(skipBtn)
 }
 
-async function selectExistingOrgAndGoToStep2() {
+async function selectExistingOrgAndGoToProjectStep() {
+  // Step 1: select org, Step 2: skip provider, then we're at Step 3: project
+  await selectExistingOrgAndContinue()
   await skipProviderStep()
-  fireEvent.click(screen.getByRole('button', { name: /continue with this organization/i }))
   await waitFor(() => {
     expect(screen.getByLabelText(/project name/i)).toBeInTheDocument()
   })
@@ -182,7 +188,7 @@ describe('Onboarding', () => {
 
       renderOnboarding()
 
-      await selectExistingOrgAndGoToStep2()
+      await selectExistingOrgAndGoToProjectStep()
 
       mockV1GitRepositoriesCreate.mockResolvedValue({ data: { id: 'repo-1' } })
       mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'project-1' } })
@@ -224,8 +230,7 @@ describe('Onboarding', () => {
 
       renderOnboarding()
 
-      await skipProviderStep()
-
+      // Step 1 is org setup - with no existing orgs, the create form is shown directly
       const orgNameInput = screen.getByLabelText(/organization name/i)
       fireEvent.change(orgNameInput, { target: { value: 'New Org' } })
 
@@ -239,6 +244,9 @@ describe('Onboarding', () => {
           display_name: 'New Org',
         })
       })
+
+      // After org creation, we're on step 2 (providers) - skip it
+      await skipProviderStep()
 
       await waitFor(() => {
         expect(screen.getByLabelText(/project name/i)).toBeInTheDocument()
@@ -282,7 +290,7 @@ describe('Onboarding', () => {
 
       renderOnboarding()
 
-      await selectExistingOrgAndGoToStep2()
+      await selectExistingOrgAndGoToProjectStep()
       await fillProjectAndCreateWithModel('repo-test')
 
       await waitFor(() => {
@@ -305,7 +313,7 @@ describe('Onboarding', () => {
 
       renderOnboarding()
 
-      await selectExistingOrgAndGoToStep2()
+      await selectExistingOrgAndGoToProjectStep()
       await fillProjectAndCreateWithModel('proj-test')
 
       await waitFor(() => {
@@ -327,7 +335,7 @@ describe('Onboarding', () => {
 
       renderOnboarding()
 
-      await selectExistingOrgAndGoToStep2()
+      await selectExistingOrgAndGoToProjectStep()
       await fillProjectAndCreateWithModel('agent-test')
 
       await waitFor(() => {
@@ -354,7 +362,7 @@ describe('Onboarding', () => {
 
       renderOnboarding()
 
-      await selectExistingOrgAndGoToStep2()
+      await selectExistingOrgAndGoToProjectStep()
       await fillProjectAndCreateWithModel('ls-project')
 
       await waitFor(() => {
@@ -401,7 +409,7 @@ describe('Onboarding', () => {
 
       renderOnboarding()
 
-      await selectExistingOrgAndGoToStep2()
+      await selectExistingOrgAndGoToProjectStep()
       await fillProjectAndCreateWithModel('nav-project')
 
       await waitFor(() => {
@@ -452,7 +460,7 @@ describe('Onboarding', () => {
 
       renderOnboarding()
 
-      await selectExistingOrgAndGoToStep2()
+      await selectExistingOrgAndGoToProjectStep()
 
       await waitFor(() => {
         expect(mockApiGet).toHaveBeenCalledWith(

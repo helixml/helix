@@ -119,8 +119,14 @@ func (s *HelixAPIServer) listDesignReviews(w http.ResponseWriter, r *http.Reques
 		if err == nil && project.DefaultRepoID != "" {
 			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
 			if err == nil && repo != nil {
-				// Create review from git asynchronously (don't block response)
-				go s.backfillDesignReviewFromGit(context.Background(), specTaskID, repo)
+				// Backfill synchronously so the response includes the review
+				s.backfillDesignReviewFromGit(ctx, specTaskID, repo)
+				// Re-fetch reviews after backfill
+				reviews, err = s.Store.ListSpecTaskDesignReviews(ctx, specTaskID)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
 			}
 		}
 	}

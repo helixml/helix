@@ -211,9 +211,14 @@ const CreateContent: FC<CreateContentProps> = ({
       setFilterMap({})
       setLoading(false)
       account.orgNavigate('session', { session_id: session.id })
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error in onInference:', error);
-      snackbar.error('Failed to start inference');
+      const errorMsg = error?.message || error?.toString() || ''
+      if (errorMsg.includes('no client found') || errorMsg.includes('available providers: []')) {
+        snackbar.error('No AI provider configured. Add an API key provider (OpenAI, Anthropic, etc.) in Settings > Providers. Note: Claude subscriptions only work with Claude Code in desktop agents.')
+      } else {
+        snackbar.error('Failed to start inference');
+      }
       setLoading(false);
     }
   }

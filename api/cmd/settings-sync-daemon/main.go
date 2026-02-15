@@ -19,6 +19,7 @@ import (
 
 const (
 	SettingsPath = "/home/retro/.config/zed/settings.json"
+	KeymapPath   = "/home/retro/.config/zed/keymap.json"
 	PollInterval = 30 * time.Second
 	DebounceTime = 500 * time.Millisecond
 )
@@ -36,6 +37,13 @@ type SettingsDaemon struct {
 
 	// Code agent configuration (from Helix API)
 	codeAgentConfig *CodeAgentConfig
+
+	// Whether user has a Claude subscription available for credential sync
+	claudeSubscriptionAvailable bool
+
+	// Cached Claude OAuth access token (from last syncClaudeCredentials call)
+	// Used to pass via CLAUDE_CODE_OAUTH_TOKEN env var to the ACP wrapper
+	claudeAccessToken string
 
 	// Current state
 	helixSettings map[string]interface{}
@@ -66,14 +74,15 @@ type AvailableModel struct {
 
 // helixConfigResponse is the response structure from the Helix API's zed-config endpoint
 type helixConfigResponse struct {
-	ContextServers  map[string]interface{} `json:"context_servers"`
-	LanguageModels  map[string]interface{} `json:"language_models"`
-	Assistant       map[string]interface{} `json:"assistant"`
-	ExternalSync    map[string]interface{} `json:"external_sync"`
-	Agent           map[string]interface{} `json:"agent"`
-	Theme           string                 `json:"theme"`
-	Version         int64                  `json:"version"`
-	CodeAgentConfig *CodeAgentConfig       `json:"code_agent_config"`
+	ContextServers              map[string]interface{} `json:"context_servers"`
+	LanguageModels              map[string]interface{} `json:"language_models"`
+	Assistant                   map[string]interface{} `json:"assistant"`
+	ExternalSync                map[string]interface{} `json:"external_sync"`
+	Agent                       map[string]interface{} `json:"agent"`
+	Theme                       string                 `json:"theme"`
+	Version                     int64                  `json:"version"`
+	CodeAgentConfig             *CodeAgentConfig       `json:"code_agent_config"`
+	ClaudeSubscriptionAvailable bool                   `json:"claude_subscription_available,omitempty"`
 }
 
 // generateAgentServerConfig creates the agent_servers configuration for custom agents (like qwen).
@@ -123,6 +132,53 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 					"--no-telemetry",
 					"--include-directories", "/home/retro/work",
 				},
+				"env": env,
+			},
+		}
+
+	case "claude_code":
+		// Claude Code: Uses Zed's built-in Claude Code ACP (@zed-industries/claude-code-acp).
+		// We only set env vars — Zed handles installing and launching the ACP wrapper.
+		// Two modes based on whether baseURL is set:
+		// 1. API key mode (baseURL set): Claude Code uses Helix API proxy
+		// 2. Subscription mode (no baseURL): Claude Code uses OAuth credentials
+		env := map[string]interface{}{
+			"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+			"DISABLE_TELEMETRY":                        "1",
+		}
+
+		if d.codeAgentConfig.BaseURL != "" {
+			// API key mode: route through Helix API proxy
+			baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+			env["ANTHROPIC_BASE_URL"] = baseURL
+			if d.userAPIKey != "" {
+				env["ANTHROPIC_API_KEY"] = d.userAPIKey
+			}
+			log.Printf("Using claude_code runtime (API key mode): base_url=%s", baseURL)
+		} else {
+			// Subscription mode: Claude Code uses OAuth credentials.
+			// IMPORTANT: Hydra sets ANTHROPIC_BASE_URL on ALL containers, which
+			// leaks into Claude Code's process via env inheritance. We must
+			// explicitly override it to the real Anthropic API so Claude Code
+			// talks directly to Anthropic with OAuth credentials.
+			env["ANTHROPIC_BASE_URL"] = "https://api.anthropic.com"
+			// Pass the OAuth access token via env var. The ACP wrapper spawns
+			// Claude Code via the SDK, and the credential reader inside Claude
+			// Code is memoized — if the file read fails or returns null on the
+			// first call, it's cached forever. CLAUDE_CODE_OAUTH_TOKEN is
+			// checked FIRST (before file read), so it's the most reliable way
+			// to provide credentials.
+			if d.claudeAccessToken != "" {
+				env["CLAUDE_CODE_OAUTH_TOKEN"] = d.claudeAccessToken
+			}
+			log.Printf("Using claude_code runtime (subscription mode, token_set=%v)", d.claudeAccessToken != "")
+		}
+
+		// Only set env — no command/args. Zed uses its built-in
+		// @zed-industries/claude-code-acp npm package which speaks ACP.
+		// The raw `claude` CLI does NOT support --experimental-acp.
+		return map[string]interface{}{
+			"claude": map[string]interface{}{
 				"env": env,
 			},
 		}
@@ -298,6 +354,138 @@ func (d *SettingsDaemon) injectKoditAuth() {
 	log.Printf("Injected user API key into Kodit context_server Authorization header")
 }
 
+const (
+	ClaudeCredentialsPath = "/home/retro/.claude/.credentials.json"
+)
+
+// syncClaudeCredentials fetches Claude OAuth credentials from the Helix API
+// and writes them to ~/.claude/.credentials.json for Claude Code to use.
+// Claude Code handles its own token refresh natively.
+func (d *SettingsDaemon) syncClaudeCredentials() {
+	if !d.claudeSubscriptionAvailable {
+		return
+	}
+
+	ctx := context.Background()
+	url := fmt.Sprintf("%s/api/v1/sessions/%s/claude-credentials", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		log.Printf("Failed to create Claude credentials request: %v", err)
+		return
+	}
+
+	if d.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		log.Printf("Failed to fetch Claude credentials: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Failed to fetch Claude credentials: status %d", resp.StatusCode)
+		return
+	}
+
+	// Parse the credentials from the API response
+	var creds struct {
+		AccessToken      string   `json:"accessToken"`
+		RefreshToken     string   `json:"refreshToken"`
+		ExpiresAt        int64    `json:"expiresAt"`
+		Scopes           []string `json:"scopes"`
+		SubscriptionType string   `json:"subscriptionType"`
+		RateLimitTier    string   `json:"rateLimitTier"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&creds); err != nil {
+		log.Printf("Failed to parse Claude credentials: %v", err)
+		return
+	}
+
+	// Cache the access token for use in env vars
+	d.claudeAccessToken = creds.AccessToken
+
+	// Build the credentials file in Claude's expected format
+	credFile := map[string]interface{}{
+		"claudeAiOauth": map[string]interface{}{
+			"accessToken":      creds.AccessToken,
+			"refreshToken":     creds.RefreshToken,
+			"expiresAt":        creds.ExpiresAt,
+			"scopes":           creds.Scopes,
+			"subscriptionType": creds.SubscriptionType,
+			"rateLimitTier":    creds.RateLimitTier,
+		},
+	}
+
+	credJSON, err := json.MarshalIndent(credFile, "", "  ")
+	if err != nil {
+		log.Printf("Failed to marshal Claude credentials: %v", err)
+		return
+	}
+
+	// Ensure directory exists
+	credDir := filepath.Dir(ClaudeCredentialsPath)
+	if err := os.MkdirAll(credDir, 0700); err != nil {
+		log.Printf("Failed to create Claude credentials directory: %v", err)
+		return
+	}
+
+	// Atomic write
+	tmpFile := ClaudeCredentialsPath + ".tmp"
+	if err := os.WriteFile(tmpFile, credJSON, 0600); err != nil {
+		log.Printf("Failed to write Claude credentials temp file: %v", err)
+		return
+	}
+	if err := os.Rename(tmpFile, ClaudeCredentialsPath); err != nil {
+		log.Printf("Failed to rename Claude credentials file: %v", err)
+		return
+	}
+
+	log.Printf("Synced Claude credentials to %s", ClaudeCredentialsPath)
+}
+
+// writeZedKeymap writes Zed keymap.json with terminal copy/paste bindings.
+// XKB remaps Super (Command) → Ctrl, so we configure Zed's terminal to:
+// - Ctrl+C: copy when text is selected, SIGINT when not (via context precedence)
+// - Ctrl+V: paste (macOS users expect Command+V to paste)
+func writeZedKeymap() {
+	keymap := []map[string]interface{}{
+		{
+			"context": "Terminal && selection",
+			"bindings": map[string]string{
+				"ctrl-c": "terminal::Copy",
+			},
+		},
+		{
+			"context": "Terminal",
+			"bindings": map[string]string{
+				"ctrl-v": "terminal::Paste",
+			},
+		},
+	}
+
+	data, err := json.MarshalIndent(keymap, "", "  ")
+	if err != nil {
+		log.Printf("Failed to marshal Zed keymap: %v", err)
+		return
+	}
+
+	dir := filepath.Dir(KeymapPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Printf("Failed to create Zed config directory: %v", err)
+		return
+	}
+
+	if err := os.WriteFile(KeymapPath, data, 0644); err != nil {
+		log.Printf("Failed to write Zed keymap: %v", err)
+		return
+	}
+
+	log.Printf("Wrote Zed keymap to %s", KeymapPath)
+}
+
 func main() {
 	// Environment variables
 	helixURL := os.Getenv("HELIX_API_URL")
@@ -348,6 +536,9 @@ func main() {
 		sessionID:  sessionID,
 		userAPIKey: userAPIKey,
 	}
+
+	// Write Zed keymap for terminal copy/paste behavior
+	writeZedKeymap()
 
 	// Initial sync from Helix → local with retry
 	// Retry handles race condition where daemon starts before API token is fully available
@@ -417,6 +608,10 @@ func (d *SettingsDaemon) syncFromHelix() error {
 
 	// Store code agent config for generating agent_servers
 	d.codeAgentConfig = config.CodeAgentConfig
+	d.claudeSubscriptionAvailable = config.ClaudeSubscriptionAvailable
+
+	// Sync Claude credentials if available
+	d.syncClaudeCredentials()
 
 	d.helixSettings = map[string]interface{}{
 		"context_servers": config.ContextServers,
@@ -732,6 +927,10 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 		newHelixSettings["theme"] = config.Theme
 	}
 
+	// Update Claude subscription availability and sync credentials
+	d.claudeSubscriptionAvailable = config.ClaudeSubscriptionAvailable
+	d.syncClaudeCredentials()
+
 	// Check if Helix settings or code agent config changed
 	codeAgentChanged := !deepEqual(config.CodeAgentConfig, d.codeAgentConfig)
 	if !deepEqual(newHelixSettings, d.helixSettings) || codeAgentChanged {
@@ -815,3 +1014,4 @@ func deepEqual(a, b interface{}) bool {
 	bJSON, _ := json.Marshal(b)
 	return string(aJSON) == string(bJSON)
 }
+

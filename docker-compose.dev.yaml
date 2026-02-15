@@ -766,6 +766,7 @@ volumes:
   helix-typesense-db:
   helix-socket:
   sandbox-socket:
+  sandbox-container-docker: # Per-session inner dockerd storage (ZFS on macOS, named volume on Linux)
   sandbox-docker-storage: # Sandbox isolated dockerd storage (sandboxes + devcontainers)
   sandbox-data: # Workspace data for dev containers - mounted at /data in sandbox and dev containers
   hydra-data: # Hydra data dir (shared BuildKit cache)

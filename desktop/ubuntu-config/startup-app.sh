@@ -197,6 +197,14 @@ gsettings set org.gnome.shell.extensions.just-perfection screen-recording-indica
 gsettings set org.gnome.shell.extensions.just-perfection screen-sharing-indicator false
 gow_log "[start] Just Perfection extension configured"
 
+# macOS keyboard support: remap Super (Command) to Ctrl at the XKB level.
+# This makes Command+C/V/X/A/Z work as Ctrl+C/V/X/A/Z in ALL apps (Chrome,
+# GTK3, GTK4, Electron, etc.) without any per-app configuration.
+# The original Ctrl keys still produce Ctrl, so terminal Ctrl+C for SIGINT works.
+gsettings set org.gnome.desktop.input-sources xkb-options "['altwin:ctrl_win', 'caps:ctrl_nocaps']"
+gsettings set org.gnome.mutter overlay-key ''
+gow_log "[start] Remapped Super→Ctrl and CapsLock→Ctrl via XKB (macOS keyboard support)"
+
 # Set global scaling factor before gnome-shell starts
 # This tells Mutter to use this scale for ALL monitors (including virtual ones)
 # The scaling-factor gsetting is read by meta_settings_get_global_scaling_factor()

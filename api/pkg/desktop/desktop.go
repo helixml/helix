@@ -119,6 +119,8 @@ type Server struct {
 	cursorX    int32  // Last known cursor X position
 	cursorY    int32  // Last known cursor Y position
 	cursorName string // CSS cursor name (e.g., "default", "pointer", "text")
+
+	// macOS keyboard remapping state
 }
 
 // NewServer creates a new desktop server with the given config.
@@ -335,14 +337,6 @@ func (s *Server) Run(ctx context.Context) error {
 			s.monitorSession(ctx)
 		}()
 
-		// 13. Start damage keepalive (prevents PipeWire stall on static screens)
-		// PipeWire ScreenCast is damage-based: no screen changes = no frames.
-		// This toggles a 1x1 pixel via GNOME Shell D-Bus to ensure at least 2 FPS.
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
-			s.runDamageKeepalive(ctx)
-		}()
 	} else if isSwayEnvironment() {
 		// Sway: Use native Wayland protocols for video capture
 		// Our pipewirezerocopysrc plugin uses ext-image-copy-capture (Sway 1.10+) or
