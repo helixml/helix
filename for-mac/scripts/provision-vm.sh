@@ -742,7 +742,7 @@ if ! step_done "install_go"; then
 fi
 
 if ! step_done "clone_helix"; then
-    BRANCH="feature/macos-arm-desktop-port-working2"
+    BRANCH=$(git -C "$(cd "$SCRIPT_DIR/../.." && pwd)" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
     log "Setting up helix repository (branch: ${BRANCH})..."
     run_ssh "git clone https://github.com/helixml/helix.git ~/helix 2>/dev/null || true"
     run_ssh "cd ~/helix && git fetch origin && git checkout ${BRANCH} && git pull origin ${BRANCH}"
