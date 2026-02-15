@@ -5,10 +5,11 @@ import Typography from '@mui/material/Typography'
 import Dialog from '@mui/material/Dialog'
 import DialogTitle from '@mui/material/DialogTitle'
 import DialogContent from '@mui/material/DialogContent'
+import DialogContentText from '@mui/material/DialogContentText'
 import DialogActions from '@mui/material/DialogActions'
 import CircularProgress from '@mui/material/CircularProgress'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import ExternalAgentDesktopViewer, { useSandboxState } from '../external-agent/ExternalAgentDesktopViewer'
@@ -59,6 +60,21 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
 
   const { data: subscriptions } = useClaudeSubscriptions()
   const hasSubscription = subscriptions && subscriptions.length > 0
+
+  // Disconnect state
+  const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false)
+  const disconnectMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return api.delete(`/api/v1/claude-subscriptions/${id}`, {}, {
+        snackbar: true,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
+      setDisconnectDialogOpen(false)
+      snackbar.success('Claude subscription disconnected')
+    },
+  })
 
   // Interactive login state
   const [loginDialogOpen, setLoginDialogOpen] = useState(false)
@@ -122,16 +138,50 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   if (variant === 'button') {
     return (
       <>
-        <Button
-          size="small"
-          variant={hasSubscription ? 'outlined' : 'text'}
-          color={hasSubscription ? 'success' : 'secondary'}
-          onClick={handleStartLogin}
-          startIcon={hasSubscription ? <CheckCircleIcon /> : undefined}
-          disabled={loginStarting}
-        >
-          {loginStarting ? 'Starting...' : hasSubscription ? 'Connected' : 'Connect'}
-        </Button>
+        {hasSubscription ? (
+          <Button
+            size="small"
+            variant="outlined"
+            color="error"
+            onClick={() => setDisconnectDialogOpen(true)}
+          >
+            Disconnect
+          </Button>
+        ) : (
+          <Button
+            size="small"
+            variant="text"
+            color="secondary"
+            onClick={handleStartLogin}
+            disabled={loginStarting}
+          >
+            {loginStarting ? 'Starting...' : 'Connect'}
+          </Button>
+        )}
+
+        <Dialog open={disconnectDialogOpen} onClose={() => setDisconnectDialogOpen(false)}>
+          <DialogTitle>Disconnect Claude Subscription</DialogTitle>
+          <DialogContent>
+            <DialogContentText>
+              Are you sure you want to disconnect your Claude subscription?
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDisconnectDialogOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => {
+                if (subscriptions?.[0]?.id) {
+                  disconnectMutation.mutate(subscriptions[0].id)
+                }
+              }}
+              color="error"
+              variant="contained"
+              disabled={disconnectMutation.isPending}
+            >
+              {disconnectMutation.isPending ? 'Disconnecting...' : 'Disconnect'}
+            </Button>
+          </DialogActions>
+        </Dialog>
 
         {loginDialogOpen && loginSessionId && (
           <ClaudeLoginDialogInner
