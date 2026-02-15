@@ -1293,9 +1293,10 @@ function build-drm-manager() {
   echo "🔄 Installing and restarting service..."
   ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
     -p "$SSH_PORT" ubuntu@localhost \
-    "sudo cp /tmp/helix-drm-manager /usr/local/bin/helix-drm-manager && \
+    "sudo systemctl stop helix-drm-manager 2>/dev/null; \
+     sudo cp /tmp/helix-drm-manager /usr/local/bin/helix-drm-manager && \
      sudo chmod +x /usr/local/bin/helix-drm-manager && \
-     sudo systemctl restart helix-drm-manager" || {
+     sudo systemctl start helix-drm-manager" || {
     echo "❌ Install/restart failed"
     return 1
   }
