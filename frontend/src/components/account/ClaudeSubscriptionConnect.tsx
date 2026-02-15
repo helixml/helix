@@ -42,6 +42,8 @@ interface ClaudeSubscriptionConnectProps {
   variant?: 'button' | 'inline'
   // Called after successful connection
   onConnected?: () => void
+  // When provided, creates an org-level subscription instead of user-level
+  orgId?: string
 }
 
 // Reusable component for connecting a Claude subscription via browser login.
@@ -49,6 +51,7 @@ interface ClaudeSubscriptionConnectProps {
 const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   variant = 'button',
   onConnected,
+  orgId,
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
@@ -138,6 +141,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
             loginCommandSent={loginCommandSent}
             setLoginCommandSent={setLoginCommandSent}
             pollIntervalRef={pollIntervalRef}
+            orgId={orgId}
             onCredentialsCaptured={() => {
               queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
               snackbar.success('Claude subscription connected')
@@ -182,6 +186,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
           loginCommandSent={loginCommandSent}
           setLoginCommandSent={setLoginCommandSent}
           pollIntervalRef={pollIntervalRef}
+          orgId={orgId}
           onCredentialsCaptured={() => {
             queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
             snackbar.success('Claude subscription connected')
@@ -203,6 +208,7 @@ interface ClaudeLoginDialogInnerProps {
   setLoginCommandSent: (v: boolean) => void
   pollIntervalRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>
   onCredentialsCaptured: () => void
+  orgId?: string
 }
 
 const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
@@ -213,6 +219,7 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
   setLoginCommandSent,
   pollIntervalRef,
   onCredentialsCaptured,
+  orgId,
 }) => {
   const api = useApi()
   const { isRunning } = useSandboxState(sessionId)
@@ -273,6 +280,7 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
             credentials: {
               claudeAiOauth: creds,
             },
+            ...(orgId ? { owner_type: 'org', owner_id: orgId } : {}),
           })
 
           onCredentialsCaptured()
@@ -291,7 +299,7 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
       }
       pollingStartedRef.current = false
     }
-  }, [loginCommandSent, sessionId])
+  }, [loginCommandSent, sessionId, orgId])
 
   return (
     <Dialog

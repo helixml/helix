@@ -14,10 +14,15 @@ import DialogActions from '@mui/material/DialogActions'
 import DialogContentText from '@mui/material/DialogContentText'
 import Alert from '@mui/material/Alert'
 import CircularProgress from '@mui/material/CircularProgress'
+import FormControl from '@mui/material/FormControl'
+import InputLabel from '@mui/material/InputLabel'
+import Select from '@mui/material/Select'
+import MenuItem from '@mui/material/MenuItem'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import useThemeConfig from '../../hooks/useThemeConfig'
+import useAccount from '../../hooks/useAccount'
 import ExternalAgentDesktopViewer, { useSandboxState } from '../external-agent/ExternalAgentDesktopViewer'
 
 interface ClaudeSubscriptionData {
@@ -37,12 +42,17 @@ const ClaudeSubscription: FC = () => {
   const snackbar = useSnackbar()
   const themeConfig = useThemeConfig()
   const queryClient = useQueryClient()
+  const account = useAccount()
+
+  const organizations = account.organizationTools.organizations || []
 
   const [connectDialogOpen, setConnectDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string>('')
   const [credentialsText, setCredentialsText] = useState('')
   const [subscriptionName, setSubscriptionName] = useState('My Claude Subscription')
+  const [ownerType, setOwnerType] = useState<'user' | 'org'>('user')
+  const [selectedOrgId, setSelectedOrgId] = useState('')
 
   // Interactive login state
   const [loginDialogOpen, setLoginDialogOpen] = useState(false)
@@ -113,8 +123,9 @@ const ClaudeSubscription: FC = () => {
       credentials: {
         claudeAiOauth: creds,
       },
+      ...(ownerType === 'org' && selectedOrgId ? { owner_type: 'org', owner_id: selectedOrgId } : {}),
     })
-  }, [credentialsText, subscriptionName])
+  }, [credentialsText, subscriptionName, ownerType, selectedOrgId])
 
   const handleDeleteClick = useCallback((id: string) => {
     setDeleteTarget(id)
@@ -192,7 +203,33 @@ const ClaudeSubscription: FC = () => {
               </Typography>
             </Box>
             {!hasSubscription && (
-              <Box sx={{ display: 'flex', gap: 1 }}>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                {organizations.length > 0 && (
+                  <FormControl size="small" sx={{ minWidth: 200 }}>
+                    <InputLabel>Subscription Owner</InputLabel>
+                    <Select
+                      value={ownerType === 'org' ? selectedOrgId : 'personal'}
+                      label="Subscription Owner"
+                      onChange={(e) => {
+                        const val = e.target.value
+                        if (val === 'personal') {
+                          setOwnerType('user')
+                          setSelectedOrgId('')
+                        } else {
+                          setOwnerType('org')
+                          setSelectedOrgId(val)
+                        }
+                      }}
+                    >
+                      <MenuItem value="personal">Personal (just me)</MenuItem>
+                      {organizations.map((org) => (
+                        <MenuItem key={org.id} value={org.id}>
+                          {org.display_name || org.name}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                )}
                 <Button
                   variant="contained"
                   color="secondary"
@@ -287,6 +324,8 @@ const ClaudeSubscription: FC = () => {
           setLoginPolling={setLoginPolling}
           pollIntervalRef={pollIntervalRef}
           subscriptionName={subscriptionName}
+          ownerType={ownerType}
+          selectedOrgId={selectedOrgId}
           onCredentialsCaptured={() => {
             queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
             snackbar.success('Claude subscription connected via browser login')
@@ -375,6 +414,8 @@ interface ClaudeLoginDialogProps {
   setLoginPolling: (v: boolean) => void
   pollIntervalRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>
   subscriptionName: string
+  ownerType: 'user' | 'org'
+  selectedOrgId: string
   onCredentialsCaptured: () => void
 }
 
@@ -388,6 +429,8 @@ const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
   setLoginPolling,
   pollIntervalRef,
   subscriptionName,
+  ownerType,
+  selectedOrgId,
   onCredentialsCaptured,
 }) => {
   const api = useApi()
@@ -450,6 +493,7 @@ const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
             credentials: {
               claudeAiOauth: creds,
             },
+            ...(ownerType === 'org' && selectedOrgId ? { owner_type: 'org', owner_id: selectedOrgId } : {}),
           })
 
           onCredentialsCaptured()
@@ -468,7 +512,7 @@ const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
       }
       pollingStartedRef.current = false
     }
-  }, [loginCommandSent, sessionId, subscriptionName])
+  }, [loginCommandSent, sessionId, subscriptionName, ownerType, selectedOrgId])
 
   return (
     <Dialog
