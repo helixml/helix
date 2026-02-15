@@ -372,9 +372,10 @@ func (apiServer *HelixAPIServer) startClaudeLogin(_ http.ResponseWriter, req *ht
 		OwnerType:      types.OwnerTypeUser,
 		OrganizationID: orgID,
 		Metadata: types.SessionMetadata{
-			Stream:      true,
-			AgentType:   "zed_external",
-			SessionRole: "exploratory",
+			Stream:       true,
+			AgentType:    "zed_external",
+			SessionRole:  "exploratory",
+			DesiredState: types.DesiredStateRunning,
 		},
 	}
 
@@ -405,19 +406,17 @@ func (apiServer *HelixAPIServer) startClaudeLogin(_ http.ResponseWriter, req *ht
 	}
 
 	// Start the desktop container
-	agentResp, startErr := apiServer.externalAgentExecutor.StartDesktop(req.Context(), zedAgent)
+	_, startErr := apiServer.externalAgentExecutor.StartDesktop(req.Context(), zedAgent)
 	if startErr != nil {
 		log.Error().Err(startErr).Str("session_id", createdSession.ID).Msg("Failed to start Claude login desktop")
 		return nil, system.NewHTTPError500("failed to start desktop session")
 	}
 
-	// Update session with container info
-	if agentResp.DevContainerID != "" || agentResp.SandboxID != "" {
-		createdSession.Metadata.DevContainerID = agentResp.DevContainerID
-		createdSession.SandboxID = agentResp.SandboxID
-		if _, updateErr := apiServer.Store.UpdateSession(req.Context(), *createdSession); updateErr != nil {
-			log.Error().Err(updateErr).Str("session_id", createdSession.ID).Msg("Failed to store container data")
-		}
+	// Re-fetch session to pick up ContainerName/ExternalAgentStatus set by StartDesktop
+	// (StartDesktop updates the DB session internally; using the stale createdSession
+	// would overwrite those fields)
+	if freshSession, fetchErr := apiServer.Store.GetSession(req.Context(), createdSession.ID); fetchErr == nil {
+		createdSession = freshSession
 	}
 
 	log.Info().
