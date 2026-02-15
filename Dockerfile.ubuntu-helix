@@ -720,6 +720,27 @@ fi
 rm -rf /var/lib/apt/lists/*
 _INSTALL_CHROME
 
+# Set Chrome/Chromium as default browser (GNOME defaults to Firefox otherwise)
+RUN <<_SET_DEFAULT_BROWSER
+set -e
+if [ "${TARGETARCH}" = "arm64" ]; then
+    BROWSER_DESKTOP="chromium-browser.desktop"
+else
+    BROWSER_DESKTOP="google-chrome.desktop"
+fi
+# System-wide MIME defaults — applies to all users
+mkdir -p /etc/xdg
+cat > /etc/xdg/mimeapps.list << EOF
+[Default Applications]
+x-scheme-handler/http=${BROWSER_DESKTOP}
+x-scheme-handler/https=${BROWSER_DESKTOP}
+x-scheme-handler/about=${BROWSER_DESKTOP}
+text/html=${BROWSER_DESKTOP}
+application/xhtml+xml=${BROWSER_DESKTOP}
+EOF
+echo "=== Default browser set to ${BROWSER_DESKTOP} ==="
+_SET_DEFAULT_BROWSER
+
 # Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
 RUN mkdir -p /etc/skel/.config/google-chrome && \
     touch /etc/skel/.config/google-chrome/"First Run" && \
@@ -890,6 +911,22 @@ wget --progress=dot:giga "https://github.com/mkasberg/ghostty-ubuntu/releases/do
 apt-get install -y /tmp/ghostty.deb
 rm /tmp/ghostty.deb
 echo "=== Ghostty ${GHOSTTY_TAG} installed for ${TARGETARCH} ==="
+
+# Wrap ghostty binary to force software rendering on virtio-gpu (macOS VMs).
+# Ghostty needs OpenGL 3.3+ core but virgl only exposes GL 2.1.
+# On NVIDIA/AMD the real GPU handles this natively — no override needed.
+# Detection: virtio_gpu kernel module is loaded only in virtio-gpu VMs.
+GHOSTTY_BIN=$(command -v ghostty)
+mv "$GHOSTTY_BIN" "${GHOSTTY_BIN}.real"
+cat > "$GHOSTTY_BIN" << 'WRAPPER'
+#!/bin/sh
+if [ -e /sys/module/virtio_gpu ]; then
+    export LIBGL_ALWAYS_SOFTWARE=1
+fi
+exec "$(dirname "$(readlink -f "$0")")/ghostty.real" "$@"
+WRAPPER
+chmod +x "$GHOSTTY_BIN"
+echo "=== Ghostty wrapper installed (conditional software rendering for virtio-gpu) ==="
 ghostty --version || echo "Ghostty installation check"
 
 apt-get clean

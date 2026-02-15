@@ -233,8 +233,10 @@ func (r *SharedVideoSourceRegistry) GetOrCreate(nodeID uint32, pipelineStr strin
 	return source
 }
 
-// GetExisting returns an existing SharedVideoSource for the node, or nil if none exists.
-// Also returns sources in the pending-stop grace period (they will be reactivated on Subscribe).
+// GetExisting returns an existing active SharedVideoSource for the node, or nil.
+// If the source is in a pending-stop grace period, it cancels the pending stop
+// and moves the source back to active before returning it. This ensures the
+// grace period timer won't kill the source after a reconnecting client reuses it.
 func (r *SharedVideoSourceRegistry) GetExisting(nodeID uint32) *SharedVideoSource {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -242,7 +244,14 @@ func (r *SharedVideoSourceRegistry) GetExisting(nodeID uint32) *SharedVideoSourc
 	if source, exists := r.sources[nodeID]; exists {
 		return source
 	}
+	// Reactivate pending-stop source (cancel grace period timer)
 	if pending, exists := r.pendingStops[nodeID]; exists {
+		pending.timer.Stop()
+		close(pending.cancelCh)
+		r.sources[nodeID] = pending.source
+		delete(r.pendingStops, nodeID)
+		r.cancelledStops.Add(1)
+		fmt.Printf("[SHARED_VIDEO] Reactivated pending-stop source for node %d (grace period cancelled)\n", nodeID)
 		return pending.source
 	}
 	return nil
