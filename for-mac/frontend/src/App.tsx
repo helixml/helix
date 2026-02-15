@@ -168,6 +168,14 @@ export function App() {
       setSettingsOpen(true);
     });
 
+    // Auth proxy ready — fetch and set the auto-login URL immediately
+    EventsOn("auth:ready", async () => {
+      const loginURL = await GetAutoLoginURL();
+      if (loginURL) {
+        setAutoLoginURL(loginURL);
+      }
+    });
+
     // Listen for external URL requests from the Helix iframe
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'open-external-url' && typeof event.data.url === 'string') {
@@ -180,6 +188,7 @@ export function App() {
       EventsOff("vm:status");
       EventsOff("download:progress");
       EventsOff("settings:show");
+      EventsOff("auth:ready");
       window.removeEventListener('message', handleMessage);
     };
   }, []);

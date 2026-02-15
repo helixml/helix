@@ -755,11 +755,16 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// Future: zero-copy via virtio-gpu resource IDs would eliminate TCP transfer.
 		// VideoToolbox natively encodes from NV12, skipping internal colorspace conversion.
 		//
-		// Connection: TCP to 10.0.2.2:15937 (QEMU user-mode networking)
-		// SLiRP forwards guest 10.0.2.2:15937 → host 127.0.0.1:15937
+		// Connection: TCP to 10.0.2.2:<port> (QEMU user-mode networking)
+		// SLiRP forwards guest 10.0.2.2:<port> → host 127.0.0.1:<port>
+		// Port is configurable via HELIX_FRAME_EXPORT_PORT env var (default: 15937).
+		fePort := defaultQEMUPort
+		if p := os.Getenv("HELIX_FRAME_EXPORT_PORT"); p != "" {
+			fePort = p
+		}
 		parts = append(parts,
-			fmt.Sprintf("vsockenc tcp-host=10.0.2.2 tcp-port=15937 bitrate=%d keyframe-interval=%d",
-				v.config.Bitrate, v.getEffectiveGOPSize()),
+			fmt.Sprintf("vsockenc tcp-host=%s tcp-port=%s bitrate=%d keyframe-interval=%d",
+				defaultQEMUHost, fePort, v.config.Bitrate, v.getEffectiveGOPSize()),
 			"h264parse",
 			"video/x-h264,stream-format=byte-stream",
 		)
