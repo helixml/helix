@@ -106,6 +106,9 @@ sign-dev-qemu:
 	@# Sign with entitlements + hardened runtime (Developer ID if available, ad-hoc otherwise)
 	@if [ -f "$(SIGNING_ENV)" ]; then \
 		. $(SIGNING_ENV) && \
+		if [ -n "$$KEYCHAIN_NAME" ] && [ -n "$$KEYCHAIN_PASSWORD" ]; then \
+			security unlock-keychain -p "$$KEYCHAIN_PASSWORD" "$$KEYCHAIN_NAME" 2>/dev/null || true; \
+		fi && \
 		codesign --force --sign "$$APPLE_SIGNING_IDENTITY" --timestamp --options runtime \
 			--entitlements $(QEMU_ENTITLEMENTS) \
 			$(DEV_QEMU_DIR)/libqemu-aarch64-softmmu.dylib && \
