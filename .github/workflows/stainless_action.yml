@@ -37,6 +37,7 @@ jobs:
           org: ${{ env.STAINLESS_ORG }}
           project: ${{ env.STAINLESS_PROJECT }}
           oas_path: ${{ env.OAS_PATH }}
+          guess_config: true
 
   merge:
     if: github.event.action == 'closed' && github.event.pull_request.merged == true
@@ -57,3 +58,4 @@ jobs:
           org: ${{ env.STAINLESS_ORG }}
           project: ${{ env.STAINLESS_PROJECT }}
           oas_path: ${{ env.OAS_PATH }}
+          guess_config: true
