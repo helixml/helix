@@ -258,6 +258,16 @@ if [ "$UPDATE" = true ]; then
     run_ssh "[ -d ~/zed ] || git clone https://github.com/helixml/zed.git ~/zed" || true
     run_ssh "[ -d ~/qwen-code ] || git clone https://github.com/helixml/qwen-code.git ~/qwen-code" || true
 
+    # Ensure Go is installed (may be missing from older golden images)
+    if ! run_ssh "[ -x /usr/local/go/bin/go ]" 2>/dev/null; then
+        log "Installing Go ${GO_VERSION}..."
+        run_ssh "curl -L -o /tmp/go.tar.gz 'https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz' && \
+                 sudo rm -rf /usr/local/go && \
+                 sudo tar -C /usr/local -xzf /tmp/go.tar.gz && \
+                 rm /tmp/go.tar.gz"
+    fi
+    run_ssh "/usr/local/go/bin/go version"
+
     # Rebuild helix-drm-manager (runs on VM host, not in Docker)
     log "Rebuilding helix-drm-manager..."
     run_ssh "sudo systemctl stop helix-drm-manager 2>/dev/null || true"
