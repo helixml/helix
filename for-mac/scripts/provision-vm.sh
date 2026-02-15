@@ -286,6 +286,12 @@ if [ "$UPDATE" = true ]; then
     # Ensure sandbox Docker bind mount directory exists on root disk
     run_ssh "sudo mkdir -p /var/lib/helix-sandbox-docker"
 
+    # Remove stale database volumes that may have auth data from a previous run.
+    # During provisioning there's no ZFS data disk, so Docker volumes live on root.
+    # A previous run may have created postgres with different auth settings.
+    run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml down 2>/dev/null" || true
+    run_ssh "docker volume rm helix_helix-postgres-db 2>/dev/null" || true
+
     log "Starting stack (with sandbox) to verify and load desktop images..."
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml up -d 2>&1"
 
