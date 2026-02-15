@@ -588,9 +588,9 @@ services:
       - hydra-data:/hydra-data
       - /run/udev:/run/udev:rw
       - /var/run/sandbox:/var/run/sandbox:rw
-      # DRM lease manager socket (helix-drm-manager systemd service on VM host)
-      # Required for scanout mode: containers request DRM leases through this socket
-      - /run/helix-drm.sock:/run/helix-drm.sock:rw
+      # DRM lease manager socket directory (helix-drm-manager systemd service on VM host).
+      # Directory mount (not file) so the socket survives DRM manager restarts.
+      - /run/helix-drm:/run/helix-drm:rw
       # Dev bind-mounts for hot reload (Zed + desktop configs)
       # Note: Config dirs are :rw because GOW entrypoint does chmod +x on startup.sh
       - ./zed-build:/helix-dev/zed-build:ro
@@ -642,7 +642,7 @@ services:
     environment:
       # Runner configuration
       - API_HOST=http://api:8080
-      - API_TOKEN=oh-hallo-insecure-token
+      - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       - RUNNER_ID=dev-gpu-runner
       - LOG_LEVEL=debug
       - HELIX_COMMAND=runner
@@ -669,7 +669,7 @@ services:
     environment:
       # Runner configuration
       - API_HOST=http://api:8080
-      - API_TOKEN=oh-hallo-insecure-token
+      - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       - RUNNER_ID=dev-gpu-runner-amd
       - LOG_LEVEL=debug
       - HELIX_COMMAND=runner

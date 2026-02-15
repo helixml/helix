@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -93,7 +94,11 @@ func New(cfg Config, logger *slog.Logger) (*Manager, error) {
 
 // Run starts the Unix socket listener and serves lease requests.
 func (m *Manager) Run(ctx context.Context) error {
-	// Remove stale socket
+	// Ensure parent directory exists (directory bind mounts survive socket
+	// recreation across DRM manager restarts, unlike file bind mounts)
+	if dir := filepath.Dir(m.cfg.SocketPath); dir != "." && dir != "/" {
+		os.MkdirAll(dir, 0755)
+	}
 	os.Remove(m.cfg.SocketPath)
 
 	ln, err := net.Listen("unix", m.cfg.SocketPath)

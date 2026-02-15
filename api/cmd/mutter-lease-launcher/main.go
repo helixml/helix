@@ -28,7 +28,7 @@ func main() {
 		Level: slog.LevelDebug,
 	}))
 
-	drmSocket := "/run/helix-drm.sock"
+	drmSocket := "/run/helix-drm/drm.sock"
 
 	logger.Info("=== Mutter Lease Launcher ===")
 

@@ -26,7 +26,7 @@ func main() {
 
 	cfg := drmmanager.Config{
 		DRMDevice:  envOrDefault("DRM_DEVICE", "/dev/dri/card0"),
-		SocketPath: envOrDefault("DRM_SOCKET", "/run/helix-drm.sock"),
+		SocketPath: envOrDefault("DRM_SOCKET", "/run/helix-drm/drm.sock"),
 		QEMUAddr:   envOrDefault("QEMU_ADDR", "10.0.2.2:15937"),
 	}
 

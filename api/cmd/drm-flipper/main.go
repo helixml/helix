@@ -105,7 +105,7 @@ func createDumbBuffer(fd uintptr, width, height uint32) (handle, fbID uint32, pi
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	drmSocket := "/run/helix-drm.sock"
+	drmSocket := "/run/helix-drm/drm.sock"
 
 	logger.Info("=== DRM Page Flipper ===")
 

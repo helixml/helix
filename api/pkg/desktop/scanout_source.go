@@ -33,7 +33,7 @@ func getScreenDimensions() (uint32, uint32) {
 const (
 	defaultQEMUHost  = "10.0.2.2"
 	defaultQEMUPort  = "15937"
-	defaultDRMSocket = "/run/helix-drm.sock"
+	defaultDRMSocket = "/run/helix-drm/drm.sock"
 )
 
 // ScanoutSource receives pre-encoded H.264 frames from QEMU's helix-frame-export

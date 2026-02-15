@@ -35,7 +35,7 @@ type msgHeader struct {
 
 func main() {
 	qemuAddr := "10.0.2.2:15937"
-	drmSocket := "/run/helix-drm.sock"
+	drmSocket := "/run/helix-drm/drm.sock"
 
 	if len(os.Args) > 1 {
 		qemuAddr = os.Args[1]

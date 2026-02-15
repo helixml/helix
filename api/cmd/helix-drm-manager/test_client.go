@@ -15,7 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const socketPath = "/run/helix-drm.sock"
+const socketPath = "/run/helix-drm/drm.sock"
 
 type leaseRequest struct {
 	Cmd    uint8
