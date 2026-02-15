@@ -278,6 +278,7 @@ if [ "$UPDATE" = true ]; then
     # Ensure critical env vars are present in .env.vm (may be missing from older provisions)
     run_ssh "grep -q '^COMPOSE_PROFILES=' ~/helix/.env.vm 2>/dev/null || echo 'COMPOSE_PROFILES=code-macos' >> ~/helix/.env.vm"
     run_ssh "grep -q '^CONTAINER_DOCKER_PATH=' ~/helix/.env.vm 2>/dev/null || echo 'CONTAINER_DOCKER_PATH=/helix/container-docker' >> ~/helix/.env.vm"
+    run_ssh "grep -q '^SANDBOX_DOCKER_VOLUME=' ~/helix/.env.vm 2>/dev/null || echo 'SANDBOX_DOCKER_VOLUME=/var/lib/helix-sandbox-docker' >> ~/helix/.env.vm"
     run_ssh "grep -q '^ENABLE_CUSTOM_USER_PROVIDERS=' ~/helix/.env.vm 2>/dev/null || echo 'ENABLE_CUSTOM_USER_PROVIDERS=true' >> ~/helix/.env.vm"
 
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml pull 2>&1" || true
@@ -849,6 +850,13 @@ HELIX_DESKTOP_IMAGE=helix-ubuntu:latest
 
 # Workspace storage on ZFS with dedup (saves disk space on Mac)
 HELIX_SANDBOX_DATA=/helix/workspaces
+
+# Per-session Docker storage on ZFS zvol (dedup across sessions)
+CONTAINER_DOCKER_PATH=/helix/container-docker
+
+# Sandbox Docker storage — bind mount on root disk (not a named volume)
+# so pre-baked desktop images survive the ZFS mount over /var/lib/docker/volumes/.
+SANDBOX_DOCKER_VOLUME=/var/lib/helix-sandbox-docker
 
 # Desktop edition identifier (used by Launchpad telemetry)
 HELIX_EDITION=mac-desktop

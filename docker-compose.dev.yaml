@@ -579,7 +579,7 @@ services:
       # desktop images survive the ZFS mount over /var/lib/docker/volumes/.
       # Named volumes get hidden when helix/docker-volumes ZFS dataset mounts;
       # a bind mount outside Docker's volume path avoids this.
-      - /var/lib/helix-sandbox-docker:/var/lib/docker
+      - ${SANDBOX_DOCKER_VOLUME:-/var/lib/helix-sandbox-docker}:/var/lib/docker
       # Container Docker path — ZFS zvol mounted by macOS desktop app for
       # per-session inner dockerd data (dedup + compression).
       # CONTAINER_DOCKER_PATH is set by the macOS desktop app in .env.vm.
