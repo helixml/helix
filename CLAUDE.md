@@ -88,6 +88,7 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 | Sandbox scripts | `./stack build-sandbox` | Dockerfile.sandbox |
 | Zed IDE | `./stack build-zed` | Binary → desktop image |
 | Qwen Code | `cd ../qwen-code && git commit -am "msg" && cd ../helix && ./stack build-ubuntu` | |
+| DRM manager (`api/pkg/drm/`, `api/cmd/helix-drm-manager/`) | `./stack build-drm-manager` | Systemd service on VM guest |
 | Zed config (`zed_config.go`) | No rebuild | API-side, Air hot reloads. Start NEW session |
 | Settings-sync-daemon | `./stack build-ubuntu` | Start NEW session after |
 

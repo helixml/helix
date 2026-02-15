@@ -1271,6 +1271,40 @@ function transfer-hyprland-to-sandbox() {
   transfer-desktop-to-sandbox hyprland
 }
 
+function build-drm-manager() {
+  # Cross-compile helix-drm-manager for linux/arm64 and deploy to the VM.
+  # The DRM manager runs as a systemd service on the VM guest (not in Docker).
+  local SSH_PORT="${HELIX_SSH_PORT:-41222}"
+
+  echo "🔧 Building helix-drm-manager for linux/arm64..."
+  (cd api && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/helix-drm-manager ./cmd/helix-drm-manager/) || {
+    echo "❌ Build failed"
+    return 1
+  }
+  echo "✅ Built /tmp/helix-drm-manager"
+
+  echo "📤 Uploading to VM (SSH port $SSH_PORT)..."
+  scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
+    -P "$SSH_PORT" /tmp/helix-drm-manager ubuntu@localhost:/tmp/ || {
+    echo "❌ SCP failed — is the VM running?"
+    return 1
+  }
+
+  echo "🔄 Installing and restarting service..."
+  ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
+    -p "$SSH_PORT" ubuntu@localhost \
+    "sudo cp /tmp/helix-drm-manager /usr/local/bin/helix-drm-manager && \
+     sudo chmod +x /usr/local/bin/helix-drm-manager && \
+     sudo systemctl restart helix-drm-manager" || {
+    echo "❌ Install/restart failed"
+    return 1
+  }
+
+  echo "✅ helix-drm-manager deployed and restarted"
+  ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -p "$SSH_PORT" ubuntu@localhost \
+    "sudo systemctl status helix-drm-manager --no-pager -l" 2>/dev/null || true
+}
 
 # Verify desktop image was built successfully
 function verify-desktop-build() {
@@ -2049,6 +2083,7 @@ function help() {
   echo "  build-zorin        - Build Zorin+Zed container (alias for build-desktop zorin)"
   echo "  build-ubuntu       - Build Ubuntu+Zed container (alias for build-desktop ubuntu)"
   echo "  build-xfce         - Build XFCE+Zed container (alias for build-desktop xfce)"
+  echo "  build-drm-manager  - Cross-compile and deploy helix-drm-manager to VM"
   echo "  build-utm          - Build custom QEMU with helix-frame-export for UTM (macOS only)"
   echo ""
   echo "Zed Agent commands:"
