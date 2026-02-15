@@ -35,6 +35,7 @@ import {
 import * as api from '../../api/api'
 
 
+import useApi from '../../hooks/useApi'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { AgentTypeSelector } from '../agent'
 import Divider from '@mui/material/Divider'
@@ -297,11 +298,11 @@ const AppSettings: FC<AppSettingsProps> = ({
   const isInitialized = useRef(false)
 
   // Query sandboxes to determine which desktop types are available
-  const apiClient = api.getApiClient()
+  const apiHook = useApi()
   const { data: sandboxInstances } = useQuery({
     queryKey: ['sandbox-instances-desktop-types'],
     queryFn: async () => {
-      const response = await apiClient.v1SandboxesList()
+      const response = await apiHook.getApiClient().v1SandboxesList()
       return response.data
     },
     staleTime: 60000,
