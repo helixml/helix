@@ -238,7 +238,12 @@ if [ "$UPDATE" = true ]; then
     log "Pulling latest code (branch: ${BRANCH})..."
     if ! run_ssh "[ -d ~/helix/.git ]"; then
         log "Helix repo not found — cloning fresh..."
+        # Directory may exist without .git (e.g., .env.vm, docker-compose files from install.sh).
+        # Back up .env.vm, remove the non-git dir, clone, then restore .env.vm.
+        run_ssh "cp ~/helix/.env.vm /tmp/env.vm.bak 2>/dev/null || true"
+        run_ssh "rm -rf ~/helix"
         run_ssh "git clone -b ${BRANCH} https://github.com/helixml/helix.git ~/helix"
+        run_ssh "cp /tmp/env.vm.bak ~/helix/.env.vm 2>/dev/null || true"
     elif ! run_ssh "cd ~/helix && git fetch origin 2>&1"; then
         log "Git fetch failed — resetting remote refs..."
         run_ssh "cd ~/helix && rm -rf .git/refs/remotes/origin && git fetch origin 2>&1"
