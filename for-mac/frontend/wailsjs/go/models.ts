@@ -17,6 +17,10 @@ export namespace main {
 	    trial_started_at?: any;
 	    desktop_secret?: string;
 	    console_password?: string;
+	    runner_token?: string;
+	    postgres_password?: string;
+	    encryption_key?: string;
+	    jwt_secret?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
@@ -39,6 +43,10 @@ export namespace main {
 	        this.trial_started_at = this.convertValues(source["trial_started_at"], null);
 	        this.desktop_secret = source["desktop_secret"];
 	        this.console_password = source["console_password"];
+	        this.runner_token = source["runner_token"];
+	        this.postgres_password = source["postgres_password"];
+	        this.encryption_key = source["encryption_key"];
+	        this.jwt_secret = source["jwt_secret"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -240,6 +248,7 @@ export namespace main {
 	    sessions: number;
 	    error_msg?: string;
 	    api_ready: boolean;
+	    sandbox_ready: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new VMStatus(source);
@@ -255,6 +264,7 @@ export namespace main {
 	        this.sessions = source["sessions"];
 	        this.error_msg = source["error_msg"];
 	        this.api_ready = source["api_ready"];
+	        this.sandbox_ready = source["sandbox_ready"];
 	    }
 	}
 	export class ZFSDatasetStats {

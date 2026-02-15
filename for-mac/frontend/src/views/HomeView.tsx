@@ -16,7 +16,8 @@ const BOOT_STAGES = [
   { prefix: 'Setting up storage', startPct: 27, endPct: 45, durationMs: 60000 },
   { prefix: 'Configuring', startPct: 47, endPct: 55, durationMs: 15000 },
   { prefix: 'Starting Helix', startPct: 57, endPct: 75, durationMs: 30000 },
-  { prefix: 'Starting app', startPct: 77, endPct: 98, durationMs: 120000 },
+  { prefix: 'Starting app', startPct: 77, endPct: 90, durationMs: 120000 },
+  { prefix: 'Waiting for sandbox', startPct: 92, endPct: 99, durationMs: 30000 },
 ];
 
 interface HomeViewProps {

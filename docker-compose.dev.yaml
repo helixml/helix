@@ -213,7 +213,7 @@ services:
     environment:
       - POSTGRES_DB=kodit
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-postgres}
     volumes:
       - ${VECTORCHORD_KODIT_DATA:-helix-vectorchord-kodit}:/var/lib/postgresql/data
     # ports:
@@ -287,7 +287,7 @@ services:
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
       - SANDBOX_INSTANCE_ID=local
-      - RUNNER_TOKEN=oh-hallo-insecure-token
+      - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
@@ -379,7 +379,7 @@ services:
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
       - SANDBOX_INSTANCE_ID=local
-      - RUNNER_TOKEN=oh-hallo-insecure-token
+      - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
@@ -469,7 +469,7 @@ services:
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
       - SANDBOX_INSTANCE_ID=local
-      - RUNNER_TOKEN=oh-hallo-insecure-token
+      - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
@@ -555,7 +555,7 @@ services:
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
       - SANDBOX_INSTANCE_ID=local
-      - RUNNER_TOKEN=oh-hallo-insecure-token
+      - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}

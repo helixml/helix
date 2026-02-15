@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -99,8 +100,9 @@ type VMStatus struct {
 	MemoryUsed int64   `json:"memory_used"`
 	Uptime     int64   `json:"uptime"`
 	Sessions   int     `json:"sessions"`
-	ErrorMsg   string  `json:"error_msg,omitempty"`
-	APIReady   bool    `json:"api_ready"`
+	ErrorMsg     string  `json:"error_msg,omitempty"`
+	APIReady     bool    `json:"api_ready"`
+	SandboxReady bool    `json:"sandbox_ready"`
 }
 
 // VMManager manages the Helix VM
@@ -131,8 +133,13 @@ type VMManager struct {
 	// License key to inject into the VM (set from AppSettings before VM start)
 	licenseKey string
 	// Auth settings injected into the VM's .env.vm
-	newUsersAreAdmin bool
+	newUsersAreAdmin  bool
 	allowRegistration bool
+	// Secure tokens/passwords injected into the VM's .env.vm
+	runnerToken      string
+	postgresPassword string
+	encryptionKey    string
+	jwtSecret        string
 	// stackStarted tracks whether the full docker compose stack has been started.
 	// Used to gate API restarts in injectDesktopSecret — during boot, we don't
 	// want to restart just the API before the full stack is up.
@@ -452,6 +459,7 @@ func (vm *VMManager) Start() error {
 	vm.status.State = VMStateStarting
 	vm.status.ErrorMsg = ""
 	vm.status.APIReady = false
+	vm.status.SandboxReady = false
 	vm.status.BootStage = ""
 	vm.statusMu.Unlock()
 
@@ -615,7 +623,8 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		// venus=true enables Vulkan passthrough via Venus protocol.
 		// hostmem=256M allocates host-side memory for GPU resources.
 		// EDID enabled with 5K preferred resolution so 5120x2880 is available as a DRM mode.
-		"-device", fmt.Sprintf("virtio-gpu-gl-pci,id=gpu0,hostmem=256M,blob=true,venus=true,edid=on,xres=5120,yres=2880,helix-port=%d", vm.config.FrameExportPort),
+		// max_outputs=16 gives 16 DRM connectors: index 0 for VM console, 1-15 for container desktops.
+		"-device", fmt.Sprintf("virtio-gpu-gl-pci,id=gpu0,hostmem=256M,blob=true,venus=true,edid=on,xres=5120,yres=2880,max_outputs=16,helix-port=%d", vm.config.FrameExportPort),
 
 		// SPICE display with GL/ES context (via ANGLE) — matches UTM's approach.
 		// Provides the EGL context needed by virglrenderer and the Helix frame export patches.
@@ -710,6 +719,7 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	vm.stackStarted = false
 	vm.statusMu.Lock()
 	vm.status.APIReady = false
+	vm.status.SandboxReady = false
 	vm.status.BootStage = ""
 	if ctx.Err() != nil {
 		// Normal shutdown
@@ -742,6 +752,9 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 	stackStartedAt := time.Time{}
 	apiReady := false
 	apiCheckCount := 0
+	sandboxReady := false
+	sandboxReadyStart := time.Time{}
+	const sandboxTimeout = 60 * time.Second
 
 	setBootStage := func(stage string) {
 		vm.statusMu.Lock()
@@ -850,17 +863,39 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 				if vm.checkAPIHealth() {
 					vm.statusMu.Lock()
 					vm.status.APIReady = true
-					vm.status.BootStage = ""
 					vm.statusMu.Unlock()
 					vm.emitStatus()
 					apiReady = true
+					sandboxReadyStart = time.Now()
+				}
+			}
+
+			// Wait for sandbox to report desktop_versions before calling onAPIReady.
+			// Without this, the user can click "Connect Claude Subscription" before
+			// the sandbox is ready, causing a confusing "no ubuntu version found" error.
+			if apiReady && !sandboxReady {
+				setBootStage("Waiting for sandbox...")
+				if time.Since(sandboxReadyStart) > sandboxTimeout {
+					log.Printf("Sandbox readiness timed out after %v — proceeding anyway", sandboxTimeout)
+					sandboxReady = true
+				} else if vm.checkSandboxReady() {
+					sandboxReady = true
+					log.Printf("Sandbox reports desktop versions — ready")
+				}
+
+				if sandboxReady {
+					vm.statusMu.Lock()
+					vm.status.SandboxReady = true
+					vm.status.BootStage = ""
+					vm.statusMu.Unlock()
+					vm.emitStatus()
 					if vm.onAPIReady != nil {
 						vm.onAPIReady()
 					}
 				}
 			}
 
-			if apiReady {
+			if sandboxReady {
 				return
 			}
 		}
@@ -903,6 +938,38 @@ func (vm *VMManager) checkAPIHealth() bool {
 	}
 	resp.Body.Close()
 	return resp.StatusCode < 500
+}
+
+// checkSandboxReady checks if any sandbox has reported desktop_versions in its heartbeat.
+// Returns true if at least one sandbox has a non-empty desktop_versions map.
+func (vm *VMManager) checkSandboxReady() bool {
+	client := &http.Client{Timeout: 3 * time.Second}
+	req, err := http.NewRequest("GET", fmt.Sprintf("http://localhost:%d/api/v1/sandboxes", vm.config.APIPort), nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Authorization", "Bearer "+vm.runnerToken)
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return false
+	}
+
+	var sandboxes []struct {
+		DesktopVersions map[string]string `json:"desktop_versions"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&sandboxes); err != nil {
+		return false
+	}
+	for _, sb := range sandboxes {
+		if len(sb.DesktopVersions) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // sshCommand creates an SSH exec.Cmd to the VM with standard options.
@@ -1305,6 +1372,66 @@ else
     CHANGED=1
 fi
 
+# Secure tokens — generated per-install, override insecure defaults
+RUNNER_TOKEN_VAL="%s"
+if grep -q '^RUNNER_TOKEN=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^RUNNER_TOKEN=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "$RUNNER_TOKEN_VAL" ]; then
+        sed -i "s|^RUNNER_TOKEN=.*|RUNNER_TOKEN=$RUNNER_TOKEN_VAL|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo "RUNNER_TOKEN=$RUNNER_TOKEN_VAL" >> "$ENV_FILE"
+    CHANGED=1
+fi
+
+PG_PASS="%s"
+if grep -q '^POSTGRES_ADMIN_PASSWORD=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^POSTGRES_ADMIN_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "$PG_PASS" ]; then
+        sed -i "s|^POSTGRES_ADMIN_PASSWORD=.*|POSTGRES_ADMIN_PASSWORD=$PG_PASS|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo "POSTGRES_ADMIN_PASSWORD=$PG_PASS" >> "$ENV_FILE"
+    CHANGED=1
+fi
+# Use same password for pgvector
+if grep -q '^PGVECTOR_PASSWORD=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^PGVECTOR_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "$PG_PASS" ]; then
+        sed -i "s|^PGVECTOR_PASSWORD=.*|PGVECTOR_PASSWORD=$PG_PASS|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo "PGVECTOR_PASSWORD=$PG_PASS" >> "$ENV_FILE"
+    CHANGED=1
+fi
+
+ENC_KEY="%s"
+if grep -q '^HELIX_ENCRYPTION_KEY=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^HELIX_ENCRYPTION_KEY=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "$ENC_KEY" ]; then
+        sed -i "s|^HELIX_ENCRYPTION_KEY=.*|HELIX_ENCRYPTION_KEY=$ENC_KEY|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo "HELIX_ENCRYPTION_KEY=$ENC_KEY" >> "$ENV_FILE"
+    CHANGED=1
+fi
+
+JWT_SEC="%s"
+if grep -q '^REGULAR_AUTH_JWT_SECRET=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^REGULAR_AUTH_JWT_SECRET=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "$JWT_SEC" ]; then
+        sed -i "s|^REGULAR_AUTH_JWT_SECRET=.*|REGULAR_AUTH_JWT_SECRET=$JWT_SEC|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo "REGULAR_AUTH_JWT_SECRET=$JWT_SEC" >> "$ENV_FILE"
+    CHANGED=1
+fi
+
 # License key
 LICENSE_KEY="%s"
 if [ -n "$LICENSE_KEY" ]; then
@@ -1341,6 +1468,7 @@ fi
 `, vm.desktopSecret, vm.desktopSecret, vm.desktopSecret,
 		vm.adminUserIDs(), vm.registrationEnabled(),
 		vm.config.FrameExportPort,
+		vm.runnerToken, vm.postgresPassword, vm.encryptionKey, vm.jwtSecret,
 		vm.licenseKey,
 		vm.consolePassword, vm.consolePassword, vm.consolePassword)
 

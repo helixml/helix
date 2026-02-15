@@ -67,6 +67,10 @@ func (a *App) startup(ctx context.Context) {
 	a.vm.licenseKey = s.LicenseKey
 	a.vm.newUsersAreAdmin = s.NewUsersAreAdmin
 	a.vm.allowRegistration = s.AllowRegistration
+	a.vm.runnerToken = s.RunnerToken
+	a.vm.postgresPassword = s.PostgresPassword
+	a.vm.encryptionKey = s.EncryptionKey
+	a.vm.jwtSecret = s.JWTSecret
 
 	// Wire VM state changes to system tray
 	a.vm.onStateChange = func(state string) {
@@ -169,6 +173,10 @@ func (a *App) StartVM() error {
 	a.vm.desktopSecret = s.DesktopSecret
 	a.vm.consolePassword = s.ConsolePassword
 	a.vm.licenseKey = s.LicenseKey
+	a.vm.runnerToken = s.RunnerToken
+	a.vm.postgresPassword = s.PostgresPassword
+	a.vm.encryptionKey = s.EncryptionKey
+	a.vm.jwtSecret = s.JWTSecret
 	if s.LicenseKey != "" {
 		log.Printf("StartVM: license key loaded from settings (length=%d)", len(s.LicenseKey))
 	}

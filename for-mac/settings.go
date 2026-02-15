@@ -51,6 +51,12 @@ type AppSettings struct {
 
 	// VM console login password (generated on first launch, injected into VM on boot)
 	ConsolePassword string `json:"console_password,omitempty"`
+
+	// Secure tokens and passwords (generated on first launch, injected into VM .env)
+	RunnerToken      string `json:"runner_token,omitempty"`
+	PostgresPassword string `json:"postgres_password,omitempty"`
+	EncryptionKey    string `json:"encryption_key,omitempty"`
+	JWTSecret        string `json:"jwt_secret,omitempty"`
 }
 
 // DefaultSettings returns the default settings with system-aware CPU and memory defaults.
@@ -137,6 +143,24 @@ func NewSettingsManager() *SettingsManager {
 	// Ensure console password exists (generate on first launch)
 	if sm.settings.ConsolePassword == "" {
 		sm.settings.ConsolePassword = generatePassword()
+		needsSave = true
+	}
+
+	// Ensure secure tokens/passwords exist (generate on first launch)
+	if sm.settings.RunnerToken == "" {
+		sm.settings.RunnerToken = generateSecret()
+		needsSave = true
+	}
+	if sm.settings.PostgresPassword == "" {
+		sm.settings.PostgresPassword = generatePassword()
+		needsSave = true
+	}
+	if sm.settings.EncryptionKey == "" {
+		sm.settings.EncryptionKey = generateSecret()
+		needsSave = true
+	}
+	if sm.settings.JWTSecret == "" {
+		sm.settings.JWTSecret = generateSecret()
 		needsSave = true
 	}
 

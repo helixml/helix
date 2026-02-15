@@ -346,7 +346,7 @@ func (m *Manager) allocateScanout() (uint32, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.available) == 0 {
-		return 0, fmt.Errorf("no scanouts available (all 15 in use)")
+		return 0, fmt.Errorf("no scanouts available (all %d in use)", len(m.leases))
 	}
 	idx := m.available[0]
 	m.available = m.available[1:]
