@@ -19,6 +19,7 @@ import (
 
 const (
 	SettingsPath = "/home/retro/.config/zed/settings.json"
+	KeymapPath   = "/home/retro/.config/zed/keymap.json"
 	PollInterval = 30 * time.Second
 	DebounceTime = 500 * time.Millisecond
 )
@@ -445,6 +446,46 @@ func (d *SettingsDaemon) syncClaudeCredentials() {
 	log.Printf("Synced Claude credentials to %s", ClaudeCredentialsPath)
 }
 
+// writeZedKeymap writes Zed keymap.json with terminal copy/paste bindings.
+// XKB remaps Super (Command) → Ctrl, so we configure Zed's terminal to:
+// - Ctrl+C: copy when text is selected, SIGINT when not (via context precedence)
+// - Ctrl+V: paste (macOS users expect Command+V to paste)
+func writeZedKeymap() {
+	keymap := []map[string]interface{}{
+		{
+			"context": "Terminal && selection",
+			"bindings": map[string]string{
+				"ctrl-c": "terminal::Copy",
+			},
+		},
+		{
+			"context": "Terminal",
+			"bindings": map[string]string{
+				"ctrl-v": "terminal::Paste",
+			},
+		},
+	}
+
+	data, err := json.MarshalIndent(keymap, "", "  ")
+	if err != nil {
+		log.Printf("Failed to marshal Zed keymap: %v", err)
+		return
+	}
+
+	dir := filepath.Dir(KeymapPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Printf("Failed to create Zed config directory: %v", err)
+		return
+	}
+
+	if err := os.WriteFile(KeymapPath, data, 0644); err != nil {
+		log.Printf("Failed to write Zed keymap: %v", err)
+		return
+	}
+
+	log.Printf("Wrote Zed keymap to %s", KeymapPath)
+}
+
 func main() {
 	// Environment variables
 	helixURL := os.Getenv("HELIX_API_URL")
@@ -495,6 +536,9 @@ func main() {
 		sessionID:  sessionID,
 		userAPIKey: userAPIKey,
 	}
+
+	// Write Zed keymap for terminal copy/paste behavior
+	writeZedKeymap()
 
 	// Initial sync from Helix → local with retry
 	// Retry handles race condition where daemon starts before API token is fully available

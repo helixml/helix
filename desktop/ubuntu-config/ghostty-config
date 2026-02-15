@@ -30,3 +30,9 @@ copy-on-select = clipboard
 
 # Confirm close if there are running processes
 confirm-close-surface = false
+
+# macOS keyboard support (XKB remaps Super/Command → Ctrl)
+# performable: copies if there's a selection, sends SIGINT if not
+keybind = performable:ctrl+c=copy_to_clipboard
+# Paste on Ctrl+V (which is Command+V for macOS users via XKB remap)
+keybind = ctrl+v=paste_from_clipboard
