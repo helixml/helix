@@ -46,21 +46,21 @@ export function HomeView({
   onLicenseUpdated,
   showToast,
 }: HomeViewProps) {
-  // Show Helix UI when VM is running and API is ready.
-  // Use the auto-login callback URL so the user is transparently logged in as admin.
-  // The callback sets session cookies and redirects to /.
-  if (vmStatus.state === 'running' && vmStatus.api_ready) {
-    const iframeSrc = autoLoginURL || helixURL;
-    console.log('[AUTH] Rendering iframe with src:', iframeSrc);
+  // Show Helix UI when VM is running, API is ready, AND auth proxy URL is available.
+  // Wait for autoLoginURL so the iframe goes straight to the cookie-setting endpoint
+  // and redirects to / — no flash of the login screen.
+  if (vmStatus.state === 'running' && vmStatus.api_ready && autoLoginURL) {
+    console.log('[AUTH] Rendering iframe with src:', autoLoginURL);
     return (
       <div className="home-view">
-        <iframe src={iframeSrc} title="Helix" />
+        <iframe src={autoLoginURL} title="Helix" />
       </div>
     );
   }
 
-  // Show boot progress when VM is starting or running but API isn't ready
-  if (vmStatus.state === 'starting' || (vmStatus.state === 'running' && !vmStatus.api_ready)) {
+  // Show boot progress when VM is starting, or running but not yet fully ready
+  // (API not ready, or API ready but auth proxy URL not yet available)
+  if (vmStatus.state === 'starting' || (vmStatus.state === 'running' && (!vmStatus.api_ready || !autoLoginURL))) {
     return (
       <div className="home-view">
         <div className="home-placeholder download-screen">

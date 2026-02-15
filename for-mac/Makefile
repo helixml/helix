@@ -1,10 +1,11 @@
 # Helix Desktop build targets
 #
 # Usage:
-#   make build      - Quick rebuild (Wails + re-sign)
-#   make build-full - Full rebuild with QEMU + frameworks packaging
-#   make sign       - Re-sign existing app bundle + dev QEMU
-#   make dev        - Start Wails dev mode (hot reload)
+#   make build       - Quick rebuild (Wails + re-sign)
+#   make build-full  - Full rebuild with QEMU + frameworks packaging
+#   make rebuild-qemu - Rebuild QEMU from source + install into dev-qemu (no Wails rebuild)
+#   make sign        - Re-sign existing app bundle + dev QEMU
+#   make dev         - Start Wails dev mode (hot reload)
 
 APP_BUNDLE := build/bin/Helix.app
 MACOS_DIR := $(APP_BUNDLE)/Contents/MacOS
@@ -15,7 +16,10 @@ QEMU_ENTITLEMENTS := build/darwin/entitlements.plist
 SIGNING_ENV := .env.signing
 SIGN_SCRIPT := scripts/sign-app.sh
 
-.PHONY: build build-full sign sign-dev-qemu dev
+QEMU_SRC ?= $(HOME)/pm/qemu-utm
+SYSROOT ?= $(HOME)/pm/UTM/sysroot-macOS-arm64
+
+.PHONY: build build-full rebuild-qemu sign sign-dev-qemu dev
 
 # Quick rebuild: wails build + re-sign
 build:
@@ -26,6 +30,30 @@ build:
 build-full:
 	./scripts/build-helix-app.sh
 	@$(MAKE) sign-dev-qemu
+
+# Rebuild QEMU from source and install into dev-qemu.
+# Use this after modifying QEMU source (~/pm/qemu-utm).
+# Requires: VM stopped (kill QEMU process first).
+rebuild-qemu:
+	@echo "[rebuild-qemu] Building QEMU from source..."
+	./qemu-helix/build-qemu-standalone.sh
+	@echo "[rebuild-qemu] Copying QEMU to app bundle..."
+	@mkdir -p $(MACOS_DIR)
+	@cp -f $(SYSROOT)/bin/qemu-system-aarch64 $(MACOS_DIR)/qemu-system-aarch64
+	@cp -f $(SYSROOT)/lib/libqemu-aarch64-softmmu.dylib $(MACOS_DIR)/libqemu-aarch64-softmmu.dylib
+	@# Fix dylib paths (same as build-helix-app.sh Step 6)
+	@install_name_tool -id "@rpath/libqemu-aarch64-softmmu.dylib" \
+		$(MACOS_DIR)/libqemu-aarch64-softmmu.dylib 2>/dev/null || true
+	@install_name_tool -change "$(SYSROOT)/lib/libqemu-aarch64-softmmu.dylib" \
+		"@executable_path/libqemu-aarch64-softmmu.dylib" \
+		$(MACOS_DIR)/qemu-system-aarch64 2>/dev/null || true
+	@install_name_tool -add_rpath "@executable_path/../Frameworks" \
+		$(MACOS_DIR)/qemu-system-aarch64 2>/dev/null || true
+	@install_name_tool -add_rpath "@executable_path/../Frameworks" \
+		$(MACOS_DIR)/libqemu-aarch64-softmmu.dylib 2>/dev/null || true
+	@echo "[rebuild-qemu] Creating dev QEMU..."
+	@$(MAKE) sign-dev-qemu
+	@echo "[rebuild-qemu] Done. Restart the VM to use the new QEMU."
 
 # Re-sign the app bundle + create standalone dev QEMU
 sign: sign-dev-qemu

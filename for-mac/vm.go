@@ -467,11 +467,20 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	//   Frames forwarded to host via port forward → VideoToolbox encode on host
 	//   virtio-gpu provides rendering acceleration for the VM
 	args := []string{
-		// Machine configuration with HVF acceleration
-		"-machine", "virt,accel=hvf,highmem=on",
+		// Machine configuration — matches UTM's approach:
+		// Separate -machine and -accel flags (rather than accel= in machine).
+		// gic-version=3 for GICv3 interrupt controller (required for >8 CPUs).
+		// ipa-granule-size=0x1000 sets stage-2 page table granule to 4KB,
+		// matching the Linux guest's page size. Without this, macOS HVF uses
+		// 16KB pages which can cause alignment issues with GPU memory mappings.
+		"-machine", "virt,gic-version=3,highmem=on",
+		"-accel", "hvf,ipa-granule-size=0x1000",
 		"-cpu", "host",
 		"-smp", fmt.Sprintf("%d", vm.config.CPUs),
 		"-m", fmt.Sprintf("%d", vm.config.MemoryMB),
+		// Disable QEMU default devices — we specify everything explicitly
+		"-nodefaults",
+		"-vga", "none",
 
 		// EFI firmware
 		"-drive", fmt.Sprintf("if=pflash,format=raw,readonly=on,file=%s", efiCode),
