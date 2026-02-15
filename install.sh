@@ -2349,6 +2349,12 @@ if [ "$SANDBOX" = true ]; then
     cat << 'EOF' > $INSTALL_DIR/sandbox.sh
 #!/bin/bash
 
+# Source .env for runtime overrides (SANDBOX_DOCKER_VOLUME, HELIX_FRAME_EXPORT_PORT, etc.)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    set -a; source "$SCRIPT_DIR/.env"; set +a
+fi
+
 # Configuration variables (set by install.sh)
 SANDBOX_TAG="${SANDBOX_TAG}"
 HELIX_API_URL="${HELIX_API_URL}"
@@ -2474,7 +2480,8 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS \
     -e HYDRA_PRIVILEGED_MODE_ENABLED="${PRIVILEGED_DOCKER:-false}" \
     -e SANDBOX_DATA_PATH=/data \
     -e XDG_RUNTIME_DIR=/tmp/sockets \
-    -v sandbox-storage:/var/lib/docker \
+    -e HELIX_FRAME_EXPORT_PORT="${HELIX_FRAME_EXPORT_PORT:-}" \
+    -v ${SANDBOX_DOCKER_VOLUME:-sandbox-storage}:/var/lib/docker \
     -v sandbox-data:/data \
     -v hydra-storage:/hydra-data \
     -v /run/udev:/run/udev:rw \

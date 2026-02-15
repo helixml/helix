@@ -600,7 +600,7 @@ if ! step_done "configure_env"; then
     run_ssh "cd ~/helix && tr -d '\0' < .env > .env.tmp && mv .env.tmp .env"
 
     # Remove keys we want to override (install.sh may have set them differently)
-    run_ssh "cd ~/helix && sed -i '/^GPU_VENDOR=/d; /^HELIX_DESKTOP_IMAGE=/d; /^HELIX_EDITION=/d; /^ADMIN_USER_IDS=/d; /^ENABLE_CUSTOM_USER_PROVIDERS=/d; /^PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS=/d; /^CONTAINER_DOCKER_PATH=/d; /^HELIX_SANDBOX_DATA=/d' .env"
+    run_ssh "cd ~/helix && sed -i '/^GPU_VENDOR=/d; /^HELIX_DESKTOP_IMAGE=/d; /^HELIX_EDITION=/d; /^ADMIN_USER_IDS=/d; /^ENABLE_CUSTOM_USER_PROVIDERS=/d; /^PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS=/d; /^CONTAINER_DOCKER_PATH=/d; /^HELIX_SANDBOX_DATA=/d; /^SANDBOX_DOCKER_VOLUME=/d' .env"
 
     # Append macOS-specific overrides (using individual echo to avoid heredoc issues via SSH)
     run_ssh "cd ~/helix && {
@@ -614,6 +614,7 @@ echo 'ENABLE_CUSTOM_USER_PROVIDERS=true'
 echo 'PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS=15'
 echo 'CONTAINER_DOCKER_PATH=/helix/container-docker'
 echo 'HELIX_SANDBOX_DATA=/helix/workspaces'
+echo 'SANDBOX_DOCKER_VOLUME=/var/lib/helix-sandbox-docker'
 } >> .env"
 
     mark_step "configure_env"
@@ -636,13 +637,9 @@ if ! step_done "patch_sandbox"; then
         # Without this, FindAvailableSandbox returns nil and sessions fail with "record not found".
         run_ssh "cd ~/helix && mkdir -p sandbox-images"
         run_ssh "cd ~/helix && sed -i 's|--name helix-sandbox|--name helix-sandbox -v \$(pwd)/sandbox-images:/opt/images|' sandbox.sh" || true
-        # Replace named volume with bind mount for sandbox Docker storage.
-        # Named volumes get hidden when ZFS mounts helix/docker-volumes over /var/lib/docker/volumes/.
-        # A bind mount at /var/lib/helix-sandbox-docker on the root disk survives the ZFS mount.
-        run_ssh "sudo mkdir -p /var/lib/helix-sandbox-docker"
-        run_ssh "cd ~/helix && sed -i 's|-v sandbox-storage:/var/lib/docker|-v /var/lib/helix-sandbox-docker:/var/lib/docker|' sandbox.sh" || true
-        # Pass HELIX_FRAME_EXPORT_PORT to sandbox so desktop containers can reach QEMU frame export
-        run_ssh "cd ~/helix && sed -i 's|-e HYDRA_PRIVILEGED_MODE_ENABLED|-e HELIX_FRAME_EXPORT_PORT=\${HELIX_FRAME_EXPORT_PORT:-15937} -e HYDRA_PRIVILEGED_MODE_ENABLED|' sandbox.sh" || true
+        # SANDBOX_DOCKER_VOLUME is set in .env (configure_env step) to use a bind mount
+        # at /var/lib/helix-sandbox-docker instead of a named volume. sandbox.sh reads
+        # this via ${SANDBOX_DOCKER_VOLUME:-sandbox-storage} in the docker run command.
         log "sandbox.sh patched"
     else
         log "WARNING: sandbox.sh not found — install.sh may have skipped sandbox setup"
