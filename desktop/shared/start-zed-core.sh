@@ -85,7 +85,14 @@ wait_for_claude_credentials() {
         return 0
     fi
 
-    echo "Claude Code agent configured, waiting for credentials file..."
+    # API key mode uses ANTHROPIC_API_KEY env var, no credentials file needed.
+    # Only subscription mode (no API key) requires the credentials file.
+    if grep -q 'ANTHROPIC_API_KEY' "$SETTINGS_FILE" 2>/dev/null; then
+        echo "Claude Code using API key mode, no credentials file needed"
+        return 0
+    fi
+
+    echo "Claude Code subscription mode, waiting for credentials file..."
     local WAIT_COUNT=0
     local MAX_WAIT=60
 
