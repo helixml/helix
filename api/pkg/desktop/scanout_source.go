@@ -59,6 +59,7 @@ type ScanoutSource struct {
 	scanoutID uint32
 	running   bool
 	cancel    context.CancelFunc
+	lease     *drmmanager.LeaseResult // holds liveness connection to DRM manager
 
 	// Frame delivery
 	frameCh chan VideoFrame
@@ -160,6 +161,7 @@ func (s *ScanoutSource) Start(ctx context.Context, scanoutID uint32) error {
 			return fmt.Errorf("request DRM lease: %w", err)
 		}
 		scanoutID = lease.ScanoutID
+		s.lease = lease // keep liveness connection open
 		s.logger.Info("DRM lease acquired for scanout ID",
 			"scanout_id", scanoutID,
 			"connector", lease.ConnectorName)
@@ -247,6 +249,10 @@ func (s *ScanoutSource) Stop() {
 	}
 	if s.conn != nil {
 		s.conn.Close()
+	}
+	if s.lease != nil {
+		s.lease.Close()
+		s.lease = nil
 	}
 }
 

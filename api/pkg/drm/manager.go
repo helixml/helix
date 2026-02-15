@@ -179,7 +179,20 @@ func (m *Manager) handleClient(ctx context.Context, conn net.Conn) {
 
 	switch req.Cmd {
 	case cmdRequestLease:
-		m.handleLeaseRequest(ctx, unixConn, req.Width, req.Height)
+		scanoutIdx := m.handleLeaseRequest(ctx, unixConn, req.Width, req.Height)
+		if scanoutIdx == 0 {
+			return // lease request failed, nothing to track
+		}
+
+		// Block on the connection — when the client dies (SIGKILL, crash,
+		// graceful shutdown), the kernel closes the socket and this read
+		// returns. This is the liveness signal for automatic cleanup.
+		buf := make([]byte, 1)
+		conn.Read(buf) // blocks until connection closes
+
+		m.logger.Info("lease client disconnected, releasing scanout", "scanout_idx", scanoutIdx)
+		m.handleLeaseRelease(scanoutIdx)
+
 	case cmdReleaseLease:
 		// Client is releasing; scanout ID is in Width field (reused)
 		m.handleLeaseRelease(req.Width)
@@ -189,7 +202,9 @@ func (m *Manager) handleClient(ctx context.Context, conn net.Conn) {
 	}
 }
 
-func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, width, height uint32) {
+// handleLeaseRequest processes a lease request and returns the allocated scanout index.
+// Returns 0 if the request failed (error already sent to client).
+func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, width, height uint32) uint32 {
 	if width == 0 {
 		width = 1920
 	}
@@ -204,7 +219,7 @@ func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, wi
 	if err != nil {
 		m.logger.Error("no scanouts available", "err", err)
 		m.sendError(conn, err.Error())
-		return
+		return 0
 	}
 	m.logger.Info("allocated scanout", "scanout_idx", scanoutIdx)
 
@@ -213,7 +228,7 @@ func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, wi
 		m.logger.Error("enable scanout in QEMU failed", "err", err, "scanout_idx", scanoutIdx)
 		m.releaseScanout(scanoutIdx)
 		m.sendError(conn, fmt.Sprintf("QEMU enable failed: %v", err))
-		return
+		return 0
 	}
 	m.logger.Info("scanout enabled in QEMU", "scanout_idx", scanoutIdx)
 
@@ -260,7 +275,7 @@ func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, wi
 		m.disableScanoutInQEMU(scanoutIdx)
 		m.releaseScanout(scanoutIdx)
 		m.sendError(conn, fmt.Sprintf("DRM lease failed: %v", err))
-		return
+		return 0
 	}
 
 	m.logger.Info("DRM lease created",
@@ -305,7 +320,7 @@ func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, wi
 		revokeLease(m.drmFile, lesseeID)
 		m.disableScanoutInQEMU(scanoutIdx)
 		m.releaseScanout(scanoutIdx)
-		return
+		return 0
 	}
 
 	m.logger.Info("lease FD sent to client",
@@ -315,6 +330,8 @@ func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, wi
 
 	// Close our copy of the lease FD (client has it now)
 	unix.Close(leaseFD)
+
+	return scanoutIdx
 }
 
 func (m *Manager) handleLeaseRelease(scanoutIdx uint32) {

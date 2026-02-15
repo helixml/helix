@@ -623,12 +623,25 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		// venus=true enables Vulkan passthrough via Venus protocol.
 		// hostmem=256M allocates host-side memory for GPU resources.
 		// EDID enabled with 5K preferred resolution so 5120x2880 is available as a DRM mode.
-		// max_outputs=16 gives 16 DRM connectors: index 0 for VM console, 1-15 for container desktops.
-		"-device", fmt.Sprintf("virtio-gpu-gl-pci,id=gpu0,hostmem=256M,blob=true,venus=true,edid=on,xres=5120,yres=2880,max_outputs=16,helix-port=%d", vm.config.FrameExportPort),
+		"-device", fmt.Sprintf("virtio-gpu-gl-pci,id=gpu0,hostmem=256M,blob=true,venus=true,edid=on,xres=5120,yres=2880,helix-port=%d", vm.config.FrameExportPort),
+		// 16 virtual display outputs: index 0 for VM console, 1-15 for container desktops.
+		// Matches UTM plist AdditionalArguments config.
+		"-global", "virtio-gpu-gl-pci.max_outputs=16",
 
 		// SPICE display with GL/ES context (via ANGLE) — matches UTM's approach.
 		// Provides the EGL context needed by virglrenderer and the Helix frame export patches.
 		"-spice", fmt.Sprintf("unix=on,addr=%s,disable-ticketing=on,gl=es", vm.getSpiceSocketPath()),
+
+		// RNG device — provides entropy to the guest, prevents stalls during
+		// SSH key generation, TLS handshakes, Docker operations, etc.
+		// Matches UTM plist RNGDevice=true.
+		"-device", "virtio-rng-pci",
+
+		// Audio — intel-hda with duplex codec. GNOME Shell expects an audio
+		// device; PipeWire/WirePlumber enumerate it for the desktop pipeline.
+		// Matches UTM plist Sound: intel-hda.
+		"-device", "intel-hda",
+		"-device", "hda-duplex",
 
 		// Serial console — captured and shown in the app UI
 		"-serial", "mon:stdio",

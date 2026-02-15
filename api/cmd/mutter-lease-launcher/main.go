@@ -207,6 +207,12 @@ func main() {
 		wpCmd.Process.Kill()
 	}
 
+	// Release the DRM lease — closing the liveness connection tells the
+	// manager to release the scanout. On SIGKILL, the kernel does this
+	// automatically when it closes all our file descriptors.
+	lease.Close()
+	logger.Info("DRM lease released")
+
 	// Restart real logind if we stopped it (not in containers)
 	if err := exec.Command("systemctl", "is-system-running").Run(); err == nil {
 		exec.Command("systemctl", "start", "systemd-logind").Run()
