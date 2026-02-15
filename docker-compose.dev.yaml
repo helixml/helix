@@ -153,7 +153,7 @@ services:
     restart: always
     command: ["--access-mode=unrestricted", "--transport=sse"]
     environment:
-      - DATABASE_URI=postgresql://postgres:postgres@postgres:5432/postgres
+      - DATABASE_URI=postgresql://postgres:${POSTGRES_ADMIN_PASSWORD-postgres}@postgres:5432/postgres
     ports:
       - 8000:8000
   # postgres 15 with pgvector installed
@@ -187,7 +187,7 @@ services:
       - api
     environment:
       - DATA_DIR=/data
-      - DB_URL=postgresql+asyncpg://postgres:postgres@vectorchord-kodit:5432/kodit
+      - DB_URL=postgresql+asyncpg://postgres:${PGVECTOR_PASSWORD-postgres}@vectorchord-kodit:5432/kodit
       - DEFAULT_SEARCH_PROVIDER=vectorchord
       # External enrichment provider - uses Helix as proxy with runner token auth
       - ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1
@@ -730,7 +730,7 @@ services:
     #   - 8001:8000
     restart: always
     environment:
-      - PGVECTOR_DSN=postgresql://postgres:postgres@pgvector:5432/postgres
+      - PGVECTOR_DSN=postgresql://postgres:${PGVECTOR_PASSWORD-postgres}@pgvector:5432/postgres
       - LOG_LEVEL=INFO
       - VLLM_BASE_URL=${RAG_HAYSTACK_EMBEDDINGS_BASE_URL:-} # Need to set this to an external VLLM server in development
       - VLLM_API_KEY=${RAG_HAYSTACK_EMBEDDINGS_API_KEY:-EMPTY}
