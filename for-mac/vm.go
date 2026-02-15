@@ -1372,6 +1372,11 @@ fi
 # QEMU's frame export server listens on (via the helix-port= GPU device option).
 DRM_ENV="/etc/helix-drm-manager.env"
 DRM_QEMU_ADDR="10.0.2.2:$FRAME_PORT"
+# Ensure systemd service reads the env file (may be missing from older images)
+if ! grep -q EnvironmentFile /etc/systemd/system/helix-drm-manager.service 2>/dev/null; then
+    sudo sed -i '/^ExecStart=/i EnvironmentFile=-/etc/helix-drm-manager.env' /etc/systemd/system/helix-drm-manager.service
+    sudo systemctl daemon-reload
+fi
 CURRENT_DRM_ADDR=""
 if [ -f "$DRM_ENV" ]; then
     CURRENT_DRM_ADDR=$(grep '^QEMU_ADDR=' "$DRM_ENV" 2>/dev/null | cut -d= -f2-)

@@ -274,6 +274,11 @@ if [ "$UPDATE" = true ]; then
     run_ssh "cd ~/helix/api && CGO_ENABLED=0 /usr/local/go/bin/go build -o /tmp/helix-drm-manager ./cmd/helix-drm-manager/ && \
              sudo cp /tmp/helix-drm-manager /usr/local/bin/helix-drm-manager && \
              sudo chmod +x /usr/local/bin/helix-drm-manager"
+    # Ensure systemd service has EnvironmentFile (may be missing from older images)
+    if ! run_ssh "grep -q EnvironmentFile /etc/systemd/system/helix-drm-manager.service" 2>/dev/null; then
+        run_ssh "sudo sed -i '/^ExecStart=/i EnvironmentFile=-/etc/helix-drm-manager.env' /etc/systemd/system/helix-drm-manager.service"
+        run_ssh "sudo systemctl daemon-reload"
+    fi
     run_ssh "sudo systemctl start helix-drm-manager 2>/dev/null || true"
     log "helix-drm-manager rebuilt and restarted."
 
