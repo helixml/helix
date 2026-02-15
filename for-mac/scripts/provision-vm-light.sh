@@ -376,6 +376,11 @@ write_files:
           fi
       fi
 
+      # Ensure sandbox Docker bind mount dir exists on root disk.
+      # Sandbox's Docker storage is bind-mounted here (not a named volume)
+      # so it survives the ZFS mount over /var/lib/docker/volumes/.
+      mkdir -p /var/lib/helix-sandbox-docker
+
       # Restore persistent config if available
       if [ -d /helix/config/ssh ]; then
           log "Restoring SSH host keys from /helix/config/ssh/..."
@@ -631,6 +636,13 @@ if ! step_done "patch_sandbox"; then
         # Without this, FindAvailableSandbox returns nil and sessions fail with "record not found".
         run_ssh "cd ~/helix && mkdir -p sandbox-images"
         run_ssh "cd ~/helix && sed -i 's|--name helix-sandbox|--name helix-sandbox -v \$(pwd)/sandbox-images:/opt/images|' sandbox.sh" || true
+        # Replace named volume with bind mount for sandbox Docker storage.
+        # Named volumes get hidden when ZFS mounts helix/docker-volumes over /var/lib/docker/volumes/.
+        # A bind mount at /var/lib/helix-sandbox-docker on the root disk survives the ZFS mount.
+        run_ssh "sudo mkdir -p /var/lib/helix-sandbox-docker"
+        run_ssh "cd ~/helix && sed -i 's|-v sandbox-storage:/var/lib/docker|-v /var/lib/helix-sandbox-docker:/var/lib/docker|' sandbox.sh" || true
+        # Pass HELIX_FRAME_EXPORT_PORT to sandbox so desktop containers can reach QEMU frame export
+        run_ssh "cd ~/helix && sed -i 's|-e HYDRA_PRIVILEGED_MODE_ENABLED|-e HELIX_FRAME_EXPORT_PORT=\${HELIX_FRAME_EXPORT_PORT:-15937} -e HYDRA_PRIVILEGED_MODE_ENABLED|' sandbox.sh" || true
         log "sandbox.sh patched"
     else
         log "WARNING: sandbox.sh not found — install.sh may have skipped sandbox setup"
@@ -800,9 +812,9 @@ if ! step_done "prime_stack"; then
         fi
     fi
 
-    # Stop the stack but keep named volumes (sandbox-docker-storage contains
-    # the desktop images we just transferred into the sandbox's nested dockerd)
-    log "Stopping Helix stack (keeping volumes)..."
+    # Stop the stack. Sandbox Docker storage is a bind mount at
+    # /var/lib/helix-sandbox-docker on the root disk — desktop images persist.
+    log "Stopping Helix stack..."
     run_ssh "cd ~/helix && docker compose down 2>&1" || true
     run_ssh "docker stop helix-sandbox 2>/dev/null; docker rm helix-sandbox 2>/dev/null" || true
 

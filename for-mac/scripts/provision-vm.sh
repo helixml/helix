@@ -593,6 +593,11 @@ write_files:
           fi
       fi
 
+      # Ensure sandbox Docker bind mount dir exists on root disk.
+      # Sandbox's Docker storage is bind-mounted here (not a named volume)
+      # so it survives the ZFS mount over /var/lib/docker/volumes/.
+      mkdir -p /var/lib/helix-sandbox-docker
+
       # Restore persistent config if available
       if [ -d /helix/config/ssh ]; then
           log "Restoring SSH host keys from /helix/config/ssh/..."
