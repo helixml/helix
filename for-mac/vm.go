@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -17,6 +19,39 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// incompleteUTF8Tail returns the number of trailing bytes that form
+// an incomplete UTF-8 multi-byte sequence (0 if data ends on a rune boundary).
+func incompleteUTF8Tail(data []byte) int {
+	if len(data) == 0 {
+		return 0
+	}
+	// Scan backwards through up to 3 trailing bytes looking for a leading byte
+	for i := 1; i <= 3 && i <= len(data); i++ {
+		b := data[len(data)-i]
+		if b < 0x80 {
+			// ASCII — this byte is complete, no incomplete sequence
+			return 0
+		}
+		if b >= 0xC0 {
+			// Leading byte of a multi-byte sequence
+			var expected int
+			if b < 0xE0 {
+				expected = 2
+			} else if b < 0xF0 {
+				expected = 3
+			} else {
+				expected = 4
+			}
+			if i < expected {
+				return i // incomplete: have i bytes, need 'expected'
+			}
+			return 0 // complete sequence
+		}
+		// 0x80-0xBF: continuation byte, keep looking for the leader
+	}
+	return 0
+}
 
 // cprPattern matches Cursor Position Report responses (e.g. \e[18;138R).
 // xterm.js generates these in response to DSR queries (\e[6n) from the guest.
@@ -82,6 +117,9 @@ type VMManager struct {
 	consoleBuf   []byte
 	consoleMu    sync.Mutex
 	consoleStdin io.WriteCloser
+	// SSH command logs ring buffer
+	logsBuf []byte
+	logsMu  sync.Mutex
 	// Callback for state changes (used by system tray)
 	onStateChange func(state string)
 	// Callback when API becomes ready (used by auth proxy)
@@ -625,15 +663,39 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	vm.statusMu.Unlock()
 	vm.emitStatus()
 
-	// Capture serial console output into ring buffer and emit to frontend
+	// Capture serial console output into ring buffer and emit to frontend.
+	// Handles incomplete UTF-8 sequences at read boundaries to prevent
+	// replacement characters (mojibake) in the xterm.js terminal.
 	go func() {
 		buf := make([]byte, 4096)
+		var carry [4]byte
+		carryN := 0
 		for {
 			n, err := stdoutPipe.Read(buf)
 			if n > 0 {
-				vm.appendConsole(buf[:n])
+				var data []byte
+				if carryN > 0 {
+					data = make([]byte, carryN+n)
+					copy(data, carry[:carryN])
+					copy(data[carryN:], buf[:n])
+					carryN = 0
+				} else {
+					data = buf[:n]
+				}
+				tail := incompleteUTF8Tail(data)
+				if tail > 0 {
+					copy(carry[:], data[len(data)-tail:])
+					carryN = tail
+					data = data[:len(data)-tail]
+				}
+				if len(data) > 0 {
+					vm.appendConsole(data)
+				}
 			}
 			if err != nil {
+				if carryN > 0 {
+					vm.appendConsole(carry[:carryN])
+				}
 				return
 			}
 		}
@@ -721,6 +783,8 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 				if out, err := cmd.CombinedOutput(); err == nil && strings.Contains(string(out), "ready") {
 					sshReady = true
 					log.Printf("VM SSH is ready")
+					vm.appendLogs([]byte(fmt.Sprintf("\x1b[36m[%s] SSH ready\x1b[0m\r\n",
+						time.Now().Format("15:04:05"))))
 				}
 			}
 
@@ -809,22 +873,20 @@ func (vm *VMManager) diagnoseAPIFailure() string {
 	if composeFile == "" {
 		composeFile = "docker-compose.dev.yaml"
 	}
-	cmd := vm.sshCommand(fmt.Sprintf(`cd ~/helix 2>/dev/null && docker compose -f %s ps --format '{{.Service}}: {{.Status}}' 2>/dev/null | head -20`, composeFile))
-	out, err := cmd.CombinedOutput()
+	out, err := vm.runSSH("Diagnose: containers", fmt.Sprintf(`cd ~/helix 2>/dev/null && docker compose -f %s ps --format '{{.Service}}: {{.Status}}' 2>/dev/null | head -20`, composeFile))
 	if err != nil {
 		return fmt.Sprintf("could not check container status: %v", err)
 	}
-	status := strings.TrimSpace(string(out))
+	status := strings.TrimSpace(out)
 	if status == "" {
 		return "no containers running — docker compose may have failed to start"
 	}
 	log.Printf("Container status:\n%s", status)
 
 	// Also grab recent API logs if available
-	logCmd := vm.sshCommand(fmt.Sprintf(`cd ~/helix 2>/dev/null && docker compose -f %s logs api --tail 10 2>/dev/null`, composeFile))
-	logOut, _ := logCmd.CombinedOutput()
+	logOut, _ := vm.runSSH("Diagnose: API logs", fmt.Sprintf(`cd ~/helix 2>/dev/null && docker compose -f %s logs api --tail 10 2>/dev/null`, composeFile))
 	if len(logOut) > 0 {
-		log.Printf("API container logs:\n%s", string(logOut))
+		log.Printf("API container logs:\n%s", logOut)
 	}
 
 	return fmt.Sprintf("containers: %s", status)
@@ -863,12 +925,11 @@ func (vm *VMManager) sshCommand(script string) *exec.Cmd {
 // Docker is disabled on boot (storage-init starts it after ZFS mount),
 // but we start it here as a safety net regardless of ZFS state.
 func (vm *VMManager) ensureDockerRunning() error {
-	cmd := vm.sshCommand("if ! systemctl is-active docker >/dev/null 2>&1; then sudo systemctl start docker && echo STARTED; else echo RUNNING; fi")
-	out, err := cmd.CombinedOutput()
+	out, err := vm.runSSH("Docker check", "if ! systemctl is-active docker >/dev/null 2>&1; then sudo systemctl start docker && echo STARTED; else echo RUNNING; fi")
 	if err != nil {
-		return fmt.Errorf("failed to start Docker: %w (output: %s)", err, string(out))
+		return fmt.Errorf("failed to start Docker: %w (output: %s)", err, out)
 	}
-	log.Printf("Docker: %s", strings.TrimSpace(string(out)))
+	log.Printf("Docker: %s", strings.TrimSpace(out))
 	return nil
 }
 
@@ -914,12 +975,11 @@ else
     echo 'STARTED'
 fi
 `
-	cmd := vm.sshCommand(script)
-	out, err := cmd.CombinedOutput()
+	out, err := vm.runSSH("Start stack", script)
 	if err != nil {
-		return fmt.Errorf("failed to start Helix stack: %w (output: %s)", err, string(out))
+		return fmt.Errorf("failed to start Helix stack: %w (output: %s)", err, out)
 	}
-	outStr := strings.TrimSpace(string(out))
+	outStr := strings.TrimSpace(out)
 	log.Printf("Helix stack: %s", outStr)
 
 	// Extract detected compose file from output
@@ -939,9 +999,8 @@ fi
 			composeFile = "docker-compose.dev.yaml"
 		}
 		log.Printf("Containers already running with stale env — restarting stack to apply updated settings")
-		restart := vm.sshCommand(fmt.Sprintf("cd ~/helix && docker compose -f %s up -d --force-recreate 2>&1", composeFile))
-		restartOut, _ := restart.CombinedOutput()
-		log.Printf("Stack restart: %s", strings.TrimSpace(string(restartOut)))
+		restartOut, _ := vm.runSSH("Restart stack", fmt.Sprintf("cd ~/helix && docker compose -f %s up -d --force-recreate 2>&1", composeFile))
+		log.Printf("Stack restart: %s", strings.TrimSpace(restartOut))
 		vm.envUpdated = false
 	}
 
@@ -1109,6 +1168,10 @@ elif [ -f /helix/config/env.vm ] && [ ! -f /home/ubuntu/helix/.env.vm ]; then
     sudo chown ubuntu:ubuntu /home/ubuntu/helix/.env.vm
 fi
 
+# Sandbox Docker storage — bind mount on root disk (NOT a Docker named volume)
+# so pre-baked desktop images survive the ZFS mount over /var/lib/docker/volumes/.
+sudo mkdir -p /var/lib/helix-sandbox-docker
+
 # =========================================================================
 # Step 4: Ensure Docker is running
 # =========================================================================
@@ -1123,12 +1186,11 @@ fi
 
 echo 'ZFS storage ready'
 `
-	cmd := vm.sshCommand(script)
-	out, err := cmd.CombinedOutput()
+	out, err := vm.runSSH("ZFS init", script)
 	if err != nil {
-		return fmt.Errorf("SSH command failed: %w (output: %s)", err, string(out))
+		return fmt.Errorf("SSH command failed: %w (output: %s)", err, out)
 	}
-	log.Printf("ZFS init: %s", string(out))
+	log.Printf("ZFS init: %s", out)
 	return nil
 }
 
@@ -1282,12 +1344,11 @@ fi
 		vm.licenseKey,
 		vm.consolePassword, vm.consolePassword, vm.consolePassword)
 
-	cmd := vm.sshCommand(script)
-	out, err := cmd.CombinedOutput()
+	out, err := vm.runSSH("Inject env", script)
 	if err != nil {
-		return fmt.Errorf("inject desktop secret failed: %w (output: %s)", err, string(out))
+		return fmt.Errorf("inject desktop secret failed: %w (output: %s)", err, out)
 	}
-	outStr := string(out)
+	outStr := out
 	if strings.Contains(outStr, "ENV_UPDATED") {
 		if vm.stackStarted {
 			// Stack is already running (runtime settings change, e.g. user
@@ -1297,9 +1358,8 @@ fi
 				composeFile = "docker-compose.dev.yaml"
 			}
 			log.Printf("Desktop secret injected into .env — restarting API container")
-			restart := vm.sshCommand(fmt.Sprintf("cd ~/helix && docker compose -f %s down api && docker compose -f %s up -d api 2>&1 || true", composeFile, composeFile))
-			restartOut, _ := restart.CombinedOutput()
-			log.Printf("API restart: %s", string(restartOut))
+			restartOut, _ := vm.runSSH("Restart API", fmt.Sprintf("cd ~/helix && docker compose -f %s down api && docker compose -f %s up -d api 2>&1 || true", composeFile, composeFile))
+			log.Printf("API restart: %s", restartOut)
 		} else {
 			// During boot — mark env as updated so startHelixStack() can
 			// restart containers if they were auto-started by Docker with
@@ -1560,6 +1620,74 @@ func (vm *VMManager) GetConsoleOutput() string {
 	vm.consoleMu.Lock()
 	defer vm.consoleMu.Unlock()
 	return string(vm.consoleBuf)
+}
+
+// appendLogs appends data to the SSH logs ring buffer and emits to frontend
+func (vm *VMManager) appendLogs(data []byte) {
+	vm.logsMu.Lock()
+	vm.logsBuf = append(vm.logsBuf, data...)
+	if len(vm.logsBuf) > maxConsoleSize {
+		vm.logsBuf = vm.logsBuf[len(vm.logsBuf)-maxConsoleSize:]
+	}
+	vm.logsMu.Unlock()
+	if vm.appCtx != nil {
+		runtime.EventsEmit(vm.appCtx, "logs:output", string(data))
+	}
+}
+
+// GetLogsOutput returns the full logs buffer
+func (vm *VMManager) GetLogsOutput() string {
+	vm.logsMu.Lock()
+	defer vm.logsMu.Unlock()
+	return string(vm.logsBuf)
+}
+
+// runSSH executes an SSH command, streaming output line-by-line to the logs
+// buffer while returning the full output to the caller.
+func (vm *VMManager) runSSH(label, script string) (string, error) {
+	cmd := vm.sshCommand(script)
+
+	header := fmt.Sprintf("\r\n\x1b[36m[%s] %s\x1b[0m\r\n",
+		time.Now().Format("15:04:05"), label)
+	vm.appendLogs([]byte(header))
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", err
+	}
+	cmd.Stderr = cmd.Stdout // merge stderr into stdout
+
+	if err := cmd.Start(); err != nil {
+		errMsg := fmt.Sprintf("\x1b[31m  error: %v\x1b[0m\r\n", err)
+		vm.appendLogs([]byte(errMsg))
+		return "", err
+	}
+
+	var buf bytes.Buffer
+	scanner := bufio.NewScanner(io.TeeReader(stdout, &buf))
+	for scanner.Scan() {
+		line := scanner.Text() + "\r\n"
+		vm.appendLogs([]byte("  " + line))
+	}
+
+	err = cmd.Wait()
+	if err != nil {
+		errMsg := fmt.Sprintf("\x1b[31m  exit: %v\x1b[0m\r\n", err)
+		vm.appendLogs([]byte(errMsg))
+	}
+	return buf.String(), err
+}
+
+// ResizeConsole sets the serial console terminal dimensions inside the VM.
+// Sends stty via SSH to update /dev/ttyAMA0 and signals SIGWINCH so
+// programs like tmux and top pick up the new size.
+func (vm *VMManager) ResizeConsole(cols, rows int) {
+	go func() {
+		cmd := vm.sshCommand(fmt.Sprintf(
+			"sudo stty -F /dev/ttyAMA0 rows %d cols %d; sudo pkill -WINCH -t ttyAMA0 2>/dev/null || true",
+			rows, cols))
+		cmd.Run()
+	}()
 }
 
 // SendConsoleInput sends input to the serial console (guest /dev/ttyAMA0).

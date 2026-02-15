@@ -3,22 +3,38 @@ import { createPortal } from 'react-dom';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { GetConsoleOutput, SendConsoleInput } from '../../wailsjs/go/main/App';
+import { GetConsoleOutput, GetLogsOutput, SendConsoleInput, ResizeConsole } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
 
 interface ConsoleDrawerProps {
   vmState: string;
   onClose: () => void;
+  initialTab?: 'console' | 'logs';
 }
 
 const MIN_HEIGHT = 120;
 const DEFAULT_HEIGHT = 280;
 const TITLEBAR_HEIGHT = 52;
 
-export function ConsoleDrawer({ vmState, onClose }: ConsoleDrawerProps) {
-  const termRef = useRef<HTMLDivElement>(null);
-  const terminalRef = useRef<Terminal | null>(null);
-  const fitRef = useRef<FitAddon | null>(null);
+const TERM_THEME = {
+  background: '#1a1a2e',
+  foreground: '#e0e0e0',
+  cursor: '#00d4aa',
+  selectionBackground: '#3a3a5c',
+};
+
+export function ConsoleDrawer({ vmState, onClose, initialTab }: ConsoleDrawerProps) {
+  // Console refs
+  const consoleContainerRef = useRef<HTMLDivElement>(null);
+  const consoleTermRef = useRef<Terminal | null>(null);
+  const consoleFitRef = useRef<FitAddon | null>(null);
+
+  // Logs refs
+  const logsContainerRef = useRef<HTMLDivElement>(null);
+  const logsTermRef = useRef<Terminal | null>(null);
+  const logsFitRef = useRef<FitAddon | null>(null);
+
+  const [activeTab, setActiveTab] = useState<'console' | 'logs'>(initialTab ?? 'console');
   const [height, setHeight] = useState(() => {
     const saved = localStorage.getItem('helix-console-height');
     return saved ? Math.max(MIN_HEIGHT, parseInt(saved, 10) || DEFAULT_HEIGHT) : DEFAULT_HEIGHT;
@@ -33,15 +49,22 @@ export function ConsoleDrawer({ vmState, onClose }: ConsoleDrawerProps) {
   } | null>(null);
   const [showOverlay, setShowOverlay] = useState(false);
 
-  // Persist height to localStorage on change (only meaningful values)
+  // Persist height to localStorage on change
   useEffect(() => {
     localStorage.setItem('helix-console-height', String(Math.round(height)));
   }, [height]);
 
-  // The overlay covers the ENTIRE viewport as a portal on document.body.
-  // This guarantees we receive mousemove/mouseup even when the cursor
-  // is over an iframe, xterm, or any other element that would normally
-  // swallow events.
+  // Refit active terminal on tab switch (hidden terminals can't measure)
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      if (activeTab === 'console') {
+        consoleFitRef.current?.fit();
+      } else {
+        logsFitRef.current?.fit();
+      }
+    });
+  }, [activeTab]);
+
   function handlePointerDownOnHandle(e: React.PointerEvent) {
     e.preventDefault();
     e.stopPropagation();
@@ -64,35 +87,34 @@ export function ConsoleDrawer({ vmState, onClose }: ConsoleDrawerProps) {
   function handleOverlayPointerUp() {
     dragRef.current = null;
     setShowOverlay(false);
-    fitRef.current?.fit();
+    if (activeTab === 'console') {
+      consoleFitRef.current?.fit();
+    } else {
+      logsFitRef.current?.fit();
+    }
   }
 
-  // Terminal setup
+  // Console terminal setup
   useEffect(() => {
-    if (!termRef.current) return;
+    if (!consoleContainerRef.current) return;
     if (vmState !== 'running' && vmState !== 'starting') return;
 
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 13,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      theme: {
-        background: '#1a1a2e',
-        foreground: '#e0e0e0',
-        cursor: '#00d4aa',
-        selectionBackground: '#3a3a5c',
-      },
+      theme: TERM_THEME,
       scrollback: 10000,
       convertEol: true,
     });
 
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.open(termRef.current);
+    term.open(consoleContainerRef.current);
     fit.fit();
 
-    terminalRef.current = term;
-    fitRef.current = fit;
+    consoleTermRef.current = term;
+    consoleFitRef.current = fit;
 
     GetConsoleOutput().then((output) => {
       if (output) term.write(output);
@@ -108,17 +130,69 @@ export function ConsoleDrawer({ vmState, onClose }: ConsoleDrawerProps) {
       });
     });
 
+    // Propagate terminal size to guest serial console
+    term.onResize(({ cols, rows }) => {
+      ResizeConsole(cols, rows).catch(() => {});
+    });
+    // Send initial size
+    ResizeConsole(term.cols, term.rows).catch(() => {});
+
     const resizeObserver = new ResizeObserver(() => {
       fit.fit();
     });
-    resizeObserver.observe(termRef.current);
+    resizeObserver.observe(consoleContainerRef.current);
 
     return () => {
       EventsOff('console:output');
       resizeObserver.disconnect();
       term.dispose();
-      terminalRef.current = null;
-      fitRef.current = null;
+      consoleTermRef.current = null;
+      consoleFitRef.current = null;
+    };
+  }, [vmState]);
+
+  // Logs terminal setup
+  useEffect(() => {
+    if (!logsContainerRef.current) return;
+    if (vmState !== 'running' && vmState !== 'starting') return;
+
+    const term = new Terminal({
+      cursorBlink: false,
+      fontSize: 13,
+      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      theme: { ...TERM_THEME, cursor: '#1a1a2e' },
+      scrollback: 10000,
+      convertEol: true,
+      disableStdin: true,
+    });
+
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+    term.open(logsContainerRef.current);
+    fit.fit();
+
+    logsTermRef.current = term;
+    logsFitRef.current = fit;
+
+    GetLogsOutput().then((output) => {
+      if (output) term.write(output);
+    });
+
+    EventsOn('logs:output', (data: string) => {
+      term.write(data);
+    });
+
+    const resizeObserver = new ResizeObserver(() => {
+      fit.fit();
+    });
+    resizeObserver.observe(logsContainerRef.current);
+
+    return () => {
+      EventsOff('logs:output');
+      resizeObserver.disconnect();
+      term.dispose();
+      logsTermRef.current = null;
+      logsFitRef.current = null;
     };
   }, [vmState]);
 
@@ -132,9 +206,22 @@ export function ConsoleDrawer({ vmState, onClose }: ConsoleDrawerProps) {
           onPointerDown={handlePointerDownOnHandle}
         />
         <div className="console-drawer-header">
-          <h3>Console</h3>
+          <div className="console-drawer-tabs">
+            <button
+              className={activeTab === 'console' ? 'active' : ''}
+              onClick={() => setActiveTab('console')}
+            >
+              Console
+            </button>
+            <button
+              className={activeTab === 'logs' ? 'active' : ''}
+              onClick={() => setActiveTab('logs')}
+            >
+              Logs
+            </button>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {isActive && (
+            {isActive && activeTab === 'console' && (
               <span style={{ color: 'var(--text-faded)', fontSize: 11 }}>Login: see Settings</span>
             )}
             <button className="panel-close" onClick={onClose} style={{ width: 24, height: 24, fontSize: 16 }}>
@@ -144,7 +231,16 @@ export function ConsoleDrawer({ vmState, onClose }: ConsoleDrawerProps) {
         </div>
         {isActive ? (
           <>
-            <div className="console-terminal" ref={termRef} />
+            <div
+              className="console-terminal"
+              ref={consoleContainerRef}
+              style={{ display: activeTab === 'console' ? undefined : 'none' }}
+            />
+            <div
+              className="console-terminal"
+              ref={logsContainerRef}
+              style={{ display: activeTab === 'logs' ? undefined : 'none' }}
+            />
             <div className="console-bottom-pad" />
           </>
         ) : (

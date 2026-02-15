@@ -283,6 +283,9 @@ if [ "$UPDATE" = true ]; then
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml pull 2>&1" || true
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml build 2>&1" || true
 
+    # Ensure sandbox Docker bind mount directory exists on root disk
+    run_ssh "sudo mkdir -p /var/lib/helix-sandbox-docker"
+
     log "Starting stack (with sandbox) to verify and load desktop images..."
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml up -d 2>&1"
 
@@ -325,10 +328,9 @@ if [ "$UPDATE" = true ]; then
         log "WARNING: Desktop image transfer failed. Will retry on first boot."
     }
 
-    # Stop the stack but keep named volumes — sandbox-docker-storage contains
-    # the desktop images we just transferred into the sandbox's nested dockerd.
-    # Using -v would wipe those images, causing "No such image" on first boot.
-    log "Stopping stack (keeping volumes)..."
+    # Stop the stack but keep data — sandbox Docker storage is a bind mount at
+    # /var/lib/helix-sandbox-docker on the root disk, so desktop images persist.
+    log "Stopping stack..."
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml down 2>&1"
 
     # Cleanup
@@ -924,10 +926,9 @@ if ! step_done "prime_stack"; then
         log "WARNING: Desktop image transfer failed. Will retry on first boot."
     }
 
-    # Stop the stack but keep named volumes — sandbox-docker-storage contains
-    # the desktop images we just transferred into the sandbox's nested dockerd.
-    # Using -v would wipe those images, causing "No such image" on first boot.
-    log "Stopping Helix stack (keeping volumes)..."
+    # Stop the stack. Sandbox Docker storage is a bind mount at
+    # /var/lib/helix-sandbox-docker on the root disk — desktop images persist.
+    log "Stopping Helix stack..."
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml down 2>&1"
 
     # Stop Docker (it will be started by the desktop app on user's first boot)
@@ -945,8 +946,8 @@ fi
 
 if ! step_done "cleanup"; then
     log "Cleaning up build artifacts to shrink root disk..."
-    # Source repos: built artifacts are baked into Docker images, source trees are dead weight
-    run_ssh "rm -rf ~/zed ~/qwen-code" || true
+    # NOTE: Keep ~/zed and ~/qwen-code — the golden image is used for development,
+    # so `./stack build-ubuntu` needs these repos available for rebuilding.
     # Go build cache
     run_ssh "rm -rf ~/.cache/go-build /tmp/go*.tar.gz" || true
     # apt package cache

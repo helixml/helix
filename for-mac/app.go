@@ -193,9 +193,19 @@ func (a *App) GetConsoleOutput() string {
 	return a.vm.GetConsoleOutput()
 }
 
+// GetLogsOutput returns the SSH command logs buffer
+func (a *App) GetLogsOutput() string {
+	return a.vm.GetLogsOutput()
+}
+
 // SendConsoleInput sends input to the VM serial console
 func (a *App) SendConsoleInput(input string) error {
 	return a.vm.SendConsoleInput(input)
+}
+
+// ResizeConsole sets the VM serial console terminal dimensions
+func (a *App) ResizeConsole(cols, rows int) {
+	a.vm.ResizeConsole(cols, rows)
 }
 
 // OpenHelixUI opens the Helix web UI in the default browser

@@ -26,6 +26,8 @@ export function GetLANAddress():Promise<string>;
 
 export function GetLicenseStatus():Promise<main.LicenseStatus>;
 
+export function GetLogsOutput():Promise<string>;
+
 export function GetSSHCommand():Promise<string>;
 
 export function GetScanoutStats():Promise<main.ScanoutStats>;
@@ -45,6 +47,8 @@ export function IsVMImageReady():Promise<boolean>;
 export function OpenHelixUI():Promise<void>;
 
 export function OpenSession(arg1:string):Promise<void>;
+
+export function ResizeConsole(arg1:number,arg2:number):Promise<void>;
 
 export function ResizeDataDisk(arg1:number):Promise<void>;
 
