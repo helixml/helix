@@ -1367,6 +1367,20 @@ else
     CHANGED=1
 fi
 
+# Configure helix-drm-manager with the correct QEMU frame export address.
+# The DRM manager runs as a systemd service and needs to know which port
+# QEMU's frame export server listens on (via the helix-port= GPU device option).
+DRM_ENV="/etc/helix-drm-manager.env"
+DRM_QEMU_ADDR="10.0.2.2:$FRAME_PORT"
+CURRENT_DRM_ADDR=""
+if [ -f "$DRM_ENV" ]; then
+    CURRENT_DRM_ADDR=$(grep '^QEMU_ADDR=' "$DRM_ENV" 2>/dev/null | cut -d= -f2-)
+fi
+if [ "$CURRENT_DRM_ADDR" != "$DRM_QEMU_ADDR" ]; then
+    echo "QEMU_ADDR=$DRM_QEMU_ADDR" | sudo tee "$DRM_ENV" > /dev/null
+    sudo systemctl restart helix-drm-manager 2>/dev/null || true
+fi
+
 # Enable code-macos compose profile so sandbox-macos starts with docker compose up -d
 if grep -q '^COMPOSE_PROFILES=' "$ENV_FILE" 2>/dev/null; then
     CURRENT=$(grep '^COMPOSE_PROFILES=' "$ENV_FILE" | cut -d= -f2-)

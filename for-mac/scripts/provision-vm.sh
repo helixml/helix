@@ -784,6 +784,7 @@ Wants=systemd-udev-settle.service
 
 [Service]
 Type=simple
+EnvironmentFile=-/etc/helix-drm-manager.env
 ExecStart=/usr/local/bin/helix-drm-manager
 Restart=on-failure
 RestartSec=5

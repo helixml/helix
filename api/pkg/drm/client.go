@@ -84,7 +84,7 @@ func (c *Client) RequestLease(width, height uint32) (*LeaseResult, error) {
 	copy(connName[:], respBuf[5:69])
 
 	// Trim null bytes from connector name
-	connStr := ""
+	connStr := string(connName[:])
 	for i, b := range connName {
 		if b == 0 {
 			connStr = string(connName[:i])
