@@ -62,7 +62,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const [loginSessionId, setLoginSessionId] = useState<string>('')
   const [loginStarting, setLoginStarting] = useState(false)
   const [loginCommandSent, setLoginCommandSent] = useState(false)
-  const [loginPolling, setLoginPolling] = useState(false)
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Start interactive login flow
@@ -74,7 +73,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
         setLoginSessionId(result.session_id)
         setLoginDialogOpen(true)
         setLoginCommandSent(false)
-        setLoginPolling(false)
       }
     } catch (err: any) {
       snackbar.error('Failed to start login session: ' + (err?.message || 'unknown error'))
@@ -104,7 +102,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     setLoginDialogOpen(false)
     setLoginSessionId('')
     setLoginCommandSent(false)
-    setLoginPolling(false)
   }, [loginSessionId])
 
   // Clean up polling on unmount
@@ -137,8 +134,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
             onClose={handleCloseLoginDialog}
             loginCommandSent={loginCommandSent}
             setLoginCommandSent={setLoginCommandSent}
-            loginPolling={loginPolling}
-            setLoginPolling={setLoginPolling}
             pollIntervalRef={pollIntervalRef}
             onCredentialsCaptured={() => {
               queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
@@ -183,8 +178,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
           onClose={handleCloseLoginDialog}
           loginCommandSent={loginCommandSent}
           setLoginCommandSent={setLoginCommandSent}
-          loginPolling={loginPolling}
-          setLoginPolling={setLoginPolling}
           pollIntervalRef={pollIntervalRef}
           onCredentialsCaptured={() => {
             queryClient.invalidateQueries({ queryKey: ['claude-subscriptions'] })
@@ -205,8 +198,6 @@ interface ClaudeLoginDialogInnerProps {
   onClose: () => void
   loginCommandSent: boolean
   setLoginCommandSent: (v: boolean) => void
-  loginPolling: boolean
-  setLoginPolling: (v: boolean) => void
   pollIntervalRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>
   onCredentialsCaptured: () => void
 }
@@ -217,8 +208,6 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
   onClose,
   loginCommandSent,
   setLoginCommandSent,
-  loginPolling,
-  setLoginPolling,
   pollIntervalRef,
   onCredentialsCaptured,
 }) => {
@@ -251,10 +240,12 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
   }, [isRunning, loginCommandSent, sessionId])
 
   // Once login command is sent, start polling for credentials
+  // Use a ref guard (not state) to avoid the effect cleanup killing the interval on re-render
+  const pollingStartedRef = useRef(false)
   useEffect(() => {
-    if (!loginCommandSent || loginPolling) return
+    if (!loginCommandSent || pollingStartedRef.current) return
 
-    setLoginPolling(true)
+    pollingStartedRef.current = true
 
     const pollForCredentials = async () => {
       try {
@@ -294,8 +285,9 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
         clearInterval(pollIntervalRef.current)
         pollIntervalRef.current = null
       }
+      pollingStartedRef.current = false
     }
-  }, [loginCommandSent, loginPolling, sessionId])
+  }, [loginCommandSent, sessionId])
 
   return (
     <Dialog
