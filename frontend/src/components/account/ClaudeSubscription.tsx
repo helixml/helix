@@ -419,11 +419,14 @@ const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
     return () => clearTimeout(timeout)
   }, [isRunning, loginCommandSent, sessionId])
 
-  // Once login command is sent, start polling for credentials
+  // Once login command is sent, start polling for credentials.
+  // Use a ref guard instead of loginPolling state in deps to prevent the effect cleanup
+  // from killing the interval on re-render (state change -> re-render -> cleanup -> no interval).
+  const pollingStartedRef = useRef(false)
   useEffect(() => {
-    if (!loginCommandSent || loginPolling) return
+    if (!loginCommandSent || pollingStartedRef.current) return
 
-    setLoginPolling(true)
+    pollingStartedRef.current = true
 
     const pollForCredentials = async () => {
       try {
@@ -432,18 +435,16 @@ const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
           {}
         )
         if (result && result.found && result.credentials) {
-          // Parse and save credentials
           let parsed: any
           try {
             parsed = JSON.parse(result.credentials)
           } catch {
-            return // Not valid JSON yet, keep polling
+            return
           }
 
           const creds = parsed.claudeAiOauth || parsed
           if (!creds.accessToken || !creds.refreshToken) return
 
-          // Create the subscription
           await api.post('/api/v1/claude-subscriptions', {
             name: subscriptionName,
             credentials: {
@@ -465,8 +466,9 @@ const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
         clearInterval(pollIntervalRef.current)
         pollIntervalRef.current = null
       }
+      pollingStartedRef.current = false
     }
-  }, [loginCommandSent, loginPolling, sessionId, subscriptionName])
+  }, [loginCommandSent, sessionId, subscriptionName])
 
   return (
     <Dialog

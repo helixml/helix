@@ -36,6 +36,10 @@ const Providers: React.FC = () => {
     enabled: !isLoadingOrg,
   });
 
+  // Claude subscription state (must be called before any early returns)
+  const { data: claudeSubscriptions } = useClaudeSubscriptions()
+  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
+
   // If providers management is disabled and user is not admin, show message
   if (!providersManagementEnabled && !account.admin) {
     return (
@@ -86,10 +90,6 @@ const Providers: React.FC = () => {
 
   // Filter for user endpoints only
   const userEndpoints = providerEndpoints.filter(endpoint => endpoint.endpoint_type === 'user');
-
-  // Claude subscription state
-  const { data: claudeSubscriptions } = useClaudeSubscriptions()
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
 
   return (
     <Page breadcrumbTitle="Providers" topbarContent={null}>

@@ -62,6 +62,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const [loginSessionId, setLoginSessionId] = useState<string>('')
   const [loginStarting, setLoginStarting] = useState(false)
   const [loginCommandSent, setLoginCommandSent] = useState(false)
+  const [loginPolling, setLoginPolling] = useState(false)
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Start interactive login flow
@@ -73,6 +74,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
         setLoginSessionId(result.session_id)
         setLoginDialogOpen(true)
         setLoginCommandSent(false)
+        setLoginPolling(false)
       }
     } catch (err: any) {
       snackbar.error('Failed to start login session: ' + (err?.message || 'unknown error'))
@@ -102,6 +104,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     setLoginDialogOpen(false)
     setLoginSessionId('')
     setLoginCommandSent(false)
+    setLoginPolling(false)
   }, [loginSessionId])
 
   // Clean up polling on unmount
@@ -239,8 +242,9 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
     return () => clearTimeout(timeout)
   }, [isRunning, loginCommandSent, sessionId])
 
-  // Once login command is sent, start polling for credentials
-  // Use a ref guard (not state) to avoid the effect cleanup killing the interval on re-render
+  // Once login command is sent, start polling for credentials.
+  // Use a ref guard instead of state in deps to prevent the effect cleanup
+  // from killing the interval on re-render (state change -> re-render -> cleanup -> no interval).
   const pollingStartedRef = useRef(false)
   useEffect(() => {
     if (!loginCommandSent || pollingStartedRef.current) return
