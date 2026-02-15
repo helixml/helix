@@ -395,7 +395,7 @@ export default function Onboarding() {
       return
     }
     setCreatedOrgId(org.id)
-    setCreatedOrgName(org.name || org.id)
+    setCreatedOrgName(org.display_name || org.name || org.id)
     markComplete(1)
   }, [selectedOrgId, existingOrgs, markComplete, snackbar])
 
@@ -410,7 +410,7 @@ export default function Onboarding() {
       })
       if (newOrg?.id) {
         setCreatedOrgId(newOrg.id)
-        setCreatedOrgName(newOrg.name || newOrg.id)
+        setCreatedOrgName(newOrg.display_name || newOrg.name || newOrg.id)
         await account.organizationTools.loadOrganizations()
         markComplete(1)
       }
