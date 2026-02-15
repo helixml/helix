@@ -185,15 +185,16 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
     setCreateError('')
 
     try {
+      const isClaudeCodeSub = codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription'
       const params: ICreateAgentParams = {
         name: newAgentName.trim(),
         description: 'Code development agent for spec tasks',
         agentType: AGENT_TYPE_ZED_EXTERNAL,
         codeAgentRuntime,
-        model: selectedModel,
+        model: isClaudeCodeSub ? '' : selectedModel,
         // For zed_external, the generation model is what matters (that's what Zed uses)
-        generationModelProvider: selectedProvider,
-        generationModel: selectedModel,
+        generationModelProvider: isClaudeCodeSub ? '' : selectedProvider,
+        generationModel: isClaudeCodeSub ? '' : selectedModel,
         // Set reasonable defaults for other model settings
         reasoningModelProvider: '',
         reasoningModel: '',

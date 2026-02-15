@@ -485,16 +485,17 @@ export default function Onboarding() {
       } else {
         setCreatingAgent(true)
         try {
+          const isClaudeCodeSub = codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription'
           const agentName = newAgentName.trim() || generateAgentName(selectedModel, codeAgentRuntime)
           const newApp = await apps.createAgent({
             name: agentName,
             description: 'Code development agent',
             agentType: AGENT_TYPE_ZED_EXTERNAL,
             codeAgentRuntime,
-            model: selectedModel,
+            model: isClaudeCodeSub ? '' : selectedModel,
             organizationId: orgId,
-            generationModelProvider: selectedProvider,
-            generationModel: selectedModel,
+            generationModelProvider: isClaudeCodeSub ? '' : selectedProvider,
+            generationModel: isClaudeCodeSub ? '' : selectedModel,
             reasoningModelProvider: '',
             reasoningModel: '',
             reasoningModelEffort: 'none',

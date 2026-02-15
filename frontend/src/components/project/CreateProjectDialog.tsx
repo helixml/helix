@@ -378,14 +378,15 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
     setAgentError('')
 
     try {
+      const isClaudeCodeSub = codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription'
       const params: ICreateAgentParams = {
         name: newAgentName.trim(),
         description: 'Code development agent for spec tasks',
         agentType: AGENT_TYPE_ZED_EXTERNAL,
         codeAgentRuntime,
-        model: selectedModel,
-        generationModelProvider: selectedProvider,
-        generationModel: selectedModel,
+        model: isClaudeCodeSub ? '' : selectedModel,
+        generationModelProvider: isClaudeCodeSub ? '' : selectedProvider,
+        generationModel: isClaudeCodeSub ? '' : selectedModel,
         reasoningModelProvider: '',
         reasoningModel: '',
         reasoningModelEffort: 'none',
