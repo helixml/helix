@@ -258,6 +258,15 @@ if [ "$UPDATE" = true ]; then
     run_ssh "[ -d ~/zed ] || git clone https://github.com/helixml/zed.git ~/zed" || true
     run_ssh "[ -d ~/qwen-code ] || git clone https://github.com/helixml/qwen-code.git ~/qwen-code" || true
 
+    # Rebuild helix-drm-manager (runs on VM host, not in Docker)
+    log "Rebuilding helix-drm-manager..."
+    run_ssh "sudo systemctl stop helix-drm-manager 2>/dev/null || true"
+    run_ssh "cd ~/helix/api && CGO_ENABLED=0 /usr/local/go/bin/go build -o /tmp/helix-drm-manager ./cmd/helix-drm-manager/ && \
+             sudo cp /tmp/helix-drm-manager /usr/local/bin/helix-drm-manager && \
+             sudo chmod +x /usr/local/bin/helix-drm-manager"
+    run_ssh "sudo systemctl start helix-drm-manager 2>/dev/null || true"
+    log "helix-drm-manager rebuilt and restarted."
+
     # Rebuild desktop image
     log "Rebuilding desktop image..."
     run_ssh "cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 DOCKER_BUILDKIT=1 bash stack build-ubuntu 2>&1" || {
