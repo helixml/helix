@@ -358,7 +358,7 @@ export default function Onboarding() {
 
   // Auto-generate agent name when model or runtime changes
   useEffect(() => {
-    if (!userModifiedAgentName && agentMode === 'create' && selectedModel) {
+    if (!userModifiedAgentName && agentMode === 'create' && (selectedModel || codeAgentRuntime === 'claude_code')) {
       setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime))
     }
   }, [selectedModel, codeAgentRuntime, userModifiedAgentName, agentMode])
