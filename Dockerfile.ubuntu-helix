@@ -641,7 +641,13 @@ if [ "${TARGETARCH}" = "arm64" ]; then
     # Remove the snap transitional chromium-browser if it got pulled in as a dependency
     apt-get remove -y chromium-browser 2>/dev/null || true
 
-    # Create compatibility wrappers pointing to the real /usr/bin/chromium binary.
+    # Wrap chromium binary with --password-store=basic to bypass gnome-keyring
+    # (prevents "Choose password for new keyring" dialog in containers)
+    mv /usr/bin/chromium /usr/bin/chromium.real
+    printf '#!/bin/sh\nexec /usr/bin/chromium.real --password-store=basic --disable-dev-shm-usage "$@"\n' > /usr/bin/chromium
+    chmod +x /usr/bin/chromium
+
+    # Create compatibility wrappers pointing to the wrapped /usr/bin/chromium.
     # chrome-devtools-mcp and other tools expect google-chrome / google-chrome-stable.
     rm -f /usr/bin/google-chrome-stable
     printf '#!/bin/sh\nexec /usr/bin/chromium "$@"\n' > /usr/bin/google-chrome-stable
