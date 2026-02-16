@@ -85,6 +85,16 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 		expiresAt = time.UnixMilli(creds.ExpiresAt)
 	}
 
+	// Delete any existing subscriptions for this owner before creating a new one.
+	// Re-auth creates a fresh subscription; stale rows would shadow it in queries.
+	existingSubs, _ := apiServer.Store.ListClaudeSubscriptions(req.Context(), ownerID)
+	for _, old := range existingSubs {
+		if old.OwnerType == ownerType {
+			_ = apiServer.Store.DeleteClaudeSubscription(req.Context(), old.ID)
+			log.Info().Str("old_subscription_id", old.ID).Msg("Deleted old Claude subscription on re-auth")
+		}
+	}
+
 	sub := &types.ClaudeSubscription{
 		OwnerID:              ownerID,
 		OwnerType:            ownerType,
