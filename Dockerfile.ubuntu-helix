@@ -632,28 +632,30 @@ apt-get update
 if [ "${TARGETARCH}" = "arm64" ]; then
     echo "=== Installing Chromium for arm64 (XtraDeb PPA) ==="
     # Ubuntu's chromium-browser is a snap transitional package (no snapd in containers).
-    # XtraDeb PPA provides real .deb packages for Ubuntu 25.10.
+    # XtraDeb PPA provides real .deb packages named "chromium" (NOT "chromium-browser").
     apt-get install -y software-properties-common
     add-apt-repository -y ppa:xtradeb/apps
-    # Pin XtraDeb higher than Ubuntu's snap transitional package
-    cat > /etc/apt/preferences.d/xtradeb-chromium << 'PINEOF'
-Package: chromium-browser chromium-browser-l10n chromium-codecs-ffmpeg chromium-codecs-ffmpeg-extra
-Pin: release o=LP-PPA-xtradeb-apps
-Pin-Priority: 900
-PINEOF
     apt-get update
-    apt-get install -y chromium-browser chromium-driver
+    # Install the real chromium package from XtraDeb + chromedriver
+    apt-get install -y chromium chromium-driver
+    # Remove the snap transitional chromium-browser if it got pulled in as a dependency
+    apt-get remove -y chromium-browser 2>/dev/null || true
 
-    # Create compatibility wrappers so chrome-devtools-mcp and scripts work.
-    # Must use wrapper scripts (not symlinks) because update-alternatives
-    # from later package installs can overwrite symlinks with snap wrappers.
-    ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome-stable
+    # Create compatibility wrappers pointing to the real /usr/bin/chromium binary.
+    # chrome-devtools-mcp and other tools expect google-chrome / google-chrome-stable.
+    rm -f /usr/bin/google-chrome-stable
+    printf '#!/bin/sh\nexec /usr/bin/chromium "$@"\n' > /usr/bin/google-chrome-stable
+    chmod +x /usr/bin/google-chrome-stable
     rm -f /usr/bin/google-chrome
-    printf '#!/bin/sh\nexec /usr/bin/chromium-browser "$@"\n' > /usr/bin/google-chrome
+    printf '#!/bin/sh\nexec /usr/bin/chromium "$@"\n' > /usr/bin/google-chrome
     chmod +x /usr/bin/google-chrome
+    # Overwrite chromium-browser with a wrapper too (in case anything calls it)
+    rm -f /usr/bin/chromium-browser
+    printf '#!/bin/sh\nexec /usr/bin/chromium "$@"\n' > /usr/bin/chromium-browser
+    chmod +x /usr/bin/chromium-browser
 
     # Configure Chromium policies
-    mkdir -p /etc/chromium-browser/policies/managed
+    mkdir -p /etc/chromium/policies/managed
     echo '{
       "DefaultBrowserSettingEnabled": false,
       "MetricsReportingEnabled": false,
@@ -661,7 +663,7 @@ PINEOF
       "PromotionalTabsEnabled": false,
       "SyncDisabled": true,
       "PasswordManagerEnabled": true
-    }' > /etc/chromium-browser/policies/managed/helix.json
+    }' > /etc/chromium/policies/managed/helix.json
 
     echo "=== Chromium installed for arm64 (XtraDeb PPA) ==="
 else
@@ -739,7 +741,7 @@ _INSTALL_CHROME
 RUN <<_SET_DEFAULT_BROWSER
 set -e
 if [ "${TARGETARCH}" = "arm64" ]; then
-    BROWSER_DESKTOP="chromium-browser.desktop"
+    BROWSER_DESKTOP="chromium.desktop"
 else
     BROWSER_DESKTOP="google-chrome.desktop"
 fi
