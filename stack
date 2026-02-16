@@ -1062,6 +1062,12 @@ function build-desktop() {
     transfer-desktop-to-sandbox "$DESKTOP_NAME" "$IMAGE_TAG"
   fi
 
+  echo ""
+  echo "============================================"
+  echo "  ${IMAGE_NAME} build complete"
+  echo "  VERSION: ${IMAGE_TAG}"
+  echo "============================================"
+  echo ""
 }
 
 # Generic transfer function - transfers any desktop image to sandbox's dockerd
