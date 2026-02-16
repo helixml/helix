@@ -136,6 +136,12 @@ else
     log "  WARNING: QEMU wrapper executable not found"
 fi
 
+QEMU_IMG="${MACOS_DIR}/qemu-img"
+if [ -f "$QEMU_IMG" ]; then
+    codesign "${SIGN_OPTS[@]}" "$QEMU_IMG"
+    log "  Signed qemu-img"
+fi
+
 # =============================================================================
 # Step 4: Verify
 # =============================================================================
