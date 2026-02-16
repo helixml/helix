@@ -54,7 +54,7 @@ export function HomeView({
     console.log('[AUTH] Rendering iframe with src:', autoLoginURL);
     return (
       <div className="home-view">
-        <iframe src={autoLoginURL} title="Helix" />
+        <iframe src={autoLoginURL} title="Helix" allow="clipboard-read; clipboard-write" />
       </div>
     );
   }
