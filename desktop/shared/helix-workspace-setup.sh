@@ -464,10 +464,19 @@ echo "========================================="
 CLAUDE_STATE_DIR=$WORK_DIR/.claude-state
 if command -v claude &> /dev/null; then
     mkdir -p $CLAUDE_STATE_DIR
-    # Copy settings.json into persistent dir if not already there
-    if [ -f ~/.claude/settings.json ] && [ ! -f $CLAUDE_STATE_DIR/settings.json ]; then
-        cp ~/.claude/settings.json $CLAUDE_STATE_DIR/settings.json
-        echo "  Claude: copied settings.json to persistent state"
+    # Always enforce auto-approve permissions on startup. Claude Code may
+    # overwrite settings.json during a session (login, updates, etc.) and
+    # the persistent volume would preserve the stale version forever.
+    # We use jq to merge so we don't clobber other keys Claude Code may have added.
+    CLAUDE_SETTINGS='{"permissions":{"defaultMode":"bypassPermissions"},"skipDangerousModePermissionPrompt":true,"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}'
+    if [ -f $CLAUDE_STATE_DIR/settings.json ]; then
+        # Merge: our keys take precedence over whatever's in the file
+        jq -s '.[0] * .[1]' $CLAUDE_STATE_DIR/settings.json <(echo "$CLAUDE_SETTINGS") > $CLAUDE_STATE_DIR/settings.json.tmp \
+            && mv $CLAUDE_STATE_DIR/settings.json.tmp $CLAUDE_STATE_DIR/settings.json
+        echo "  Claude: merged permissions into existing settings.json"
+    else
+        echo "$CLAUDE_SETTINGS" > $CLAUDE_STATE_DIR/settings.json
+        echo "  Claude: wrote fresh settings.json"
     fi
     rm -rf ~/.claude
     ln -sf $CLAUDE_STATE_DIR ~/.claude
