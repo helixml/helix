@@ -1019,6 +1019,8 @@ type ServerConfigForFrontend struct {
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
 	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
 	MaxConcurrentDesktops                  int                  `json:"max_concurrent_desktops"`
+	ActiveConcurrentDesktops               int                  `json:"active_concurrent_desktops"`
+	Edition                                string               `json:"edition,omitempty"` // "mac-desktop", "server", "cloud", etc.
 }
 
 // a short version of a session that we keep for the dashboard
@@ -1939,10 +1941,6 @@ type DesktopAgent struct {
 	ZoomLevel    int    `json:"zoom_level,omitempty"`    // GNOME zoom percentage (100 default, 200 for 4k/5k)
 	DisplayScale int    `json:"display_scale,omitempty"` // KDE/Qt display scale factor (1=100%, 2=200%)
 
-	// Privileged mode - use host Docker socket instead of isolated dockerd
-	// Only works when HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox
-	UseHostDocker bool `json:"use_host_docker,omitempty"`
-
 	// Hydra executor settings
 	SandboxID      string `json:"sandbox_id,omitempty"`       // Target sandbox for container (default: "default")
 	UseHydraDocker bool   `json:"use_hydra_docker,omitempty"` // Use Hydra's isolated dockerd for dev containers
@@ -2285,7 +2283,8 @@ type ZedConfigResponse struct {
 	Agent           map[string]interface{} `json:"agent,omitempty"`
 	Theme           string                 `json:"theme,omitempty"`
 	Version         int64                  `json:"version"`                     // Unix timestamp of app config update
-	CodeAgentConfig *CodeAgentConfig       `json:"code_agent_config,omitempty"` // Code agent configuration for Zed agentic coding
+	CodeAgentConfig                *CodeAgentConfig `json:"code_agent_config,omitempty"`                  // Code agent configuration for Zed agentic coding
+	ClaudeSubscriptionAvailable    bool             `json:"claude_subscription_available,omitempty"`      // True if user has an active Claude subscription for credential sync
 }
 
 // CodeAgentConfig contains configuration for Zed's code agent (agentic coding).
@@ -3064,7 +3063,7 @@ type SandboxInstance struct {
 
 	// Desktop image versions available on this sandbox
 	// Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
-	DesktopVersions datatypes.JSON `json:"desktop_versions,omitempty" gorm:"type:jsonb"`
+	DesktopVersions datatypes.JSON `json:"desktop_versions,omitempty" gorm:"type:jsonb" swaggertype:"object,string"`
 
 	// GPU configuration
 	GPUVendor  string `json:"gpu_vendor,omitempty" gorm:"type:varchar(50)"`  // "nvidia", "amd", "intel", "none"

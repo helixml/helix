@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -1136,4 +1137,105 @@ func (s *HelixAPIServer) refresh(w http.ResponseWriter, r *http.Request) {
 	cm.Set(w, refreshTokenCookie, newRefreshToken)
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// desktopCallback handles automatic admin login for the Helix Desktop app.
+// It validates a shared secret, creates or finds a local admin user, establishes
+// a BFF session, and redirects to the root URL. The iframe in the Desktop app
+// navigates here first so the user is transparently logged in.
+//
+// GET /api/v1/auth/desktop-callback?token=<DESKTOP_AUTO_LOGIN_SECRET>
+func (s *HelixAPIServer) desktopCallback(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	secret := s.Cfg.Auth.DesktopAutoLoginSecret
+	if secret == "" {
+		http.Error(w, "Desktop auto-login is not configured", http.StatusNotFound)
+		return
+	}
+
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.Error(w, "Missing token parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Constant-time comparison to prevent timing attacks
+	if subtle.ConstantTimeCompare([]byte(token), []byte(secret)) != 1 {
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	// Find or create the desktop admin user.
+	// The email defaults to a local placeholder but can be overridden by the
+	// desktop app if a license key contains the licensee's email.
+	desktopEmail := "admin@helix-desktop.local"
+	if emailParam := r.URL.Query().Get("email"); emailParam != "" {
+		desktopEmail = emailParam
+	}
+	displayName := r.URL.Query().Get("name")
+	if displayName == "" {
+		displayName = "Desktop Admin"
+	}
+
+	user, err := s.Store.GetUser(ctx, &store.GetUserQuery{Email: desktopEmail})
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		log.Error().Err(err).Msg("Failed to look up desktop admin user")
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if user == nil {
+		// Create the desktop admin user
+		userID := system.GenerateUserID()
+		newUser := &types.User{
+			ID:           userID,
+			Email:        desktopEmail,
+			FullName:     displayName,
+			Username:     desktopEmail,
+			Admin:        true,
+			Type:         types.OwnerTypeUser,
+			AuthProvider: types.AuthProviderRegular,
+			CreatedAt:    time.Now(),
+		}
+
+		user, err = s.authenticator.CreateUser(ctx, newUser)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to create desktop admin user")
+			http.Error(w, "Failed to create user", http.StatusInternalServerError)
+			return
+		}
+		log.Info().Str("user_id", user.ID).Str("name", displayName).Msg("Created desktop admin user")
+	}
+
+	// Update the display name if it changed (e.g., macOS user renamed)
+	needsUpdate := false
+	if !user.Admin {
+		user.Admin = true
+		needsUpdate = true
+	}
+	if user.FullName != displayName {
+		user.FullName = displayName
+		needsUpdate = true
+	}
+	if needsUpdate {
+		if _, err := s.Store.UpdateUser(ctx, user); err != nil {
+			log.Warn().Err(err).Msg("Failed to update desktop user")
+		}
+	}
+
+	// Create a long-lived BFF session — sets HttpOnly cookies on the response.
+	// Desktop sessions use a 10-year expiry so the user is never prompted
+	// to re-authenticate inside the embedded WKWebView.
+	session, err := s.sessionManager.CreateDesktopSession(ctx, w, r, user.ID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create desktop session")
+		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().Str("user_id", user.ID).Str("session_id", session.ID).Msg("Desktop auto-login successful")
+
+	// Redirect to the root — the HttpOnly session cookie is already set.
+	http.Redirect(w, r, "/", http.StatusFound)
 }

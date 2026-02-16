@@ -28,7 +28,6 @@ type SimpleSampleProject struct {
 	DemoURL       string             `json:"demo_url,omitempty"`
 	Difficulty    string             `json:"difficulty"`
 	Category      string             `json:"category"`
-	UseHostDocker bool               `json:"use_host_docker,omitempty"` // Enable host Docker access (for Helix-in-Helix dev)
 	Enabled       bool               `json:"enabled"`                   // Whether this sample project is shown to users
 
 	// Skills configures project-level skills that will be added when the project is created
@@ -662,8 +661,6 @@ This is IMPERATIVE - if you don't record and push the color, it cannot be cloned
 		DemoURL:       "",
 		Difficulty:    "advanced",
 		Category:      "infrastructure",
-		UseHostDocker: true, // Enable host Docker access for running sandboxes on host
-
 		// Skills for CI and GitHub integration - agents can check build logs and interact with GitHub
 		Skills: &types.AssistantSkills{
 			MCPs: []types.AssistantMCP{
@@ -761,15 +758,10 @@ Use these tools to interact with GitHub:
 1. Clone the Helix repository if not already present
 2. Clone the Zed fork (github.com/helixml/zed)
 3. Clone the Qwen Code fork (github.com/helixml/qwen-code)
-4. Run the setup script at ~/helix-dev-setup.sh to configure Docker endpoints
-5. Start the development stack with './start-inner-stack.sh'
+4. Run ./stack start to start the full Helix stack
 
-IMPORTANT: This session must have HYDRA_PRIVILEGED_MODE_ENABLED=true to access host Docker.
-
-Architecture:
-- Inner Docker (/var/run/docker.sock): Run the Helix control plane
-- Outer Docker (/var/run/host-docker.sock): Run test sandboxes
-- Service Exposure: Use the /sessions/{id}/expose endpoint to make inner services accessible`,
+Docker runs natively inside the desktop (docker-in-desktop mode).
+The inner sandbox runs on the same dockerd and can nest arbitrarily deep.`,
 				Priority: "critical",
 				Labels:   []string{"setup", "development", "infrastructure"},
 			},
@@ -824,21 +816,6 @@ func (s *HelixAPIServer) listSimpleSampleProjects(_ http.ResponseWriter, r *http
 	// Check if we should include disabled projects (for testing)
 	includeDisabled := r.URL.Query().Get("include_disabled") == "true"
 
-	// Check if privileged sandbox is available (for UseHostDocker projects)
-	// Only check this once since it's a DB query
-	var hasPrivilegedSandbox *bool
-	checkPrivilegedSandbox := func() bool {
-		if hasPrivilegedSandbox == nil {
-			available, err := s.Store.HasPrivilegedSandbox(r.Context())
-			if err != nil {
-				log.Warn().Err(err).Msg("Failed to check for privileged sandbox")
-				available = false
-			}
-			hasPrivilegedSandbox = &available
-		}
-		return *hasPrivilegedSandbox
-	}
-
 	var filteredProjects []SimpleSampleProject
 	for _, project := range SIMPLE_SAMPLE_PROJECTS {
 		// Filter by enabled status (unless include_disabled is set)
@@ -850,16 +827,6 @@ func (s *HelixAPIServer) listSimpleSampleProjects(_ http.ResponseWriter, r *http
 		}
 		if difficulty != "" && project.Difficulty != difficulty {
 			continue
-		}
-
-		// Filter UseHostDocker projects: only show to admins with available privileged sandbox
-		if project.UseHostDocker {
-			if !user.Admin {
-				continue // Non-admin users can't use UseHostDocker projects
-			}
-			if !checkPrivilegedSandbox() {
-				continue // No privileged sandbox available
-			}
 		}
 
 		filteredProjects = append(filteredProjects, project)
@@ -899,22 +866,6 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 
 	if sampleProject == nil {
 		return nil, system.NewHTTPError404("sample project not found")
-	}
-
-	// Check admin access for UseHostDocker projects
-	if sampleProject.UseHostDocker {
-		if !user.Admin {
-			return nil, system.NewHTTPError403("UseHostDocker projects require admin access")
-		}
-		// Verify privileged sandbox is available
-		hasPrivileged, err := s.Store.HasPrivilegedSandbox(ctx)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to check for privileged sandbox")
-			return nil, system.NewHTTPError500("failed to check for privileged sandbox")
-		}
-		if !hasPrivileged {
-			return nil, system.NewHTTPError500("no privileged sandbox available for UseHostDocker project (requires sandbox with HYDRA_PRIVILEGED_MODE_ENABLED=true)")
-		}
 	}
 
 	// Create project name
@@ -1535,10 +1486,6 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			createdProject.DefaultRepoID = primaryRepoID
 		}
 
-		// Set UseHostDocker if needed for this sample project
-		// This requires sessions to be scheduled on privileged sandboxes
-		createdProject.UseHostDocker = sampleProject.UseHostDocker
-
 		// Set default agent for the project
 		// Use explicitly provided app ID, or fall back to user's default
 		var agentApp *types.App
@@ -1734,9 +1681,6 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 
 		// Store labels directly (GORM serializer handles JSON conversion)
 		task.Labels = taskPrompt.Labels
-
-		// Set UseHostDocker from sample project (e.g., helix-in-helix needs host Docker)
-		task.UseHostDocker = sampleProject.UseHostDocker
 
 		// Store sample project ID in metadata
 		task.Metadata = map[string]interface{}{

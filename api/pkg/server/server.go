@@ -684,6 +684,16 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/{id}/zed-config/user", system.Wrapper(apiServer.updateZedUserSettings)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/zed-settings", system.Wrapper(apiServer.getMergedZedSettings)).Methods(http.MethodGet)
 
+	// Claude subscription endpoints
+	authRouter.HandleFunc("/claude-subscriptions", system.Wrapper(apiServer.createClaudeSubscription)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/claude-subscriptions", system.Wrapper(apiServer.listClaudeSubscriptions)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/claude-subscriptions/models", system.Wrapper(apiServer.listClaudeModels)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/claude-subscriptions/{id}", system.Wrapper(apiServer.getClaudeSubscription)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/claude-subscriptions/{id}", system.Wrapper(apiServer.deleteClaudeSubscription)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/claude-subscriptions/start-login", system.Wrapper(apiServer.startClaudeLogin)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/claude-subscriptions/poll-login/{sessionId}", system.Wrapper(apiServer.pollClaudeLogin)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/claude-credentials", system.Wrapper(apiServer.getSessionClaudeCredentials)).Methods(http.MethodGet)
+
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.listApps)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.createApp)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.getApp)).Methods(http.MethodGet)
@@ -795,6 +805,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	insecureRouter.HandleFunc("/auth/password-reset", apiServer.passwordReset).Methods(http.MethodPost)
 	insecureRouter.HandleFunc("/auth/password-reset-complete", apiServer.passwordResetComplete).Methods(http.MethodPost)
+	insecureRouter.HandleFunc("/auth/desktop-callback", apiServer.desktopCallback).Methods(http.MethodGet)
 
 	authRouter.HandleFunc("/auth/password-update", apiServer.passwordUpdate).Methods(http.MethodPost) // Update for authenticated users
 	authRouter.HandleFunc("/auth/update", apiServer.accountUpdate).Methods(http.MethodPost)           // Update for authenticated users

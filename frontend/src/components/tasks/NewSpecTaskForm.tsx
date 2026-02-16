@@ -86,7 +86,6 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const [taskPriority, setTaskPriority] = useState('medium')
   const [selectedHelixAgent, setSelectedHelixAgent] = useState('')
   const [justDoItMode, setJustDoItMode] = useState(false)
-  const [useHostDocker, setUseHostDocker] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
 
   // Branch configuration state
@@ -259,7 +258,6 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setTaskPriority('medium')
     setSelectedHelixAgent('')
     setJustDoItMode(false)
-    setUseHostDocker(false)
     setBranchMode(TypesBranchMode.BranchModeNew)
     setBaseBranch(defaultBranchName)
     setBranchPrefix('')
@@ -308,7 +306,6 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         project_id: projectId,
         app_id: agentId || undefined,
         just_do_it_mode: justDoItMode,
-        use_host_docker: useHostDocker,
         branch_mode: branchMode,
         base_branch: branchMode === TypesBranchMode.BranchModeNew ? baseBranch : undefined,
         branch_prefix: branchMode === TypesBranchMode.BranchModeNew && branchPrefix ? branchPrefix : undefined,
@@ -346,7 +343,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [taskPrompt, justDoItMode, selectedHelixAgent, useHostDocker])
+  }, [taskPrompt, justDoItMode, selectedHelixAgent])
 
   // Keyboard shortcut: Ctrl/Cmd+J to toggle Just Do It mode
   useEffect(() => {

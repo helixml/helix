@@ -286,6 +286,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		DeploymentID:                           deploymentID,
 		License:                                licenseInfo,
 		OrganizationsCreateEnabledForNonAdmins: apiServer.Cfg.Organizations.CreateEnabledForNonAdmins,
+		Edition:                                apiServer.Cfg.Edition,
 	}
 
 	systemSettings, err := apiServer.Store.GetSystemSettings(ctx)
@@ -293,8 +294,18 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500(err.Error())
 	}
 	// Override the config with the system settings
-	config.ProvidersManagementEnabled = systemSettings.ProvidersManagementEnabled
+	config.ProvidersManagementEnabled = systemSettings.ProvidersManagementEnabled || apiServer.Cfg.Providers.EnableCustomUserProviders
 	config.MaxConcurrentDesktops = systemSettings.MaxConcurrentDesktops
+
+	// If system settings doesn't have a max, fall back to the free tier config
+	if config.MaxConcurrentDesktops == 0 {
+		config.MaxConcurrentDesktops = apiServer.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops
+	}
+
+	// Active session count (from in-memory session tracker)
+	if apiServer.externalAgentExecutor != nil {
+		config.ActiveConcurrentDesktops = len(apiServer.externalAgentExecutor.ListSessions())
+	}
 
 	return config, nil
 }

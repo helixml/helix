@@ -3561,26 +3561,19 @@ The brand color should already be specified in the task spec from the cloned tas
 	}
 
 	// Helix-in-Helix Development - startup script for developing Helix inside Helix
+	// With docker-in-desktop, the desktop runs its own dockerd so ./stack start just works.
 	s.sampleProjects["helix-in-helix"] = &SampleProjectCode{
 		ID:           "helix-in-helix",
 		Name:         "Helix-in-Helix Development",
-		Description:  "Develop Helix itself inside a Helix cloud desktop",
+		Description:  "Develop Helix itself inside a Helix cloud desktop. Docker runs natively inside the desktop, so the full stack (including nested sandboxes) works out of the box.",
 		GitHubRepo:   "helixml/helix",
 		Technologies: []string{"Go", "TypeScript", "React", "Docker", "Rust", "PipeWire"},
 		Language:     "go",
 		StartupScript: `#!/bin/bash
 # Helix-in-Helix Development Setup Script
-# This script configures a Helix desktop for developing Helix itself
-#
-# Architecture:
-# - Inner Docker (default): Hydra's DinD at /var/run/docker.sock
-#   → Run the Helix control plane here
-# - Outer Docker (host): Available via /var/run/host-docker.sock when privileged mode is enabled
-#   → Run test sandboxes here
-# - Service Exposure: The inner control plane is exposed via the API's proxy endpoint
-#   → Sandboxes on host Docker connect to the exposed URL
-#
-# Usage: This script runs automatically on session start
+# This script configures a Helix desktop for developing Helix itself.
+# Docker runs inside the desktop container (docker-in-desktop mode),
+# so ./stack start works natively — no special dual-Docker setup needed.
 
 set -e
 
@@ -3598,21 +3591,13 @@ echo -e "${BLUE}  Helix-in-Helix Development Setup   ${NC}"
 echo -e "${BLUE}======================================${NC}"
 echo ""
 
-# Check if we're running inside a Helix desktop
-if [ ! -S /var/run/docker.sock ]; then
-    echo -e "${RED}Error: Docker socket not found. Are you running inside a Helix desktop?${NC}"
+# Check that Docker is available (dockerd runs inside the desktop container)
+if ! docker info >/dev/null 2>&1; then
+    echo -e "${RED}Error: Docker not available. Is dockerd running?${NC}"
+    echo "Check: systemctl status docker or cat /tmp/dockerd.log"
     exit 1
 fi
-
-# Check for privileged mode (host docker socket)
-if [ -S /var/run/host-docker.sock ]; then
-    echo -e "${GREEN}✓ Privileged mode enabled - host Docker available${NC}"
-    HAS_HOST_DOCKER=true
-else
-    echo -e "${YELLOW}⚠ Privileged mode not enabled - host Docker not available${NC}"
-    echo -e "${YELLOW}  To enable: Set HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox${NC}"
-    HAS_HOST_DOCKER=false
-fi
+echo -e "${GREEN}✓ Docker available${NC}"
 
 echo ""
 echo -e "${GREEN}1. Setting up workspace...${NC}"
@@ -3646,275 +3631,8 @@ else
     (cd qwen-code && git pull --ff-only 2>/dev/null || true)
 fi
 
-echo -e "${GREEN}3. Configuring Docker endpoints...${NC}"
+echo -e "${GREEN}3. Setting up environment...${NC}"
 
-# Set up environment variables for two Docker endpoints
-cat > "$WORKSPACE/.helix-dev-env" << 'ENVEOF'
-# Helix-in-Helix Development Environment
-# Source this file: source ~/.helix-dev-env
-
-# Inner Docker (Hydra's DinD) - for running the control plane
-export DOCKER_HOST_INNER="unix:///var/run/docker.sock"
-
-# Outer Docker (Host Docker via privileged mode) - for running sandboxes
-# Only available when HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox
-export DOCKER_HOST_OUTER="unix:///var/run/host-docker.sock"
-
-# Helper functions
-helix-inner() {
-    DOCKER_HOST="$DOCKER_HOST_INNER" "$@"
-}
-
-helix-outer() {
-    DOCKER_HOST="$DOCKER_HOST_OUTER" "$@"
-}
-
-# Aliases for convenience
-alias docker-inner='DOCKER_HOST=$DOCKER_HOST_INNER docker'
-alias docker-outer='DOCKER_HOST=$DOCKER_HOST_OUTER docker'
-alias compose-inner='DOCKER_HOST=$DOCKER_HOST_INNER docker compose'
-alias compose-outer='DOCKER_HOST=$DOCKER_HOST_OUTER docker compose'
-
-echo "Helix-in-Helix environment loaded:"
-echo "  docker-inner: Control plane Docker (default)"
-echo "  docker-outer: Host Docker for sandboxes"
-ENVEOF
-
-# Add to shell rc if not already there
-for rc_file in ~/.bashrc ~/.zshrc; do
-    if [ -f "$rc_file" ] && ! grep -q "source.*helix-dev-env" "$rc_file" 2>/dev/null; then
-        echo "" >> "$rc_file"
-        echo "# Helix-in-Helix development environment" >> "$rc_file"
-        echo "[ -f \"$WORKSPACE/.helix-dev-env\" ] && source \"$WORKSPACE/.helix-dev-env\"" >> "$rc_file"
-    fi
-done
-
-echo -e "${GREEN}4. Creating helper scripts...${NC}"
-
-# Create helper script to start the inner control plane
-cat > "$WORKSPACE/start-inner-stack.sh" << 'SCRIPTEOF'
-#!/bin/bash
-# Start the Helix control plane on inner Docker (Hydra's DinD)
-set -e
-cd ~/helix-workspace/helix
-
-# Use inner Docker (default)
-export DOCKER_HOST=unix:///var/run/docker.sock
-
-echo "Starting Helix control plane on inner Docker..."
-./stack start
-
-echo ""
-echo "Control plane started!"
-echo ""
-echo "Next steps:"
-echo "1. Wait for the API to be ready: curl http://localhost:8080/health"
-echo "2. Expose the API port: ./expose-inner-api.sh"
-echo "3. Start a test sandbox: ./start-outer-sandbox.sh <exposed-url>"
-SCRIPTEOF
-chmod +x "$WORKSPACE/start-inner-stack.sh"
-
-# Create helper script to expose the inner API
-cat > "$WORKSPACE/expose-inner-api.sh" << 'SCRIPTEOF'
-#!/bin/bash
-# Expose the inner control plane's API port to the outside world
-# This allows sandboxes running on host Docker to connect to the inner API
-set -e
-
-PORT="${1:-8080}"
-
-# Get session ID from environment or prompt
-SESSION_ID="${SESSION_ID:-${HELIX_SESSION_ID:-}}"
-if [ -z "$SESSION_ID" ]; then
-    echo "Error: SESSION_ID not set"
-    echo ""
-    echo "Set it with: export SESSION_ID=ses_xxx"
-    echo "You can find your session ID in the Helix UI URL"
-    exit 1
-fi
-
-# Get API credentials
-HELIX_API_URL="${HELIX_API_URL:-}"
-HELIX_API_KEY="${HELIX_API_KEY:-}"
-
-if [ -z "$HELIX_API_URL" ] || [ -z "$HELIX_API_KEY" ]; then
-    echo "Error: HELIX_API_URL and HELIX_API_KEY must be set"
-    echo ""
-    echo "These should be set automatically in your desktop environment."
-    echo "If not, get them from your Helix account settings."
-    exit 1
-fi
-
-echo "Exposing port $PORT for session $SESSION_ID..."
-echo ""
-
-RESPONSE=$(curl -s -X POST "$HELIX_API_URL/api/v1/sessions/$SESSION_ID/expose" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $HELIX_API_KEY" \
-    -d "{\"port\": $PORT, \"protocol\": \"http\", \"name\": \"dev-api\"}")
-
-echo "$RESPONSE" | jq .
-
-# Extract the URL
-EXPOSED_URL=$(echo "$RESPONSE" | jq -r '.urls[0]')
-
-if [ "$EXPOSED_URL" != "null" ] && [ -n "$EXPOSED_URL" ]; then
-    echo ""
-    echo "Inner API exposed at: $EXPOSED_URL"
-    echo ""
-    echo "Use this URL when starting sandboxes on host Docker:"
-    echo "  ./start-outer-sandbox.sh $EXPOSED_URL"
-
-    # Save for convenience
-    echo "$EXPOSED_URL" > "$HOME/helix-workspace/.inner-api-url"
-    echo "(Saved to ~/.helix-workspace/.inner-api-url)"
-fi
-SCRIPTEOF
-chmod +x "$WORKSPACE/expose-inner-api.sh"
-
-# Create helper script to start a sandbox on outer Docker
-cat > "$WORKSPACE/start-outer-sandbox.sh" << 'SCRIPTEOF'
-#!/bin/bash
-# Start a sandbox on outer/host Docker for testing
-# The sandbox will connect to the inner control plane via the exposed URL
-set -e
-
-# Get inner API URL from argument or saved file
-INNER_API_URL="${1:-}"
-if [ -z "$INNER_API_URL" ] && [ -f "$HOME/helix-workspace/.inner-api-url" ]; then
-    INNER_API_URL=$(cat "$HOME/helix-workspace/.inner-api-url")
-fi
-
-if [ -z "$INNER_API_URL" ]; then
-    echo "Usage: ./start-outer-sandbox.sh <inner-api-url>"
-    echo ""
-    echo "First expose the inner API: ./expose-inner-api.sh"
-    exit 1
-fi
-
-# Check for host docker socket
-if [ ! -S /var/run/host-docker.sock ]; then
-    echo "Error: Host Docker socket not available"
-    echo "Make sure HYDRA_PRIVILEGED_MODE_ENABLED=true is set on the sandbox"
-    exit 1
-fi
-
-# Generate unique sandbox name
-SANDBOX_NAME="helix-sandbox-dev-$(whoami)-$(date +%s)"
-
-echo "Starting sandbox '$SANDBOX_NAME' on host Docker"
-echo "Connecting to inner API at: $INNER_API_URL"
-echo ""
-
-# Use outer Docker (host)
-export DOCKER_HOST=unix:///var/run/host-docker.sock
-
-# Start sandbox
-docker run -d \
-    --name "$SANDBOX_NAME" \
-    --privileged \
-    -e HELIX_API_URL="$INNER_API_URL" \
-    -e RUNNER_TOKEN="${RUNNER_TOKEN:-oh-hallo-insecure-token}" \
-    -e SANDBOX_INSTANCE_ID="$SANDBOX_NAME" \
-    -e HYDRA_ENABLED=true \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    helix-sandbox:latest
-
-echo ""
-echo "Sandbox started: $SANDBOX_NAME"
-echo ""
-echo "To view logs:"
-echo "  docker-outer logs -f $SANDBOX_NAME"
-echo ""
-echo "To stop:"
-echo "  docker-outer stop $SANDBOX_NAME && docker-outer rm $SANDBOX_NAME"
-SCRIPTEOF
-chmod +x "$WORKSPACE/start-outer-sandbox.sh"
-
-# Create helper script to push sandbox image to host Docker
-cat > "$WORKSPACE/push-sandbox-image.sh" << 'SCRIPTEOF'
-#!/bin/bash
-# Push sandbox image from inner dockerd to host Docker via registry
-# Use this after building a new sandbox: ./stack build-sandbox && ./push-sandbox-image.sh
-set -e
-
-# Get task number for unique tagging
-TASK_NUMBER="${HELIX_TASK_NUMBER:-0}"
-SANDBOX_IMAGE_TAG="task-${TASK_NUMBER}-latest"
-REGISTRY_IMAGE="registry:5000/helix-sandbox:${SANDBOX_IMAGE_TAG}"
-
-echo "Pushing sandbox image to registry..."
-echo "Tag: $SANDBOX_IMAGE_TAG"
-echo ""
-
-# Find the sandbox image on inner dockerd
-INNER_SANDBOX_IMAGE=$(docker images helix-sandbox --format "{{.Repository}}:{{.Tag}}" | head -1)
-if [ -z "$INNER_SANDBOX_IMAGE" ] || [ "$INNER_SANDBOX_IMAGE" = ":" ]; then
-    echo "Error: No helix-sandbox image found on inner dockerd"
-    echo "Build with: cd helix && ./stack build-sandbox"
-    exit 1
-fi
-
-echo "Found: $INNER_SANDBOX_IMAGE"
-
-# Tag and push to registry
-docker tag "$INNER_SANDBOX_IMAGE" "$REGISTRY_IMAGE"
-echo "Pushing to $REGISTRY_IMAGE..."
-docker push "$REGISTRY_IMAGE"
-
-echo ""
-echo "✓ Pushed to registry"
-echo ""
-
-# Pull on host Docker
-echo "Pulling on host Docker..."
-export DOCKER_HOST=unix:///var/run/host-docker.sock
-docker pull "$REGISTRY_IMAGE"
-
-echo ""
-echo "✓ Sandbox image available on host Docker: $REGISTRY_IMAGE"
-echo ""
-echo "To restart sandbox with new image:"
-echo "  DOCKER_HOST=unix:///var/run/host-docker.sock docker rm -f helix-inner-sandbox-\$HELIX_SESSION_ID"
-echo "  ./start-outer-sandbox.sh"
-SCRIPTEOF
-chmod +x "$WORKSPACE/push-sandbox-image.sh"
-
-echo -e "${GREEN}5. Verifying Docker access...${NC}"
-
-echo "   Inner Docker (control plane):"
-if docker info > /dev/null 2>&1; then
-    echo -e "   ${GREEN}✓ Connected${NC}"
-else
-    echo -e "   ${RED}✗ Cannot connect${NC}"
-fi
-
-if [ "$HAS_HOST_DOCKER" = true ]; then
-    echo "   Outer Docker (host via privileged mode):"
-    if DOCKER_HOST=unix:///var/run/host-docker.sock docker info > /dev/null 2>&1; then
-        echo -e "   ${GREEN}✓ Connected${NC}"
-    else
-        echo -e "   ${RED}✗ Cannot connect${NC}"
-    fi
-fi
-
-echo ""
-echo -e "${BLUE}======================================${NC}"
-echo -e "${BLUE}  Setup Complete!                     ${NC}"
-echo -e "${BLUE}======================================${NC}"
-echo ""
-echo "Workspace: $WORKSPACE"
-echo ""
-echo "Docker commands:"
-echo "  docker-inner ps           - List containers on inner Docker"
-echo "  docker-outer ps           - List containers on host Docker"
-echo ""
-
-# Source the environment for this session
-source "$WORKSPACE/.helix-dev-env"
-
-echo -e "${GREEN}6. Starting inner control plane...${NC}"
-echo ""
 cd "$WORKSPACE/helix"
 
 # Create .env file for the inner stack
@@ -3924,216 +3642,26 @@ RUNNER_TOKEN=inner-runner-token
 AUTH_PROVIDER=regular
 SERVER_URL=http://localhost:8080
 
-# Disable features that require external dependencies
+# Enable RAG crawler
 RAG_CRAWLER_LAUNCHER_ENABLED=true
-
-# Use the chrome container for browser-based operations
 INNER_ENV
 
-echo "   Created .env file for inner stack"
+echo "   Created .env file"
 
-# Start the full control plane stack using docker compose
-# This includes: postgres, api, chrome (for RAG crawler)
-echo "   Starting control plane services..."
-docker compose up -d postgres chrome
-
-# Wait for postgres to be ready
-echo "   Waiting for postgres to be ready..."
-for i in {1..30}; do
-    if docker compose exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
-        echo "   Postgres is ready"
-        break
-    fi
-    sleep 1
-done
-
-# Start the API
-docker compose up -d api
-
-# Wait for API to be ready
-echo "   Waiting for API to be ready..."
-for i in {1..60}; do
-    if docker compose exec -T api curl -s http://localhost:8080/api/v1/config >/dev/null 2>&1; then
-        echo "   API is ready"
-        break
-    fi
-    sleep 2
-done
-
-# Show running containers
-echo ""
-echo "   Running containers:"
-docker compose ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || docker ps --format "table {{.Names}}\t{{.Status}}"
-
-# Find the inner API container and set up port forwarding
-# NOTE: We use BridgeDesktop (veth) for network connectivity to compose containers,
-# NOT docker network connect (which doesn't work across different dockerds)
-if docker network inspect helix_default >/dev/null 2>&1; then
-    # Find the inner API container name
-    INNER_API=$(docker ps --filter "name=api" --format "{{.Names}}" | head -1)
-    if [ -n "$INNER_API" ]; then
-        echo -e "${GREEN}7. Found inner API container: $INNER_API${NC}"
-
-        # Create convenience alias
-        echo "export INNER_API_HOST=$INNER_API" >> "$WORKSPACE/.helix-dev-env"
-
-        # Set up port forwarding from localhost:8080 to inner API
-        # This allows the expose endpoint to work (it proxies to localhost:8080)
-        # BridgeDesktop provides the route from desktop to compose containers
-        echo -e "${GREEN}8. Setting up port forwarding to inner API...${NC}"
-
-        # Use socat to forward localhost:8080 to inner API container
-        if command -v socat &> /dev/null; then
-            # Kill any existing socat on port 8080
-            pkill -f "socat.*TCP-LISTEN:8080" 2>/dev/null || true
-
-            # Start socat in background to forward localhost:8080 -> inner API
-            nohup socat TCP-LISTEN:8080,fork,reuseaddr TCP:$INNER_API:8080 > /tmp/socat-8080.log 2>&1 &
-            echo "   Port forwarding: localhost:8080 -> $INNER_API:8080"
-            echo "   Test with: curl http://localhost:8080/api/v1/config"
-        else
-            echo "   Warning: socat not installed, port forwarding not available"
-            echo "   Access inner API directly at: http://$INNER_API:8080"
-        fi
-    fi
-fi
-
-echo ""
-echo -e "${GREEN}Inner control plane started!${NC}"
-echo ""
-echo "The inner API is accessible at: http://$INNER_API:8080"
+echo -e "${GREEN}4. Starting Helix stack...${NC}"
 echo ""
 
-# Auto-start a sandbox on host Docker if available
-if [ -S /var/run/host-docker.sock ]; then
-    echo -e "${GREEN}9. Preparing sandbox on host Docker...${NC}"
-
-    # Get task number for unique image tagging (avoids conflicts between concurrent agents)
-    TASK_NUMBER="${HELIX_TASK_NUMBER:-0}"
-    SANDBOX_IMAGE_TAG="task-${TASK_NUMBER}-latest"
-    REGISTRY_IMAGE="registry:5000/helix-sandbox:${SANDBOX_IMAGE_TAG}"
-
-    # Check if we have a locally built sandbox image on inner dockerd
-    # If so, push it to registry so host Docker can pull it
-    INNER_SANDBOX_IMAGE=$(docker images helix-sandbox --format "{{.Repository}}:{{.Tag}}" | head -1)
-    if [ -n "$INNER_SANDBOX_IMAGE" ] && [ "$INNER_SANDBOX_IMAGE" != ":" ]; then
-        echo "   Found sandbox image on inner dockerd: $INNER_SANDBOX_IMAGE"
-        echo "   Pushing to registry as: $REGISTRY_IMAGE"
-
-        # Tag and push to registry (registry:5000 is accessible from both inner and outer Docker)
-        docker tag "$INNER_SANDBOX_IMAGE" "$REGISTRY_IMAGE"
-        if docker push "$REGISTRY_IMAGE" 2>/dev/null; then
-            echo -e "   ${GREEN}✓ Pushed to registry${NC}"
-            USE_REGISTRY_IMAGE=true
-        else
-            echo -e "   ${YELLOW}⚠ Failed to push to registry, will try host image${NC}"
-            USE_REGISTRY_IMAGE=false
-        fi
-    else
-        USE_REGISTRY_IMAGE=false
-    fi
-
-    # Switch to host Docker
-    export DOCKER_HOST=unix:///var/run/host-docker.sock
-
-    # Determine which image to use
-    if [ "$USE_REGISTRY_IMAGE" = true ]; then
-        echo "   Pulling sandbox image from registry..."
-        if docker pull "$REGISTRY_IMAGE" 2>/dev/null; then
-            SANDBOX_IMAGE="$REGISTRY_IMAGE"
-            echo -e "   ${GREEN}✓ Pulled from registry${NC}"
-        else
-            echo -e "   ${YELLOW}⚠ Failed to pull from registry${NC}"
-            SANDBOX_IMAGE=""
-        fi
-    else
-        # Check if sandbox image exists on host Docker
-        if docker images | grep -q helix-sandbox; then
-            SANDBOX_IMAGE="helix-sandbox:latest"
-            echo "   Using existing sandbox image on host Docker"
-        else
-            SANDBOX_IMAGE=""
-        fi
-    fi
-
-    if [ -n "$SANDBOX_IMAGE" ]; then
-        # Use session ID for unique sandbox name
-        SESSION_ID="${HELIX_SESSION_ID:-}"
-        if [ -z "$SESSION_ID" ]; then
-            echo -e "   ${RED}✗ HELIX_SESSION_ID not set${NC}"
-            echo "   Cannot expose port without session ID"
-        else
-            SANDBOX_NAME="helix-inner-sandbox-${SESSION_ID}"
-
-            # Expose port 8080 via the outer API's port-based proxy
-            # This allocates a unique port that proxies to our inner API
-            echo "   Exposing port 8080 via outer API..."
-
-            EXPOSE_RESPONSE=$(curl -s -X POST "${HELIX_API_URL}/api/v1/sessions/${SESSION_ID}/expose" \
-                -H "Content-Type: application/json" \
-                -H "Authorization: Bearer ${HELIX_API_KEY}" \
-                -d '{"port": 8080, "protocol": "http", "name": "inner-api"}')
-
-            # Extract the port-based URL (second URL in the list, after subdomain URL)
-            # Format: {"urls": ["https://subdomain...", "http://host:30001", "http://path-based..."]}
-            ALLOCATED_PORT=$(echo "$EXPOSE_RESPONSE" | jq -r '.allocated_port // empty')
-
-            if [ -n "$ALLOCATED_PORT" ] && [ "$ALLOCATED_PORT" != "0" ]; then
-                # Get the outer API host from HELIX_API_URL
-                OUTER_API_HOST=$(echo "$HELIX_API_URL" | sed -E 's|https?://||' | cut -d: -f1 | cut -d/ -f1)
-                INNER_API_URL="http://${OUTER_API_HOST}:${ALLOCATED_PORT}"
-
-                echo -e "   ${GREEN}✓ Port exposed: ${ALLOCATED_PORT}${NC}"
-                echo "   Inner API URL: $INNER_API_URL"
-            else
-                # Fallback: try to get any URL from the response
-                INNER_API_URL=$(echo "$EXPOSE_RESPONSE" | jq -r '.urls[0] // empty')
-                if [ -z "$INNER_API_URL" ]; then
-                    echo -e "   ${RED}✗ Failed to expose port${NC}"
-                    echo "   Response: $EXPOSE_RESPONSE"
-                    INNER_API_URL=""
-                else
-                    echo -e "   ${GREEN}✓ Port exposed${NC}"
-                    echo "   Inner API URL: $INNER_API_URL"
-                fi
-            fi
-
-            if [ -n "$INNER_API_URL" ]; then
-                echo "   Starting sandbox connecting to: $INNER_API_URL"
-                echo "   Using image: $SANDBOX_IMAGE"
-
-                docker run -d \
-                    --name "$SANDBOX_NAME" \
-                    --privileged \
-                    -e HELIX_API_URL="$INNER_API_URL" \
-                    -e HELIX_API_BASE_URL="$INNER_API_URL" \
-                    -e RUNNER_TOKEN="demo-token" \
-                    -e SANDBOX_INSTANCE_ID="$SANDBOX_NAME" \
-                    -e HYDRA_ENABLED=true \
-                    -e GPU_VENDOR=nvidia \
-                    "$SANDBOX_IMAGE"
-
-                echo -e "   ${GREEN}✓ Sandbox started: $SANDBOX_NAME${NC}"
-                echo ""
-                echo "   View logs: DOCKER_HOST=unix:///var/run/host-docker.sock docker logs -f $SANDBOX_NAME"
-            fi
-        fi
-    else
-        echo -e "   ${YELLOW}⚠ No sandbox image available${NC}"
-        echo "   Options:"
-        echo "   1. Build on host Docker: ./stack build-sandbox"
-        echo "   2. Build on inner dockerd and it will be pushed to registry automatically"
-    fi
-
-    # Reset DOCKER_HOST
-    unset DOCKER_HOST
-else
-    echo -e "${YELLOW}⚠ Host Docker not available - privileged mode not enabled${NC}"
-    echo "  To enable: Set HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox"
-fi
+# Docker runs natively inside the desktop (docker-in-desktop mode).
+# ./stack start handles everything including the sandbox.
+./stack start
 
 echo ""
 echo -e "${GREEN}Helix-in-Helix development environment ready!${NC}"
+echo ""
+echo "Workspace: $WORKSPACE"
+echo ""
+echo "Docker runs natively inside the desktop — no dual-Docker setup needed."
+echo "The inner sandbox runs on the same dockerd and can nest arbitrarily deep."
 echo ""
 `,
 		GitIgnore: `.DS_Store

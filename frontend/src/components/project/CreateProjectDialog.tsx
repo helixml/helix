@@ -30,6 +30,9 @@ import {
   Avatar,
   Chip,
   InputAdornment,
+  Radio,
+  RadioGroup,
+  FormControlLabel,
 } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import GitHubIcon from '@mui/icons-material/GitHub'
@@ -49,6 +52,9 @@ import { AppsContext, ICreateAgentParams, CodeAgentRuntime, generateAgentName } 
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { findOAuthConnectionForProvider, findOAuthProviderForType, hasRequiredScopes, PROVIDER_TYPES } from '../../utils/oauthProviders'
+import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
+import { useListProviders } from '../../services/providersService'
+import { TypesProviderEndpointType } from '../../api/api'
 
 // Recommended models for zed_external agents (state-of-the-art coding models)
 const RECOMMENDED_MODELS = [
@@ -103,6 +109,19 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const queryClient = useQueryClient()
   const { apps, loadApps, createAgent } = useContext(AppsContext)
   const createProjectMutation = useCreateProject()
+
+  // Claude subscription + provider state
+  const { data: claudeSubscriptions } = useClaudeSubscriptions()
+  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
+  const { data: providerEndpoints } = useListProviders({ loadModels: false })
+  const hasAnthropicProvider = useMemo(() => {
+    if (!providerEndpoints) return false
+    return providerEndpoints.some(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser && p.name === 'anthropic')
+  }, [providerEndpoints])
+  const userProviderCount = useMemo(() => {
+    if (!providerEndpoints) return 0
+    return providerEndpoints.filter(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser).length
+  }, [providerEndpoints])
 
   // OAuth connections for GitHub browse
   const { data: oauthConnections } = useListOAuthConnections()
@@ -177,6 +196,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const [selectedAgentId, setSelectedAgentId] = useState<string>('')
   const [showCreateAgentForm, setShowCreateAgentForm] = useState(false)
   const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent')
+  const [claudeCodeMode, setClaudeCodeMode] = useState<'subscription' | 'api_key'>('subscription')
   const [selectedProvider, setSelectedProvider] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
   const [newAgentName, setNewAgentName] = useState('-')
@@ -292,6 +312,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       setSelectedProvider('')
       setSelectedModel('')
       setCodeAgentRuntime('zed_agent')
+      setClaudeCodeMode('subscription')
       setAgentError('')
     } else if (preselectedRepoId) {
       // When opening with a preselected repo, switch to select mode
@@ -320,6 +341,14 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
     }
   }, [open, apps, sortedApps, selectedAgentId])
 
+  // Auto-default to Claude Code when it's the only available AI provider
+  useEffect(() => {
+    if (hasClaudeSubscription && !hasAnthropicProvider && userProviderCount === 0) {
+      setCodeAgentRuntime('claude_code')
+      setClaudeCodeMode('subscription')
+    }
+  }, [hasClaudeSubscription, hasAnthropicProvider, userProviderCount])
+
   // Detect OAuth popup closure and refresh connections
   useEffect(() => {
     const checkPopupClosed = () => {
@@ -340,7 +369,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       setAgentError('Please enter a name for the agent')
       return null
     }
-    if (!selectedModel) {
+    if (!selectedModel && !(codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription')) {
       setAgentError('Please select a model')
       return null
     }
@@ -349,14 +378,15 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
     setAgentError('')
 
     try {
+      const isClaudeCodeSub = codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription'
       const params: ICreateAgentParams = {
         name: newAgentName.trim(),
         description: 'Code development agent for spec tasks',
         agentType: AGENT_TYPE_ZED_EXTERNAL,
         codeAgentRuntime,
-        model: selectedModel,
-        generationModelProvider: selectedProvider,
-        generationModel: selectedModel,
+        model: isClaudeCodeSub ? '' : selectedModel,
+        generationModelProvider: isClaudeCodeSub ? '' : selectedProvider,
+        generationModel: isClaudeCodeSub ? '' : selectedModel,
         reasoningModelProvider: '',
         reasoningModel: '',
         reasoningModelEffort: 'none',
@@ -558,8 +588,9 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   }
 
   // Check if agent selection is valid
+  const isClaudeCodeSubscription = codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription'
   const agentValid = showCreateAgentForm
-    ? (newAgentName.trim() && selectedModel)
+    ? (newAgentName.trim() && (selectedModel || isClaudeCodeSubscription))
     : !!selectedAgentId
 
   const isSubmitDisabled = createProjectMutation.isPending || creatingRepo || creatingAgent || !name.trim() || !agentValid || (
@@ -1133,25 +1164,84 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                       </Typography>
                     </Box>
                   </MenuItem>
+                  <MenuItem value="claude_code">
+                    <Box>
+                      <Typography variant="body2">Claude Code</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Anthropic's coding agent — works with Claude subscriptions
+                      </Typography>
+                    </Box>
+                  </MenuItem>
                 </Select>
               </FormControl>
 
-              <Typography variant="body2" color="text.secondary">
-                Code Agent Model
-              </Typography>
-              <AdvancedModelPicker
-                recommendedModels={RECOMMENDED_MODELS}
-                hint="Choose a capable model for agentic coding."
-                selectedProvider={selectedProvider}
-                selectedModelId={selectedModel}
-                onSelectModel={(provider, model) => {
-                  setSelectedProvider(provider)
-                  setSelectedModel(model)
-                }}
-                currentType="text"
-                displayMode="short"
-                disabled={creatingAgent}
-              />
+              {codeAgentRuntime === 'claude_code' && (
+                <Box sx={{ p: 1.5, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                    Credentials
+                  </Typography>
+                  <FormControl>
+                    <RadioGroup
+                      value={claudeCodeMode}
+                      onChange={(e) => {
+                        const mode = e.target.value as 'subscription' | 'api_key'
+                        setClaudeCodeMode(mode)
+                        if (mode === 'subscription') {
+                          setSelectedProvider('')
+                          setSelectedModel('')
+                        }
+                      }}
+                    >
+                      <FormControlLabel
+                        value="subscription"
+                        control={<Radio size="small" />}
+                        disabled={!hasClaudeSubscription}
+                        label={
+                          <Typography variant="body2">
+                            Claude Subscription{hasClaudeSubscription ? ' (connected)' : ' (not connected)'}
+                          </Typography>
+                        }
+                      />
+                      <FormControlLabel
+                        value="api_key"
+                        control={<Radio size="small" />}
+                        disabled={!hasAnthropicProvider}
+                        label={
+                          <Typography variant="body2">
+                            Anthropic API Key{hasAnthropicProvider ? ' (configured)' : ' (not configured)'}
+                          </Typography>
+                        }
+                      />
+                    </RadioGroup>
+                  </FormControl>
+                  {!hasClaudeSubscription && !hasAnthropicProvider && (
+                    <Alert severity="warning" sx={{ mt: 1 }}>
+                      Connect a Claude subscription or add an Anthropic API key in Providers.
+                    </Alert>
+                  )}
+                </Box>
+              )}
+
+              {(codeAgentRuntime !== 'claude_code' || claudeCodeMode === 'api_key') && (
+                <>
+                  <Typography variant="body2" color="text.secondary">
+                    Code Agent Model
+                  </Typography>
+                  <AdvancedModelPicker
+                    recommendedModels={RECOMMENDED_MODELS}
+                    hint="Choose a capable model for agentic coding."
+                    selectedProvider={selectedProvider}
+                    selectedModelId={selectedModel}
+                    onSelectModel={(provider, model) => {
+                      setSelectedProvider(provider)
+                      setSelectedModel(model)
+                    }}
+                    currentType="text"
+                    displayMode="short"
+                    disabled={creatingAgent}
+                  />
+                </>
+              )}
 
               <Typography variant="body2" color="text.secondary">
                 Agent Name

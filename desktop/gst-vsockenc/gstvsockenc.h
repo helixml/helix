@@ -1,0 +1,165 @@
+/*
+ * GStreamer vsockenc - Video encoder that delegates to host via vsock
+ *
+ * This element receives DMA-BUF backed video frames, extracts the
+ * virtio-gpu resource ID, sends it to the host for VideoToolbox encoding,
+ * and outputs the H.264 NAL units received back.
+ *
+ * Used for zero-copy video encoding on macOS hosts running Linux VMs.
+ */
+
+#ifndef __GST_VSOCKENC_H__
+#define __GST_VSOCKENC_H__
+
+#include <gst/gst.h>
+#include <gst/video/video.h>
+#include <gst/video/gstvideometa.h>
+#include <gst/allocators/gstdmabuf.h>
+
+G_BEGIN_DECLS
+
+#define GST_TYPE_VSOCKENC (gst_vsockenc_get_type())
+G_DECLARE_FINAL_TYPE(GstVsockEnc, gst_vsockenc, GST, VSOCKENC, GstVideoEncoder)
+
+struct _GstVsockEnc {
+    GstVideoEncoder parent;
+
+    /* Properties */
+    gchar *socket_path;     /* UNIX socket path (for 9p/virtfs) */
+    guint cid;              /* vsock CID (for native vsock, not available on macOS) */
+    guint port;             /* vsock port */
+    gchar *tcp_host;        /* TCP hostname (e.g., "10.0.2.2" for QEMU user-mode networking) */
+    guint tcp_port;         /* TCP port (default 15937) */
+    gint bitrate;           /* Target bitrate in bps */
+    gint keyframe_interval; /* Keyframe interval in frames */
+
+    /* State */
+    GstVideoCodecState *input_state;
+    gint socket_fd;
+    gint drm_fd;            /* Cached DRM device fd for resource ID lookups */
+    gboolean connected;
+    GMutex lock;
+    GCond cond;
+
+    /* Frame tracking */
+    guint64 frame_count;
+    gboolean running;
+
+    /* Pipelining: overlap sending frame N+1 with host encoding frame N.
+     * Instead of blocking after each send, we defer reading the response
+     * until the next handle_frame call. This keeps everything on the
+     * streaming thread (no threading issues with go-gst callbacks). */
+    GstVideoCodecFrame *pending_frame;  /* Frame awaiting host response */
+};
+
+/*
+ * Helix Frame Export Protocol
+ * Must match for-mac/qemu-helix/helix-frame-export.h
+ */
+
+/* Message magic: 'HXFR' in little-endian */
+#define HELIX_MSG_MAGIC 0x52465848
+
+/* Message types */
+#define HELIX_MSG_FRAME_REQUEST   0x01
+#define HELIX_MSG_FRAME_RESPONSE  0x02
+#define HELIX_MSG_KEYFRAME_REQ    0x03
+#define HELIX_MSG_CONFIG_REQ      0x04
+#define HELIX_MSG_CONFIG_RESP     0x05
+#define HELIX_MSG_PING            0x10
+#define HELIX_MSG_PONG            0x11
+#define HELIX_MSG_ENABLE_SCANOUT  0x20  /* Enable a scanout (connect DRM connector) */
+#define HELIX_MSG_DISABLE_SCANOUT 0x21  /* Disable a scanout (disconnect DRM connector) */
+#define HELIX_MSG_SCANOUT_RESP    0x22  /* Response to enable/disable scanout */
+#define HELIX_MSG_SUBSCRIBE       0x30  /* Subscribe to scanout stream (auto-encode) */
+#define HELIX_MSG_SUBSCRIBE_RESP  0x31  /* Subscription confirmed */
+#define HELIX_MSG_ERROR           0xFF
+
+/* Frame request flags */
+#define HELIX_FLAG_PIXEL_DATA     0x01  /* Raw pixel data follows the frame request */
+
+/* Pixel formats (matching DRM formats) */
+#define HELIX_FORMAT_BGRA8888     0x34325241
+#define HELIX_FORMAT_RGBA8888     0x34324241
+#define HELIX_FORMAT_NV12         0x3231564E
+
+/* Default vsock port */
+#define HELIX_VSOCK_PORT 5000
+
+/* Message header (common to all messages) */
+typedef struct {
+    guint32 magic;          /* HELIX_MSG_MAGIC */
+    guint8  msg_type;
+    guint8  flags;
+    guint16 session_id;
+    guint32 payload_size;
+} __attribute__((packed)) HelixMsgHeader;
+
+/* Frame request sent to host */
+typedef struct {
+    HelixMsgHeader header;
+    guint32 resource_id;
+    guint32 width;
+    guint32 height;
+    guint32 format;
+    guint32 stride;
+    gint64  pts;
+    gint64  duration;
+    guint8  force_keyframe;
+    guint8  reserved[7];
+} __attribute__((packed)) HelixFrameRequest;
+
+/* Frame response received from host */
+typedef struct {
+    HelixMsgHeader header;
+    gint64  pts;
+    gint64  dts;
+    guint8  is_keyframe;
+    guint8  reserved[3];
+    guint32 nal_count;
+    /* Followed by: nal_count x (guint32 size + NAL data) */
+} __attribute__((packed)) HelixFrameResponse;
+
+/* Encoder configuration request */
+typedef struct {
+    HelixMsgHeader header;
+    guint32 width;
+    guint32 height;
+    guint32 bitrate;
+    guint32 framerate_num;
+    guint32 framerate_den;
+    guint8  profile;
+    guint8  level;
+    guint8  realtime;
+    guint8  reserved[5];
+} __attribute__((packed)) HelixConfigRequest;
+
+/* Enable scanout request - guest → QEMU
+ * Tells QEMU to "connect" a specific DRM connector with given resolution.
+ * Container's Mutter then sees the connector and can render to it. */
+typedef struct {
+    HelixMsgHeader header;
+    guint32 scanout_id;     /* Scanout index (1-15, 0 = VM display) */
+    guint32 width;          /* Display width (e.g. 1920) */
+    guint32 height;         /* Display height (e.g. 1080) */
+    guint32 refresh_rate;   /* Refresh rate in Hz (e.g. 60) */
+} __attribute__((packed)) HelixEnableScanoutRequest;
+
+/* Scanout response - QEMU → guest */
+typedef struct {
+    HelixMsgHeader header;
+    guint32 scanout_id;
+    guint32 success;        /* 1 = enabled, 0 = failed */
+    gchar   connector[64];  /* DRM connector name (e.g. "Virtual-2") */
+} __attribute__((packed)) HelixScanoutResponse;
+
+/* Error response */
+typedef struct {
+    HelixMsgHeader header;
+    gint32  error_code;
+    gchar   message[256];
+} __attribute__((packed)) HelixErrorResponse;
+
+G_END_DECLS
+
+#endif /* __GST_VSOCKENC_H__ */

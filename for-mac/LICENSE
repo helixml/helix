@@ -1,0 +1,83 @@
+Helix Desktop - Proprietary Software License
+
+Copyright (c) 2026 HelixML Inc. All rights reserved.
+
+This software and associated documentation files (the "Software") are the
+proprietary and confidential property of HelixML Inc. The Software is licensed,
+not sold.
+
+1. LICENSE GRANT
+
+   Subject to the terms of this license and a valid Helix Desktop license key,
+   HelixML Inc. grants you a limited, non-exclusive, non-transferable,
+   non-sublicensable license to install and use the Software on a single machine
+   for your internal business or personal purposes.
+
+2. RESTRICTIONS
+
+   You may not, and may not permit any third party to:
+
+   (a) copy, modify, adapt, translate, or create derivative works of the
+       Software;
+   (b) reverse engineer, decompile, disassemble, or otherwise attempt to
+       derive the source code of the Software;
+   (c) distribute, sublicense, lease, rent, loan, or otherwise transfer the
+       Software or any rights therein to any third party;
+   (d) remove, alter, or obscure any proprietary notices, labels, or marks
+       on the Software;
+   (e) use the Software to create a competing product or service;
+   (f) use the Software except as expressly permitted under this license.
+
+3. OWNERSHIP
+
+   The Software is and remains the exclusive property of HelixML Inc. This
+   license does not convey any ownership interest in or to the Software.
+   HelixML Inc. retains all right, title, and interest in and to the Software,
+   including all intellectual property rights therein.
+
+4. THIRD-PARTY COMPONENTS
+
+   The Software may include or depend on third-party open source components,
+   each of which is subject to its own license terms. A list of such components
+   and their licenses is available in the NOTICES file included with the
+   Software. Nothing in this license restricts your rights under the applicable
+   open source licenses for those components.
+
+5. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL
+   HELIXML INC. BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER
+   IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN
+   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+6. LIMITATION OF LIABILITY
+
+   TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT WILL
+   HELIXML INC. BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL,
+   OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS OR REVENUE, WHETHER INCURRED
+   DIRECTLY OR INDIRECTLY, OR ANY LOSS OF DATA, USE, GOODWILL, OR OTHER
+   INTANGIBLE LOSSES, ARISING OUT OF OR IN CONNECTION WITH THIS LICENSE OR THE
+   USE OF OR INABILITY TO USE THE SOFTWARE.
+
+7. TERMINATION
+
+   This license is effective until terminated. It will terminate automatically
+   if you fail to comply with any term of this license. Upon termination, you
+   must cease all use of the Software and destroy all copies in your possession.
+
+8. GOVERNING LAW
+
+   This license shall be governed by and construed in accordance with the laws
+   of the State of California, without regard to its conflict of laws
+   provisions. Any disputes arising under this license shall be resolved in
+   the state and federal courts located in Santa Clara County, California.
+
+9. ENTIRE AGREEMENT
+
+   This license constitutes the entire agreement between you and HelixML Inc.
+   regarding the Software and supersedes all prior agreements and
+   understandings, whether written or oral, relating to the Software.
+
+For licensing inquiries, contact: legal@helix.ml

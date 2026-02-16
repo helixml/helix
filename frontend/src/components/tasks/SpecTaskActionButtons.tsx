@@ -1,5 +1,5 @@
 import React from 'react'
-import { Box, Button, CircularProgress, Tooltip } from '@mui/material'
+import { Box, Button, CircularProgress, Tooltip, Typography } from '@mui/material'
 import {
   PlayArrow as PlayIcon,
   Description as SpecIcon,
@@ -46,6 +46,60 @@ interface SpecTaskActionButtonsProps {
   planningLimit?: number
 }
 
+interface CompactActionButtonProps {
+  tooltip?: string
+  color?: 'inherit' | 'primary' | 'secondary' | 'success' | 'error' | 'info' | 'warning'
+  variant?: 'text' | 'outlined' | 'contained'
+  disabled?: boolean
+  fullWidth?: boolean
+  icon: React.ReactNode
+  label: string
+  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void
+  sx?: object
+}
+
+function CompactActionButton({
+  tooltip = '',
+  color = 'primary',
+  variant = 'contained',
+  disabled = false,
+  fullWidth = false,
+  icon,
+  label,
+  onClick,
+  sx,
+}: CompactActionButtonProps) {
+  return (
+    <Tooltip title={tooltip} placement="top">
+      <span style={{ width: fullWidth ? '100%' : 'auto', display: 'block' }}>
+        <Button
+          size="small"
+          color={color}
+          variant={variant}
+          disabled={disabled}
+          fullWidth={fullWidth}
+          onClick={onClick}
+          sx={{
+            minWidth: 72,
+            px: 1,
+            py: 0.5,
+            lineHeight: 1,
+            textTransform: 'none',
+            ...sx,
+          }}
+        >
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.2 }}>
+            {icon}
+            <Typography sx={{ fontSize: '0.65rem', lineHeight: 1, fontWeight: 400, textTransform: 'none' }}>
+              {label}
+            </Typography>
+          </Box>
+        </Button>
+      </span>
+    </Tooltip>
+  )
+}
+
 /**
  * Shared action buttons for spec tasks.
  * Displays appropriate action buttons based on task status.
@@ -79,6 +133,34 @@ export default function SpecTaskActionButtons({
 
   // Backlog phase: Start Planning button
   if (task.status === 'backlog') {
+    const startLabel = isQueued
+      ? 'Queued'
+      : isStartingPlanning
+      ? 'Starting...'
+      : task.metadata?.error
+      ? (task.just_do_it_mode ? 'Retry' : 'Retry Planning')
+      : task.just_do_it_mode
+      ? 'Just Do It'
+      : 'Start Planning'
+
+    if (isInline) {
+      return (
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <CompactActionButton
+            tooltip={isArchived ? 'Task is archived' : isPlanningFull ? `Planning column at capacity (${planningLimit})` : ''}
+            color={task.just_do_it_mode ? 'success' : 'warning'}
+            icon={isQueued || isStartingPlanning ? <CircularProgress size={18} color="inherit" /> : <PlayIcon sx={{ fontSize: 18 }} />}
+            label={startLabel}
+            onClick={(e) => {
+              e.stopPropagation()
+              onStartPlanning?.()
+            }}
+            disabled={isArchived || isPlanningFull || isStartingPlanning || isQueued}
+          />
+        </Box>
+      )
+    }
+
     return (
       <Box sx={isInline ? { display: 'flex', gap: 1 } : { mt: 1.5 }}>
         <Tooltip title={isArchived ? 'Task is archived' : isPlanningFull ? `Planning column at capacity (${planningLimit})` : ''} placement="top">
@@ -96,15 +178,7 @@ export default function SpecTaskActionButtons({
               fullWidth={!isInline}
               sx={buttonSx}
             >
-              {isQueued
-                ? 'Queued'
-                : isStartingPlanning
-                ? 'Starting...'
-                : task.metadata?.error
-                ? (task.just_do_it_mode ? 'Retry' : 'Retry Planning')
-                : task.just_do_it_mode
-                ? 'Just Do It'
-                : 'Start Planning'}
+              {startLabel}
             </Button>
           </span>
         </Tooltip>
@@ -114,6 +188,31 @@ export default function SpecTaskActionButtons({
 
   // Review phase: Review Spec button (when design docs have been pushed)
   if (task.status === 'spec_review' && task.design_docs_pushed_at && onReviewSpec) {
+    if (isInline) {
+      return (
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <CompactActionButton
+            tooltip={isArchived ? 'Task is archived' : ''}
+            color="info"
+            icon={isQueued ? <CircularProgress size={18} color="inherit" /> : <SpecIcon sx={{ fontSize: 18 }} />}
+            label={isQueued ? 'Queued' : 'Review Spec'}
+            onClick={(e) => {
+              e.stopPropagation()
+              onReviewSpec()
+            }}
+            disabled={isArchived || isQueued}
+            sx={{
+              animation: 'pulse-glow 2s infinite',
+              '@keyframes pulse-glow': {
+                '0%, 100%': { boxShadow: '0 0 5px rgba(41, 182, 246, 0.5)' },
+                '50%': { boxShadow: '0 0 15px rgba(41, 182, 246, 0.8)' },
+              },
+            }}
+          />
+        </Box>
+      )
+    }
+
     return (
       <Box sx={isInline ? { display: 'flex', gap: 1 } : { mt: 1.5 }}>
         <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">
@@ -149,6 +248,52 @@ export default function SpecTaskActionButtons({
   // Implementation phase: Reject + Open PR + View Spec buttons
   if (task.status === 'implementation') {
     const hasDesignDocs = !!task.design_docs_pushed_at
+
+    if (isInline) {
+      return (
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <CompactActionButton
+            tooltip={isArchived ? 'Task is archived' : ''}
+            variant="outlined"
+            color="error"
+            disabled={isArchived || isArchiving}
+            icon={isArchiving ? <CircularProgress size={16} color="inherit" /> : <CloseIcon sx={{ fontSize: 18 }} />}
+            label={isArchiving ? 'Rejecting...' : 'Reject'}
+            onClick={(e) => {
+              e.stopPropagation()
+              onReject?.(e.shiftKey)
+            }}
+          />
+          <CompactActionButton
+            tooltip={isArchived ? 'Task is archived' : ''}
+            variant="contained"
+            color="success"
+            disabled={isArchived || approveImplementationMutation.isPending}
+            icon={approveImplementationMutation.isPending ? <CircularProgress size={16} color="inherit" /> : <ApproveIcon sx={{ fontSize: 18 }} />}
+            label={approveImplementationMutation.isPending ? (isDirectPush ? 'Merging...' : 'Opening PR...') : (isDirectPush ? 'Accept' : 'Open PR')}
+            onClick={(e) => {
+              e.stopPropagation()
+              approveImplementationMutation.mutate()
+            }}
+          />
+          {hasDesignDocs && onReviewSpec && (
+            <CompactActionButton
+              tooltip={isArchived ? 'Task is archived' : ''}
+              variant="outlined"
+              color="primary"
+              disabled={isArchived}
+              icon={<SpecIcon sx={{ fontSize: 18 }} />}
+              label="View Spec"
+              onClick={(e) => {
+                e.stopPropagation()
+                onReviewSpec()
+              }}
+            />
+          )}
+        </Box>
+      )
+    }
+
     return (
       <Box sx={isInline ? { display: 'flex', gap: 1 } : { mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
         <Box sx={{ display: 'flex', gap: 1 }}>
@@ -220,6 +365,25 @@ export default function SpecTaskActionButtons({
 
   // Pull Request phase: View Pull Request button
   if (task.status === 'pull_request' && task.pull_request_url) {
+    if (isInline) {
+      return (
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <CompactActionButton
+            tooltip={isArchived ? 'Task is archived' : ''}
+            variant="contained"
+            color="secondary"
+            disabled={isArchived}
+            icon={<LaunchIcon sx={{ fontSize: 18 }} />}
+            label="Pull Request"
+            onClick={(e) => {
+              e.stopPropagation()
+              window.open(task.pull_request_url, '_blank')
+            }}
+          />
+        </Box>
+      )
+    }
+
     return (
       <Box sx={isInline ? { display: 'flex', gap: 1 } : { mt: 1.5 }}>
         <Tooltip title={isArchived ? 'Task is archived' : ''} placement="top">

@@ -1,7 +1,7 @@
-ARG UV_VERSION="0.8.9"
+ARG UV_VERSION="0.10.2"
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
-FROM ghcr.io/astral-sh/uv:${UV_VERSION}-bookworm-slim AS diffusers-build-env
+FROM ghcr.io/astral-sh/uv:${UV_VERSION}-debian-slim AS diffusers-build-env
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
 # Need to install certifi to avoid SSL errors during the NLTK download
@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,id=uv-cache-v2,target=/root/.cache/uv \
     UV_HTTP_TIMEOUT=300 uv sync --frozen --no-dev
 
 # Create directory for NLTK data
@@ -21,7 +21,7 @@ RUN mkdir -p /usr/share/nltk_data
 # Pre-download NLTK resources for document_splitter.py and unstructured PDF processing
 # Specify the download directory and ensure files are accessible
 # Use cache mounts for both UV packages and NLTK data
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,id=uv-cache-v2,target=/root/.cache/uv \
     --mount=type=cache,target=/root/nltk_data \
     UV_HTTP_TIMEOUT=300 uv run python -m nltk.downloader -d /usr/share/nltk_data punkt_tab averaged_perceptron_tagger_eng
 
@@ -62,7 +62,7 @@ COPY . /app
 # Sync the project dependencies with the existing virtual environment
 # Use cache mount to avoid re-downloading packages (even if venv is recreated)
 # Increase timeout to 5 minutes for large ML packages
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,id=uv-cache-v2,target=/root/.cache/uv \
     UV_HTTP_TIMEOUT=300 uv sync --frozen --no-dev
 
 # Set PATH to use the virtual environment

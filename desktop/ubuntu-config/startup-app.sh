@@ -172,6 +172,14 @@ sleep 0.5
 wireplumber &
 sleep 0.5
 
+# Pre-initialize GNOME Keyring with empty password to prevent
+# "Choose password for new keyring" dialog. Without this, any app that
+# touches the Secret Service D-Bus API (Chrome, Zed, libsecret) triggers
+# gnome-keyring-daemon auto-activation, which prompts for a password
+# because no default keyring exists yet.
+echo -n "" | gnome-keyring-daemon --start --components=secrets --unlock
+gow_log "[start] GNOME Keyring initialized with empty password"
+
 # Load Ubuntu desktop theming (Yaru dark theme, fonts, Helix background)
 if [ -f /opt/gow/dconf-settings.ini ]; then
     gow_log "[start] Loading Ubuntu desktop theming from dconf-settings.ini"
@@ -196,6 +204,14 @@ gsettings set org.gnome.shell enabled-extensions "['ubuntu-dock@ubuntu.com', 'ju
 gsettings set org.gnome.shell.extensions.just-perfection screen-recording-indicator false
 gsettings set org.gnome.shell.extensions.just-perfection screen-sharing-indicator false
 gow_log "[start] Just Perfection extension configured"
+
+# macOS keyboard support: remap Super (Command) to Ctrl at the XKB level.
+# This makes Command+C/V/X/A/Z work as Ctrl+C/V/X/A/Z in ALL apps (Chrome,
+# GTK3, GTK4, Electron, etc.) without any per-app configuration.
+# The original Ctrl keys still produce Ctrl, so terminal Ctrl+C for SIGINT works.
+gsettings set org.gnome.desktop.input-sources xkb-options "['altwin:ctrl_win', 'caps:ctrl_nocaps']"
+gsettings set org.gnome.mutter overlay-key ''
+gow_log "[start] Remapped Super→Ctrl and CapsLock→Ctrl via XKB (macOS keyboard support)"
 
 # Set global scaling factor before gnome-shell starts
 # This tells Mutter to use this scale for ALL monitors (including virtual ones)
@@ -274,12 +290,28 @@ gow_log "[start] Virtual monitor: ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMES
 gsettings set org.gnome.mutter experimental-features "['variable-refresh-rate', 'triple-buffering']"
 gow_log "[start] Enabled mutter experimental features: variable-refresh-rate, triple-buffering"
 
-# Start GNOME Shell in headless mode with virtual monitor
-# --headless: No display output - captured via pipewiresrc from ScreenCast
-# --unsafe-mode: Allow desktop-bridge to use org.gnome.Shell.Screenshot D-Bus API
-# --virtual-monitor WxH@R: Creates virtual display at specified resolution
-gow_log "[start] Starting GNOME Shell in HEADLESS mode (PipeWire capture)"
-gnome-shell --headless --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}
+# Start GNOME Shell - mode depends on GPU type
+if [ "\$HELIX_SCANOUT_MODE" = "1" ]; then
+    # macOS ARM scanout mode: use DRM display-server instead of headless
+    # gnome-shell renders to a real DRM connector via a DRM lease from helix-drm-manager.
+    # QEMU captures the scanout and encodes H.264 with VideoToolbox.
+    # The logind-stub provides the lease FD to Mutter via D-Bus TakeDevice.
+    gow_log "[start] Starting GNOME Shell in DISPLAY-SERVER mode (DRM scanout)"
+
+    # mutter-lease-launcher handles the DRM lease + logind-stub + gnome-shell flow.
+    # It replaces the gnome-shell command as the final blocking process.
+    # Note: mutter-lease-launcher starts its own dbus-run-session internally,
+    # but that's fine since the outer dbus-run-session from startup-app.sh
+    # just provides the session bus address. The inner one creates gnome-shell's
+    # own session.
+    gow_log "[start] Starting mutter-lease-launcher for DRM scanout..."
+    /usr/local/bin/mutter-lease-launcher
+else
+    # Standard mode: headless with virtual monitor (NVIDIA/AMD/Intel)
+    # Captured via PipeWire ScreenCast → GStreamer → nvenc/vaapi → WebSocket
+    gow_log "[start] Starting GNOME Shell in HEADLESS mode (PipeWire capture)"
+    gnome-shell --headless --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}
+fi
 GNOME_EOF
 
 chmod +x $XDG_RUNTIME_DIR/start_gnome

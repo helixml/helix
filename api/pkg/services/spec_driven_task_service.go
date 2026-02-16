@@ -172,7 +172,6 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		CreatedBy:      req.UserID,
 		HelixAppID:     helixAppID,        // Helix agent used for entire workflow
 		JustDoItMode:   req.JustDoItMode,  // Set Just Do It mode from request
-		UseHostDocker:  req.UseHostDocker, // Use host Docker socket (requires privileged sandbox)
 		// Branch configuration
 		BranchMode:   branchMode,
 		BaseBranch:   req.BaseBranch,    // User-specified base branch (empty = use repo default)
@@ -542,7 +541,6 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SpecTaskID:          task.ID,            // For task-scoped workspace
 		PrimaryRepositoryID: primaryRepoID,      // Primary repo to open in Zed
 		RepositoryIDs:       repositoryIDs,      // ALL project repos to checkout
-		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
 		DisplayWidth:        displayWidth,
 		DisplayHeight:       displayHeight,
 		DisplayRefreshRate:  displayRefreshRate,
@@ -924,7 +922,6 @@ Follow these guidelines when making changes:
 		SpecTaskID:          task.ID,            // For task-scoped workspace
 		PrimaryRepositoryID: primaryRepoID,      // Primary repo to open in Zed
 		RepositoryIDs:       repositoryIDs,      // ALL project repos to checkout
-		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
 		DisplayWidth:        displayWidthJDI,
 		DisplayHeight:       displayHeightJDI,
 		DisplayRefreshRate:  displayRefreshRateJDI,
@@ -1611,7 +1608,6 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		SpecTaskID:          task.ID,
 		PrimaryRepositoryID: primaryRepoID,
 		RepositoryIDs:       repositoryIDs,
-		UseHostDocker:       task.UseHostDocker,
 		DisplayWidth:        displayWidth,
 		DisplayHeight:       displayHeight,
 		DisplayRefreshRate:  displayRefreshRate,

@@ -642,8 +642,7 @@ type Store interface {
 	DecrementSandboxContainerCount(ctx context.Context, id string) error
 	ResetSandboxOnReconnect(ctx context.Context, id string) error
 	GetSandboxesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.SandboxInstance, error)
-	FindAvailableSandbox(ctx context.Context, desktopType string, requirePrivileged bool) (*types.SandboxInstance, error)
-	HasPrivilegedSandbox(ctx context.Context) (bool, error)
+	FindAvailableSandbox(ctx context.Context, desktopType string) (*types.SandboxInstance, error)
 
 	// Disk usage history methods
 	CreateDiskUsageHistory(ctx context.Context, history *types.DiskUsageHistory) error
@@ -670,6 +669,15 @@ type Store interface {
 
 	// ResourceSearch - fast concurrent search across multiple resource types
 	ResourceSearch(ctx context.Context, req *types.ResourceSearchRequest) (*types.ResourceSearchResponse, error)
+
+	// Claude subscription methods
+	CreateClaudeSubscription(ctx context.Context, sub *types.ClaudeSubscription) (*types.ClaudeSubscription, error)
+	GetClaudeSubscription(ctx context.Context, id string) (*types.ClaudeSubscription, error)
+	GetClaudeSubscriptionForOwner(ctx context.Context, ownerID string, ownerType types.OwnerType) (*types.ClaudeSubscription, error)
+	UpdateClaudeSubscription(ctx context.Context, sub *types.ClaudeSubscription) (*types.ClaudeSubscription, error)
+	DeleteClaudeSubscription(ctx context.Context, id string) error
+	ListClaudeSubscriptions(ctx context.Context, ownerID string) ([]*types.ClaudeSubscription, error)
+	GetEffectiveClaudeSubscription(ctx context.Context, userID, orgID string) (*types.ClaudeSubscription, error)
 }
 
 type EmbeddingsStore interface {

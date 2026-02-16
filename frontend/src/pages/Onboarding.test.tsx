@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Onboarding from './Onboarding'
 
 const mockNavigateReplace = vi.fn()
@@ -13,6 +14,7 @@ const mockV1UsersMeOnboardingCreate = vi.fn().mockResolvedValue({})
 const mockV1GitRepositoriesCreate = vi.fn()
 const mockV1ProjectsCreate = vi.fn()
 const mockV1SpecTasksFromPromptCreate = vi.fn()
+const mockV1ProviderEndpointsList = vi.fn()
 const mockApiGet = vi.fn()
 const mockCreateOrgMutateAsync = vi.fn()
 
@@ -38,6 +40,7 @@ vi.mock('../hooks/useApi', () => ({
       v1GitRepositoriesCreate: mockV1GitRepositoriesCreate,
       v1ProjectsCreate: mockV1ProjectsCreate,
       v1SpecTasksFromPromptCreate: mockV1SpecTasksFromPromptCreate,
+      v1ProviderEndpointsList: mockV1ProviderEndpointsList,
     }),
   }),
 }))
@@ -97,6 +100,16 @@ vi.mock('../contexts/apps', () => ({
 
 vi.mock('lucide-react', () => ({
   Bot: () => <span data-testid="bot-icon" />,
+  Server: () => <span data-testid="server-icon" />,
+}))
+
+vi.mock('../services/systemSettingsService', () => ({
+  useGetSystemSettings: () => ({ data: null, isLoading: false }),
+  useUpdateSystemSettings: () => ({ mutate: vi.fn(), isPending: false }),
+}))
+
+vi.mock('../components/providers/AddProviderDialog', () => ({
+  default: () => null,
 }))
 
 function setAccountWithOrgs(orgs: any[]) {
@@ -108,11 +121,24 @@ function setAccountWithOrgs(orgs: any[]) {
       orgID: '',
       loadOrganizations: mockLoadOrganizations,
     },
+    dismissOnboarding: vi.fn(),
   }
 }
 
-async function selectExistingOrgAndGoToStep2() {
+async function selectExistingOrgAndContinue() {
+  // Step 1 is now org setup - click continue with existing org
   fireEvent.click(screen.getByRole('button', { name: /continue with this organization/i }))
+}
+
+async function skipProviderStep() {
+  const skipBtn = screen.getByRole('button', { name: /I'll do this later/i })
+  fireEvent.click(skipBtn)
+}
+
+async function selectExistingOrgAndGoToProjectStep() {
+  // Step 1: select org, Step 2: skip provider, then we're at Step 3: project
+  await selectExistingOrgAndContinue()
+  await skipProviderStep()
   await waitFor(() => {
     expect(screen.getByLabelText(/project name/i)).toBeInTheDocument()
   })
@@ -126,11 +152,30 @@ async function fillProjectAndCreateWithModel(projectName: string) {
   })
 }
 
+function renderOnboarding() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  })
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <Onboarding />
+    </QueryClientProvider>
+  )
+}
+
 describe('Onboarding', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
     mockApiGet.mockResolvedValue([])
+    mockV1ProviderEndpointsList.mockResolvedValue({
+      data: [],
+    })
     setAccountWithOrgs([])
   })
 
@@ -141,9 +186,9 @@ describe('Onboarding', () => {
         { id: 'org-456', name: 'other-org', display_name: 'Other Org' },
       ])
 
-      render(<Onboarding />)
+      renderOnboarding()
 
-      await selectExistingOrgAndGoToStep2()
+      await selectExistingOrgAndGoToProjectStep()
 
       mockV1GitRepositoriesCreate.mockResolvedValue({ data: { id: 'repo-1' } })
       mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'project-1' } })
@@ -183,8 +228,9 @@ describe('Onboarding', () => {
         display_name: 'New Org',
       })
 
-      render(<Onboarding />)
+      renderOnboarding()
 
+      // Step 1 is org setup - with no existing orgs, the create form is shown directly
       const orgNameInput = screen.getByLabelText(/organization name/i)
       fireEvent.change(orgNameInput, { target: { value: 'New Org' } })
 
@@ -198,6 +244,9 @@ describe('Onboarding', () => {
           display_name: 'New Org',
         })
       })
+
+      // After org creation, we're on step 2 (providers) - skip it
+      await skipProviderStep()
 
       await waitFor(() => {
         expect(screen.getByLabelText(/project name/i)).toBeInTheDocument()
@@ -239,9 +288,9 @@ describe('Onboarding', () => {
       mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'proj-id' } })
       mockCreateAgent.mockResolvedValue({ id: 'agent-id' })
 
-      render(<Onboarding />)
+      renderOnboarding()
 
-      await selectExistingOrgAndGoToStep2()
+      await selectExistingOrgAndGoToProjectStep()
       await fillProjectAndCreateWithModel('repo-test')
 
       await waitFor(() => {
@@ -262,9 +311,9 @@ describe('Onboarding', () => {
       mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'proj-99' } })
       mockCreateAgent.mockResolvedValue({ id: 'agent-99' })
 
-      render(<Onboarding />)
+      renderOnboarding()
 
-      await selectExistingOrgAndGoToStep2()
+      await selectExistingOrgAndGoToProjectStep()
       await fillProjectAndCreateWithModel('proj-test')
 
       await waitFor(() => {
@@ -284,9 +333,9 @@ describe('Onboarding', () => {
       mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'p-1' } })
       mockCreateAgent.mockResolvedValue({ id: 'a-1' })
 
-      render(<Onboarding />)
+      renderOnboarding()
 
-      await selectExistingOrgAndGoToStep2()
+      await selectExistingOrgAndGoToProjectStep()
       await fillProjectAndCreateWithModel('agent-test')
 
       await waitFor(() => {
@@ -304,16 +353,16 @@ describe('Onboarding', () => {
     it('should store org name in localStorage on completion', async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
 
-      setAccountWithOrgs([{ id: 'org-ls', name: 'ls-org', display_name: 'LS Org' }])
+      setAccountWithOrgs([{ id: 'org_abc123', name: 'helixml', display_name: 'HelixML Inc' }])
 
       mockV1GitRepositoriesCreate.mockResolvedValue({ data: { id: 'repo-ls' } })
       mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'proj-ls' } })
       mockCreateAgent.mockResolvedValue({ id: 'agent-ls' })
       mockV1SpecTasksFromPromptCreate.mockResolvedValue({ data: { id: 'task-1' } })
 
-      render(<Onboarding />)
+      renderOnboarding()
 
-      await selectExistingOrgAndGoToStep2()
+      await selectExistingOrgAndGoToProjectStep()
       await fillProjectAndCreateWithModel('ls-project')
 
       await waitFor(() => {
@@ -342,7 +391,7 @@ describe('Onboarding', () => {
       })
 
       await waitFor(() => {
-        expect(localStorage.getItem('selected_org')).toBe('ls-org')
+        expect(localStorage.getItem('selected_org')).toBe('helixml')
       })
 
       vi.useRealTimers()
@@ -351,16 +400,16 @@ describe('Onboarding', () => {
     it('should navigate to org projects on completion with created project', async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
 
-      setAccountWithOrgs([{ id: 'org-nav', name: 'nav-org', display_name: 'Nav Org' }])
+      setAccountWithOrgs([{ id: 'org_def456', name: 'acme', display_name: 'Acme Corp' }])
 
       mockV1GitRepositoriesCreate.mockResolvedValue({ data: { id: 'repo-nav' } })
       mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'proj-nav' } })
       mockCreateAgent.mockResolvedValue({ id: 'agent-nav' })
       mockV1SpecTasksFromPromptCreate.mockResolvedValue({ data: { id: 'task-nav' } })
 
-      render(<Onboarding />)
+      renderOnboarding()
 
-      await selectExistingOrgAndGoToStep2()
+      await selectExistingOrgAndGoToProjectStep()
       await fillProjectAndCreateWithModel('nav-project')
 
       await waitFor(() => {
@@ -387,51 +436,31 @@ describe('Onboarding', () => {
         expect(mockV1UsersMeOnboardingCreate).toHaveBeenCalled()
       })
 
-      expect(mockNavigateReplace).toHaveBeenCalledWith('org_projects', { org_id: 'nav-org' })
+      expect(mockNavigateReplace).toHaveBeenCalledWith('org_projects', { org_id: 'acme' })
 
       vi.useRealTimers()
     })
   })
 
-  describe('skip onboarding', () => {
-    it('should mark onboarding complete and navigate to projects when skipping', async () => {
-      setAccountWithOrgs([])
-
-      render(<Onboarding />)
-
-      const closeButtons = screen.getAllByRole('button')
-      const skipBtn = closeButtons[0]
-      await act(async () => {
-        fireEvent.click(skipBtn)
-      })
-
-      await waitFor(() => {
-        expect(mockV1UsersMeOnboardingCreate).toHaveBeenCalled()
-      })
-
-      expect(mockNavigateReplace).toHaveBeenCalledWith('projects')
-    })
-  })
-
   describe('error handling without org ID', () => {
-    it('should not show create project button when not on step 2', async () => {
+    it('should not show create project button when not on step 3', async () => {
       setAccountWithOrgs([])
 
-      render(<Onboarding />)
+      renderOnboarding()
 
       expect(screen.queryByRole('button', { name: /create project/i })).not.toBeInTheDocument()
     })
   })
 
   describe('fetching org apps after org selection', () => {
-    it('should fetch apps for the selected org when moving to step 2', async () => {
+    it('should fetch apps for the selected org when moving to step 3', async () => {
       setAccountWithOrgs([{ id: 'org-apps', name: 'apps-org', display_name: 'Apps Org' }])
 
       mockApiGet.mockResolvedValue([])
 
-      render(<Onboarding />)
+      renderOnboarding()
 
-      await selectExistingOrgAndGoToStep2()
+      await selectExistingOrgAndGoToProjectStep()
 
       await waitFor(() => {
         expect(mockApiGet).toHaveBeenCalledWith(

@@ -35,6 +35,19 @@ vi.mock('dompurify', () => {
 // Stub global window objects used in components
 global.window.scrollTo = vi.fn();
 
+// Stub localStorage if not fully provided by jsdom
+if (!global.localStorage || typeof global.localStorage.clear !== 'function') {
+  const store: Record<string, string> = {};
+  global.localStorage = {
+    getItem: (key: string) => store[key] ?? null,
+    setItem: (key: string, value: string) => { store[key] = value; },
+    removeItem: (key: string) => { delete store[key]; },
+    clear: () => { Object.keys(store).forEach(k => delete store[k]); },
+    get length() { return Object.keys(store).length; },
+    key: (index: number) => Object.keys(store)[index] ?? null,
+  } as Storage;
+}
+
 // Mock for react-markdown that preserves HTML structure
 vi.mock('react-markdown', () => {
   return {

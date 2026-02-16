@@ -33,7 +33,7 @@ import {
   BarChart as MetricsIcon,
   Visibility as ViewIcon,
 } from '@mui/icons-material';
-import { Plus, X, Play, Settings, MoreHorizontal, FolderOpen, GitMerge } from 'lucide-react';
+import { Plus, X, Play, Settings, MoreHorizontal, FolderOpen, GitMerge, UserPlus } from 'lucide-react';
 
 import Page from '../components/system/Page';
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard';
@@ -85,6 +85,12 @@ import {
 import { useListSessions, useGetSession } from '../services/sessionService';
 import { TypesCreateTaskRequest, TypesSpecTaskPriority, TypesBranchMode } from '../api/api';
 import AgentDropdown from '../components/agent/AgentDropdown';
+import {
+  useListProjectAccessGrants,
+  useCreateProjectAccessGrant,
+  useDeleteProjectAccessGrant,
+} from '../services/projectAccessGrantService';
+import ProjectMembersBar from '../components/project/ProjectMembersBar';
 
 const SpecTasksPage: FC = () => {
   const account = useAccount();
@@ -111,6 +117,14 @@ const SpecTasksPage: FC = () => {
   const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId || '');
   const resumeExploratorySessionMutation = useResumeProjectExploratorySession(projectId || '');
 
+  // Access grants for invite dialog
+  const { data: accessGrants = [] } = useListProjectAccessGrants(
+    projectId || '',
+    !!project?.organization_id,
+  );
+  const createAccessGrantMutation = useCreateProjectAccessGrant(projectId || '');
+  const deleteAccessGrantMutation = useDeleteProjectAccessGrant(projectId || '');
+
   // Startup script history - used to detect if user has modified the default script
   // Only fetch when we have a project with a default repo
   const hasDefaultRepo = !!project?.default_repo_id;
@@ -133,6 +147,7 @@ const SpecTasksPage: FC = () => {
   const openTaskId = router.params.openTask as string | undefined;
   const openDesktopId = router.params.openDesktop as string | undefined;
   const openReviewId = router.params.openReview as string | undefined;
+  const inviteOpen = router.params.invite === 'true';
 
   // State for view management - always default to kanban, but respect query param
   const [viewMode, setViewMode] = useState<'kanban' | 'workspace' | 'audit'>(() => {
@@ -248,7 +263,6 @@ const SpecTasksPage: FC = () => {
   const [taskPriority, setTaskPriority] = useState('medium');
   const [selectedHelixAgent, setSelectedHelixAgent] = useState('');
   const [justDoItMode, setJustDoItMode] = useState(false); // Just Do It mode: skip spec, go straight to implementation
-  const [useHostDocker, setUseHostDocker] = useState(false); // Use host Docker socket (requires privileged sandbox)
 
   // Branch configuration state
   const [branchMode, setBranchMode] = useState<TypesBranchMode>(TypesBranchMode.BranchModeNew);
@@ -492,7 +506,7 @@ const SpecTasksPage: FC = () => {
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
     }
-  }, [createDialogOpen, taskPrompt, justDoItMode, selectedHelixAgent, useHostDocker]);
+  }, [createDialogOpen, taskPrompt, justDoItMode, selectedHelixAgent]);
 
   // Keyboard shortcut: ESC to close create task panel or chat panel
   useEffect(() => {
@@ -610,7 +624,6 @@ const SpecTasksPage: FC = () => {
         project_id: projectId || 'default', // Use project ID from route, or 'default'
         app_id: agentId || undefined, // Include selected or created agent if provided
         just_do_it_mode: justDoItMode, // Just Do It mode: skip spec, go straight to implementation
-        use_host_docker: useHostDocker, // Use host Docker socket (requires privileged sandbox)
         // Branch configuration
         branch_mode: branchMode,
         base_branch: branchMode === TypesBranchMode.BranchModeNew ? baseBranch : undefined,
@@ -633,7 +646,6 @@ const SpecTasksPage: FC = () => {
         setTaskPriority('medium');
         setSelectedHelixAgent(''); // Reset agent selection
         setJustDoItMode(false); // Reset Just Do It mode
-        setUseHostDocker(false); // Reset host Docker mode
         // Reset branch configuration
         setBranchMode(TypesBranchMode.BranchModeNew);
         setBaseBranch(defaultBranchName);
@@ -826,6 +838,40 @@ const SpecTasksPage: FC = () => {
     setCreateDialogOpen(true);
   }, []);
 
+  // Invite dialog helpers
+  const handleOpenInvite = useCallback(() => {
+    router.mergeParams({ invite: 'true' });
+  }, []);
+
+  const handleCloseInvite = useCallback(() => {
+    router.removeParams(['invite']);
+  }, []);
+
+  const handleCreateAccessGrant = async (request: any) => {
+    try {
+      const result = await createAccessGrantMutation.mutateAsync(request);
+      if (result) {
+        snackbar.success('Access grant created');
+        return result;
+      }
+      return null;
+    } catch (err) {
+      snackbar.error('Failed to create access grant');
+      return null;
+    }
+  };
+
+  const handleDeleteAccessGrant = async (grantId: string) => {
+    try {
+      await deleteAccessGrantMutation.mutateAsync(grantId);
+      snackbar.success('Access grant removed');
+      return true;
+    } catch (err) {
+      snackbar.error('Failed to remove access grant');
+      return false;
+    }
+  };
+
   return (
     <Page
       breadcrumbs={project ? [
@@ -843,6 +889,22 @@ const SpecTasksPage: FC = () => {
       disableContentScroll={true}
       topbarContent={
         <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', minWidth: 0, alignItems: 'center' }}>
+          {/* Invite / Share button */}
+          <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center' }}>
+            <ProjectMembersBar
+              currentUser={account.user}
+              projectOwnerId={project?.user_id}
+              projectId={projectId || ''}
+              organizationId={project?.organization_id}
+              accessGrants={accessGrants}
+              inviteOpen={inviteOpen}
+              onOpenInvite={handleOpenInvite}
+              onCloseInvite={handleCloseInvite}
+              onCreateGrant={handleCreateAccessGrant}
+              onDeleteGrant={handleDeleteAccessGrant}
+            />
+          </Box>
+
           {/* View mode toggle: Board vs Workspace vs Audit Trail */}
           <Stack direction="row" spacing={0.5} sx={{ borderRadius: 1, p: 0.5 }}>
             <Tooltip
@@ -936,12 +998,13 @@ const SpecTasksPage: FC = () => {
             {!exploratorySessionData ? (
               <Tooltip title="Test your app and find tasks for your agents. Shared with your team.">
                 <Button
-                  variant="outlined"
+                  variant="text"
                   color="secondary"
+                  size="small"
                   startIcon={<ExploreIcon />}
                   onClick={handleStartExploratorySession}
                   disabled={startExploratorySessionMutation.isPending}
-                  sx={{ flexShrink: 0 }}
+                  sx={{ flexShrink: 0, textTransform: 'none', fontWeight: 500 }}
                 >
                   {startExploratorySessionMutation.isPending ? 'Starting...' : 'Open Human Desktop'}
                 </Button>
@@ -949,12 +1012,13 @@ const SpecTasksPage: FC = () => {
             ) : exploratorySessionData.config?.external_agent_status === 'stopped' ? (
               <Tooltip title="Test your app and find tasks for your agents. Shared with your team.">
                 <Button
-                  variant="outlined"
+                  variant="text"
                   color="secondary"
+                  size="small"
                   startIcon={<Play size={18} />}
                   onClick={handleResumeExploratorySession}
                   disabled={resumeExploratorySessionMutation.isPending}
-                  sx={{ flexShrink: 0 }}
+                  sx={{ flexShrink: 0, textTransform: 'none', fontWeight: 500 }}
                 >
                   {resumeExploratorySessionMutation.isPending ? 'Resuming...' : 'Resume Human Desktop'}
                 </Button>
@@ -962,24 +1026,26 @@ const SpecTasksPage: FC = () => {
             ) : (
               <>
                 <Button
-                  variant="contained"
+                  variant="text"
                   color="primary"
+                  size="small"
                   startIcon={<Play size={18} />}
                   onClick={() => {
                     // Navigate to the Human Desktop page
                     account.orgNavigate('project-team-desktop', { id: projectId, sessionId: exploratorySessionData.id });
                   }}
-                  sx={{ flexShrink: 0 }}
+                  sx={{ flexShrink: 0, textTransform: 'none', fontWeight: 500 }}
                 >
                   View Human Desktop
                 </Button>
                 <Button
-                  variant="outlined"
+                  variant="text"
                   color="error"
+                  size="small"
                   startIcon={<StopIcon />}
                   onClick={handleStopExploratorySession}
                   disabled={stopExploratorySessionMutation.isPending}
-                  sx={{ flexShrink: 0 }}
+                  sx={{ flexShrink: 0, textTransform: 'none', fontWeight: 500 }}
                 >
                   {stopExploratorySessionMutation.isPending ? 'Stopping...' : 'Stop Session'}
                 </Button>
@@ -988,41 +1054,17 @@ const SpecTasksPage: FC = () => {
             <Tooltip title={projectManagerAppId ? "Chat with Project Manager agent" : "Configure Project Manager agent in project settings to enable chat"}>
               <span>
                 <Button
-                  variant="outlined"
+                  variant="text"
+                  size="small"
                   startIcon={<Plus size={18} />}
                   onClick={handleOpenChatPanel}
                   disabled={!projectManagerAppId}
-                  sx={{ flexShrink: 0 }}
+                  sx={{ flexShrink: 0, textTransform: 'none', fontWeight: 500 }}
                 >
                   New Chat
                 </Button>
               </span>
             </Tooltip>
-            {defaultRepoId && (
-              <Button
-                variant="outlined"
-                startIcon={<FolderOpen size={18} />}
-                href={account.organizationTools.organization?.name
-                  ? `/org/${account.organizationTools.organization.name}/git-repos/${defaultRepoId}`
-                  : `/git-repos/${defaultRepoId}`}
-                onClick={(e: React.MouseEvent) => {
-                  if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return
-                  e.preventDefault()
-                  account.orgNavigate('git-repo-detail', { repoId: defaultRepoId })
-                }}
-                sx={{ flexShrink: 0 }}
-              >
-                Files
-              </Button>
-            )}
-            <Button
-              variant="outlined"
-              startIcon={<Settings size={18} />}
-              onClick={() => account.orgNavigate('project-settings', { id: projectId })}
-              sx={{ flexShrink: 0 }}
-            >
-              Settings
-            </Button>
           </Box>
           {/* Hide menu button on mobile - it will be in the bottom nav */}
           <Box sx={{ display: { xs: 'none', md: 'block' } }}>
@@ -1048,18 +1090,22 @@ const SpecTasksPage: FC = () => {
               },
             }}
           >
-            {isMobile && defaultRepoId && (
+            {defaultRepoId && (
               <MenuItem onClick={() => { account.orgNavigate('git-repo-detail', { repoId: defaultRepoId }); setViewMenuAnchorEl(null); }}>
                 <FolderOpen style={{ marginRight: 12, width: 20, height: 20 }} />
                 Files
               </MenuItem>
             )}
-            {isMobile && projectId && (
+            {projectId && (
               <MenuItem onClick={() => { account.orgNavigate('project-settings', { id: projectId }); setViewMenuAnchorEl(null); }}>
                 <Settings style={{ marginRight: 12, width: 20, height: 20 }} />
                 Settings
               </MenuItem>
             )}
+            <MenuItem onClick={() => { handleOpenInvite(); setViewMenuAnchorEl(null); }}>
+              <UserPlus style={{ marginRight: 12, width: 20, height: 20 }} />
+              Sharing
+            </MenuItem>
             <MenuItem onClick={() => { setShowArchived(!showArchived); setViewMenuAnchorEl(null); }}>
               {showArchived ? <ViewIcon sx={{ mr: 1.5, fontSize: 20 }} /> : <ArchiveIcon sx={{ mr: 1.5, fontSize: 20 }} />}
               {showArchived ? 'Show Active Tasks' : 'Show Archived Tasks'}
@@ -1551,7 +1597,6 @@ const SpecTasksPage: FC = () => {
               setTaskPriority('medium');
               setSelectedHelixAgent('');
               setJustDoItMode(false);
-              setUseHostDocker(false);
               // Reset branch configuration
               setBranchMode(TypesBranchMode.BranchModeNew);
               setBaseBranch(defaultBranchName);

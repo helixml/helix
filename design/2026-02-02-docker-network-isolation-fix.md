@@ -1,7 +1,7 @@
 # Docker Network Isolation Fix: Preventing Subnet Conflicts
 
 **Date:** 2026-02-02
-**Status:** Implemented
+**Status:** OUTDATED - The per-session sibling dockerd architecture this fixed has been removed. Docker-in-desktop mode eliminates subnet conflicts by design (see `2026-02-10-arbitrary-dind-nesting-simplification.md`).
 **Author:** Claude (with Luke)
 
 ## Executive Summary

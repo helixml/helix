@@ -91,3 +91,20 @@ screenshot-*.jpg
 # Rust build artifacts
 desktop/gst-pipewire-zerocopy/target/
 desktop/gst-pipewire-zerocopy/Cargo.lock
+# qemu-utm/ is a tracked fork of UTM's QEMU for frame export
+
+# macOS ARM UTM build artifacts
+UTM/
+qemu-utm/
+*.dylib
+# Go binaries built locally (not the source directories in api/cmd/)
+/logind-stub
+/mutter-lease-launcher
+desktop-bridge
+
+# Docker shim binary
+desktop/docker-shim/docker-shim
+
+# Settings-sync-daemon binaries
+api/cmd/settings-sync-daemon/settings-sync-daemon
+api/settings-sync-daemon

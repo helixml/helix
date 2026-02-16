@@ -20,55 +20,31 @@ export PATH="/usr/local/sbin/.iptables-legacy:$PATH"
 echo "Using iptables-legacy for Docker-in-Docker networking compatibility"
 
 # ================================================================================
-# Create custom bridge for sandbox dockerd
-# We use "sandbox0" instead of Docker's default "docker0" bridge to prevent
-# session dockerds from deleting it. Docker's startup code calls
-# removeDefaultBridgeInterface() which specifically targets "docker0".
-# By using a custom bridge name, we're immune to that cleanup logic.
-# See: design/2026-02-06-docker0-veth-reconnection.md
-# ================================================================================
-SANDBOX_BRIDGE="sandbox0"
-SANDBOX_BRIDGE_IP="10.213.0.1/24"
-SANDBOX_SUBNET="10.213.0.0/24"
-
-if ! ip link show "$SANDBOX_BRIDGE" >/dev/null 2>&1; then
-    echo "🌉 Creating bridge $SANDBOX_BRIDGE with IP $SANDBOX_BRIDGE_IP"
-    ip link add name "$SANDBOX_BRIDGE" type bridge
-    ip addr add "$SANDBOX_BRIDGE_IP" dev "$SANDBOX_BRIDGE"
-    ip link set "$SANDBOX_BRIDGE" up
-else
-    echo "✅ Bridge $SANDBOX_BRIDGE already exists"
-    # Ensure it's up and has the correct IP
-    ip link set "$SANDBOX_BRIDGE" up 2>/dev/null || true
-    if ! ip addr show "$SANDBOX_BRIDGE" | grep -q "10.213.0.1"; then
-        ip addr add "$SANDBOX_BRIDGE_IP" dev "$SANDBOX_BRIDGE" 2>/dev/null || true
-    fi
-fi
-
-# ================================================================================
 # Configure dockerd with DNS and optional NVIDIA runtime
-# DNS is configured to use dns-proxy (10.213.0.1) which forwards to outer Docker DNS.
-# This enables enterprise DNS resolution for FQDNs (e.g., myapp.internal.company.com).
-# Search domains are NOT needed for FQDNs - they're only for short hostnames.
-# NOTE: We use 10.213.0.1 because our custom bridge (sandbox0) uses 10.213.0.0/24
+# With docker-in-desktop mode, per-session dockerds no longer run in the sandbox.
+# The sandbox's dockerd only needs to launch desktop containers.
+# Each desktop container runs its own dockerd internally.
 # ================================================================================
 mkdir -p /etc/docker
 
-echo "🔗 DNS: 10.213.0.1 (dns-proxy → Docker DNS → enterprise DNS)"
+# Compute non-overlapping address pool based on nesting depth.
+# Each depth gets its own /16 from the 10.x.0.0 range:
+#   Depth 1 (sandbox):          10.213.0.0/16
+#   Depth 2 (desktop):          10.214.0.0/16 (in 17-start-dockerd.sh)
+#   Depth 3 (H-in-H sandbox):   10.215.0.0/16
+#   Depth N:                     10.(212+N).0.0/16
+DEPTH="${HELIX_DOCKER_DEPTH:-1}"
+POOL_OCTET=$((212 + DEPTH))
+if [ "$POOL_OCTET" -gt 255 ]; then
+    echo "⚠️  Nesting depth $DEPTH exceeds address space, clamping to 10.255.0.0/16"
+    POOL_OCTET=255
+fi
+echo "📍 Nesting depth=$DEPTH, address pool=10.${POOL_OCTET}.0.0/16"
 
-# GPU_VENDOR is set in docker-compose.yaml based on the sandbox profile:
-#   - sandbox-nvidia: GPU_VENDOR=nvidia
-#   - sandbox-amd-intel: GPU_VENDOR=intel
-#   - sandbox-software: GPU_VENDOR=none
-# Configure default-address-pools to use high 10.x range instead of 172.x.x.x
-# This prevents subnet conflicts with the outer Docker network (172.19.0.0/16)
-# which would cause routing issues for RevDial connections to the API.
-#
-# We use 10.213.0.0/16 - an awkward number (3×71) no human would choose.
-# See: https://docs.docker.com/reference/cli/dockerd/#daemon-configuration-file
+# GPU_VENDOR is set in docker-compose.yaml based on the sandbox profile
 if [[ "${GPU_VENDOR:-}" == "nvidia" ]]; then
     echo "🎮 GPU_VENDOR=nvidia - configuring NVIDIA container runtime"
-    cat > /etc/docker/daemon.json <<'DAEMON_JSON'
+    cat > /etc/docker/daemon.json <<DAEMON_JSON
 {
   "runtimes": {
     "nvidia": {
@@ -76,25 +52,23 @@ if [[ "${GPU_VENDOR:-}" == "nvidia" ]]; then
       "runtimeArgs": []
     }
   },
-  "dns": ["10.213.0.1"],
   "storage-driver": "overlay2",
   "log-level": "error",
   "insecure-registries": ["registry:5000"],
   "default-address-pools": [
-    {"base": "10.213.0.0/16", "size": 24}
+    {"base": "10.${POOL_OCTET}.0.0/16", "size": 24}
   ]
 }
 DAEMON_JSON
 else
     echo "ℹ️  GPU_VENDOR=${GPU_VENDOR:-unset} - NVIDIA runtime not configured"
-    cat > /etc/docker/daemon.json <<'DAEMON_JSON'
+    cat > /etc/docker/daemon.json <<DAEMON_JSON
 {
-  "dns": ["10.213.0.1"],
   "storage-driver": "overlay2",
   "log-level": "error",
   "insecure-registries": ["registry:5000"],
   "default-address-pools": [
-    {"base": "10.213.0.0/16", "size": 24}
+    {"base": "10.${POOL_OCTET}.0.0/16", "size": 24}
   ]
 }
 DAEMON_JSON
@@ -102,23 +76,42 @@ fi
 
 echo "✅ Configured sandbox dockerd"
 
+# Enable cgroup v2 controller delegation for nested containers.
+# By default only cpuset/cpu/pids are delegated to subtrees.
+# Kind (Kubernetes-in-Docker) needs memory+io for systemd inside node containers.
+#
+# cgroup v2 has a "no internal processes" constraint: a cgroup can't have both
+# processes AND child cgroups with controllers. We must move all root-cgroup
+# processes into a child cgroup (init.scope) before enabling controllers.
+if [ -f /sys/fs/cgroup/cgroup.subtree_control ]; then
+    # Step 1: Create init.scope and move all root cgroup processes there
+    mkdir -p /sys/fs/cgroup/init.scope
+    for pid in $(cat /sys/fs/cgroup/cgroup.procs 2>/dev/null); do
+        echo "$pid" > /sys/fs/cgroup/init.scope/cgroup.procs 2>/dev/null || true
+    done
+
+    # Step 2: Enable all available controllers for subtrees
+    AVAILABLE=$(cat /sys/fs/cgroup/cgroup.controllers)
+    ENABLE=""
+    for ctrl in $AVAILABLE; do
+        ENABLE="$ENABLE +$ctrl"
+    done
+    if [ -n "$ENABLE" ]; then
+        echo "$ENABLE" > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || true
+    fi
+    echo "✅ cgroup v2 subtree controllers: $(cat /sys/fs/cgroup/cgroup.subtree_control)"
+fi
+
 # Start dockerd with auto-restart supervisor loop in background
 # This ensures dockerd restarts if it crashes (which would break all sandboxes)
-#
-# We use --bridge=sandbox0 to tell dockerd to use our pre-created bridge.
-# This is a "user-managed bridge" in Docker terminology, which means:
-# 1. Docker won't try to create or delete it
-# 2. Docker won't be affected by session dockerds cleaning up "docker0"
-# 3. We control the bridge lifecycle ourselves
 (
     while true; do
         # Clean up stale PID files before each restart attempt
         rm -f /var/run/docker.pid /run/docker/containerd/containerd.pid 2>/dev/null || true
 
-        echo "[$(date -Iseconds)] Starting dockerd with bridge=$SANDBOX_BRIDGE..."
+        echo "[$(date -Iseconds)] Starting dockerd..."
         dockerd --config-file /etc/docker/daemon.json \
-            --host=unix:///var/run/docker.sock \
-            --bridge="$SANDBOX_BRIDGE"
+            --host=unix:///var/run/docker.sock
         EXIT_CODE=$?
         echo "[$(date -Iseconds)] ⚠️  dockerd exited with code $EXIT_CODE, restarting in 2s..."
         sleep 2
@@ -235,7 +228,7 @@ load_desktop_image() {
 }
 
 # Load desktop images (sway is required, others are optional)
-load_desktop_image "sway" "true"
+load_desktop_image "sway" "false"
 load_desktop_image "zorin" "false"
 load_desktop_image "ubuntu" "false"
 load_desktop_image "kde" "false"

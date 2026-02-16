@@ -1,5 +1,5 @@
-import React, { useState,useMemo } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip } from '@mui/material';
+import React, { useState, useMemo } from 'react';
+import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider } from '@mui/material';
 import Container from '@mui/material/Container';
 import Page from '../components/system/Page';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
@@ -12,6 +12,8 @@ import { useGetOrgByName } from '../services/orgService';
 import { PROVIDERS, Provider } from '../components/providers/types';
 import useRouter from '../hooks/useRouter';
 import useAccount from '../hooks/useAccount';
+import AnthropicLogo from '../components/providers/logos/anthropic';
+import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from '../components/account/ClaudeSubscriptionConnect';
 
 const Providers: React.FC = () => {
   const router = useRouter()
@@ -33,6 +35,10 @@ const Providers: React.FC = () => {
     orgId: org?.id,
     enabled: !isLoadingOrg,
   });
+
+  // Claude subscription state (must be called before any early returns)
+  const { data: claudeSubscriptions } = useClaudeSubscriptions()
+  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
 
   // If providers management is disabled and user is not admin, show message
   if (!providersManagementEnabled && !account.admin) {
@@ -86,16 +92,76 @@ const Providers: React.FC = () => {
   const userEndpoints = providerEndpoints.filter(endpoint => endpoint.endpoint_type === 'user');
 
   return (
-    <Page breadcrumbTitle="Providers" topbarContent={null}>      
+    <Page breadcrumbTitle="Providers" topbarContent={null}>
       <Container maxWidth="md" sx={{ mt: 10, mb: 6, display: 'flex', flexDirection: 'column', alignItems: 'left' }}>
         <Typography variant="h4" sx={{ mb: 2, fontWeight: 600 }}>
           AI Providers
         </Typography>
         <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
-          {editAllowed 
+          {editAllowed
             ? "Add your own API keys to use with your Helix agents."
             : "View the AI providers configured for your organization. Contact your organization owner to add new providers."
           }
+        </Typography>
+
+        {/* Claude Subscription Section */}
+        <Typography variant="h6" sx={{ mb: 1.5 }}>
+          Claude Subscription
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Sign in with your Claude account to use Claude Code as the coding agent in desktop sessions.
+        </Typography>
+        <Grid container spacing={3} justifyContent="left" sx={{ mb: 4 }}>
+          <Grid item xs={12} sm={6} md={4} display="flex" justifyContent="center">
+            <Card
+              sx={{
+                width: 320,
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: 2,
+                borderStyle: 'dashed',
+                borderWidth: 1,
+                borderColor: hasClaudeSubscription ? 'success.main' : 'divider',
+                opacity: hasClaudeSubscription ? 1 : 0.85,
+                transition: 'all 0.2s',
+                '&:hover': {
+                  boxShadow: editAllowed ? 4 : 2,
+                  transform: editAllowed ? 'translateY(-4px)' : 'none',
+                  borderColor: editAllowed ? 'primary.main' : 'divider',
+                },
+              }}
+            >
+              <CardHeader
+                avatar={
+                  <Avatar sx={{ bgcolor: 'white', width: 56, height: 56 }}>
+                    <AnthropicLogo style={{ width: 40, height: 40 }} />
+                  </Avatar>
+                }
+                title="Claude Subscription"
+                titleTypographyProps={{ variant: 'h6', align: 'center' }}
+              />
+              <CardContent sx={{ flexGrow: 1, textAlign: 'center' }}>
+                <Typography variant="body2" color="text.secondary">
+                  Use your Claude account with Claude Code inside desktop agents. Not an API key provider.
+                </Typography>
+              </CardContent>
+              <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
+                <ClaudeSubscriptionConnect variant="button" />
+              </CardActions>
+            </Card>
+          </Grid>
+        </Grid>
+
+        <Divider sx={{ mb: 3 }} />
+
+        <Typography variant="h6" sx={{ mb: 1.5 }}>
+          API Key Providers
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Add API keys for chat, Zed Agent, Qwen Code, and other AI features.
         </Typography>
         <Grid container spacing={3} justifyContent="left">
           {PROVIDERS.map((provider) => {
