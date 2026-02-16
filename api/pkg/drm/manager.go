@@ -237,11 +237,12 @@ func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, wi
 	}
 	m.logger.Info("scanout enabled in QEMU", "scanout_idx", scanoutIdx)
 
-	// 3. Trigger connector reprobe in guest kernel
-	if err := reprobeConnector(scanoutIdx); err != nil {
-		m.logger.Warn("connector reprobe failed (may already be connected)", "err", err)
-		// Not fatal - connector might already be probed
-	}
+	// 3. Skip connector reprobe — writing to /sys/class/drm/card0-Virtual-N/status
+	// calls drm_helper_probe_single_connector_modes which acquires mode_config.mutex.
+	// If a gnome-shell is mid-atomic-commit waiting for a GPU fence, it holds
+	// mode_config.mutex and this blocks indefinitely.  QEMU's enableScanout already
+	// triggers dpy_set_ui_info → guest hotplug event, so the connector should
+	// appear without an explicit reprobe.
 
 	// 4. Wait briefly for connector to become connected
 	time.Sleep(500 * time.Millisecond)
