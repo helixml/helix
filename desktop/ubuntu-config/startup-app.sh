@@ -172,6 +172,14 @@ sleep 0.5
 wireplumber &
 sleep 0.5
 
+# Pre-initialize GNOME Keyring with empty password to prevent
+# "Choose password for new keyring" dialog. Without this, any app that
+# touches the Secret Service D-Bus API (Chrome, Zed, libsecret) triggers
+# gnome-keyring-daemon auto-activation, which prompts for a password
+# because no default keyring exists yet.
+echo -n "" | gnome-keyring-daemon --start --components=secrets --unlock
+gow_log "[start] GNOME Keyring initialized with empty password"
+
 # Load Ubuntu desktop theming (Yaru dark theme, fonts, Helix background)
 if [ -f /opt/gow/dconf-settings.ini ]; then
     gow_log "[start] Loading Ubuntu desktop theming from dconf-settings.ini"
