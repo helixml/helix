@@ -642,7 +642,7 @@ Pin: release o=LP-PPA-xtradeb-apps
 Pin-Priority: 900
 PINEOF
     apt-get update
-    apt-get install -y chromium-browser
+    apt-get install -y chromium-browser chromium-driver
 
     # Create compatibility symlinks so chrome-devtools-mcp and scripts work
     ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome-stable
