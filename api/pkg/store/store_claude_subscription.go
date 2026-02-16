@@ -54,6 +54,7 @@ func (s *PostgresStore) GetClaudeSubscriptionForOwner(ctx context.Context, owner
 	var sub types.ClaudeSubscription
 	err := s.gdb.WithContext(ctx).
 		Where("owner_id = ? AND owner_type = ?", ownerID, ownerType).
+		Order("created DESC").
 		First(&sub).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

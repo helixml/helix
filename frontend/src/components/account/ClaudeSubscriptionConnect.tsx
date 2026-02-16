@@ -9,10 +9,13 @@ import DialogContentText from '@mui/material/DialogContentText'
 import DialogActions from '@mui/material/DialogActions'
 import CircularProgress from '@mui/material/CircularProgress'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
+import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import ExternalAgentDesktopViewer, { useSandboxState } from '../external-agent/ExternalAgentDesktopViewer'
+import { getTokenExpiryStatus } from './claudeSubscriptionUtils'
 
 interface ClaudeSubscriptionData {
   id: string
@@ -22,6 +25,7 @@ interface ClaudeSubscriptionData {
   rate_limit_tier: string
   status: string
   access_token_expires_at: string
+  last_refreshed_at?: string
   owner_type: string
   owner_id: string
 }
@@ -135,18 +139,44 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     }
   }, [])
 
+  const firstSub = subscriptions?.[0]
+  const expiry = firstSub ? getTokenExpiryStatus(firstSub.access_token_expires_at) : null
+  const isExpired = expiry?.isExpired ?? false
+
   if (variant === 'button') {
     return (
       <>
         {hasSubscription ? (
-          <Button
-            size="small"
-            variant="outlined"
-            color="error"
-            onClick={() => setDisconnectDialogOpen(true)}
-          >
-            Disconnect
-          </Button>
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+            {isExpired ? (
+              <Button
+                size="small"
+                variant="contained"
+                color="warning"
+                onClick={handleStartLogin}
+                disabled={loginStarting}
+                startIcon={<ErrorOutlineIcon />}
+              >
+                {loginStarting ? 'Starting...' : 'Re-authenticate'}
+              </Button>
+            ) : (
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                onClick={() => setDisconnectDialogOpen(true)}
+              >
+                Disconnect
+              </Button>
+            )}
+            {expiry && (
+              <Typography variant="caption" color={`${expiry.color}.main`} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                {expiry.isExpiringSoon && !isExpired && <WarningAmberIcon sx={{ fontSize: 12 }} />}
+                {isExpired && <ErrorOutlineIcon sx={{ fontSize: 12 }} />}
+                {expiry.label}
+              </Typography>
+            )}
+          </Box>
         ) : (
           <Button
             size="small"
@@ -207,13 +237,30 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   // inline variant - used in settings
   return (
     <>
-      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
         {hasSubscription ? (
           <>
-            <CheckCircleIcon color="success" fontSize="small" />
-            <Typography variant="body2" color="success.main">Claude subscription connected</Typography>
-            <Button size="small" onClick={handleStartLogin} disabled={loginStarting}>
-              {loginStarting ? 'Starting...' : 'Re-login'}
+            {isExpired ? (
+              <ErrorOutlineIcon color="error" fontSize="small" />
+            ) : (
+              <CheckCircleIcon color="success" fontSize="small" />
+            )}
+            <Typography variant="body2" color={isExpired ? 'error.main' : 'success.main'}>
+              {isExpired ? 'Claude token expired' : 'Claude subscription connected'}
+            </Typography>
+            {expiry && (
+              <Typography variant="caption" color={`${expiry.color}.main`} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                ({expiry.label})
+              </Typography>
+            )}
+            <Button
+              size="small"
+              variant={isExpired ? 'contained' : 'text'}
+              color={isExpired ? 'warning' : 'primary'}
+              onClick={handleStartLogin}
+              disabled={loginStarting}
+            >
+              {loginStarting ? 'Starting...' : isExpired ? 'Re-authenticate' : 'Re-login'}
             </Button>
           </>
         ) : (

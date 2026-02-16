@@ -50,11 +50,8 @@ detect_render_node() {
             return 0
             ;;
         *)
-            echo "[render-node] WARNING: Unknown GPU_VENDOR: $gpu_vendor, defaulting to software rendering"
-            export HELIX_RENDER_NODE="SOFTWARE"
-            export LIBGL_ALWAYS_SOFTWARE=1
-            export MESA_GL_VERSION_OVERRIDE=4.5
-            return 0
+            echo "[render-node] FATAL: Unknown GPU_VENDOR: $gpu_vendor"
+            return 1
             ;;
     esac
 
@@ -106,60 +103,8 @@ detect_render_node() {
     # This handles cases where GPU_VENDOR doesn't match reality (e.g., nvidia-smi
     # exists but no NVIDIA GPU available, or multi-GPU system with wrong vendor set)
     if [ -z "$detected_node" ]; then
-        echo "[render-node] WARNING: Could not find $target_driver driver, auto-detecting best available GPU..."
-
-        # Priority order: nvidia > amdgpu > i915 > first available
-        local priority_drivers="nvidia amdgpu i915"
-        for try_driver in $priority_drivers; do
-            for render_node in /dev/dri/renderD*; do
-                if [ -e "$render_node" ]; then
-                    node_name=$(basename "$render_node")
-                    driver_link="/sys/class/drm/$node_name/device/driver"
-                    if [ -L "$driver_link" ]; then
-                        driver=$(readlink "$driver_link" | grep -o '[^/]*$')
-                        if [ "$driver" = "$try_driver" ]; then
-                            detected_node="$render_node"
-                            echo "[render-node] Auto-detected: $render_node (driver: $driver)"
-
-                            # Find corresponding card device
-                            pci_path=$(readlink -f "/sys/class/drm/$node_name/device")
-                            for card in /dev/dri/card*; do
-                                if [ -e "$card" ]; then
-                                    card_name=$(basename "$card")
-                                    card_pci=$(readlink -f "/sys/class/drm/$card_name/device")
-                                    if [ "$pci_path" = "$card_pci" ]; then
-                                        detected_card="$card"
-                                        echo "[render-node] Auto-detected card: $card"
-                                        break
-                                    fi
-                                fi
-                            done
-
-                            # Update gpu_vendor to match detected driver for VA-API config
-                            case "$driver" in
-                                nvidia) gpu_vendor="nvidia" ;;
-                                amdgpu) gpu_vendor="amd" ;;
-                                i915)   gpu_vendor="intel" ;;
-                            esac
-                            break 2  # Exit both loops
-                        fi
-                    fi
-                fi
-            done
-        done
-
-        # If still nothing found, try first available render node
-        if [ -z "$detected_node" ] && [ -e "/dev/dri/renderD128" ]; then
-            detected_node="/dev/dri/renderD128"
-            detected_card="/dev/dri/card0"
-            echo "[render-node] Fallback: using $detected_node (unknown driver)"
-        fi
-
-        if [ -z "$detected_node" ]; then
-            # No render nodes found - this is OK for NVIDIA (uses NVENC via CUDA, not VA-API)
-            echo "[render-node] WARNING: No render nodes found in /dev/dri/ (OK for NVIDIA NVENC)"
-            return 0
-        fi
+        echo "[render-node] FATAL: Could not find $target_driver driver"
+        return 1
     fi
 
     export HELIX_RENDER_NODE="$detected_node"

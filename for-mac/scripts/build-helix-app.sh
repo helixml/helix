@@ -124,6 +124,17 @@ fi
 
 cp "$QEMU_DYLIB" "$MACOS_DIR/libqemu-aarch64-softmmu.dylib"
 cp "$QEMU_WRAPPER" "$MACOS_DIR/qemu-system-aarch64"
+
+# qemu-img is needed at runtime for creating/resizing qcow2 disk images.
+# Without it bundled, the app fails on machines without Homebrew QEMU installed.
+QEMU_IMG="$SYSROOT/bin/qemu-img"
+if [ -f "$QEMU_IMG" ]; then
+    cp "$QEMU_IMG" "$MACOS_DIR/qemu-img"
+    log "  Copied qemu-img ($(du -h "$MACOS_DIR/qemu-img" | awk '{print $1}'))"
+else
+    log "  WARNING: qemu-img not found at $QEMU_IMG — disk create/resize will require Homebrew QEMU"
+fi
+
 log "  Copied QEMU dylib ($(du -h "$MACOS_DIR/libqemu-aarch64-softmmu.dylib" | awk '{print $1}')) + wrapper ($(du -h "$MACOS_DIR/qemu-system-aarch64" | awk '{print $1}'))"
 
 # =============================================================================
@@ -368,6 +379,10 @@ codesign --force --sign - --timestamp=none \
 codesign --force --sign - --timestamp=none \
     --entitlements "$QEMU_ENTITLEMENTS" \
     "$MACOS_DIR/qemu-system-aarch64" 2>/dev/null || true
+if [ -f "$MACOS_DIR/qemu-img" ]; then
+    codesign --force --sign - --timestamp=none \
+        "$MACOS_DIR/qemu-img" 2>/dev/null || true
+fi
 
 log "  Ad-hoc signing complete"
 
@@ -401,6 +416,7 @@ log ""
 log "Contents:"
 log "  MacOS/${APP_EXEC_NAME}      - Main app (Wails)"
 log "  MacOS/qemu-system-aarch64   - QEMU wrapper executable"
+log "  MacOS/qemu-img              - QEMU disk image tool"
 log "  MacOS/libqemu-*.dylib       - Custom QEMU core with helix-frame-export"
 log "  Frameworks/                  - ${FW_COUNT} open-source frameworks"
 log "  Resources/firmware/          - EFI firmware (edk2)"

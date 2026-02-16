@@ -418,6 +418,11 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 	// TODO: Remove this after vsockenc receive thread issue is fixed
 	env = append(env, "GST_DEBUG=vsockenc:5")
 
+	// Tell claude-code-acp that we're in a sandbox environment.
+	// The ACP checks (!IS_ROOT || IS_SANDBOX) to allow bypassPermissions mode.
+	// Our containers run as root, so without this Claude Code prompts for every tool use.
+	env = append(env, "IS_SANDBOX=1")
+
 	// Add GPU-specific environment variables
 	switch req.GPUVendor {
 	case "nvidia":

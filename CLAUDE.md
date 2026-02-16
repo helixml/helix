@@ -85,7 +85,7 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 | Hydra (`api/pkg/hydra/`) | `./stack build-sandbox` | Runs IN sandbox |
 | Desktop image / desktop-bridge / zerocopy | `./stack build-ubuntu` | Pushes to local registry |
 | Sandbox scripts | `./stack build-sandbox` | Dockerfile.sandbox |
-| Zed IDE | `./stack build-zed` | Binary → desktop image |
+| Zed IDE | `./stack build-zed release` | Binary → desktop image. **Must use `release` on ARM** (`gemm-f16` fullfp16 asm fails in debug) |
 | Qwen Code | `cd ../qwen-code && git commit -am "msg" && cd ../helix && ./stack build-ubuntu` | |
 | DRM manager (`api/pkg/drm/`, `api/cmd/helix-drm-manager/`) | `./stack build-drm-manager` | Systemd service on VM guest |
 | Zed config (`zed_config.go`) | No rebuild | API-side, Air hot reloads. Start NEW session |

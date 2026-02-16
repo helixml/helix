@@ -27,7 +27,8 @@ static void fixStatusItemIconSize() {
 		if (!ivar) return;
 		NSStatusItem *item = object_getIvar(owner, ivar);
 		if (item && item.button && item.button.image) {
-			[item.button.image setSize:NSMakeSize(18, 18)];
+			[item.button.image setSize:NSMakeSize(26, 22)];
+			item.length = 30;
 		}
 	});
 }
@@ -52,7 +53,7 @@ func startSystrayOnMainThread(start func()) {
 }
 
 // fixTrayIconSize overrides energye/systray's hardcoded 16x16 icon size
-// to the standard macOS menu bar size (18x18 points).
+// to 22x22 points to match typical macOS menu bar icon sizes.
 func fixTrayIconSize() {
 	C.fixStatusItemIconSize()
 }

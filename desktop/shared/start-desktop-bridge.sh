@@ -15,7 +15,8 @@ log "Starting..."
 
 # D-Bus session is inherited from dbus-run-session (both Sway and GNOME use this pattern)
 if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
-    log "WARNING: DBUS_SESSION_BUS_ADDRESS not set - should be launched from dbus-run-session"
+    log "FATAL: DBUS_SESSION_BUS_ADDRESS not set - must be launched from dbus-run-session"
+    exit 1
 fi
 
 # Wait for Wayland socket (aggressive polling - 50ms intervals)

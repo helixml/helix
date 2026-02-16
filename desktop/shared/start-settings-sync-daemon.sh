@@ -16,16 +16,17 @@ log "Starting..."
 
 # Check required Helix environment variables
 if [ -z "$HELIX_SESSION_ID" ] || [ -z "$HELIX_API_URL" ]; then
-    log "WARNING: HELIX_SESSION_ID or HELIX_API_URL not set, settings sync disabled"
+    log "FATAL: HELIX_SESSION_ID or HELIX_API_URL not set"
     log "HELIX_SESSION_ID=${HELIX_SESSION_ID:-NOT SET}"
     log "HELIX_API_URL=${HELIX_API_URL:-NOT SET}"
-    exit 0
+    exit 1
 fi
 
 # Check for USER_API_TOKEN - required for authenticating with the Helix API
 # Note: daemon has retry logic if token isn't immediately available
 if [ -z "$USER_API_TOKEN" ]; then
-    log "WARNING: USER_API_TOKEN not set - daemon will retry but may fail"
+    log "FATAL: USER_API_TOKEN not set"
+    exit 1
 fi
 
 # D-Bus session is inherited from dbus-run-session (both Sway and GNOME use this pattern)

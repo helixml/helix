@@ -41,8 +41,9 @@ wait_for_setup_complete() {
             echo "Still waiting for setup... ($WAIT_COUNT seconds)"
         fi
         if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
-            echo "Warning: Setup timeout after ${MAX_WAIT}s, proceeding anyway..."
-            return 1
+            echo "FATAL: Workspace setup did not complete after ${MAX_WAIT}s."
+            echo "Check: cat /tmp/helix-workspace-setup.log"
+            exit 1
         fi
     done
 
@@ -69,8 +70,9 @@ wait_for_zed_config() {
         fi
     done
 
-    echo "Warning: Settings not ready after ${MAX_WAIT}s, proceeding anyway..."
-    return 1
+    echo "FATAL: Zed settings not ready after ${MAX_WAIT}s. Settings-sync-daemon may have failed."
+    echo "Check: ls -la $HOME/.config/zed/settings.json; journalctl -u settings-sync-daemon --no-pager -n 50"
+    exit 1
 }
 
 wait_for_claude_credentials() {
@@ -102,8 +104,9 @@ wait_for_claude_credentials() {
         fi
     done
 
-    echo "Warning: Claude credentials not ready after ${MAX_WAIT}s, proceeding anyway..."
-    return 1
+    echo "FATAL: Claude credentials not ready after ${MAX_WAIT}s. Settings-sync-daemon may have failed."
+    echo "Check: ls -la $CREDS_FILE; journalctl -u settings-sync-daemon --no-pager -n 50"
+    exit 1
 }
 
 read_zed_folders() {

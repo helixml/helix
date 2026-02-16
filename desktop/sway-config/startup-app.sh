@@ -21,7 +21,8 @@ echo "Starting Helix Desktop (Sway)..."
 if [ -f /usr/local/bin/detect-render-node.sh ]; then
     source /usr/local/bin/detect-render-node.sh
 else
-    echo "WARNING: detect-render-node.sh not found, GPU detection skipped"
+    echo "FATAL: detect-render-node.sh not found"
+    exit 1
 fi
 
 # NOTE: Telemetry firewall is configured in the sandbox container,

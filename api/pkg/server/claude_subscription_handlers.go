@@ -85,6 +85,16 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 		expiresAt = time.UnixMilli(creds.ExpiresAt)
 	}
 
+	// Delete any existing subscriptions for this owner before creating a new one.
+	// Re-auth creates a fresh subscription; stale rows would shadow it in queries.
+	existingSubs, _ := apiServer.Store.ListClaudeSubscriptions(req.Context(), ownerID)
+	for _, old := range existingSubs {
+		if old.OwnerType == ownerType {
+			_ = apiServer.Store.DeleteClaudeSubscription(req.Context(), old.ID)
+			log.Info().Str("old_subscription_id", old.ID).Msg("Deleted old Claude subscription on re-auth")
+		}
+	}
+
 	sub := &types.ClaudeSubscription{
 		OwnerID:              ownerID,
 		OwnerType:            ownerType,
@@ -327,6 +337,97 @@ func (apiServer *HelixAPIServer) getSessionClaudeCredentials(_ http.ResponseWrit
 	}
 
 	return &creds, nil
+}
+
+// @Summary Update Claude credentials for a session
+// @Description Push refreshed Claude OAuth credentials back to the API (e.g. after Claude Code refreshes its token).
+// @Description Only accepts runner/session-scoped tokens.
+// @Tags Claude
+// @Accept json
+// @Produce json
+// @Param id path string true "Session ID"
+// @Param body body types.ClaudeOAuthCredentials true "Refreshed credentials"
+// @Success 200 {object} map[string]string
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security ApiKeyAuth
+// @Router /api/v1/sessions/{id}/claude-credentials [put]
+func (apiServer *HelixAPIServer) updateSessionClaudeCredentials(_ http.ResponseWriter, req *http.Request) (map[string]string, *system.HTTPError) {
+	ctx := req.Context()
+	vars := mux.Vars(req)
+	sessionID := vars["id"]
+
+	// Get session
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+
+	// Only allow runner token or session owner (same pattern as getSessionClaudeCredentials)
+	user := getRequestUser(req)
+	if user == nil {
+		return nil, system.NewHTTPError403("access denied")
+	}
+	if user.TokenType != types.TokenTypeRunner && session.Owner != user.ID {
+		return nil, system.NewHTTPError403("access denied")
+	}
+
+	// Parse the refreshed credentials from the request body
+	var creds types.ClaudeOAuthCredentials
+	if err := json.NewDecoder(req.Body).Decode(&creds); err != nil {
+		return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+	}
+	if creds.AccessToken == "" || creds.RefreshToken == "" {
+		return nil, system.NewHTTPError400("accessToken and refreshToken are required")
+	}
+
+	// Look up the effective subscription for this session's owner
+	orgID := session.OrganizationID
+	sub, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, session.Owner, orgID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("no Claude subscription found for session owner")
+		}
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get Claude subscription: %v", err))
+	}
+
+	// Re-encrypt the updated credentials
+	credJSON, err := json.Marshal(creds)
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to marshal credentials")
+	}
+
+	encKey, err := crypto.GetEncryptionKey()
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to get encryption key")
+	}
+
+	encrypted, err := crypto.EncryptAES256GCM(credJSON, encKey)
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to encrypt credentials")
+	}
+
+	// Update the subscription
+	sub.EncryptedCredentials = encrypted
+	if creds.ExpiresAt > 0 {
+		sub.AccessTokenExpiresAt = time.UnixMilli(creds.ExpiresAt)
+	}
+	now := time.Now()
+	sub.LastRefreshedAt = &now
+
+	if _, err := apiServer.Store.UpdateClaudeSubscription(ctx, sub); err != nil {
+		return nil, system.NewHTTPError500("failed to update subscription: " + err.Error())
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("subscription_id", sub.ID).
+		Time("expires_at", sub.AccessTokenExpiresAt).
+		Msg("Updated Claude subscription credentials from session")
+
+	return map[string]string{"status": "ok"}, nil
 }
 
 // ClaudeLoginSessionResponse is returned when starting a Claude login session
