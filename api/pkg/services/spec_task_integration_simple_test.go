@@ -157,18 +157,19 @@ func TestMultiSessionCoordination(t *testing.T) {
 			Phase:      types.SpecTaskPhaseImplementation,
 		}
 
+		parentID := parentSession.ID
 		spawnedSession := &types.SpecTaskWorkSession{
 			ID:                  "spawned_789",
 			SpecTaskID:          parentSession.SpecTaskID,
-			ParentWorkSessionID: parentSession.ID,
-			SpawnedBySessionID:  parentSession.ID,
+			ParentWorkSessionID: &parentID,
+			SpawnedBySessionID:  &parentID,
 			Status:              types.SpecTaskWorkSessionStatusPending,
 			Phase:               types.SpecTaskPhaseImplementation,
 		}
 
 		// Validate relationships
-		assert.Equal(t, parentSession.ID, spawnedSession.ParentWorkSessionID)
-		assert.Equal(t, parentSession.ID, spawnedSession.SpawnedBySessionID)
+		assert.Equal(t, parentSession.ID, *spawnedSession.ParentWorkSessionID)
+		assert.Equal(t, parentSession.ID, *spawnedSession.SpawnedBySessionID)
 		assert.Equal(t, parentSession.SpecTaskID, spawnedSession.SpecTaskID)
 		assert.True(t, spawnedSession.HasParent())
 		assert.True(t, spawnedSession.WasSpawned())
@@ -364,15 +365,16 @@ func TestDataStructureRelationships(t *testing.T) {
 		}
 
 		// Child session spawned from parent
+		parentID := parentSession.ID
 		childSession := &types.SpecTaskWorkSession{
 			ID:                  "child_456",
-			ParentWorkSessionID: parentSession.ID,
-			SpawnedBySessionID:  parentSession.ID,
+			ParentWorkSessionID: &parentID,
+			SpawnedBySessionID:  &parentID,
 		}
 
 		assert.True(t, childSession.HasParent())
 		assert.True(t, childSession.WasSpawned())
-		assert.Equal(t, parentSession.ID, childSession.ParentWorkSessionID)
+		assert.Equal(t, parentSession.ID, *childSession.ParentWorkSessionID)
 	})
 }
 

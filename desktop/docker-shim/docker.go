@@ -30,56 +30,10 @@ func runDocker(args []string) int {
 	return execReal(DockerRealPath, newArgs)
 }
 
-// processDockerArgs processes docker arguments for path translation and cache injection
-// Returns error if a required component (like shared builder) is unavailable
+// processDockerArgs processes docker arguments for cache injection.
+// Returns error if a required component (like shared builder) is unavailable.
 func processDockerArgs(args []string) ([]string, error) {
-	result := make([]string, 0, len(args)+4) // Extra space for cache flags
-
-	// First pass: translate paths in volume/mount arguments
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-
-		switch {
-		case arg == "-v" || arg == "--volume":
-			// Next argument is the volume spec
-			result = append(result, arg)
-			if i+1 < len(args) {
-				i++
-				result = append(result, processVolumeArg(args[i]))
-			}
-
-		case strings.HasPrefix(arg, "-v=") || strings.HasPrefix(arg, "--volume="):
-			// Volume spec is part of the argument
-			prefix := arg[:strings.Index(arg, "=")+1]
-			vol := arg[strings.Index(arg, "=")+1:]
-			result = append(result, prefix+processVolumeArg(vol))
-
-		case arg == "--mount":
-			// --mount uses key=value pairs
-			result = append(result, arg)
-			if i+1 < len(args) {
-				i++
-				result = append(result, processMountArg(args[i]))
-			}
-
-		case strings.HasPrefix(arg, "--mount="):
-			// Mount spec is part of the argument
-			mountSpec := strings.TrimPrefix(arg, "--mount=")
-			result = append(result, "--mount="+processMountArg(mountSpec))
-
-		default:
-			result = append(result, arg)
-		}
-	}
-
-	// Second pass: inject BuildKit cache flags for build commands
-	// This may fail if the shared builder is unavailable
-	result, err := injectBuildCacheFlags(result)
-	if err != nil {
-		return nil, err
-	}
-
-	return result, nil
+	return injectBuildCacheFlags(args)
 }
 
 // isBuildCommand checks if the args represent a docker build command

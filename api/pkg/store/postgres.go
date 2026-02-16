@@ -124,6 +124,20 @@ func (s *PostgresStore) runMigrations() error {
 		return fmt.Errorf("failed to run version migrations: %w", err)
 	}
 
+	// One-time data fix: truncate oversized session names before AutoMigrate
+	// adds the varchar(255) constraint. Safe to run on every startup because
+	// the WHERE clause makes it a no-op once all names are within bounds.
+	// Input validation in CreateSession/UpdateSession/UpdateSessionName now
+	// prevents new oversized names from being written.
+	// Skip on fresh databases where the sessions table doesn't exist yet.
+	if s.gdb.Migrator().HasTable(&types.Session{}) {
+		if err := s.gdb.WithContext(context.Background()).Exec(
+			"UPDATE sessions SET name = LEFT(name, 255) WHERE LENGTH(name) > 255",
+		).Error; err != nil {
+			return fmt.Errorf("failed to truncate oversized session names: %w", err)
+		}
+	}
+
 	err = s.gdb.WithContext(context.Background()).AutoMigrate(
 		&types.Organization{},
 		&types.User{},
@@ -192,6 +206,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.PromptHistoryEntry{},
 		&types.GlobalCounter{},
 		&types.CloneGroup{},
+		&types.ClaudeSubscription{},
 	)
 	if err != nil {
 		return err
@@ -503,6 +518,14 @@ func connect(ctx context.Context, cfg connectConfig) (*gorm.DB, error) {
 
 			dsn := fmt.Sprintf("user=%s password=%s host=%s port=%d dbname=%s %s",
 				cfg.username, cfg.password, cfg.host, cfg.port, cfg.database, sslSettings)
+
+			// When using a custom schema, set search_path so Postgres resolves
+			// unqualified table names within that schema. Without this, GORM's
+			// NamingStrategy{TablePrefix} can leak FK constraints into the public
+			// schema because the connection's search_path defaults to public.
+			if cfg.schemaName != "" {
+				dsn += fmt.Sprintf(" options='-csearch_path=%s'", cfg.schemaName)
+			}
 
 			dialector = gormpostgres.Open(dsn)
 

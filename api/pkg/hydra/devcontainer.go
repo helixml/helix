@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -142,16 +143,6 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}
 	defer dockerClient.Close()
 
-	// Ensure sandbox0 bridge exists when using the main sandbox dockerd.
-	// This is a defensive measure against the sandbox bridge mysteriously disappearing.
-	// Only do this for the default socket (main dockerd uses sandbox0);
-	// session dockerds use their own hydra{N} bridges.
-	if req.DockerSocket == "" {
-		if err := dm.manager.EnsureSandboxBridge(); err != nil {
-			log.Warn().Err(err).Str("bridge", SandboxBridgeName).Msg("Failed to ensure sandbox bridge, container networking may fail")
-		}
-	}
-
 	// Build container configuration
 	containerConfig := &container.Config{
 		Image:    resolvedImage,
@@ -171,6 +162,10 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 
 	// Ensure mount source directories exist before creating container
 	for _, m := range req.Mounts {
+		// Skip volume mounts (Docker creates named volumes automatically)
+		if m.Type == "volume" {
+			continue
+		}
 		// Skip socket files and runtime directories - they're not directories to create
 		if m.Source == "" ||
 			strings.HasPrefix(m.Source, "/run/") ||
@@ -419,6 +414,15 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 		env = append(env, fmt.Sprintf("GPU_VENDOR=%s", req.GPUVendor))
 	}
 
+	// Enable GStreamer debug logging for vsockenc debugging
+	// TODO: Remove this after vsockenc receive thread issue is fixed
+	env = append(env, "GST_DEBUG=vsockenc:5")
+
+	// Tell claude-code-acp that we're in a sandbox environment.
+	// The ACP checks (!IS_ROOT || IS_SANDBOX) to allow bypassPermissions mode.
+	// Our containers run as root, so without this Claude Code prompts for every tool use.
+	env = append(env, "IS_SANDBOX=1")
+
 	// Add GPU-specific environment variables
 	switch req.GPUVendor {
 	case "nvidia":
@@ -442,11 +446,41 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 		}
 	}
 
+	// For virtio-gpu (macOS ARM): set scanout mode environment variables
+	// These tell detect-render-node.sh and desktop-bridge to use the
+	// DRM lease → QEMU VideoToolbox H.264 pipeline instead of PipeWire.
+	drmSock := "/run/helix-drm/drm.sock"
+	if _, err := os.Stat(drmSock); err == nil {
+		env = append(env,
+			"GPU_VENDOR=virtio",
+			"HELIX_SCANOUT_MODE=1",
+			"HELIX_VIDEO_MODE=scanout",
+			"XDG_RUNTIME_DIR=/run/user/1000",
+		)
+		// Pass QEMU frame export port so desktop-bridge connects to the right port.
+		// The macOS desktop app sets this in .env.vm; default 15937 for backwards compat.
+		if fePort := os.Getenv("HELIX_FRAME_EXPORT_PORT"); fePort != "" {
+			env = append(env, "HELIX_FRAME_EXPORT_PORT="+fePort)
+		}
+		log.Debug().Str("socket", drmSock).Msg("DRM manager socket found, setting scanout env vars")
+	}
+
+	// Pass Docker nesting depth for address pool isolation.
+	// Each nesting level's dockerd uses a different subnet range (10.(212+depth).0.0/16)
+	// to prevent routing conflicts between inner and outer Docker networks.
+	currentDepth := 1 // sandbox default
+	if depthStr := os.Getenv("HELIX_DOCKER_DEPTH"); depthStr != "" {
+		if d, err := strconv.Atoi(depthStr); err == nil {
+			currentDepth = d
+		}
+	}
+	env = append(env, fmt.Sprintf("HELIX_DOCKER_DEPTH=%d", currentDepth+1))
+
 	// Add BUILDKIT_HOST for shared BuildKit cache support
 	// Dev containers mount their per-session Docker socket, but helix-buildkit runs
 	// on the sandbox's main dockerd. Pass the BuildKit endpoint directly so docker-shim
 	// can create the buildx builder without looking up the container.
-	if buildkitHost := getBuildKitHost(); buildkitHost != "" {
+	if buildkitHost := GetBuildKitHost(); buildkitHost != "" {
 		env = append(env, fmt.Sprintf("BUILDKIT_HOST=%s", buildkitHost))
 		log.Debug().Str("buildkit_host", buildkitHost).Msg("Added BUILDKIT_HOST to dev container env")
 	}
@@ -506,8 +540,7 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *
 	hostConfig := &container.HostConfig{
 		NetworkMode: networkMode,
 		IpcMode:     "host",
-		Privileged:  false,
-		CapAdd:      []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"},
+		Privileged:  req.Privileged,
 		SecurityOpt: []string{"seccomp=unconfined", "apparmor=unconfined"},
 		Resources: container.Resources{
 			DeviceCgroupRules: dm.getDeviceCgroupRules(),
@@ -515,6 +548,12 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *
 				{Name: "nofile", Soft: 65536, Hard: 65536},
 			},
 		},
+	}
+
+	// Only add explicit capabilities when not in privileged mode
+	// (privileged mode already grants all capabilities)
+	if !req.Privileged {
+		hostConfig.CapAdd = []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
 	}
 
 	// Add ExtraHosts so the container can resolve "api" hostname.
@@ -533,9 +572,34 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *
 func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mount.Mount {
 	var mounts []mount.Mount
 
+	// CONTAINER_DOCKER_PATH: if set, per-session inner dockerd data uses bind mounts
+	// from a ZFS-backed path instead of Docker named volumes. This keeps the sandbox's
+	// own Docker storage on the root disk (so provisioned desktop images persist)
+	// while inner dockerd data benefits from ZFS dedup+compression.
+	containerDockerPath := os.Getenv("CONTAINER_DOCKER_PATH")
+
 	for _, m := range req.Mounts {
+		mountType := mount.TypeBind
+		if m.Type == "volume" {
+			mountType = mount.TypeVolume
+		}
+
+		// Redirect inner dockerd volumes to ZFS-backed bind mounts when configured.
+		// The API sends docker-data-{sessionID} as a named volume for /var/lib/docker;
+		// we convert it to a bind mount from /container-docker/sessions/{sessionID}/docker/.
+		if containerDockerPath != "" && m.Destination == "/var/lib/docker" && m.Type == "volume" {
+			sessionDir := filepath.Join("/container-docker/sessions", m.Source, "docker")
+			if err := os.MkdirAll(sessionDir, 0755); err != nil {
+				log.Warn().Err(err).Str("path", sessionDir).Msg("Failed to create container-docker session dir, falling back to named volume")
+			} else {
+				mountType = mount.TypeBind
+				m.Source = sessionDir
+				log.Debug().Str("source", sessionDir).Msg("Using ZFS-backed bind mount for inner dockerd")
+			}
+		}
+
 		mounts = append(mounts, mount.Mount{
-			Type:     mount.TypeBind,
+			Type:     mountType,
 			Source:   m.Source,
 			Target:   m.Destination,
 			ReadOnly: m.ReadOnly,
@@ -558,23 +622,31 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 	return mounts
 }
 
-// buildExtraHosts resolves hostnames that the container needs to reach
-// and returns them as Docker ExtraHosts entries (format: "hostname:ip").
-// This is needed because containers on bridge network can't resolve
-// the "api" hostname which lives on the helix_* Docker Compose network.
+// buildExtraHosts returns Docker ExtraHosts entries (format: "hostname:ip")
+// so the desktop container can reach services on the helix compose network.
 func (dm *DevContainerManager) buildExtraHosts() []string {
 	var extraHosts []string
 
-	// Resolve "api" hostname from the sandbox's perspective
-	// The sandbox is connected to the helix network and can resolve "api"
+	// Resolve "api" from the sandbox's perspective (via compose DNS).
 	ips, err := net.LookupHost("api")
 	if err == nil && len(ips) > 0 {
 		apiIP := ips[0]
+
+		// "api" hostname: direct access to the outer API.
 		extraHosts = append(extraHosts, "api:"+apiIP)
 		log.Debug().Str("api_ip", apiIP).Msg("Added API host entry for dev container")
+
+		// "outer-api" hostname: same IP, but survives inner compose DNS
+		// shadowing. In Helix-in-Helix, docker compose creates its own "api"
+		// service that shadows the /etc/hosts entry. "outer-api" always points
+		// to the real outer API because compose DNS doesn't override /etc/hosts.
+		//
+		// Note: We resolve the IP here rather than using "host-gateway" because
+		// host-gateway on the sandbox's inner dockerd resolves to the sandbox's
+		// bridge gateway, not the actual host — making it unreachable.
+		extraHosts = append(extraHosts, "outer-api:"+apiIP)
+		log.Debug().Str("outer_api_ip", apiIP).Msg("Added outer-api host entry (same as api, survives H-in-H DNS shadowing)")
 	} else {
-		// Fallback: try common Docker network gateway patterns
-		// In Docker Compose, the API is typically on 172.19.0.x
 		log.Warn().Err(err).Msg("Could not resolve 'api' hostname, container may not connect to API")
 	}
 
@@ -653,8 +725,42 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 		log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Msg("Configured Intel GPU passthrough")
 
 	default:
-		// Software rendering - no special config needed
-		log.Debug().Msg("No GPU passthrough configured (software rendering)")
+		// Unknown/virtio GPU: mount /dev/dri/* if available (e.g., virtio-gpu on macOS/UTM)
+		driDevices, _ := filepath.Glob("/dev/dri/renderD*")
+		for _, dev := range driDevices {
+			hostConfig.Devices = append(hostConfig.Devices,
+				container.DeviceMapping{
+					PathOnHost:        dev,
+					PathInContainer:   dev,
+					CgroupPermissions: "rwm",
+				},
+			)
+		}
+		cardDevices, _ := filepath.Glob("/dev/dri/card*")
+		for _, dev := range cardDevices {
+			hostConfig.Devices = append(hostConfig.Devices,
+				container.DeviceMapping{
+					PathOnHost:        dev,
+					PathInContainer:   dev,
+					CgroupPermissions: "rwm",
+				},
+			)
+		}
+		// For virtio-gpu (macOS ARM): bind-mount helix-drm-manager socket directory.
+		// Must be a directory mount (not file mount) so the socket survives DRM
+		// manager restarts — directory inode stays valid even when the socket
+		// inside is deleted and recreated.
+		drmDir := "/run/helix-drm"
+		if _, err := os.Stat(drmDir + "/drm.sock"); err == nil {
+			hostConfig.Binds = append(hostConfig.Binds,
+				drmDir+":"+drmDir)
+			log.Debug().Str("dir", drmDir).Msg("Mounted helix-drm-manager socket dir for scanout mode")
+		}
+		if len(driDevices) > 0 || len(cardDevices) > 0 {
+			log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Str("vendor", vendor).Msg("Configured GPU passthrough (unknown/virtio vendor)")
+		} else {
+			log.Debug().Str("vendor", vendor).Msg("No GPU devices found (software rendering)")
+		}
 	}
 }
 
@@ -1007,10 +1113,10 @@ func (dm *DevContainerManager) streamContainerLogs(ctx context.Context, containe
 	log.Debug().Str("container", containerName).Msg("Stopped streaming container logs")
 }
 
-// getBuildKitHost returns the BuildKit endpoint URL (e.g., "tcp://172.17.0.5:1234")
+// GetBuildKitHost returns the BuildKit endpoint URL (e.g., "tcp://172.17.0.5:1234")
 // by querying the helix-buildkit container's IP address on the sandbox's main dockerd.
 // Returns empty string if BuildKit is not available.
-func getBuildKitHost() string {
+func GetBuildKitHost() string {
 	// Query helix-buildkit container IP using the sandbox's main Docker socket
 	// (not the per-session socket that dev containers use)
 	cmd := exec.Command("docker", "-H", "unix:///var/run/docker.sock",

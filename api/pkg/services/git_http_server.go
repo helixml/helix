@@ -861,6 +861,7 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 		log.Error().Err(err).Str("repo_path", repoPath).Msg("Failed to open git repository")
 		return
 	}
+	defer gitRepo.Close()
 
 	for _, pushedBranch := range pushedBranches {
 		commitHash, err := gitRepo.GetBranchCommitHash(pushedBranch)
@@ -1170,8 +1171,18 @@ func (s *GitHTTPServer) getTaskIDsFromPushedDesignDocs(ctx context.Context, gitR
 }
 
 // createDesignReviewForPush creates or updates design review records
-func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskID, branch, commitHash, repoPath string, gitRepo *GitRepo) {
+func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskID, branch, commitHash, repoPath string, _ *GitRepo) {
 	log.Info().Str("spec_task_id", specTaskID).Str("branch", branch).Str("commit", commitHash).Msg("Creating/updating design review")
+
+	// Open a fresh GitRepo from the filesystem path. We cannot reuse the GitRepo
+	// from the push handler because it runs in a goroutine and the push handler's
+	// git pipe may already be closed by the time we get here ("read/write on closed pipe").
+	freshRepo, err := OpenGitRepo(repoPath)
+	if err != nil {
+		log.Error().Err(err).Str("spec_task_id", specTaskID).Str("repo_path", repoPath).Msg("Failed to open git repo for design review creation")
+		return
+	}
+	defer freshRepo.Close()
 
 	task, err := s.store.GetSpecTask(ctx, specTaskID)
 	if err != nil {
@@ -1179,13 +1190,13 @@ func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskI
 		return
 	}
 
-	taskDir, err := gitRepo.FindTaskDirInBranch("helix-specs", task.DesignDocPath, specTaskID)
+	taskDir, err := freshRepo.FindTaskDirInBranch("helix-specs", task.DesignDocPath, specTaskID)
 	if err != nil {
 		log.Warn().Err(err).Str("spec_task_id", specTaskID).Msg("No task directory found")
 		return
 	}
 
-	docs, err := gitRepo.ReadDesignDocs("helix-specs", taskDir)
+	docs, err := freshRepo.ReadDesignDocs("helix-specs", taskDir)
 	if err != nil {
 		log.Error().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to read design docs")
 		return

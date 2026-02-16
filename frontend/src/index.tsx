@@ -86,6 +86,27 @@ if(win.RUDDERSTACK_WRITE_KEY && win.RUDDERSTACK_DATA_PLANE_URL) {
   })
 }
 
+// When running inside an iframe (e.g. macOS desktop app), intercept external
+// link clicks and ask the parent frame to open them in the system browser.
+if (window.parent !== window) {
+  document.addEventListener('click', (e) => {
+    const anchor = (e.target as HTMLElement).closest('a')
+    if (!anchor) return
+    const href = anchor.getAttribute('href')
+    if (!href || href.startsWith('#') || href.startsWith('javascript:')) return
+    // Only intercept links that go to a different origin
+    try {
+      const url = new URL(href, window.location.href)
+      if (url.origin !== window.location.origin) {
+        e.preventDefault()
+        window.parent.postMessage({ type: 'open-external-url', url: href }, '*')
+      }
+    } catch {
+      // invalid URL, ignore
+    }
+  }, true)
+}
+
 const container = document.getElementById('root');
 if (container) {
   const root = createRoot(container); // createRoot(container!) if you use TypeScript

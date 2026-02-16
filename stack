@@ -13,190 +13,6 @@ export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
 export WIPE_SLOTS=${WIPE_SLOTS:="0"}
 export COMPOSE_PROFILES=${COMPOSE_PROFILES:=""}
 
-# Helix-in-Helix mode detection
-# When running inside a Helix desktop with privileged mode, we have access to the host Docker
-# In this mode:
-# - Control plane (api, postgres, frontend) runs on inner Docker (Hydra's DinD)
-# - Sandbox runs on host Docker (because DinD-in-DinD-in-DinD doesn't work)
-export HELIX_IN_HELIX=${HELIX_IN_HELIX:=""}
-export DOCKER_HOST_INNER=${DOCKER_HOST_INNER:=""}
-export DOCKER_HOST_OUTER=${DOCKER_HOST_OUTER:=""}
-
-# Detect Helix-in-Helix mode by checking for host Docker socket
-function detect_helix_in_helix() {
-  # Allow manual override
-  if [[ -n "$HELIX_IN_HELIX" ]]; then
-    if [[ "$HELIX_IN_HELIX" == "true" || "$HELIX_IN_HELIX" == "1" ]]; then
-      echo "🔄 Helix-in-Helix mode enabled (via environment variable)"
-      export HELIX_IN_HELIX="true"
-    else
-      echo "🔄 Helix-in-Helix mode disabled (via environment variable)"
-      export HELIX_IN_HELIX="false"
-      return
-    fi
-  elif [ -S /var/run/host-docker.sock ]; then
-    # Auto-detect: host Docker socket available = we're inside a Helix desktop
-    echo "🔄 Helix-in-Helix mode detected (host Docker socket available)"
-    export HELIX_IN_HELIX="true"
-  else
-    export HELIX_IN_HELIX="false"
-    return
-  fi
-
-  # Set up Docker endpoints for Helix-in-Helix mode
-  export DOCKER_HOST_INNER="unix:///var/run/docker.sock"
-  export DOCKER_HOST_OUTER="unix:///var/run/host-docker.sock"
-
-  echo "  📦 Inner Docker (control plane): $DOCKER_HOST_INNER"
-  echo "  📦 Outer Docker (sandbox): $DOCKER_HOST_OUTER"
-}
-
-# Start sandbox on host Docker for Helix-in-Helix mode
-# The sandbox can't run inside Hydra's DinD (DinD-in-DinD-in-DinD doesn't work)
-# It must run on host Docker and connect via the EXPOSED inner API URL
-#
-# Network architecture:
-#   Inner Sandbox (host Docker) → Exposed URL → Outer Helix API → RevDial →
-#   → Hydra proxy → Inner API (Hydra's DinD)
-#
-# The inner API's container IP is NOT reachable from host Docker because it's
-# inside Hydra's DinD (different network namespace). We must use port exposure.
-function start_outer_sandbox() {
-  if [[ "$HELIX_IN_HELIX" != "true" ]]; then
-    return
-  fi
-
-  echo ""
-  echo "🔄 Helix-in-Helix: Starting sandbox on host Docker..."
-
-  local SANDBOX_NAME="helix-inner-sandbox-${USER:-dev}"
-
-  # Check if sandbox is already running on host Docker
-  if DOCKER_HOST="$DOCKER_HOST_OUTER" docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${SANDBOX_NAME}$"; then
-    echo "  ✅ Sandbox already running on host Docker: $SANDBOX_NAME"
-    return
-  fi
-
-  # Check if sandbox image exists on host Docker
-  if ! DOCKER_HOST="$DOCKER_HOST_OUTER" docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -q "helix-sandbox:"; then
-    echo "  ⚠️  helix-sandbox image not found on host Docker"
-    echo "     Transfer with: docker save helix-sandbox:latest | docker -H $DOCKER_HOST_OUTER load"
-    echo ""
-    return
-  fi
-
-  # Expose the inner API through the outer Helix
-  # The desktop container should have HELIX_API_URL, HELIX_SESSION_ID, and USER_API_TOKEN set
-  local OUTER_API_URL="${HELIX_API_URL:-}"
-  local OUTER_SESSION_ID="${HELIX_SESSION_ID:-}"
-  local OUTER_API_TOKEN="${USER_API_TOKEN:-${HELIX_API_KEY:-}}"
-
-  if [[ -z "$OUTER_API_URL" || -z "$OUTER_SESSION_ID" || -z "$OUTER_API_TOKEN" ]]; then
-    echo "  ⚠️  Cannot auto-expose inner API (missing outer Helix context)"
-    echo "     HELIX_API_URL=$OUTER_API_URL"
-    echo "     HELIX_SESSION_ID=$OUTER_SESSION_ID"
-    echo "     USER_API_TOKEN=${OUTER_API_TOKEN:+<set>}"
-    echo ""
-    echo "  Manual steps required:"
-    echo "  1. Expose inner API: curl -X POST \"\$HELIX_API_URL/api/v1/sessions/\$HELIX_SESSION_ID/expose\" ..."
-    echo "  2. Start sandbox with exposed URL"
-    echo ""
-    return
-  fi
-
-  # Wait for inner API to be ready
-  echo "  ⏳ Waiting for inner API to start..."
-  local INNER_API_CONTAINER=""
-  local wait_count=0
-  while [[ -z "$INNER_API_CONTAINER" && $wait_count -lt 60 ]]; do
-    INNER_API_CONTAINER=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E "^helix.*api" | head -1 || echo "")
-    if [[ -z "$INNER_API_CONTAINER" ]]; then
-      sleep 1
-      wait_count=$((wait_count + 1))
-    fi
-  done
-
-  if [[ -z "$INNER_API_CONTAINER" ]]; then
-    echo "  ⚠️  Inner API container not found after 60s"
-    echo "     Start sandbox manually once API is up"
-    return
-  fi
-
-  # Get the inner API container's IP on the docker network
-  local INNER_API_IP
-  INNER_API_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$INNER_API_CONTAINER" 2>/dev/null || echo "")
-
-  if [[ -z "$INNER_API_IP" ]]; then
-    echo "  ⚠️  Could not get inner API container IP"
-    return
-  fi
-
-  # Set up port forwarding from desktop localhost:8080 to inner API
-  # This is needed because the inner API is inside Hydra's DinD network
-  echo "  🔌 Setting up port forward: localhost:8080 → ${INNER_API_CONTAINER}:8080"
-
-  # Kill any existing socat on port 8080
-  pkill -f "socat.*TCP-LISTEN:8080" 2>/dev/null || true
-
-  # Start socat in background to forward port 8080
-  if command -v socat &>/dev/null; then
-    nohup socat TCP-LISTEN:8080,fork,reuseaddr TCP:${INNER_API_IP}:8080 >/dev/null 2>&1 &
-    echo "  ✅ Port forward established via socat"
-  else
-    echo "  ⚠️  socat not found - port forwarding may not work"
-    echo "     Install with: apt-get install socat"
-  fi
-
-  # Expose port 8080 (inner API) through outer Helix
-  echo "  📡 Exposing inner API through outer Helix..."
-  local EXPOSE_RESPONSE
-  EXPOSE_RESPONSE=$(curl -s -X POST "${OUTER_API_URL}/api/v1/sessions/${OUTER_SESSION_ID}/expose" \
-    -H "Authorization: Bearer ${OUTER_API_TOKEN}" \
-    -H "Content-Type: application/json" \
-    -d '{"port": 8080, "protocol": "http", "name": "inner-api"}' 2>/dev/null || echo "")
-
-  if [[ -z "$EXPOSE_RESPONSE" ]]; then
-    echo "  ❌ Failed to expose inner API (no response from outer Helix)"
-    return
-  fi
-
-  # Extract the proxy URL from the response
-  # Response format: {"urls":["http://..."],...}
-  local INNER_API_URL
-  INNER_API_URL=$(echo "$EXPOSE_RESPONSE" | grep -o '"urls":\s*\[[^]]*\]' | grep -o 'http://[^"]*' | head -1 || echo "")
-
-  if [[ -z "$INNER_API_URL" ]]; then
-    echo "  ❌ Failed to parse exposed URL from response"
-    echo "     Response: $EXPOSE_RESPONSE"
-    return
-  fi
-
-  echo "  ✅ Inner API exposed at: $INNER_API_URL"
-
-  # Use the profile saved by setup_sandbox_profile (reads from .env)
-  # SANDBOX_SERVICE is also set by setup_sandbox_profile via get_sandbox_names
-  local SANDBOX_PROFILE="${OUTER_SANDBOX_PROFILE:-code-nvidia}"
-  echo "  🚀 Starting sandbox on host Docker (profile: $SANDBOX_PROFILE, service: $SANDBOX_SERVICE)..."
-
-  # Start ONLY the sandbox service on host Docker (not the whole stack!)
-  # Override HELIX_API_URL to point to the exposed inner API
-  DOCKER_HOST="$DOCKER_HOST_OUTER" \
-  COMPOSE_PROFILES="$SANDBOX_PROFILE" \
-  HELIX_API_URL="$INNER_API_URL" \
-  HELIX_API_BASE_URL="$INNER_API_URL" \
-  docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
-
-  if [[ $? -eq 0 ]]; then
-    echo "  ✅ Sandbox started on host Docker ($SANDBOX_SERVICE)"
-    echo ""
-    echo "  View logs: DOCKER_HOST=$DOCKER_HOST_OUTER docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE"
-  else
-    echo "  ❌ Failed to start sandbox"
-    echo "     Check: DOCKER_HOST=$DOCKER_HOST_OUTER docker compose -f docker-compose.dev.yaml logs $SANDBOX_SERVICE"
-  fi
-  echo ""
-}
-
 # Desktop categories for build-sandbox
 # Production desktops are always built; experimental require opt-in via EXPERIMENTAL_DESKTOPS
 # Note: Using arrays because IFS is set to '\n\t' (no space splitting)
@@ -290,6 +106,9 @@ function get_sandbox_names() {
   elif [[ "$profile" == *"code-amd-intel"* ]]; then
     export SANDBOX_SERVICE="sandbox-amd-intel"
     export SANDBOX_CONTAINER="helix-sandbox-amd-intel-1"
+  elif [[ "$profile" == *"code-macos"* ]]; then
+    export SANDBOX_SERVICE="sandbox-macos"
+    export SANDBOX_CONTAINER="helix-sandbox-macos-1"
   else
     # Default to NVIDIA (code-nvidia profile)
     export SANDBOX_SERVICE="sandbox-nvidia"
@@ -299,52 +118,7 @@ function get_sandbox_names() {
 
 # Helper function to detect GPU type and set appropriate sandbox profile
 # Sets COMPOSE_PROFILES to include 'code-nvidia' (NVIDIA) or 'code-amd-intel' (AMD/Intel) if not already set
-# In Helix-in-Helix mode, sandbox is started separately on host Docker, not via compose profiles
 function setup_sandbox_profile() {
-  # In Helix-in-Helix mode, determine the sandbox profile but don't start sandbox
-  # on inner Docker - it will be started separately on host Docker by start_outer_sandbox()
-  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
-    echo "🎮 Helix-in-Helix mode: Sandbox will run on host Docker (not via compose profiles)"
-
-    # Check for GPU_VENDOR inherited from outer Helix (passed through to desktop container)
-    # This avoids needing to configure GPU settings in inner .env
-    if [[ -n "${GPU_VENDOR:-}" ]]; then
-      echo "  📋 GPU_VENDOR inherited from outer Helix: $GPU_VENDOR"
-      if [[ "$GPU_VENDOR" == "nvidia" ]]; then
-        export OUTER_SANDBOX_PROFILE="code-nvidia"
-      else
-        # AMD, Intel, or other -> use code-amd-intel profile
-        export OUTER_SANDBOX_PROFILE="code-amd-intel"
-      fi
-    else
-      # Fall back to .env or default
-      if [[ -f "$DIR/.env" ]]; then
-        source "$DIR/.env"
-      fi
-
-      if [[ -n "${COMPOSE_PROFILES:-}" ]]; then
-        export OUTER_SANDBOX_PROFILE="${COMPOSE_PROFILES}"
-        echo "  📋 Using COMPOSE_PROFILES from .env: $OUTER_SANDBOX_PROFILE"
-      else
-        export OUTER_SANDBOX_PROFILE="code-nvidia"
-        echo "  ⚠️  No GPU_VENDOR or COMPOSE_PROFILES set, defaulting to code-nvidia"
-      fi
-    fi
-
-    # Set sandbox names based on the determined profile
-    # Temporarily set COMPOSE_PROFILES for get_sandbox_names to work
-    local saved_profile="${COMPOSE_PROFILES:-}"
-    export COMPOSE_PROFILES="$OUTER_SANDBOX_PROFILE"
-    get_sandbox_names
-    export COMPOSE_PROFILES="$saved_profile"
-
-    echo "  📋 Outer sandbox profile: $OUTER_SANDBOX_PROFILE (service: $SANDBOX_SERVICE)"
-
-    # Clear COMPOSE_PROFILES to ensure sandbox doesn't start on inner Docker
-    export COMPOSE_PROFILES=""
-    return
-  fi
-
   # Check if COMPOSE_PROFILES was explicitly set to a non-empty value in environment
   # (empty string triggers auto-detection, non-empty respects user's choice)
   local env_was_set=""
@@ -358,18 +132,21 @@ function setup_sandbox_profile() {
   fi
 
   # Stop conflicting sandbox containers before starting
-  # All sandbox variants use the same static IP (172.19.0.50), so only one can run at a time
+  # Only one sandbox can run at a time (they provide the same service endpoint)
   # Silently remove any sandbox containers that might conflict with the one we're about to start
   local current_profile="${COMPOSE_PROFILES:-}"
   if [[ "$current_profile" == *"code-software"* ]]; then
     # Starting software sandbox - stop GPU sandboxes
-    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-amd-intel-1 2>/dev/null || true
+    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-amd-intel-1 helix-sandbox-macos-1 2>/dev/null || true
   elif [[ "$current_profile" == *"code-amd-intel"* ]]; then
     # Starting AMD/Intel sandbox - stop other sandboxes
-    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-software-1 2>/dev/null || true
+    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-software-1 helix-sandbox-macos-1 2>/dev/null || true
+  elif [[ "$current_profile" == *"code-macos"* ]]; then
+    # Starting macOS sandbox - stop other sandboxes
+    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-amd-intel-1 helix-sandbox-software-1 2>/dev/null || true
   else
     # Starting NVIDIA sandbox (default) - stop other sandboxes
-    docker rm -f helix-sandbox-software-1 helix-sandbox-amd-intel-1 2>/dev/null || true
+    docker rm -f helix-sandbox-software-1 helix-sandbox-amd-intel-1 helix-sandbox-macos-1 2>/dev/null || true
   fi
 
   # If COMPOSE_PROFILES was set in environment before .env (even to empty), respect it
@@ -599,7 +376,6 @@ EIGNORE
   # BuildKit cache mounts in the Dockerfile handle cargo/rustup/target caching
   docker build \
     --provenance=false \
-    -t zed-builder:build \
     -f "$DIR/Dockerfile.zed-build" \
     --build-arg "BUILD_TYPE=$BUILD_TYPE" \
     --output "type=local,dest=$ZED_OUTPUT_DIR" \
@@ -666,14 +442,8 @@ EOF
   echo "  3. Start services: ./stack start"
 }
 
-function start() {
-  if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
-    echo "📺 Session $TMUX_SESSION already exists. Attaching..."
-    sleep 1
-    tmux -2 attach -t $TMUX_SESSION
-    exit 0;
-  fi
-
+# _start_services: common startup logic shared by start and start-tmux
+function _start_services() {
   # Check for Zed dependency and build if needed
   if [ ! -d "$PROJECTS_ROOT/zed" ]; then
     echo "❌ ERROR: Zed source code not found at $PROJECTS_ROOT/zed/"
@@ -712,26 +482,16 @@ function start() {
   # Configure host networking for Docker-in-Docker
   setup_dev_networking
 
-  # detect_helix_in_helix already called at script startup
-
   echo "🐳 Starting docker compose"
 
   # Setup runner profiles first
   setup_runner_profile
 
   # Setup sandbox profile based on GPU detection
-  # (in Helix-in-Helix mode, this skips sandbox profile and we start it on host Docker later)
   setup_sandbox_profile
 
   # Stop sandbox if running to ensure fresh start
-  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
-    # In Helix-in-Helix mode, sandbox is on Host Docker
-    DOCKER_HOST="$DOCKER_HOST_OUTER" \
-    COMPOSE_PROFILES="${OUTER_SANDBOX_PROFILE:-code-nvidia}" \
-    docker compose -f docker-compose.dev.yaml stop "$SANDBOX_SERVICE" 2>/dev/null || true
-  else
-    docker compose -f docker-compose.dev.yaml stop "$SANDBOX_SERVICE" 2>/dev/null || true
-  fi
+  docker compose -f docker-compose.dev.yaml stop "$SANDBOX_SERVICE" 2>/dev/null || true
 
   # Start services based on enabled profiles
   if [[ -n "$WITH_RUNNER" ]]; then
@@ -758,7 +518,7 @@ function start() {
 
   # Wait for postgres to be ready before trying to wipe slots
   echo "⏳ Waiting for postgres to be ready..."
-  timeout=60
+  local timeout=60
   while ! docker compose -f docker-compose.dev.yaml exec postgres pg_isready -h localhost -p 5432 >/dev/null 2>&1; do
     timeout=$((timeout - 1))
     if [[ $timeout -eq 0 ]]; then
@@ -776,10 +536,17 @@ function start() {
       echo "⚠️ Warning: Failed to wipe slots, but continuing startup..."
     fi
   fi
+}
 
-  # In Helix-in-Helix mode, start sandbox on host Docker
-  # This is done after the API is up so the sandbox can connect via RevDial
-  start_outer_sandbox
+function start-tmux() {
+  if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+    echo "📺 Session $TMUX_SESSION already exists. Attaching..."
+    sleep 1
+    tmux -2 attach -t $TMUX_SESSION
+    exit 0;
+  fi
+
+  _start_services
 
   echo "📺 Creating tmux session $TMUX_SESSION with 3x2 grid layout + full-width hacking terminal..."
   tmux -2 new-session -d -s "$TMUX_SESSION"
@@ -818,14 +585,7 @@ function start() {
 
   # Determine sandbox logs command based on Helix-in-Helix mode
   local SANDBOX_LOGS_CMD
-  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
-    # In Helix-in-Helix mode, sandbox runs on host Docker via docker-compose
-    # Need COMPOSE_PROFILES to find the service, and specify the service name
-    SANDBOX_LOGS_CMD="DOCKER_HOST=$DOCKER_HOST_OUTER COMPOSE_PROFILES=$OUTER_SANDBOX_PROFILE docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE"
-  else
-    # Normal mode - sandbox runs via docker compose
-    SANDBOX_LOGS_CMD="docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE"
-  fi
+  SANDBOX_LOGS_CMD="docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE"
 
   # Middle row (3-5): Context-aware based on WITH_RUNNER
   if [[ -n "$WITH_RUNNER" ]]; then
@@ -888,6 +648,18 @@ function start() {
   tmux select-layout -t "$TMUX_SESSION" tiled
 
   tmux -2 attach-session -t $TMUX_SESSION
+}
+
+function start() {
+  _start_services
+
+  echo ""
+  echo "✅ Stack started"
+  docker compose -f docker-compose.dev.yaml ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || docker compose -f docker-compose.dev.yaml ps
+  echo ""
+  echo "View logs: docker compose -f docker-compose.dev.yaml logs -f api"
+  echo "Stop:      ./stack stop"
+  echo "Tmux UI:   ./stack start-tmux"
 }
 
 function stop() {
@@ -1273,6 +1045,11 @@ function build-desktop() {
   echo "✅ ${DESKTOP_NAME} container built successfully"
   echo "📦 Image hash: ${IMAGE_HASH_FULL} (tag: ${IMAGE_TAG})"
 
+  # Always write version file (even if image unchanged, fixes stale version files)
+  mkdir -p sandbox-images
+  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
+  echo "📦 Version file: ${IMAGE_TAG}"
+
   # Check if image actually changed
   if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ]; then
     echo "✅ Image unchanged - skipping transfer"
@@ -1282,13 +1059,15 @@ function build-desktop() {
   # Transfer to running sandbox via local registry
   # Skip if SKIP_DESKTOP_TRANSFER is set (called from build-sandbox)
   if [ -z "${SKIP_DESKTOP_TRANSFER:-}" ]; then
-    transfer-desktop-to-sandbox "$DESKTOP_NAME"
+    transfer-desktop-to-sandbox "$DESKTOP_NAME" "$IMAGE_TAG"
   fi
 
-  # Write version file AFTER successful transfer
-  mkdir -p sandbox-images
-  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
-  echo "📦 Version file updated: ${IMAGE_TAG}"
+  echo ""
+  echo "============================================"
+  echo "  ${IMAGE_NAME} build complete"
+  echo "  VERSION: ${IMAGE_TAG}"
+  echo "============================================"
+  echo ""
 }
 
 # Generic transfer function - transfers any desktop image to sandbox's dockerd
@@ -1297,9 +1076,10 @@ function build-desktop() {
 function transfer-desktop-to-sandbox() {
   local DESKTOP_NAME="$1"
   local IMAGE_NAME="helix-${DESKTOP_NAME}"
+  local IMAGE_TAG_OVERRIDE="${2:-}"  # Optional: pre-calculated image tag from build-desktop
 
   if [ -z "$DESKTOP_NAME" ]; then
-    echo "Usage: transfer-desktop-to-sandbox <name>"
+    echo "Usage: transfer-desktop-to-sandbox <name> [image-tag]"
     return 1
   fi
 
@@ -1309,64 +1089,34 @@ function transfer-desktop-to-sandbox() {
   fi
   get_sandbox_names
 
-  # In Helix-in-Helix mode, sandbox runs on host Docker with different container name
-  local SANDBOX_DOCKER_HOST=""
   local SANDBOX_CONTAINER_NAME="$SANDBOX_CONTAINER"
-  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
-    SANDBOX_DOCKER_HOST="$DOCKER_HOST_OUTER"
-    # Get actual container name from compose (includes project name prefix)
-    SANDBOX_CONTAINER_NAME=$(DOCKER_HOST="$DOCKER_HOST_OUTER" \
-      COMPOSE_PROFILES="${OUTER_SANDBOX_PROFILE:-code-nvidia}" \
-      docker compose -f docker-compose.dev.yaml ps -q "$SANDBOX_SERVICE" 2>/dev/null)
-    if [ -z "$SANDBOX_CONTAINER_NAME" ]; then
-      echo "⚠️  Inner sandbox container not found on host Docker, skipping transfer"
-      return 0
-    fi
-    echo "🎮 Helix-in-Helix mode: Using host Docker for sandbox ($SANDBOX_CONTAINER_NAME)"
-  fi
 
-  # Helper function to run docker commands against sandbox's Docker host
+  # Helper function for docker commands against sandbox
   sandbox_docker() {
-    if [[ -n "$SANDBOX_DOCKER_HOST" ]]; then
-      DOCKER_HOST="$SANDBOX_DOCKER_HOST" docker "$@"
-    else
-      docker "$@"
-    fi
+    docker "$@"
   }
 
   # Check if sandbox container is running
-  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
-    # In Helix-in-Helix mode, already resolved container ID above
-    if ! sandbox_docker inspect "$SANDBOX_CONTAINER_NAME" >/dev/null 2>&1; then
-      echo "ℹ️  Sandbox container not running on host Docker, skipping image transfer"
-      return 0
-    fi
-  else
-    # Normal mode: check via docker-compose
-    if ! docker compose -f docker-compose.dev.yaml ps "$SANDBOX_SERVICE" | grep -q "Up"; then
-      echo "ℹ️  Sandbox container not running, skipping image transfer (will transfer on next start)"
-      return 0
-    fi
+  if ! docker compose -f docker-compose.dev.yaml ps "$SANDBOX_SERVICE" | grep -q "Up"; then
+    echo "ℹ️  Sandbox container not running, skipping image transfer (will transfer on next start)"
+    return 0
   fi
 
-  # Ensure local registry is running (only needed for normal mode push/pull transfer)
-  # In Helix-in-Helix mode, we use docker save/cp/load instead of registry
-  if [[ "$HELIX_IN_HELIX" != "true" ]]; then
-    if ! docker compose -f docker-compose.dev.yaml ps registry 2>/dev/null | grep -q "Up"; then
-      echo "🚀 Starting local registry for image transfer..."
-      docker compose -f docker-compose.dev.yaml up -d registry
-      # Wait for registry to be ready
-      local TIMEOUT=10
-      local ELAPSED=0
-      until curl -s http://localhost:5000/v2/ >/dev/null 2>&1; do
-        if [ $ELAPSED -ge $TIMEOUT ]; then
-          echo "⚠️  Registry not ready after ${TIMEOUT}s, continuing anyway..."
-          break
-        fi
-        sleep 1
-        ELAPSED=$((ELAPSED + 1))
-      done
-    fi
+  # Ensure local registry is running for image transfer
+  if ! docker compose -f docker-compose.dev.yaml ps registry 2>/dev/null | grep -q "Up"; then
+    echo "🚀 Starting local registry for image transfer..."
+    docker compose -f docker-compose.dev.yaml up -d registry
+    # Wait for registry to be ready
+    local TIMEOUT=10
+    local ELAPSED=0
+    until curl -s http://localhost:5000/v2/ >/dev/null 2>&1; do
+      if [ $ELAPSED -ge $TIMEOUT ]; then
+        echo "⚠️  Registry not ready after ${TIMEOUT}s, continuing anyway..."
+        break
+      fi
+      sleep 1
+      ELAPSED=$((ELAPSED + 1))
+    done
   fi
 
   # Check if image exists on host
@@ -1375,10 +1125,14 @@ function transfer-desktop-to-sandbox() {
     return 0
   fi
 
-  # Get image hash for versioned tag (content-addressable, survives push/pull)
-  local IMAGE_HASH_FULL=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' | sed 's/sha256://')
-  # Use first 6 chars as tag - avoids Docker showing just hash when tag matches image ID
-  local IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
+  # Get image tag - use pre-calculated value if provided, otherwise compute from image hash
+  local IMAGE_TAG=""
+  if [ -n "$IMAGE_TAG_OVERRIDE" ]; then
+    IMAGE_TAG="$IMAGE_TAG_OVERRIDE"
+  else
+    local IMAGE_HASH_FULL=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' | sed 's/sha256://')
+    IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
+  fi
 
   # Check if sandbox already has this exact image by version tag (skip transfer if so)
   local SANDBOX_HAS_TAG=$(sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker images "${IMAGE_NAME}:${IMAGE_TAG}" --format '{{.ID}}' 2>/dev/null)
@@ -1390,75 +1144,36 @@ function transfer-desktop-to-sandbox() {
     return 0
   fi
 
-  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
-    # In Helix-in-Helix mode, the registry runs on session dockerd but the inner sandbox
-    # is on Host Docker — they can't see each other's networks. Use docker save/cp/load instead.
-    echo "🎮 Helix-in-Helix: Transferring ${IMAGE_NAME}:${IMAGE_TAG} via save/cp/load..."
-    local TMPFILE="/tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar"
+  # Use local registry for efficient layer-based transfer
+  local REGISTRY_TAG="localhost:5000/${IMAGE_NAME}:${IMAGE_TAG}"
+  local SANDBOX_REGISTRY_TAG="registry:5000/${IMAGE_NAME}:${IMAGE_TAG}"
 
-    echo "📤 Saving ${IMAGE_NAME}:latest from session Docker..."
-    if ! docker save "${IMAGE_NAME}:latest" -o "$TMPFILE"; then
-      echo "❌ Failed to save ${IMAGE_NAME}:latest"
-      return 1
-    fi
-    local TAR_SIZE=$(du -sh "$TMPFILE" | cut -f1)
-    echo "   Saved to $TMPFILE ($TAR_SIZE)"
+  # Tag for local registry and push
+  echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${REGISTRY_TAG}..."
+  docker tag "${IMAGE_NAME}:latest" "$REGISTRY_TAG"
 
-    echo "📥 Copying to inner sandbox ($SANDBOX_CONTAINER_NAME) on Host Docker..."
-    if ! sandbox_docker cp "$TMPFILE" "${SANDBOX_CONTAINER_NAME}:/tmp/${IMAGE_NAME}.tar"; then
-      echo "❌ Failed to copy image to inner sandbox"
-      rm -f "$TMPFILE"
-      return 1
-    fi
-
-    echo "📦 Loading image in inner sandbox's dockerd..."
-    if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker load -i "/tmp/${IMAGE_NAME}.tar"; then
-      echo "❌ Failed to load image in inner sandbox"
-      sandbox_docker exec "$SANDBOX_CONTAINER_NAME" rm -f "/tmp/${IMAGE_NAME}.tar" 2>/dev/null || true
-      rm -f "$TMPFILE"
-      return 1
-    fi
-
-    # Tag with version
-    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}"
-
-    # Clean up temp files
-    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" rm -f "/tmp/${IMAGE_NAME}.tar" 2>/dev/null || true
-    rm -f "$TMPFILE"
-
-    echo "✅ ${IMAGE_NAME}:${IMAGE_TAG} transferred via save/cp/load"
-  else
-    # Normal mode: use local registry for efficient layer-based transfer
-    local REGISTRY_TAG="localhost:5000/${IMAGE_NAME}:${IMAGE_TAG}"
-    local SANDBOX_REGISTRY_TAG="registry:5000/${IMAGE_NAME}:${IMAGE_TAG}"
-
-    # Tag for local registry and push
-    echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${REGISTRY_TAG}..."
-    docker tag "${IMAGE_NAME}:latest" "$REGISTRY_TAG"
-
-    echo "📤 Pushing to local registry..."
-    if ! docker push "$REGISTRY_TAG" 2>&1 | grep -v "^$"; then
-      echo "❌ Failed to push to local registry"
-      return 1
-    fi
-
-    # Pull from registry inside sandbox
-    echo "📥 Sandbox pulling from registry (only changed layers transfer)..."
-    if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$"; then
-      echo "❌ Failed to pull from registry inside sandbox"
-      return 1
-    fi
-
-    # Tag with the expected names inside sandbox (Hydra uses helix-${desktop}:${tag})
-    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}"
-    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest"
-
-    # Remove the registry-prefixed tag to allow proper cleanup later
-    # (layers are shared, so this just removes the tag, not the data)
-    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker rmi "$SANDBOX_REGISTRY_TAG" 2>/dev/null || true
-
-    echo "✅ ${IMAGE_NAME}:${IMAGE_TAG} transferred via registry"
+  echo "📤 Pushing to local registry..."
+  if ! docker push "$REGISTRY_TAG" 2>&1 | grep -v "^$"; then
+    echo "❌ Failed to push to local registry"
+    return 1
   fi
+
+  # Pull from registry inside sandbox
+  echo "📥 Sandbox pulling from registry (only changed layers transfer)..."
+  if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$"; then
+    echo "❌ Failed to pull from registry inside sandbox"
+    return 1
+  fi
+
+  # Tag with the expected names inside sandbox (Hydra uses helix-${desktop}:${tag})
+  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}"
+  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest"
+
+  # Remove the registry-prefixed tag to allow proper cleanup later
+  # (layers are shared, so this just removes the tag, not the data)
+  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker rmi "$SANDBOX_REGISTRY_TAG" 2>/dev/null || true
+
+  echo "✅ ${IMAGE_NAME}:${IMAGE_TAG} transferred via registry"
 
   # Version files are bind-mounted from host (updated by build-desktop)
   if [ -f "sandbox-images/${IMAGE_NAME}.version" ]; then
@@ -1486,30 +1201,28 @@ function transfer-desktop-to-sandbox() {
   # Prune dangling images in sandbox
   sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker image prune -f 2>/dev/null || true
 
-  # Registry cleanup (only in normal mode — H-in-H doesn't use registry for transfer)
-  if [[ "$HELIX_IN_HELIX" != "true" ]]; then
-    # Clean up old registry-tagged images on host
-    local OLD_HOST_IMAGES=$(docker images "localhost:5000/${IMAGE_NAME}" --format '{{.Tag}}' 2>/dev/null | grep -v "^${IMAGE_TAG}$" | grep -v "^latest$" || true)
-    if [ -n "$OLD_HOST_IMAGES" ]; then
-      echo "   Removing old host images: $(echo $OLD_HOST_IMAGES | tr '\n' ' ')"
-      for tag in $OLD_HOST_IMAGES; do
-        docker rmi "localhost:5000/${IMAGE_NAME}:${tag}" 2>/dev/null || true
-      done
-    fi
+  # Registry cleanup
+  # Clean up old registry-tagged images on host
+  local OLD_HOST_IMAGES=$(docker images "localhost:5000/${IMAGE_NAME}" --format '{{.Tag}}' 2>/dev/null | grep -v "^${IMAGE_TAG}$" | grep -v "^latest$" || true)
+  if [ -n "$OLD_HOST_IMAGES" ]; then
+    echo "   Removing old host images: $(echo $OLD_HOST_IMAGES | tr '\n' ' ')"
+    for tag in $OLD_HOST_IMAGES; do
+      docker rmi "localhost:5000/${IMAGE_NAME}:${tag}" 2>/dev/null || true
+    done
+  fi
 
-    # Garbage collect registry to remove orphaned layers
-    if docker compose -f docker-compose.dev.yaml ps registry 2>/dev/null | grep -q "Up"; then
-      echo "   Running registry garbage collection..."
-      for old_tag in $(curl -s "http://localhost:5000/v2/${IMAGE_NAME}/tags/list" 2>/dev/null | jq -r '.tags[]?' 2>/dev/null | grep -v "^${IMAGE_TAG}$" || true); do
-        digest=$(curl -s -I -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
-          "http://localhost:5000/v2/${IMAGE_NAME}/manifests/${old_tag}" 2>/dev/null | \
-          grep -i docker-content-digest | awk '{print $2}' | tr -d '\r')
-        if [ -n "$digest" ]; then
-          curl -s -X DELETE "http://localhost:5000/v2/${IMAGE_NAME}/manifests/${digest}" 2>/dev/null || true
-        fi
-      done
-      docker compose -f docker-compose.dev.yaml exec -T registry bin/registry garbage-collect /etc/docker/registry/config.yml 2>/dev/null || true
-    fi
+  # Garbage collect registry to remove orphaned layers
+  if docker compose -f docker-compose.dev.yaml ps registry 2>/dev/null | grep -q "Up"; then
+    echo "   Running registry garbage collection..."
+    for old_tag in $(curl -s "http://localhost:5000/v2/${IMAGE_NAME}/tags/list" 2>/dev/null | jq -r '.tags[]?' 2>/dev/null | grep -v "^${IMAGE_TAG}$" || true); do
+      digest=$(curl -s -I -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+        "http://localhost:5000/v2/${IMAGE_NAME}/manifests/${old_tag}" 2>/dev/null | \
+        grep -i docker-content-digest | awk '{print $2}' | tr -d '\r')
+      if [ -n "$digest" ]; then
+        curl -s -X DELETE "http://localhost:5000/v2/${IMAGE_NAME}/manifests/${digest}" 2>/dev/null || true
+      fi
+    done
+    docker compose -f docker-compose.dev.yaml exec -T registry bin/registry garbage-collect /etc/docker/registry/config.yml 2>/dev/null || true
   fi
 
   echo "✅ Cleanup complete"
@@ -1564,6 +1277,41 @@ function transfer-hyprland-to-sandbox() {
   transfer-desktop-to-sandbox hyprland
 }
 
+function build-drm-manager() {
+  # Cross-compile helix-drm-manager for linux/arm64 and deploy to the VM.
+  # The DRM manager runs as a systemd service on the VM guest (not in Docker).
+  local SSH_PORT="${HELIX_SSH_PORT:-41222}"
+
+  echo "🔧 Building helix-drm-manager for linux/arm64..."
+  (cd api && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/helix-drm-manager ./cmd/helix-drm-manager/) || {
+    echo "❌ Build failed"
+    return 1
+  }
+  echo "✅ Built /tmp/helix-drm-manager"
+
+  echo "📤 Uploading to VM (SSH port $SSH_PORT)..."
+  scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
+    -P "$SSH_PORT" /tmp/helix-drm-manager ubuntu@localhost:/tmp/ || {
+    echo "❌ SCP failed — is the VM running?"
+    return 1
+  }
+
+  echo "🔄 Installing and restarting service..."
+  ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
+    -p "$SSH_PORT" ubuntu@localhost \
+    "sudo systemctl stop helix-drm-manager 2>/dev/null; \
+     sudo cp /tmp/helix-drm-manager /usr/local/bin/helix-drm-manager && \
+     sudo chmod +x /usr/local/bin/helix-drm-manager && \
+     sudo systemctl start helix-drm-manager" || {
+    echo "❌ Install/restart failed"
+    return 1
+  }
+
+  echo "✅ helix-drm-manager deployed and restarted"
+  ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -p "$SSH_PORT" ubuntu@localhost \
+    "sudo systemctl status helix-drm-manager --no-pager -l" 2>/dev/null || true
+}
 
 # Verify desktop image was built successfully
 function verify-desktop-build() {
@@ -1659,14 +1407,7 @@ function build-sandbox() {
   echo "📦 Building helix-sandbox container..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
-    # In Helix-in-Helix mode, build the sandbox image on Host Docker
-    # because the inner sandbox runs there (DinD can't nest further on session dockerd)
-    echo "🎮 Helix-in-Helix: Building sandbox image on Host Docker..."
-    DOCKER_HOST="$DOCKER_HOST_OUTER" docker build -f Dockerfile.sandbox -t helix-sandbox:latest .
-  else
-    docker build -f Dockerfile.sandbox -t helix-sandbox:latest .
-  fi
+  docker build -f Dockerfile.sandbox -t helix-sandbox:latest .
 
   if [ $? -ne 0 ]; then
     echo "❌ Failed to build helix-sandbox container"
@@ -1676,78 +1417,61 @@ function build-sandbox() {
   echo "✅ helix-sandbox container built successfully"
   echo ""
 
-  # Step 6: Restart sandbox and transfer fresh image
+  # Step 6: Start sandbox and transfer desktop images
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [6/6] Restarting sandbox container..."
+  echo "📝 [6/6] Starting sandbox and transferring desktop images..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  # Restart sandbox to pick up new image
+  # Load sandbox service name from .env
   if [[ -f "$DIR/.env" ]]; then
     source "$DIR/.env"
   fi
   get_sandbox_names
 
-  if [[ "$HELIX_IN_HELIX" == "true" ]]; then
-    # In Helix-in-Helix mode, restart sandbox on Host Docker
-    echo "🎮 Helix-in-Helix: Restarting inner sandbox on Host Docker..."
+  echo "🔄 Restarting sandbox container ($SANDBOX_SERVICE) with updated image..."
+  docker compose -f docker-compose.dev.yaml rm -f "$SANDBOX_SERVICE"
+  docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
 
-    # Start inner sandbox on Host Docker using compose
-    # Use --force-recreate to pick up new image without removing the network
-    DOCKER_HOST="$DOCKER_HOST_OUTER" \
-    COMPOSE_PROFILES="${OUTER_SANDBOX_PROFILE:-code-nvidia}" \
-    docker compose -f docker-compose.dev.yaml up -d --force-recreate "$SANDBOX_SERVICE"
+  echo "✅ Sandbox container rebuilt and restarted"
 
-    # Get the actual container name created by compose (includes project name prefix)
-    local INNER_SANDBOX_NAME
-    INNER_SANDBOX_NAME=$(DOCKER_HOST="$DOCKER_HOST_OUTER" \
-      COMPOSE_PROFILES="${OUTER_SANDBOX_PROFILE:-code-nvidia}" \
-      docker compose -f docker-compose.dev.yaml ps -q "$SANDBOX_SERVICE" 2>/dev/null)
-
-    if [ -z "$INNER_SANDBOX_NAME" ]; then
-      echo "⚠️  Could not find inner sandbox container"
-    else
-      echo "✅ Inner sandbox container: $INNER_SANDBOX_NAME"
-
-      # Wait for inner sandbox's nested dockerd to be ready
-      echo "⏳ Waiting for inner sandbox dockerd..."
-      local TIMEOUT=60
-      local ELAPSED=0
-      until DOCKER_HOST="$DOCKER_HOST_OUTER" docker exec "$INNER_SANDBOX_NAME" docker info >/dev/null 2>&1; do
-        if [ $ELAPSED -ge $TIMEOUT ]; then
-          echo "⚠️  Inner sandbox dockerd not ready after ${TIMEOUT}s"
-          break
-        fi
-        sleep 1
-        ELAPSED=$((ELAPSED + 1))
-      done
+  # Wait for sandbox's nested dockerd to be ready
+  echo "⏳ Waiting for sandbox dockerd..."
+  local TIMEOUT=30
+  local ELAPSED=0
+  until docker exec "$SANDBOX_CONTAINER" docker info >/dev/null 2>&1; do
+    if [ $ELAPSED -ge $TIMEOUT ]; then
+      echo "⚠️  Sandbox dockerd not ready after ${TIMEOUT}s"
+      break
     fi
-  else
-    echo "🔄 Restarting sandbox container ($SANDBOX_SERVICE) with updated image..."
-    docker compose -f docker-compose.dev.yaml rm -f "$SANDBOX_SERVICE"
-    docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+  done
 
-    echo "✅ Sandbox container rebuilt and restarted"
-
-    # Wait for sandbox's nested dockerd to be ready
-    echo "⏳ Waiting for sandbox dockerd..."
-    local TIMEOUT=30
-    local ELAPSED=0
-    until docker exec "$SANDBOX_CONTAINER" docker info >/dev/null 2>&1; do
-      if [ $ELAPSED -ge $TIMEOUT ]; then
-        echo "⚠️  Sandbox dockerd not ready after ${TIMEOUT}s"
-        break
-      fi
-      sleep 1
-      ELAPSED=$((ELAPSED + 1))
-    done
-  fi
-
-  # Transfer desktop images to sandbox via local registry
+  # Transfer all production desktop images to sandbox
   echo ""
   echo "📦 Transferring desktop images to sandbox..."
   for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
-    transfer-desktop-to-sandbox "$desktop"
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📤 Transferring helix-${desktop} to sandbox..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    if ! transfer-desktop-to-sandbox "$desktop"; then
+      echo "⚠️  Failed to transfer helix-${desktop} - continuing anyway"
+    fi
   done
+
+  # Transfer experimental desktops if built
+  if [ ${#EXPERIMENTAL_DESKTOPS_ARR[@]} -gt 0 ]; then
+    for desktop in "${EXPERIMENTAL_DESKTOPS_ARR[@]}"; do
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "📤 Transferring helix-${desktop} to sandbox (experimental)..."
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      if ! transfer-desktop-to-sandbox "$desktop"; then
+        echo "⚠️  Failed to transfer helix-${desktop} - continuing anyway"
+      fi
+    done
+  fi
 
   echo ""
   echo "📦 Sandbox ready: helix-sandbox:latest"
@@ -1895,13 +1619,201 @@ function update_openapi() {
 		return 1
 	}
 
+  cp -r api/pkg/server/swagger.json . || {
+		echo "❌ Failed to copy swagger.yaml"
+		return 1
+	}
+
 	echo "🔄 Generating TypeScript client..."
 	npx swagger-typescript-api@13.0.23 -p ./frontend/swagger/swagger.yaml -o ./frontend/src/api --axios -n api.ts || {
 		echo "❌ TypeScript client generation FAILED"
 		return 1
 	}
 
+  echo "🔄 Generating TypeScript client..."
+  npx swagger2openapi ./api/pkg/server/swagger.json --resolve --outfile ./openapi.json
+
 	echo "✅ OpenAPI update complete"
+}
+
+function build-utm() {
+	# Build custom QEMU with helix-frame-export for UTM (macOS only)
+	echo "🖥️  Building custom QEMU with helix-frame-export for UTM..."
+	echo ""
+
+	# Check platform
+	if [[ "$OSTYPE" != "darwin"* ]]; then
+		echo "❌ build-utm is only supported on macOS"
+		return 1
+	fi
+
+	# Check Homebrew dependencies
+	echo "🔍 Checking build dependencies..."
+	MISSING_DEPS=()
+
+	# Check for Homebrew
+	if ! command -v brew &> /dev/null; then
+		echo "❌ Homebrew not found - install from https://brew.sh"
+		return 1
+	fi
+
+	# Required packages from UTM's CI (.github/workflows/build.yml line 89)
+	# brew install bison pkg-config gettext glib-utils libgpg-error nasm make meson cmake
+	REQUIRED_PKGS=("bison" "pkg-config" "gettext" "glib-utils" "libgpg-error" "nasm" "make" "meson" "cmake" "libclc")
+
+	for pkg in "${REQUIRED_PKGS[@]}"; do
+		if brew list "$pkg" &>/dev/null; then
+			VERSION=$(brew list --versions "$pkg" | awk '{print $2}')
+			echo "  ✓ $pkg $VERSION"
+		else
+			MISSING_DEPS+=("$pkg")
+		fi
+	done
+
+	# Special check for bison (need >= 3.0, macOS ships with 2.3)
+	BISON_PATH="/opt/homebrew/opt/bison/bin/bison"
+	if [ ! -f "$BISON_PATH" ]; then
+		echo "  ⚠️  bison installed but not in PATH - add /opt/homebrew/opt/bison/bin to PATH"
+	fi
+
+	# Report missing dependencies
+	if [ ${#MISSING_DEPS[@]} -ne 0 ]; then
+		echo ""
+		echo "❌ Missing required Homebrew packages:"
+		for dep in "${MISSING_DEPS[@]}"; do
+			echo "   - $dep"
+		done
+		echo ""
+		echo "Install with:"
+		echo "  brew install ${MISSING_DEPS[*]}"
+		return 1
+	fi
+
+	# Check Python packages (from UTM CI line 90)
+	# pip3 install --break-system-packages --user six pyparsing pyyaml setuptools distlib mako
+	echo ""
+	echo "🐍 Checking Python dependencies..."
+	PYTHON_PKGS=("six" "pyparsing" "pyyaml" "setuptools" "distlib" "mako")
+	MISSING_PYTHON=()
+
+	for pkg in "${PYTHON_PKGS[@]}"; do
+		if python3 -c "import ${pkg/pyyaml/yaml}" &>/dev/null; then
+			echo "  ✓ $pkg"
+		else
+			MISSING_PYTHON+=("$pkg")
+		fi
+	done
+
+	if [ ${#MISSING_PYTHON[@]} -ne 0 ]; then
+		echo ""
+		echo "❌ Missing required Python packages:"
+		for dep in "${MISSING_PYTHON[@]}"; do
+			echo "   - $dep"
+		done
+		echo ""
+		echo "Install with:"
+		echo "  pip3 install --break-system-packages --user ${MISSING_PYTHON[*]}"
+		return 1
+	fi
+
+	echo ""
+
+	# Check dependencies
+	if [ ! -d "$PROJECTS_ROOT/qemu-utm" ]; then
+		echo "❌ QEMU fork not found at $PROJECTS_ROOT/qemu-utm"
+		echo "   Clone: git clone -b utm-edition-venus-helix https://github.com/helixml/qemu-utm $PROJECTS_ROOT/qemu-utm"
+		return 1
+	fi
+
+	# Auto-clone UTM if needed (it's just a build dependency, not our code)
+	UTM_VERSION="8d34e35b"  # v5.0.1+ - tested working version
+	if [ ! -d "$PROJECTS_ROOT/UTM" ]; then
+		echo "📦 UTM build scripts not found - cloning automatically..."
+		echo "   (UTM v5.0.1+ at $UTM_VERSION - used for build scripts only)"
+		cd "$PROJECTS_ROOT"
+		git clone https://github.com/utmapp/UTM.git || {
+			echo "❌ Failed to clone UTM"
+			return 1
+		}
+		cd UTM
+		git checkout "$UTM_VERSION" || {
+			echo "❌ Failed to checkout UTM version $UTM_VERSION"
+			return 1
+		}
+		echo "✅ UTM build scripts ready at $PROJECTS_ROOT/UTM"
+	else
+		# Verify we have the right version
+		cd "$PROJECTS_ROOT/UTM"
+		CURRENT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+		if [[ "$CURRENT_COMMIT" != "$UTM_VERSION"* ]]; then
+			echo "⚠️  UTM is at commit $CURRENT_COMMIT, expected $UTM_VERSION"
+			echo "   Checking out correct version..."
+			git fetch origin && git checkout "$UTM_VERSION" || {
+				echo "❌ Failed to checkout correct UTM version"
+				return 1
+			}
+		fi
+	fi
+
+	# Check if dependencies are already built
+	BUILD_DIR="$PROJECTS_ROOT/UTM/build-macOS-arm64"
+	SYSROOT="$PROJECTS_ROOT/UTM/sysroot-macOS-arm64"
+
+	if [ ! -d "$SYSROOT/lib" ] || [ ! -f "$SYSROOT/lib/libvirglrenderer.1.dylib" ]; then
+		echo "📦 Building all dependencies (first time - this takes 30-60 minutes)..."
+		echo "   This includes:"
+		echo "   • virglrenderer (critical for GPU texture access)"
+		echo "   • SPICE, GLib, GStreamer, and 25+ other dependencies"
+		echo ""
+
+		cd "$PROJECTS_ROOT/UTM"
+
+		# Add Homebrew bison to PATH
+		export PATH="/opt/homebrew/opt/bison/bin:/opt/homebrew/bin:$PATH"
+
+		# Build all dependencies
+		./Scripts/build_dependencies.sh -p macos -a arm64
+
+		if [ $? -ne 0 ]; then
+			echo "❌ Dependency build failed"
+			return 1
+		fi
+
+		echo "✅ Dependencies built successfully"
+	else
+		echo "✅ Dependencies already built (using cached sysroot)"
+	fi
+
+	echo ""
+	echo "🔨 Building custom QEMU (2-5 minutes with cached dependencies)..."
+	echo "   • helix-frame-export module for GPU frame sharing"
+	echo "   • SPICE GL support (gl=es parameter)"
+	echo "   • All UTM venus/Vulkan patches"
+	echo ""
+	echo "   Using standalone build from for-mac/qemu-helix/"
+	echo ""
+
+	# Use the standalone rebuild script (doesn't require UTM checkout)
+	bash "$DIR/for-mac/qemu-helix/build-qemu-standalone.sh"
+
+	if [ $? -ne 0 ]; then
+		echo "❌ QEMU build failed"
+		return 1
+	fi
+
+	# build-qemu-standalone.sh handles everything:
+	# - Build QEMU
+	# - Install to correct framework location in UTM.app
+	# - Fix library paths
+	# - Clear UTM caches
+	# - Restart UTM if running
+	echo ""
+	echo "✅ QEMU build and install complete!"
+	echo ""
+	echo "🚀 Next steps:"
+	echo "   1. Start VM: /Applications/UTM.app/Contents/MacOS/utmctl start <UUID>"
+	echo "   2. Test: python3 /tmp/test_helix_frame_export.py"
+	echo ""
 }
 
 function build-frontend() {
@@ -2162,7 +2074,8 @@ function help() {
   echo "  build-runner       - Build the helix-runner binary locally"
   echo "  build-runner-image - Build the runner Docker image (includes ROCm vLLM)"
   echo "  static-compile     - Build static Go binary"
-  echo "  start              - Start the development environment with tmux"
+  echo "  start              - Start the development environment"
+  echo "  start-tmux         - Start the development environment with tmux session attached to watch logs"
   echo "  stop               - Stop docker containers"
   echo "  mock-runner        - Start a mock runner for testing"
   echo "  up [services]      - Start specific docker services"
@@ -2177,6 +2090,8 @@ function help() {
   echo "  build-zorin        - Build Zorin+Zed container (alias for build-desktop zorin)"
   echo "  build-ubuntu       - Build Ubuntu+Zed container (alias for build-desktop ubuntu)"
   echo "  build-xfce         - Build XFCE+Zed container (alias for build-desktop xfce)"
+  echo "  build-drm-manager  - Cross-compile and deploy helix-drm-manager to VM"
+  echo "  build-utm          - Build custom QEMU with helix-frame-export for UTM (macOS only)"
   echo ""
   echo "Zed Agent commands:"
   echo "  build-zed [dev|release] - Build Zed binary in Docker (glibc 2.35 compatible)"
@@ -2213,9 +2128,6 @@ function help() {
   echo "  STOP_PGVECTOR=1    - Stop PGVector when stopping"
   echo "  EXPERIMENTAL_DESKTOPS=\"zorin xfce\" - Build experimental desktops in build-sandbox"
 }
-
-# Detect Helix-in-Helix mode for all commands (not just start)
-detect_helix_in_helix
 
 # Show help if no arguments provided
 if [[ $# -eq 0 ]]; then

@@ -27,7 +27,7 @@ type SpecTaskMultiSessionExtensions struct {
 type SpecTaskWorkSession struct {
 	ID             string `json:"id" gorm:"primaryKey;size:255"`
 	SpecTaskID     string `json:"spec_task_id" gorm:"not null;size:255;index"`
-	HelixSessionID string `json:"helix_session_id" gorm:"not null;size:255;uniqueIndex"` // 1:1 mapping
+	HelixSessionID string `json:"helix_session_id" gorm:"not null;size:255;index"` // Maps to Helix session (multiple Zed threads can share one session)
 
 	// Work session details
 	Name        string                    `json:"name,omitempty" gorm:"size:255"`
@@ -41,8 +41,8 @@ type SpecTaskWorkSession struct {
 	ImplementationTaskIndex       int    `json:"implementation_task_index,omitempty"`
 
 	// Relationships for spawning/branching
-	ParentWorkSessionID string `json:"parent_work_session_id,omitempty" gorm:"size:255;index"`
-	SpawnedBySessionID  string `json:"spawned_by_session_id,omitempty" gorm:"size:255;index"`
+	ParentWorkSessionID *string `json:"parent_work_session_id,omitempty" gorm:"size:255;index"`
+	SpawnedBySessionID  *string `json:"spawned_by_session_id,omitempty" gorm:"size:255;index"`
 
 	// Configuration
 	AgentConfig       datatypes.JSON `json:"agent_config,omitempty" gorm:"type:jsonb"`
@@ -103,7 +103,7 @@ type SpecTaskImplementationTask struct {
 
 	// Implementation tracking
 	Status                SpecTaskImplementationStatus `json:"status" gorm:"not null;size:50;default:pending;index"`
-	AssignedWorkSessionID string                       `json:"assigned_work_session_id,omitempty" gorm:"size:255;index"`
+	AssignedWorkSessionID *string                       `json:"assigned_work_session_id,omitempty" gorm:"size:255;index"`
 
 	CreatedAt   time.Time  `json:"created_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
@@ -402,11 +402,11 @@ func (s *SpecTaskWorkSession) IsPending() bool {
 }
 
 func (s *SpecTaskWorkSession) HasParent() bool {
-	return s.ParentWorkSessionID != ""
+	return s.ParentWorkSessionID != nil && *s.ParentWorkSessionID != ""
 }
 
 func (s *SpecTaskWorkSession) WasSpawned() bool {
-	return s.SpawnedBySessionID != ""
+	return s.SpawnedBySessionID != nil && *s.SpawnedBySessionID != ""
 }
 
 func (z *SpecTaskZedThread) IsActive() bool {
@@ -437,7 +437,7 @@ func (i *SpecTaskImplementationTask) CanBeAssigned() bool {
 }
 
 func (i *SpecTaskImplementationTask) IsAssigned() bool {
-	return i.Status == SpecTaskImplementationStatusAssigned && i.AssignedWorkSessionID != ""
+	return i.Status == SpecTaskImplementationStatusAssigned && i.AssignedWorkSessionID != nil && *i.AssignedWorkSessionID != ""
 }
 
 func (i *SpecTaskImplementationTask) IsInProgress() bool {

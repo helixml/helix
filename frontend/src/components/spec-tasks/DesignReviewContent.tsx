@@ -125,7 +125,7 @@ export default function DesignReviewContent({
 
   // Fetch review data
   const { data: reviewData, isLoading: reviewLoading } = useDesignReview(specTaskId, reviewId, {
-    refetchInterval: hasAwaitingComments ? 3000 : undefined,
+    refetchInterval: hasAwaitingComments ? 3000 : 5000,
   })
 
   const submitReviewMutation = useSubmitReview(specTaskId, reviewId)

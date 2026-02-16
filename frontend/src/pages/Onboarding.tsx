@@ -1,9 +1,8 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react'
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import TextField from '@mui/material/TextField'
 import Button from '@mui/material/Button'
-import IconButton from '@mui/material/IconButton'
 import CircularProgress from '@mui/material/CircularProgress'
 import Fade from '@mui/material/Fade'
 import MenuItem from '@mui/material/MenuItem'
@@ -11,8 +10,10 @@ import Select from '@mui/material/Select'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import Divider from '@mui/material/Divider'
+import Radio from '@mui/material/Radio'
+import RadioGroup from '@mui/material/RadioGroup'
+import FormControlLabel from '@mui/material/FormControlLabel'
 
-import CloseIcon from '@mui/icons-material/Close'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
 import BusinessIcon from '@mui/icons-material/Business'
@@ -22,7 +23,11 @@ import RocketLaunchIcon from '@mui/icons-material/RocketLaunch'
 import PersonIcon from '@mui/icons-material/Person'
 import GitHubIcon from '@mui/icons-material/GitHub'
 import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolder'
-import { Bot } from 'lucide-react'
+import CloseIcon from '@mui/icons-material/Close'
+import IconButton from '@mui/material/IconButton'
+import { Bot, Server } from 'lucide-react'
+
+import Alert from '@mui/material/Alert'
 
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
@@ -35,6 +40,12 @@ import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker'
 import BrowseProvidersDialog from '../components/project/BrowseProvidersDialog'
 import { SELECTED_ORG_STORAGE_KEY } from '../utils/localStorage'
 import { useCreateOrg } from '../services/orgService'
+import { useListProviders } from '../services/providersService'
+import { useGetSystemSettings, useUpdateSystemSettings } from '../services/systemSettingsService'
+import { PROVIDERS, Provider } from '../components/providers/types'
+import AddProviderDialog from '../components/providers/AddProviderDialog'
+import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from '../components/account/ClaudeSubscriptionConnect'
+import AnthropicLogo from '../components/providers/logos/anthropic'
 
 const RECOMMENDED_MODELS = [
   'claude-opus-4-6',
@@ -50,7 +61,9 @@ const RECOMMENDED_MODELS = [
   'Qwen/Qwen3-Coder-30B-A3B-Instruct',
   'Qwen/Qwen3-235B-A22B-fp8-tput',
 ]
+const DEFAULT_ONBOARDING_AGENT_MODEL = 'claude-opus-4-6'
 import type { TypesExternalRepositoryType, TypesRepositoryInfo, TypesGitHub, TypesGitLab, TypesAzureDevOps, TypesBitbucket } from '../api/api'
+import { TypesProviderEndpointType } from '../api/api'
 
 const ACCENT = '#00e891'
 const ACCENT_DIM = 'rgba(0, 232, 145, 0.08)'
@@ -102,6 +115,11 @@ const STEPS: StepConfig[] = [
     subtitle: 'Organizations help you collaborate with your team and manage projects together.',
   },
   {
+    icon: <Server size={20} />,
+    title: 'Connect an AI provider',
+    subtitle: 'Add an API key so your agents can use AI models.',
+  },
+  {
     icon: <FolderIcon />,
     title: 'Create your first project',
     subtitle: 'Set up your project with a repository and AI agent.',
@@ -124,15 +142,22 @@ export default function Onboarding() {
   const [activeStep, setActiveStep] = useState(1)
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set([0]))
 
-  // Step 1: Organization
+  // Step 1: Provider
+  const [selectedOnboardingProvider, setSelectedOnboardingProvider] = useState<Provider | null>(null)
+  const [addProviderDialogOpen, setAddProviderDialogOpen] = useState(false)
+  const [hasAutoSetKodit, setHasAutoSetKodit] = useState(false)
+  const initialProvidersChecked = useRef(false)
+  const systemSettings = useGetSystemSettings()
+  const updateSystemSettings = useUpdateSystemSettings()
+
+  // Step 2: Organization
   const [orgMode, setOrgMode] = useState<'select' | 'create'>('select')
   const [selectedOrgId, setSelectedOrgId] = useState<string>('')
   const [orgDisplayName, setOrgDisplayName] = useState('')
-  const [createdOrgId, setCreatedOrgId] = useState<string>('')
-  const [createdOrgName, setCreatedOrgName] = useState<string>('')
+  const [createdOrg, setCreatedOrg] = useState<{ id: string; name: string; display_name?: string } | null>(null)
   const createOrgMutation = useCreateOrg()
 
-  // Step 2: Project + Agent
+  // Step 3: Project + Agent
   const [projectName, setProjectName] = useState('')
   const [projectDescription, setProjectDescription] = useState('')
   const [repoMode, setRepoMode] = useState<'new' | 'external'>('new')
@@ -159,21 +184,99 @@ export default function Onboarding() {
   const [selectedAgentId, setSelectedAgentId] = useState('')
   const [selectedProvider, setSelectedProvider] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
+  const [hasUserSelectedModel, setHasUserSelectedModel] = useState(false)
   const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent')
+  const [claudeCodeMode, setClaudeCodeMode] = useState<'subscription' | 'api_key'>('subscription')
   const [newAgentName, setNewAgentName] = useState('-')
   const [userModifiedAgentName, setUserModifiedAgentName] = useState(false)
   const [creatingAgent, setCreatingAgent] = useState(false)
   const [createdAgentId, setCreatedAgentId] = useState<string>('')
 
-  // Step 3: Task
+  // Step 4: Task
   const [taskPrompt, setTaskPrompt] = useState('')
   const [creatingTask, setCreatingTask] = useState(false)
 
-  // Skipping
-  const [skipping, setSkipping] = useState(false)
 
   const existingOrgs = account.organizationTools.organizations
   const hasExistingOrgs = existingOrgs.length > 0
+
+  const { data: providers, isLoading: isLoadingProviders } = useListProviders({
+    loadModels: true,
+    enabled: true,
+  })
+
+  // Claude subscription state
+  const { data: claudeSubscriptions } = useClaudeSubscriptions()
+  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
+  const [claudeSubOrgId, setClaudeSubOrgId] = useState<string>('')
+
+  // Derived provider state
+  const connectedProviderIds = useMemo(() => {
+    if (!providers) return new Set<string>()
+    const ids = new Set<string>()
+    providers.forEach(p => {
+      if (p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser && p.name) {
+        ids.add(p.name)
+      }
+    })
+    return ids
+  }, [providers])
+  const hasAnthropicProvider = connectedProviderIds.has('anthropic')
+  // Consider Claude subscription as a valid provider for the "Continue" button
+  const hasUserProviders = connectedProviderIds.size > 0 || hasClaudeSubscription
+
+  // Check if any providers (including system/global) have enabled models
+  const hasAnyEnabledModels = useMemo(() => {
+    if (!providers) return false
+    return providers.some(p =>
+      (p.available_models || []).some(m => m.enabled && m.type === 'chat')
+    )
+  }, [providers])
+
+  // Auto-complete provider step if any providers already exist on initial load
+  // (either user-configured or system/global providers)
+  // Provider step is now step 2 (after org setup at step 1)
+  useEffect(() => {
+    if (initialProvidersChecked.current || isLoadingProviders || !providers) return
+    initialProvidersChecked.current = true
+
+    if (hasAnyEnabledModels) {
+      setCompletedSteps(prev => new Set([...prev, 2]))
+      if (activeStep === 2) {
+        setActiveStep(3)
+      }
+    }
+  }, [isLoadingProviders])
+
+  // Auto-set kodit enrichment model after first provider connection during onboarding
+  useEffect(() => {
+    if (hasAutoSetKodit || !providers?.length) return
+    const userProviders = providers.filter(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser)
+    if (userProviders.length === 0) return
+    // Don't auto-set if already configured
+    if (systemSettings.data?.kodit_enrichment_model) return
+
+    const firstProvider = userProviders[0]
+    const providerName = firstProvider.name || ''
+    const modelMap: Record<string, { model: string; provider: string }> = {
+      'user/openai': { model: 'gpt-4o-mini', provider: 'user/openai' },
+      'user/anthropic': { model: 'claude-haiku-4-5-20251001', provider: 'user/anthropic' },
+      'user/google': { model: 'gemini-2.5-flash', provider: 'user/google' },
+      'user/groq': { model: 'llama-3.1-8b-instant', provider: 'user/groq' },
+      'user/togetherai': { model: 'Qwen/Qwen3-30B-A3B', provider: 'user/togetherai' },
+      'user/cerebras': { model: 'llama-3.3-70b', provider: 'user/cerebras' },
+    }
+
+    const mapping = modelMap[providerName]
+    if (!mapping) return
+
+    setHasAutoSetKodit(true)
+    updateSystemSettings.mutate({
+      kodit_enrichment_model: mapping.model,
+      kodit_enrichment_provider: mapping.provider,
+      providers_management_enabled: true,
+    })
+  }, [providers, systemSettings.data, hasAutoSetKodit])
 
   useEffect(() => {
     if (hasExistingOrgs) {
@@ -206,18 +309,55 @@ export default function Onboarding() {
   }, [zedExternalAgents, selectedAgentId])
 
   useEffect(() => {
-    if (activeStep !== 2 || !createdOrgId) return
+    if (activeStep !== 3 || !createdOrg) return
 
     api.get<IApp[]>('/api/v1/apps', {
-      params: { organization_id: createdOrgId },
+      params: { organization_id: createdOrg.id },
     }, { snackbar: true }).then(result => {
       setOrgApps(result || [])
     })
-  }, [activeStep, createdOrgId])
+  }, [activeStep, createdOrg])
+
+  useEffect(() => {
+    if (agentMode !== 'create' || selectedModel || hasUserSelectedModel || isLoadingProviders || !providers?.length) {
+      return
+    }
+
+    const providerWithDefault = providers.find((provider) =>
+      (provider.available_models || []).some((model) =>
+        model.enabled && model.type === 'chat' && model.id === DEFAULT_ONBOARDING_AGENT_MODEL
+      )
+    )
+
+    if (providerWithDefault) {
+      setSelectedProvider(providerWithDefault.name || '')
+      setSelectedModel(DEFAULT_ONBOARDING_AGENT_MODEL)
+      return
+    }
+
+    const firstAvailableModel = providers
+      .flatMap((provider) =>
+        (provider.available_models || []).map((model) => ({ provider, model }))
+      )
+      .find(({ model }) => model.enabled && model.type === 'chat')
+
+    if (!firstAvailableModel?.model.id) return
+
+    setSelectedProvider(firstAvailableModel.provider.name || '')
+    setSelectedModel(firstAvailableModel.model.id)
+  }, [agentMode, selectedModel, hasUserSelectedModel, isLoadingProviders, providers])
+
+  // Auto-default to Claude Code when it's the only available AI provider
+  useEffect(() => {
+    if (hasClaudeSubscription && !hasAnthropicProvider && connectedProviderIds.size === 0) {
+      setCodeAgentRuntime('claude_code')
+      setClaudeCodeMode('subscription')
+    }
+  }, [hasClaudeSubscription, hasAnthropicProvider, connectedProviderIds.size])
 
   // Auto-generate agent name when model or runtime changes
   useEffect(() => {
-    if (!userModifiedAgentName && agentMode === 'create' && selectedModel) {
+    if (!userModifiedAgentName && agentMode === 'create' && (selectedModel || codeAgentRuntime === 'claude_code')) {
       setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime))
     }
   }, [selectedModel, codeAgentRuntime, userModifiedAgentName, agentMode])
@@ -227,32 +367,21 @@ export default function Onboarding() {
     setActiveStep(step + 1)
   }, [])
 
-  const handleSkip = useCallback(async () => {
-    setSkipping(true)
-    try {
-      await api.getApiClient().v1UsersMeOnboardingCreate()
-      router.navigateReplace('projects')
-    } catch (err) {
-      console.error('Failed to skip onboarding:', err)
-      router.navigateReplace('projects')
-    }
-  }, [api, router])
-
   const handleComplete = useCallback(async () => {
     try {
       await api.getApiClient().v1UsersMeOnboardingCreate()
     } catch (err) {
       console.error('Failed to mark onboarding complete:', err)
     }
-    if (createdOrgName) {
-      localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrgName)
+    if (createdOrg) {
+      localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrg.name)
     }
-    if (createdProjectId && createdOrgName) {
-      router.navigateReplace('org_projects', { org_id: createdOrgName })
+    if (createdProjectId && createdOrg) {
+      router.navigateReplace('org_projects', { org_id: createdOrg.name })
     } else {
       router.navigateReplace('projects')
     }
-  }, [api, createdProjectId, createdOrgName, router])
+  }, [api, createdProjectId, createdOrg, router])
 
   const handleSelectExistingOrg = useCallback(() => {
     if (!selectedOrgId) {
@@ -264,8 +393,7 @@ export default function Onboarding() {
       snackbar.error('Could not find the selected organization')
       return
     }
-    setCreatedOrgId(org.id)
-    setCreatedOrgName(org.name || org.id)
+    setCreatedOrg({ id: org.id!, name: org.name!, display_name: org.display_name })
     markComplete(1)
   }, [selectedOrgId, existingOrgs, markComplete, snackbar])
 
@@ -279,8 +407,7 @@ export default function Onboarding() {
         display_name: orgDisplayName.trim(),
       })
       if (newOrg?.id) {
-        setCreatedOrgId(newOrg.id)
-        setCreatedOrgName(newOrg.name || newOrg.id)
+        setCreatedOrg({ id: newOrg.id!, name: newOrg.name!, display_name: newOrg.display_name })
         await account.organizationTools.loadOrganizations()
         markComplete(1)
       }
@@ -316,7 +443,7 @@ export default function Onboarding() {
     setLinkRepoDialogOpen(false)
   }, [projectName])
 
-  // Step 2: Create project (includes agent creation/selection)
+  // Step 3: Create project (includes agent creation/selection)
   const handleCreateProject = useCallback(async () => {
     if (!projectName.trim()) {
       snackbar.error('Please enter a project name')
@@ -332,17 +459,17 @@ export default function Onboarding() {
       snackbar.error('Please select an agent')
       return
     }
-    if (agentMode === 'create' && !selectedModel) {
+    if (agentMode === 'create' && !selectedModel && !(codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription')) {
       snackbar.error('Please select a model for the agent')
       return
     }
 
-    if (!createdOrgId) {
+    if (!createdOrg) {
       snackbar.error('No valid organization selected. Please go back and set up your organization first.')
       return
     }
 
-    const orgId = createdOrgId
+    const orgId = createdOrg.id
 
     setCreatingProject(true)
     try {
@@ -355,16 +482,17 @@ export default function Onboarding() {
       } else {
         setCreatingAgent(true)
         try {
+          const isClaudeCodeSub = codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription'
           const agentName = newAgentName.trim() || generateAgentName(selectedModel, codeAgentRuntime)
           const newApp = await apps.createAgent({
             name: agentName,
             description: 'Code development agent',
             agentType: AGENT_TYPE_ZED_EXTERNAL,
             codeAgentRuntime,
-            model: selectedModel,
+            model: isClaudeCodeSub ? '' : selectedModel,
             organizationId: orgId,
-            generationModelProvider: selectedProvider,
-            generationModel: selectedModel,
+            generationModelProvider: isClaudeCodeSub ? '' : selectedProvider,
+            generationModel: isClaudeCodeSub ? '' : selectedModel,
             reasoningModelProvider: '',
             reasoningModel: '',
             reasoningModelEffort: 'none',
@@ -471,7 +599,7 @@ export default function Onboarding() {
         if (agentMode === 'select') {
           setCreatedAgentId(selectedAgentId)
         }
-        markComplete(2)
+        markComplete(3)
       }
     } catch (err: any) {
       console.error('Failed to create project:', err)
@@ -480,9 +608,9 @@ export default function Onboarding() {
     } finally {
       setCreatingProject(false)
     }
-  }, [projectName, projectDescription, repoMode, linkedExternalRepo, createdOrgId, account, api, apps, markComplete, snackbar, agentMode, selectedAgentId, selectedModel, selectedProvider, codeAgentRuntime, newAgentName])
+  }, [projectName, projectDescription, repoMode, linkedExternalRepo, createdOrg, account, api, apps, markComplete, snackbar, agentMode, selectedAgentId, selectedModel, selectedProvider, codeAgentRuntime, newAgentName])
 
-  // Step 3: Create task
+  // Step 4: Create task
   const handleCreateTask = useCallback(async () => {
     if (!taskPrompt.trim()) {
       snackbar.error('Please describe what you want to build')
@@ -501,7 +629,7 @@ export default function Onboarding() {
       })
 
       if (response.data) {
-        markComplete(3)
+        markComplete(4)
         snackbar.success('Task created! Your AI agent will start working on it.')
         setTimeout(() => handleComplete(), 1500)
       }
@@ -513,6 +641,11 @@ export default function Onboarding() {
       setCreatingTask(false)
     }
   }, [taskPrompt, createdProjectId, createdAgentId, api, markComplete, snackbar, handleComplete])
+
+  const handleDismiss = useCallback(() => {
+    account.dismissOnboarding()
+    router.navigateReplace('projects')
+  }, [router])
 
   const userName = account.user?.name?.split(' ')[0] || account.user?.email?.split('@')[0] || 'there'
 
@@ -682,6 +815,142 @@ export default function Onboarding() {
       case 2:
         return (
           <Fade in={isStepActive(2)} timeout={400}>
+            <Box sx={{ mt: 2.5 }}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 1.5, mb: 2.5 }}>
+
+                {/* Claude Subscription - special card at the top */}
+                <Box
+                  sx={{
+                    gridColumn: '1 / -1',
+                    p: 1.5,
+                    borderRadius: 1.5,
+                    border: `1px solid ${hasClaudeSubscription ? CARD_BORDER_ACTIVE : CARD_BORDER}`,
+                    bgcolor: hasClaudeSubscription ? ACCENT_DIM : 'transparent',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1.5,
+                  }}
+                >
+                  <Box sx={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <AnthropicLogo style={{ width: 24, height: 24 }} />
+                  </Box>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography sx={{ color: '#fff', fontWeight: 500, fontSize: '0.78rem' }}>
+                      Claude Subscription
+                    </Typography>
+                    <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.7rem' }}>
+                      Use your Claude account with Claude Code in desktop agents
+                    </Typography>
+                  </Box>
+                  {createdOrg && (
+                    <FormControl size="small" sx={{ minWidth: 160 }}>
+                      <Select
+                        value={claudeSubOrgId || 'personal'}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setClaudeSubOrgId(val === 'personal' ? '' : val)
+                        }}
+                        sx={{
+                          color: '#fff',
+                          fontSize: '0.72rem',
+                          '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' },
+                          '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
+                          '&.Mui-focused fieldset': { borderColor: ACCENT },
+                          '& .MuiSvgIcon-root': { color: 'rgba(255,255,255,0.4)' },
+                        }}
+                        MenuProps={{
+                          PaperProps: {
+                            sx: { bgcolor: '#1a1a2e', color: '#fff' },
+                          },
+                        }}
+                      >
+                        <MenuItem value="personal" sx={{ fontSize: '0.78rem' }}>Personal (just me)</MenuItem>
+                        <MenuItem value={createdOrg.id} sx={{ fontSize: '0.78rem' }}>
+                          {createdOrg.display_name || createdOrg.name}
+                        </MenuItem>
+                      </Select>
+                    </FormControl>
+                  )}
+                  <ClaudeSubscriptionConnect variant="button" orgId={claudeSubOrgId || undefined} />
+                </Box>
+
+                <Divider sx={{ gridColumn: '1 / -1', borderColor: 'rgba(255,255,255,0.06)', my: 0.5 }} />
+                <Typography sx={{ gridColumn: '1 / -1', color: 'rgba(255,255,255,0.3)', fontSize: '0.72rem' }}>
+                  API Key Providers (for chat, Zed Agent, and Qwen Code)
+                </Typography>
+
+                {PROVIDERS.map((prov) => {
+                  const isConnected = connectedProviderIds.has(prov.id)
+                  const Logo = prov.logo
+                  return (
+                    <Box
+                      key={prov.id}
+                      onClick={() => {
+                        setSelectedOnboardingProvider(prov)
+                        setAddProviderDialogOpen(true)
+                      }}
+                      sx={{
+                        p: 1.5,
+                        borderRadius: 1.5,
+                        border: `1px solid ${isConnected ? CARD_BORDER_ACTIVE : CARD_BORDER}`,
+                        bgcolor: isConnected ? ACCENT_DIM : 'transparent',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        '&:hover': { borderColor: 'rgba(255,255,255,0.15)', bgcolor: 'rgba(255,255,255,0.02)' },
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1.5,
+                      }}
+                    >
+                      <Box sx={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        {typeof Logo === 'string' ? (
+                          <img src={Logo} alt="" style={{ width: 24, height: 24 }} />
+                        ) : (
+                          <Logo style={{ width: 24, height: 24 }} />
+                        )}
+                      </Box>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography sx={{ color: '#fff', fontWeight: 500, fontSize: '0.78rem' }}>
+                          {prov.name}
+                        </Typography>
+                      </Box>
+                      {isConnected && (
+                        <CheckCircleIcon sx={{ fontSize: 16, color: ACCENT, flexShrink: 0 }} />
+                      )}
+                    </Box>
+                  )
+                })}
+              </Box>
+
+              <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+                <Button
+                  variant="contained"
+                  onClick={() => markComplete(2)}
+                  disabled={!hasUserProviders}
+                  sx={btnSx}
+                >
+                  Continue
+                </Button>
+                <Button
+                  variant="text"
+                  onClick={() => markComplete(2)}
+                  sx={{
+                    color: 'rgba(255,255,255,0.3)',
+                    textTransform: 'none',
+                    fontSize: '0.78rem',
+                    '&:hover': { color: 'rgba(255,255,255,0.6)' },
+                  }}
+                >
+                  I'll do this later
+                </Button>
+              </Box>
+            </Box>
+          </Fade>
+        )
+
+      case 3:
+        return (
+          <Fade in={isStepActive(3)} timeout={400}>
             <Box sx={{ mt: 2.5 }}>
               <TextField
                 fullWidth
@@ -955,22 +1224,110 @@ export default function Onboarding() {
                           </Typography>
                         </Box>
                       </MenuItem>
+                      <MenuItem value="claude_code" sx={{ fontSize: '0.82rem' }}>
+                        <Box>
+                          <Typography sx={{ fontSize: '0.82rem', color: '#fff' }}>Claude Code</Typography>
+                          <Typography sx={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)' }}>
+                            Anthropic's coding agent — works with Claude subscriptions
+                          </Typography>
+                        </Box>
+                      </MenuItem>
                     </Select>
                   </FormControl>
 
-                  <AdvancedModelPicker
-                    recommendedModels={RECOMMENDED_MODELS}
-                    hint="Choose a capable model for agentic coding."
-                    selectedProvider={selectedProvider}
-                    selectedModelId={selectedModel}
-                    onSelectModel={(provider, model) => {
-                      setSelectedProvider(provider)
-                      setSelectedModel(model)
-                    }}
-                    currentType="text"
-                    displayMode="full"
-                    disabled={creatingAgent}
-                  />
+                  {codeAgentRuntime === 'claude_code' ? (
+                    <>
+                      <Box sx={{ p: 1.5, borderRadius: 1.5, border: '1px solid rgba(255,255,255,0.06)', bgcolor: 'rgba(255,255,255,0.02)' }}>
+                        <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.78rem', mb: 0.5 }}>
+                          Credentials
+                        </Typography>
+                        <FormControl>
+                          <RadioGroup
+                            value={claudeCodeMode}
+                            onChange={(e) => {
+                              const mode = e.target.value as 'subscription' | 'api_key'
+                              setClaudeCodeMode(mode)
+                              if (mode === 'subscription') {
+                                setSelectedProvider('')
+                                setSelectedModel('')
+                                setHasUserSelectedModel(false)
+                              }
+                            }}
+                          >
+                            <FormControlLabel
+                              value="subscription"
+                              control={<Radio size="small" sx={{ color: 'rgba(255,255,255,0.3)', '&.Mui-checked': { color: ACCENT } }} />}
+                              disabled={!hasClaudeSubscription}
+                              label={
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <Typography sx={{ fontSize: '0.78rem', color: '#fff' }}>Claude Subscription</Typography>
+                                  {hasClaudeSubscription ? (
+                                    <CheckCircleIcon sx={{ fontSize: 14, color: ACCENT }} />
+                                  ) : (
+                                    <Typography sx={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)' }}>(not connected)</Typography>
+                                  )}
+                                </Box>
+                              }
+                            />
+                            <FormControlLabel
+                              value="api_key"
+                              control={<Radio size="small" sx={{ color: 'rgba(255,255,255,0.3)', '&.Mui-checked': { color: ACCENT } }} />}
+                              disabled={!hasAnthropicProvider}
+                              label={
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <Typography sx={{ fontSize: '0.78rem', color: '#fff' }}>Anthropic API Key</Typography>
+                                  {hasAnthropicProvider ? (
+                                    <CheckCircleIcon sx={{ fontSize: 14, color: ACCENT }} />
+                                  ) : (
+                                    <Typography sx={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)' }}>(not configured)</Typography>
+                                  )}
+                                </Box>
+                              }
+                            />
+                          </RadioGroup>
+                        </FormControl>
+                        {!hasClaudeSubscription && !hasAnthropicProvider && (
+                          <Typography sx={{ color: 'warning.main', fontSize: '0.72rem', mt: 0.5 }}>
+                            Connect a Claude subscription or add an Anthropic API key in Providers.
+                          </Typography>
+                        )}
+                      </Box>
+
+                      {claudeCodeMode === 'api_key' && (
+                        <AdvancedModelPicker
+                          recommendedModels={RECOMMENDED_MODELS}
+                          autoSelectFirst={false}
+                          hint="Choose a Claude model for code generation."
+                          selectedProvider={selectedProvider}
+                          selectedModelId={selectedModel}
+                          onSelectModel={(provider, model) => {
+                            setHasUserSelectedModel(true)
+                            setSelectedProvider(provider)
+                            setSelectedModel(model)
+                          }}
+                          currentType="text"
+                          displayMode="full"
+                          disabled={creatingAgent}
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <AdvancedModelPicker
+                      recommendedModels={RECOMMENDED_MODELS}
+                      autoSelectFirst={false}
+                      hint="Choose a capable model for agentic coding."
+                      selectedProvider={selectedProvider}
+                      selectedModelId={selectedModel}
+                      onSelectModel={(provider, model) => {
+                        setHasUserSelectedModel(true)
+                        setSelectedProvider(provider)
+                        setSelectedModel(model)
+                      }}
+                      currentType="text"
+                      displayMode="full"
+                      disabled={creatingAgent}
+                    />
+                  )}
 
                   <TextField
                     fullWidth
@@ -994,10 +1351,10 @@ export default function Onboarding() {
                 variant="contained"
                 onClick={handleCreateProject}
                 disabled={
-                  creatingProject || creatingAgent || !projectName.trim() || !createdOrgId ||
+                  creatingProject || creatingAgent || !projectName.trim() || !createdOrg ||
                   (repoMode === 'external' && !linkedExternalRepo) ||
                   (agentMode === 'select' && !selectedAgentId) ||
-                  (agentMode === 'create' && !selectedModel)
+                  (agentMode === 'create' && !selectedModel && !(codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription'))
                 }
                 sx={btnSx}
                 startIcon={(creatingProject || creatingAgent) ? <CircularProgress size={14} sx={{ color: '#000' }} /> : <FolderIcon sx={{ fontSize: 16 }} />}
@@ -1008,9 +1365,9 @@ export default function Onboarding() {
           </Fade>
         )
 
-      case 3:
+      case 4:
         return (
-          <Fade in={isStepActive(3)} timeout={400}>
+          <Fade in={isStepActive(4)} timeout={400}>
             <Box sx={{ mt: 2.5 }}>
               <TextField
                 fullWidth
@@ -1074,21 +1431,20 @@ export default function Onboarding() {
         pb: 6,
       }}
     >
-      {/* Skip button */}
+      {/* Dismiss button */}
       <IconButton
-        onClick={handleSkip}
-        disabled={skipping}
+        onClick={handleDismiss}
         sx={{
           position: 'fixed',
           top: 16,
           right: 16,
-          color: 'rgba(255,255,255,0.2)',
-          '&:hover': { color: 'rgba(255,255,255,0.5)', bgcolor: 'rgba(255,255,255,0.04)' },
+          color: 'rgba(255,255,255,0.3)',
+          '&:hover': { color: 'rgba(255,255,255,0.6)' },
+          zIndex: 1301,
         }}
       >
-        <CloseIcon sx={{ fontSize: 20 }} />
+        <CloseIcon />
       </IconButton>
-
       <Box
         sx={{
           width: '100%',
@@ -1181,6 +1537,16 @@ export default function Onboarding() {
           onSelectRepository={handleBrowseSelectRepository}
           isLinking={linkingRepo}
         />
+
+        {selectedOnboardingProvider && (
+          <AddProviderDialog
+            open={addProviderDialogOpen}
+            onClose={() => setAddProviderDialogOpen(false)}
+            onClosed={() => setSelectedOnboardingProvider(null)}
+            orgId=""
+            provider={selectedOnboardingProvider}
+          />
+        )}
 
         {/* All done message */}
         {completedSteps.size === STEPS.length && (

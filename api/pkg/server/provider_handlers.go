@@ -74,54 +74,16 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 	orgID := r.URL.Query().Get("org_id")
 	all := r.URL.Query().Get("all") == "true"
 
-	user := getRequestUser(r)
-
-	// If providers management is disabled and user is not admin, only return global providers
-	if !s.isProvidersManagementEnabled(ctx) && !user.Admin {
-		// Return only global providers
-		globalProviderEndpoints, err := s.providerManager.ListProviders(ctx, "")
+	if orgID != "" {
+		org, err := s.lookupOrg(ctx, orgID)
 		if err != nil {
-			log.Err(err).Msg("error listing providers")
-			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+			writeErrResponse(rw, fmt.Errorf("failed to lookup org: %w", err), http.StatusInternalServerError)
 			return
 		}
-
-		var providerEndpoints []*types.ProviderEndpoint
-		for _, provider := range globalProviderEndpoints {
-			var baseURL string
-			switch provider {
-			case types.ProviderOpenAI:
-				baseURL = s.Cfg.Providers.OpenAI.BaseURL
-			case types.ProviderTogetherAI:
-				baseURL = s.Cfg.Providers.TogetherAI.BaseURL
-			case types.ProviderVLLM:
-				baseURL = s.Cfg.Providers.VLLM.BaseURL
-			case types.ProviderHelix:
-				baseURL = "internal"
-			}
-
-			providerEndpoints = append(providerEndpoints, &types.ProviderEndpoint{
-				ID:             "-",
-				Name:           string(provider),
-				Description:    "",
-				BaseURL:        baseURL,
-				EndpointType:   types.ProviderEndpointTypeGlobal,
-				Owner:          string(types.OwnerTypeSystem),
-				APIKey:         "",
-				BillingEnabled: s.Cfg.Providers.BillingEnabled, // Controlled by PROVIDERS_BILLING_ENABLED env var
-			})
-		}
-
-		// Set default
-		for idx := range providerEndpoints {
-			if providerEndpoints[idx].Name == s.Cfg.Inference.Provider {
-				providerEndpoints[idx].Default = true
-			}
-		}
-
-		writeResponse(rw, providerEndpoints, http.StatusOK)
-		return
+		orgID = org.ID
 	}
+
+	user := getRequestUser(r)
 
 	if orgID != "" {
 		// Check if user has access to view teams

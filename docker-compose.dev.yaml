@@ -77,9 +77,6 @@ services:
       # Discord integration
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
       - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE:-}
-      # AI Providers management - enable/disable user-facing AI provider API keys management
-      # Disabled by default - admins manage providers via admin panel
-      - PROVIDERS_MANAGEMENT_ENABLED=${PROVIDERS_MANAGEMENT_ENABLED:-false}
       # Socket configuration for haystack communication
       - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
       - RAG_HAYSTACK_ENABLED=true
@@ -125,8 +122,16 @@ services:
   postgres:
     image: postgres:12.13-alpine
     restart: always
-    ports:
-      - 5432:5432 # SECURITY: Never expose postgres externally - attackers scan for this
+    # ports:
+    #  - 5432:5432  # SECURITY: Never expose postgres externally - attackers scan for this
+    command: >
+      postgres
+      -c shared_buffers=32MB
+      -c work_mem=2MB
+      -c max_connections=50
+      -c max_worker_processes=2
+      -c maintenance_work_mem=32MB
+      -c effective_cache_size=256MB
     volumes:
       - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
     environment:
@@ -156,7 +161,7 @@ services:
     restart: always
     command: ["--access-mode=unrestricted", "--transport=sse"]
     environment:
-      - DATABASE_URI=postgresql://postgres:postgres@postgres:5432/postgres
+      - DATABASE_URI=postgresql://postgres:${POSTGRES_ADMIN_PASSWORD-postgres}@postgres:5432/postgres
     ports:
       - 8000:8000
   # postgres 15 with pgvector installed
@@ -171,6 +176,14 @@ services:
     restart: always
     # ports:
     #  - 5433:5432
+    command: >
+      postgres
+      -c shared_buffers=32MB
+      -c work_mem=2MB
+      -c max_connections=50
+      -c max_worker_processes=2
+      -c maintenance_work_mem=32MB
+      -c effective_cache_size=256MB
     volumes:
       - ${PGVECTOR_DATA:-helix-pgvector-db}:/var/lib/postgresql/data
     environment:
@@ -190,14 +203,15 @@ services:
       - api
     environment:
       - DATA_DIR=/data
-      - DB_URL=postgresql+asyncpg://postgres:postgres@vectorchord-kodit:5432/kodit
+      - DB_URL=postgresql+asyncpg://postgres:${PGVECTOR_PASSWORD-postgres}@vectorchord-kodit:5432/kodit
       - DEFAULT_SEARCH_PROVIDER=vectorchord
       # External enrichment provider - uses Helix as proxy with runner token auth
       - ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1
       - ENRICHMENT_ENDPOINT_MODEL=openai/kodit-model
       - ENRICHMENT_ENDPOINT_API_KEY=${RUNNER_TOKEN-oh-hallo-insecure-token}
-      - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=3
+      - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=1
       - ENRICHMENT_ENDPOINT_TIMEOUT=120
+      - EMBEDDING_ENDPOINT_NUM_PARALLEL_TASKS=1
       # Sync configuration
       - SYNC_PERIODIC_ENABLED=true
       - SYNC_PERIODIC_INTERVAL_SECONDS=1800 # 30 minutes
@@ -213,10 +227,18 @@ services:
   vectorchord-kodit:
     image: tensorchord/vchord-suite:pg17-20250601
     restart: always
+    command: >
+      postgres
+      -c shared_buffers=32MB
+      -c work_mem=2MB
+      -c max_connections=50
+      -c max_worker_processes=2
+      -c maintenance_work_mem=32MB
+      -c effective_cache_size=256MB
     environment:
       - POSTGRES_DB=kodit
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-postgres}
     volumes:
       - ${VECTORCHORD_KODIT_DATA:-helix-vectorchord-kodit}:/var/lib/postgresql/data
     # ports:
@@ -275,6 +297,8 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=all
       - NVIDIA_VISIBLE_DEVICES=all
       - GPU_VENDOR=${GPU_VENDOR:-nvidia}
+      # Docker nesting depth for address pool isolation (incremented at each level)
+      - HELIX_DOCKER_DEPTH=${HELIX_DOCKER_DEPTH:-1}
       # Helix dev mode (enables bind-mounts for hot reload)
       - HELIX_DEV_MODE=true
       - ZED_IMAGE=helix-sway:latest
@@ -282,11 +306,13 @@ services:
       - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
+      # Container Docker path for ZFS-backed inner dockerd (macOS desktop app)
+      - CONTAINER_DOCKER_PATH=${CONTAINER_DOCKER_PATH:-}
       # RevDial configuration (connect sandbox to API)
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
       - SANDBOX_INSTANCE_ID=local
-      - RUNNER_TOKEN=oh-hallo-insecure-token
+      - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
@@ -302,10 +328,11 @@ services:
       # Config template - bind-mounted for faster iteration (no rebuild needed)
       - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
-      - sandbox-docker-storage:/var/lib/docker
-      # Hydra nested dockerd storage - MUST be a real volume (not overlay)
-      # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
-      - hydra-storage:/hydra-data
+      - ${SANDBOX_DOCKER_STORAGE:-sandbox-docker-storage}:/var/lib/docker
+      # Container Docker path for per-session inner dockerd (ZFS on macOS, named volume on Linux)
+      - ${CONTAINER_DOCKER_PATH:-sandbox-container-docker}:/container-docker
+      # Hydra data dir — shared BuildKit cache for cross-session build caching
+      - hydra-data:/hydra-data
       - /dev/:/dev/:rw
       - /run/udev:/run/udev:rw
       - /var/run/sandbox:/var/run/sandbox:rw
@@ -318,13 +345,13 @@ services:
       - ./desktop/xfce-config:/helix-dev/xfce-config:rw
       - ./desktop/kde-config:/helix-dev/kde-config:rw
       - ./desktop/shared:/helix-dev/shared:ro
-      - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/60-setup-telemetry-firewall.sh
+      - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
       # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
       # Set HELIX_SANDBOX_DATA to a host path (e.g., /prod/helix-workspaces) for ZFS dedup
       - ${HELIX_SANDBOX_DATA:-sandbox-data}:/data
-      # Host Docker socket for privileged mode (Helix-in-Helix development)
-      # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
+      # Host Docker socket (legacy, may be removed — docker-in-desktop mode
+      # runs dockerd inside the desktop container instead)
       - /var/run/docker.sock:/var/run/host-docker.sock:rw
       # Desktop image tarballs and versions (bind-mounted for hot-reload)
       # Adding new desktops requires no changes here - just add to sandbox-images/
@@ -362,6 +389,8 @@ services:
     environment:
       # AMD/Intel GPU configuration (no NVIDIA variables)
       - GPU_VENDOR=${GPU_VENDOR:-intel}
+      # Docker nesting depth for address pool isolation (incremented at each level)
+      - HELIX_DOCKER_DEPTH=${HELIX_DOCKER_DEPTH:-1}
       # Helix dev mode (enables bind-mounts for hot reload)
       - HELIX_DEV_MODE=true
       - ZED_IMAGE=helix-sway:latest
@@ -369,11 +398,13 @@ services:
       - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
+      # Container Docker path for ZFS-backed inner dockerd (macOS desktop app)
+      - CONTAINER_DOCKER_PATH=${CONTAINER_DOCKER_PATH:-}
       # RevDial configuration (connect sandbox to API)
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
       - SANDBOX_INSTANCE_ID=local
-      - RUNNER_TOKEN=oh-hallo-insecure-token
+      - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
@@ -389,10 +420,11 @@ services:
       # Config template - bind-mounted for faster iteration (no rebuild needed)
       - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
-      - sandbox-docker-storage:/var/lib/docker
-      # Hydra nested dockerd storage - MUST be a real volume (not overlay)
-      # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
-      - hydra-storage:/hydra-data
+      - ${SANDBOX_DOCKER_STORAGE:-sandbox-docker-storage}:/var/lib/docker
+      # Container Docker path for per-session inner dockerd (ZFS on macOS, named volume on Linux)
+      - ${CONTAINER_DOCKER_PATH:-sandbox-container-docker}:/container-docker
+      # Hydra data dir — shared BuildKit cache for cross-session build caching
+      - hydra-data:/hydra-data
       - /dev/:/dev/:rw
       - /run/udev:/run/udev:rw
       - /var/run/sandbox:/var/run/sandbox:rw
@@ -405,13 +437,13 @@ services:
       - ./desktop/xfce-config:/helix-dev/xfce-config:rw
       - ./desktop/kde-config:/helix-dev/kde-config:rw
       - ./desktop/shared:/helix-dev/shared:ro
-      - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/60-setup-telemetry-firewall.sh
+      - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
       # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
       # Set HELIX_SANDBOX_DATA to a host path (e.g., /prod/helix-workspaces) for ZFS dedup
       - ${HELIX_SANDBOX_DATA:-sandbox-data}:/data
-      # Host Docker socket for privileged mode (Helix-in-Helix development)
-      # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
+      # Host Docker socket (legacy, may be removed — docker-in-desktop mode
+      # runs dockerd inside the desktop container instead)
       - /var/run/docker.sock:/var/run/host-docker.sock:rw
       # Desktop image tarballs and versions (bind-mounted for hot-reload)
       # Adding new desktops requires no changes here - just add to sandbox-images/
@@ -447,6 +479,8 @@ services:
       - GPU_VENDOR=none
       - LIBGL_ALWAYS_SOFTWARE=1
       - MESA_GL_VERSION_OVERRIDE=4.5
+      # Docker nesting depth for address pool isolation (incremented at each level)
+      - HELIX_DOCKER_DEPTH=${HELIX_DOCKER_DEPTH:-1}
       # Helix dev mode (enables bind-mounts for hot reload)
       - HELIX_DEV_MODE=true
       - ZED_IMAGE=helix-sway:latest
@@ -454,11 +488,13 @@ services:
       - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
+      # Container Docker path for ZFS-backed inner dockerd (macOS desktop app)
+      - CONTAINER_DOCKER_PATH=${CONTAINER_DOCKER_PATH:-}
       # RevDial configuration (connect sandbox to API)
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
       - SANDBOX_INSTANCE_ID=local
-      - RUNNER_TOKEN=oh-hallo-insecure-token
+      - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
@@ -474,10 +510,11 @@ services:
       # Config template - bind-mounted for faster iteration (no rebuild needed)
       - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
-      - sandbox-docker-storage:/var/lib/docker
-      # Hydra nested dockerd storage - MUST be a real volume (not overlay)
-      # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
-      - hydra-storage:/hydra-data
+      - ${SANDBOX_DOCKER_STORAGE:-sandbox-docker-storage}:/var/lib/docker
+      # Container Docker path for per-session inner dockerd (ZFS on macOS, named volume on Linux)
+      - ${CONTAINER_DOCKER_PATH:-sandbox-container-docker}:/container-docker
+      # Hydra data dir — shared BuildKit cache for cross-session build caching
+      - hydra-data:/hydra-data
       - /run/udev:/run/udev:rw
       - /var/run/sandbox:/var/run/sandbox:rw
       # Dev bind-mounts for hot reload (Zed + desktop configs)
@@ -489,13 +526,13 @@ services:
       - ./desktop/xfce-config:/helix-dev/xfce-config:rw
       - ./desktop/kde-config:/helix-dev/kde-config:rw
       - ./desktop/shared:/helix-dev/shared:ro
-      - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/60-setup-telemetry-firewall.sh
+      - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
       # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
       # Set HELIX_SANDBOX_DATA to a host path (e.g., /prod/helix-workspaces) for ZFS dedup
       - ${HELIX_SANDBOX_DATA:-sandbox-data}:/data
-      # Host Docker socket for privileged mode (Helix-in-Helix development)
-      # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
+      # Host Docker socket (legacy, may be removed — docker-in-desktop mode
+      # runs dockerd inside the desktop container instead)
       - /var/run/docker.sock:/var/run/host-docker.sock:rw
       # Desktop image tarballs and versions (bind-mounted for hot-reload)
       # Adding new desktops requires no changes here - just add to sandbox-images/
@@ -507,6 +544,106 @@ services:
       - /dev/uinput
       - /dev/uhid
     # No nvidia runtime for software rendering
+    cap_add:
+      - SYS_PTRACE # Thread diagnostics
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "docker info > /dev/null 2>&1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # macOS ARM sandbox (virtio-gpu with VideoToolbox encoding via vsock)
+  # Use: docker compose --profile code-macos up sandbox-macos
+  # For macOS hosts running UTM VMs with virtio-gpu
+  sandbox-macos:
+    profiles: [code-macos]
+    image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
+    networks:
+      - default
+    environment:
+      # virtio-gpu GPU acceleration (vendor ID 0x1af4)
+      - GPU_VENDOR=virtio
+      # Helix dev mode (enables bind-mounts for hot reload)
+      - HELIX_DEV_MODE=true
+      - ZED_IMAGE=helix-ubuntu:latest
+      # Debug: keep dead desktop containers for inspection (default: false = auto-remove)
+      - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
+      # Sandbox data path for workspaces (must match volume mount)
+      - SANDBOX_DATA_PATH=/data
+      # Container Docker path — ZFS-backed storage for per-session inner dockerd
+      # and BuildKit state. Hydra bind-mounts subdirs into desktop containers.
+      # Set by macOS desktop app; unset on Linux (uses Docker named volumes instead).
+      - CONTAINER_DOCKER_PATH=${CONTAINER_DOCKER_PATH:-}
+      # RevDial configuration (connect sandbox to API)
+      - HELIX_API_URL=http://api:8080
+      - HELIX_API_BASE_URL=http://api:8080
+      - SANDBOX_INSTANCE_ID=local
+      - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
+      # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
+      - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
+      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-true}
+      # Runtime configuration
+      - XDG_RUNTIME_DIR=/tmp/sockets
+      - GST_DEBUG=3
+      - GOP_SIZE=${GOP_SIZE:-240}
+      - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
+      # QEMU frame export port — helix-frame-export listens on this port on the host.
+      # Desktop containers connect to 10.0.2.2:<port> via SLiRP to reach it.
+      # Default 15937; macOS desktop app overrides via .env.vm.
+      - HELIX_FRAME_EXPORT_PORT=${HELIX_FRAME_EXPORT_PORT:-15937}
+    privileged: true # Required for Docker-in-Docker
+    volumes:
+      # Desktop configuration and state
+      - ./desktop/:/etc/helix/desktop/:rw
+      # Config template - bind-mounted for faster iteration (no rebuild needed)
+      - ./desktop/config.toml.template:/opt/desktop-defaults/config.toml.template:ro
+      - /tmp/sockets:/tmp/sockets:rw
+      # Sandbox's own Docker storage — bind mount on root disk so pre-baked
+      # desktop images survive the ZFS mount over /var/lib/docker/volumes/.
+      # Named volumes get hidden when helix/docker-volumes ZFS dataset mounts;
+      # a bind mount outside Docker's volume path avoids this.
+      - ${SANDBOX_DOCKER_VOLUME:-/var/lib/helix-sandbox-docker}:/var/lib/docker
+      # Container Docker path — ZFS zvol mounted by macOS desktop app for
+      # per-session inner dockerd data (dedup + compression).
+      # CONTAINER_DOCKER_PATH is set by the macOS desktop app in .env.vm.
+      - ${CONTAINER_DOCKER_PATH:-sandbox-container-docker}:/container-docker
+      # Hydra data dir — shared BuildKit cache for cross-session build caching
+      - hydra-data:/hydra-data
+      - /run/udev:/run/udev:rw
+      - /var/run/sandbox:/var/run/sandbox:rw
+      # DRM lease manager socket directory (helix-drm-manager systemd service on VM host).
+      # Directory mount (not file) so the socket survives DRM manager restarts.
+      - /run/helix-drm:/run/helix-drm:rw
+      # Dev bind-mounts for hot reload (Zed + desktop configs)
+      # Note: Config dirs are :rw because GOW entrypoint does chmod +x on startup.sh
+      - ./zed-build:/helix-dev/zed-build:ro
+      - ./desktop/sway-config:/helix-dev/sway-config:rw
+      - ./desktop/zorin-config:/helix-dev/zorin-config:rw
+      - ./desktop/ubuntu-config:/helix-dev/ubuntu-config:rw
+      - ./desktop/xfce-config:/helix-dev/xfce-config:rw
+      - ./desktop/kde-config:/helix-dev/kde-config:rw
+      - ./desktop/shared:/helix-dev/shared:ro
+      - ./desktop/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
+      # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
+      # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
+      - sandbox-data:/data
+      # Host Docker socket for privileged mode (Helix-in-Helix development)
+      # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
+      - /var/run/docker.sock:/var/run/host-docker.sock:rw
+      # Desktop image tarballs and versions (bind-mounted for hot-reload)
+      # Adding new desktops requires no changes here - just add to sandbox-images/
+      - ./sandbox-images:/opt/images:ro
+    # virtio-gpu device mounts
+    device_cgroup_rules:
+      - "c 13:* rmw"
+      - "c 226:* rmw"  # DRM devices for virtio-gpu
+    devices:
+      - /dev/uinput
+      - /dev/uhid
+      - /dev/dri  # DRM render nodes for virtio-gpu
+    # No nvidia runtime for virtio-gpu
     cap_add:
       - SYS_PTRACE # Thread diagnostics
     restart: unless-stopped
@@ -530,7 +667,7 @@ services:
     environment:
       # Runner configuration
       - API_HOST=http://api:8080
-      - API_TOKEN=oh-hallo-insecure-token
+      - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       - RUNNER_ID=dev-gpu-runner
       - LOG_LEVEL=debug
       - HELIX_COMMAND=runner
@@ -557,7 +694,7 @@ services:
     environment:
       # Runner configuration
       - API_HOST=http://api:8080
-      - API_TOKEN=oh-hallo-insecure-token
+      - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       - RUNNER_ID=dev-gpu-runner-amd
       - LOG_LEVEL=debug
       - HELIX_COMMAND=runner
@@ -618,7 +755,7 @@ services:
     #   - 8001:8000
     restart: always
     environment:
-      - PGVECTOR_DSN=postgresql://postgres:postgres@pgvector:5432/postgres
+      - PGVECTOR_DSN=postgresql://postgres:${PGVECTOR_PASSWORD-postgres}@pgvector:5432/postgres
       - LOG_LEVEL=INFO
       - VLLM_BASE_URL=${RAG_HAYSTACK_EMBEDDINGS_BASE_URL:-} # Need to set this to an external VLLM server in development
       - VLLM_API_KEY=${RAG_HAYSTACK_EMBEDDINGS_API_KEY:-EMPTY}
@@ -656,9 +793,10 @@ volumes:
   helix-typesense-db:
   helix-socket:
   sandbox-socket:
+  sandbox-container-docker: # Per-session inner dockerd storage (ZFS on macOS, named volume on Linux)
   sandbox-docker-storage: # Sandbox isolated dockerd storage (sandboxes + devcontainers)
   sandbox-data: # Workspace data for dev containers - mounted at /data in sandbox and dev containers
-  hydra-storage: # Hydra nested dockerd storage - must be real volume (overlay2 can't stack on overlay)
+  hydra-data: # Hydra data dir (shared BuildKit cache)
   zed-work:
   registry-data: # Local registry storage for efficient desktop image transfers
 

@@ -361,8 +361,8 @@ func (s *ZedToHelixSessionService) createSessionPair(
 
 	// Set parent relationship if spawned
 	if parentWorkSession != nil {
-		workSession.ParentWorkSessionID = parentWorkSession.ID
-		workSession.SpawnedBySessionID = parentWorkSession.ID
+		workSession.ParentWorkSessionID = &parentWorkSession.ID
+		workSession.SpawnedBySessionID = &parentWorkSession.ID
 	}
 
 	// Set implementation task context if related to planned task
@@ -570,12 +570,7 @@ Remember: You are part of a larger coordinated effort. Other agents are working 
 }
 
 func (s *ZedToHelixSessionService) findZedThreadByZedID(ctx context.Context, zedThreadID string) (*types.SpecTaskZedThread, error) {
-	// This is inefficient but works for now - in production we'd add a database index
-	// Get all SpecTasks and search through their Zed threads
-	// For now, we'll assume we have the SpecTask ID in context
-
-	// This method needs optimization in production - should be a direct database query
-	return nil, fmt.Errorf("findZedThreadByZedID not implemented - need database optimization")
+	return s.store.GetSpecTaskZedThreadByZedThreadID(ctx, zedThreadID)
 }
 
 // Helper functions for extracting data from spawn context

@@ -41,8 +41,9 @@ wait_for_setup_complete() {
             echo "Still waiting for setup... ($WAIT_COUNT seconds)"
         fi
         if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
-            echo "Warning: Setup timeout after ${MAX_WAIT}s, proceeding anyway..."
-            return 1
+            echo "FATAL: Workspace setup did not complete after ${MAX_WAIT}s."
+            echo "Check: cat /tmp/helix-workspace-setup.log"
+            exit 1
         fi
     done
 
@@ -69,8 +70,43 @@ wait_for_zed_config() {
         fi
     done
 
-    echo "Warning: Settings not ready after ${MAX_WAIT}s, proceeding anyway..."
-    return 1
+    echo "FATAL: Zed settings not ready after ${MAX_WAIT}s. Settings-sync-daemon may have failed."
+    echo "Check: ls -la $HOME/.config/zed/settings.json; journalctl -u settings-sync-daemon --no-pager -n 50"
+    exit 1
+}
+
+wait_for_claude_credentials() {
+    # In Claude Code subscription mode, wait for the credentials file before
+    # starting Zed. Claude Code's credential reader is memoized — if it starts
+    # before the file exists, it caches null permanently and auth fails.
+    # The settings-sync-daemon writes /tmp/helix-claude-subscription-mode when
+    # subscription mode is active. API key mode doesn't need this wait.
+    local MARKER_FILE="/tmp/helix-claude-subscription-mode"
+    local CREDS_FILE="$HOME/.claude/.credentials.json"
+
+    if [ ! -f "$MARKER_FILE" ]; then
+        return 0
+    fi
+
+    echo "Claude Code subscription mode, waiting for credentials file..."
+    local WAIT_COUNT=0
+    local MAX_WAIT=60
+
+    while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+        if [ -f "$CREDS_FILE" ]; then
+            echo "Claude credentials file ready"
+            return 0
+        fi
+        sleep 1
+        WAIT_COUNT=$((WAIT_COUNT + 1))
+        if [ $((WAIT_COUNT % 10)) -eq 0 ]; then
+            echo "Still waiting for Claude credentials... ($WAIT_COUNT seconds)"
+        fi
+    done
+
+    echo "FATAL: Claude credentials not ready after ${MAX_WAIT}s. Settings-sync-daemon may have failed."
+    echo "Check: ls -la $CREDS_FILE; journalctl -u settings-sync-daemon --no-pager -n 50"
+    exit 1
 }
 
 read_zed_folders() {
@@ -133,6 +169,15 @@ start_zed_helix() {
     echo "========================================="
     echo ""
 
+    # HELIX_SKIP_ZED=1 skips Zed and workspace setup entirely
+    # Used for login-only sessions (e.g., Claude OAuth login)
+    if [ "$HELIX_SKIP_ZED" = "1" ]; then
+        echo "HELIX_SKIP_ZED=1 - skipping Zed and workspace setup"
+        # Touch the complete signal so settings-sync-daemon doesn't wait
+        touch "$COMPLETE_SIGNAL"
+        exit 0
+    fi
+
     # Prevent duplicate Zed instances after compositor crash/restart
     # The compositor's exec command runs again on restart, but we're already running
     ZED_LOCK_FILE="/tmp/helix-zed-startup.lock"
@@ -193,6 +238,11 @@ start_zed_helix() {
     # Step 2: Wait for Zed configuration
     # =========================================
     wait_for_zed_config
+
+    # =========================================
+    # Step 2b: Wait for Claude credentials (if using Claude Code)
+    # =========================================
+    wait_for_claude_credentials
 
     # =========================================
     # Step 3: Launch Zed

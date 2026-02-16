@@ -872,6 +872,15 @@ definitions:
         - $ref: '#/definitions/types.User'
         description: Owner user struct, populated by the server for organization views
     type: object
+  server.ClaudeModel:
+    properties:
+      description:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+    type: object
   server.ClientBufferStats:
     properties:
       buffer_pct:
@@ -1435,9 +1444,6 @@ definitions:
         items:
           type: string
         type: array
-      use_host_docker:
-        description: Enable host Docker access (for Helix-in-Helix dev)
-        type: boolean
     type: object
   server.SlotLogSummary:
     properties:
@@ -2634,6 +2640,61 @@ definitions:
       text:
         type: string
     type: object
+  types.ClaudeOAuthCredentials:
+    properties:
+      accessToken:
+        type: string
+      expiresAt:
+        description: Unix milliseconds
+        type: integer
+      rateLimitTier:
+        type: string
+      refreshToken:
+        type: string
+      scopes:
+        items:
+          type: string
+        type: array
+      subscriptionType:
+        type: string
+    type: object
+  types.ClaudeSubscription:
+    properties:
+      access_token_expires_at:
+        type: string
+      created:
+        type: string
+      created_by:
+        type: string
+      id:
+        type: string
+      last_error:
+        type: string
+      last_refreshed_at:
+        type: string
+      name:
+        type: string
+      owner_id:
+        type: string
+      owner_type:
+        allOf:
+        - $ref: '#/definitions/types.OwnerType'
+        description: '"user" or "org"'
+      rate_limit_tier:
+        type: string
+      scopes:
+        items:
+          type: string
+        type: array
+      status:
+        description: '"active", "expired", "error"'
+        type: string
+      subscription_type:
+        description: '"max", "pro"'
+        type: string
+      updated:
+        type: string
+    type: object
   types.ClipboardData:
     properties:
       data:
@@ -2950,6 +3011,23 @@ definitions:
       repository_id:
         type: string
     type: object
+  types.CreateClaudeSubscriptionRequest:
+    properties:
+      credentials:
+        properties:
+          claudeAiOauth:
+            $ref: '#/definitions/types.ClaudeOAuthCredentials'
+        type: object
+      name:
+        type: string
+      owner_id:
+        description: Required for org-level, auto-set for user
+        type: string
+      owner_type:
+        allOf:
+        - $ref: '#/definitions/types.OwnerType'
+        description: '"user" or "org"'
+    type: object
   types.CreatePullRequestRequest:
     properties:
       description:
@@ -3023,9 +3101,6 @@ definitions:
         type: string
       type:
         type: string
-      use_host_docker:
-        description: 'Optional: Use host Docker socket (requires privileged sandbox)'
-        type: boolean
       user_email:
         description: 'Optional: User email for audit trail'
         type: string
@@ -4615,6 +4690,8 @@ definitions:
         items:
           $ref: '#/definitions/types.Modality'
         type: array
+      permaslug:
+        type: string
       pricing:
         $ref: '#/definitions/types.Pricing'
       provider_model_id:
@@ -5213,9 +5290,6 @@ definitions:
         type: array
       updated_at:
         type: string
-      use_host_docker:
-        description: Sandbox settings
-        type: boolean
       user_id:
         type: string
     type: object
@@ -7136,9 +7210,6 @@ definitions:
         type: string
       updated_at:
         type: string
-      use_host_docker:
-        description: Use host Docker socket (requires privileged sandbox)
-        type: boolean
       user_id:
         description: Owner user ID for search
         type: string
@@ -7644,9 +7715,6 @@ definitions:
         type: string
       updated_at:
         type: string
-      use_host_docker:
-        description: Use host Docker socket (requires privileged sandbox)
-        type: boolean
       user_id:
         description: Owner user ID for search
         type: string
@@ -7680,7 +7748,7 @@ definitions:
           type: integer
         type: array
       helix_session_id:
-        description: 1:1 mapping
+        description: Maps to Helix session (multiple Zed threads can share one session)
         type: string
       id:
         type: string
@@ -8585,6 +8653,8 @@ definitions:
         type: boolean
       token:
         type: string
+      waitlisted:
+        type: boolean
     type: object
   types.UserSearchResponse:
     properties:
@@ -8702,6 +8772,10 @@ definitions:
       assistant:
         additionalProperties: true
         type: object
+      claude_subscription_available:
+        description: True if user has an active Claude subscription for credential
+          sync
+        type: boolean
       code_agent_config:
         allOf:
         - $ref: '#/definitions/types.CodeAgentConfig'
@@ -9770,6 +9844,148 @@ paths:
       summary: Bandwidth probe for adaptive bitrate
       tags:
       - ExternalAgents
+  /api/v1/claude-subscriptions:
+    get:
+      description: List Claude subscriptions for the current user and their org
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.ClaudeSubscription'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List Claude subscriptions
+      tags:
+      - Claude
+    post:
+      consumes:
+      - application/json
+      description: Connect a Claude subscription by providing OAuth credentials
+      parameters:
+      - description: Claude subscription credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateClaudeSubscriptionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ClaudeSubscription'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Create a Claude subscription
+      tags:
+      - Claude
+  /api/v1/claude-subscriptions/{id}:
+    delete:
+      description: Disconnect a Claude subscription
+      parameters:
+      - description: Subscription ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Delete a Claude subscription
+      tags:
+      - Claude
+    get:
+      description: Get details of a specific Claude subscription (no secrets)
+      parameters:
+      - description: Subscription ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ClaudeSubscription'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get a Claude subscription
+      tags:
+      - Claude
+  /api/v1/claude-subscriptions/models:
+    get:
+      description: List Claude models available through Claude Code subscriptions
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/server.ClaudeModel'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List available Claude models
+      tags:
+      - Claude
   /api/v1/clone-groups/{groupId}/progress:
     get:
       description: Get status breakdown and progress of all cloned tasks
@@ -15079,6 +15295,45 @@ paths:
       summary: Update a session by ID
       tags:
       - sessions
+  /api/v1/sessions/{id}/claude-credentials:
+    get:
+      description: |-
+        Get decrypted Claude credentials for use inside a desktop container.
+        Only accepts runner/session-scoped tokens.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ClaudeOAuthCredentials'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get Claude credentials for a session
+      tags:
+      - Claude
   /api/v1/sessions/{id}/expose:
     get:
       description: Returns all ports currently exposed from the session's dev container
@@ -17576,4 +17831,9 @@ paths:
       - BearerAuth: []
 schemes:
 - https
+securityDefinitions:
+  ApiKeyAuth:
+    in: header
+    name: Authorization
+    type: apiKey
 swagger: "2.0"

@@ -29,9 +29,6 @@ type Project struct {
 	// Automation settings
 	AutoStartBacklogTasks bool `json:"auto_start_backlog_tasks"` // Automatically move backlog tasks to planning when capacity available
 
-	// Sandbox settings
-	UseHostDocker bool `json:"use_host_docker"` // Use host Docker socket (requires privileged sandbox with HYDRA_PRIVILEGED_MODE_ENABLED=true)
-
 	// Default agent for spec tasks in this project (App ID)
 	// New spec tasks inherit this agent; can be overridden per-task
 	DefaultHelixAppID string `json:"default_helix_app_id"`

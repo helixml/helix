@@ -61,7 +61,6 @@ func (s *PostgresStore) GetSpecTaskWorkSession(ctx context.Context, id string) (
 	var workSession types.SpecTaskWorkSession
 
 	err := s.gdb.WithContext(ctx).
-		Preload("SpecTask").
 		Preload("HelixSession").
 		Preload("ParentWorkSession").
 		Preload("SpawnedBySession").
@@ -173,7 +172,6 @@ func (s *PostgresStore) GetSpecTaskWorkSessionByHelixSession(ctx context.Context
 	var workSession types.SpecTaskWorkSession
 
 	err := s.gdb.WithContext(ctx).
-		Preload("SpecTask").
 		Preload("HelixSession").
 		Preload("ParentWorkSession").
 		Preload("SpawnedBySession").
@@ -237,7 +235,6 @@ func (s *PostgresStore) GetSpecTaskZedThread(ctx context.Context, id string) (*t
 
 	err := s.gdb.WithContext(ctx).
 		Preload("WorkSession").
-		Preload("SpecTask").
 		First(&zedThread, "id = ?", id).Error
 
 	if err != nil {
@@ -255,7 +252,6 @@ func (s *PostgresStore) GetSpecTaskZedThreadByWorkSession(ctx context.Context, w
 
 	err := s.gdb.WithContext(ctx).
 		Preload("WorkSession").
-		Preload("SpecTask").
 		First(&zedThread, "work_session_id = ?", workSessionID).Error
 
 	if err != nil {
@@ -263,6 +259,23 @@ func (s *PostgresStore) GetSpecTaskZedThreadByWorkSession(ctx context.Context, w
 			return nil, fmt.Errorf("spec task zed thread not found for work session: %s", workSessionID)
 		}
 		return nil, fmt.Errorf("failed to get spec task zed thread by work session: %w", err)
+	}
+
+	return &zedThread, nil
+}
+
+func (s *PostgresStore) GetSpecTaskZedThreadByZedThreadID(ctx context.Context, zedThreadID string) (*types.SpecTaskZedThread, error) {
+	var zedThread types.SpecTaskZedThread
+
+	err := s.gdb.WithContext(ctx).
+		Preload("WorkSession").
+		First(&zedThread, "zed_thread_id = ?", zedThreadID).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("spec task zed thread not found for zed thread ID: %s", zedThreadID)
+		}
+		return nil, fmt.Errorf("failed to get spec task zed thread by zed thread ID: %w", err)
 	}
 
 	return &zedThread, nil
@@ -570,7 +583,7 @@ func (s *PostgresStore) CreateImplementationSessions(ctx context.Context, specTa
 			}
 
 			// Update implementation task assignment
-			implTask.AssignedWorkSessionID = workSession.ID
+			implTask.AssignedWorkSessionID = &workSession.ID
 			implTask.Status = types.SpecTaskImplementationStatusAssigned
 			err = s.UpdateSpecTaskImplementationTask(ctx, implTask)
 			if err != nil {
@@ -650,8 +663,8 @@ func (s *PostgresStore) SpawnWorkSession(ctx context.Context, parentSessionID st
 		Description:         config.Description,
 		Phase:               types.SpecTaskPhaseImplementation,
 		Status:              types.SpecTaskWorkSessionStatusPending,
-		ParentWorkSessionID: parentSessionID,
-		SpawnedBySessionID:  parentSessionID,
+		ParentWorkSessionID: &parentSessionID,
+		SpawnedBySessionID:  &parentSessionID,
 	}
 
 	// Set configuration

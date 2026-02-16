@@ -43,6 +43,7 @@ const (
 	ProjectPrefix              = "prj_"
 	CloneGroupPrefix           = "clg_"
 	UserSessionPrefix          = "uss_"
+	ClaudeSubscriptionPrefix   = "csub_"
 )
 
 func GenerateUUID() string {
@@ -194,4 +195,8 @@ func GenerateCloneGroupID() string {
 
 func GenerateUserSessionID() string {
 	return fmt.Sprintf("%s%s", UserSessionPrefix, newID())
+}
+
+func GenerateClaudeSubscriptionID() string {
+	return fmt.Sprintf("%s%s", ClaudeSubscriptionPrefix, newID())
 }

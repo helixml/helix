@@ -1,5 +1,7 @@
 # Docker Networking Requirements
 
+**Status:** OUTDATED - Superseded by docker-in-desktop mode (see `2026-02-10-arbitrary-dind-nesting-simplification.md`). Per-session dockerd, bridge/veth/DNS infrastructure has been removed. Each desktop runs its own dockerd natively.
+
 ## Summary
 
 This document tracks the networking requirements for Docker containers started inside Helix sandboxes (Docker-in-Docker), covering both Hydra mode (isolated dockerd per session) and Privileged mode (host Docker access).

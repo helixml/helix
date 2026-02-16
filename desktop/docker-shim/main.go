@@ -1,9 +1,6 @@
-// docker-shim: A Go replacement for docker-wrapper.sh and docker-compose-wrapper.sh
-//
-// This shim intercepts docker and docker-compose commands to:
-// 1. Translate paths from user-friendly (/home/retro/work) to actual workspace paths
-// 2. Inject BuildKit cache flags for shared caching across sessions
-// 3. Handle Docker Compose project naming per session
+// docker-shim: Intercepts docker and docker-compose commands to:
+// 1. Inject BuildKit cache flags for shared caching across sessions
+// 2. Handle Docker Compose project naming per session
 //
 // The shim detects its mode based on argv[0] or the first argument:
 // - "docker" or argv[0] ends with "docker": act as docker wrapper
@@ -28,9 +25,6 @@ const (
 
 	// ComposeRealPath is the actual docker-compose plugin binary
 	ComposeRealPath = "/usr/libexec/docker/cli-plugins/docker-compose.real"
-
-	// UserPath is the user-friendly bind-mount path inside dev containers
-	UserPath = "/home/retro/work"
 )
 
 // BuildKitCacheDir is where the shared cache is mounted (if available).

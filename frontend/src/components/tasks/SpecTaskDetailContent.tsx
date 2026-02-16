@@ -49,10 +49,7 @@ import LinkIcon from "@mui/icons-material/Link";
 import ArchiveIcon from "@mui/icons-material/Archive";
 import AccountTree from "@mui/icons-material/AccountTree";
 import { TypesSpecTaskPriority, TypesSpecTaskStatus } from "../../api/api";
-import ExternalAgentDesktopViewer, {
-  useSandboxState,
-} from "../external-agent/ExternalAgentDesktopViewer";
-import ChatStatsOverlay, { ChatStatsToggle } from "../session/ChatStatsOverlay";
+import ExternalAgentDesktopViewer, { useSandboxState } from "../external-agent/ExternalAgentDesktopViewer";
 import DiffViewer from "./DiffViewer";
 import { getCSRFToken } from "../../utils/csrf";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
@@ -73,6 +70,7 @@ import {
   useUpdateSpecTask,
   useSpecTask,
   useCloneGroups,
+  useZedThreads,
 } from "../../services/specTaskService";
 import {
   useGetProject,
@@ -136,6 +134,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     refetchInterval: 2300, // 2.3s - prime to avoid sync with other polling
   });
 
+  // Fetch zed threads for thread switching
+  const { data: zedThreadsData } = useZedThreads(taskId);
+
   // Fetch project and repositories to get default branch
   const { data: project } = useGetProject(
     task?.project_id || "",
@@ -170,9 +171,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Chat panel collapse state - when true, uses mobile-style tab layout even on desktop
   const [chatCollapsed, setChatCollapsed] = useState(false);
-
-  // Chat stats overlay state - for performance debugging
-  const [showChatStats, setShowChatStats] = useState(false);
 
   // Sort apps: zed_external agents first, then others
   const sortedApps = useMemo(() => {
@@ -317,9 +315,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const [isArchiving, setIsArchiving] = useState(false);
 
   // Public design docs state
-  const [isPublicDesignDocs, setIsPublicDesignDocs] = useState(
-    task?.public_design_docs ?? false,
-  );
+  const [isPublicDesignDocs, setIsPublicDesignDocs] = useState(task?.public_design_docs ?? false);
   const [updatingPublic, setUpdatingPublic] = useState(false);
 
   // Sync public state when task data changes
@@ -331,9 +327,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   const publicLink = `${window.location.origin}/spec-tasks/${taskId}/view`;
 
-  const handlePublicToggle = async (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handlePublicToggle = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = event.target.checked;
     setUpdatingPublic(true);
     try {
@@ -341,11 +335,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         public_design_docs: newValue,
       });
       setIsPublicDesignDocs(newValue);
-      snackbar.success(
-        newValue ? "Design docs are now public" : "Design docs are now private",
-      );
+      snackbar.success(newValue ? 'Design docs are now public' : 'Design docs are now private');
     } catch (err: any) {
-      snackbar.error(err.message || "Failed to update visibility");
+      snackbar.error(err.message || 'Failed to update visibility');
     } finally {
       setUpdatingPublic(false);
     }
@@ -354,9 +346,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const copyPublicLink = async () => {
     try {
       await navigator.clipboard.writeText(publicLink);
-      snackbar.success("Link copied to clipboard!");
+      snackbar.success('Link copied to clipboard!');
     } catch (err) {
-      snackbar.error("Failed to copy link");
+      snackbar.error('Failed to copy link');
     }
   };
 
@@ -380,15 +372,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Check if task is archived/rejected - container is shut down so desktop view won't work
   const isTaskArchived = task?.archived;
 
+  // Thread selection state for switching between planning and implementation threads
+  const [selectedThreadSessionId, setSelectedThreadSessionId] = useState<string | null>(null);
+
   // Get the active session ID - keep it available for chat history even when task is completed
-  const activeSessionId = task?.planning_session_id;
+  const activeSessionId = selectedThreadSessionId || task?.planning_session_id;
 
   // Track sandbox/desktop state for stop/start buttons
-  const {
-    isRunning: isDesktopRunning,
-    isPaused: isDesktopPaused,
-    isStarting: isDesktopStarting,
-  } = useSandboxState(activeSessionId || "");
+  const { isRunning: isDesktopRunning, isPaused: isDesktopPaused, isStarting: isDesktopStarting } = useSandboxState(activeSessionId || '');
 
   // Subscribe to WebSocket updates for the active session when chat is visible
   // On big screens: chat is visible unless collapsed
@@ -756,7 +747,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           `Uploaded ${successCount} file${successCount > 1 ? "s" : ""} to ~/work/incoming`,
         );
       } else if (successCount > 0 && errorCount > 0) {
-        snackbar.warning(`Uploaded ${successCount}, ${errorCount} failed`);
+        snackbar.info(`Uploaded ${successCount}, ${errorCount} failed`);
       } else if (errorCount > 0) {
         snackbar.error(
           `Failed to upload ${errorCount} file${errorCount > 1 ? "s" : ""}`,
@@ -1054,9 +1045,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     setSelectedCloneGroupId(task.clone_group_id || null)
                   }
                 >
-                  <AccountTree
-                    sx={{ fontSize: 16, color: "inherit", opacity: 0.7 }}
-                  />
+                  <AccountTree sx={{ fontSize: 16, color: "inherit", opacity: 0.7 }} />
                   <Typography variant="caption" color="text.secondary">
                     Batch Progress
                   </Typography>
@@ -1208,16 +1197,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
         {/* Public Design Docs Toggle */}
         <Divider sx={{ my: 2 }} />
-        <Box
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            mb: 0.5,
-          }}
-        >
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
           <Box>
-            <Typography variant="subtitle2">Share Design Docs</Typography>
+            <Typography variant="subtitle2">
+              Share Design Docs
+            </Typography>
             <Typography variant="caption" color="text.secondary">
               Anyone with the link can view
             </Typography>
@@ -1230,26 +1214,24 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           />
         </Box>
         {isPublicDesignDocs && (
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 1,
-              mb: 1,
-              p: 1,
-              bgcolor: "action.hover",
-              borderRadius: 1,
-            }}
-          >
-            <Typography
-              variant="caption"
-              sx={{
-                flex: 1,
-                fontFamily: "monospace",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                color: "text.secondary",
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 1, 
+            mb: 1,
+            p: 1,
+            bgcolor: 'action.hover',
+            borderRadius: 1,
+          }}>
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                flex: 1, 
+                fontFamily: 'monospace',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                color: 'text.secondary',
               }}
             >
               {publicLink}
@@ -1334,7 +1316,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {/* When chatCollapsed is true, use mobile-style tab layout even on desktop */}
         {activeSessionId && isBigScreen && !chatCollapsed ? (
           <PanelGroup
-            direction="horizontal"
+            orientation="horizontal"
             style={{ height: "100%", flex: 1 }}
           >
             {/* Left: Chat panel - always visible on desktop */}
@@ -1360,21 +1342,49 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     borderColor: "divider",
                     backgroundColor: "background.paper",
                     flexShrink: 0,
-                    position: "relative",
                   }}
                 >
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                  {zedThreadsData?.zed_threads && zedThreadsData.zed_threads.length > 0 ? (
+                    <Select
+                      size="small"
+                      variant="standard"
+                      value={selectedThreadSessionId || "planning"}
+                      onChange={(e) => {
+                        const val = e.target.value as string;
+                        setSelectedThreadSessionId(val === "planning" ? null : val);
+                      }}
+                      sx={{
+                        fontSize: "0.875rem",
+                        fontWeight: 500,
+                        color: "text.secondary",
+                        minWidth: 100,
+                        "&:before": { display: "none" },
+                        "&:after": { display: "none" },
+                        "& .MuiSelect-select": { py: 0 },
+                      }}
+                    >
+                      <MenuItem value="planning">Main thread</MenuItem>
+                      {zedThreadsData.zed_threads.map((thread, index) => {
+                        const sessionId = thread.work_session?.helix_session_id;
+                        if (!sessionId) return null;
+                        const label = thread.work_session?.name
+                          || thread.work_session?.implementation_task_title
+                          || `Thread ${index + 2}`;
+                        return (
+                          <MenuItem key={sessionId} value={sessionId}>
+                            {label}
+                          </MenuItem>
+                        );
+                      })}
+                    </Select>
+                  ) : (
                     <Typography
                       variant="body2"
                       sx={{ fontWeight: 500, color: "text.secondary" }}
                     >
                       Chat
                     </Typography>
-                    <ChatStatsToggle
-                      showStats={showChatStats}
-                      onToggle={() => setShowChatStats(!showChatStats)}
-                    />
-                  </Box>
+                  )}
                   <Tooltip title="Collapse chat panel">
                     <IconButton
                       size="small"
@@ -1390,8 +1400,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       <ChevronLeftIcon sx={{ fontSize: 18 }} />
                     </IconButton>
                   </Tooltip>
-                  {/* Chat Stats Overlay */}
-                  {showChatStats && <ChatStatsOverlay />}
                 </Box>
                 <EmbeddedSessionView
                   ref={sessionViewRef}
@@ -1473,10 +1481,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     size="small"
                     sx={{
                       "& .MuiToggleButton-root": {
-                        py: 0.25,
-                        px: 1,
+                        py: 0.4,
+                        px: 0.8,
+                        minWidth: 62,
                         border: "none",
                         borderRadius: "4px !important",
+                        textTransform: "none",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: 0.2,
                         "&.Mui-selected": {
                           backgroundColor: "action.selected",
                         },
@@ -1484,19 +1498,43 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     }}
                   >
                     <ToggleButton value="desktop" aria-label="Desktop view">
-                      <Tooltip title="Desktop">
-                        <MonitorPlay size={16} />
-                      </Tooltip>
+                      <MonitorPlay size={18} />
+                      <Typography
+                        sx={{
+                          fontSize: "0.65rem",
+                          lineHeight: 1,
+                          fontWeight: 400,
+                          textTransform: "none",
+                        }}
+                      >
+                        Desktop
+                      </Typography>
                     </ToggleButton>
                     <ToggleButton value="changes" aria-label="Changes view">
-                      <Tooltip title="Changes">
-                        <GitCompare size={16} />
-                      </Tooltip>
+                      <GitCompare size={18} />
+                      <Typography
+                        sx={{
+                          fontSize: "0.65rem",
+                          lineHeight: 1,
+                          fontWeight: 400,
+                          textTransform: "none",
+                        }}
+                      >
+                        File Diff
+                      </Typography>
                     </ToggleButton>
                     <ToggleButton value="details" aria-label="Details view">
-                      <Tooltip title="Details">
-                        <SlidersHorizontal size={16} />
-                      </Tooltip>
+                      <SlidersHorizontal size={18} />
+                      <Typography
+                        sx={{
+                          fontSize: "0.65rem",
+                          lineHeight: 1,
+                          fontWeight: 400,
+                          textTransform: "none",
+                        }}
+                      >
+                        Details
+                      </Typography>
                     </ToggleButton>
                   </ToggleButtonGroup>
 
@@ -1516,7 +1554,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     variant="inline"
                     onStartPlanning={handleStartPlanning}
                     onReviewSpec={handleReviewSpec}
-                    onReject={handleArchiveClick}
+                    onReject={(shiftKey) => {
+                      if (shiftKey) {
+                        performArchive();
+                      } else {
+                        setArchiveConfirmOpen(true);
+                      }
+                    }}
                     hasExternalRepo={projectRepositories.some(
                       (r) => r.is_external || r.external_type || r.external_url,
                     )}
@@ -1764,11 +1808,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 sx={{
                   flexShrink: 0,
                   "& .MuiToggleButton-root": {
-                    py: 0.25,
-                    px: 0.75,
-                    minWidth: 32,
+                    py: 0.35,
+                    px: 0.7,
+                    minWidth: 56,
                     border: "none",
                     borderRadius: "4px !important",
+                    textTransform: "none",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 0.15,
                     "&.Mui-selected": {
                       backgroundColor: "action.selected",
                     },
@@ -1778,29 +1827,61 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 {/* Chat tab - only on mobile when there's an active session */}
                 {activeSessionId && (
                   <ToggleButton value="chat" aria-label="Chat view">
-                    <Tooltip title="Chat">
-                      <ForumOutlinedIcon sx={{ fontSize: 18 }} />
-                    </Tooltip>
+                    <ForumOutlinedIcon sx={{ fontSize: 18 }} />
+                    <Typography
+                      sx={{
+                        fontSize: "0.65rem",
+                        lineHeight: 1,
+                        fontWeight: 400,
+                        textTransform: "none",
+                      }}
+                    >
+                      Chat
+                    </Typography>
                   </ToggleButton>
                 )}
                 {activeSessionId && (
                   <ToggleButton value="desktop" aria-label="Desktop view">
-                    <Tooltip title="Desktop">
-                      <MonitorPlay size={16} />
-                    </Tooltip>
+                    <MonitorPlay size={18} />
+                    <Typography
+                      sx={{
+                        fontSize: "0.65rem",
+                        lineHeight: 1,
+                        fontWeight: 400,
+                        textTransform: "none",
+                      }}
+                    >
+                      Desktop
+                    </Typography>
                   </ToggleButton>
                 )}
                 {activeSessionId && (
                   <ToggleButton value="changes" aria-label="Changes view">
-                    <Tooltip title="Changes">
-                      <GitCompare size={16} />
-                    </Tooltip>
+                    <GitCompare size={18} />
+                    <Typography
+                      sx={{
+                        fontSize: "0.65rem",
+                        lineHeight: 1,
+                        fontWeight: 400,
+                        textTransform: "none",
+                      }}
+                    >
+                      File Diff
+                    </Typography>
                   </ToggleButton>
                 )}
                 <ToggleButton value="details" aria-label="Details view">
-                  <Tooltip title="Details">
-                    <SlidersHorizontal size={16} />
-                  </Tooltip>
+                  <SlidersHorizontal size={18} />
+                  <Typography
+                    sx={{
+                      fontSize: "0.65rem",
+                      lineHeight: 1,
+                      fontWeight: 400,
+                      textTransform: "none",
+                    }}
+                  >
+                    Details
+                  </Typography>
                 </ToggleButton>
               </ToggleButtonGroup>
 
@@ -1833,7 +1914,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 variant="inline"
                 onStartPlanning={handleStartPlanning}
                 onReviewSpec={handleReviewSpec}
-                onReject={handleArchiveClick}
+                onReject={(shiftKey) => {
+                  if (shiftKey) {
+                    performArchive();
+                  } else {
+                    setArchiveConfirmOpen(true);
+                  }
+                }}
                 hasExternalRepo={projectRepositories.some(
                   (r) => r.is_external || r.external_type || r.external_url,
                 )}
@@ -1993,39 +2080,52 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   flexDirection: "column",
                   minHeight: 0,
                   overflow: "hidden",
-                  position: "relative",
                 }}
               >
-                {/* Mobile chat header with stats toggle */}
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    px: 1.5,
-                    py: 0.5,
-                    minHeight: 32,
-                    borderBottom: "1px solid",
-                    borderColor: "divider",
-                    backgroundColor: "background.paper",
-                    flexShrink: 0,
-                  }}
-                >
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                    <Typography
-                      variant="caption"
-                      sx={{ fontWeight: 500, color: "text.secondary" }}
+                {zedThreadsData?.zed_threads && zedThreadsData.zed_threads.length > 0 && (
+                  <Box
+                    sx={{
+                      px: 1.5,
+                      py: 0.5,
+                      borderBottom: "1px solid",
+                      borderColor: "divider",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Select
+                      size="small"
+                      variant="standard"
+                      value={selectedThreadSessionId || "planning"}
+                      onChange={(e) => {
+                        const val = e.target.value as string;
+                        setSelectedThreadSessionId(val === "planning" ? null : val);
+                      }}
+                      sx={{
+                        fontSize: "0.875rem",
+                        fontWeight: 500,
+                        color: "text.secondary",
+                        minWidth: 100,
+                        "&:before": { display: "none" },
+                        "&:after": { display: "none" },
+                        "& .MuiSelect-select": { py: 0 },
+                      }}
                     >
-                      Chat
-                    </Typography>
-                    <ChatStatsToggle
-                      showStats={showChatStats}
-                      onToggle={() => setShowChatStats(!showChatStats)}
-                    />
+                      <MenuItem value="planning">Main thread</MenuItem>
+                      {zedThreadsData.zed_threads.map((thread, index) => {
+                        const sessionId = thread.work_session?.helix_session_id;
+                        if (!sessionId) return null;
+                        const label = thread.work_session?.name
+                          || thread.work_session?.implementation_task_title
+                          || `Thread ${index + 2}`;
+                        return (
+                          <MenuItem key={sessionId} value={sessionId}>
+                            {label}
+                          </MenuItem>
+                        );
+                      })}
+                    </Select>
                   </Box>
-                </Box>
-                {/* Chat Stats Overlay for mobile */}
-                {showChatStats && <ChatStatsOverlay />}
+                )}
                 <EmbeddedSessionView
                   ref={sessionViewRef}
                   sessionId={activeSessionId}
@@ -2177,7 +2277,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       </Dialog>
 
       {/* Stop Session Confirmation */}
-      <Dialog open={stopConfirmOpen} onClose={() => setStopConfirmOpen(false)}>
+      <Dialog
+        open={stopConfirmOpen}
+        onClose={() => setStopConfirmOpen(false)}
+      >
         <DialogTitle>Stop Desktop?</DialogTitle>
         <DialogContent>
           <DialogContentText>

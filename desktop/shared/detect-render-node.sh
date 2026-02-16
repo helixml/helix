@@ -33,6 +33,15 @@ detect_render_node() {
         intel)
             target_driver="i915"
             ;;
+        virtio)
+            # virtio-gpu can show as "virtio_gpu" or "virtio-pci" depending on sysfs
+            target_driver="virtio_gpu"
+            # On macOS ARM, QEMU captures virtio-gpu scanouts directly and encodes
+            # with VideoToolbox. Desktop-bridge receives pre-encoded H.264 via TCP.
+            export HELIX_SCANOUT_MODE=1
+            export HELIX_VIDEO_MODE=scanout
+            echo "[render-node] virtio-gpu scanout mode (macOS ARM H.264 via QEMU)"
+            ;;
         none|"")
             echo "[render-node] Software rendering mode (GPU_VENDOR=${gpu_vendor:-unset})"
             export HELIX_RENDER_NODE="SOFTWARE"
@@ -41,11 +50,8 @@ detect_render_node() {
             return 0
             ;;
         *)
-            echo "[render-node] WARNING: Unknown GPU_VENDOR: $gpu_vendor, defaulting to software rendering"
-            export HELIX_RENDER_NODE="SOFTWARE"
-            export LIBGL_ALWAYS_SOFTWARE=1
-            export MESA_GL_VERSION_OVERRIDE=4.5
-            return 0
+            echo "[render-node] FATAL: Unknown GPU_VENDOR: $gpu_vendor"
+            return 1
             ;;
     esac
 
@@ -60,7 +66,14 @@ detect_render_node() {
 
                 if [ -L "$driver_link" ]; then
                     driver=$(readlink "$driver_link" | grep -o '[^/]*$')
+                    # Match driver name (virtio-gpu can appear as "virtio-pci" in containers)
+                    local match=false
                     if [ "$driver" = "$target_driver" ]; then
+                        match=true
+                    elif [ "$target_driver" = "virtio_gpu" ] && [ "$driver" = "virtio-pci" ]; then
+                        match=true
+                    fi
+                    if [ "$match" = "true" ]; then
                         detected_node="$render_node"
                         echo "[render-node] Found $gpu_vendor GPU at $render_node (driver: $driver)"
 
@@ -90,60 +103,8 @@ detect_render_node() {
     # This handles cases where GPU_VENDOR doesn't match reality (e.g., nvidia-smi
     # exists but no NVIDIA GPU available, or multi-GPU system with wrong vendor set)
     if [ -z "$detected_node" ]; then
-        echo "[render-node] WARNING: Could not find $target_driver driver, auto-detecting best available GPU..."
-
-        # Priority order: nvidia > amdgpu > i915 > first available
-        local priority_drivers="nvidia amdgpu i915"
-        for try_driver in $priority_drivers; do
-            for render_node in /dev/dri/renderD*; do
-                if [ -e "$render_node" ]; then
-                    node_name=$(basename "$render_node")
-                    driver_link="/sys/class/drm/$node_name/device/driver"
-                    if [ -L "$driver_link" ]; then
-                        driver=$(readlink "$driver_link" | grep -o '[^/]*$')
-                        if [ "$driver" = "$try_driver" ]; then
-                            detected_node="$render_node"
-                            echo "[render-node] Auto-detected: $render_node (driver: $driver)"
-
-                            # Find corresponding card device
-                            pci_path=$(readlink -f "/sys/class/drm/$node_name/device")
-                            for card in /dev/dri/card*; do
-                                if [ -e "$card" ]; then
-                                    card_name=$(basename "$card")
-                                    card_pci=$(readlink -f "/sys/class/drm/$card_name/device")
-                                    if [ "$pci_path" = "$card_pci" ]; then
-                                        detected_card="$card"
-                                        echo "[render-node] Auto-detected card: $card"
-                                        break
-                                    fi
-                                fi
-                            done
-
-                            # Update gpu_vendor to match detected driver for VA-API config
-                            case "$driver" in
-                                nvidia) gpu_vendor="nvidia" ;;
-                                amdgpu) gpu_vendor="amd" ;;
-                                i915)   gpu_vendor="intel" ;;
-                            esac
-                            break 2  # Exit both loops
-                        fi
-                    fi
-                fi
-            done
-        done
-
-        # If still nothing found, try first available render node
-        if [ -z "$detected_node" ] && [ -e "/dev/dri/renderD128" ]; then
-            detected_node="/dev/dri/renderD128"
-            detected_card="/dev/dri/card0"
-            echo "[render-node] Fallback: using $detected_node (unknown driver)"
-        fi
-
-        if [ -z "$detected_node" ]; then
-            # No render nodes found - this is OK for NVIDIA (uses NVENC via CUDA, not VA-API)
-            echo "[render-node] WARNING: No render nodes found in /dev/dri/ (OK for NVIDIA NVENC)"
-            return 0
-        fi
+        echo "[render-node] FATAL: Could not find $target_driver driver"
+        return 1
     fi
 
     export HELIX_RENDER_NODE="$detected_node"
@@ -180,6 +141,28 @@ detect_render_node() {
                 UDEV_DB_FILE="/run/udev/data/c${MAJOR_DEC}:${MINOR_DEC}"
                 echo "G:mutter-device-preferred-primary" | sudo tee "$UDEV_DB_FILE" > /dev/null
                 echo "[render-node] Created udev database entry for Mutter: $UDEV_DB_FILE"
+            fi
+
+            # For the card device: create udev entry with 'seat' tag and DEVTYPE
+            # Mutter's display-server mode enumerates card* devices with 'seat' tag
+            if [ -n "$detected_card" ] && [ -c "$detected_card" ]; then
+                CARD_MAJOR=$(stat -c %t "$detected_card")
+                CARD_MINOR=$(stat -c %T "$detected_card")
+                CARD_MAJOR_DEC=$((16#$CARD_MAJOR))
+                CARD_MINOR_DEC=$((16#$CARD_MINOR))
+                CARD_UDEV_FILE="/run/udev/data/c${CARD_MAJOR_DEC}:${CARD_MINOR_DEC}"
+                # G: = persistent tags, Q: = current tags, E: = properties
+                # GUdev uses Q: tags for g_udev_device_get_current_tags()
+                printf "E:DEVTYPE=drm_minor\nE:ID_SEAT=seat0\nE:ID_FOR_SEAT=drm-pci-helix\nG:seat\nG:mutter-device-preferred-primary\nQ:seat\nQ:mutter-device-preferred-primary\nV:1\n" | sudo tee "$CARD_UDEV_FILE" > /dev/null
+                echo "[render-node] Created udev card device entry: $CARD_UDEV_FILE"
+
+                # Create tag index directories for libudev enumeration
+                # libudev's udev_enumerate_add_match_tag() uses /run/udev/tags/<tag>/<devid>
+                # as a reverse index, NOT the G:/Q: entries in the database file
+                sudo mkdir -p /run/udev/tags/seat /run/udev/tags/mutter-device-preferred-primary
+                sudo touch "/run/udev/tags/seat/c${CARD_MAJOR_DEC}:${CARD_MINOR_DEC}"
+                sudo touch "/run/udev/tags/mutter-device-preferred-primary/c${CARD_MAJOR_DEC}:${CARD_MINOR_DEC}"
+                echo "[render-node] Created udev tag index for seat enumeration"
             fi
         fi
     fi

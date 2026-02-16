@@ -571,6 +571,12 @@ export interface ServerAppCreateResponse {
   user?: TypesUser;
 }
 
+export interface ServerClaudeModel {
+  description?: string;
+  id?: string;
+  name?: string;
+}
+
 export interface ServerClientBufferStats {
   buffer_pct?: number;
   buffer_size?: number;
@@ -917,8 +923,6 @@ export interface ServerSimpleSampleProject {
   skills?: TypesAssistantSkills;
   task_prompts?: ServerSampleTaskPrompt[];
   technologies?: string[];
-  /** Enable host Docker access (for Helix-in-Helix dev) */
-  use_host_docker?: boolean;
 }
 
 export interface ServerSlotLogSummary {
@@ -1632,6 +1636,36 @@ export interface TypesChoice {
   text?: string;
 }
 
+export interface TypesClaudeOAuthCredentials {
+  accessToken?: string;
+  /** Unix milliseconds */
+  expiresAt?: number;
+  rateLimitTier?: string;
+  refreshToken?: string;
+  scopes?: string[];
+  subscriptionType?: string;
+}
+
+export interface TypesClaudeSubscription {
+  access_token_expires_at?: string;
+  created?: string;
+  created_by?: string;
+  id?: string;
+  last_error?: string;
+  last_refreshed_at?: string;
+  name?: string;
+  owner_id?: string;
+  /** "user" or "org" */
+  owner_type?: TypesOwnerType;
+  rate_limit_tier?: string;
+  scopes?: string[];
+  /** "active", "expired", "error" */
+  status?: string;
+  /** "max", "pro" */
+  subscription_type?: string;
+  updated?: string;
+}
+
 export interface TypesClipboardData {
   /** text content or base64-encoded image */
   data?: string;
@@ -1829,6 +1863,17 @@ export interface TypesCreateBranchResponse {
   repository_id?: string;
 }
 
+export interface TypesCreateClaudeSubscriptionRequest {
+  credentials?: {
+    claudeAiOauth?: TypesClaudeOAuthCredentials;
+  };
+  name?: string;
+  /** Required for org-level, auto-set for user */
+  owner_id?: string;
+  /** "user" or "org" */
+  owner_type?: TypesOwnerType;
+}
+
 export interface TypesCreatePullRequestRequest {
   description?: string;
   source_branch?: string;
@@ -1874,8 +1919,6 @@ export interface TypesCreateTaskRequest {
   project_id?: string;
   prompt?: string;
   type?: string;
-  /** Optional: Use host Docker socket (requires privileged sandbox) */
-  use_host_docker?: boolean;
   /** Optional: User email for audit trail */
   user_email?: string;
   user_id?: string;
@@ -2836,6 +2879,7 @@ export interface TypesModelInfo {
   max_completion_tokens?: number;
   name?: string;
   output_modalities?: TypesModality[];
+  permaslug?: string;
   pricing?: TypesPricing;
   provider_model_id?: string;
   provider_slug?: string;
@@ -3186,8 +3230,6 @@ export interface TypesProject {
   status?: string;
   technologies?: string[];
   updated_at?: string;
-  /** Sandbox settings */
-  use_host_docker?: boolean;
   user_id?: string;
 }
 
@@ -4331,8 +4373,6 @@ export interface TypesSpecTask {
   /** "feature", "bug", "refactor" */
   type?: string;
   updated_at?: string;
-  /** Use host Docker socket (requires privileged sandbox) */
-  use_host_docker?: boolean;
   /** Owner user ID for search */
   user_id?: string;
   /** User override */
@@ -4618,8 +4658,6 @@ export interface TypesSpecTaskWithProject {
   /** "feature", "bug", "refactor" */
   type?: string;
   updated_at?: string;
-  /** Use host Docker socket (requires privileged sandbox) */
-  use_host_docker?: boolean;
   /** Owner user ID for search */
   user_id?: string;
   /** User override */
@@ -4637,7 +4675,7 @@ export interface TypesSpecTaskWorkSession {
   created_at?: string;
   description?: string;
   environment_config?: number[];
-  /** 1:1 mapping */
+  /** Maps to Helix session (multiple Zed threads can share one session) */
   helix_session_id?: string;
   id?: string;
   implementation_task_description?: string;
@@ -5191,6 +5229,7 @@ export interface TypesUserResponse {
   name?: string;
   onboarding_completed?: boolean;
   token?: string;
+  waitlisted?: boolean;
 }
 
 export interface TypesUserSearchResponse {
@@ -5260,6 +5299,8 @@ export interface TypesWorkloadSummary {
 export interface TypesZedConfigResponse {
   agent?: Record<string, any>;
   assistant?: Record<string, any>;
+  /** True if user has an active Claude subscription for credential sync */
+  claude_subscription_available?: boolean;
   /** Code agent configuration for Zed agentic coding */
   code_agent_config?: TypesCodeAgentConfig;
   context_servers?: Record<string, any>;
@@ -6305,6 +6346,97 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         query: query,
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List Claude subscriptions for the current user and their org
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsList
+     * @summary List Claude subscriptions
+     * @request GET:/api/v1/claude-subscriptions
+     * @secure
+     */
+    v1ClaudeSubscriptionsList: (params: RequestParams = {}) =>
+      this.request<TypesClaudeSubscription[], SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Connect a Claude subscription by providing OAuth credentials
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsCreate
+     * @summary Create a Claude subscription
+     * @request POST:/api/v1/claude-subscriptions
+     * @secure
+     */
+    v1ClaudeSubscriptionsCreate: (body: TypesCreateClaudeSubscriptionRequest, params: RequestParams = {}) =>
+      this.request<TypesClaudeSubscription, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Disconnect a Claude subscription
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsDelete
+     * @summary Delete a Claude subscription
+     * @request DELETE:/api/v1/claude-subscriptions/{id}
+     * @secure
+     */
+    v1ClaudeSubscriptionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get details of a specific Claude subscription (no secrets)
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsDetail
+     * @summary Get a Claude subscription
+     * @request GET:/api/v1/claude-subscriptions/{id}
+     * @secure
+     */
+    v1ClaudeSubscriptionsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesClaudeSubscription, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List Claude models available through Claude Code subscriptions
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsModelsList
+     * @summary List available Claude models
+     * @request GET:/api/v1/claude-subscriptions/models
+     * @secure
+     */
+    v1ClaudeSubscriptionsModelsList: (params: RequestParams = {}) =>
+      this.request<ServerClaudeModel[], any>({
+        path: `/api/v1/claude-subscriptions/models`,
+        method: "GET",
+        secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -10116,6 +10248,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Get decrypted Claude credentials for use inside a desktop container. Only accepts runner/session-scoped tokens.
+     *
+     * @tags Claude
+     * @name V1SessionsClaudeCredentialsDetail
+     * @summary Get Claude credentials for a session
+     * @request GET:/api/v1/sessions/{id}/claude-credentials
+     * @secure
+     */
+    v1SessionsClaudeCredentialsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesClaudeOAuthCredentials, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/claude-credentials`,
+        method: "GET",
+        secure: true,
+        format: "json",
         ...params,
       }),
 
