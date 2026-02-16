@@ -458,10 +458,17 @@ echo "========================================="
 echo "Additional setup..."
 echo "========================================="
 
-# Create Claude Code state symlink if needed
+# Create Claude Code state symlink for persistence across container restarts.
+# The Dockerfile writes settings.json to /home/retro/.claude/ with permissions
+# config (allow all tools). We must preserve it when symlinking to persistent storage.
 CLAUDE_STATE_DIR=$WORK_DIR/.claude-state
 if command -v claude &> /dev/null; then
     mkdir -p $CLAUDE_STATE_DIR
+    # Copy settings.json into persistent dir if not already there
+    if [ -f ~/.claude/settings.json ] && [ ! -f $CLAUDE_STATE_DIR/settings.json ]; then
+        cp ~/.claude/settings.json $CLAUDE_STATE_DIR/settings.json
+        echo "  Claude: copied settings.json to persistent state"
+    fi
     rm -rf ~/.claude
     ln -sf $CLAUDE_STATE_DIR ~/.claude
     echo "  Claude: ~/.claude -> $CLAUDE_STATE_DIR"

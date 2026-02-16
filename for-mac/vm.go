@@ -621,9 +621,12 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		// Matches UTM's config for full GPU acceleration inside the VM.
 		// blob=true enables zero-copy memory sharing via host mappable blob resources.
 		// venus=true enables Vulkan passthrough via Venus protocol.
-		// hostmem=256M allocates host-side memory for GPU resources.
+		// hostmem allocates a Metal heap for GPU blob resources (framebuffers,
+		// textures). Each desktop needs ~64-128 MB; 1 GB supports 8+ desktops.
+		// Too small causes virglrenderer to block in proxy_socket_receive_reply,
+		// which deadlocks the BQL and hangs the entire VM.
 		// EDID enabled with 5K preferred resolution so 5120x2880 is available as a DRM mode.
-		"-device", fmt.Sprintf("virtio-gpu-gl-pci,id=gpu0,hostmem=256M,blob=true,venus=true,edid=on,xres=5120,yres=2880,helix-port=%d", vm.config.FrameExportPort),
+		"-device", fmt.Sprintf("virtio-gpu-gl-pci,id=gpu0,hostmem=1024M,blob=true,venus=true,edid=on,xres=5120,yres=2880,helix-port=%d", vm.config.FrameExportPort),
 		// 16 virtual display outputs: index 0 for VM console, 1-15 for container desktops.
 		// Matches UTM plist AdditionalArguments config.
 		"-global", "virtio-gpu-gl-pci.max_outputs=16",
