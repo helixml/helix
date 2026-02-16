@@ -246,22 +246,14 @@ func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, wi
 	// 4. Wait briefly for connector to become connected
 	time.Sleep(500 * time.Millisecond)
 
-	// 5. Activate CRTC with initial modeset before creating lease.
-	// Mutter can't do the first modeset on an inactive CRTC through a lease FD,
-	// so we do it on the master FD first. Mutter then inherits the active CRTC.
+	// 5. Skip activateCrtc — it does DRM_IOCTL_MODE_SETCRTC on the master FD,
+	// which acquires mode_config.mutex and deadlocks with running gnome-shells
+	// doing atomic page flips on their lease FDs. Mutter should handle the
+	// initial modeset itself via the lease FD now that DRM_CLIENT_CAP_UNIVERSAL_PLANES
+	// is set on the master FD (see openDRM).
 	connectorID := m.connectorIDForScanout(scanoutIdx)
 	crtcID := m.crtcIDForScanout(scanoutIdx)
 	primaryPlaneID, cursorPlaneID := m.planeIDsForScanout(scanoutIdx)
-
-	m.logger.Info("activating CRTC before lease",
-		"crtc_id", crtcID, "connector_id", connectorID,
-		"width", width, "height", height)
-
-	if err := activateCrtc(m.drmFile, connectorID, crtcID, width, height); err != nil {
-		m.logger.Warn("initial modeset failed (non-fatal, Mutter may still work)", "err", err)
-	} else {
-		m.logger.Info("CRTC activated successfully")
-	}
 
 	// 6. Create DRM lease (connector + CRTC + planes)
 	// DRM_CLIENT_CAP_UNIVERSAL_PLANES must be set on the master FD first
