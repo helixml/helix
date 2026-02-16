@@ -14,7 +14,8 @@ set -euo pipefail
 #   3. Boots headless VM with QEMU for provisioning
 #   4. Waits for cloud-init, then SSHs in to run setup
 #   5. Installs: Docker, Go 1.25, ZFS 2.4.0, helix-drm-manager
-#   6. Clones helix repo, builds desktop Docker image
+#   6a. (--helix-version) Pulls pre-built ARM64 images from registry
+#   6b. (default) Clones helix repo + deps, builds desktop Docker image from source
 #   7. Sets up docker-compose for Helix control plane
 #   8. Primes the stack (pull/build/start/verify/stop)
 #   9. Creates UTM .utm bundle ready to launch
@@ -26,6 +27,8 @@ set -euo pipefail
 #
 # Usage:
 #   ./provision-vm.sh [--disk-size 256G] [--cpus 8] [--memory 16384]
+#   ./provision-vm.sh --helix-version v1.5.0  # Use pre-built ARM64 images (tag)
+#   ./provision-vm.sh --helix-version 99707e4 # Use pre-built ARM64 images (commit SHA)
 #   ./provision-vm.sh --resume    # Resume from last step if interrupted
 #   ./provision-vm.sh --upload    # Also compress + upload to R2 after provisioning
 
@@ -42,6 +45,8 @@ SSH_PORT="${HELIX_VM_SSH_PORT:-2223}"  # Use 2223 during provisioning to avoid c
 VM_USER="ubuntu"
 VM_PASS="helix"
 GO_VERSION="1.25.0"
+HELIX_VERSION=""  # When set, pull pre-built images from registry instead of building from source
+REGISTRY="registry.helixml.tech/helix"
 
 # Ubuntu 25.10 (Questing) - kernel 6.17+ for virtio-gpu multi-scanout
 UBUNTU_URL="https://cloud-images.ubuntu.com/questing/current/questing-server-cloudimg-arm64.img"
@@ -61,6 +66,7 @@ while [[ $# -gt 0 ]]; do
         --memory) MEMORY_MB="$2"; shift 2 ;;
         --resume) RESUME=true; shift ;;
         --upload) UPLOAD=true; shift ;;
+        --helix-version) HELIX_VERSION="$2"; shift 2 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -495,10 +501,17 @@ if ! step_done "install_go"; then
 fi
 
 if ! step_done "clone_helix"; then
-    BRANCH="feature/macos-arm-desktop-port-working2"
-    log "Setting up helix repository (branch: ${BRANCH})..."
-    run_ssh "git clone https://github.com/helixml/helix.git ~/helix 2>/dev/null || true"
-    run_ssh "cd ~/helix && git fetch origin && git checkout ${BRANCH} && git pull origin ${BRANCH}"
+    if [ -n "$HELIX_VERSION" ]; then
+        # HELIX_VERSION can be a tag (v1.5.0) or commit SHA (99707e4)
+        log "Setting up helix repository (ref: ${HELIX_VERSION})..."
+        run_ssh "git clone https://github.com/helixml/helix.git ~/helix 2>/dev/null || true"
+        run_ssh "cd ~/helix && git fetch origin --tags && git checkout ${HELIX_VERSION}"
+    else
+        BRANCH="feature/macos-arm-desktop-port-working2"
+        log "Setting up helix repository (branch: ${BRANCH})..."
+        run_ssh "git clone https://github.com/helixml/helix.git ~/helix 2>/dev/null || true"
+        run_ssh "cd ~/helix && git fetch origin && git checkout ${BRANCH} && git pull origin ${BRANCH}"
+    fi
     log "Helix at: $(run_ssh 'cd ~/helix && git log --oneline -1' 2>/dev/null)"
     mark_step "clone_helix"
 fi
@@ -531,35 +544,70 @@ SVCEOF"
     mark_step "build_drm_manager"
 fi
 
-if ! step_done "clone_deps"; then
-    log "Cloning Zed and Qwen Code repositories..."
-    # Zed IDE fork (needed for external_websocket_sync)
-    run_ssh "git clone https://github.com/helixml/zed.git ~/zed 2>/dev/null || (cd ~/zed && git fetch && git pull)" || true
-    # Qwen Code agent
-    run_ssh "git clone https://github.com/helixml/qwen-code.git ~/qwen-code 2>/dev/null || (cd ~/qwen-code && git fetch && git pull)" || true
-    mark_step "clone_deps"
-fi
+if [ -n "$HELIX_VERSION" ]; then
+    # --- Tagged release: pull pre-built ARM64 images from registry ---
+    if ! step_done "pull_prebuilt_images"; then
+        log "Pulling pre-built ARM64 images for version ${HELIX_VERSION}..."
+        run_ssh "sudo systemctl start docker"
 
-if ! step_done "build_desktop_image"; then
-    log "Building full desktop stack (Zed + Qwen Code + helix-ubuntu image)..."
-    log "This builds Zed (Rust), Qwen Code (Node.js), and the GNOME desktop image."
-    log "First run takes 30-60 minutes. Subsequent builds use Docker cache."
-    # PROJECTS_ROOT tells ./stack where to find zed/ and qwen-code/ repos
-    # SKIP_DESKTOP_TRANSFER=1 skips pushing to local registry (no sandbox running)
-    run_ssh "cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 DOCKER_BUILDKIT=1 bash stack build-ubuntu 2>&1" || {
-        log "WARNING: Desktop image build failed."
-        log "Retry manually: ssh helix-vm 'cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 bash stack build-ubuntu'"
-    }
-    # Verify the image was actually created — don't mark step done if it wasn't
-    if run_ssh "docker images helix-ubuntu:latest --format '{{.Size}}'" 2>/dev/null | grep -q .; then
-        log "Desktop image built successfully: $(run_ssh 'docker images helix-ubuntu:latest --format "{{.Size}}"' 2>/dev/null)"
+        # Pull multi-arch images (Docker automatically selects ARM64 variant)
+        # helix-ubuntu: desktop image spawned inside sandbox containers
+        # helix-sandbox: container manager (Hydra + DinD) for desktop sessions
+        for img in helix-ubuntu helix-sandbox; do
+            log "  Pulling ${REGISTRY}/${img}:${HELIX_VERSION}..."
+            run_ssh "docker pull ${REGISTRY}/${img}:${HELIX_VERSION}"
+            # Tag as :latest so docker-compose.dev.yaml finds them
+            run_ssh "docker tag ${REGISTRY}/${img}:${HELIX_VERSION} ${img}:latest"
+        done
+
+        # Verify desktop image is available
+        if run_ssh "docker images helix-ubuntu:latest --format '{{.Size}}'" 2>/dev/null | grep -q .; then
+            log "Pre-built images pulled successfully:"
+            run_ssh "docker images --format 'table {{.Repository}}\t{{.Tag}}\t{{.Size}}' | grep -E 'helix-ubuntu|helix-sandbox'"
+        else
+            log "ERROR: Failed to pull helix-ubuntu:${HELIX_VERSION} from registry."
+            log "Check that ARM64 images exist at ${REGISTRY}/helix-ubuntu:${HELIX_VERSION}"
+            exit 1
+        fi
+
+        run_ssh "sudo systemctl stop docker"
+        # Mark both steps done since we skip building
+        mark_step "pull_prebuilt_images"
+        mark_step "clone_deps"
         mark_step "build_desktop_image"
-    else
-        log "ERROR: Desktop image not available. Build failed."
-        log "The provisioning VM is still running. SSH in to debug:"
-        log "  ssh -p ${SSH_PORT} ${VM_USER}@localhost"
-        log "Then retry: cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 bash stack build-ubuntu"
-        exit 1
+    fi
+else
+    # --- Dev mode: build from source ---
+    if ! step_done "clone_deps"; then
+        log "Cloning Zed and Qwen Code repositories..."
+        # Zed IDE fork (needed for external_websocket_sync)
+        run_ssh "git clone https://github.com/helixml/zed.git ~/zed 2>/dev/null || (cd ~/zed && git fetch && git pull)" || true
+        # Qwen Code agent
+        run_ssh "git clone https://github.com/helixml/qwen-code.git ~/qwen-code 2>/dev/null || (cd ~/qwen-code && git fetch && git pull)" || true
+        mark_step "clone_deps"
+    fi
+
+    if ! step_done "build_desktop_image"; then
+        log "Building full desktop stack (Zed + Qwen Code + helix-ubuntu image)..."
+        log "This builds Zed (Rust), Qwen Code (Node.js), and the GNOME desktop image."
+        log "First run takes 30-60 minutes. Subsequent builds use Docker cache."
+        # PROJECTS_ROOT tells ./stack where to find zed/ and qwen-code/ repos
+        # SKIP_DESKTOP_TRANSFER=1 skips pushing to local registry (no sandbox running)
+        run_ssh "cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 DOCKER_BUILDKIT=1 bash stack build-ubuntu 2>&1" || {
+            log "WARNING: Desktop image build failed."
+            log "Retry manually: ssh helix-vm 'cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 bash stack build-ubuntu'"
+        }
+        # Verify the image was actually created — don't mark step done if it wasn't
+        if run_ssh "docker images helix-ubuntu:latest --format '{{.Size}}'" 2>/dev/null | grep -q .; then
+            log "Desktop image built successfully: $(run_ssh 'docker images helix-ubuntu:latest --format "{{.Size}}"' 2>/dev/null)"
+            mark_step "build_desktop_image"
+        else
+            log "ERROR: Desktop image not available. Build failed."
+            log "The provisioning VM is still running. SSH in to debug:"
+            log "  ssh -p ${SSH_PORT} ${VM_USER}@localhost"
+            log "Then retry: cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 bash stack build-ubuntu"
+            exit 1
+        fi
     fi
 fi
 
@@ -610,13 +658,24 @@ if ! step_done "prime_stack"; then
     # Start Docker (it's disabled on boot — we need it for compose)
     run_ssh "sudo systemctl start docker"
 
-    # Pull all pre-built images and build locally-built images
+    # Pull third-party images (postgres, tika, searxng, etc.)
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml pull 2>&1" || {
         log "WARNING: Some images failed to pull (may be optional services)"
     }
-    run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml build 2>&1" || {
-        log "WARNING: Some images failed to build"
-    }
+
+    if [ -z "$HELIX_VERSION" ]; then
+        # Dev mode: build all locally-built images from source
+        run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml build 2>&1" || {
+            log "WARNING: Some images failed to build"
+        }
+    else
+        # Pre-built mode: still need to build API service (dev compose has build: but no image:)
+        # API build is fast (~2 min) since it's just Go compilation
+        log "Building API service from source (pre-built desktop images already pulled)..."
+        run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml build api 2>&1" || {
+            log "WARNING: API build failed"
+        }
+    fi
 
     # Start the stack and wait for API health check
     log "Starting Helix stack to verify all services work..."
