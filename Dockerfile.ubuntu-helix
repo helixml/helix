@@ -662,7 +662,8 @@ if [ "${TARGETARCH}" = "arm64" ]; then
       "BrowserSignin": 0,
       "PromotionalTabsEnabled": false,
       "SyncDisabled": true,
-      "PasswordManagerEnabled": true
+      "PasswordManagerEnabled": true,
+      "BookmarkBarEnabled": false
     }' > /etc/chromium/policies/managed/helix.json
 
     echo "=== Chromium installed for arm64 (XtraDeb PPA) ==="
@@ -691,7 +692,8 @@ else
       "PrivacySandboxPromptEnabled": false,
       "PrivacySandboxAdTopicsEnabled": false,
       "PrivacySandboxSiteEnabledAdsEnabled": false,
-      "PrivacySandboxAdMeasurementEnabled": false
+      "PrivacySandboxAdMeasurementEnabled": false,
+      "BookmarkBarEnabled": false
     }' > /etc/opt/chrome/policies/managed/helix.json
 
     # Create master preferences to skip first run and welcome page
