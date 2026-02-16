@@ -250,6 +250,10 @@ func GenerateZedMCPConfig(
 			"CHROME_DEVTOOLS_MCP_HEADLESS": "true",
 			// Set viewport to match typical desktop resolution
 			"CHROME_DEVTOOLS_MCP_VIEWPORT": "1920x1080",
+			// Point to the actual browser binary (Chromium on ARM64, Chrome on amd64).
+			// google-chrome-stable symlink also exists, but CHROME_PATH is the
+			// documented way to configure the MCP server for non-Chrome browsers.
+			"CHROME_PATH": "/usr/bin/google-chrome-stable",
 		},
 	}
 
