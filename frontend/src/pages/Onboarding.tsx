@@ -374,15 +374,15 @@ export default function Onboarding() {
     } catch (err) {
       console.error('Failed to mark onboarding complete:', err)
     }
-    if (createdOrgName) {
-      localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrgName)
+    if (createdOrgId) {
+      localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrgId)
     }
-    if (createdProjectId && createdOrgName) {
-      router.navigateReplace('org_projects', { org_id: createdOrgName })
+    if (createdProjectId && createdOrgId) {
+      router.navigateReplace('org_projects', { org_id: createdOrgId })
     } else {
       router.navigateReplace('projects')
     }
-  }, [api, createdProjectId, createdOrgName, router])
+  }, [api, createdProjectId, createdOrgId, router])
 
   const handleSelectExistingOrg = useCallback(() => {
     if (!selectedOrgId) {
