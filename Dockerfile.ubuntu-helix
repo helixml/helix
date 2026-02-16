@@ -644,9 +644,13 @@ PINEOF
     apt-get update
     apt-get install -y chromium-browser chromium-driver
 
-    # Create compatibility symlinks so chrome-devtools-mcp and scripts work
+    # Create compatibility wrappers so chrome-devtools-mcp and scripts work.
+    # Must use wrapper scripts (not symlinks) because update-alternatives
+    # from later package installs can overwrite symlinks with snap wrappers.
     ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome-stable
-    ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome
+    rm -f /usr/bin/google-chrome
+    printf '#!/bin/sh\nexec /usr/bin/chromium-browser "$@"\n' > /usr/bin/google-chrome
+    chmod +x /usr/bin/google-chrome
 
     # Configure Chromium policies
     mkdir -p /etc/chromium-browser/policies/managed
