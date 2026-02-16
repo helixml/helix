@@ -630,38 +630,12 @@ set -e
 apt-get update
 
 if [ "${TARGETARCH}" = "arm64" ]; then
-    echo "=== Installing Chromium for arm64 (Debian Trixie .deb) ==="
-    # Ubuntu's chromium-browser is a snap transitional package (doesn't work in containers).
-    # Use Debian Trixie's real .deb packages instead.
-    CHROMIUM_VER="144.0.7559.109-2~deb13u1"
-    wget -q -O /tmp/chromium-common.deb \
-        "https://security.debian.org/debian-security/pool/updates/main/c/chromium/chromium-common_${CHROMIUM_VER}_arm64.deb"
-    wget -q -O /tmp/chromium.deb \
-        "https://security.debian.org/debian-security/pool/updates/main/c/chromium/chromium_${CHROMIUM_VER}_arm64.deb"
-    wget -q -O /tmp/chromium-sandbox.deb \
-        "https://security.debian.org/debian-security/pool/updates/main/c/chromium/chromium-sandbox_${CHROMIUM_VER}_arm64.deb"
-    # Force-install: Debian debs have minor dependency version differences vs Ubuntu
-    # (e.g., libbsd0 version) but the libraries are ABI-compatible.
-    # Using --force-depends avoids breaking Ubuntu's mesa/GL stack.
-    dpkg -i --force-depends /tmp/chromium-common.deb /tmp/chromium.deb /tmp/chromium-sandbox.deb
-    rm -f /tmp/chromium*.deb
-
-    # Create compatibility symlinks so chrome-devtools-mcp and scripts work
-    ln -sf /usr/bin/chromium /usr/bin/google-chrome-stable
-    ln -sf /usr/bin/chromium /usr/bin/google-chrome
-
-    # Configure Chromium policies (same as Chrome)
-    mkdir -p /etc/chromium/policies/managed
-    echo '{
-      "DefaultBrowserSettingEnabled": false,
-      "MetricsReportingEnabled": false,
-      "BrowserSignin": 0,
-      "PromotionalTabsEnabled": false,
-      "SyncDisabled": true,
-      "PasswordManagerEnabled": true
-    }' > /etc/chromium/policies/managed/helix.json
-
-    echo "=== Chromium ${CHROMIUM_VER} installed for arm64 ==="
+    echo "=== arm64: using Firefox (Ubuntu's chromium-browser is snap-only, doesn't work in containers) ==="
+    # Create compatibility symlinks so chrome-devtools-mcp and scripts that
+    # reference google-chrome-stable fall back to Firefox
+    ln -sf /usr/bin/firefox /usr/bin/google-chrome-stable
+    ln -sf /usr/bin/firefox /usr/bin/google-chrome
+    echo "=== Firefox configured as default browser for arm64 ==="
 else
     echo "=== Installing Google Chrome for amd64 ==="
     wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
@@ -737,7 +711,7 @@ _INSTALL_CHROME
 RUN <<_SET_DEFAULT_BROWSER
 set -e
 if [ "${TARGETARCH}" = "arm64" ]; then
-    BROWSER_DESKTOP="chromium.desktop"
+    BROWSER_DESKTOP="firefox.desktop"
 else
     BROWSER_DESKTOP="google-chrome.desktop"
 fi
