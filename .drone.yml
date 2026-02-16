@@ -1752,11 +1752,9 @@ steps:
             echo 'Cloning Zed at commit $${ZED_COMMIT}...'
             cd /
             rm -rf /drone/src/cache/zed-source
-            mkdir -p /drone/src/cache/zed-source
-            cd /drone/src/cache/zed-source
-            git init
-            git fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
-            git checkout FETCH_HEAD
+            git init /drone/src/cache/zed-source
+            git -C /drone/src/cache/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
+            git -C /drone/src/cache/zed-source checkout FETCH_HEAD
           fi
         "
       # Clone qwen-code only if not cached (flock prevents concurrent clone race)
@@ -1764,17 +1762,15 @@ steps:
         . /drone/src/sandbox-versions.txt
         QWEN_SHORT=$${QWEN_COMMIT:0:12}
         flock /drone/src/cache/qwen-source.lock -c "
-          if [ -f '/drone/src/cache/qwen-$${QWEN_SHORT}/dist/index.js' ]; then
+          if [ -f '/drone/src/cache/qwen-$${QWEN_SHORT}/dist/cli.js' ]; then
             echo '✓ qwen-code cached for $${QWEN_SHORT}'
           else
             echo 'Cloning qwen-code at commit $${QWEN_COMMIT}...'
             cd /
             rm -rf /drone/src/cache/qwen-source
-            mkdir -p /drone/src/cache/qwen-source
-            cd /drone/src/cache/qwen-source
-            git init
-            git fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
-            git checkout FETCH_HEAD
+            git init /drone/src/cache/qwen-source
+            git -C /drone/src/cache/qwen-source fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
+            git -C /drone/src/cache/qwen-source checkout FETCH_HEAD
           fi
         "
       - echo "=== Dependency versions ==="
@@ -1795,7 +1791,7 @@ steps:
         # Use flock for entire build to prevent races on qwen-source and cache
         flock /drone/src/cache/qwen-build.lock -c "
           # Double-check cache after acquiring lock (another build may have finished)
-          if [ -f '/drone/src/cache/qwen-$${QWEN_COMMIT}/dist/index.js' ]; then
+          if [ -f '/drone/src/cache/qwen-$${QWEN_COMMIT}/dist/cli.js' ]; then
             echo 'Using cached qwen-code for commit $${QWEN_COMMIT}'
             mkdir -p /drone/src/qwen-code-build
             cp -r /drone/src/cache/qwen-$${QWEN_COMMIT}/* /drone/src/qwen-code-build/
@@ -2163,28 +2159,24 @@ steps:
             echo 'Cloning Zed at commit $${ZED_COMMIT}...'
             cd /
             rm -rf /drone/src/cache/zed-source
-            mkdir -p /drone/src/cache/zed-source
-            cd /drone/src/cache/zed-source
-            git init
-            git fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
-            git checkout FETCH_HEAD
+            git init /drone/src/cache/zed-source
+            git -C /drone/src/cache/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
+            git -C /drone/src/cache/zed-source checkout FETCH_HEAD
           fi
         "
       - |
         . /drone/src/sandbox-versions.txt
         QWEN_SHORT=$${QWEN_COMMIT:0:12}
         flock /drone/src/cache/qwen-source.lock -c "
-          if [ -f '/drone/src/cache/qwen-$${QWEN_SHORT}/dist/index.js' ]; then
+          if [ -f '/drone/src/cache/qwen-$${QWEN_SHORT}/dist/cli.js' ]; then
             echo '✓ qwen-code cached for $${QWEN_SHORT}'
           else
             echo 'Cloning qwen-code at commit $${QWEN_COMMIT}...'
             cd /
             rm -rf /drone/src/cache/qwen-source
-            mkdir -p /drone/src/cache/qwen-source
-            cd /drone/src/cache/qwen-source
-            git init
-            git fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
-            git checkout FETCH_HEAD
+            git init /drone/src/cache/qwen-source
+            git -C /drone/src/cache/qwen-source fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
+            git -C /drone/src/cache/qwen-source checkout FETCH_HEAD
           fi
         "
       - echo "=== Dependency versions ==="
@@ -2202,7 +2194,7 @@ steps:
       - |
         QWEN_COMMIT=$$(cat /drone/src/qwen-code-commit.txt | head -c 12)
         flock /drone/src/cache/qwen-build.lock -c "
-          if [ -f '/drone/src/cache/qwen-$${QWEN_COMMIT}/dist/index.js' ]; then
+          if [ -f '/drone/src/cache/qwen-$${QWEN_COMMIT}/dist/cli.js' ]; then
             echo 'Using cached qwen-code for commit $${QWEN_COMMIT}'
             mkdir -p /drone/src/qwen-code-build
             cp -r /drone/src/cache/qwen-$${QWEN_COMMIT}/* /drone/src/qwen-code-build/
