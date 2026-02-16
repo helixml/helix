@@ -181,6 +181,17 @@ func (a *App) StartVM() error {
 		log.Printf("StartVM: license key loaded from settings (length=%d)", len(s.LicenseKey))
 	}
 
+	// Apply VM resource settings (CPUs, memory, ports, disk)
+	config := a.vm.GetConfig()
+	config.CPUs = s.VMCPUs
+	config.MemoryMB = s.VMMemoryMB
+	config.SSHPort = s.SSHPort
+	config.APIPort = s.APIPort
+	config.DiskPath = s.VMDiskPath
+	config.ExposeOnNetwork = s.ExposeOnNetwork
+	a.vm.SetConfig(config)
+	log.Printf("StartVM: using %d CPUs, %d MB RAM", s.VMCPUs, s.VMMemoryMB)
+
 	if err := a.vm.Start(); err != nil {
 		if err == ErrVMImagesNotDownloaded {
 			return fmt.Errorf("needs_download: VM images must be downloaded before starting")
