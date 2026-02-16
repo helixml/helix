@@ -1,13 +1,12 @@
 --- a/backend/wayland/seat.c
 +++ b/backend/wayland/seat.c
-@@ -1,5 +1,6 @@
- #define _POSIX_C_SOURCE 200809L
-
-+#include <stdbool.h>
+@@ -1,4 +1,5 @@
  #include <assert.h>
++#include <stdbool.h>
  #include <stdint.h>
  #include <stdlib.h>
-@@ -18,6 +19,22 @@
+ #include <string.h>
+@@ -16,6 +17,22 @@
  #include "backend/wayland.h"
  #include "util/time.h"
 
@@ -30,7 +29,7 @@
  static void keyboard_handle_keymap(void *data, struct wl_keyboard *wl_keyboard,
  		uint32_t format, int32_t fd, uint32_t size) {
  	close(fd);
-@@ -79,6 +96,12 @@ static void keyboard_handle_modifiers(void *data, struct wl_keyboard *wl_keyboar
+@@ -77,6 +94,12 @@ static void keyboard_handle_modifiers(void *data, struct wl_keyboard *wl_keyboar
  		uint32_t serial, uint32_t mods_depressed, uint32_t mods_latched,
  		uint32_t mods_locked, uint32_t group) {
  	struct wlr_keyboard *keyboard = data;
