@@ -3,6 +3,12 @@
 **Date**: 2026-02-16
 **Author**: Luke Marsden + Claude
 
+## Overview
+
+Helix Desktop runs multiple isolated Linux desktop environments (each with its own GNOME Shell, IDE, and browser) inside a single QEMU virtual machine on Apple Silicon Macs. Each desktop gets its own virtual GPU output, H.264 video stream, and DRM lease — all sharing one physical GPU through virtio-gpu with Vulkan passthrough via Venus/virglrenderer.
+
+This document describes the full architecture from silicon to pixel, and the deadlock bugs we found and fixed when scaling from 1-2 desktops to 4+.
+
 ## Why This Matters
 
 AI agents are getting good enough to write real code, but they still need somewhere to run it. Not just a terminal — a full desktop environment with a browser for testing, an IDE for reading context, and GPU acceleration for anything graphical. And when you have a team of agents working on different tasks, each one needs its own isolated sandbox so they don't step on each other's files, processes, or state.
@@ -12,12 +18,6 @@ Helix Desktop gives every agent its own full Linux desktop — GNOME Shell, Zed 
 This architecture also enables new human-computer interaction patterns: commentable spec-driven development where a human writes requirements in a Google Docs-style document, agents immediately update their design docs in response to comments, and the human reviews and redirects — all happening concurrently across multiple agent desktops. The agents work in parallel, each in their own sandbox, while the human herds the flock.
 
 The hard technical problem: running 4+ GPU-accelerated desktops simultaneously inside a single QEMU virtual machine on Apple Silicon, sharing one physical GPU, without them deadlocking each other. That's what this document is about.
-
-## Overview
-
-Helix Desktop runs multiple isolated Linux desktop environments (each with its own GNOME Shell, IDE, and browser) inside a single QEMU virtual machine on Apple Silicon Macs. Each desktop gets its own virtual GPU output, H.264 video stream, and DRM lease — all sharing one physical GPU through virtio-gpu with Vulkan passthrough via Venus/virglrenderer.
-
-This document describes the full architecture from silicon to pixel, and the deadlock bugs we found and fixed when scaling from 1-2 desktops to 4+.
 
 ## The Stack
 
@@ -151,7 +151,52 @@ The original code used `QEMU_CLOCK_VIRTUAL` for the timer. This clock tracks vir
 
 **Fix**: Switch to `QEMU_CLOCK_REALTIME` which always advances regardless of vCPU state. Also make the timer unconditionally re-arm (the original code only re-armed when there was work to do, but there was a race window between "work arrives" and "timer checks").
 
-**Current status**: The timer still isn't firing despite the REALTIME switch. Debug logging has been added to investigate. Hypothesis: the timer fires initially but gets killed by something (re-entrant MMIO, reset path, or BQL contention preventing the main loop from dispatching timer callbacks).
+### The Mystery: REALTIME Timer Still Doesn't Fire
+
+After switching to `QEMU_CLOCK_REALTIME`, `fence_poll` still shows zero hits in 1-second process samples (782 samples at 1ms intervals). Meanwhile, `gui_update` — also a REALTIME timer — fires 3-4 times per second from the exact same `timerlist_run_timers` call path. Both timers are created with `timer_new_ms(QEMU_CLOCK_REALTIME, ...)` so they should be on the same timerlist. We confirmed via QEMU logs that `virtio_gpu_virgl_init` runs (twice, due to a guest driver reset/re-init cycle) and reaches the `timer_new_ms` + `timer_mod` calls.
+
+The QEMU main loop thread spends 768/782 samples idle in `g_poll` → `__select`. During the 14 active samples, 3 go through `qemu_clock_run_all_timers` → `timerlist_run_timers` → `gui_update`. Zero go through `fence_poll`. All 14 vCPU threads show heavy BQL contention (25-60% of samples in `bql_lock_impl`).
+
+The QEMU logs show `Blocked re-entrant IO on MemoryRegion: virtio-pci-notify-virtio-gpu` which means `virtio_notify()` — called from `process_cmdq()` → `virtio_gpu_ctrl_response()` when completing a command — is hitting QEMU's memory region re-entrancy guard. The guard silently returns `MEMTX_ACCESS_ERROR`, dropping the guest notification. This could cascade: if the dropped notification means a guest interrupt never fires, the guest thread stays blocked, the vCPU stays in WFI, and the circular dependency persists.
+
+However, this doesn't explain why the timer itself doesn't fire. The re-entrancy affects notifications inside `process_cmdq`, not the timer scheduling. The timer should fire regardless of what happens inside its callback — the callback runs, re-arms via `timer_mod`, and the main loop picks it up next iteration.
+
+Root cause remains unknown. The difference between `gui_update` (fires) and `fence_poll` (doesn't fire) may be related to when the timer is created: `gui_update` is created during display initialization before the main loop starts, while `fence_poll` is created lazily during `handle_ctrl` (first virtqueue kick) after the main loop is already running. There may be a timer registration race in QEMU's GLib integration.
+
+### The Workaround: Thread-Based Fence Polling
+
+Rather than continuing to debug QEMU's timer internals, we bypass the timer system entirely with a dedicated thread:
+
+```c
+/* Thread function — runs independently of QEMU's main loop */
+static void *fence_poll_thread_fn(void *opaque)
+{
+    VirtIOGPU *g = opaque;
+    VirtIOGPUGL *gl = VIRTIO_GPU_GL(g);
+
+    while (gl->fence_poll_thread_running) {
+        g_usleep(10000); /* 10ms = 100 Hz */
+        qemu_bh_schedule(gl->fence_poll_bh);
+    }
+    return NULL;
+}
+
+/* BH callback — runs on main loop thread with BQL held */
+static void fence_poll_bh_cb(void *opaque)
+{
+    VirtIOGPU *g = opaque;
+    virgl_renderer_poll();
+    virtio_gpu_process_cmdq(g);
+}
+```
+
+The thread does nothing except sleep 10ms and schedule a bottom-half (BH) on QEMU's main loop. `qemu_bh_schedule()` is documented as thread-safe — it writes to an eventfd that wakes the main loop from its `g_poll`. The BH dispatches on the main thread via `aio_ctx_dispatch` with BQL held, which is the correct context for `virgl_renderer_poll()` and `process_cmdq()`.
+
+This is robust because:
+- `g_usleep` always works (no dependency on QEMU's timer system)
+- `qemu_bh_schedule` always works (we see BH dispatch in the process samples)
+- BH dispatch is the same mechanism used for virtio command processing
+- The original QEMU timer is kept as a secondary fallback — if it ever fires, extra `virgl_renderer_poll` calls are harmless
 
 ## Layer 4: virglrenderer and Venus
 
@@ -225,9 +270,18 @@ Every fix described below was discovered by starting 4 desktops in quick success
 | 4 | Increase virtqueue to 1024 | 256 entries saturates with 4 GPU contexts | `0cfa4993f6` |
 | 5 | Skip `reprobeConnector` | Sysfs write acquires `mode_config.mutex` (same deadlock as #1) | `5a3b82b32` |
 | 6 | `fence_poll`: REALTIME clock + unconditional re-arm | VIRTUAL clock stops when vCPUs halt; conditional re-arm leaves gap | `b1f65e89bd` |
+| 7 | Thread-based fence polling | QEMU timer system doesn't fire fence_poll on macOS/HVF (unknown root cause) | pending |
 
-## Open Issue: fence_poll Timer Not Firing
+## The Debugging Method
 
-Despite fix #6, the `fence_poll` timer is not executing. QEMU's main loop processes other REALTIME timers (`gui_update` fires ~4x/sec) but `fence_poll` shows zero hits in process sampling. Debug logging has been added to determine whether the timer fires at all after initialization, or whether something (reset path, re-entrant MMIO, BQL starvation) kills it.
+Every fix was discovered the same way: start 4 desktops in quick succession, then trace the freeze:
 
-The `Blocked re-entrant IO on MemoryRegion: virtio-pci-notify-virtio-gpu` warning in QEMU logs suggests that `virtio_notify()` called from within `process_cmdq()` (which is called from `fence_poll()`) may be hitting QEMU's re-entrancy guard. When this happens, the notification is silently dropped (`MEMTX_ACCESS_ERROR`), and the guest never receives the interrupt for the completed fence. Whether this also prevents `fence_poll` from reaching its `timer_mod` re-arm call is under investigation.
+1. **`/proc/interrupts`** — check if GPU interrupt count (`virtio1-control`) is advancing. If frozen (same count 5 seconds apart), QEMU isn't sending fence completions to the guest.
+
+2. **`cat /proc/*/stack`** — find D-state processes. gnome-shells stuck in `drm_modeset_lock` → `dma_fence_default_wait` means they're waiting for GPU fences while holding `mode_config.mutex`. Anything stuck in `virtio_gpu_vram_mmap` means a synchronous MAP_BLOB is waiting for QEMU to process it.
+
+3. **`sample <pid> 1`** (macOS) — 1-second process sample of QEMU at 1ms intervals. Shows where every thread spends its time. The main loop thread should show `fence_poll` or `process_cmdq` hits; if it's 100% in `g_poll`, nothing is processing GPU commands.
+
+4. **Kernel hung task messages** (serial console) — `task X:PID is blocked on a mutex likely owned by task Y:PID` directly identifies which process holds the contended lock.
+
+5. **QEMU warnings** — `Blocked re-entrant IO on MemoryRegion` means a `virtio_notify` was silently dropped, which means a guest never received a response for a command it's waiting on.
