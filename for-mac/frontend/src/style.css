@@ -1064,6 +1064,49 @@ body {
     color: var(--text-secondary);
 }
 
+.console-drawer-tabs {
+    display: flex;
+    gap: 0;
+}
+
+.console-drawer-tabs button {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-faded);
+    background: none;
+    border: none;
+    padding: 4px 12px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color var(--transition-fast);
+}
+
+.console-drawer-tabs button:hover {
+    color: var(--text-secondary);
+}
+
+.console-drawer-tabs button.active {
+    color: var(--text-secondary);
+    border-bottom-color: var(--teal);
+}
+
+.console-copy-pw-btn {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.console-copy-pw-btn:hover {
+    background: var(--border);
+    color: var(--text-primary);
+}
+
 .console-drawer-header span {
     font-size: 11px;
     color: var(--text-faded);

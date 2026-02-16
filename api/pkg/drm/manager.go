@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -93,7 +94,11 @@ func New(cfg Config, logger *slog.Logger) (*Manager, error) {
 
 // Run starts the Unix socket listener and serves lease requests.
 func (m *Manager) Run(ctx context.Context) error {
-	// Remove stale socket
+	// Ensure parent directory exists (directory bind mounts survive socket
+	// recreation across DRM manager restarts, unlike file bind mounts)
+	if dir := filepath.Dir(m.cfg.SocketPath); dir != "." && dir != "/" {
+		os.MkdirAll(dir, 0755)
+	}
 	os.Remove(m.cfg.SocketPath)
 
 	ln, err := net.Listen("unix", m.cfg.SocketPath)
@@ -179,7 +184,20 @@ func (m *Manager) handleClient(ctx context.Context, conn net.Conn) {
 
 	switch req.Cmd {
 	case cmdRequestLease:
-		m.handleLeaseRequest(ctx, unixConn, req.Width, req.Height)
+		scanoutIdx := m.handleLeaseRequest(ctx, unixConn, req.Width, req.Height)
+		if scanoutIdx == 0 {
+			return // lease request failed, nothing to track
+		}
+
+		// Block on the connection — when the client dies (SIGKILL, crash,
+		// graceful shutdown), the kernel closes the socket and this read
+		// returns. This is the liveness signal for automatic cleanup.
+		buf := make([]byte, 1)
+		conn.Read(buf) // blocks until connection closes
+
+		m.logger.Info("lease client disconnected, releasing scanout", "scanout_idx", scanoutIdx)
+		m.handleLeaseRelease(scanoutIdx)
+
 	case cmdReleaseLease:
 		// Client is releasing; scanout ID is in Width field (reused)
 		m.handleLeaseRelease(req.Width)
@@ -189,7 +207,9 @@ func (m *Manager) handleClient(ctx context.Context, conn net.Conn) {
 	}
 }
 
-func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, width, height uint32) {
+// handleLeaseRequest processes a lease request and returns the allocated scanout index.
+// Returns 0 if the request failed (error already sent to client).
+func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, width, height uint32) uint32 {
 	if width == 0 {
 		width = 1920
 	}
@@ -204,7 +224,7 @@ func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, wi
 	if err != nil {
 		m.logger.Error("no scanouts available", "err", err)
 		m.sendError(conn, err.Error())
-		return
+		return 0
 	}
 	m.logger.Info("allocated scanout", "scanout_idx", scanoutIdx)
 
@@ -213,35 +233,28 @@ func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, wi
 		m.logger.Error("enable scanout in QEMU failed", "err", err, "scanout_idx", scanoutIdx)
 		m.releaseScanout(scanoutIdx)
 		m.sendError(conn, fmt.Sprintf("QEMU enable failed: %v", err))
-		return
+		return 0
 	}
 	m.logger.Info("scanout enabled in QEMU", "scanout_idx", scanoutIdx)
 
-	// 3. Trigger connector reprobe in guest kernel
-	if err := reprobeConnector(scanoutIdx); err != nil {
-		m.logger.Warn("connector reprobe failed (may already be connected)", "err", err)
-		// Not fatal - connector might already be probed
-	}
+	// 3. Skip connector reprobe — writing to /sys/class/drm/card0-Virtual-N/status
+	// calls drm_helper_probe_single_connector_modes which acquires mode_config.mutex.
+	// If a gnome-shell is mid-atomic-commit waiting for a GPU fence, it holds
+	// mode_config.mutex and this blocks indefinitely.  QEMU's enableScanout already
+	// triggers dpy_set_ui_info → guest hotplug event, so the connector should
+	// appear without an explicit reprobe.
 
 	// 4. Wait briefly for connector to become connected
 	time.Sleep(500 * time.Millisecond)
 
-	// 5. Activate CRTC with initial modeset before creating lease.
-	// Mutter can't do the first modeset on an inactive CRTC through a lease FD,
-	// so we do it on the master FD first. Mutter then inherits the active CRTC.
+	// 5. Skip activateCrtc — it does DRM_IOCTL_MODE_SETCRTC on the master FD,
+	// which acquires mode_config.mutex and deadlocks with running gnome-shells
+	// doing atomic page flips on their lease FDs. Mutter should handle the
+	// initial modeset itself via the lease FD now that DRM_CLIENT_CAP_UNIVERSAL_PLANES
+	// is set on the master FD (see openDRM).
 	connectorID := m.connectorIDForScanout(scanoutIdx)
 	crtcID := m.crtcIDForScanout(scanoutIdx)
 	primaryPlaneID, cursorPlaneID := m.planeIDsForScanout(scanoutIdx)
-
-	m.logger.Info("activating CRTC before lease",
-		"crtc_id", crtcID, "connector_id", connectorID,
-		"width", width, "height", height)
-
-	if err := activateCrtc(m.drmFile, connectorID, crtcID, width, height); err != nil {
-		m.logger.Warn("initial modeset failed (non-fatal, Mutter may still work)", "err", err)
-	} else {
-		m.logger.Info("CRTC activated successfully")
-	}
 
 	// 6. Create DRM lease (connector + CRTC + planes)
 	// DRM_CLIENT_CAP_UNIVERSAL_PLANES must be set on the master FD first
@@ -260,7 +273,7 @@ func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, wi
 		m.disableScanoutInQEMU(scanoutIdx)
 		m.releaseScanout(scanoutIdx)
 		m.sendError(conn, fmt.Sprintf("DRM lease failed: %v", err))
-		return
+		return 0
 	}
 
 	m.logger.Info("DRM lease created",
@@ -305,7 +318,7 @@ func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, wi
 		revokeLease(m.drmFile, lesseeID)
 		m.disableScanoutInQEMU(scanoutIdx)
 		m.releaseScanout(scanoutIdx)
-		return
+		return 0
 	}
 
 	m.logger.Info("lease FD sent to client",
@@ -315,6 +328,8 @@ func (m *Manager) handleLeaseRequest(ctx context.Context, conn *net.UnixConn, wi
 
 	// Close our copy of the lease FD (client has it now)
 	unix.Close(leaseFD)
+
+	return scanoutIdx
 }
 
 func (m *Manager) handleLeaseRelease(scanoutIdx uint32) {
@@ -346,7 +361,7 @@ func (m *Manager) allocateScanout() (uint32, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.available) == 0 {
-		return 0, fmt.Errorf("no scanouts available (all 15 in use)")
+		return 0, fmt.Errorf("no scanouts available (all %d in use)", len(m.leases))
 	}
 	idx := m.available[0]
 	m.available = m.available[1:]

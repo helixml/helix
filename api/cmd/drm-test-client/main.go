@@ -18,7 +18,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	client := drmmanager.NewClient("/run/helix-drm.sock")
+	client := drmmanager.NewClient("/run/helix-drm/drm.sock")
 
 	switch os.Args[1] {
 	case "request":

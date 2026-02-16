@@ -630,14 +630,37 @@ set -e
 apt-get update
 
 if [ "${TARGETARCH}" = "arm64" ]; then
-    echo "=== Installing Chromium for arm64 ==="
-    apt-get install -y chromium-browser
+    echo "=== Installing Chromium for arm64 (XtraDeb PPA) ==="
+    # Ubuntu's chromium-browser is a snap transitional package (no snapd in containers).
+    # XtraDeb PPA provides real .deb packages named "chromium" (NOT "chromium-browser").
+    apt-get install -y software-properties-common
+    add-apt-repository -y ppa:xtradeb/apps
+    apt-get update
+    # Install the real chromium package from XtraDeb + chromedriver
+    apt-get install -y chromium chromium-driver
+    # Remove the snap transitional chromium-browser if it got pulled in as a dependency
+    apt-get remove -y chromium-browser 2>/dev/null || true
 
-    # Create compatibility symlinks so chrome-devtools-mcp works
-    ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome-stable
-    ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome
+    # Wrap chromium binary with --password-store=basic to bypass gnome-keyring
+    # (prevents "Choose password for new keyring" dialog in containers)
+    mv /usr/bin/chromium /usr/bin/chromium.real
+    printf '#!/bin/sh\nexec /usr/bin/chromium.real --password-store=basic --disable-dev-shm-usage "$@"\n' > /usr/bin/chromium
+    chmod +x /usr/bin/chromium
 
-    # Configure Chromium policies (same as Chrome)
+    # Create compatibility wrappers pointing to the wrapped /usr/bin/chromium.
+    # chrome-devtools-mcp and other tools expect google-chrome / google-chrome-stable.
+    rm -f /usr/bin/google-chrome-stable
+    printf '#!/bin/sh\nexec /usr/bin/chromium "$@"\n' > /usr/bin/google-chrome-stable
+    chmod +x /usr/bin/google-chrome-stable
+    rm -f /usr/bin/google-chrome
+    printf '#!/bin/sh\nexec /usr/bin/chromium "$@"\n' > /usr/bin/google-chrome
+    chmod +x /usr/bin/google-chrome
+    # Overwrite chromium-browser with a wrapper too (in case anything calls it)
+    rm -f /usr/bin/chromium-browser
+    printf '#!/bin/sh\nexec /usr/bin/chromium "$@"\n' > /usr/bin/chromium-browser
+    chmod +x /usr/bin/chromium-browser
+
+    # Configure Chromium policies
     mkdir -p /etc/chromium/policies/managed
     echo '{
       "DefaultBrowserSettingEnabled": false,
@@ -645,10 +668,11 @@ if [ "${TARGETARCH}" = "arm64" ]; then
       "BrowserSignin": 0,
       "PromotionalTabsEnabled": false,
       "SyncDisabled": true,
-      "PasswordManagerEnabled": true
+      "PasswordManagerEnabled": true,
+      "BookmarkBarEnabled": false
     }' > /etc/chromium/policies/managed/helix.json
 
-    echo "=== Chromium installed for arm64 ==="
+    echo "=== Chromium installed for arm64 (XtraDeb PPA) ==="
 else
     echo "=== Installing Google Chrome for amd64 ==="
     wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
@@ -674,7 +698,8 @@ else
       "PrivacySandboxPromptEnabled": false,
       "PrivacySandboxAdTopicsEnabled": false,
       "PrivacySandboxSiteEnabledAdsEnabled": false,
-      "PrivacySandboxAdMeasurementEnabled": false
+      "PrivacySandboxAdMeasurementEnabled": false,
+      "BookmarkBarEnabled": false
     }' > /etc/opt/chrome/policies/managed/helix.json
 
     # Create master preferences to skip first run and welcome page
@@ -719,6 +744,27 @@ fi
 
 rm -rf /var/lib/apt/lists/*
 _INSTALL_CHROME
+
+# Set Chrome/Chromium as default browser (GNOME defaults to Firefox otherwise)
+RUN <<_SET_DEFAULT_BROWSER
+set -e
+if [ "${TARGETARCH}" = "arm64" ]; then
+    BROWSER_DESKTOP="chromium.desktop"
+else
+    BROWSER_DESKTOP="google-chrome.desktop"
+fi
+# System-wide MIME defaults — applies to all users
+mkdir -p /etc/xdg
+cat > /etc/xdg/mimeapps.list << EOF
+[Default Applications]
+x-scheme-handler/http=${BROWSER_DESKTOP}
+x-scheme-handler/https=${BROWSER_DESKTOP}
+x-scheme-handler/about=${BROWSER_DESKTOP}
+text/html=${BROWSER_DESKTOP}
+application/xhtml+xml=${BROWSER_DESKTOP}
+EOF
+echo "=== Default browser set to ${BROWSER_DESKTOP} ==="
+_SET_DEFAULT_BROWSER
 
 # Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
 RUN mkdir -p /etc/skel/.config/google-chrome && \
@@ -890,6 +936,22 @@ wget --progress=dot:giga "https://github.com/mkasberg/ghostty-ubuntu/releases/do
 apt-get install -y /tmp/ghostty.deb
 rm /tmp/ghostty.deb
 echo "=== Ghostty ${GHOSTTY_TAG} installed for ${TARGETARCH} ==="
+
+# Wrap ghostty binary to force software rendering on virtio-gpu (macOS VMs).
+# Ghostty needs OpenGL 3.3+ core but virgl only exposes GL 2.1.
+# On NVIDIA/AMD the real GPU handles this natively — no override needed.
+# Detection: virtio_gpu kernel module is loaded only in virtio-gpu VMs.
+GHOSTTY_BIN=$(command -v ghostty)
+mv "$GHOSTTY_BIN" "${GHOSTTY_BIN}.real"
+cat > "$GHOSTTY_BIN" << 'WRAPPER'
+#!/bin/sh
+if [ -e /sys/module/virtio_gpu ]; then
+    export LIBGL_ALWAYS_SOFTWARE=1
+fi
+exec "$(dirname "$(readlink -f "$0")")/ghostty.real" "$@"
+WRAPPER
+chmod +x "$GHOSTTY_BIN"
+echo "=== Ghostty wrapper installed (conditional software rendering for virtio-gpu) ==="
 ghostty --version || echo "Ghostty installation check"
 
 apt-get clean

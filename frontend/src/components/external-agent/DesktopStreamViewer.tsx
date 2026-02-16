@@ -38,6 +38,50 @@ import CursorRenderer from './CursorRenderer';
 import InsecureContextWarning from './InsecureContextWarning';
 
 /**
+ * Clipboard helpers: WKWebView (macOS Wails app) blocks navigator.clipboard
+ * in iframes even with user gestures. When running inside an iframe, use
+ * postMessage to the parent frame which has access to the Wails runtime
+ * clipboard (backed by NSPasteboard). Falls back to navigator.clipboard
+ * for regular browser usage.
+ */
+const isInIframe = typeof window !== 'undefined' && window.parent !== window;
+
+async function clipboardWriteText(text: string): Promise<void> {
+  if (isInIframe) {
+    window.parent.postMessage({ type: 'helix-clipboard-write', text }, '*');
+    return;
+  }
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(text);
+  }
+}
+
+function clipboardReadText(): Promise<string> {
+  if (isInIframe) {
+    return new Promise((resolve) => {
+      const id = Math.random().toString(36).slice(2);
+      const handler = (event: MessageEvent) => {
+        if (event.data?.type === 'helix-clipboard-response' && event.data.id === id) {
+          window.removeEventListener('message', handler);
+          resolve(event.data.text || '');
+        }
+      };
+      window.addEventListener('message', handler);
+      window.parent.postMessage({ type: 'helix-clipboard-read', id }, '*');
+      // Timeout after 2s to avoid hanging
+      setTimeout(() => {
+        window.removeEventListener('message', handler);
+        resolve('');
+      }, 2000);
+    });
+  }
+  if (navigator.clipboard) {
+    return navigator.clipboard.readText();
+  }
+  return Promise.resolve('');
+}
+
+/**
  * DesktopStreamViewer - Native React component for desktop streaming
  *
  * This component provides video streaming from remote desktop sandboxes.
@@ -2219,8 +2263,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return;
       }
 
-      // Skip if clipboard API is not available (e.g., Safari without HTTPS)
-      if (!navigator.clipboard) {
+      // Skip if clipboard API is not available (e.g., Safari without HTTPS) and not in iframe
+      if (!navigator.clipboard && !isInIframe) {
         return;
       }
 
@@ -2240,8 +2284,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           return; // No change, skip update
         }
 
-        if (clipboardData.type === 'image') {
-          // Decode base64 image and write to browser clipboard
+        if (clipboardData.type === 'image' && navigator.clipboard) {
+          // Image clipboard requires navigator.clipboard.write (no postMessage bridge for images)
           const base64Data = clipboardData.data;
           const byteCharacters = atob(base64Data);
           const byteNumbers = new Array(byteCharacters.length);
@@ -2257,8 +2301,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
           console.log(`[Clipboard] Auto-synced image from remote (${byteArray.length} bytes)`);
         } else if (clipboardData.type === 'text') {
-          // Write text to browser clipboard
-          await navigator.clipboard.writeText(clipboardData.data);
+          // Write text to browser/system clipboard
+          await clipboardWriteText(clipboardData.data);
           console.log(`[Clipboard] Auto-synced text from remote (${clipboardData.data.length} chars)`);
         }
 
@@ -3089,13 +3133,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               return;
             }
 
-            // Skip local clipboard sync if API not available (e.g., Safari without HTTPS)
-            if (!navigator.clipboard) {
+            // Skip local clipboard sync if API not available and not in iframe
+            if (!navigator.clipboard && !isInIframe) {
               showClipboardToast('Copied', 'success');
               return;
             }
 
-            if (clipboardData.type === 'image') {
+            if (clipboardData.type === 'image' && navigator.clipboard) {
               const base64Data = clipboardData.data;
               const byteCharacters = atob(base64Data);
               const byteNumbers = new Array(byteCharacters.length);
@@ -3110,7 +3154,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               ]);
               console.log(`[Clipboard] Synced image from remote (${byteArray.length} bytes)`);
             } else if (clipboardData.type === 'text') {
-              await navigator.clipboard.writeText(clipboardData.data);
+              await clipboardWriteText(clipboardData.data);
               console.log(`[Clipboard] Synced text from remote (${clipboardData.data.length} chars)`);
             }
 
@@ -3143,57 +3187,70 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         const userPressedShift = event.shiftKey;
         console.log(`[Clipboard] Paste keystroke detected (shift=${userPressedShift}), syncing local → remote`);
 
-        // Skip if clipboard API is not available (e.g., Safari without HTTPS)
-        if (!navigator.clipboard) {
+        // Skip if clipboard API is not available and not in iframe
+        if (!navigator.clipboard && !isInIframe) {
           console.warn('[Clipboard] Clipboard API not available');
           showClipboardToast('Clipboard not available', 'error');
           return;
         }
 
-        // Handle clipboard sync asynchronously (don't block keystroke processing)
-        navigator.clipboard.read().then(clipboardItems => {
-          if (clipboardItems.length === 0) {
-            console.warn('[Clipboard] Empty clipboard, ignoring paste');
-            showClipboardToast('Clipboard is empty', 'error');
-            return;
-          }
+        // When in iframe (macOS app), use postMessage bridge for text.
+        // navigator.clipboard.read() is blocked in WKWebView iframes.
+        if (isInIframe) {
+          clipboardReadText().then(text => {
+            if (!text) {
+              console.warn('[Clipboard] Empty clipboard from parent, ignoring paste');
+              showClipboardToast('Clipboard is empty', 'error');
+              return;
+            }
+            syncAndPaste({ type: 'text', data: text });
+          });
+        } else {
+          // Handle clipboard sync asynchronously (don't block keystroke processing)
+          navigator.clipboard.read().then(clipboardItems => {
+            if (clipboardItems.length === 0) {
+              console.warn('[Clipboard] Empty clipboard, ignoring paste');
+              showClipboardToast('Clipboard is empty', 'error');
+              return;
+            }
 
-          const item = clipboardItems[0];
-          let clipboardPayload: TypesClipboardData;
+            const item = clipboardItems[0];
+            let clipboardPayload: TypesClipboardData;
 
-          // Read clipboard data
-          // Note: Browser Clipboard API only supports PNG for images (per W3C spec)
-          console.log(`[Clipboard] Available types: ${item.types.join(', ')}`);
-          if (item.types.includes('image/png')) {
-            console.log(`[Clipboard] Reading image/png from clipboard`);
-            item.getType('image/png').then(blob => {
-              console.log(`[Clipboard] Got PNG blob, size: ${blob.size} bytes`);
-              blob.arrayBuffer().then(arrayBuffer => {
-                const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-                console.log(`[Clipboard] Encoded to base64, length: ${base64.length}`);
-                clipboardPayload = { type: 'image', data: base64 };
-                syncAndPaste(clipboardPayload);
+            // Read clipboard data
+            // Note: Browser Clipboard API only supports PNG for images (per W3C spec)
+            console.log(`[Clipboard] Available types: ${item.types.join(', ')}`);
+            if (item.types.includes('image/png')) {
+              console.log(`[Clipboard] Reading image/png from clipboard`);
+              item.getType('image/png').then(blob => {
+                console.log(`[Clipboard] Got PNG blob, size: ${blob.size} bytes`);
+                blob.arrayBuffer().then(arrayBuffer => {
+                  const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+                  console.log(`[Clipboard] Encoded to base64, length: ${base64.length}`);
+                  clipboardPayload = { type: 'image', data: base64 };
+                  syncAndPaste(clipboardPayload);
+                });
+              }).catch(err => {
+                console.error('[Clipboard] Failed to get image/png:', err);
+                showClipboardToast('Failed to read image from clipboard', 'error');
               });
-            }).catch(err => {
-              console.error('[Clipboard] Failed to get image/png:', err);
-              showClipboardToast('Failed to read image from clipboard', 'error');
-            });
-          } else if (item.types.includes('text/plain')) {
-            item.getType('text/plain').then(blob => {
-              blob.text().then(text => {
-                clipboardPayload = { type: 'text', data: text };
-                syncAndPaste(clipboardPayload);
+            } else if (item.types.includes('text/plain')) {
+              item.getType('text/plain').then(blob => {
+                blob.text().then(text => {
+                  clipboardPayload = { type: 'text', data: text };
+                  syncAndPaste(clipboardPayload);
+                });
               });
-            });
-          } else {
-            console.warn('[Clipboard] Unsupported clipboard type:', item.types);
-            showClipboardToast(`Unsupported clipboard type: ${item.types.join(', ')}`, 'error');
-          }
-        }).catch(err => {
-          console.error('[Clipboard] Failed to read clipboard:', err);
-          const errMsg = err instanceof Error ? err.message : String(err);
-          showClipboardToast(`Paste failed: ${errMsg}`, 'error');
-        });
+            } else {
+              console.warn('[Clipboard] Unsupported clipboard type:', item.types);
+              showClipboardToast(`Unsupported clipboard type: ${item.types.join(', ')}`, 'error');
+            }
+          }).catch(err => {
+            console.error('[Clipboard] Failed to read clipboard:', err);
+            const errMsg = err instanceof Error ? err.message : String(err);
+            showClipboardToast(`Paste failed: ${errMsg}`, 'error');
+          });
+        }
 
         // Helper function to sync clipboard and forward keystroke
         const syncAndPaste = (payload: TypesClipboardData) => {

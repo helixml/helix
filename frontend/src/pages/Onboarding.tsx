@@ -154,8 +154,7 @@ export default function Onboarding() {
   const [orgMode, setOrgMode] = useState<'select' | 'create'>('select')
   const [selectedOrgId, setSelectedOrgId] = useState<string>('')
   const [orgDisplayName, setOrgDisplayName] = useState('')
-  const [createdOrgId, setCreatedOrgId] = useState<string>('')
-  const [createdOrgName, setCreatedOrgName] = useState<string>('')
+  const [createdOrg, setCreatedOrg] = useState<{ id: string; name: string; display_name?: string } | null>(null)
   const createOrgMutation = useCreateOrg()
 
   // Step 3: Project + Agent
@@ -310,14 +309,14 @@ export default function Onboarding() {
   }, [zedExternalAgents, selectedAgentId])
 
   useEffect(() => {
-    if (activeStep !== 3 || !createdOrgId) return
+    if (activeStep !== 3 || !createdOrg) return
 
     api.get<IApp[]>('/api/v1/apps', {
-      params: { organization_id: createdOrgId },
+      params: { organization_id: createdOrg.id },
     }, { snackbar: true }).then(result => {
       setOrgApps(result || [])
     })
-  }, [activeStep, createdOrgId])
+  }, [activeStep, createdOrg])
 
   useEffect(() => {
     if (agentMode !== 'create' || selectedModel || hasUserSelectedModel || isLoadingProviders || !providers?.length) {
@@ -358,7 +357,7 @@ export default function Onboarding() {
 
   // Auto-generate agent name when model or runtime changes
   useEffect(() => {
-    if (!userModifiedAgentName && agentMode === 'create' && selectedModel) {
+    if (!userModifiedAgentName && agentMode === 'create' && (selectedModel || codeAgentRuntime === 'claude_code')) {
       setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime))
     }
   }, [selectedModel, codeAgentRuntime, userModifiedAgentName, agentMode])
@@ -374,15 +373,15 @@ export default function Onboarding() {
     } catch (err) {
       console.error('Failed to mark onboarding complete:', err)
     }
-    if (createdOrgName) {
-      localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrgName)
+    if (createdOrg) {
+      localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrg.name)
     }
-    if (createdProjectId && createdOrgName) {
-      router.navigateReplace('org_projects', { org_id: createdOrgName })
+    if (createdProjectId && createdOrg) {
+      router.navigateReplace('org_projects', { org_id: createdOrg.name })
     } else {
       router.navigateReplace('projects')
     }
-  }, [api, createdProjectId, createdOrgName, router])
+  }, [api, createdProjectId, createdOrg, router])
 
   const handleSelectExistingOrg = useCallback(() => {
     if (!selectedOrgId) {
@@ -394,8 +393,7 @@ export default function Onboarding() {
       snackbar.error('Could not find the selected organization')
       return
     }
-    setCreatedOrgId(org.id)
-    setCreatedOrgName(org.name || org.id)
+    setCreatedOrg({ id: org.id!, name: org.name!, display_name: org.display_name })
     markComplete(1)
   }, [selectedOrgId, existingOrgs, markComplete, snackbar])
 
@@ -409,8 +407,7 @@ export default function Onboarding() {
         display_name: orgDisplayName.trim(),
       })
       if (newOrg?.id) {
-        setCreatedOrgId(newOrg.id)
-        setCreatedOrgName(newOrg.name || newOrg.id)
+        setCreatedOrg({ id: newOrg.id!, name: newOrg.name!, display_name: newOrg.display_name })
         await account.organizationTools.loadOrganizations()
         markComplete(1)
       }
@@ -467,12 +464,12 @@ export default function Onboarding() {
       return
     }
 
-    if (!createdOrgId) {
+    if (!createdOrg) {
       snackbar.error('No valid organization selected. Please go back and set up your organization first.')
       return
     }
 
-    const orgId = createdOrgId
+    const orgId = createdOrg.id
 
     setCreatingProject(true)
     try {
@@ -611,7 +608,7 @@ export default function Onboarding() {
     } finally {
       setCreatingProject(false)
     }
-  }, [projectName, projectDescription, repoMode, linkedExternalRepo, createdOrgId, account, api, apps, markComplete, snackbar, agentMode, selectedAgentId, selectedModel, selectedProvider, codeAgentRuntime, newAgentName])
+  }, [projectName, projectDescription, repoMode, linkedExternalRepo, createdOrg, account, api, apps, markComplete, snackbar, agentMode, selectedAgentId, selectedModel, selectedProvider, codeAgentRuntime, newAgentName])
 
   // Step 4: Create task
   const handleCreateTask = useCallback(async () => {
@@ -845,7 +842,7 @@ export default function Onboarding() {
                       Use your Claude account with Claude Code in desktop agents
                     </Typography>
                   </Box>
-                  {createdOrgId && (
+                  {createdOrg && (
                     <FormControl size="small" sx={{ minWidth: 160 }}>
                       <Select
                         value={claudeSubOrgId || 'personal'}
@@ -868,8 +865,8 @@ export default function Onboarding() {
                         }}
                       >
                         <MenuItem value="personal" sx={{ fontSize: '0.78rem' }}>Personal (just me)</MenuItem>
-                        <MenuItem value={createdOrgId} sx={{ fontSize: '0.78rem' }}>
-                          {createdOrgName || 'Organization'}
+                        <MenuItem value={createdOrg.id} sx={{ fontSize: '0.78rem' }}>
+                          {createdOrg.display_name || createdOrg.name}
                         </MenuItem>
                       </Select>
                     </FormControl>
@@ -1354,7 +1351,7 @@ export default function Onboarding() {
                 variant="contained"
                 onClick={handleCreateProject}
                 disabled={
-                  creatingProject || creatingAgent || !projectName.trim() || !createdOrgId ||
+                  creatingProject || creatingAgent || !projectName.trim() || !createdOrg ||
                   (repoMode === 'external' && !linkedExternalRepo) ||
                   (agentMode === 'select' && !selectedAgentId) ||
                   (agentMode === 'create' && !selectedModel && !(codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription'))

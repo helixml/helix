@@ -50,6 +50,10 @@ export function GetLicenseStatus() {
   return window['go']['main']['App']['GetLicenseStatus']();
 }
 
+export function GetLogsOutput() {
+  return window['go']['main']['App']['GetLogsOutput']();
+}
+
 export function GetSSHCommand() {
   return window['go']['main']['App']['GetSSHCommand']();
 }
@@ -88,6 +92,10 @@ export function OpenHelixUI() {
 
 export function OpenSession(arg1) {
   return window['go']['main']['App']['OpenSession'](arg1);
+}
+
+export function ResizeConsole(arg1, arg2) {
+  return window['go']['main']['App']['ResizeConsole'](arg1, arg2);
 }
 
 export function ResizeDataDisk(arg1) {

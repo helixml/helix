@@ -67,6 +67,10 @@ func (a *App) startup(ctx context.Context) {
 	a.vm.licenseKey = s.LicenseKey
 	a.vm.newUsersAreAdmin = s.NewUsersAreAdmin
 	a.vm.allowRegistration = s.AllowRegistration
+	a.vm.runnerToken = s.RunnerToken
+	a.vm.postgresPassword = s.PostgresPassword
+	a.vm.encryptionKey = s.EncryptionKey
+	a.vm.jwtSecret = s.JWTSecret
 
 	// Wire VM state changes to system tray
 	a.vm.onStateChange = func(state string) {
@@ -169,9 +173,24 @@ func (a *App) StartVM() error {
 	a.vm.desktopSecret = s.DesktopSecret
 	a.vm.consolePassword = s.ConsolePassword
 	a.vm.licenseKey = s.LicenseKey
+	a.vm.runnerToken = s.RunnerToken
+	a.vm.postgresPassword = s.PostgresPassword
+	a.vm.encryptionKey = s.EncryptionKey
+	a.vm.jwtSecret = s.JWTSecret
 	if s.LicenseKey != "" {
 		log.Printf("StartVM: license key loaded from settings (length=%d)", len(s.LicenseKey))
 	}
+
+	// Apply VM resource settings (CPUs, memory, ports, disk)
+	config := a.vm.GetConfig()
+	config.CPUs = s.VMCPUs
+	config.MemoryMB = s.VMMemoryMB
+	config.SSHPort = s.SSHPort
+	config.APIPort = s.APIPort
+	config.DiskPath = s.VMDiskPath
+	config.ExposeOnNetwork = s.ExposeOnNetwork
+	a.vm.SetConfig(config)
+	log.Printf("StartVM: using %d CPUs, %d MB RAM", s.VMCPUs, s.VMMemoryMB)
 
 	if err := a.vm.Start(); err != nil {
 		if err == ErrVMImagesNotDownloaded {
@@ -193,9 +212,19 @@ func (a *App) GetConsoleOutput() string {
 	return a.vm.GetConsoleOutput()
 }
 
+// GetLogsOutput returns the SSH command logs buffer
+func (a *App) GetLogsOutput() string {
+	return a.vm.GetLogsOutput()
+}
+
 // SendConsoleInput sends input to the VM serial console
 func (a *App) SendConsoleInput(input string) error {
 	return a.vm.SendConsoleInput(input)
+}
+
+// ResizeConsole sets the VM serial console terminal dimensions
+func (a *App) ResizeConsole(cols, rows int) {
+	a.vm.ResizeConsole(cols, rows)
 }
 
 // OpenHelixUI opens the Helix web UI in the default browser

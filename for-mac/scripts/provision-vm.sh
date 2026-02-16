@@ -258,6 +258,44 @@ if [ "$UPDATE" = true ]; then
     run_ssh "[ -d ~/zed ] || git clone https://github.com/helixml/zed.git ~/zed" || true
     run_ssh "[ -d ~/qwen-code ] || git clone https://github.com/helixml/qwen-code.git ~/qwen-code" || true
 
+    # Ensure Go is installed (may be missing from older golden images)
+    if ! run_ssh "[ -x /usr/local/go/bin/go ]" 2>/dev/null; then
+        log "Installing Go ${GO_VERSION}..."
+        run_ssh "curl -L -o /tmp/go.tar.gz 'https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz' && \
+                 sudo rm -rf /usr/local/go && \
+                 sudo tar -C /usr/local -xzf /tmp/go.tar.gz && \
+                 rm /tmp/go.tar.gz"
+    fi
+    run_ssh "/usr/local/go/bin/go version"
+
+    # Rebuild helix-drm-manager (runs on VM host, not in Docker)
+    log "Rebuilding and installing helix-drm-manager..."
+    run_ssh "sudo systemctl stop helix-drm-manager 2>/dev/null || true"
+    run_ssh "cd ~/helix/api && CGO_ENABLED=0 /usr/local/go/bin/go build -o /tmp/helix-drm-manager ./cmd/helix-drm-manager/ && \
+             sudo cp /tmp/helix-drm-manager /usr/local/bin/helix-drm-manager && \
+             sudo chmod +x /usr/local/bin/helix-drm-manager"
+    # Write the complete systemd service (same as initial provision)
+    run_ssh "sudo tee /etc/systemd/system/helix-drm-manager.service > /dev/null << 'SVCEOF'
+[Unit]
+Description=Helix DRM Lease Manager
+After=systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/helix-drm-manager.env
+ExecStart=/usr/local/bin/helix-drm-manager
+Restart=on-failure
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF"
+    run_ssh "sudo systemctl daemon-reload && sudo systemctl enable helix-drm-manager"
+    run_ssh "sudo systemctl start helix-drm-manager 2>/dev/null || true"
+    log "helix-drm-manager rebuilt and restarted."
+
     # Rebuild desktop image
     log "Rebuilding desktop image..."
     run_ssh "cd ~/helix && PROJECTS_ROOT=~ SKIP_DESKTOP_TRANSFER=1 DOCKER_BUILDKIT=1 bash stack build-ubuntu 2>&1" || {
@@ -278,10 +316,20 @@ if [ "$UPDATE" = true ]; then
     # Ensure critical env vars are present in .env.vm (may be missing from older provisions)
     run_ssh "grep -q '^COMPOSE_PROFILES=' ~/helix/.env.vm 2>/dev/null || echo 'COMPOSE_PROFILES=code-macos' >> ~/helix/.env.vm"
     run_ssh "grep -q '^CONTAINER_DOCKER_PATH=' ~/helix/.env.vm 2>/dev/null || echo 'CONTAINER_DOCKER_PATH=/helix/container-docker' >> ~/helix/.env.vm"
+    run_ssh "grep -q '^SANDBOX_DOCKER_VOLUME=' ~/helix/.env.vm 2>/dev/null || echo 'SANDBOX_DOCKER_VOLUME=/var/lib/helix-sandbox-docker' >> ~/helix/.env.vm"
     run_ssh "grep -q '^ENABLE_CUSTOM_USER_PROVIDERS=' ~/helix/.env.vm 2>/dev/null || echo 'ENABLE_CUSTOM_USER_PROVIDERS=true' >> ~/helix/.env.vm"
 
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml pull 2>&1" || true
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml build 2>&1" || true
+
+    # Ensure sandbox Docker bind mount directory exists on root disk
+    run_ssh "sudo mkdir -p /var/lib/helix-sandbox-docker"
+
+    # Remove stale database volumes that may have auth data from a previous run.
+    # During provisioning there's no ZFS data disk, so Docker volumes live on root.
+    # A previous run may have created postgres with different auth settings.
+    run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml down 2>/dev/null" || true
+    run_ssh "docker volume rm helix_helix-postgres-db 2>/dev/null" || true
 
     log "Starting stack (with sandbox) to verify and load desktop images..."
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml up -d 2>&1"
@@ -325,14 +373,14 @@ if [ "$UPDATE" = true ]; then
         log "WARNING: Desktop image transfer failed. Will retry on first boot."
     }
 
-    # Stop the stack but keep named volumes — sandbox-docker-storage contains
-    # the desktop images we just transferred into the sandbox's nested dockerd.
-    # Using -v would wipe those images, causing "No such image" on first boot.
-    log "Stopping stack (keeping volumes)..."
+    # Stop the stack but keep data — sandbox Docker storage is a bind mount at
+    # /var/lib/helix-sandbox-docker on the root disk, so desktop images persist.
+    log "Stopping stack..."
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml down 2>&1"
 
     # Cleanup
-    run_ssh "rm -rf ~/zed ~/qwen-code ~/.cache/go-build" || true
+    run_ssh "rm -rf ~/.cache/go-build" || true
+    # NOTE: Keep ~/zed and ~/qwen-code — they're reused by --update mode
     run_ssh "sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*" || true
     # NOTE: Do NOT run `docker builder prune` here — it destroys BuildKit cache
     # mounts (cargo registry, rustup toolchain, Rust build artifacts) that make
@@ -590,6 +638,11 @@ write_files:
           fi
       fi
 
+      # Ensure sandbox Docker bind mount dir exists on root disk.
+      # Sandbox's Docker storage is bind-mounted here (not a named volume)
+      # so it survives the ZFS mount over /var/lib/docker/volumes/.
+      mkdir -p /var/lib/helix-sandbox-docker
+
       # Restore persistent config if available
       if [ -d /helix/config/ssh ]; then
           log "Restoring SSH host keys from /helix/config/ssh/..."
@@ -727,7 +780,7 @@ if ! step_done "install_go"; then
 fi
 
 if ! step_done "clone_helix"; then
-    BRANCH="feature/macos-arm-desktop-port-working2"
+    BRANCH=$(git -C "$(cd "$SCRIPT_DIR/../.." && pwd)" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
     log "Setting up helix repository (branch: ${BRANCH})..."
     run_ssh "git clone https://github.com/helixml/helix.git ~/helix 2>/dev/null || true"
     run_ssh "cd ~/helix && git fetch origin && git checkout ${BRANCH} && git pull origin ${BRANCH}"
@@ -750,6 +803,7 @@ Wants=systemd-udev-settle.service
 
 [Service]
 Type=simple
+EnvironmentFile=-/etc/helix-drm-manager.env
 ExecStart=/usr/local/bin/helix-drm-manager
 Restart=on-failure
 RestartSec=5
@@ -835,6 +889,13 @@ HELIX_DESKTOP_IMAGE=helix-ubuntu:latest
 
 # Workspace storage on ZFS with dedup (saves disk space on Mac)
 HELIX_SANDBOX_DATA=/helix/workspaces
+
+# Per-session Docker storage on ZFS zvol (dedup across sessions)
+CONTAINER_DOCKER_PATH=/helix/container-docker
+
+# Sandbox Docker storage — bind mount on root disk (not a named volume)
+# so pre-baked desktop images survive the ZFS mount over /var/lib/docker/volumes/.
+SANDBOX_DOCKER_VOLUME=/var/lib/helix-sandbox-docker
 
 # Desktop edition identifier (used by Launchpad telemetry)
 HELIX_EDITION=mac-desktop
@@ -923,10 +984,9 @@ if ! step_done "prime_stack"; then
         log "WARNING: Desktop image transfer failed. Will retry on first boot."
     }
 
-    # Stop the stack but keep named volumes — sandbox-docker-storage contains
-    # the desktop images we just transferred into the sandbox's nested dockerd.
-    # Using -v would wipe those images, causing "No such image" on first boot.
-    log "Stopping Helix stack (keeping volumes)..."
+    # Stop the stack. Sandbox Docker storage is a bind mount at
+    # /var/lib/helix-sandbox-docker on the root disk — desktop images persist.
+    log "Stopping Helix stack..."
     run_ssh "cd ~/helix && docker compose -f docker-compose.dev.yaml down 2>&1"
 
     # Stop Docker (it will be started by the desktop app on user's first boot)
@@ -944,8 +1004,8 @@ fi
 
 if ! step_done "cleanup"; then
     log "Cleaning up build artifacts to shrink root disk..."
-    # Source repos: built artifacts are baked into Docker images, source trees are dead weight
-    run_ssh "rm -rf ~/zed ~/qwen-code" || true
+    # NOTE: Keep ~/zed and ~/qwen-code — the golden image is used for development,
+    # so `./stack build-ubuntu` needs these repos available for rebuilding.
     # Go build cache
     run_ssh "rm -rf ~/.cache/go-build /tmp/go*.tar.gz" || true
     # apt package cache

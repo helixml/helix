@@ -376,6 +376,11 @@ write_files:
           fi
       fi
 
+      # Ensure sandbox Docker bind mount dir exists on root disk.
+      # Sandbox's Docker storage is bind-mounted here (not a named volume)
+      # so it survives the ZFS mount over /var/lib/docker/volumes/.
+      mkdir -p /var/lib/helix-sandbox-docker
+
       # Restore persistent config if available
       if [ -d /helix/config/ssh ]; then
           log "Restoring SSH host keys from /helix/config/ssh/..."
@@ -595,7 +600,7 @@ if ! step_done "configure_env"; then
     run_ssh "cd ~/helix && tr -d '\0' < .env > .env.tmp && mv .env.tmp .env"
 
     # Remove keys we want to override (install.sh may have set them differently)
-    run_ssh "cd ~/helix && sed -i '/^GPU_VENDOR=/d; /^HELIX_DESKTOP_IMAGE=/d; /^HELIX_EDITION=/d; /^ADMIN_USER_IDS=/d; /^ENABLE_CUSTOM_USER_PROVIDERS=/d; /^PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS=/d; /^CONTAINER_DOCKER_PATH=/d; /^HELIX_SANDBOX_DATA=/d' .env"
+    run_ssh "cd ~/helix && sed -i '/^GPU_VENDOR=/d; /^HELIX_DESKTOP_IMAGE=/d; /^HELIX_EDITION=/d; /^ADMIN_USER_IDS=/d; /^ENABLE_CUSTOM_USER_PROVIDERS=/d; /^PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS=/d; /^CONTAINER_DOCKER_PATH=/d; /^HELIX_SANDBOX_DATA=/d; /^SANDBOX_DOCKER_VOLUME=/d' .env"
 
     # Append macOS-specific overrides (using individual echo to avoid heredoc issues via SSH)
     run_ssh "cd ~/helix && {
@@ -609,6 +614,7 @@ echo 'ENABLE_CUSTOM_USER_PROVIDERS=true'
 echo 'PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS=15'
 echo 'CONTAINER_DOCKER_PATH=/helix/container-docker'
 echo 'HELIX_SANDBOX_DATA=/helix/workspaces'
+echo 'SANDBOX_DOCKER_VOLUME=/var/lib/helix-sandbox-docker'
 } >> .env"
 
     mark_step "configure_env"
@@ -631,6 +637,9 @@ if ! step_done "patch_sandbox"; then
         # Without this, FindAvailableSandbox returns nil and sessions fail with "record not found".
         run_ssh "cd ~/helix && mkdir -p sandbox-images"
         run_ssh "cd ~/helix && sed -i 's|--name helix-sandbox|--name helix-sandbox -v \$(pwd)/sandbox-images:/opt/images|' sandbox.sh" || true
+        # SANDBOX_DOCKER_VOLUME is set in .env (configure_env step) to use a bind mount
+        # at /var/lib/helix-sandbox-docker instead of a named volume. sandbox.sh reads
+        # this via ${SANDBOX_DOCKER_VOLUME:-sandbox-storage} in the docker run command.
         log "sandbox.sh patched"
     else
         log "WARNING: sandbox.sh not found — install.sh may have skipped sandbox setup"
@@ -800,9 +809,9 @@ if ! step_done "prime_stack"; then
         fi
     fi
 
-    # Stop the stack but keep named volumes (sandbox-docker-storage contains
-    # the desktop images we just transferred into the sandbox's nested dockerd)
-    log "Stopping Helix stack (keeping volumes)..."
+    # Stop the stack. Sandbox Docker storage is a bind mount at
+    # /var/lib/helix-sandbox-docker on the root disk — desktop images persist.
+    log "Stopping Helix stack..."
     run_ssh "cd ~/helix && docker compose down 2>&1" || true
     run_ssh "docker stop helix-sandbox 2>/dev/null; docker rm helix-sandbox 2>/dev/null" || true
 

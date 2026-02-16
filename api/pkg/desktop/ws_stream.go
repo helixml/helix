@@ -390,7 +390,15 @@ func (v *VideoStreamer) startScanoutMode(ctx context.Context) error {
 		if v.config.Bitrate > 0 {
 			scanoutSrc.SetBitrate(v.config.Bitrate)
 		}
-		if err := scanoutSrc.Start(ctx, 0); err != nil {
+		// Use context.Background() — NOT the VideoStreamer's ctx.
+		// The ScanoutSource lifecycle is owned by SharedVideoSource (which also uses
+		// context.Background). If we used the VideoStreamer's ctx here, cancelling it
+		// on WebSocket disconnect would kill the ScanoutSource's TCP reader, causing
+		// broadcastFrames to exit. On reconnect, the SharedVideoSource would be a
+		// zombie (running=true but no broadcast goroutine) — instant stream freeze.
+		// The NVIDIA/GStreamer path doesn't have this issue because its pipeline is
+		// created inside SharedVideoSource.start() with its own independent context.
+		if err := scanoutSrc.Start(context.Background(), 0); err != nil {
 			return fmt.Errorf("start scanout source: %w", err)
 		}
 		v.scanoutSource = scanoutSrc

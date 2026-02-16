@@ -96,7 +96,7 @@ type drmModeCrtc struct {
 }
 
 func main() {
-	drmSocket := "/run/helix-drm.sock"
+	drmSocket := "/run/helix-drm/drm.sock"
 
 	fmt.Println("=== DRM Modeset Test ===")
 

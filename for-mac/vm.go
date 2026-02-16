@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -17,6 +20,39 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// incompleteUTF8Tail returns the number of trailing bytes that form
+// an incomplete UTF-8 multi-byte sequence (0 if data ends on a rune boundary).
+func incompleteUTF8Tail(data []byte) int {
+	if len(data) == 0 {
+		return 0
+	}
+	// Scan backwards through up to 3 trailing bytes looking for a leading byte
+	for i := 1; i <= 3 && i <= len(data); i++ {
+		b := data[len(data)-i]
+		if b < 0x80 {
+			// ASCII — this byte is complete, no incomplete sequence
+			return 0
+		}
+		if b >= 0xC0 {
+			// Leading byte of a multi-byte sequence
+			var expected int
+			if b < 0xE0 {
+				expected = 2
+			} else if b < 0xF0 {
+				expected = 3
+			} else {
+				expected = 4
+			}
+			if i < expected {
+				return i // incomplete: have i bytes, need 'expected'
+			}
+			return 0 // complete sequence
+		}
+		// 0x80-0xBF: continuation byte, keep looking for the leader
+	}
+	return 0
+}
 
 // cprPattern matches Cursor Position Report responses (e.g. \e[18;138R).
 // xterm.js generates these in response to DSR queries (\e[6n) from the guest.
@@ -64,8 +100,9 @@ type VMStatus struct {
 	MemoryUsed int64   `json:"memory_used"`
 	Uptime     int64   `json:"uptime"`
 	Sessions   int     `json:"sessions"`
-	ErrorMsg   string  `json:"error_msg,omitempty"`
-	APIReady   bool    `json:"api_ready"`
+	ErrorMsg     string  `json:"error_msg,omitempty"`
+	APIReady     bool    `json:"api_ready"`
+	SandboxReady bool    `json:"sandbox_ready"`
 }
 
 // VMManager manages the Helix VM
@@ -82,6 +119,9 @@ type VMManager struct {
 	consoleBuf   []byte
 	consoleMu    sync.Mutex
 	consoleStdin io.WriteCloser
+	// SSH command logs ring buffer
+	logsBuf []byte
+	logsMu  sync.Mutex
 	// Callback for state changes (used by system tray)
 	onStateChange func(state string)
 	// Callback when API becomes ready (used by auth proxy)
@@ -93,8 +133,13 @@ type VMManager struct {
 	// License key to inject into the VM (set from AppSettings before VM start)
 	licenseKey string
 	// Auth settings injected into the VM's .env.vm
-	newUsersAreAdmin bool
+	newUsersAreAdmin  bool
 	allowRegistration bool
+	// Secure tokens/passwords injected into the VM's .env.vm
+	runnerToken      string
+	postgresPassword string
+	encryptionKey    string
+	jwtSecret        string
 	// stackStarted tracks whether the full docker compose stack has been started.
 	// Used to gate API restarts in injectDesktopSecret — during boot, we don't
 	// want to restart just the API before the full stack is up.
@@ -414,6 +459,7 @@ func (vm *VMManager) Start() error {
 	vm.status.State = VMStateStarting
 	vm.status.ErrorMsg = ""
 	vm.status.APIReady = false
+	vm.status.SandboxReady = false
 	vm.status.BootStage = ""
 	vm.statusMu.Unlock()
 
@@ -575,13 +621,24 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		// Matches UTM's config for full GPU acceleration inside the VM.
 		// blob=true enables zero-copy memory sharing via host mappable blob resources.
 		// venus=true enables Vulkan passthrough via Venus protocol.
-		// hostmem=256M allocates host-side memory for GPU resources.
+		// hostmem allocates a Metal heap for GPU blob resources (framebuffers,
+		// textures). Each desktop needs ~64-128 MB; 1 GB supports 8+ desktops.
+		// Too small causes virglrenderer to block in proxy_socket_receive_reply,
+		// which deadlocks the BQL and hangs the entire VM.
 		// EDID enabled with 5K preferred resolution so 5120x2880 is available as a DRM mode.
-		"-device", fmt.Sprintf("virtio-gpu-gl-pci,id=gpu0,hostmem=256M,blob=true,venus=true,edid=on,xres=5120,yres=2880,helix-port=%d", vm.config.FrameExportPort),
+		"-device", fmt.Sprintf("virtio-gpu-gl-pci,id=gpu0,hostmem=1024M,blob=true,venus=true,edid=on,xres=5120,yres=2880,helix-port=%d", vm.config.FrameExportPort),
+		// 16 virtual display outputs: index 0 for VM console, 1-15 for container desktops.
+		// Matches UTM plist AdditionalArguments config.
+		"-global", "virtio-gpu-gl-pci.max_outputs=16",
 
 		// SPICE display with GL/ES context (via ANGLE) — matches UTM's approach.
 		// Provides the EGL context needed by virglrenderer and the Helix frame export patches.
 		"-spice", fmt.Sprintf("unix=on,addr=%s,disable-ticketing=on,gl=es", vm.getSpiceSocketPath()),
+
+		// RNG device — provides entropy to the guest, prevents stalls during
+		// SSH key generation, TLS handshakes, Docker operations, etc.
+		// Matches UTM plist RNGDevice=true.
+		"-device", "virtio-rng-pci",
 
 		// Serial console — captured and shown in the app UI
 		"-serial", "mon:stdio",
@@ -625,15 +682,39 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	vm.statusMu.Unlock()
 	vm.emitStatus()
 
-	// Capture serial console output into ring buffer and emit to frontend
+	// Capture serial console output into ring buffer and emit to frontend.
+	// Handles incomplete UTF-8 sequences at read boundaries to prevent
+	// replacement characters (mojibake) in the xterm.js terminal.
 	go func() {
 		buf := make([]byte, 4096)
+		var carry [4]byte
+		carryN := 0
 		for {
 			n, err := stdoutPipe.Read(buf)
 			if n > 0 {
-				vm.appendConsole(buf[:n])
+				var data []byte
+				if carryN > 0 {
+					data = make([]byte, carryN+n)
+					copy(data, carry[:carryN])
+					copy(data[carryN:], buf[:n])
+					carryN = 0
+				} else {
+					data = buf[:n]
+				}
+				tail := incompleteUTF8Tail(data)
+				if tail > 0 {
+					copy(carry[:], data[len(data)-tail:])
+					carryN = tail
+					data = data[:len(data)-tail]
+				}
+				if len(data) > 0 {
+					vm.appendConsole(data)
+				}
 			}
 			if err != nil {
+				if carryN > 0 {
+					vm.appendConsole(carry[:carryN])
+				}
 				return
 			}
 		}
@@ -648,6 +729,7 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	vm.stackStarted = false
 	vm.statusMu.Lock()
 	vm.status.APIReady = false
+	vm.status.SandboxReady = false
 	vm.status.BootStage = ""
 	if ctx.Err() != nil {
 		// Normal shutdown
@@ -680,6 +762,9 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 	stackStartedAt := time.Time{}
 	apiReady := false
 	apiCheckCount := 0
+	sandboxReady := false
+	sandboxReadyStart := time.Time{}
+	const sandboxTimeout = 60 * time.Second
 
 	setBootStage := func(stage string) {
 		vm.statusMu.Lock()
@@ -721,6 +806,8 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 				if out, err := cmd.CombinedOutput(); err == nil && strings.Contains(string(out), "ready") {
 					sshReady = true
 					log.Printf("VM SSH is ready")
+					vm.appendLogs([]byte(fmt.Sprintf("\x1b[36m[%s] SSH ready\x1b[0m\r\n",
+						time.Now().Format("15:04:05"))))
 				}
 			}
 
@@ -786,17 +873,39 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 				if vm.checkAPIHealth() {
 					vm.statusMu.Lock()
 					vm.status.APIReady = true
-					vm.status.BootStage = ""
 					vm.statusMu.Unlock()
 					vm.emitStatus()
 					apiReady = true
+					sandboxReadyStart = time.Now()
+				}
+			}
+
+			// Wait for sandbox to report desktop_versions before calling onAPIReady.
+			// Without this, the user can click "Connect Claude Subscription" before
+			// the sandbox is ready, causing a confusing "no ubuntu version found" error.
+			if apiReady && !sandboxReady {
+				setBootStage("Waiting for sandbox...")
+				if time.Since(sandboxReadyStart) > sandboxTimeout {
+					log.Printf("Sandbox readiness timed out after %v — proceeding anyway", sandboxTimeout)
+					sandboxReady = true
+				} else if vm.checkSandboxReady() {
+					sandboxReady = true
+					log.Printf("Sandbox reports desktop versions — ready")
+				}
+
+				if sandboxReady {
+					vm.statusMu.Lock()
+					vm.status.SandboxReady = true
+					vm.status.BootStage = ""
+					vm.statusMu.Unlock()
+					vm.emitStatus()
 					if vm.onAPIReady != nil {
 						vm.onAPIReady()
 					}
 				}
 			}
 
-			if apiReady {
+			if sandboxReady {
 				return
 			}
 		}
@@ -809,22 +918,20 @@ func (vm *VMManager) diagnoseAPIFailure() string {
 	if composeFile == "" {
 		composeFile = "docker-compose.dev.yaml"
 	}
-	cmd := vm.sshCommand(fmt.Sprintf(`cd ~/helix 2>/dev/null && docker compose -f %s ps --format '{{.Service}}: {{.Status}}' 2>/dev/null | head -20`, composeFile))
-	out, err := cmd.CombinedOutput()
+	out, err := vm.runSSH("Diagnose: containers", fmt.Sprintf(`cd ~/helix 2>/dev/null && docker compose -f %s ps --format '{{.Service}}: {{.Status}}' 2>/dev/null | head -20`, composeFile))
 	if err != nil {
 		return fmt.Sprintf("could not check container status: %v", err)
 	}
-	status := strings.TrimSpace(string(out))
+	status := strings.TrimSpace(out)
 	if status == "" {
 		return "no containers running — docker compose may have failed to start"
 	}
 	log.Printf("Container status:\n%s", status)
 
 	// Also grab recent API logs if available
-	logCmd := vm.sshCommand(fmt.Sprintf(`cd ~/helix 2>/dev/null && docker compose -f %s logs api --tail 10 2>/dev/null`, composeFile))
-	logOut, _ := logCmd.CombinedOutput()
+	logOut, _ := vm.runSSH("Diagnose: API logs", fmt.Sprintf(`cd ~/helix 2>/dev/null && docker compose -f %s logs api --tail 10 2>/dev/null`, composeFile))
 	if len(logOut) > 0 {
-		log.Printf("API container logs:\n%s", string(logOut))
+		log.Printf("API container logs:\n%s", logOut)
 	}
 
 	return fmt.Sprintf("containers: %s", status)
@@ -841,6 +948,38 @@ func (vm *VMManager) checkAPIHealth() bool {
 	}
 	resp.Body.Close()
 	return resp.StatusCode < 500
+}
+
+// checkSandboxReady checks if any sandbox has reported desktop_versions in its heartbeat.
+// Returns true if at least one sandbox has a non-empty desktop_versions map.
+func (vm *VMManager) checkSandboxReady() bool {
+	client := &http.Client{Timeout: 3 * time.Second}
+	req, err := http.NewRequest("GET", fmt.Sprintf("http://localhost:%d/api/v1/sandboxes", vm.config.APIPort), nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Authorization", "Bearer "+vm.runnerToken)
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return false
+	}
+
+	var sandboxes []struct {
+		DesktopVersions map[string]string `json:"desktop_versions"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&sandboxes); err != nil {
+		return false
+	}
+	for _, sb := range sandboxes {
+		if len(sb.DesktopVersions) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // sshCommand creates an SSH exec.Cmd to the VM with standard options.
@@ -863,12 +1002,11 @@ func (vm *VMManager) sshCommand(script string) *exec.Cmd {
 // Docker is disabled on boot (storage-init starts it after ZFS mount),
 // but we start it here as a safety net regardless of ZFS state.
 func (vm *VMManager) ensureDockerRunning() error {
-	cmd := vm.sshCommand("if ! systemctl is-active docker >/dev/null 2>&1; then sudo systemctl start docker && echo STARTED; else echo RUNNING; fi")
-	out, err := cmd.CombinedOutput()
+	out, err := vm.runSSH("Docker check", "if ! systemctl is-active docker >/dev/null 2>&1; then sudo systemctl start docker && echo STARTED; else echo RUNNING; fi")
 	if err != nil {
-		return fmt.Errorf("failed to start Docker: %w (output: %s)", err, string(out))
+		return fmt.Errorf("failed to start Docker: %w (output: %s)", err, out)
 	}
-	log.Printf("Docker: %s", strings.TrimSpace(string(out)))
+	log.Printf("Docker: %s", strings.TrimSpace(out))
 	return nil
 }
 
@@ -914,12 +1052,11 @@ else
     echo 'STARTED'
 fi
 `
-	cmd := vm.sshCommand(script)
-	out, err := cmd.CombinedOutput()
+	out, err := vm.runSSH("Start stack", script)
 	if err != nil {
-		return fmt.Errorf("failed to start Helix stack: %w (output: %s)", err, string(out))
+		return fmt.Errorf("failed to start Helix stack: %w (output: %s)", err, out)
 	}
-	outStr := strings.TrimSpace(string(out))
+	outStr := strings.TrimSpace(out)
 	log.Printf("Helix stack: %s", outStr)
 
 	// Extract detected compose file from output
@@ -939,9 +1076,8 @@ fi
 			composeFile = "docker-compose.dev.yaml"
 		}
 		log.Printf("Containers already running with stale env — restarting stack to apply updated settings")
-		restart := vm.sshCommand(fmt.Sprintf("cd ~/helix && docker compose -f %s up -d --force-recreate 2>&1", composeFile))
-		restartOut, _ := restart.CombinedOutput()
-		log.Printf("Stack restart: %s", strings.TrimSpace(string(restartOut)))
+		restartOut, _ := vm.runSSH("Restart stack", fmt.Sprintf("cd ~/helix && docker compose -f %s up -d --force-recreate 2>&1", composeFile))
+		log.Printf("Stack restart: %s", strings.TrimSpace(restartOut))
 		vm.envUpdated = false
 	}
 
@@ -1109,6 +1245,10 @@ elif [ -f /helix/config/env.vm ] && [ ! -f /home/ubuntu/helix/.env.vm ]; then
     sudo chown ubuntu:ubuntu /home/ubuntu/helix/.env.vm
 fi
 
+# Sandbox Docker storage — bind mount on root disk (NOT a Docker named volume)
+# so pre-baked desktop images survive the ZFS mount over /var/lib/docker/volumes/.
+sudo mkdir -p /var/lib/helix-sandbox-docker
+
 # =========================================================================
 # Step 4: Ensure Docker is running
 # =========================================================================
@@ -1123,12 +1263,11 @@ fi
 
 echo 'ZFS storage ready'
 `
-	cmd := vm.sshCommand(script)
-	out, err := cmd.CombinedOutput()
+	out, err := vm.runSSH("ZFS init", script)
 	if err != nil {
-		return fmt.Errorf("SSH command failed: %w (output: %s)", err, string(out))
+		return fmt.Errorf("SSH command failed: %w (output: %s)", err, out)
 	}
-	log.Printf("ZFS init: %s", string(out))
+	log.Printf("ZFS init: %s", out)
 	return nil
 }
 
@@ -1231,6 +1370,20 @@ else
     CHANGED=1
 fi
 
+# Configure helix-drm-manager with the correct QEMU frame export address.
+# The DRM manager runs as a systemd service and needs to know which port
+# QEMU's frame export server listens on (via the helix-port= GPU device option).
+DRM_ENV="/etc/helix-drm-manager.env"
+DRM_QEMU_ADDR="10.0.2.2:$FRAME_PORT"
+CURRENT_DRM_ADDR=""
+if [ -f "$DRM_ENV" ]; then
+    CURRENT_DRM_ADDR=$(grep '^QEMU_ADDR=' "$DRM_ENV" 2>/dev/null | cut -d= -f2-)
+fi
+if [ "$CURRENT_DRM_ADDR" != "$DRM_QEMU_ADDR" ]; then
+    echo "QEMU_ADDR=$DRM_QEMU_ADDR" | sudo tee "$DRM_ENV" > /dev/null
+    sudo systemctl restart helix-drm-manager 2>/dev/null || true
+fi
+
 # Enable code-macos compose profile so sandbox-macos starts with docker compose up -d
 if grep -q '^COMPOSE_PROFILES=' "$ENV_FILE" 2>/dev/null; then
     CURRENT=$(grep '^COMPOSE_PROFILES=' "$ENV_FILE" | cut -d= -f2-)
@@ -1240,6 +1393,66 @@ if grep -q '^COMPOSE_PROFILES=' "$ENV_FILE" 2>/dev/null; then
     fi
 else
     echo 'COMPOSE_PROFILES=code-macos' >> "$ENV_FILE"
+    CHANGED=1
+fi
+
+# Secure tokens — generated per-install, override insecure defaults
+RUNNER_TOKEN_VAL="%s"
+if grep -q '^RUNNER_TOKEN=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^RUNNER_TOKEN=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "$RUNNER_TOKEN_VAL" ]; then
+        sed -i "s|^RUNNER_TOKEN=.*|RUNNER_TOKEN=$RUNNER_TOKEN_VAL|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo "RUNNER_TOKEN=$RUNNER_TOKEN_VAL" >> "$ENV_FILE"
+    CHANGED=1
+fi
+
+PG_PASS="%s"
+if grep -q '^POSTGRES_ADMIN_PASSWORD=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^POSTGRES_ADMIN_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "$PG_PASS" ]; then
+        sed -i "s|^POSTGRES_ADMIN_PASSWORD=.*|POSTGRES_ADMIN_PASSWORD=$PG_PASS|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo "POSTGRES_ADMIN_PASSWORD=$PG_PASS" >> "$ENV_FILE"
+    CHANGED=1
+fi
+# Use same password for pgvector
+if grep -q '^PGVECTOR_PASSWORD=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^PGVECTOR_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "$PG_PASS" ]; then
+        sed -i "s|^PGVECTOR_PASSWORD=.*|PGVECTOR_PASSWORD=$PG_PASS|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo "PGVECTOR_PASSWORD=$PG_PASS" >> "$ENV_FILE"
+    CHANGED=1
+fi
+
+ENC_KEY="%s"
+if grep -q '^HELIX_ENCRYPTION_KEY=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^HELIX_ENCRYPTION_KEY=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "$ENC_KEY" ]; then
+        sed -i "s|^HELIX_ENCRYPTION_KEY=.*|HELIX_ENCRYPTION_KEY=$ENC_KEY|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo "HELIX_ENCRYPTION_KEY=$ENC_KEY" >> "$ENV_FILE"
+    CHANGED=1
+fi
+
+JWT_SEC="%s"
+if grep -q '^REGULAR_AUTH_JWT_SECRET=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^REGULAR_AUTH_JWT_SECRET=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "$JWT_SEC" ]; then
+        sed -i "s|^REGULAR_AUTH_JWT_SECRET=.*|REGULAR_AUTH_JWT_SECRET=$JWT_SEC|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo "REGULAR_AUTH_JWT_SECRET=$JWT_SEC" >> "$ENV_FILE"
     CHANGED=1
 fi
 
@@ -1279,15 +1492,15 @@ fi
 `, vm.desktopSecret, vm.desktopSecret, vm.desktopSecret,
 		vm.adminUserIDs(), vm.registrationEnabled(),
 		vm.config.FrameExportPort,
+		vm.runnerToken, vm.postgresPassword, vm.encryptionKey, vm.jwtSecret,
 		vm.licenseKey,
 		vm.consolePassword, vm.consolePassword, vm.consolePassword)
 
-	cmd := vm.sshCommand(script)
-	out, err := cmd.CombinedOutput()
+	out, err := vm.runSSH("Inject env", script)
 	if err != nil {
-		return fmt.Errorf("inject desktop secret failed: %w (output: %s)", err, string(out))
+		return fmt.Errorf("inject desktop secret failed: %w (output: %s)", err, out)
 	}
-	outStr := string(out)
+	outStr := out
 	if strings.Contains(outStr, "ENV_UPDATED") {
 		if vm.stackStarted {
 			// Stack is already running (runtime settings change, e.g. user
@@ -1297,9 +1510,8 @@ fi
 				composeFile = "docker-compose.dev.yaml"
 			}
 			log.Printf("Desktop secret injected into .env — restarting API container")
-			restart := vm.sshCommand(fmt.Sprintf("cd ~/helix && docker compose -f %s down api && docker compose -f %s up -d api 2>&1 || true", composeFile, composeFile))
-			restartOut, _ := restart.CombinedOutput()
-			log.Printf("API restart: %s", string(restartOut))
+			restartOut, _ := vm.runSSH("Restart API", fmt.Sprintf("cd ~/helix && docker compose -f %s down api && docker compose -f %s up -d api 2>&1 || true", composeFile, composeFile))
+			log.Printf("API restart: %s", restartOut)
 		} else {
 			// During boot — mark env as updated so startHelixStack() can
 			// restart containers if they were auto-started by Docker with
@@ -1560,6 +1772,74 @@ func (vm *VMManager) GetConsoleOutput() string {
 	vm.consoleMu.Lock()
 	defer vm.consoleMu.Unlock()
 	return string(vm.consoleBuf)
+}
+
+// appendLogs appends data to the SSH logs ring buffer and emits to frontend
+func (vm *VMManager) appendLogs(data []byte) {
+	vm.logsMu.Lock()
+	vm.logsBuf = append(vm.logsBuf, data...)
+	if len(vm.logsBuf) > maxConsoleSize {
+		vm.logsBuf = vm.logsBuf[len(vm.logsBuf)-maxConsoleSize:]
+	}
+	vm.logsMu.Unlock()
+	if vm.appCtx != nil {
+		runtime.EventsEmit(vm.appCtx, "logs:output", string(data))
+	}
+}
+
+// GetLogsOutput returns the full logs buffer
+func (vm *VMManager) GetLogsOutput() string {
+	vm.logsMu.Lock()
+	defer vm.logsMu.Unlock()
+	return string(vm.logsBuf)
+}
+
+// runSSH executes an SSH command, streaming output line-by-line to the logs
+// buffer while returning the full output to the caller.
+func (vm *VMManager) runSSH(label, script string) (string, error) {
+	cmd := vm.sshCommand(script)
+
+	header := fmt.Sprintf("\r\n\x1b[36m[%s] %s\x1b[0m\r\n",
+		time.Now().Format("15:04:05"), label)
+	vm.appendLogs([]byte(header))
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", err
+	}
+	cmd.Stderr = cmd.Stdout // merge stderr into stdout
+
+	if err := cmd.Start(); err != nil {
+		errMsg := fmt.Sprintf("\x1b[31m  error: %v\x1b[0m\r\n", err)
+		vm.appendLogs([]byte(errMsg))
+		return "", err
+	}
+
+	var buf bytes.Buffer
+	scanner := bufio.NewScanner(io.TeeReader(stdout, &buf))
+	for scanner.Scan() {
+		line := scanner.Text() + "\r\n"
+		vm.appendLogs([]byte("  " + line))
+	}
+
+	err = cmd.Wait()
+	if err != nil {
+		errMsg := fmt.Sprintf("\x1b[31m  exit: %v\x1b[0m\r\n", err)
+		vm.appendLogs([]byte(errMsg))
+	}
+	return buf.String(), err
+}
+
+// ResizeConsole sets the serial console terminal dimensions inside the VM.
+// Sends stty via SSH to update /dev/ttyAMA0 and signals SIGWINCH so
+// programs like tmux and top pick up the new size.
+func (vm *VMManager) ResizeConsole(cols, rows int) {
+	go func() {
+		cmd := vm.sshCommand(fmt.Sprintf(
+			"sudo stty -F /dev/ttyAMA0 rows %d cols %d; sudo pkill -WINCH -t ttyAMA0 2>/dev/null || true",
+			rows, cols))
+		cmd.Run()
+	}()
 }
 
 // SendConsoleInput sends input to the serial console (guest /dev/ttyAMA0).
