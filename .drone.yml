@@ -1738,11 +1738,9 @@ steps:
             echo 'Cloning Zed at commit $${ZED_COMMIT}...'
             cd /
             rm -rf /drone/src/cache/zed-source
-            mkdir -p /drone/src/cache/zed-source
-            cd /drone/src/cache/zed-source
-            git init
-            git fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
-            git checkout FETCH_HEAD
+            git init /drone/src/cache/zed-source
+            git -C /drone/src/cache/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
+            git -C /drone/src/cache/zed-source checkout FETCH_HEAD
           fi
         "
       # Clone qwen-code only if not cached (flock prevents concurrent clone race)
@@ -1756,11 +1754,9 @@ steps:
             echo 'Cloning qwen-code at commit $${QWEN_COMMIT}...'
             cd /
             rm -rf /drone/src/cache/qwen-source
-            mkdir -p /drone/src/cache/qwen-source
-            cd /drone/src/cache/qwen-source
-            git init
-            git fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
-            git checkout FETCH_HEAD
+            git init /drone/src/cache/qwen-source
+            git -C /drone/src/cache/qwen-source fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
+            git -C /drone/src/cache/qwen-source checkout FETCH_HEAD
           fi
         "
       - echo "=== Dependency versions ==="
@@ -2149,11 +2145,9 @@ steps:
             echo 'Cloning Zed at commit $${ZED_COMMIT}...'
             cd /
             rm -rf /drone/src/cache/zed-source
-            mkdir -p /drone/src/cache/zed-source
-            cd /drone/src/cache/zed-source
-            git init
-            git fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
-            git checkout FETCH_HEAD
+            git init /drone/src/cache/zed-source
+            git -C /drone/src/cache/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
+            git -C /drone/src/cache/zed-source checkout FETCH_HEAD
           fi
         "
       - |
@@ -2166,11 +2160,9 @@ steps:
             echo 'Cloning qwen-code at commit $${QWEN_COMMIT}...'
             cd /
             rm -rf /drone/src/cache/qwen-source
-            mkdir -p /drone/src/cache/qwen-source
-            cd /drone/src/cache/qwen-source
-            git init
-            git fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
-            git checkout FETCH_HEAD
+            git init /drone/src/cache/qwen-source
+            git -C /drone/src/cache/qwen-source fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
+            git -C /drone/src/cache/qwen-source checkout FETCH_HEAD
           fi
         "
       - echo "=== Dependency versions ==="
