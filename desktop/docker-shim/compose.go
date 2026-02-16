@@ -117,7 +117,8 @@ func compareVersions(v1, v2 string) bool {
 }
 
 // injectComposeCacheFlags adds BuildKit cache flags to compose build commands.
-// Returns error if the cache directory exists but compose version is incompatible.
+// For Compose 5.0+, cache injection is skipped (builds delegate to buildx which handles caching).
+// Returns error if the cache directory exists but compose version is too old (< v2.24).
 func injectComposeCacheFlags(args []string) ([]string, error) {
 	if !isComposeBuildCommand(args) {
 		return args, nil
@@ -135,7 +136,7 @@ func injectComposeCacheFlags(args []string) ([]string, error) {
 
 	version := getComposeVersion()
 	if version == "" {
-		return nil, fmt.Errorf("could not determine Docker Compose version. " +
+		return nil, fmt.Errorf("could not determine Docker Compose version. "+
 			"BuildKit cache directory exists at %s, which requires Compose v2.24+", BuildKitCacheDir)
 	}
 
@@ -147,8 +148,11 @@ func injectComposeCacheFlags(args []string) ([]string, error) {
 	}
 
 	if compareVersions(version, "5.0.0") {
-		return nil, fmt.Errorf("Docker Compose %s removed --set flag (v5.0+). "+
-			"BuildKit cache directory exists at %s but cache injection is not supported", version, BuildKitCacheDir)
+		log.Debug().
+			Str("version", version).
+			Str("cache_dir", BuildKitCacheDir).
+			Msg("Docker Compose 5.0+ removed --set flag, skipping compose cache injection (builds use buildx builder instead)")
+		return args, nil
 	}
 
 	insertIdx := -1
