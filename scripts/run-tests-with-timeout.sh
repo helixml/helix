@@ -3,6 +3,11 @@ set -eu
 
 # Script to run tests with goroutine dump on timeout and failure summary
 # Usage: ./run-tests-with-timeout.sh [timeout_seconds] [test_args...]
+#
+# Uses BusyBox/coreutils `timeout` to handle the timeout reliably:
+#   1. SIGQUIT after ${TIMEOUT}s → Go prints goroutine dumps
+#   2. SIGKILL 10s later if still alive
+#   3. Exit code 143 on timeout (SIGQUIT), propagated correctly
 
 # Parse arguments - if first arg is a number, use it as timeout, otherwise use default
 if [ -n "${1:-}" ] && echo "$1" | grep -q '^[0-9][0-9]*$'; then
@@ -12,74 +17,26 @@ else
     TIMEOUT=300  # Default 5 minutes (shorter than Go's 10min timeout)
 fi
 
-TEST_ARGS="$@"
 JSON_OUTPUT_FILE=$(mktemp)
-EXIT_CODE_FILE=$(mktemp)
 
 # Cleanup on exit
 cleanup() {
-    rm -f "$JSON_OUTPUT_FILE" "$EXIT_CODE_FILE"
+    rm -f "$JSON_OUTPUT_FILE" "${JSON_OUTPUT_FILE}.exit"
 }
 trap cleanup EXIT
 
-echo "Running tests with ${TIMEOUT}s timeout: go test -json ${TEST_ARGS}"
+echo "Running tests with ${TIMEOUT}s timeout: go test -json $@"
 echo ""
 
-# Function to dump goroutines
-dump_goroutines() {
-    echo ""
-    echo "=== TIMEOUT DETECTED - DUMPING GOROUTINES ==="
-    echo "Timestamp: $(date)"
-
-    # Find all go test processes and dump their goroutines
-    echo "Looking for go test processes..."
-    FOUND_PROCESSES=0
-
-    # Use ps to find go test processes more reliably
-    ps aux | grep "[g]o test" | while read -r user pid cpu mem vsz rss tty stat start time command; do
-        echo "Found go test process: PID=$pid, Command: $command"
-        echo "Sending SIGQUIT to PID $pid to dump goroutines..."
-        kill -QUIT "$pid" 2>/dev/null || echo "Failed to send SIGQUIT to PID $pid"
-        FOUND_PROCESSES=1
-    done
-
-    if [ $FOUND_PROCESSES -eq 0 ]; then
-        echo "No go test processes found, trying pgrep..."
-        pgrep -f "go test" | while read -r pid; do
-            if [ "$pid" != "$$" ]; then
-                echo "Sending SIGQUIT to go test process (PID: $pid)..."
-                kill -QUIT "$pid" 2>/dev/null || echo "Failed to send SIGQUIT to PID $pid"
-                FOUND_PROCESSES=1
-            fi
-        done
-    fi
-
-    echo "Waiting 5 seconds for goroutine dumps to appear..."
-    sleep 5
-
-    echo "Force killing any remaining go test processes..."
-    ps aux | grep "[g]o test" | while read -r user pid cpu mem vsz rss tty stat start time command; do
-        echo "Force killing PID $pid..."
-        kill -KILL "$pid" 2>/dev/null || echo "Failed to kill PID $pid"
-    done
-
-    echo "=== END GOROUTINE DUMP ATTEMPT ==="
-    echo ""
-}
-
-# Function to print failure summary
+# Function to print failure summary from JSON output
 print_failure_summary() {
     echo ""
     echo "==========================================="
     echo "            FAILURE SUMMARY"
     echo "==========================================="
 
-    # Extract failed tests from JSON output
-    # Look for lines with "Action":"fail" and extract Package/Test
     FAILURES=$(grep '"Action":"fail"' "$JSON_OUTPUT_FILE" 2>/dev/null | while read -r line; do
-        # Extract Package (required)
         pkg=$(echo "$line" | sed 's/.*"Package":"\([^"]*\)".*/\1/')
-        # Extract Test (optional) - check if it exists first
         if echo "$line" | grep -q '"Test":"'; then
             test=$(echo "$line" | sed 's/.*"Test":"\([^"]*\)".*/\1/')
             echo "FAIL: $pkg / $test"
@@ -99,72 +56,45 @@ print_failure_summary() {
     echo ""
 }
 
-# Run tests with JSON output in background, parse to human-readable format
-# We use a subshell to capture the exit code since PIPESTATUS isn't portable.
+# Run tests under `timeout`:
+#   --signal=QUIT  → sends SIGQUIT first (Go dumps goroutines)
+#   --kill-after=10 → sends SIGKILL 10s later if still alive
+#
+# Pipeline: go test -json | tee (capture JSON) | sed (human-readable output)
+# We need the exit code from `timeout go test`, not from sed/tee.
+# So we write the exit code to a file from inside the subshell.
+EXIT_CODE=0
 (
-    go test -json ${TEST_ARGS} 2>&1
-    echo $? > "$EXIT_CODE_FILE"
+    timeout -s QUIT -k 10 "${TIMEOUT}" go test -json "$@" 2>&1 || echo $? > "${JSON_OUTPUT_FILE}.exit"
 ) | tee "$JSON_OUTPUT_FILE" | sed -n '
-    # Only process lines with "Action":"output"
     /"Action":"output"/!d
-
-    # Extract the Output field value:
-    # 1. Remove everything up to and including "Output":"
     s/.*"Output":"//
-    # 2. Remove the trailing "}
     s/"}$//
-    # 3. Handle JSON escape sequences
     s/\\n/\
 /g
     s/\\t/	/g
     s/\\r//g
     s/\\"/"/g
     s/\\\\/\\/g
-
-    # Print the result
     p
-' &
-TEST_PID=$!
+' || true
 
-echo "Started test pipeline with PID: $TEST_PID"
-
-# Set up a timeout using a more reliable approach
-(
-    sleep "$TIMEOUT"
-    echo ""
-    echo "TIMEOUT: Tests have been running for ${TIMEOUT} seconds"
-    dump_goroutines
-
-    # Kill the test process
-    if kill -0 "$TEST_PID" 2>/dev/null; then
-        echo "Killing main test process PID: $TEST_PID"
-        kill -KILL "$TEST_PID" 2>/dev/null || true
-    fi
-
-    # Also kill any go test processes
-    pkill -KILL -f "go test" 2>/dev/null || true
-
-    exit 124  # Standard timeout exit code
-) &
-TIMEOUT_PID=$!
-
-# Wait for either the test to complete or timeout
-wait $TEST_PID 2>/dev/null || true
-
-# Read the exit code from the file (may not exist if timeout killed it)
-TEST_EXIT_CODE=$(cat "$EXIT_CODE_FILE" 2>/dev/null || echo "1")
-
-# If we get here, the test completed before timeout
-# Kill the timeout process
-if kill -0 "$TIMEOUT_PID" 2>/dev/null; then
-    kill $TIMEOUT_PID 2>/dev/null || true
-    wait $TIMEOUT_PID 2>/dev/null || true
+# Read exit code: timeout writes it, or 0 if tests passed (file won't exist)
+if [ -f "${JSON_OUTPUT_FILE}.exit" ]; then
+    EXIT_CODE=$(cat "${JSON_OUTPUT_FILE}.exit")
+    rm -f "${JSON_OUTPUT_FILE}.exit"
 fi
 
-# Print failure summary if there were failures
-if [ "$TEST_EXIT_CODE" != "0" ]; then
+# timeout returns 124+signal when it kills the process
+# SIGQUIT=3, so timeout returns 131 (128+3) when it sends SIGQUIT
+# After --kill-after SIGKILL, it returns 137 (128+9)
+if [ "$EXIT_CODE" = "131" ] || [ "$EXIT_CODE" = "137" ] || [ "$EXIT_CODE" = "124" ]; then
+    echo ""
+    echo "ERROR: Test suite timed out after ${TIMEOUT} seconds (exit code: ${EXIT_CODE})"
+fi
+
+if [ "$EXIT_CODE" != "0" ]; then
     print_failure_summary
 fi
 
-# Exit with the test's exit code
-exit $TEST_EXIT_CODE
+exit "$EXIT_CODE"
