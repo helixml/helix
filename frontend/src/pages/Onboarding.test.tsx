@@ -353,7 +353,7 @@ describe('Onboarding', () => {
     it('should store org name in localStorage on completion', async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
 
-      setAccountWithOrgs([{ id: 'org_abc123', name: 'helixml-inc', display_name: 'HelixML Inc' }])
+      setAccountWithOrgs([{ id: 'org_abc123', name: 'helixml', display_name: 'HelixML Inc' }])
 
       mockV1GitRepositoriesCreate.mockResolvedValue({ data: { id: 'repo-ls' } })
       mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'proj-ls' } })
@@ -391,7 +391,7 @@ describe('Onboarding', () => {
       })
 
       await waitFor(() => {
-        expect(localStorage.getItem('selected_org')).toBe('org_abc123')
+        expect(localStorage.getItem('selected_org')).toBe('helixml')
       })
 
       vi.useRealTimers()
@@ -400,7 +400,7 @@ describe('Onboarding', () => {
     it('should navigate to org projects on completion with created project', async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
 
-      setAccountWithOrgs([{ id: 'org_def456', name: 'acme-corp', display_name: 'Acme Corp' }])
+      setAccountWithOrgs([{ id: 'org_def456', name: 'acme', display_name: 'Acme Corp' }])
 
       mockV1GitRepositoriesCreate.mockResolvedValue({ data: { id: 'repo-nav' } })
       mockV1ProjectsCreate.mockResolvedValue({ data: { id: 'proj-nav' } })
@@ -436,7 +436,7 @@ describe('Onboarding', () => {
         expect(mockV1UsersMeOnboardingCreate).toHaveBeenCalled()
       })
 
-      expect(mockNavigateReplace).toHaveBeenCalledWith('org_projects', { org_id: 'org_def456' })
+      expect(mockNavigateReplace).toHaveBeenCalledWith('org_projects', { org_id: 'acme' })
 
       vi.useRealTimers()
     })
