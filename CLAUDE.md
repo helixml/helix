@@ -59,9 +59,8 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 - Control VMs: `utmctl list|start|stop|status <UUID>` (in `/Applications/UTM.app/Contents/MacOS/`)
 - Expand disks: `qemu-img resize /path/to/vm.qcow2 1T` (stopped), then inside VM: `growpart /dev/vda 2 && resize2fs /dev/vda2`
 - QEMU builds must include `--enable-spice`; NEVER modify UTM source
-- Build QEMU: `./for-mac/qemu-helix/build-qemu-standalone.sh` (uses sysroot at `~/pm/UTM/sysroot-macOS-arm64`)
+- Build QEMU: **ALWAYS use `cd for-mac && make rebuild-qemu`** (stop VM first). This builds, installs to app bundle, fixes dylib rpaths, copies to dev-qemu, and signs. **NEVER** use raw `ninja install` + manual `cp` + `codesign` — this breaks rpaths (`@rpath/pixman-1.0.framework` etc. won't resolve).
 - QEMU source: `~/pm/qemu-utm` (default branch)
-- Dev-mode rebuild: `cd for-mac && make rebuild-qemu` (stop VM first)
 - If signing fails with `errSecInternalComponent`, use `codesign --force --sign - --timestamp=none --options runtime --entitlements build/darwin/entitlements.plist build/dev-qemu/*`
 - QEMU version string is in `hw/display/helix/helix-frame-export.m` `helix_frame_export_init()` — update it when making QEMU changes
 - Dev-mode uses `build/dev-qemu/qemu-system-aarch64` (separate from app bundle)
