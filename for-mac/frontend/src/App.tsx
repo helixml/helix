@@ -316,36 +316,62 @@ export function App() {
             {stateLabel}
           </span>
           {vmStatus.state === "running" && vmStatus.api_ready && (
-            <button
-              className="titlebar-btn refresh-btn"
-              onClick={() => {
-                const iframe = document.querySelector(
-                  ".home-view iframe",
-                ) as HTMLIFrameElement;
-                if (iframe) {
-                  iframe.src = iframe.src;
-                }
-              }}
-              title="Refresh"
-            >
-              <svg viewBox="0 0 20 20" width="14" height="14">
-                <path
-                  d="M14.5 5.5A6 6 0 004.05 9M5.5 14.5A6 6 0 0015.95 11"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-                <path
-                  d="M14 2v4h-4M6 18v-4h4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
+            <>
+              <button
+                className="titlebar-btn"
+                onClick={() => {
+                  const iframe = document.querySelector(
+                    ".home-view iframe",
+                  ) as HTMLIFrameElement;
+                  if (iframe) {
+                    const url = new URL(iframe.src);
+                    iframe.src = url.origin + "/";
+                  }
+                }}
+                title="Home"
+              >
+                <svg viewBox="0 0 20 20" width="14" height="14">
+                  <path
+                    d="M3 10l7-7 7 7M5 8.5V16a1 1 0 001 1h3v-4h2v4h3a1 1 0 001-1V8.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+              <button
+                className="titlebar-btn refresh-btn"
+                onClick={() => {
+                  const iframe = document.querySelector(
+                    ".home-view iframe",
+                  ) as HTMLIFrameElement;
+                  if (iframe) {
+                    iframe.src = iframe.src;
+                  }
+                }}
+                title="Refresh"
+              >
+                <svg viewBox="0 0 20 20" width="14" height="14">
+                  <path
+                    d="M14.5 5.5A6 6 0 004.05 9M5.5 14.5A6 6 0 0015.95 11"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M14 2v4h-4M6 18v-4h4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            </>
           )}
         </div>
 
