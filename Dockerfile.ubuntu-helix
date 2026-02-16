@@ -640,8 +640,10 @@ if [ "${TARGETARCH}" = "arm64" ]; then
         "https://security.debian.org/debian-security/pool/updates/main/c/chromium/chromium_${CHROMIUM_VER}_arm64.deb"
     wget -q -O /tmp/chromium-sandbox.deb \
         "https://security.debian.org/debian-security/pool/updates/main/c/chromium/chromium-sandbox_${CHROMIUM_VER}_arm64.deb"
-    apt-get install -y /tmp/chromium-common.deb /tmp/chromium.deb /tmp/chromium-sandbox.deb || \
-        (apt-get install -f -y && apt-get install -y /tmp/chromium-common.deb /tmp/chromium.deb /tmp/chromium-sandbox.deb)
+    # Force-install: Debian debs have minor dependency version differences vs Ubuntu
+    # (e.g., libbsd0 version) but the libraries are ABI-compatible.
+    # Using --force-depends avoids breaking Ubuntu's mesa/GL stack.
+    dpkg -i --force-depends /tmp/chromium-common.deb /tmp/chromium.deb /tmp/chromium-sandbox.deb
     rm -f /tmp/chromium*.deb
 
     # Create compatibility symlinks so chrome-devtools-mcp and scripts work
