@@ -79,8 +79,8 @@ screenshot-*.png
 api/screenshot-server
 helix-cli
 
-# Moonlight config backups
-moonlight-web-config/data.json.bak
+# Backup files
+*.bak
 
 # Build artifacts
 api/api
@@ -108,3 +108,10 @@ desktop/docker-shim/docker-shim
 # Settings-sync-daemon binaries
 api/cmd/settings-sync-daemon/settings-sync-daemon
 api/settings-sync-daemon
+/settings-sync-daemon
+
+# DRM test binaries
+/drm-flipper
+/drm-modeset-test
+/drm-test-client
+/scanout-stream-test
