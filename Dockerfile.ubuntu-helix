@@ -630,12 +630,36 @@ set -e
 apt-get update
 
 if [ "${TARGETARCH}" = "arm64" ]; then
-    echo "=== arm64: using Firefox (Ubuntu's chromium-browser is snap-only, doesn't work in containers) ==="
-    # Create compatibility symlinks so chrome-devtools-mcp and scripts that
-    # reference google-chrome-stable fall back to Firefox
-    ln -sf /usr/bin/firefox /usr/bin/google-chrome-stable
-    ln -sf /usr/bin/firefox /usr/bin/google-chrome
-    echo "=== Firefox configured as default browser for arm64 ==="
+    echo "=== Installing Chromium for arm64 (XtraDeb PPA) ==="
+    # Ubuntu's chromium-browser is a snap transitional package (no snapd in containers).
+    # XtraDeb PPA provides real .deb packages for Ubuntu 25.10.
+    apt-get install -y software-properties-common
+    add-apt-repository -y ppa:xtradeb/apps
+    # Pin XtraDeb higher than Ubuntu's snap transitional package
+    cat > /etc/apt/preferences.d/xtradeb-chromium << 'PINEOF'
+Package: chromium-browser chromium-browser-l10n chromium-codecs-ffmpeg chromium-codecs-ffmpeg-extra
+Pin: release o=LP-PPA-xtradeb-apps
+Pin-Priority: 900
+PINEOF
+    apt-get update
+    apt-get install -y chromium-browser
+
+    # Create compatibility symlinks so chrome-devtools-mcp and scripts work
+    ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome-stable
+    ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome
+
+    # Configure Chromium policies
+    mkdir -p /etc/chromium-browser/policies/managed
+    echo '{
+      "DefaultBrowserSettingEnabled": false,
+      "MetricsReportingEnabled": false,
+      "BrowserSignin": 0,
+      "PromotionalTabsEnabled": false,
+      "SyncDisabled": true,
+      "PasswordManagerEnabled": true
+    }' > /etc/chromium-browser/policies/managed/helix.json
+
+    echo "=== Chromium installed for arm64 (XtraDeb PPA) ==="
 else
     echo "=== Installing Google Chrome for amd64 ==="
     wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
@@ -711,7 +735,7 @@ _INSTALL_CHROME
 RUN <<_SET_DEFAULT_BROWSER
 set -e
 if [ "${TARGETARCH}" = "arm64" ]; then
-    BROWSER_DESKTOP="firefox.desktop"
+    BROWSER_DESKTOP="chromium-browser.desktop"
 else
     BROWSER_DESKTOP="google-chrome.desktop"
 fi
