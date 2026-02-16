@@ -475,7 +475,7 @@ if command -v claude &> /dev/null; then
     # Write correct permissions before Zed/Claude Code starts.
     # This runs synchronously before Zed launch, so Claude Code
     # always sees bypassPermissions on first read.
-    echo '{"permissions":{"defaultMode":"bypassPermissions"},"skipDangerousModePermissionPrompt":true,"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}' > ~/.claude/settings.json
+    echo '{"permissions":{"allow":["Bash","Read","Edit"],"defaultMode":"bypassPermissions"},"skipDangerousModePermissionPrompt":true,"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}' > ~/.claude/settings.json
     echo "  Claude: ~/.claude -> $CLAUDE_STATE_DIR (settings written)"
 fi
 
