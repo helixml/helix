@@ -41,6 +41,12 @@ type SettingsDaemon struct {
 	// Whether user has a Claude subscription available for credential sync
 	claudeSubscriptionAvailable bool
 
+	// Track the last expiresAt we know about, so we can detect Claude Code token refreshes
+	lastKnownExpiresAt int64
+
+	// Timestamp of our last write to the credentials file (to ignore our own fsnotify events)
+	lastCredWrite time.Time
+
 	// Current state
 	helixSettings map[string]interface{}
 	userOverrides map[string]interface{}
@@ -362,15 +368,17 @@ const (
 
 // syncClaudeCredentials fetches Claude OAuth credentials from the Helix API
 // and writes them to ~/.claude/.credentials.json for Claude Code to use.
-// Claude Code handles its own token refresh natively.
+// Claude Code handles its own token refresh natively — if the on-disk file
+// has a newer expiresAt than the API response, we skip the write to avoid
+// clobbering a token that Claude Code just refreshed.
 func (d *SettingsDaemon) syncClaudeCredentials() {
 	if !d.claudeSubscriptionAvailable {
 		return
 	}
 
 	ctx := context.Background()
-	url := fmt.Sprintf("%s/api/v1/sessions/%s/claude-credentials", d.apiURL, d.sessionID)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	apiURL := fmt.Sprintf("%s/api/v1/sessions/%s/claude-credentials", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		log.Printf("Failed to create Claude credentials request: %v", err)
 		return
@@ -405,6 +413,16 @@ func (d *SettingsDaemon) syncClaudeCredentials() {
 		log.Printf("Failed to parse Claude credentials: %v", err)
 		return
 	}
+
+	// Before writing, check if the on-disk file has a newer token (Claude Code refreshed it).
+	// If so, skip the write — our watcher will push the refreshed token to the API.
+	if fileExpiresAt := readCredentialsExpiresAt(ClaudeCredentialsPath); fileExpiresAt > creds.ExpiresAt {
+		log.Printf("On-disk credentials are newer (file expiresAt=%d > api expiresAt=%d), skipping write", fileExpiresAt, creds.ExpiresAt)
+		return
+	}
+
+	// Track what the API thinks the current expiresAt is
+	d.lastKnownExpiresAt = creds.ExpiresAt
 
 	// Build the credentials file in Claude's expected format
 	credFile := map[string]interface{}{
@@ -442,7 +460,91 @@ func (d *SettingsDaemon) syncClaudeCredentials() {
 		return
 	}
 
-	log.Printf("Synced Claude credentials to %s", ClaudeCredentialsPath)
+	d.lastCredWrite = time.Now()
+	log.Printf("Synced Claude credentials to %s (expiresAt=%d)", ClaudeCredentialsPath, creds.ExpiresAt)
+}
+
+// readCredentialsExpiresAt reads the expiresAt field from an on-disk credentials file.
+// Returns 0 if the file doesn't exist or can't be parsed.
+func readCredentialsExpiresAt(path string) int64 {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	var credFile struct {
+		ClaudeAiOauth struct {
+			ExpiresAt int64 `json:"expiresAt"`
+		} `json:"claudeAiOauth"`
+	}
+	if err := json.Unmarshal(data, &credFile); err != nil {
+		return 0
+	}
+	return credFile.ClaudeAiOauth.ExpiresAt
+}
+
+// pushCredentialsToAPI reads the on-disk credentials file and PUTs the
+// refreshed credentials back to the Helix API so future sessions get them.
+func (d *SettingsDaemon) pushCredentialsToAPI() {
+	data, err := os.ReadFile(ClaudeCredentialsPath)
+	if err != nil {
+		log.Printf("Failed to read credentials file for push: %v", err)
+		return
+	}
+
+	// Parse the file to extract the inner credentials
+	var credFile struct {
+		ClaudeAiOauth json.RawMessage `json:"claudeAiOauth"`
+	}
+	if err := json.Unmarshal(data, &credFile); err != nil {
+		log.Printf("Failed to parse credentials file for push: %v", err)
+		return
+	}
+	if credFile.ClaudeAiOauth == nil {
+		log.Printf("No claudeAiOauth field in credentials file, skipping push")
+		return
+	}
+
+	// Check if expiresAt is actually newer than what we last knew
+	var creds struct {
+		ExpiresAt int64 `json:"expiresAt"`
+	}
+	if err := json.Unmarshal(credFile.ClaudeAiOauth, &creds); err != nil {
+		log.Printf("Failed to parse expiresAt from credentials: %v", err)
+		return
+	}
+	if creds.ExpiresAt <= d.lastKnownExpiresAt {
+		// Not a refresh — same or older token
+		return
+	}
+
+	log.Printf("Detected token refresh: expiresAt %d -> %d, pushing to API", d.lastKnownExpiresAt, creds.ExpiresAt)
+
+	ctx := context.Background()
+	apiURL := fmt.Sprintf("%s/api/v1/sessions/%s/claude-credentials", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(ctx, "PUT", apiURL, bytes.NewReader(credFile.ClaudeAiOauth))
+	if err != nil {
+		log.Printf("Failed to create PUT credentials request: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if d.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		log.Printf("Failed to PUT refreshed credentials to API: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Failed to PUT refreshed credentials: status %d", resp.StatusCode)
+		return
+	}
+
+	d.lastKnownExpiresAt = creds.ExpiresAt
+	log.Printf("Pushed refreshed Claude credentials to API (expiresAt=%d)", creds.ExpiresAt)
 }
 
 // writeZedKeymap writes Zed keymap.json with terminal copy/paste bindings.
@@ -755,7 +857,8 @@ func extractUserOverrides(current, helix map[string]interface{}) map[string]inte
 	return overrides
 }
 
-// startWatcher monitors settings.json for Zed UI changes
+// startWatcher monitors settings.json for Zed UI changes and
+// ~/.claude/.credentials.json for Claude Code token refreshes.
 func (d *SettingsDaemon) startWatcher() error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -781,20 +884,46 @@ func (d *SettingsDaemon) startWatcher() error {
 		return err
 	}
 
+	// Watch the Claude credentials directory (not the file itself) so we catch
+	// atomic renames (which create a new inode). We watch the parent dir and
+	// filter for events on the credentials filename.
+	if d.claudeSubscriptionAvailable {
+		credDir := filepath.Dir(ClaudeCredentialsPath)
+		if err := os.MkdirAll(credDir, 0700); err != nil {
+			log.Printf("Warning: failed to create Claude credentials directory for watcher: %v", err)
+		} else if err := watcher.Add(credDir); err != nil {
+			log.Printf("Warning: failed to watch Claude credentials directory: %v", err)
+		} else {
+			log.Printf("Watching %s for credential refreshes", credDir)
+		}
+	}
+
 	go func() {
-		var debounceTimer *time.Timer
+		var settingsDebounce *time.Timer
+		var credsDebounce *time.Timer
+		credFilename := filepath.Base(ClaudeCredentialsPath)
 
 		for {
 			select {
 			case event := <-watcher.Events:
-				if event.Op&fsnotify.Write == fsnotify.Write {
-					// Debounce rapid writes
-					if debounceTimer != nil {
-						debounceTimer.Stop()
+				if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
+					if filepath.Base(event.Name) == credFilename {
+						// Claude credentials file changed
+						if credsDebounce != nil {
+							credsDebounce.Stop()
+						}
+						credsDebounce = time.AfterFunc(DebounceTime, func() {
+							d.onCredentialsChanged()
+						})
+					} else if event.Name == SettingsPath {
+						// Zed settings file changed
+						if settingsDebounce != nil {
+							settingsDebounce.Stop()
+						}
+						settingsDebounce = time.AfterFunc(DebounceTime, func() {
+							d.onFileChanged()
+						})
 					}
-					debounceTimer = time.AfterFunc(DebounceTime, func() {
-						d.onFileChanged()
-					})
 				}
 			case err := <-watcher.Errors:
 				log.Printf("Watcher error: %v", err)
@@ -803,6 +932,17 @@ func (d *SettingsDaemon) startWatcher() error {
 	}()
 
 	return nil
+}
+
+// onCredentialsChanged handles Claude Code writing refreshed tokens to .credentials.json.
+func (d *SettingsDaemon) onCredentialsChanged() {
+	// Ignore events triggered by our own writes
+	if time.Since(d.lastCredWrite) < 2*time.Second {
+		return
+	}
+
+	log.Printf("Detected credentials file change (not from our write)")
+	d.pushCredentialsToAPI()
 }
 
 // onFileChanged handles Zed UI modifications to settings.json

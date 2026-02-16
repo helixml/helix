@@ -14,6 +14,7 @@ import useRouter from '../hooks/useRouter';
 import useAccount from '../hooks/useAccount';
 import AnthropicLogo from '../components/providers/logos/anthropic';
 import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from '../components/account/ClaudeSubscriptionConnect';
+import { getTokenExpiryStatus } from '../components/account/claudeSubscriptionUtils';
 
 const Providers: React.FC = () => {
   const router = useRouter()
@@ -39,6 +40,10 @@ const Providers: React.FC = () => {
   // Claude subscription state (must be called before any early returns)
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
   const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
+  const claudeExpiry = hasClaudeSubscription
+    ? getTokenExpiryStatus(claudeSubscriptions![0].access_token_expires_at)
+    : null
+  const claudeIsExpired = claudeExpiry?.isExpired ?? false
 
   // If providers management is disabled and user is not admin, show message
   if (!providersManagementEnabled && !account.admin) {
@@ -124,7 +129,9 @@ const Providers: React.FC = () => {
                 boxShadow: 2,
                 borderStyle: 'dashed',
                 borderWidth: 1,
-                borderColor: hasClaudeSubscription ? 'success.main' : 'divider',
+                borderColor: hasClaudeSubscription
+                  ? (claudeIsExpired ? 'error.main' : claudeExpiry?.isExpiringSoon ? 'warning.main' : 'success.main')
+                  : 'divider',
                 opacity: hasClaudeSubscription ? 1 : 0.85,
                 transition: 'all 0.2s',
                 '&:hover': {

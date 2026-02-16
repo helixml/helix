@@ -18,12 +18,15 @@ import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
+import WarningAmberIcon from '@mui/icons-material/WarningAmber'
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useAccount from '../../hooks/useAccount'
 import ExternalAgentDesktopViewer, { useSandboxState } from '../external-agent/ExternalAgentDesktopViewer'
+import { getTokenExpiryStatus } from './claudeSubscriptionUtils'
 
 interface ClaudeSubscriptionData {
   id: string
@@ -33,6 +36,7 @@ interface ClaudeSubscriptionData {
   rate_limit_tier: string
   status: string
   access_token_expires_at: string
+  last_refreshed_at?: string
   owner_type: string
   owner_id: string
 }
@@ -252,56 +256,87 @@ const ClaudeSubscription: FC = () => {
           {isLoading ? (
             <Typography variant="body2" color="text.secondary">Loading...</Typography>
           ) : hasSubscription ? (
-            subscriptions.map((sub) => (
-              <Box
-                key={sub.id}
-                sx={{
-                  p: 2,
-                  borderRadius: 1,
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  mb: 1,
-                }}
-              >
-                <Box>
-                  <Typography variant="subtitle1">{sub.name || 'Claude Subscription'}</Typography>
-                  <Box sx={{ display: 'flex', gap: 1, mt: 0.5, alignItems: 'center' }}>
-                    <Chip
-                      label={sub.status === 'active' ? 'Connected' : sub.status}
-                      color={sub.status === 'active' ? 'success' : 'warning'}
-                      size="small"
-                    />
-                    {sub.subscription_type && (
-                      <Chip label={sub.subscription_type} size="small" variant="outlined" />
-                    )}
-                    {sub.owner_type === 'org' && (
-                      <Chip label="Organization" size="small" variant="outlined" />
+            subscriptions.map((sub) => {
+              const expiry = getTokenExpiryStatus(sub.access_token_expires_at)
+              const isExpired = expiry?.isExpired ?? false
+              return (
+                <Box
+                  key={sub.id}
+                  sx={{
+                    p: 2,
+                    borderRadius: 1,
+                    border: '1px solid',
+                    borderColor: isExpired ? 'error.main' : expiry?.isExpiringSoon ? 'warning.main' : 'divider',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    mb: 1,
+                  }}
+                >
+                  <Box>
+                    <Typography variant="subtitle1">{sub.name || 'Claude Subscription'}</Typography>
+                    <Box sx={{ display: 'flex', gap: 1, mt: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
+                      {isExpired ? (
+                        <Chip
+                          icon={<ErrorOutlineIcon />}
+                          label="Token Expired"
+                          color="error"
+                          size="small"
+                        />
+                      ) : (
+                        <Chip
+                          label={sub.status === 'active' ? 'Connected' : sub.status}
+                          color={sub.status === 'active' ? 'success' : 'warning'}
+                          size="small"
+                        />
+                      )}
+                      {sub.subscription_type && (
+                        <Chip label={sub.subscription_type} size="small" variant="outlined" />
+                      )}
+                      {sub.owner_type === 'org' && (
+                        <Chip label="Organization" size="small" variant="outlined" />
+                      )}
+                      {expiry && (
+                        <Typography
+                          variant="caption"
+                          color={`${expiry.color}.main`}
+                          sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
+                        >
+                          {expiry.isExpiringSoon && !isExpired && <WarningAmberIcon sx={{ fontSize: 14 }} />}
+                          {expiry.label}
+                        </Typography>
+                      )}
+                    </Box>
+                    {isExpired && (
+                      <Alert severity="warning" sx={{ mt: 1, py: 0 }} icon={false}>
+                        <Typography variant="caption">
+                          Token has expired. Re-login to refresh your credentials for new sessions.
+                          Active sessions refresh tokens automatically.
+                        </Typography>
+                      </Alert>
                     )}
                   </Box>
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <Button
+                      variant={isExpired ? 'contained' : 'outlined'}
+                      color={isExpired ? 'warning' : 'secondary'}
+                      size="small"
+                      onClick={handleStartLogin}
+                      disabled={loginStarting}
+                    >
+                      {loginStarting ? 'Starting...' : isExpired ? 'Re-authenticate' : 'Re-login'}
+                    </Button>
+                    <IconButton
+                      color="error"
+                      size="small"
+                      onClick={() => handleDeleteClick(sub.id)}
+                    >
+                      <DeleteIcon />
+                    </IconButton>
+                  </Box>
                 </Box>
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                  <Button
-                    variant="outlined"
-                    color="secondary"
-                    size="small"
-                    onClick={handleStartLogin}
-                    disabled={loginStarting}
-                  >
-                    {loginStarting ? 'Starting...' : 'Re-login'}
-                  </Button>
-                  <IconButton
-                    color="error"
-                    size="small"
-                    onClick={() => handleDeleteClick(sub.id)}
-                  >
-                    <DeleteIcon />
-                  </IconButton>
-                </Box>
-              </Box>
-            ))
+              )
+            })
           ) : (
             <Box sx={{ p: 2, borderRadius: 1, border: '1px dashed', borderColor: 'divider', textAlign: 'center' }}>
               <Typography variant="body2" color="text.secondary">
