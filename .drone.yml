@@ -6,9 +6,6 @@ trigger:
   event:
     - push
     - tag
-  branch:
-    exclude:
-      - multi-arch-builds
 
 workspace:
   base: /go
@@ -867,7 +864,6 @@ trigger:
   ref:
     include:
       - refs/heads/main
-      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -913,7 +909,6 @@ trigger:
   ref:
     include:
       - refs/heads/main
-      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -958,7 +953,6 @@ trigger:
   ref:
     include:
       - refs/heads/main
-      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -1003,7 +997,6 @@ trigger:
   ref:
     include:
       - refs/heads/main
-      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -1049,7 +1042,6 @@ trigger:
   ref:
     include:
       - refs/heads/main
-      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -1094,7 +1086,6 @@ trigger:
   ref:
     include:
       - refs/heads/main
-      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -1334,7 +1325,6 @@ trigger:
   ref:
     include:
       - refs/heads/main
-      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -1379,7 +1369,6 @@ trigger:
   ref:
     include:
       - refs/heads/main
-      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -1423,7 +1412,6 @@ trigger:
   ref:
     include:
       - refs/heads/main
-      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -2418,7 +2406,6 @@ trigger:
   ref:
     include:
       - refs/heads/main
-      - refs/heads/multi-arch-builds
       - refs/tags/*
 
 volumes:
@@ -2525,7 +2512,6 @@ trigger:
   ref:
     include:
       - refs/tags/*
-      - refs/heads/multi-arch-builds
 
 steps:
   # Step 1: Provision VM image and upload to R2
