@@ -518,6 +518,14 @@ func connect(ctx context.Context, cfg connectConfig) (*gorm.DB, error) {
 			dsn := fmt.Sprintf("user=%s password=%s host=%s port=%d dbname=%s %s",
 				cfg.username, cfg.password, cfg.host, cfg.port, cfg.database, sslSettings)
 
+			// When using a custom schema, set search_path so Postgres resolves
+			// unqualified table names within that schema. Without this, GORM's
+			// NamingStrategy{TablePrefix} can leak FK constraints into the public
+			// schema because the connection's search_path defaults to public.
+			if cfg.schemaName != "" {
+				dsn += fmt.Sprintf(" options='-csearch_path=%s'", cfg.schemaName)
+			}
+
 			dialector = gormpostgres.Open(dsn)
 
 			gormConfig := &gorm.Config{

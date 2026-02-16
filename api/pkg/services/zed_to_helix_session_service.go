@@ -361,8 +361,8 @@ func (s *ZedToHelixSessionService) createSessionPair(
 
 	// Set parent relationship if spawned
 	if parentWorkSession != nil {
-		workSession.ParentWorkSessionID = parentWorkSession.ID
-		workSession.SpawnedBySessionID = parentWorkSession.ID
+		workSession.ParentWorkSessionID = &parentWorkSession.ID
+		workSession.SpawnedBySessionID = &parentWorkSession.ID
 	}
 
 	// Set implementation task context if related to planned task

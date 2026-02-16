@@ -167,6 +167,7 @@ func TestCompleteSpecTaskMultiSessionWorkflow(t *testing.T) {
 		}
 
 		// Simulate spawning multiple sessions
+		parentID := parentSession.ID
 		spawnedSessions := make([]*types.SpecTaskWorkSession, len(spawnRequests))
 		for i, req := range spawnRequests {
 			spawnedSession := &types.SpecTaskWorkSession{
@@ -177,15 +178,15 @@ func TestCompleteSpecTaskMultiSessionWorkflow(t *testing.T) {
 				Description:         req.Description,
 				Phase:               types.SpecTaskPhaseImplementation,
 				Status:              types.SpecTaskWorkSessionStatusPending,
-				ParentWorkSessionID: parentSession.ID,
-				SpawnedBySessionID:  parentSession.ID,
+				ParentWorkSessionID: &parentID,
+				SpawnedBySessionID:  &parentID,
 			}
 			spawnedSessions[i] = spawnedSession
 
 			// Validate spawned session properties
 			assert.Equal(t, parentSession.SpecTaskID, spawnedSession.SpecTaskID)
-			assert.Equal(t, parentSession.ID, spawnedSession.ParentWorkSessionID)
-			assert.Equal(t, parentSession.ID, spawnedSession.SpawnedBySessionID)
+			assert.Equal(t, parentSession.ID, *spawnedSession.ParentWorkSessionID)
+			assert.Equal(t, parentSession.ID, *spawnedSession.SpawnedBySessionID)
 			assert.True(t, spawnedSession.HasParent())
 			assert.True(t, spawnedSession.WasSpawned())
 		}
