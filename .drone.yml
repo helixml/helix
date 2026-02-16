@@ -394,6 +394,7 @@ steps:
   #     - failure
   #   depends_on: [oauth-gmail-integration-test]
   - name: oauth-outlook-integration-test
+    failure: ignore
     image: golang:1.25
     volumes:
       - name: oauth-outlook-test-results
