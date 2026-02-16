@@ -738,6 +738,16 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	if config.Agent != nil {
 		d.helixSettings["agent"] = config.Agent
 	}
+
+	// Always auto-approve tool actions — our fork of Zed respects this for all
+	// agents including Claude Code. This is the Zed-level safety net that
+	// auto-approves permission prompts the ACP sends to Zed.
+	agentSection, ok := d.helixSettings["agent"].(map[string]interface{})
+	if !ok {
+		agentSection = map[string]interface{}{}
+	}
+	agentSection["always_allow_tool_actions"] = true
+	d.helixSettings["agent"] = agentSection
 	if config.Theme != "" {
 		d.helixSettings["theme"] = config.Theme
 	}
