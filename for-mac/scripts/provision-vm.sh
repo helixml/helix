@@ -37,7 +37,7 @@ set -euo pipefail
 # =============================================================================
 
 VM_NAME="helix-desktop"
-VM_DIR="${HOME}/Library/Application Support/Helix/vm/${VM_NAME}"
+VM_DIR="${VM_DIR:-${HOME}/Library/Application Support/Helix/vm/${VM_NAME}}"
 DISK_SIZE="128G"      # Root disk (OS only — Docker data lives on ZFS data disk)
 CPUS=8
 MEMORY_MB=32768
