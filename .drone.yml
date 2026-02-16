@@ -2516,10 +2516,9 @@ trigger:
       - refs/heads/multi-arch-builds
 
 steps:
-  # Step 1: Provision a fresh VM with pre-built ARM64 images from registry.
-  # On tags: pulls helix-ubuntu + helix-sandbox from registry (~5 min for pulls).
-  # On branches: builds from source (~30-60 min). Full provision from scratch
-  # takes ~20 min on top of image pulls (QEMU boot, cloud-init, Docker setup).
+  # Step 1: Provision a VM with pre-built ARM64 images via provision-vm-light.sh.
+  # Uses install.sh to pull pre-built images (~9 GB compressed output).
+  # Requires provision-vm-light.sh from Luke's branch (fix/keep-zed-qwen-in-update-mode).
   # Uses CI-specific VM_DIR to avoid clobbering Luke's dev VM.
   - name: provision-vm
     environment:
@@ -2533,7 +2532,7 @@ steps:
         else
           VERSION=$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         fi
-      - ./for-mac/scripts/provision-vm.sh --helix-version $VERSION
+      - ./for-mac/scripts/provision-vm-light.sh --helix-version $VERSION
 
   # Step 2: Compress qcow2 + upload VM images to R2 CDN + generate vm-manifest.json.
   # The manifest is picked up by build-helix-app.sh and bundled into the app.
