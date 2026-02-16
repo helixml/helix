@@ -21,6 +21,8 @@ import {
   WindowToggleMaximise,
   WindowIsFullscreen,
   BrowserOpenURL,
+  ClipboardSetText,
+  ClipboardGetText,
 } from "../wailsjs/runtime/runtime";
 import { HomeView } from "./views/HomeView";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -176,10 +178,27 @@ export function App() {
       }
     });
 
-    // Listen for external URL requests from the Helix iframe
+    // Listen for messages from the Helix iframe
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'open-external-url' && typeof event.data.url === 'string') {
         BrowserOpenURL(event.data.url);
+      }
+      // Clipboard bridge: WKWebView blocks navigator.clipboard in iframes,
+      // so the iframe sends postMessage and we use the Wails runtime clipboard
+      // which accesses NSPasteboard directly.
+      if (event.data?.type === 'helix-clipboard-write' && typeof event.data.text === 'string') {
+        ClipboardSetText(event.data.text);
+      }
+      if (event.data?.type === 'helix-clipboard-read' && event.data.id) {
+        ClipboardGetText().then(text => {
+          const iframe = document.querySelector('.home-view iframe') as HTMLIFrameElement;
+          if (iframe?.contentWindow) {
+            iframe.contentWindow.postMessage(
+              { type: 'helix-clipboard-response', id: event.data.id, text },
+              '*'
+            );
+          }
+        });
       }
     };
     window.addEventListener('message', handleMessage);
