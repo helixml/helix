@@ -786,10 +786,6 @@ RUN cd /tmp/drone-ci-mcp && npm install && npm run build && npm pack && npm inst
 ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
     CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080
 
-# Docker group init script
-ADD desktop/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
-RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
-
 # Start dockerd inside desktop container if /var/lib/docker is volume-mounted
 ADD desktop/ubuntu-config/cont-init.d/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
 RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh
