@@ -367,8 +367,8 @@ RUN mkdir -p /home/retro/.qwen && \
 RUN mkdir -p /home/retro/.gemini && \
     echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.gemini/settings.json
 
-RUN mkdir -p /home/retro/.claude && \
-    echo '{"permissions":{"defaultMode":"bypassPermissions"},"skipDangerousModePermissionPrompt":true,"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}' > /home/retro/.claude/settings.json
+# Claude Code settings (bypassPermissions etc.) are written at runtime by
+# helix-workspace-setup.sh after symlinking ~/.claude to persistent storage.
 
 RUN mkdir -p /home/retro/.config/zed && \
     echo '{"telemetry":{"diagnostics":false,"metrics":false}}' > /home/retro/.config/zed/settings.json

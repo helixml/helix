@@ -464,23 +464,15 @@ echo "========================================="
 CLAUDE_STATE_DIR=$WORK_DIR/.claude-state
 if command -v claude &> /dev/null; then
     mkdir -p $CLAUDE_STATE_DIR
-    # Always enforce auto-approve permissions on startup. Claude Code may
-    # overwrite settings.json during a session (login, updates, etc.) and
-    # the persistent volume would preserve the stale version forever.
-    # We use jq to merge so we don't clobber other keys Claude Code may have added.
-    CLAUDE_SETTINGS='{"permissions":{"defaultMode":"bypassPermissions"},"skipDangerousModePermissionPrompt":true,"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}'
-    if [ -f $CLAUDE_STATE_DIR/settings.json ]; then
-        # Merge: our keys take precedence over whatever's in the file
-        jq -s '.[0] * .[1]' $CLAUDE_STATE_DIR/settings.json <(echo "$CLAUDE_SETTINGS") > $CLAUDE_STATE_DIR/settings.json.tmp \
-            && mv $CLAUDE_STATE_DIR/settings.json.tmp $CLAUDE_STATE_DIR/settings.json
-        echo "  Claude: merged permissions into existing settings.json"
-    else
-        echo "$CLAUDE_SETTINGS" > $CLAUDE_STATE_DIR/settings.json
-        echo "  Claude: wrote fresh settings.json"
-    fi
+    # Symlink ~/.claude to persistent storage so credentials and state
+    # survive container restarts.
     rm -rf ~/.claude
     ln -sf $CLAUDE_STATE_DIR ~/.claude
-    echo "  Claude: ~/.claude -> $CLAUDE_STATE_DIR"
+    # Write correct permissions before Zed/Claude Code starts.
+    # This runs synchronously before Zed launch, so Claude Code
+    # always sees bypassPermissions on first read.
+    echo '{"permissions":{"defaultMode":"bypassPermissions"},"skipDangerousModePermissionPrompt":true,"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}' > ~/.claude/settings.json
+    echo "  Claude: ~/.claude -> $CLAUDE_STATE_DIR (settings written)"
 fi
 
 # Initialize workspace with README if empty
