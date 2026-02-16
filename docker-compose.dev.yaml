@@ -124,6 +124,14 @@ services:
     restart: always
     # ports:
     #  - 5432:5432  # SECURITY: Never expose postgres externally - attackers scan for this
+    command: >
+      postgres
+      -c shared_buffers=32MB
+      -c work_mem=2MB
+      -c max_connections=50
+      -c max_worker_processes=2
+      -c maintenance_work_mem=32MB
+      -c effective_cache_size=256MB
     volumes:
       - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
     environment:
@@ -168,6 +176,14 @@ services:
     restart: always
     # ports:
     #  - 5433:5432
+    command: >
+      postgres
+      -c shared_buffers=32MB
+      -c work_mem=2MB
+      -c max_connections=50
+      -c max_worker_processes=2
+      -c maintenance_work_mem=32MB
+      -c effective_cache_size=256MB
     volumes:
       - ${PGVECTOR_DATA:-helix-pgvector-db}:/var/lib/postgresql/data
     environment:
@@ -193,8 +209,9 @@ services:
       - ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1
       - ENRICHMENT_ENDPOINT_MODEL=openai/kodit-model
       - ENRICHMENT_ENDPOINT_API_KEY=${RUNNER_TOKEN-oh-hallo-insecure-token}
-      - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=3
+      - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=1
       - ENRICHMENT_ENDPOINT_TIMEOUT=120
+      - EMBEDDING_ENDPOINT_NUM_PARALLEL_TASKS=1
       # Sync configuration
       - SYNC_PERIODIC_ENABLED=true
       - SYNC_PERIODIC_INTERVAL_SECONDS=1800 # 30 minutes
@@ -210,6 +227,14 @@ services:
   vectorchord-kodit:
     image: tensorchord/vchord-suite:pg17-20250601
     restart: always
+    command: >
+      postgres
+      -c shared_buffers=32MB
+      -c work_mem=2MB
+      -c max_connections=50
+      -c max_worker_processes=2
+      -c maintenance_work_mem=32MB
+      -c effective_cache_size=256MB
     environment:
       - POSTGRES_DB=kodit
       - POSTGRES_USER=postgres
