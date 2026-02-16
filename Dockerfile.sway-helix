@@ -172,8 +172,7 @@ RUN git clone --depth 1 --branch 0.19.0 https://gitlab.freedesktop.org/wlroots/w
 # Apply our keyboard layout fix patch
 COPY desktop/wlroots-patches/0001-wayland-backend-ignore-parent-layout-group.patch /build/
 RUN cd wlroots && \
-    git apply /build/0001-wayland-backend-ignore-parent-layout-group.patch || \
-    echo "Patch may not apply cleanly to 0.19.0, continuing anyway"
+    git apply /build/0001-wayland-backend-ignore-parent-layout-group.patch
 
 # Build wlroots 0.19 (includes ext-image-copy-capture-v1 by default)
 # Use architecture-appropriate lib directory

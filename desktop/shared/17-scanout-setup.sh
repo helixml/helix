@@ -5,5 +5,5 @@
 if [ "${GPU_VENDOR}" = "virtio" ] && [ ! -S /var/run/dbus/system_bus_socket ]; then
     echo "**** Starting system D-Bus for scanout mode ****"
     mkdir -p /var/run/dbus
-    dbus-daemon --system --fork 2>/dev/null && echo "System D-Bus started" || echo "WARNING: Failed to start system D-Bus"
+    dbus-daemon --system --fork 2>/dev/null && echo "System D-Bus started" || { echo "FATAL: Failed to start system D-Bus"; exit 1; }
 fi

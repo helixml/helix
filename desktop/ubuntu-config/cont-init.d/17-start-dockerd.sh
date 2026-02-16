@@ -118,7 +118,8 @@ EOF
             break
         fi
         if [ "$i" -eq 30 ]; then
-            echo "[dockerd] WARNING: dockerd not ready after 30s, continuing anyway"
+            echo "[dockerd] FATAL: dockerd not ready after 30s"
+            exit 1
         fi
         sleep 1
     done

@@ -183,7 +183,7 @@ gow_log "[start] GNOME Keyring initialized with empty password"
 # Load Ubuntu desktop theming (Yaru dark theme, fonts, Helix background)
 if [ -f /opt/gow/dconf-settings.ini ]; then
     gow_log "[start] Loading Ubuntu desktop theming from dconf-settings.ini"
-    dconf load / < /opt/gow/dconf-settings.ini || gow_log "[start] Warning: dconf load failed"
+    dconf load / < /opt/gow/dconf-settings.ini || { gow_log "[start] FATAL: dconf load failed"; exit 1; }
 fi
 
 # Set Chrome as default browser for xdg-open to work with HTTP/HTTPS URLs
@@ -275,7 +275,8 @@ if [ -x /zed-build/zed ]; then
       sleep 1
     done
     if [ ! -S "\${XDG_RUNTIME_DIR}/wayland-0" ]; then
-      gow_log "[start] WARNING: wayland-0 not found after 60s, launching Zed anyway..."
+      gow_log "[start] FATAL: wayland-0 not found after 60s. GNOME Shell failed to start."
+      exit 1
     fi
     WAYLAND_DISPLAY=wayland-0 /usr/local/bin/start-zed-helix.sh
   ) &

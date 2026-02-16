@@ -149,10 +149,8 @@ if [ -n "$GIT_USER_EMAIL" ]; then
     git config --global user.email "$GIT_USER_EMAIL"
     echo "  Git user.email: $GIT_USER_EMAIL"
 else
-    echo "  ⚠️  WARNING: GIT_USER_EMAIL not set"
-    echo "  Enterprise ADO deployments may reject commits from non-corporate email addresses"
-    echo "  Using fallback email: agent@helix.ml"
-    git config --global user.email "agent@helix.ml"
+    echo "  FATAL: GIT_USER_EMAIL not set"
+    exit 1
 fi
 
 # Configure git to use merge commits (not rebase) for concurrent agent work
@@ -171,7 +169,8 @@ if [ -n "$USER_API_TOKEN" ] && [ -n "$HELIX_API_BASE_URL" ]; then
     chmod 600 ~/.git-credentials
     echo "  Git credentials configured for $GIT_API_HOST"
 else
-    echo "  Warning: USER_API_TOKEN or HELIX_API_BASE_URL not set - git operations may fail"
+    echo "  FATAL: USER_API_TOKEN or HELIX_API_BASE_URL not set"
+    exit 1
 fi
 echo ""
 
@@ -285,7 +284,7 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -n "$HELIX_BRANCH_MODE" ]; then
 
         # Fetch all remote branches to ensure we have the latest
         echo "  Fetching remote branches..."
-        git fetch origin --prune 2>&1 || echo "  Warning: Failed to fetch (continuing anyway)"
+        git fetch origin --prune 2>&1 || { echo "  FATAL: git fetch failed"; exit 1; }
 
         if [ "$HELIX_BRANCH_MODE" = "existing" ]; then
             # Existing branch mode: checkout the working branch
@@ -313,7 +312,8 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -n "$HELIX_BRANCH_MODE" ]; then
                     fi
                 fi
             else
-                echo "  Warning: Existing mode but HELIX_WORKING_BRANCH not set"
+                echo "  FATAL: Existing mode but HELIX_WORKING_BRANCH not set"
+                exit 1
             fi
         elif [ "$HELIX_BRANCH_MODE" = "new" ]; then
             # New branch mode: create branch from base
@@ -340,9 +340,10 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -n "$HELIX_BRANCH_MODE" ]; then
             # Checkout base branch first
             if git show-ref --verify --quiet "refs/remotes/origin/$BASE_BRANCH"; then
                 git checkout "$BASE_BRANCH" 2>&1 || git checkout -b "$BASE_BRANCH" "origin/$BASE_BRANCH" 2>&1
-                git pull origin "$BASE_BRANCH" 2>&1 || echo "  Warning: Failed to pull (continuing anyway)"
+                git pull origin "$BASE_BRANCH" 2>&1 || { echo "  FATAL: git pull failed on $BASE_BRANCH"; exit 1; }
             else
-                echo "  Warning: Base branch not found: $BASE_BRANCH"
+                echo "  FATAL: Base branch not found on remote: $BASE_BRANCH"
+                exit 1
             fi
 
             # Create new working branch if specified
@@ -366,7 +367,8 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -n "$HELIX_BRANCH_MODE" ]; then
         echo "  Current branch: $CURRENT_BRANCH"
         cd "$WORK_DIR"
     else
-        echo "  Warning: Primary repository not found at $PRIMARY_REPO_PATH"
+        echo "  FATAL: Primary repository not found at $PRIMARY_REPO_PATH"
+        exit 1
     fi
     echo ""
 else
@@ -430,7 +432,8 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
             fi
         fi
     else
-        echo "  Warning: Primary repository not found at $PRIMARY_REPO_PATH"
+        echo "  FATAL: Primary repository not found at $PRIMARY_REPO_PATH"
+        exit 1
     fi
     echo ""
 else
@@ -448,7 +451,8 @@ elif [ -f "$SCRIPT_DIR/helix-git-hooks.sh" ]; then
     source "$SCRIPT_DIR/helix-git-hooks.sh"
     install_helix_git_hooks
 else
-    echo "Warning: helix-git-hooks.sh not found - git hooks not installed"
+    echo "FATAL: helix-git-hooks.sh not found"
+    exit 1
 fi
 
 # =========================================

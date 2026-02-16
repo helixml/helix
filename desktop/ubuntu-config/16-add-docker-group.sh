@@ -16,10 +16,8 @@ fi
 
 # Get the GID of the docker socket (mounted from sandbox)
 if [ ! -S /var/run/docker.sock ]; then
-    echo "**** WARNING: Docker socket not found, skipping docker group setup ****"
-    # Use return instead of exit — this script is sourced by the entrypoint,
-    # so exit 0 would kill the entire entrypoint instead of just this script.
-    return 0 2>/dev/null || true
+    echo "**** FATAL: Docker socket not found ****"
+    exit 1
 fi
 
 SOCKET_GID=$(stat -c "%g" /var/run/docker.sock)
