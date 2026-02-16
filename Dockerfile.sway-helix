@@ -889,7 +889,6 @@ KITTY_CONFIG
 
 RUN chown -R 1000:1000 /home/retro/.qwen \
                         /home/retro/.gemini \
-                        /home/retro/.claude \
                         /home/retro/.config/zed
 
 # Hardware video decoding configuration for Firefox/Chrome
