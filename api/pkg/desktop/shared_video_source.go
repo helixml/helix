@@ -190,34 +190,40 @@ func (r *SharedVideoSourceRegistry) GetOrCreate(nodeID uint32, pipelineStr strin
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Case 1: Active source exists - reuse it
+	// Case 1: Active source exists - reuse if alive
 	if source, exists := r.sources[nodeID]; exists {
-		source.clientsMu.RLock()
-		clientCount := len(source.clients)
-		source.clientsMu.RUnlock()
-		fmt.Printf("[SHARED_VIDEO] Reusing existing source for node %d (clients: %d)\n",
-			nodeID, clientCount)
-		return source
+		if source.running.Load() {
+			source.clientsMu.RLock()
+			clientCount := len(source.clients)
+			source.clientsMu.RUnlock()
+			fmt.Printf("[SHARED_VIDEO] Reusing existing source for node %d (clients: %d)\n",
+				nodeID, clientCount)
+			return source
+		}
+		// Dead source — evict
+		delete(r.sources, nodeID)
+		fmt.Printf("[SHARED_VIDEO] Evicted dead source for node %d in GetOrCreate\n", nodeID)
+		go source.stop()
 	}
 
-	// Case 2: Source is in pending stop - cancel and reuse
+	// Case 2: Source is in pending stop - cancel and reuse if alive
 	if pending, exists := r.pendingStops[nodeID]; exists {
-		// Stop the timer (may have already fired, that's OK)
 		pending.timer.Stop()
-
-		// Signal cancellation to doStop goroutine (if it's waiting on the lock)
 		close(pending.cancelCh)
-
-		// Move back to active sources
-		r.sources[nodeID] = pending.source
 		delete(r.pendingStops, nodeID)
 
-		r.cancelledStops.Add(1)
-		fmt.Printf("[SHARED_VIDEO] Cancelled pending stop for node %d, reusing pipeline (grace period saved!)\n", nodeID)
-		return pending.source
+		if pending.source.running.Load() {
+			r.sources[nodeID] = pending.source
+			r.cancelledStops.Add(1)
+			fmt.Printf("[SHARED_VIDEO] Cancelled pending stop for node %d, reusing pipeline (grace period saved!)\n", nodeID)
+			return pending.source
+		}
+		// Dead source — clean up
+		fmt.Printf("[SHARED_VIDEO] Evicted dead pending source for node %d in GetOrCreate\n", nodeID)
+		go pending.source.stop()
 	}
 
-	// Case 3: No source exists - create new
+	// Case 3: No live source exists - create new
 	ctx, cancel := context.WithCancel(context.Background())
 	source := &SharedVideoSource{
 		nodeID:       nodeID,
@@ -242,17 +248,34 @@ func (r *SharedVideoSourceRegistry) GetExisting(nodeID uint32) *SharedVideoSourc
 	defer r.mu.Unlock()
 
 	if source, exists := r.sources[nodeID]; exists {
-		return source
+		if source.running.Load() {
+			return source
+		}
+		// Source is dead (broadcaster exited) — clean up and return nil
+		// so the caller creates a fresh ScanoutSource + SharedVideoSource.
+		delete(r.sources, nodeID)
+		fmt.Printf("[SHARED_VIDEO] Evicted dead source for node %d\n", nodeID)
+		go source.stop() // async cleanup (stop() calls wg.Wait which may block briefly)
+		return nil
 	}
 	// Reactivate pending-stop source (cancel grace period timer)
 	if pending, exists := r.pendingStops[nodeID]; exists {
+		if pending.source.running.Load() {
+			pending.timer.Stop()
+			close(pending.cancelCh)
+			r.sources[nodeID] = pending.source
+			delete(r.pendingStops, nodeID)
+			r.cancelledStops.Add(1)
+			fmt.Printf("[SHARED_VIDEO] Reactivated pending-stop source for node %d (grace period cancelled)\n", nodeID)
+			return pending.source
+		}
+		// Source is dead — cancel timer and clean up
 		pending.timer.Stop()
 		close(pending.cancelCh)
-		r.sources[nodeID] = pending.source
 		delete(r.pendingStops, nodeID)
-		r.cancelledStops.Add(1)
-		fmt.Printf("[SHARED_VIDEO] Reactivated pending-stop source for node %d (grace period cancelled)\n", nodeID)
-		return pending.source
+		fmt.Printf("[SHARED_VIDEO] Evicted dead pending source for node %d\n", nodeID)
+		go pending.source.stop()
+		return nil
 	}
 	return nil
 }
@@ -264,25 +287,35 @@ func (r *SharedVideoSourceRegistry) GetOrCreateWithSource(nodeID uint32, source 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Case 1: Active source exists - reuse it
+	// Case 1: Active source exists - reuse if alive
 	if existing, exists := r.sources[nodeID]; exists {
-		existing.clientsMu.RLock()
-		clientCount := len(existing.clients)
-		existing.clientsMu.RUnlock()
-		fmt.Printf("[SHARED_VIDEO] Reusing existing external source for node %d (clients: %d)\n",
-			nodeID, clientCount)
-		return existing
+		if existing.running.Load() {
+			existing.clientsMu.RLock()
+			clientCount := len(existing.clients)
+			existing.clientsMu.RUnlock()
+			fmt.Printf("[SHARED_VIDEO] Reusing existing external source for node %d (clients: %d)\n",
+				nodeID, clientCount)
+			return existing
+		}
+		delete(r.sources, nodeID)
+		fmt.Printf("[SHARED_VIDEO] Evicted dead external source for node %d\n", nodeID)
+		go existing.stop()
 	}
 
-	// Case 2: Source is in pending stop - cancel and reuse
+	// Case 2: Source is in pending stop - cancel and reuse if alive
 	if pending, exists := r.pendingStops[nodeID]; exists {
 		pending.timer.Stop()
 		close(pending.cancelCh)
-		r.sources[nodeID] = pending.source
 		delete(r.pendingStops, nodeID)
-		r.cancelledStops.Add(1)
-		fmt.Printf("[SHARED_VIDEO] Cancelled pending stop for external source node %d\n", nodeID)
-		return pending.source
+
+		if pending.source.running.Load() {
+			r.sources[nodeID] = pending.source
+			r.cancelledStops.Add(1)
+			fmt.Printf("[SHARED_VIDEO] Cancelled pending stop for external source node %d\n", nodeID)
+			return pending.source
+		}
+		fmt.Printf("[SHARED_VIDEO] Evicted dead pending external source for node %d\n", nodeID)
+		go pending.source.stop()
 	}
 
 	// Case 3: Create new with external source
@@ -869,6 +902,7 @@ func (s *SharedVideoSource) restartPipeline() (*GstPipeline, error) {
 // fresh initial frames. This handles the virtio-gpu static screen stall issue.
 func (s *SharedVideoSource) broadcastFrames() {
 	defer s.wg.Done()
+	defer s.running.Store(false) // Mark as dead so GetExisting won't reuse a zombie source
 
 	// Get frame/error channels from the appropriate source
 	var frameCh <-chan VideoFrame
