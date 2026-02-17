@@ -1058,6 +1058,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   <Chip
                     key={dependencyTask.id}
                     size="small"
+                    clickable={!!dependencyTask.id && !!task?.project_id}
+                    onClick={() => {
+                      if (!dependencyTask.id || !task?.project_id) {
+                        return;
+                      }
+                      account.orgNavigate("project-task-detail", {
+                        id: task.project_id,
+                        taskId: dependencyTask.id,
+                      });
+                    }}
                     label={
                       dependencyTask.name ||
                       dependencyTask.short_title ||
