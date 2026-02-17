@@ -35,7 +35,10 @@ Deferred - depends on Phase 3 virtualization for visibility detection.
 
 ## Phase 5: Testing & Verification (via Chrome MCP)
 
-- [~] Baseline: `performance_start_trace` + `list_network_requests` on Kanban with 20+ tasks
+**Note:** Testing requires a running Helix instance. Deploy the branch and test in the live environment.
+
+- [ ] Deploy feature branch to dev/staging environment
+- [ ] Baseline: `performance_start_trace` + `list_network_requests` on Kanban with 20+ tasks
 - [ ] After Phase 1: Verify usage endpoint payloads dropped from ~200KB to ~5KB via `list_network_requests`
 - [ ] After Phase 2-4: `performance_start_trace` during scroll to check for jank
 - [ ] Verify off-screen cards stop polling via `list_network_requests` filtering
