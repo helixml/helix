@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -578,6 +579,12 @@ verify:
 const maxChunkRetries = 20
 const maxChunkBackoff = 30 * time.Second
 
+// downloadStallTimeout is the maximum time to wait for any data on a chunk
+// download before aborting and retrying. This detects dead TCP connections
+// after network switches (e.g. WiFi → WiFi, cellular → WiFi) where the old
+// socket hangs in a blocked Read until TCP keepalive times out (~2 min on macOS).
+const downloadStallTimeout = 30 * time.Second
+
 // downloadChunk downloads a byte range and writes it to the file at the
 // correct offset. Tracks bytes downloaded via the atomic counter.
 // Retries on transient errors (network failures, 416/5xx from CDN edges).
@@ -607,7 +614,23 @@ func (d *VMDownloader) downloadChunk(outFile *os.File, url string, start, end in
 }
 
 func (d *VMDownloader) downloadChunkOnce(outFile *os.File, url string, start, end int64, totalDone *atomic.Int64) error {
-	req, err := http.NewRequest("GET", url, nil)
+	// Context with stall detection: if no bytes arrive for 30s, cancel the
+	// request. This aborts the blocked Read and forces a retry on a fresh
+	// TCP connection — critical for surviving WiFi/cellular network switches
+	// where the old socket is dead but the OS hasn't noticed yet.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Also cancel if the user cancels the download globally.
+	go func() {
+		select {
+		case <-d.cancel:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return err
 	}
@@ -626,15 +649,18 @@ func (d *VMDownloader) downloadChunkOnce(outFile *os.File, url string, start, en
 	buf := make([]byte, chunkReadBuffer)
 	offset := start
 
-	for {
-		select {
-		case <-d.cancel:
-			return fmt.Errorf("download cancelled")
-		default:
-		}
+	// Stall timer: fires after 30s of no data, cancelling the context and
+	// aborting the blocked Read. Reset on every successful read.
+	stallTimer := time.AfterFunc(downloadStallTimeout, func() {
+		log.Printf("Chunk %d-%d stalled for %v with no data, aborting", start, end, downloadStallTimeout)
+		cancel()
+	})
+	defer stallTimer.Stop()
 
+	for {
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
+			stallTimer.Reset(downloadStallTimeout)
 			if _, writeErr := outFile.WriteAt(buf[:n], offset); writeErr != nil {
 				return fmt.Errorf("chunk write at %d: %w", offset, writeErr)
 			}
