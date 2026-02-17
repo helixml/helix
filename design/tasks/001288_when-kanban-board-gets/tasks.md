@@ -15,7 +15,9 @@
 - [x] Disable `useTaskProgress` polling when `isVisible=false`
 - [x] Disable `useSandboxState` polling in `ExternalAgentDesktopViewer` when parent not visible
 
-## Phase 3: Virtualization
+## Phase 3: Virtualization (DEFERRED)
+
+Deferred - Phase 1's server-side fix should handle most cases. Virtualization can be added later if needed.
 
 - [ ] Add `react-window` to `frontend/package.json`
 - [ ] Replace map loop in `DroppableColumn` with `VariableSizeList`
@@ -23,7 +25,9 @@
 - [ ] Pass `isVisible={true}` to virtualized cards (react-window only renders visible)
 - [ ] Add 2-item overscan buffer for smooth scrolling
 
-## Phase 4: Screenshot Optimization
+## Phase 4: Screenshot Optimization (DEFERRED)
+
+Deferred - depends on Phase 3 virtualization for visibility detection.
 
 - [ ] Add visibility check before screenshot fetch in `ScreenshotViewer`
 - [ ] Skip screenshot polling entirely for cards in "backlog" and "completed" columns
@@ -31,7 +35,7 @@
 
 ## Phase 5: Testing & Verification (via Chrome MCP)
 
-- [ ] Baseline: `performance_start_trace` + `list_network_requests` on Kanban with 20+ tasks
+- [~] Baseline: `performance_start_trace` + `list_network_requests` on Kanban with 20+ tasks
 - [ ] After Phase 1: Verify usage endpoint payloads dropped from ~200KB to ~5KB via `list_network_requests`
 - [ ] After Phase 2-4: `performance_start_trace` during scroll to check for jank
 - [ ] Verify off-screen cards stop polling via `list_network_requests` filtering
