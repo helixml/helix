@@ -205,6 +205,12 @@ gsettings set org.gnome.shell.extensions.just-perfection screen-recording-indica
 gsettings set org.gnome.shell.extensions.just-perfection screen-sharing-indicator false
 gow_log "[start] Just Perfection extension configured"
 
+# Configure dash-to-dock (ubuntu-dock) appearance
+gsettings set org.gnome.shell.extensions.dash-to-dock extend-height false
+gsettings set org.gnome.shell.extensions.dash-to-dock background-opacity 0.5
+gsettings set org.gnome.shell.extensions.dash-to-dock transparency-mode 'FIXED'
+gow_log "[start] Dash-to-dock appearance configured"
+
 # macOS keyboard support: remap Super (Command) to Ctrl at the XKB level.
 # This makes Command+C/V/X/A/Z work as Ctrl+C/V/X/A/Z in ALL apps (Chrome,
 # GTK3, GTK4, Electron, etc.) without any per-app configuration.

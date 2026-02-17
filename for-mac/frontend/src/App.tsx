@@ -13,6 +13,9 @@ import {
   GetScanoutStats,
   GetLicenseStatus,
   GetDesktopQuota,
+  GetAppVersion,
+  GetUpdateInfo,
+  CheckForUpdate,
   StartVM,
 } from "../wailsjs/go/main/App";
 import {
@@ -94,6 +97,18 @@ export function App() {
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [appVersion, setAppVersion] = useState("");
+  const [updateInfo, setUpdateInfo] = useState<main.UpdateInfo | null>(null);
+  const [vmUpdateProgress, setVmUpdateProgress] = useState<{
+    phase: string;
+    bytes_done: number;
+    bytes_total: number;
+    percent: number;
+    speed?: string;
+    eta?: string;
+    error?: string;
+  } | null>(null);
+  const [vmUpdateReady, setVmUpdateReady] = useState(false);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -119,6 +134,8 @@ export function App() {
           loginURL,
           appSettings,
           license,
+          version,
+          existingUpdateInfo,
         ] = await Promise.all([
           IsVMImageReady(),
           GetSystemInfo(),
@@ -128,6 +145,8 @@ export function App() {
           GetAutoLoginURL(),
           GetSettings(),
           GetLicenseStatus(),
+          GetAppVersion(),
+          GetUpdateInfo(),
         ]);
         setVmImageReady(imageReady);
         setNeedsDownload(!imageReady);
@@ -137,6 +156,10 @@ export function App() {
         setAutoLoginURL(loginURL);
         setSettings(appSettings);
         setLicenseStatus(license);
+        setAppVersion(version);
+        if (existingUpdateInfo?.available) {
+          setUpdateInfo(existingUpdateInfo);
+        }
       } catch (err) {
         console.error("Failed to load initial state:", err);
       } finally {
@@ -168,6 +191,28 @@ export function App() {
     // Listen for settings:show event from system tray
     EventsOn("settings:show", () => {
       setSettingsOpen(true);
+    });
+
+    // Update events
+    EventsOn("update:available", (info: main.UpdateInfo) => {
+      if (info?.available) {
+        setUpdateInfo(info);
+      }
+    });
+
+    EventsOn("update:vm-progress", (progress: any) => {
+      if (progress?.error) {
+        setVmUpdateProgress(null);
+      } else if (progress?.phase === "ready") {
+        setVmUpdateProgress(null);
+        setVmUpdateReady(true);
+      } else {
+        setVmUpdateProgress(progress);
+      }
+    });
+
+    EventsOn("update:vm-ready", () => {
+      setVmUpdateReady(true);
     });
 
     // Auth proxy ready — fetch and set the auto-login URL immediately
@@ -208,6 +253,9 @@ export function App() {
       EventsOff("download:progress");
       EventsOff("settings:show");
       EventsOff("auth:ready");
+      EventsOff("update:available");
+      EventsOff("update:vm-progress");
+      EventsOff("update:vm-ready");
       window.removeEventListener('message', handleMessage);
     };
   }, []);
@@ -405,6 +453,47 @@ export function App() {
           </div>
         )}
 
+        {/* Update badges */}
+        {updateInfo?.available && !vmUpdateReady && !vmUpdateProgress && (
+          <button
+            className="update-badge"
+            onDoubleClick={(e) => e.stopPropagation()}
+            onClick={() => setSettingsOpen(true)}
+            title={`Update available: v${updateInfo.latest_version}`}
+          >
+            Update v{updateInfo.latest_version}
+          </button>
+        )}
+
+        {vmUpdateProgress && (
+          <div
+            className="update-progress-pill"
+            onDoubleClick={(e) => e.stopPropagation()}
+            title={`VM update: ${Math.round(vmUpdateProgress.percent || 0)}%`}
+          >
+            <div className="update-progress-bar">
+              <div
+                className="update-progress-fill"
+                style={{ width: `${vmUpdateProgress.percent || 0}%` }}
+              />
+            </div>
+            <span className="update-progress-label">
+              {Math.round(vmUpdateProgress.percent || 0)}%
+            </span>
+          </div>
+        )}
+
+        {vmUpdateReady && (
+          <button
+            className="update-ready-badge"
+            onDoubleClick={(e) => e.stopPropagation()}
+            onClick={() => setSettingsOpen(true)}
+            title="VM update downloaded — restart to apply"
+          >
+            Restart to update
+          </button>
+        )}
+
         <div className="titlebar-spacer" />
 
         <button
@@ -547,6 +636,10 @@ export function App() {
           onLicenseUpdated={setLicenseStatus}
           onClose={() => setSettingsOpen(false)}
           showToast={showToast}
+          appVersion={appVersion}
+          updateInfo={updateInfo}
+          vmUpdateProgress={vmUpdateProgress}
+          vmUpdateReady={vmUpdateReady}
         />
       )}
 

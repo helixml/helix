@@ -313,11 +313,15 @@ if [ -f "$MAIN_EXEC" ]; then
     install_name_tool -add_rpath "@executable_path/../Frameworks" "$MAIN_EXEC" 2>/dev/null || true
 fi
 
-# Add @rpath to QEMU wrapper and dylib so they find frameworks
+# Add @rpath to QEMU wrapper, dylib, and qemu-img so they find frameworks
 install_name_tool -add_rpath "@executable_path/../Frameworks" \
     "$MACOS_DIR/qemu-system-aarch64" 2>/dev/null || true
 install_name_tool -add_rpath "@executable_path/../Frameworks" \
     "$MACOS_DIR/libqemu-aarch64-softmmu.dylib" 2>/dev/null || true
+if [ -f "$MACOS_DIR/qemu-img" ]; then
+    install_name_tool -add_rpath "@executable_path/../Frameworks" \
+        "$MACOS_DIR/qemu-img" 2>/dev/null || true
+fi
 
 # Fix each framework's internal references
 # Frameworks already use @rpath references (from UTM's build), so they should resolve
@@ -381,6 +385,7 @@ codesign --force --sign - --timestamp=none \
     "$MACOS_DIR/qemu-system-aarch64" 2>/dev/null || true
 if [ -f "$MACOS_DIR/qemu-img" ]; then
     codesign --force --sign - --timestamp=none \
+        --entitlements "$APP_ENTITLEMENTS" \
         "$MACOS_DIR/qemu-img" 2>/dev/null || true
 fi
 

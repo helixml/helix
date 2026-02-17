@@ -25,10 +25,11 @@ const (
 
 	// ComposeRealPath is the actual docker-compose plugin binary
 	ComposeRealPath = "/usr/libexec/docker/cli-plugins/docker-compose.real"
-
-	// BuildKitCacheDir is where the shared cache is mounted (if available)
-	BuildKitCacheDir = "/buildkit-cache"
 )
+
+// BuildKitCacheDir is where the shared cache is mounted (if available).
+// This is a var (not const) so tests can override it for isolated testing.
+var BuildKitCacheDir = "/buildkit-cache"
 
 // Mode represents the operating mode of the shim
 type Mode int

@@ -117,7 +117,8 @@ func compareVersions(v1, v2 string) bool {
 }
 
 // injectComposeCacheFlags adds BuildKit cache flags to compose build commands.
-// Returns error if the cache directory exists but compose version is incompatible.
+// For Compose 5.0+, cache injection is skipped (builds delegate to buildx which handles caching).
+// Returns error if the cache directory exists but compose version is too old (< v2.24).
 func injectComposeCacheFlags(args []string) ([]string, error) {
 	if !isComposeBuildCommand(args) {
 		return args, nil
@@ -135,7 +136,7 @@ func injectComposeCacheFlags(args []string) ([]string, error) {
 
 	version := getComposeVersion()
 	if version == "" {
-		return nil, fmt.Errorf("could not determine Docker Compose version. " +
+		return nil, fmt.Errorf("could not determine Docker Compose version. "+
 			"BuildKit cache directory exists at %s, which requires Compose v2.24+", BuildKitCacheDir)
 	}
 
@@ -147,8 +148,45 @@ func injectComposeCacheFlags(args []string) ([]string, error) {
 	}
 
 	if compareVersions(version, "5.0.0") {
-		return nil, fmt.Errorf("Docker Compose %s removed --set flag (v5.0+). "+
-			"BuildKit cache directory exists at %s but cache injection is not supported", version, BuildKitCacheDir)
+		// Compose 5.0+ delegates to buildx, so inject --builder instead of --set
+		if hasBuilderFlag(args) {
+			log.Debug().Msg("Builder flag already present, skipping injection")
+			return args, nil
+		}
+
+		// Try to ensure the shared builder is available, but don't fail if it's not
+		if err := ensureSharedBuilder(); err != nil {
+			log.Warn().
+				Err(err).
+				Str("cache_dir", BuildKitCacheDir).
+				Msg("Shared BuildKit builder unavailable, builds will proceed without shared cache. " +
+					"This is expected during initial helix-in-helix setup.")
+			return args, nil
+		}
+
+		insertIdx := -1
+		for i, arg := range args {
+			if arg == "build" || arg == "up" {
+				insertIdx = i + 1
+				break
+			}
+		}
+
+		if insertIdx == -1 || insertIdx > len(args) {
+			return args, nil
+		}
+
+		result := make([]string, 0, len(args)+1)
+		result = append(result, args[:insertIdx]...)
+		result = append(result, "--builder="+SharedBuilderName)
+		result = append(result, args[insertIdx:]...)
+
+		log.Debug().
+			Str("builder", SharedBuilderName).
+			Str("cache_dir", BuildKitCacheDir).
+			Msg("Injected compose builder flag for Compose 5.0+")
+
+		return result, nil
 	}
 
 	insertIdx := -1

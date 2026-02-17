@@ -31,6 +31,7 @@ type App struct {
 	authProxy        *AuthProxy
 	authReady        bool
 	authReadyMu      sync.Mutex
+	updater          *Updater
 }
 
 // NewApp creates a new App application struct
@@ -46,6 +47,9 @@ func NewApp() *App {
 
 	// VM image downloader (CDN download on first launch)
 	app.downloader = NewVMDownloader()
+
+	// Updater (in-place upgrade support for prod builds)
+	app.updater = NewUpdater()
 
 	// License validator (offline ECDSA verification with embedded Launchpad public key)
 	validator, err := NewLicenseValidator()
@@ -99,6 +103,14 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize system tray
 	a.tray = NewTrayManager(a)
 	a.tray.Start()
+
+	// Set up updater with app context
+	a.updater.SetAppContext(ctx)
+
+	// Start periodic update check (prod builds only)
+	if !isDevMode() {
+		go a.startUpdateChecker()
+	}
 
 	log.Println("Helix Desktop started")
 
@@ -255,6 +267,17 @@ func (a *App) DownloadVMImages() error {
 				Status: "error",
 				Error:  err.Error(),
 			})
+			return
+		}
+		// Save the manifest version after successful download
+		if m := a.downloader.manifest; m != nil && m.Version != "" {
+			s := a.settings.Get()
+			s.InstalledVMVersion = m.Version
+			if err := a.settings.Save(s); err != nil {
+				log.Printf("Warning: failed to save installed VM version: %v", err)
+			} else {
+				log.Printf("Saved installed VM version: %s", m.Version)
+			}
 		}
 	}()
 
@@ -451,6 +474,7 @@ func (a *App) SaveSettings(s AppSettings) error {
 	s.TrialStartedAt = old.TrialStartedAt
 	s.DesktopSecret = old.DesktopSecret
 	s.ConsolePassword = old.ConsolePassword
+	s.InstalledVMVersion = old.InstalledVMVersion
 
 	if err := a.settings.Save(s); err != nil {
 		return err
@@ -739,6 +763,115 @@ func getMacOSUserFullName() string {
 		return u.Name
 	}
 	return u.Username
+}
+
+// GetAppVersion returns the current app version string.
+func (a *App) GetAppVersion() string {
+	return Version
+}
+
+// GetUpdateInfo returns the last known update information.
+func (a *App) GetUpdateInfo() UpdateInfo {
+	return a.updater.GetInfo()
+}
+
+// CheckForUpdate manually checks for a new version.
+func (a *App) CheckForUpdate() (UpdateInfo, error) {
+	info, err := a.updater.CheckForUpdate()
+	if err != nil {
+		return info, err
+	}
+	if info.Available {
+		wailsRuntime.EventsEmit(a.ctx, "update:available", info)
+	}
+	return info, nil
+}
+
+// ApplyAppUpdate downloads the new DMG, replaces the app, and restarts.
+func (a *App) ApplyAppUpdate() error {
+	return a.updater.ApplyAppUpdate(a.ctx)
+}
+
+// DownloadVMUpdate downloads the new VM disk image in the background.
+func (a *App) DownloadVMUpdate() error {
+	go func() {
+		if err := a.updater.DownloadVMUpdate(a.settings, a.downloader); err != nil {
+			log.Printf("VM update download failed: %v", err)
+			wailsRuntime.EventsEmit(a.ctx, "update:vm-progress", UpdateProgress{
+				Phase: "downloading_vm",
+				Error: err.Error(),
+			})
+		}
+	}()
+	return nil
+}
+
+// ApplyVMUpdate stops the VM, swaps the disk, and starts the VM.
+func (a *App) ApplyVMUpdate() error {
+	if err := a.updater.ApplyVMUpdate(a.vm, a.settings); err != nil {
+		return err
+	}
+	// Start the VM with new disk
+	return a.StartVM()
+}
+
+// CancelUpdate cancels any in-progress update download.
+func (a *App) CancelUpdate() {
+	a.updater.Cancel()
+}
+
+// IsVMUpdateAvailable returns true if the VM manifest version differs from installed.
+func (a *App) IsVMUpdateAvailable() bool {
+	info := a.updater.GetInfo()
+	if !info.Available {
+		return false
+	}
+	return a.settings.Get().InstalledVMVersion != info.LatestVersion
+}
+
+// IsVMUpdateStagedCheck returns true if a staged VM disk image is ready.
+func (a *App) IsVMUpdateStagedCheck() bool {
+	return IsVMUpdateStaged()
+}
+
+// startUpdateChecker runs periodic update checks.
+func (a *App) startUpdateChecker() {
+	// Initial check after 10 seconds
+	time.Sleep(10 * time.Second)
+	a.performUpdateCheck()
+
+	// Then every 6 hours
+	ticker := time.NewTicker(6 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		a.performUpdateCheck()
+	}
+}
+
+func (a *App) performUpdateCheck() {
+	info, err := a.updater.CheckForUpdate()
+	if err != nil {
+		log.Printf("Update check failed: %v", err)
+		return
+	}
+	if info.Available {
+		log.Printf("Update available: %s → %s", info.CurrentVersion, info.LatestVersion)
+		wailsRuntime.EventsEmit(a.ctx, "update:available", info)
+	}
+
+	// Check for stale VM images
+	if IsVMUpdateStaged() {
+		log.Println("Staged VM update found, emitting vm-ready event")
+		wailsRuntime.EventsEmit(a.ctx, "update:vm-ready")
+	} else if info.Available && a.settings.Get().InstalledVMVersion != info.LatestVersion {
+		// Auto-start VM background download
+		log.Println("VM images stale, starting background download...")
+		go func() {
+			if err := a.updater.DownloadVMUpdate(a.settings, a.downloader); err != nil {
+				log.Printf("Background VM update download failed: %v", err)
+			}
+		}()
+	}
 }
 
 // openBrowser opens a URL in the default browser

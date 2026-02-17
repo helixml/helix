@@ -52,6 +52,9 @@ type AppSettings struct {
 	// VM console login password (generated on first launch, injected into VM on boot)
 	ConsolePassword string `json:"console_password,omitempty"`
 
+	// Installed VM image version (set after successful download/update)
+	InstalledVMVersion string `json:"installed_vm_version,omitempty"`
+
 	// Secure tokens and passwords (generated on first launch, injected into VM .env)
 	RunnerToken      string `json:"runner_token,omitempty"`
 	PostgresPassword string `json:"postgres_password,omitempty"`

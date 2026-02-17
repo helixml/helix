@@ -381,7 +381,7 @@ Furthermore, restricting the user's dockerd from starting `--privileged` contain
 
 3. **Desktop container must be privileged.** Today, desktop containers are not privileged (the sandbox is). With dockerd inside, the desktop container needs `--privileged` or equivalent capabilities. This is a real change in the security boundary, though the practical impact is limited since the sandbox is already privileged and desktop containers already have extensive capabilities (`SYS_ADMIN`, `SYS_NICE`, `SYS_PTRACE`, `NET_RAW`, `MKNOD`, `NET_ADMIN`).
 
-4. **Build cache sharing.** Today, helix-buildkit runs on the sandbox's main dockerd, shared across sessions. With dockerd-per-desktop, each session gets its own build cache (unless using the shared BuildKit via registry).
+4. **Build cache sharing.** Today, helix-buildkit runs on the sandbox's main dockerd, shared across sessions. All desktop containers connect to this shared BuildKit instance via `BUILDKIT_HOST=tcp://<buildkit-ip>:1234` (set by Hydra). The docker-shim injects `--builder=helix-shared` for builds, which points to the remote BuildKit. **The cache is automatically shared** because all desktops use the same BuildKit daemon's internal cache (`/var/lib/buildkit` in the helix-buildkit container). The `/buildkit-cache` bind mount was designed for local cache export/import, but with a remote builder, that's unnecessary - the shared BuildKit's internal cache is more efficient. With dockerd-per-desktop, we'd either continue using a shared BuildKit container (same as today), or each desktop gets its own build cache.
 
 5. **Startup time.** dockerd takes ~2-3 seconds to start inside the container. This happens in parallel with desktop initialization (GNOME/Sway startup takes ~10-15 seconds), so it adds zero perceived latency.
 
@@ -437,7 +437,7 @@ Each nesting level runs its own compose stack, which includes its own `registry:
 - **Ports** (9876, 9877, 1234) — isolated by Docker bridge networks (each container gets its own IP)
 - **Hydra socket paths** — each sandbox has its own container filesystem
 - **cgroup paths** — each container has its own `/sys/fs/cgroup` mount
-- **BuildKit cache** — content-addressed, safe for concurrent access within a level
+- **BuildKit cache** — At each level, one shared helix-buildkit container serves all desktops. Desktops connect via `BUILDKIT_HOST=tcp://<ip>:1234` (network peers on same bridge). The docker-shim injects `--builder=helix-shared` (remote builder). Cache is automatically shared via the BuildKit daemon's internal storage (`/var/lib/buildkit`), not via `/buildkit-cache` bind mount (that's for local export/import, unnecessary with remote builder). Content-addressed, safe for concurrent access.
 
 ---
 

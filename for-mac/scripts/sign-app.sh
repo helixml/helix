@@ -138,8 +138,8 @@ fi
 
 QEMU_IMG="${MACOS_DIR}/qemu-img"
 if [ -f "$QEMU_IMG" ]; then
-    codesign "${SIGN_OPTS[@]}" "$QEMU_IMG"
-    log "  Signed qemu-img"
+    codesign "${SIGN_OPTS[@]}" --entitlements "$APP_ENTITLEMENTS" "$QEMU_IMG"
+    log "  Signed qemu-img (with app entitlements)"
 fi
 
 # =============================================================================

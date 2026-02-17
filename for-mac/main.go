@@ -54,7 +54,7 @@ func main() {
 			},
 			About: &mac.AboutInfo{
 				Title:   "Helix for Mac",
-				Message: "GPU-accelerated AI development environment\n\nVersion 0.1.0-beta\n\n\u00a9 2026 Helix ML\n\nThis application bundles QEMU (GPL v2), virglrenderer (MIT),\nSPICE (LGPL), GLib (LGPL), and other open-source libraries.\nQEMU source: github.com/helixml/qemu-utm\nFull license details: see NOTICES.md in the application bundle.",
+				Message: "GPU-accelerated AI development environment\n\nVersion " + Version + "\n\n\u00a9 2026 Helix ML\n\nThis application bundles QEMU (GPL v2), virglrenderer (MIT),\nSPICE (LGPL), GLib (LGPL), and other open-source libraries.\nQEMU source: github.com/helixml/qemu-utm\nFull license details: see NOTICES.md in the application bundle.",
 			},
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,
@@ -119,7 +119,16 @@ func createMenu(app *App) *menu.Menu {
 		openBrowser("https://github.com/helixml/helix/issues")
 	})
 	helpMenu.AddSeparator()
-	helpMenu.AddText("Check for Updates...", nil, nil)
+	helpMenu.AddText("Check for Updates...", nil, func(_ *menu.CallbackData) {
+		go func() {
+			info, err := app.CheckForUpdate()
+			if err != nil {
+				log.Printf("Update check failed: %v", err)
+			} else if !info.Available {
+				log.Printf("No updates available (current: %s)", info.CurrentVersion)
+			}
+		}()
+	})
 
 	return appMenu
 }
