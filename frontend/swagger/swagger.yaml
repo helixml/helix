@@ -872,6 +872,11 @@ definitions:
         - $ref: '#/definitions/types.User'
         description: Owner user struct, populated by the server for organization views
     type: object
+  server.ClaudeLoginSessionResponse:
+    properties:
+      session_id:
+        type: string
+    type: object
   server.ClaudeModel:
     properties:
       description:
@@ -880,6 +885,14 @@ definitions:
         type: string
       name:
         type: string
+    type: object
+  server.ClaudePollLoginResponse:
+    properties:
+      credentials:
+        description: Raw credentials JSON
+        type: string
+      found:
+        type: boolean
     type: object
   server.ClientBufferStats:
     properties:
@@ -5016,6 +5029,21 @@ definitions:
       total_tokens:
         type: integer
     type: object
+  types.OrgDetails:
+    properties:
+      members:
+        items:
+          $ref: '#/definitions/types.User'
+        type: array
+      organization:
+        $ref: '#/definitions/types.Organization'
+      projects:
+        items:
+          $ref: '#/definitions/types.Project'
+        type: array
+      wallet:
+        $ref: '#/definitions/types.Wallet'
+    type: object
   types.Organization:
     properties:
       auto_join_domain:
@@ -6204,12 +6232,12 @@ definitions:
       created:
         type: string
       desktop_versions:
+        additionalProperties:
+          type: string
         description: |-
           Desktop image versions available on this sandbox
           Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
-        items:
-          type: integer
-        type: array
+        type: object
       gpu_vendor:
         description: GPU configuration
         type: string
@@ -6359,6 +6387,8 @@ definitions:
     type: object
   types.ServerConfigForFrontend:
     properties:
+      active_concurrent_desktops:
+        type: integer
       apps_enabled:
         type: boolean
       auth_provider:
@@ -6370,6 +6400,9 @@ definitions:
         type: string
       disable_llm_call_logging:
         type: boolean
+      edition:
+        description: '"mac-desktop", "server", "cloud", etc.'
+        type: string
       eval_user_id:
         type: string
       filestore_prefix:
@@ -7079,6 +7112,10 @@ definitions:
       created_by:
         description: Metadata
         type: string
+      depends_on:
+        items:
+          $ref: '#/definitions/types.SpecTask'
+        type: array
       description:
         type: string
       design_doc_path:
@@ -7582,6 +7619,10 @@ definitions:
       created_by:
         description: Metadata
         type: string
+      depends_on:
+        items:
+          $ref: '#/definitions/types.SpecTask'
+        type: array
       description:
         type: string
       design_doc_path:
@@ -8912,6 +8953,21 @@ paths:
       summary: List organization domains (admin only)
       tags:
       - organizations
+  /api/v1/admin/orgs:
+    get:
+      description: List all organizations
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.OrgDetails'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List organizations with wallets (admin only)
+      tags:
+      - organizations
   /api/v1/admin/users/{id}:
     delete:
       description: Permanently delete a user and all associated data. Only admins
@@ -9984,6 +10040,68 @@ paths:
       security:
       - BearerAuth: []
       summary: List available Claude models
+      tags:
+      - Claude
+  /api/v1/claude-subscriptions/poll-login/{sessionId}:
+    get:
+      description: Check if Claude credentials file has been written inside the desktop
+        container
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.ClaudePollLoginResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Poll for Claude login credentials
+      tags:
+      - Claude
+  /api/v1/claude-subscriptions/start-login:
+    post:
+      description: Launch a temporary desktop session for interactive Claude OAuth
+        login
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.ClaudeLoginSessionResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Start a Claude login session
       tags:
       - Claude
   /api/v1/clone-groups/{groupId}/progress:
@@ -15334,6 +15452,54 @@ paths:
       summary: Get Claude credentials for a session
       tags:
       - Claude
+    put:
+      consumes:
+      - application/json
+      description: |-
+        Push refreshed Claude OAuth credentials back to the API (e.g. after Claude Code refreshes its token).
+        Only accepts runner/session-scoped tokens.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Refreshed credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/types.ClaudeOAuthCredentials'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Update Claude credentials for a session
+      tags:
+      - Claude
   /api/v1/sessions/{id}/expose:
     get:
       description: Returns all ports currently exposed from the session's dev container
@@ -16032,6 +16198,11 @@ paths:
         description: Include archived tasks
         in: query
         name: include_archived
+        type: boolean
+      - default: false
+        description: Include depends on tasks
+        in: query
+        name: with_depends_on
         type: boolean
       - default: 50
         description: Limit number of results
