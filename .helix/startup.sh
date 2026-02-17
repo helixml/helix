@@ -9,6 +9,13 @@
 #
 # Prerequisites:
 # - Repos already cloned to ~/work/{helix,zed,qwen-code} by project setup
+#
+# REQUIRED OUTER ENVIRONMENT UPDATES:
+# For this script to work, the OUTER Helix must have:
+# 1. Docker-shim fix for Compose 5.0+ (helix/desktop/docker-shim/)
+# 2. Init script that adds retro to docker group (helix/desktop/ubuntu-config/cont-init.d/17-start-dockerd.sh)
+# 3. Updated desktop image built and deployed (./stack build-ubuntu)
+# Without these, builds will fail with "removed --set flag" or permission errors.
 
 set -xeuo pipefail
 
