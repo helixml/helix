@@ -1923,6 +1923,8 @@ export interface TypesCreateTaskRequest {
   branch_mode?: TypesBranchMode;
   /** For new mode: user-specified prefix (task# appended) */
   branch_prefix?: string;
+  /** Optional: IDs of tasks this task depends on */
+  depends_on?: string[];
   /** Optional: Skip spec planning, go straight to implementation */
   just_do_it_mode?: boolean;
   priority?: TypesSpecTaskPriority;
@@ -4558,6 +4560,8 @@ export enum TypesSpecTaskStatus {
 }
 
 export interface TypesSpecTaskUpdateRequest {
+  /** IDs of tasks this task depends on */
+  depends_on?: string[];
   description?: string;
   /** Agent to use for this task */
   helix_app_id?: string;

@@ -200,8 +200,7 @@ interface TaskCardProps {
   ) => Promise<void>;
   onTaskClick?: (task: SpecTaskWithExtras) => void;
   onReviewDocs?: (task: SpecTaskWithExtras) => void;
-  projectId?: string;
-  focusStartPlanning?: boolean;
+  projectId?: string;  
   isArchiving?: boolean;
   hasExternalRepo?: boolean;
   showMetrics?: boolean;
@@ -531,7 +530,6 @@ export default function TaskCard({
   onTaskClick,
   onReviewDocs,
   projectId,
-  focusStartPlanning = false,
   isArchiving = false,
   hasExternalRepo = false,
   showMetrics = true,
