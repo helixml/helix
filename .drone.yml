@@ -2491,8 +2491,9 @@ platform:
   os: darwin
   arch: arm64
 
-# Wait for ARM64 Docker images to be built before provisioning the VM
+# Wait for ARM64 Docker images and release artifacts before provisioning the VM
 depends_on:
+  - default
   - build-controlplane-arm64
   - build-haystack-arm64
   - build-typesense-arm64
