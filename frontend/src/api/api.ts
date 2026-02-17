@@ -571,10 +571,20 @@ export interface ServerAppCreateResponse {
   user?: TypesUser;
 }
 
+export interface ServerClaudeLoginSessionResponse {
+  session_id?: string;
+}
+
 export interface ServerClaudeModel {
   description?: string;
   id?: string;
   name?: string;
+}
+
+export interface ServerClaudePollLoginResponse {
+  /** Raw credentials JSON */
+  credentials?: string;
+  found?: boolean;
 }
 
 export interface ServerClientBufferStats {
@@ -3064,6 +3074,13 @@ export interface TypesOpenAIUsage {
   total_tokens?: number;
 }
 
+export interface TypesOrgDetails {
+  members?: TypesUser[];
+  organization?: TypesOrganization;
+  projects?: TypesProject[];
+  wallet?: TypesWallet;
+}
+
 export interface TypesOrganization {
   /**
    * AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members
@@ -3774,7 +3791,7 @@ export interface TypesSandboxInstance {
    * Desktop image versions available on this sandbox
    * Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
    */
-  desktop_versions?: number[];
+  desktop_versions?: Record<string, string>;
   /** GPU configuration */
   gpu_vendor?: string;
   /** Hostname for DNS resolution */
@@ -3853,12 +3870,15 @@ export interface TypesSecret {
 }
 
 export interface TypesServerConfigForFrontend {
+  active_concurrent_desktops?: number;
   apps_enabled?: boolean;
   auth_provider?: TypesAuthProvider;
   /** Charging for usage */
   billing_enabled?: boolean;
   deployment_id?: string;
   disable_llm_call_logging?: boolean;
+  /** "mac-desktop", "server", "cloud", etc. */
+  edition?: string;
   eval_user_id?: string;
   filestore_prefix?: string;
   google_analytics_frontend?: string;
@@ -4290,6 +4310,7 @@ export interface TypesSpecTask {
   created_at?: string;
   /** Metadata */
   created_by?: string;
+  depends_on?: TypesSpecTask[];
   description?: string;
   design_doc_path?: string;
   /** When design docs were pushed to helix-specs branch */
@@ -4574,6 +4595,7 @@ export interface TypesSpecTaskWithProject {
   created_at?: string;
   /** Metadata */
   created_by?: string;
+  depends_on?: TypesSpecTask[];
   description?: string;
   design_doc_path?: string;
   /** When design docs were pushed to helix-specs branch */
@@ -5536,6 +5558,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List all organizations
+     *
+     * @tags organizations
+     * @name V1AdminOrgsList
+     * @summary List organizations with wallets (admin only)
+     * @request GET:/api/v1/admin/orgs
+     * @secure
+     */
+    v1AdminOrgsList: (params: RequestParams = {}) =>
+      this.request<TypesOrgDetails[], any>({
+        path: `/api/v1/admin/orgs`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Permanently delete a user and all associated data. Only admins can use this endpoint.
      *
      * @tags users
@@ -6435,6 +6474,42 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<ServerClaudeModel[], any>({
         path: `/api/v1/claude-subscriptions/models`,
         method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Check if Claude credentials file has been written inside the desktop container
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsPollLoginDetail
+     * @summary Poll for Claude login credentials
+     * @request GET:/api/v1/claude-subscriptions/poll-login/{sessionId}
+     * @secure
+     */
+    v1ClaudeSubscriptionsPollLoginDetail: (sessionId: string, params: RequestParams = {}) =>
+      this.request<ServerClaudePollLoginResponse, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/poll-login/${sessionId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Launch a temporary desktop session for interactive Claude OAuth login
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsStartLoginCreate
+     * @summary Start a Claude login session
+     * @request POST:/api/v1/claude-subscriptions/start-login
+     * @secure
+     */
+    v1ClaudeSubscriptionsStartLoginCreate: (params: RequestParams = {}) =>
+      this.request<ServerClaudeLoginSessionResponse, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/start-login`,
+        method: "POST",
         secure: true,
         format: "json",
         ...params,
@@ -10270,6 +10345,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Push refreshed Claude OAuth credentials back to the API (e.g. after Claude Code refreshes its token). Only accepts runner/session-scoped tokens.
+     *
+     * @tags Claude
+     * @name V1SessionsClaudeCredentialsUpdate
+     * @summary Update Claude credentials for a session
+     * @request PUT:/api/v1/sessions/{id}/claude-credentials
+     * @secure
+     */
+    v1SessionsClaudeCredentialsUpdate: (id: string, body: TypesClaudeOAuthCredentials, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/claude-credentials`,
+        method: "PUT",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Returns all ports currently exposed from the session's dev container
      *
      * @tags sessions
@@ -10737,6 +10832,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
          * @default false
          */
         include_archived?: boolean;
+        /**
+         * Include depends on tasks
+         * @default false
+         */
+        with_depends_on?: boolean;
         /**
          * Limit number of results
          * @default 50
