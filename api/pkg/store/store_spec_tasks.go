@@ -149,43 +149,45 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	db := s.gdb.WithContext(ctx)
 
 	// Apply filters using GORM query builder
-	if filters != nil {
-		if filters.ProjectID != "" {
-			db = db.Where("project_id = ?", filters.ProjectID)
-		}
-		if filters.Status != "" {
-			db = db.Where("status = ?", filters.Status)
-		}
-		if filters.UserID != "" {
-			db = db.Where("created_by = ?", filters.UserID)
-		}
-		if filters.Type != "" {
-			db = db.Where("type = ?", filters.Type)
-		}
-		if filters.Priority != "" {
-			db = db.Where("priority = ?", filters.Priority)
-		}
-		// Archive filtering logic
-		if filters.ArchivedOnly {
-			db = db.Where("archived = ?", true)
-		} else if !filters.IncludeArchived {
-			db = db.Where("archived = ? OR archived IS NULL", false)
-		}
-		// DesignDocPath filter - used for matching pushed design doc directories to tasks
-		if filters.DesignDocPath != "" {
-			db = db.Where("design_doc_path = ?", filters.DesignDocPath)
-		}
-		// BranchName filter - used for uniqueness check across projects
-		if filters.BranchName != "" {
-			db = db.Where("branch_name = ?", filters.BranchName)
-		}
 
-		if filters.Limit > 0 {
-			db = db.Limit(filters.Limit)
-		}
-		if filters.Offset > 0 {
-			db = db.Offset(filters.Offset)
-		}
+	if filters.WithDependsOn {
+		db = db.Preload("DependsOn")
+	}
+	if filters.ProjectID != "" {
+		db = db.Where("project_id = ?", filters.ProjectID)
+	}
+	if filters.Status != "" {
+		db = db.Where("status = ?", filters.Status)
+	}
+	if filters.UserID != "" {
+		db = db.Where("created_by = ?", filters.UserID)
+	}
+	if filters.Type != "" {
+		db = db.Where("type = ?", filters.Type)
+	}
+	if filters.Priority != "" {
+		db = db.Where("priority = ?", filters.Priority)
+	}
+	// Archive filtering logic
+	if filters.ArchivedOnly {
+		db = db.Where("archived = ?", true)
+	} else if !filters.IncludeArchived {
+		db = db.Where("archived = ? OR archived IS NULL", false)
+	}
+	// DesignDocPath filter - used for matching pushed design doc directories to tasks
+	if filters.DesignDocPath != "" {
+		db = db.Where("design_doc_path = ?", filters.DesignDocPath)
+	}
+	// BranchName filter - used for uniqueness check across projects
+	if filters.BranchName != "" {
+		db = db.Where("branch_name = ?", filters.BranchName)
+	}
+
+	if filters.Limit > 0 {
+		db = db.Limit(filters.Limit)
+	}
+	if filters.Offset > 0 {
+		db = db.Offset(filters.Offset)
 	}
 
 	err := db.Order("created_at DESC").Find(&tasks).Error

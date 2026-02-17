@@ -177,6 +177,77 @@ func (suite *WalletTestSuite) TestGetWalletByOrg_EmptyOrgID() {
 	suite.Contains(err.Error(), "org_id not specified")
 }
 
+func (suite *WalletTestSuite) TestListWallets_ByUserOwnerIDs() {
+	userID1 := system.GenerateID()
+	userID2 := system.GenerateID()
+	userID3 := system.GenerateID()
+
+	_, err := suite.db.CreateWallet(suite.ctx, &types.Wallet{UserID: userID1, Balance: 10})
+	suite.NoError(err)
+	_, err = suite.db.CreateWallet(suite.ctx, &types.Wallet{UserID: userID2, Balance: 20})
+	suite.NoError(err)
+	_, err = suite.db.CreateWallet(suite.ctx, &types.Wallet{UserID: userID3, Balance: 30})
+	suite.NoError(err)
+	_, err = suite.db.CreateWallet(suite.ctx, &types.Wallet{OrgID: system.GenerateID(), Balance: 40})
+	suite.NoError(err)
+
+	wallets, err := suite.db.ListWallets(suite.ctx, &ListWalletsQuery{
+		OwnerIDs:  []string{userID1, userID3},
+		OwnerType: types.OwnerTypeUser,
+	})
+	suite.NoError(err)
+	suite.Len(wallets, 2)
+
+	var returnedUserIDs []string
+	for _, wallet := range wallets {
+		returnedUserIDs = append(returnedUserIDs, wallet.UserID)
+	}
+	suite.ElementsMatch([]string{userID1, userID3}, returnedUserIDs)
+}
+
+func (suite *WalletTestSuite) TestListWallets_ByOrgOwnerIDs() {
+	orgID1 := system.GenerateID()
+	orgID2 := system.GenerateID()
+
+	_, err := suite.db.CreateWallet(suite.ctx, &types.Wallet{OrgID: orgID1, Balance: 10})
+	suite.NoError(err)
+	_, err = suite.db.CreateWallet(suite.ctx, &types.Wallet{OrgID: orgID2, Balance: 20})
+	suite.NoError(err)
+	_, err = suite.db.CreateWallet(suite.ctx, &types.Wallet{UserID: system.GenerateID(), Balance: 30})
+	suite.NoError(err)
+
+	wallets, err := suite.db.ListWallets(suite.ctx, &ListWalletsQuery{
+		OwnerIDs:  []string{orgID2},
+		OwnerType: types.OwnerTypeOrg,
+	})
+	suite.NoError(err)
+	suite.Len(wallets, 1)
+	suite.Equal(orgID2, wallets[0].OrgID)
+}
+
+func (suite *WalletTestSuite) TestListWallets_EmptyOwnerIDs() {
+	_, err := suite.db.ListWallets(suite.ctx, &ListWalletsQuery{
+		OwnerType: types.OwnerTypeUser,
+	})
+	suite.Error(err)
+	suite.Contains(err.Error(), "owner_ids not specified")
+}
+
+func (suite *WalletTestSuite) TestListWallets_InvalidOwnerType() {
+	_, err := suite.db.ListWallets(suite.ctx, &ListWalletsQuery{
+		OwnerIDs:  []string{system.GenerateID()},
+		OwnerType: types.OwnerTypeRunner,
+	})
+	suite.Error(err)
+	suite.Contains(err.Error(), "owner_type must be")
+}
+
+func (suite *WalletTestSuite) TestListWallets_NilQuery() {
+	_, err := suite.db.ListWallets(suite.ctx, nil)
+	suite.Error(err)
+	suite.Contains(err.Error(), "query not specified")
+}
+
 func (suite *WalletTestSuite) TestUpdateWallet() {
 	userID := system.GenerateID()
 	wallet := &types.Wallet{
