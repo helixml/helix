@@ -941,6 +941,7 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 			// long before sshd is running inside the guest.
 			if !sshReady {
 				sshArgs := []string{
+					"-F", "/dev/null", // Don't read ~/.ssh/config (triggers macOS TCC dialog)
 					"-o", "StrictHostKeyChecking=no",
 					"-o", "UserKnownHostsFile=/dev/null",
 					"-o", "ConnectTimeout=2",
@@ -1144,6 +1145,7 @@ func (vm *VMManager) checkSandboxReady() bool {
 // (e.g., docker compose image pulls) under I/O pressure.
 func (vm *VMManager) sshCommand(script string) *exec.Cmd {
 	args := []string{
+		"-F", "/dev/null", // Don't read ~/.ssh/config (triggers macOS TCC dialog)
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=5",
