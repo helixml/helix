@@ -603,6 +603,22 @@ RUN apt-get update \
     && apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
+# NVIDIA Container Toolkit (for amd64 only - enables GPU passthrough in inner containers)
+# This allows the desktop's dockerd to run containers with --runtime=nvidia
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "amd64" ]; then \
+        echo "=== Installing NVIDIA Container Toolkit for amd64 ===" && \
+        curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg && \
+        curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+            sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+            tee /etc/apt/sources.list.d/nvidia-container-toolkit.list && \
+        apt-get update -y && \
+        apt-get install -y --no-install-recommends nvidia-container-toolkit nvidia-container-runtime && \
+        rm -rf /var/lib/apt/lists/*; \
+    else \
+        echo "=== arm64: Skipping NVIDIA Container Toolkit (not needed on macOS/ARM) ==="; \
+    fi
+
 # Kind (Kubernetes in Docker) + kubectl
 # Enables creating local Kubernetes clusters inside the desktop container
 RUN curl -Lo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64 \
