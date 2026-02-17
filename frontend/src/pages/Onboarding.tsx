@@ -642,10 +642,15 @@ export default function Onboarding() {
     }
   }, [taskPrompt, createdProjectId, createdAgentId, api, markComplete, snackbar, handleComplete])
 
-  const handleDismiss = useCallback(() => {
+  const handleDismiss = useCallback(async () => {
     account.dismissOnboarding()
+    try {
+      await api.getApiClient().v1UsersMeOnboardingCreate()
+    } catch (err) {
+      console.error('Failed to mark onboarding complete on dismiss:', err)
+    }
     router.navigateReplace('projects')
-  }, [router])
+  }, [api, router])
 
   const userName = account.user?.name?.split(' ')[0] || account.user?.email?.split('@')[0] || 'there'
 

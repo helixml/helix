@@ -72,12 +72,28 @@ func validateImageVersion(image string) error {
 	return nil
 }
 
+// imageTag extracts the tag from a Docker image reference (e.g., "abc123" from "helix-sway:abc123").
+// Returns empty string if no tag is present.
+func imageTag(image string) string {
+	if idx := strings.LastIndex(image, ":"); idx != -1 {
+		return image[idx+1:]
+	}
+	return ""
+}
+
 // resolveRegistryImage checks if a registry-based image ref exists for the given image.
 // When sandbox pulls images from registry, it writes .runtime-ref files containing
 // the full registry path (e.g., "registry.helixml.tech/helix/helix-sway:v1.2.3").
 // This function returns the registry ref if available, otherwise returns the original image.
 func resolveRegistryImage(image string) string {
-	// Extract image name without tag (e.g., "helix-sway" from "helix-sway:abc123")
+	return resolveRegistryImageWithBase(image, "/opt/images")
+}
+
+// resolveRegistryImageWithBase is the testable implementation of resolveRegistryImage.
+func resolveRegistryImageWithBase(image string, baseDir string) string {
+	requestedTag := imageTag(image)
+
+	// Extract image name without tag
 	imageName := image
 	if idx := strings.LastIndex(image, ":"); idx != -1 {
 		imageName = image[:idx]
@@ -88,18 +104,38 @@ func resolveRegistryImage(image string) string {
 		return image
 	}
 
-	// Check for registry ref file (written by sandbox startup when pulling from registry)
-	runtimeRefFile := fmt.Sprintf("/opt/images/%s.runtime-ref", imageName)
-	if runtimeRef, err := os.ReadFile(runtimeRefFile); err == nil {
-		ref := strings.TrimSpace(string(runtimeRef))
-		if ref != "" {
-			log.Info().Str("original", image).Str("resolved", ref).Msg("Resolved image from registry ref")
-			return ref
-		}
+	// Reject tagless images — caller should always provide a versioned ref
+	if requestedTag == "" {
+		return image
 	}
 
-	// No registry ref, use original image name (tarball mode)
-	return image
+	// Check for registry ref file (written by sandbox startup when pulling from registry)
+	runtimeRefFile := filepath.Join(baseDir, imageName+".runtime-ref")
+	runtimeRef, err := os.ReadFile(runtimeRefFile)
+	if err != nil {
+		return image
+	}
+
+	ref := strings.TrimSpace(string(runtimeRef))
+	if ref == "" {
+		return image
+	}
+
+	// Verify the registry ref's tag matches the requested version.
+	// A stale runtime-ref (from a previous build) would resolve to an old image.
+	refTag := imageTag(ref)
+	if refTag == "" || refTag != requestedTag {
+		log.Warn().
+			Str("original", image).
+			Str("registry_ref", ref).
+			Str("requested_tag", requestedTag).
+			Str("ref_tag", refTag).
+			Msg("Stale runtime-ref: version mismatch, using local image instead")
+		return image
+	}
+
+	log.Info().Str("original", image).Str("resolved", ref).Msg("Resolved image from registry ref")
+	return ref
 }
 
 // CreateDevContainer creates and starts a dev container
