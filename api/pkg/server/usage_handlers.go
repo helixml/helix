@@ -112,17 +112,7 @@ func (s *HelixAPIServer) getUsage(_ http.ResponseWriter, r *http.Request) ([]*ty
 func (s *HelixAPIServer) getSpecTaskUsage(_ http.ResponseWriter, r *http.Request) ([]*types.AggregatedUsageMetric, *system.HTTPError) {
 	user := getRequestUser(r)
 
-	// from := time.Now().Add(-time.Hour * 24 * 7) // Last 7 days
-	// to := time.Now()
 	specTaskID := getID(r)
-
-	aggregationLevel := store.AggregationLevelHourly
-	switch r.URL.Query().Get("aggregation_level") {
-	case "daily":
-		aggregationLevel = store.AggregationLevelDaily
-	case "5min":
-		aggregationLevel = store.AggregationLevel5Min
-	}
 
 	if user == nil {
 		return nil, system.NewHTTPError401("user not found")
@@ -147,7 +137,6 @@ func (s *HelixAPIServer) getSpecTaskUsage(_ http.ResponseWriter, r *http.Request
 			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse from date: %s", err))
 		}
 	} else {
-
 		switch {
 		case specTask.PlanningStartedAt != nil:
 			from = *specTask.PlanningStartedAt
@@ -173,6 +162,10 @@ func (s *HelixAPIServer) getSpecTaskUsage(_ http.ResponseWriter, r *http.Request
 		to = time.Now()
 	}
 
+	// Auto-select aggregation level based on time range to keep data points between 20-50
+	// This prevents huge payloads for long-running tasks (e.g., 7-day task at 5min = 2016 points)
+	aggregationLevel := selectAggregationLevel(from, to)
+
 	metrics, err := s.Store.GetAggregatedUsageMetrics(r.Context(), &store.GetAggregatedUsageMetricsQuery{
 		AggregationLevel: aggregationLevel,
 		UserID:           user.ID,
@@ -186,4 +179,28 @@ func (s *HelixAPIServer) getSpecTaskUsage(_ http.ResponseWriter, r *http.Request
 	}
 
 	return metrics, nil
+}
+
+// selectAggregationLevel picks the finest granularity that keeps data points between minPoints and maxPoints
+func selectAggregationLevel(from, to time.Time) store.AggregationLevel {
+	const minPoints = 20
+	const maxPoints = 50
+
+	duration := to.Sub(from)
+	pointsAt5Min := int(duration.Minutes() / 5)
+	pointsAtHourly := int(duration.Hours())
+
+	// Start with finest granularity and coarsen if too many points
+	if pointsAt5Min <= maxPoints {
+		return store.AggregationLevel5Min
+	}
+	if pointsAtHourly >= minPoints && pointsAtHourly <= maxPoints {
+		return store.AggregationLevelHourly
+	}
+	if pointsAtHourly > maxPoints {
+		return store.AggregationLevelDaily
+	}
+	// pointsAtHourly < minPoints but pointsAt5Min > maxPoints
+	// Use hourly anyway (slightly sparse is better than 1000+ points)
+	return store.AggregationLevelHourly
 }
