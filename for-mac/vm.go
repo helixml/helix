@@ -153,6 +153,9 @@ type VMManager struct {
 	// Set by startHelixStack(): "docker-compose.dev.yaml" (dev/build-from-source)
 	// or "docker-compose.yaml" (prod/install.sh with pre-built images).
 	composeFile string
+	// SSH keypair paths for cloud-init key injection (generated per-installation)
+	sshPrivKeyPath string
+	sshPubKeyPath  string
 }
 
 // getSpiceSocketPath returns the path for the SPICE Unix socket
@@ -262,6 +265,99 @@ func (vm *VMManager) getVMImagePath() string {
 // getZFSDiskPath returns the path to the ZFS data disk
 func (vm *VMManager) getZFSDiskPath() string {
 	return filepath.Join(vm.getVMDir(), "zfs-data.qcow2")
+}
+
+// ensureSSHKeypair generates an ed25519 SSH keypair at
+// ~/Library/Application Support/Helix/ssh/helix_ed25519 if it doesn't exist.
+// Returns the private and public key paths.
+func (vm *VMManager) ensureSSHKeypair() (string, string, error) {
+	sshDir := filepath.Join(getHelixDataDir(), "ssh")
+	privKey := filepath.Join(sshDir, "helix_ed25519")
+	pubKey := privKey + ".pub"
+
+	if _, err := os.Stat(privKey); err == nil {
+		return privKey, pubKey, nil
+	}
+
+	if err := os.MkdirAll(sshDir, 0700); err != nil {
+		return "", "", fmt.Errorf("failed to create SSH directory: %w", err)
+	}
+
+	log.Printf("Generating SSH keypair at %s", privKey)
+	cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-f", privKey, "-N", "", "-C", "helix-desktop")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", "", fmt.Errorf("ssh-keygen failed: %w", err)
+	}
+
+	return privKey, pubKey, nil
+}
+
+// ensureCloudInitSeed creates a cloud-init NoCloud seed ISO at <vmDir>/seed.iso
+// containing the SSH public key. Uses hdiutil (macOS native) to create a hybrid
+// ISO with the CIDATA volume label. Recreates the ISO if the public key changes.
+func (vm *VMManager) ensureCloudInitSeed(vmDir, pubKeyPath string) error {
+	seedISO := filepath.Join(vmDir, "seed.iso")
+
+	pubKeyData, err := os.ReadFile(pubKeyPath)
+	if err != nil {
+		return fmt.Errorf("failed to read public key: %w", err)
+	}
+	pubKeyStr := strings.TrimSpace(string(pubKeyData))
+
+	// Check if seed ISO already exists with the correct key
+	markerFile := filepath.Join(vmDir, ".seed-pubkey")
+	if _, err := os.Stat(seedISO); err == nil {
+		if existing, err := os.ReadFile(markerFile); err == nil {
+			if strings.TrimSpace(string(existing)) == pubKeyStr {
+				return nil // ISO already up to date
+			}
+		}
+	}
+
+	log.Printf("Creating cloud-init seed ISO at %s", seedISO)
+
+	// Create temporary staging directory
+	stagingDir, err := os.MkdirTemp("", "helix-cloudinit-")
+	if err != nil {
+		return fmt.Errorf("failed to create staging dir: %w", err)
+	}
+	defer os.RemoveAll(stagingDir)
+
+	// Write user-data (minimal — only SSH key injection)
+	userData := fmt.Sprintf(`#cloud-config
+ssh_authorized_keys:
+  - %s
+`, pubKeyStr)
+	if err := os.WriteFile(filepath.Join(stagingDir, "user-data"), []byte(userData), 0644); err != nil {
+		return fmt.Errorf("failed to write user-data: %w", err)
+	}
+
+	// Write meta-data with a unique instance-id so cloud-init runs on each new key
+	metaData := fmt.Sprintf("instance-id: helix-%d\nlocal-hostname: helix-vm\n", time.Now().UnixNano())
+	if err := os.WriteFile(filepath.Join(stagingDir, "meta-data"), []byte(metaData), 0644); err != nil {
+		return fmt.Errorf("failed to write meta-data: %w", err)
+	}
+
+	// Create ISO using hdiutil (macOS native, no external dependencies)
+	os.Remove(seedISO) // remove old ISO if it exists
+	cmd := exec.Command("hdiutil", "makehybrid",
+		"-iso", "-joliet",
+		"-default-volume-name", "cidata",
+		"-o", seedISO,
+		stagingDir)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("hdiutil makehybrid failed: %w", err)
+	}
+
+	// Save marker so we know which key the ISO contains
+	os.WriteFile(markerFile, []byte(pubKeyStr), 0644)
+
+	log.Printf("Cloud-init seed ISO created")
+	return nil
 }
 
 // ensureVMExtracted checks if VM disk images exist in the writable location.
@@ -547,6 +643,20 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	imagePath := vm.getVMImagePath()
 	zfsDiskPath := vm.getZFSDiskPath()
 
+	// Generate SSH keypair (per-installation) and cloud-init seed ISO
+	privKey, pubKey, err := vm.ensureSSHKeypair()
+	if err != nil {
+		vm.setError(fmt.Errorf("failed to generate SSH keypair: %w", err))
+		return
+	}
+	vm.sshPrivKeyPath = privKey
+	vm.sshPubKeyPath = pubKey
+
+	if err := vm.ensureCloudInitSeed(vmDir, pubKey); err != nil {
+		vm.setError(fmt.Errorf("failed to create cloud-init seed: %w", err))
+		return
+	}
+
 	// Find EFI firmware (bundled in app or Homebrew)
 	efiCode := vm.findFirmware("edk2-aarch64-code.fd")
 	if efiCode == "" {
@@ -608,6 +718,15 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	if _, err := os.Stat(zfsDiskPath); err == nil {
 		args = append(args,
 			"-drive", fmt.Sprintf("file=%s,format=qcow2,if=virtio", zfsDiskPath),
+		)
+	}
+
+	// Attach cloud-init seed ISO for SSH key injection (NoCloud datasource)
+	seedISO := filepath.Join(vmDir, "seed.iso")
+	if _, err := os.Stat(seedISO); err == nil {
+		args = append(args,
+			"-drive", fmt.Sprintf("file=%s,format=raw,if=virtio,readonly=on", seedISO),
+			"-smbios", "type=1,serial=ds=nocloud",
 		)
 	}
 
@@ -795,14 +914,16 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 			// because QEMU opens the host-side port forwarding immediately,
 			// long before sshd is running inside the guest.
 			if !sshReady {
-				cmd := exec.Command("ssh",
+				sshArgs := []string{
 					"-o", "StrictHostKeyChecking=no",
 					"-o", "UserKnownHostsFile=/dev/null",
 					"-o", "ConnectTimeout=2",
-					"-p", fmt.Sprintf("%d", vm.config.SSHPort),
-					"ubuntu@localhost",
-					"echo ready",
-				)
+				}
+				if vm.sshPrivKeyPath != "" {
+					sshArgs = append(sshArgs, "-i", vm.sshPrivKeyPath, "-o", "IdentitiesOnly=yes")
+				}
+				sshArgs = append(sshArgs, "-p", fmt.Sprintf("%d", vm.config.SSHPort), "ubuntu@localhost", "echo ready")
+				cmd := exec.Command("ssh", sshArgs...)
 				if out, err := cmd.CombinedOutput(); err == nil && strings.Contains(string(out), "ready") {
 					sshReady = true
 					log.Printf("VM SSH is ready")
@@ -986,16 +1107,18 @@ func (vm *VMManager) checkSandboxReady() bool {
 // Uses generous keepalive settings to avoid killing long-running operations
 // (e.g., docker compose image pulls) under I/O pressure.
 func (vm *VMManager) sshCommand(script string) *exec.Cmd {
-	return exec.Command("ssh",
+	args := []string{
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=5",
 		"-o", "ServerAliveInterval=30",
 		"-o", "ServerAliveCountMax=6",
-		"-p", fmt.Sprintf("%d", vm.config.SSHPort),
-		"ubuntu@localhost",
-		script,
-	)
+	}
+	if vm.sshPrivKeyPath != "" {
+		args = append(args, "-i", vm.sshPrivKeyPath, "-o", "IdentitiesOnly=yes")
+	}
+	args = append(args, "-p", fmt.Sprintf("%d", vm.config.SSHPort), "ubuntu@localhost", script)
+	return exec.Command("ssh", args...)
 }
 
 // ensureDockerRunning starts Docker if it isn't already running.
