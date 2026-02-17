@@ -687,6 +687,7 @@ export default function TaskCard({
             justifyContent: "space-between",
             alignItems: "flex-start",
             mb: 1,
+            minWidth: 0,
           }}
         >
           <Typography
@@ -694,8 +695,10 @@ export default function TaskCard({
             sx={{
               fontWeight: 500,
               flex: 1,
+              minWidth: 0,
               lineHeight: 1.4,
               color: "text.primary",
+              wordBreak: "break-word",
             }}
           >
             {task.name}
@@ -711,6 +714,7 @@ export default function TaskCard({
               height: 24,
               color: "text.secondary",
               ml: 0.5,
+              flexShrink: 0,
               "&:hover": {
                 color: "text.primary",
                 backgroundColor: "rgba(0, 0, 0, 0.04)",
