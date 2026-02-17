@@ -673,7 +673,8 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 			switch {
 			case err.Error() == "failed to update spec task: task cannot depend on itself",
 				err.Error() == "failed to update spec task: depends on task not found",
-				err.Error() == "failed to update spec task: depends on task must be in same project":
+				err.Error() == "failed to update spec task: depends on task must be in same project",
+				err.Error() == "failed to update spec task: circular dependency detected":
 				http.Error(w, strings.TrimPrefix(err.Error(), "failed to update spec task: "), http.StatusBadRequest)
 				return
 			}

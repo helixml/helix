@@ -18648,6 +18648,13 @@ const docTemplate = `{
                     "description": "For new mode: user-specified prefix (task# appended)",
                     "type": "string"
                 },
+                "depends_on": {
+                    "description": "Optional: IDs of tasks this task depends on",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "just_do_it_mode": {
                     "description": "Optional: Skip spec planning, go straight to implementation",
                     "type": "boolean"
@@ -24936,6 +24943,13 @@ const docTemplate = `{
         "types.SpecTaskUpdateRequest": {
             "type": "object",
             "properties": {
+                "depends_on": {
+                    "description": "IDs of tasks this task depends on",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "description": {
                     "type": "string"
                 },
