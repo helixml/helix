@@ -1494,6 +1494,32 @@ if ! grep -q '^HELIX_EDITION=' "$ENV_FILE" 2>/dev/null; then
     CHANGED=1
 fi
 
+# GPU vendor — sandbox.sh and Hydra use this to configure the video pipeline.
+# On macOS ARM VMs the GPU is virtio-gpu (QEMU VideoToolbox scanout encoding).
+if grep -q '^GPU_VENDOR=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^GPU_VENDOR=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "virtio" ]; then
+        sed -i "s|^GPU_VENDOR=.*|GPU_VENDOR=virtio|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo 'GPU_VENDOR=virtio' >> "$ENV_FILE"
+    CHANGED=1
+fi
+
+# Sandbox Docker storage — use bind mount path on root disk so pre-baked
+# desktop images survive the ZFS mount over /var/lib/docker/volumes/.
+if grep -q '^SANDBOX_DOCKER_VOLUME=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^SANDBOX_DOCKER_VOLUME=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "/var/lib/helix-sandbox-docker" ]; then
+        sed -i "s|^SANDBOX_DOCKER_VOLUME=.*|SANDBOX_DOCKER_VOLUME=/var/lib/helix-sandbox-docker|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo 'SANDBOX_DOCKER_VOLUME=/var/lib/helix-sandbox-docker' >> "$ENV_FILE"
+    CHANGED=1
+fi
+
 # Container Docker storage — Hydra bind-mounts this into desktop containers for their
 # inner dockerd and BuildKit state. The sandbox's own Docker uses a named volume on
 # the root disk so desktop images from provisioning persist without transfer.
