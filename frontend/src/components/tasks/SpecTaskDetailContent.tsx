@@ -959,7 +959,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       <Divider sx={{ my: 2 }} />
 
       {/* Priority */}
-      <Box sx={{ mb: 2 }}>
+      <Box sx={{ mb: 4 }}>
         {isEditMode ? (
           <FormControl fullWidth size="small">
             <InputLabel>Priority</InputLabel>
@@ -1001,7 +1001,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         )}
       </Box>
 
-      <Box sx={{ mb: 2 }}>
+      <Box sx={{ mb: 4 }}>
         {isEditMode ? (
           <Autocomplete
             multiple
@@ -1068,7 +1068,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               </Box>
             ) : (
               <Typography variant="body2" color="text.secondary">
-                None
+                No task dependencies
               </Typography>
             )}
           </>
@@ -1076,7 +1076,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       </Box>
 
       {isEditMode && (
-        <Box sx={{ mb: 2 }}>
+        <Box sx={{ mb: 4 }}>
           <FormControlLabel
             control={
               <Checkbox
