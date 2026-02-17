@@ -415,12 +415,13 @@ fi
 
 # Custom prompt: Extract task number from HELIX_SPEC_DIR_NAME
 # Format: HELIX_SPEC_DIR_NAME=001036_we-badly-need-to -> task-001036
+# Helix brand colors: purple/magenta for task, cyan for path
 if [ -n "$HELIX_SPEC_DIR_NAME" ]; then
     TASK_NUM=$(echo "$HELIX_SPEC_DIR_NAME" | cut -d_ -f1)
-    PS1='\[\033[01;32m\]task-${TASK_NUM}\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+    PS1='[\[\033[01;35m\]task-${TASK_NUM}\[\033[00m\]] \[\033[01;36m\]\w\[\033[00m\] \[\033[01;35m\]❯\[\033[00m\] '
 else
     # Fallback to hostname if HELIX_SPEC_DIR_NAME not set
-    PS1='\[\033[01;32m\]\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+    PS1='[\[\033[01;35m\]\h\[\033[00m\]] \[\033[01;36m\]\w\[\033[00m\] \[\033[01;35m\]❯\[\033[00m\] '
 fi
 
 # Enable bash completion
