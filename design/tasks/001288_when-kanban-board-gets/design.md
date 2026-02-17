@@ -12,6 +12,7 @@ SpecTaskKanbanBoard
 │   └── TaskCard (N tasks, ALL rendered)
 │       ├── useTaskProgress() - polls every 5s
 │       ├── useAgentActivityCheck() - state tracking
+│       ├── UsagePulseChart - polls every 60s, returns HUGE payloads
 │       └── LiveAgentScreenshot (if active)
 │           └── ExternalAgentDesktopViewer
 │               └── useSandboxState() - polls every 3s
@@ -23,7 +24,35 @@ With 50 tasks across columns:
 - Up to 50 concurrent polling intervals
 - Screenshot fetching/decoding on main thread
 
-## Solution: Virtualization + Conditional Polling
+### Usage Data Explosion (Major Issue)
+
+`UsagePulseChart` calls `/api/v1/spec-tasks/{taskId}/usage` with `aggregationLevel: '5min'`.
+
+**Problem**: The `from` time defaults to `specTask.PlanningStartedAt` or `specTask.CreatedAt`:
+
+```go
+// usage_handlers.go L150-160
+switch {
+case specTask.PlanningStartedAt != nil:
+    from = *specTask.PlanningStartedAt
+case specTask.StartedAt != nil:
+    from = *specTask.StartedAt
+default:
+    from = specTask.CreatedAt
+}
+```
+
+Then `fillInMissing5Minutes()` fills EVERY 5-minute bucket with a data point:
+
+| Task Age | Data Points | Approx JSON Size |
+|----------|-------------|------------------|
+| 1 day    | 288         | ~30 KB           |
+| 7 days   | 2,016       | ~200 KB          |
+| 30 days  | 8,640       | ~860 KB          |
+
+With 20 long-running tasks visible, each polling every 60s = **17 MB/minute** of usage data.
+
+## Solution: Virtualization + Conditional Polling + Server-Side Quantization
 
 ### 1. Virtualize Column Content
 
@@ -81,6 +110,28 @@ When multiple cards are visible, stagger screenshot fetches:
 const effectiveInterval = isStreaming ? 10000 : refreshInterval;
 ```
 
+### 5. Server-Side Usage Data Quantization (Critical)
+
+Limit the usage endpoint to return max ~50 data points for the chart:
+
+```go
+// usage_handlers.go - add after determining from/to
+maxPoints := 50
+duration := to.Sub(from)
+pointsAt5Min := int(duration.Minutes() / 5)
+
+// Auto-select aggregation level based on time range
+if pointsAt5Min > maxPoints {
+    if int(duration.Hours()) <= maxPoints {
+        aggregationLevel = AggregationLevelHourly
+    } else {
+        aggregationLevel = AggregationLevelDaily
+    }
+}
+```
+
+Also add a `LIMIT` clause to `fillInMissing*` functions to cap output.
+
 ## Key Decisions
 
 | Decision | Rationale |
@@ -95,6 +146,8 @@ const effectiveInterval = isStreaming ? 10000 : refreshInterval;
 1. `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx` - Add virtualization to DroppableColumn
 2. `frontend/src/components/tasks/TaskCard.tsx` - Memoize, add `isVisible` prop
 3. `frontend/package.json` - Add `react-window` dependency
+4. `api/pkg/server/usage_handlers.go` - Auto-select aggregation level, cap max points
+5. `api/pkg/store/store_usage_metrics.go` - Add limit to fillInMissing* functions
 
 ## Testing
 

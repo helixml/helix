@@ -17,6 +17,7 @@ When the Kanban board has many tasks (20+), the UI becomes unusably slow. Scroll
 3. **Multiple polling intervals** - Each task has its own `refetchInterval` (progress: 5s, screenshots: 1.7s)
 4. **Screenshot polling per card** - `LiveAgentScreenshot` polls every 1.7s per task in "planning" or "implementation" phase
 5. **Heavy card content** - Cards include `ExternalAgentDesktopViewer` which loads screenshots
+6. **Usage data explosion** - `UsagePulseChart` fetches token usage at 5-min granularity from task creation date. A 7-day-old task returns 2,016 data points (~200KB). Server fills ALL 5-min buckets with `fillInMissing5Minutes()`.
 
 ## Acceptance Criteria
 
@@ -25,3 +26,4 @@ When the Kanban board has many tasks (20+), the UI becomes unusably slow. Scroll
 - [ ] No screenshot polling for off-screen cards
 - [ ] Memory usage stays stable (no leaks from polling)
 - [ ] Task click response < 100ms
+- [ ] Usage endpoint returns ≤50 data points regardless of task age
