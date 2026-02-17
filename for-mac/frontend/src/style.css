@@ -184,6 +184,30 @@ body {
     font-size: 12px;
 }
 
+/* ---- Discord Link (titlebar) ---- */
+
+.discord-link {
+    --wails-draggable: no-drag;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.discord-link:hover {
+    border-color: rgba(88, 101, 242, 0.5);
+    background: rgba(88, 101, 242, 0.12);
+    color: #7289da;
+}
+
 /* ---- Trial Badge (titlebar) ---- */
 
 .trial-badge-titlebar {
@@ -925,6 +949,11 @@ body {
 .license-link:hover {
     color: var(--text-primary);
     text-decoration: underline;
+}
+
+.license-links-sep {
+    color: var(--text-faded);
+    margin: 0 6px;
 }
 
 /* ---- Settings Panel (slide-over) ---- */
