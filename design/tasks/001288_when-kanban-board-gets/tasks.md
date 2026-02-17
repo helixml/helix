@@ -10,7 +10,7 @@
 
 ## Phase 2: Memoization (Quick Wins)
 
-- [ ] Wrap `TaskCard` component with `React.memo()` and custom comparison function
+- [~] Wrap `TaskCard` component with `React.memo()` and custom comparison function
 - [ ] Add `isVisible` prop to `TaskCard` interface
 - [ ] Disable `useTaskProgress` polling when `isVisible=false`
 - [ ] Disable `useSandboxState` polling in `ExternalAgentDesktopViewer` when parent not visible
