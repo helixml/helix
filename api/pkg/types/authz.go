@@ -401,3 +401,10 @@ type CreateTeamRequest struct {
 type UpdateTeamRequest struct {
 	Name string `json:"name"`
 }
+
+type OrgDetails struct {
+	Organization Organization `json:"organization"`
+	Wallet       Wallet       `json:"wallet"`
+	Members      []User       `json:"members"`
+	Projects     []Project    `json:"projects"`
+}
