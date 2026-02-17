@@ -385,6 +385,7 @@ codesign --force --sign - --timestamp=none \
     "$MACOS_DIR/qemu-system-aarch64" 2>/dev/null || true
 if [ -f "$MACOS_DIR/qemu-img" ]; then
     codesign --force --sign - --timestamp=none \
+        --entitlements "$APP_ENTITLEMENTS" \
         "$MACOS_DIR/qemu-img" 2>/dev/null || true
 fi
 
