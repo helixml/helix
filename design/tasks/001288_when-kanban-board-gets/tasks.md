@@ -4,6 +4,7 @@
 
 - [ ] In `usage_handlers.go`: Auto-select aggregation level based on time range (5min → hourly → daily)
 - [ ] Cap max data points to ~50 regardless of time range
+- [ ] Cap min data points to ~20 (e.g., 2-day-old task should show 20 hourly points, not 2 daily points)
 - [ ] In `store_usage_metrics.go`: Add early-exit to `fillInMissing*` functions when limit reached
 - [ ] Consider removing empty data points from response (don't fill gaps with zeros)
 

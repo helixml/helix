@@ -116,17 +116,26 @@ Limit the usage endpoint to return max ~50 data points for the chart:
 
 ```go
 // usage_handlers.go - add after determining from/to
+minPoints := 20
 maxPoints := 50
 duration := to.Sub(from)
-pointsAt5Min := int(duration.Minutes() / 5)
 
-// Auto-select aggregation level based on time range
-if pointsAt5Min > maxPoints {
-    if int(duration.Hours()) <= maxPoints {
-        aggregationLevel = AggregationLevelHourly
-    } else {
-        aggregationLevel = AggregationLevelDaily
-    }
+// Auto-select aggregation level to get between minPoints and maxPoints
+// Start with finest granularity and coarsen if too many points
+pointsAt5Min := int(duration.Minutes() / 5)
+pointsAtHourly := int(duration.Hours())
+pointsAtDaily := int(duration.Hours() / 24)
+
+if pointsAt5Min <= maxPoints {
+    aggregationLevel = AggregationLevel5Min
+} else if pointsAtHourly >= minPoints && pointsAtHourly <= maxPoints {
+    aggregationLevel = AggregationLevelHourly
+} else if pointsAtHourly > maxPoints {
+    aggregationLevel = AggregationLevelDaily
+} else {
+    // pointsAtHourly < minPoints but pointsAt5Min > maxPoints
+    // Use hourly anyway (sparse is better than 1000+ points)
+    aggregationLevel = AggregationLevelHourly
 }
 ```
 
