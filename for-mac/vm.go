@@ -782,7 +782,13 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		vm.setError(fmt.Errorf("failed to create stdout pipe: %w", err))
 		return
 	}
-	vm.cmd.Stderr = os.Stderr // QEMU errors still go to app stderr
+	// Capture QEMU stderr into the logs buffer so errors are visible in the UI.
+	// Also tee to os.Stderr so they appear in the app's terminal output.
+	stderrPipe, err := vm.cmd.StderrPipe()
+	if err != nil {
+		vm.setError(fmt.Errorf("failed to create stderr pipe: %w", err))
+		return
+	}
 	stdinPipe, err := vm.cmd.StdinPipe()
 	if err != nil {
 		vm.setError(fmt.Errorf("failed to create stdin pipe: %w", err))
@@ -836,6 +842,18 @@ func (vm *VMManager) runVM(ctx context.Context) {
 				}
 				return
 			}
+		}
+	}()
+
+	// Forward QEMU stderr to both os.Stderr and the logs ring buffer.
+	// QEMU prints warnings, errors, and virglrenderer diagnostics to stderr
+	// which were previously invisible in the UI.
+	go func() {
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			fmt.Fprintln(os.Stderr, line) // keep original stderr behavior
+			vm.appendLogs([]byte(fmt.Sprintf("\x1b[33m[QEMU] %s\x1b[0m\r\n", line)))
 		}
 	}()
 
@@ -929,6 +947,16 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 					log.Printf("VM SSH is ready")
 					vm.appendLogs([]byte(fmt.Sprintf("\x1b[36m[%s] SSH ready\x1b[0m\r\n",
 						time.Now().Format("15:04:05"))))
+				} else if err != nil {
+					// Log SSH failures so they're visible in the UI logs tab.
+					// Connection refused / timeout are normal during boot, but
+					// auth failures (Permission denied) indicate a real problem.
+					errStr := strings.TrimSpace(string(out))
+					if errStr == "" {
+						errStr = err.Error()
+					}
+					vm.appendLogs([]byte(fmt.Sprintf("\x1b[90m[%s] SSH: %s\x1b[0m\r\n",
+						time.Now().Format("15:04:05"), errStr)))
 				}
 			}
 
