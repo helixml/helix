@@ -57,21 +57,30 @@ const (
 
 	// Read buffer size per goroutine (1MB for throughput)
 	chunkReadBuffer = 1024 * 1024
+
+	// Fixed chunk size for parallel downloads. Small chunks minimize wasted
+	// bandwidth when a connection drops — at most 64 MB needs re-downloading.
+	downloadChunkSize = 64 * 1024 * 1024
 )
 
-// fastHTTPClient returns an HTTP client tuned for maximum download throughput.
-// Large TCP buffers + keep-alive + no idle timeout.
+// fastHTTPClient is tuned for download throughput on potentially flaky
+// connections. Short timeouts ensure we detect dead connections quickly
+// (e.g. cellular network switch) and retry on a fresh connection.
 var fastHTTPClient = &http.Client{
+	// No Client.Timeout — it covers the entire request including body reads,
+	// which would kill slow-but-progressing chunk downloads. We rely on
+	// DialTimeout, ResponseHeaderTimeout, and TCP KeepAlive instead.
 	Transport: &http.Transport{
 		DialContext: (&net.Dialer{
-			Timeout:   10 * time.Second,
-			KeepAlive: 30 * time.Second,
+			Timeout:   5 * time.Second,  // fail fast on unreachable hosts
+			KeepAlive: 15 * time.Second, // detect dead connections sooner
 		}).DialContext,
-		MaxIdleConns:        downloadConcurrency + 4,
-		MaxIdleConnsPerHost: downloadConcurrency + 4,
-		IdleConnTimeout:     90 * time.Second,
-		WriteBufferSize:     256 * 1024,
-		ReadBufferSize:      1024 * 1024, // 1MB TCP read buffer
+		MaxIdleConns:          downloadConcurrency + 4,
+		MaxIdleConnsPerHost:   downloadConcurrency + 4,
+		IdleConnTimeout:       30 * time.Second, // don't hold stale connections
+		ResponseHeaderTimeout: 10 * time.Second, // server must respond within 10s
+		WriteBufferSize:       256 * 1024,
+		ReadBufferSize:        1024 * 1024, // 1MB TCP read buffer
 		DisableCompression:  true,        // Don't waste CPU decompressing binary blobs
 	},
 }
@@ -208,6 +217,8 @@ func (d *VMDownloader) DownloadAll(ctx interface{ EventsEmit(string, ...interfac
 		return err
 	}
 
+	const maxFileRetries = 3
+
 	for _, f := range missing {
 		select {
 		case <-d.cancel:
@@ -215,13 +226,33 @@ func (d *VMDownloader) DownloadAll(ctx interface{ EventsEmit(string, ...interfac
 		default:
 		}
 
-		if err := d.downloadFileParallel(ctx, f, vmDir); err != nil {
+		var fileErr error
+		for fileAttempt := 0; fileAttempt < maxFileRetries; fileAttempt++ {
+			if fileAttempt > 0 {
+				log.Printf("Retrying file %s (attempt %d/%d): %v", f.Name, fileAttempt+1, maxFileRetries, fileErr)
+				d.emitProgress(ctx, DownloadProgress{
+					File:   f.Name,
+					Status: "retrying",
+					Error:  fileErr.Error(),
+				})
+				select {
+				case <-d.cancel:
+					return fmt.Errorf("download cancelled")
+				case <-time.After(5 * time.Second):
+				}
+			}
+			fileErr = d.downloadFileParallel(ctx, f, vmDir)
+			if fileErr == nil {
+				break
+			}
+		}
+		if fileErr != nil {
 			d.emitProgress(ctx, DownloadProgress{
 				File:   f.Name,
 				Status: "error",
-				Error:  err.Error(),
+				Error:  fileErr.Error(),
 			})
-			return err
+			return fileErr
 		}
 
 		// Decompress if needed
@@ -296,26 +327,34 @@ func (d *VMDownloader) downloadFileParallel(ctx interface{ EventsEmit(string, ..
 		return d.downloadFileSingle(ctx, f, vmDir)
 	}
 
-	// Build chunk list
-	chunkSize := f.Size / int64(downloadConcurrency)
+	// Build chunk list — fixed-size chunks, decoupled from concurrency.
+	// Small chunks (64 MB) minimize wasted bandwidth on flaky connections:
+	// a dropped connection loses at most one chunk worth of progress.
 	type chunkInfo struct {
 		Index int   `json:"index"`
 		Start int64 `json:"start"`
 		End   int64 `json:"end"`
 	}
-	allChunks := make([]chunkInfo, downloadConcurrency)
-	for i := 0; i < downloadConcurrency; i++ {
+	numChunks := int((f.Size + downloadChunkSize - 1) / downloadChunkSize)
+	allChunks := make([]chunkInfo, numChunks)
+	for i := 0; i < numChunks; i++ {
 		allChunks[i] = chunkInfo{
 			Index: i,
-			Start: int64(i) * chunkSize,
-			End:   int64(i)*chunkSize + chunkSize - 1,
+			Start: int64(i) * downloadChunkSize,
+			End:   int64(i)*downloadChunkSize + downloadChunkSize - 1,
 		}
-		if i == downloadConcurrency-1 {
+		if allChunks[i].End >= f.Size {
 			allChunks[i].End = f.Size - 1
 		}
 	}
 
-	// Resume support: check for existing .tmp file and .chunks progress
+	// Resume support: check for existing .tmp file and .chunks progress.
+	// Progress file includes chunk_size so we can detect stale progress
+	// from a different chunk size (e.g. after code update).
+	type chunkProgress struct {
+		ChunkSize int64 `json:"chunk_size"`
+		Completed []int `json:"completed"`
+	}
 	progressPath := tmpPath + ".chunks"
 	completedChunks := map[int]bool{}
 	var resumedBytes int64
@@ -323,10 +362,10 @@ func (d *VMDownloader) downloadFileParallel(ctx interface{ EventsEmit(string, ..
 	if info, err := os.Stat(tmpPath); err == nil && info.Size() == f.Size {
 		// .tmp file exists with correct pre-allocated size — check for chunk progress
 		if data, err := os.ReadFile(progressPath); err == nil {
-			var saved []int
-			if json.Unmarshal(data, &saved) == nil {
-				for _, idx := range saved {
-					if idx >= 0 && idx < downloadConcurrency {
+			var progress chunkProgress
+			if json.Unmarshal(data, &progress) == nil && progress.ChunkSize == downloadChunkSize {
+				for _, idx := range progress.Completed {
+					if idx >= 0 && idx < numChunks {
 						completedChunks[idx] = true
 						c := allChunks[idx]
 						resumedBytes += c.End - c.Start + 1
@@ -334,9 +373,13 @@ func (d *VMDownloader) downloadFileParallel(ctx interface{ EventsEmit(string, ..
 				}
 				if len(completedChunks) > 0 {
 					log.Printf("Resuming %s: %d/%d chunks already complete (%.1f GB)",
-						f.Name, len(completedChunks), downloadConcurrency,
+						f.Name, len(completedChunks), numChunks,
 						float64(resumedBytes)/(1024*1024*1024))
 				}
+			} else {
+				// Old format or different chunk size — discard stale progress
+				log.Printf("Chunk size changed for %s — discarding old progress", f.Name)
+				os.Remove(progressPath)
 			}
 		}
 	} else if err == nil {
@@ -346,7 +389,7 @@ func (d *VMDownloader) downloadFileParallel(ctx interface{ EventsEmit(string, ..
 		os.Remove(progressPath)
 	}
 
-	if len(completedChunks) == downloadConcurrency {
+	if len(completedChunks) == numChunks {
 		// All chunks done — skip straight to verification
 		log.Printf("All chunks complete for %s, verifying...", f.Name)
 		goto verify
@@ -385,7 +428,8 @@ func (d *VMDownloader) downloadFileParallel(ctx interface{ EventsEmit(string, ..
 				indices = append(indices, idx)
 			}
 			completedMu.Unlock()
-			if data, err := json.Marshal(indices); err == nil {
+			progress := chunkProgress{ChunkSize: downloadChunkSize, Completed: indices}
+			if data, err := json.Marshal(progress); err == nil {
 				os.WriteFile(progressPath, data, 0644)
 			}
 		}
@@ -458,26 +502,35 @@ func (d *VMDownloader) downloadFileParallel(ctx interface{ EventsEmit(string, ..
 			}
 		}()
 
-		// Launch parallel chunk downloaders (skip completed chunks)
+		// Feed pending chunks into a channel; worker pool pulls from it.
+		chunkCh := make(chan chunkInfo, numChunks)
 		for _, c := range allChunks {
-			if completedChunks[c.Index] {
-				continue
+			if !completedChunks[c.Index] {
+				chunkCh <- c
 			}
+		}
+		close(chunkCh)
 
+		// Launch worker pool (16 workers pulling from shared queue)
+		for w := 0; w < downloadConcurrency; w++ {
 			wg.Add(1)
-			go func(chunk chunkInfo) {
+			go func() {
 				defer wg.Done()
-
-				if err := d.downloadChunk(outFile, url, chunk.Start, chunk.End, &totalDone); err != nil {
-					chunkErr.CompareAndSwap(nil, err)
-					return
+				for chunk := range chunkCh {
+					// Stop taking new chunks if another worker already failed
+					if chunkErr.Load() != nil {
+						return
+					}
+					if err := d.downloadChunk(outFile, url, chunk.Start, chunk.End, &totalDone); err != nil {
+						chunkErr.CompareAndSwap(nil, err)
+						return
+					}
+					completedMu.Lock()
+					completedChunks[chunk.Index] = true
+					completedMu.Unlock()
+					saveProgress()
 				}
-
-				completedMu.Lock()
-				completedChunks[chunk.Index] = true
-				completedMu.Unlock()
-				saveProgress()
-			}(c)
+			}()
 		}
 
 		wg.Wait()
@@ -522,7 +575,8 @@ verify:
 	return nil
 }
 
-const maxChunkRetries = 5
+const maxChunkRetries = 20
+const maxChunkBackoff = 30 * time.Second
 
 // downloadChunk downloads a byte range and writes it to the file at the
 // correct offset. Tracks bytes downloaded via the atomic counter.
@@ -532,6 +586,9 @@ func (d *VMDownloader) downloadChunk(outFile *os.File, url string, start, end in
 	for attempt := 0; attempt < maxChunkRetries; attempt++ {
 		if attempt > 0 {
 			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+			if backoff > maxChunkBackoff {
+				backoff = maxChunkBackoff
+			}
 			log.Printf("Retrying chunk %d-%d (attempt %d/%d, backoff %v): %v",
 				start, end, attempt+1, maxChunkRetries, backoff, lastErr)
 			select {
