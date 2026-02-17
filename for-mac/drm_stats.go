@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,17 +30,19 @@ type DisplayInfo struct {
 
 // ScanoutCollector collects DRM scanout stats from the VM via SSH
 type ScanoutCollector struct {
-	mu      sync.RWMutex
-	stats   ScanoutStats
-	sshPort int
-	stopCh  chan struct{}
+	mu         sync.RWMutex
+	stats      ScanoutStats
+	sshPort    int
+	sshKeyPath string
+	stopCh     chan struct{}
 }
 
 // NewScanoutCollector creates a new scanout stats collector
 func NewScanoutCollector(sshPort int) *ScanoutCollector {
 	return &ScanoutCollector{
-		sshPort: sshPort,
-		stopCh:  make(chan struct{}),
+		sshPort:    sshPort,
+		sshKeyPath: filepath.Join(getHelixDataDir(), "ssh", "helix_ed25519"),
+		stopCh:     make(chan struct{}),
 		stats: ScanoutStats{
 			MaxScanouts: 15,
 		},
@@ -94,14 +97,16 @@ func (s *ScanoutCollector) collect() {
 }
 
 func (s *ScanoutCollector) sshCmd(command string) (string, error) {
-	cmd := exec.Command("ssh",
+	args := []string{
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=5",
-		"-p", fmt.Sprintf("%d", s.sshPort),
-		"ubuntu@localhost",
-		command,
-	)
+	}
+	if s.sshKeyPath != "" {
+		args = append(args, "-i", s.sshKeyPath, "-o", "IdentitiesOnly=yes")
+	}
+	args = append(args, "-p", fmt.Sprintf("%d", s.sshPort), "ubuntu@localhost", command)
+	cmd := exec.Command("ssh", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("ssh command failed: %w: %s", err, string(out))
