@@ -37,9 +37,21 @@ Deferred - depends on Phase 3 virtualization for visibility detection.
 
 **Note:** Testing requires a running Helix instance. Deploy the branch and test in the live environment.
 
+- [x] PR created: https://github.com/helixml/helix/pull/1646
 - [ ] Deploy feature branch to dev/staging environment
 - [ ] Baseline: `performance_start_trace` + `list_network_requests` on Kanban with 20+ tasks
 - [ ] After Phase 1: Verify usage endpoint payloads dropped from ~200KB to ~5KB via `list_network_requests`
 - [ ] After Phase 2-4: `performance_start_trace` during scroll to check for jank
 - [ ] Verify off-screen cards stop polling via `list_network_requests` filtering
 - [ ] Memory leak check: `evaluate_script` for `performance.memory.usedJSHeapSize` before/after 2 min scroll
+
+## Summary
+
+**Completed:**
+- Phase 1: Server-side usage data quantization (auto-select aggregation level 20-50 points)
+- Phase 2: Frontend memoization (React.memo on TaskCard, visibility-based polling)
+- PR created and ready for review
+
+**Deferred:**
+- Phase 3: Virtualization (react-window) - not needed if Phase 1 is sufficient
+- Phase 4: Screenshot optimization - depends on Phase 3
