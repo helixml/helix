@@ -99,7 +99,7 @@ export function HomeView({
 
   // First boot: need to download VM images
   if (needsDownload) {
-    const isDownloading = p && (p.status === 'downloading' || p.status === 'verifying' || p.status === 'decompressing');
+    const isDownloading = p && (p.status === 'downloading' || p.status === 'verifying' || p.status === 'decompressing' || p.status === 'finalizing');
     return (
       <div className="home-view">
         <div className={`home-placeholder${isDownloading ? ' download-screen' : ''}`}>
@@ -238,7 +238,7 @@ function HomeDownloadSection({
   onProgressCleared: () => void;
   showToast: (msg: string) => void;
 }) {
-  if (p && (p.status === 'downloading' || p.status === 'verifying' || p.status === 'decompressing')) {
+  if (p && (p.status === 'downloading' || p.status === 'verifying' || p.status === 'decompressing' || p.status === 'finalizing')) {
     return (
       <div className="home-download-progress">
         <div className="download-file-info">
@@ -253,7 +253,7 @@ function HomeDownloadSection({
         <div className="download-stats">
           <span className="download-speed">{p.speed || '--'}</span>
           <span className="download-eta">
-            {p.status === 'verifying' ? 'Verifying...' : p.status === 'decompressing' ? 'Decompressing...' : p.eta ? `${p.eta} remaining` : `${(p.percent || 0).toFixed(1)}%`}
+            {p.status === 'finalizing' ? 'Finalizing...' : p.status === 'verifying' ? 'Verifying...' : p.status === 'decompressing' ? 'Decompressing...' : p.eta ? `${p.eta} remaining` : `${(p.percent || 0).toFixed(1)}%`}
           </span>
         </div>
         <button
