@@ -10,11 +10,8 @@ import Grid from "@mui/material/Grid";
 import IconButton from "@mui/material/IconButton";
 import InputLabel from "@mui/material/InputLabel";
 import MenuItem from "@mui/material/MenuItem";
-import Paper from "@mui/material/Paper/Paper";
 import Select from "@mui/material/Select";
 import Switch from "@mui/material/Switch";
-import Tabs from "@mui/material/Tabs";
-import Tab from "@mui/material/Tab";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import React, { FC, useCallback, useEffect, useRef, useState } from "react";
@@ -49,6 +46,7 @@ import GlobalSchedulingVisualization from "../components/dashboard/GlobalSchedul
 import SystemSettingsTable from "../components/dashboard/SystemSettingsTable";
 import ServiceConnectionsTable from "../components/dashboard/ServiceConnectionsTable";
 import AgentSandboxes from "../components/admin/AgentSandboxes";
+import AdminOrgsTable from "../components/dashboard/AdminOrgsTable";
 import UsersTable from "../components/dashboard/UsersTable";
 import Chip from "@mui/material/Chip";
 import { useFloatingRunnerState } from "../contexts/floatingRunnerState";
@@ -717,6 +715,17 @@ const Dashboard: FC = () => {
                         }}
                     >
                         <UsersTable />
+                    </Box>
+                )}
+
+                {tab === "orgs" && account.admin && (
+                    <Box
+                        sx={{
+                            width: "100%",
+                            p: 2,
+                        }}
+                    >
+                        <AdminOrgsTable />
                     </Box>
                 )}
 
