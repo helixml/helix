@@ -397,6 +397,16 @@ func countTasksByStatus(tasks []*types.SpecTask, statuses ...types.SpecTaskStatu
 
 // handleQueuedSpecGeneration handles tasks in queued spec generation
 func (o *SpecTaskOrchestrator) handleQueuedSpecGeneration(ctx context.Context, task *types.SpecTask) error {
+	dependenciesReady, blockingDependency := areBacklogDependenciesReady(task.DependsOn)
+	if !dependenciesReady {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("project_id", task.ProjectID).
+			Str("dependency_task_id", blockingDependency).
+			Msg("Skipping queued spec generation task - waiting for dependency task to be done or archived")
+		return nil
+	}
+
 	o.wg.Add(1)
 	go func() {
 		defer o.wg.Done()
@@ -408,6 +418,16 @@ func (o *SpecTaskOrchestrator) handleQueuedSpecGeneration(ctx context.Context, t
 
 // handleQueuedImplementation handles tasks in queued implementation
 func (o *SpecTaskOrchestrator) handleQueuedImplementation(ctx context.Context, task *types.SpecTask) error {
+	dependenciesReady, blockingDependency := areBacklogDependenciesReady(task.DependsOn)
+	if !dependenciesReady {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("project_id", task.ProjectID).
+			Str("dependency_task_id", blockingDependency).
+			Msg("Skipping queued implementation task - waiting for dependency task to be done or archived")
+		return nil
+	}
+
 	// Check if implementation session is complete
 	// This would integrate with existing SpecDrivenTaskService
 	// For now, we'll assume implementation is ready when all implementation tasks exist

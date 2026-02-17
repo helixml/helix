@@ -281,6 +281,48 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_ProgressesWhenDependen
 	s.Require().NoError(err)
 }
 
+func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedSpecGeneration_SkipsWhenDependencyNotDone() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:        "task-123",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusQueuedSpecGeneration,
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(&types.SpecTask{
+		ID:        task.ID,
+		ProjectID: task.ProjectID,
+		Status:    types.TaskStatusQueuedSpecGeneration,
+		DependsOn: []types.SpecTask{
+			{ID: "dep-1", Status: types.TaskStatusImplementation},
+		},
+	}, nil)
+
+	err := s.orchestrator.handleQueuedSpecGeneration(ctx, task)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_SkipsWhenDependencyNotDone() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:        "task-456",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusQueuedImplementation,
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(&types.SpecTask{
+		ID:        task.ID,
+		ProjectID: task.ProjectID,
+		Status:    types.TaskStatusQueuedImplementation,
+		DependsOn: []types.SpecTask{
+			{ID: "dep-2", Status: types.TaskStatusSpecGeneration},
+		},
+	}, nil)
+
+	err := s.orchestrator.handleQueuedImplementation(ctx, task)
+	s.Require().NoError(err)
+}
+
 // Note: These are simplified unit tests focusing on testable functions
 // Full integration tests with store/wolf mocking should be in integration test suite
 
