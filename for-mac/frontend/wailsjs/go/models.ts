@@ -17,6 +17,7 @@ export namespace main {
 	    trial_started_at?: any;
 	    desktop_secret?: string;
 	    console_password?: string;
+	    installed_vm_version?: string;
 	    runner_token?: string;
 	    postgres_password?: string;
 	    encryption_key?: string;
@@ -43,6 +44,7 @@ export namespace main {
 	        this.trial_started_at = this.convertValues(source["trial_started_at"], null);
 	        this.desktop_secret = source["desktop_secret"];
 	        this.console_password = source["console_password"];
+	        this.installed_vm_version = source["installed_vm_version"];
 	        this.runner_token = source["runner_token"];
 	        this.postgres_password = source["postgres_password"];
 	        this.encryption_key = source["encryption_key"];
@@ -208,6 +210,26 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class UpdateInfo {
+	    available: boolean;
+	    latest_version: string;
+	    current_version: string;
+	    dmg_url?: string;
+	    vm_manifest_url?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.latest_version = source["latest_version"];
+	        this.current_version = source["current_version"];
+	        this.dmg_url = source["dmg_url"];
+	        this.vm_manifest_url = source["vm_manifest_url"];
+	    }
 	}
 	export class VMConfig {
 	    name: string;

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { main } from '../../wailsjs/go/models';
-import { SaveSettings, GetSettings, ResizeDataDisk, GetAutoLoginURL, FactoryReset as FactoryResetGo, GetLANAddress, ValidateLicenseKey, GetLicenseStatus } from '../../wailsjs/go/main/App';
+import { SaveSettings, GetSettings, ResizeDataDisk, GetAutoLoginURL, FactoryReset as FactoryResetGo, GetLANAddress, ValidateLicenseKey, GetLicenseStatus, CheckForUpdate, ApplyAppUpdate, ApplyVMUpdate } from '../../wailsjs/go/main/App';
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { formatBytes } from '../lib/helpers';
 
@@ -12,6 +12,18 @@ interface SettingsPanelProps {
   onLicenseUpdated: (status: main.LicenseStatus) => void;
   onClose: () => void;
   showToast: (msg: string) => void;
+  appVersion: string;
+  updateInfo: main.UpdateInfo | null;
+  vmUpdateProgress: {
+    phase: string;
+    bytes_done: number;
+    bytes_total: number;
+    percent: number;
+    speed?: string;
+    eta?: string;
+    error?: string;
+  } | null;
+  vmUpdateReady: boolean;
 }
 
 // Eye-open SVG icon
@@ -57,6 +69,10 @@ export function SettingsPanel({
   onLicenseUpdated,
   onClose,
   showToast,
+  appVersion,
+  updateInfo,
+  vmUpdateProgress,
+  vmUpdateReady,
 }: SettingsPanelProps) {
   const [cpus, setCpus] = useState(String(s.vm_cpus || 4));
   const [memoryGB, setMemoryGB] = useState(String(Math.round((s.vm_memory_mb || 8192) / 1024)));
@@ -77,6 +93,9 @@ export function SettingsPanel({
   const [activatedKey, setActivatedKey] = useState(s.license_key || '');
   const [licenseInfo, setLicenseInfo] = useState<main.LicenseStatus | null>(null);
   const [licenseActivating, setLicenseActivating] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [appUpdating, setAppUpdating] = useState(false);
+  const [vmApplying, setVmApplying] = useState(false);
 
   useEffect(() => {
     // Re-fetch settings in case license key was added outside the panel
@@ -168,6 +187,119 @@ export function SettingsPanel({
         </div>
 
         <div className="panel-body">
+          {/* About / Updates */}
+          <div className="panel-section">
+            <div className="panel-section-title">About / Updates</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+                Helix for Mac
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--text-faded)', fontFamily: 'monospace' }}>
+                v{appVersion || 'dev'}
+              </span>
+            </div>
+
+            {updateInfo?.available && (
+              <div className="update-available-card">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                  <span style={{ fontSize: 14 }}>&#x2B06;</span>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>
+                    Update available: v{updateInfo.latest_version}
+                  </span>
+                </div>
+                {!vmUpdateReady && !vmUpdateProgress && (
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={appUpdating}
+                    onClick={async () => {
+                      setAppUpdating(true);
+                      try {
+                        await ApplyAppUpdate();
+                      } catch (err) {
+                        showToast('Update failed: ' + err);
+                        setAppUpdating(false);
+                      }
+                    }}
+                  >
+                    {appUpdating ? 'Updating...' : 'Update Now'}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {vmUpdateProgress && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                  Downloading VM update...
+                </div>
+                <div className="progress-bar">
+                  <div
+                    className="progress-fill teal"
+                    style={{ width: `${vmUpdateProgress.percent || 0}%` }}
+                  />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 11, color: 'var(--text-faded)' }}>
+                  <span>{Math.round(vmUpdateProgress.percent || 0)}%</span>
+                  {vmUpdateProgress.speed && <span>{vmUpdateProgress.speed}</span>}
+                  {vmUpdateProgress.eta && <span>ETA: {vmUpdateProgress.eta}</span>}
+                </div>
+              </div>
+            )}
+
+            {vmUpdateReady && (
+              <div className="update-ready-card">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                  <span style={{ fontSize: 14 }}>&#x2705;</span>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>
+                    VM update ready
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                  The new VM image has been downloaded. Restart the VM to apply the update.
+                  Your data and settings will be preserved.
+                </div>
+                <button
+                  className="btn btn-primary btn-sm"
+                  disabled={vmApplying}
+                  onClick={async () => {
+                    setVmApplying(true);
+                    try {
+                      await ApplyVMUpdate();
+                      showToast('VM update applied, restarting...');
+                    } catch (err) {
+                      showToast('VM update failed: ' + err);
+                    } finally {
+                      setVmApplying(false);
+                    }
+                  }}
+                >
+                  {vmApplying ? 'Applying...' : 'Restart to Apply Update'}
+                </button>
+              </div>
+            )}
+
+            <button
+              className="btn btn-secondary btn-sm"
+              disabled={checking}
+              onClick={async () => {
+                setChecking(true);
+                try {
+                  const info = await CheckForUpdate();
+                  if (!info.available) {
+                    showToast('No updates available');
+                  }
+                } catch (err) {
+                  showToast('Update check failed: ' + err);
+                } finally {
+                  setChecking(false);
+                }
+              }}
+              style={{ marginTop: 4 }}
+            >
+              {checking ? 'Checking...' : 'Check for Updates'}
+            </button>
+          </div>
+
           {/* Resources */}
           <div className="panel-section">
             <div className="panel-section-title">Resources</div>
