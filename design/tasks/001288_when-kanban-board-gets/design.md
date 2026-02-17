@@ -169,6 +169,18 @@ Also add a `LIMIT` clause to `fillInMissing*` functions to cap output.
 ### Key insight
 The original code let clients request `aggregationLevel: '5min'` and the server would fill ALL 5-minute buckets from task creation to now. For a 7-day task, that's 2016 data points. The fix is simple: server ignores client's requested level and picks the appropriate one automatically.
 
+### Phase 2: Memoization & Visibility-Based Polling
+- Modified `frontend/src/components/tasks/TaskCard.tsx`:
+  - Renamed function to `TaskCardInner`, wrapped with `React.memo()` and custom comparison
+  - Added `isVisible` prop (default: true) to control polling behavior
+  - `useTaskProgress` now only polls when `isVisible=true`
+- Modified `frontend/src/components/external-agent/ExternalAgentDesktopViewer.tsx`:
+  - Added `enabled` parameter to `useSandboxState` hook
+  - When `enabled=false`, skips polling entirely
+
+### Note on Phase 3 (Virtualization)
+The `isVisible` prop groundwork is laid, but without virtualization (react-window), all cards are still in the DOM and would have `isVisible=true`. Phase 3 would add the actual visibility detection. However, Phase 1's server-side fix is likely sufficient for most use cases - it reduces payloads from ~200KB to ~5KB per task.
+
 ## Testing (Self-Verifiable via Chrome MCP)
 
 Use Chrome MCP tools to measure before/after:
