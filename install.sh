@@ -1600,6 +1600,40 @@ block_ip = []
 pass_ip = []
 EOF
 
+    # merge_env_files OLD_ENV NEW_ENV OUTPUT
+    # Start with NEW_ENV (correct structure/comments from installer),
+    # then append any keys from OLD_ENV that NEW_ENV doesn't set.
+    merge_env_files() {
+        local old_env="$1"
+        local new_env="$2"
+        local output="$3"
+
+        # Collect keys that the new env sets
+        local new_keys_file
+        new_keys_file=$(mktemp)
+        grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$new_env" | sed 's/=.*//' | sort -u > "$new_keys_file"
+
+        # Start with the new env file (has correct structure/comments)
+        cp "$new_env" "$output"
+
+        # Append user-only keys from old env (keys not in new env)
+        local user_keys_found=false
+        while IFS= read -r line; do
+            case "$line" in '#'*|'') continue ;; esac
+            key=$(echo "$line" | sed 's/=.*//')
+            if ! grep -qx "$key" "$new_keys_file"; then
+                if [ "$user_keys_found" = false ]; then
+                    echo "" >> "$output"
+                    echo "# User customizations (preserved from previous install)" >> "$output"
+                    user_keys_found=true
+                fi
+                echo "$line" >> "$output"
+            fi
+        done < "$old_env"
+
+        rm -f "$new_keys_file"
+    }
+
     # Create .env file
     ENV_FILE="$INSTALL_DIR/.env"
     echo -e "\nCreating/updating .env file..."
@@ -1615,11 +1649,12 @@ EOF
 
         # Make a backup copy of the .env file
         DATE=$(date +%Y%m%d%H%M%S)
-        cp "$ENV_FILE" "$ENV_FILE-$DATE"
-        echo "Backup of .env file created: $ENV_FILE-$DATE"
+        ENV_FILE_BACKUP="$ENV_FILE-$DATE"
+        cp "$ENV_FILE" "$ENV_FILE_BACKUP"
+        echo "Backup of .env file created: $ENV_FILE_BACKUP"
         echo
         echo "To see what changed, run:"
-        echo "diff $ENV_FILE $ENV_FILE-$DATE"
+        echo "diff $ENV_FILE_BACKUP $ENV_FILE"
         echo
 
         KEYCLOAK_ADMIN_PASSWORD=$(grep '^KEYCLOAK_ADMIN_PASSWORD=' "$ENV_FILE" | sed 's/^KEYCLOAK_ADMIN_PASSWORD=//' || generate_password)
@@ -1635,11 +1670,19 @@ EOF
 
     else
         echo ".env file does not exist. Generating new passwords."
+        ENV_FILE_BACKUP=""
         KEYCLOAK_ADMIN_PASSWORD=$(generate_password)
         POSTGRES_ADMIN_PASSWORD=$(generate_password)
         RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
         PGVECTOR_PASSWORD=$(generate_password)
         HELIX_ENCRYPTION_KEY=$(generate_encryption_key)
+    fi
+
+    # On upgrades, write to a temp file so we can merge user customizations
+    if [ -n "$ENV_FILE_BACKUP" ]; then
+        ENV_TARGET=$(mktemp)
+    else
+        ENV_TARGET="$ENV_FILE"
     fi
 
     # Build comma-separated list of Docker Compose profiles
@@ -1657,7 +1700,7 @@ EOF
     fi
 
     # Generate .env content
-    cat << EOF > "$ENV_FILE"
+    cat << EOF > "$ENV_TARGET"
 # Set passwords
 KEYCLOAK_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD
 POSTGRES_ADMIN_PASSWORD=$POSTGRES_ADMIN_PASSWORD
@@ -1706,10 +1749,10 @@ EOF
         if check_ollama; then
             echo "Ollama (or another OpenAI compatible API) detected on localhost:11434. Configuring Helix to use it."
             echo
-            echo "OPENAI_API_KEY=ollama" >> "$ENV_FILE"
-            echo "OPENAI_BASE_URL=http://host.docker.internal:11434/v1" >> "$ENV_FILE"
-            echo "INFERENCE_PROVIDER=openai" >> "$ENV_FILE"
-            echo "FINETUNING_PROVIDER=openai" >> "$ENV_FILE"
+            echo "OPENAI_API_KEY=ollama" >> "$ENV_TARGET"
+            echo "OPENAI_BASE_URL=http://host.docker.internal:11434/v1" >> "$ENV_TARGET"
+            echo "INFERENCE_PROVIDER=openai" >> "$ENV_TARGET"
+            echo "FINETUNING_PROVIDER=openai" >> "$ENV_TARGET"
             AUTODETECTED_LLM=true
         else
             # Only warn the user if there's also no GPU
@@ -1744,7 +1787,7 @@ EOF
 
     # Add TogetherAI configuration if token is provided
     if [ -n "$TOGETHER_API_KEY" ]; then
-        cat << EOF >> "$ENV_FILE"
+        cat << EOF >> "$ENV_TARGET"
 INFERENCE_PROVIDER=togetherai
 FINETUNING_PROVIDER=togetherai
 TOGETHER_API_KEY=$TOGETHER_API_KEY
@@ -1753,7 +1796,7 @@ EOF
 
     # Add OpenAI configuration if key and base URL are provided
     if [ -n "$OPENAI_API_KEY" ]; then
-        cat << EOF >> "$ENV_FILE"
+        cat << EOF >> "$ENV_TARGET"
 INFERENCE_PROVIDER=openai
 FINETUNING_PROVIDER=openai
 OPENAI_API_KEY=$OPENAI_API_KEY
@@ -1761,37 +1804,37 @@ EOF
     fi
 
     if [ -n "$OPENAI_BASE_URL" ]; then
-        cat << EOF >> "$ENV_FILE"
+        cat << EOF >> "$ENV_TARGET"
 OPENAI_BASE_URL=$OPENAI_BASE_URL
 EOF
     fi
 
     # Add Anthropic configuration if API key is provided
     if [ -n "$ANTHROPIC_API_KEY" ]; then
-        cat << EOF >> "$ENV_FILE"
+        cat << EOF >> "$ENV_TARGET"
 ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
 EOF
     fi
 
     # Add Hugging Face token configuration if provided
     if [ -n "$HF_TOKEN" ]; then
-        cat << EOF >> "$ENV_FILE"
+        cat << EOF >> "$ENV_TARGET"
 HF_TOKEN=$HF_TOKEN
 EOF
     fi
     # Add embeddings provider configuration
-    cat << EOF >> "$ENV_FILE"
+    cat << EOF >> "$ENV_TARGET"
 RAG_PGVECTOR_PROVIDER=$EMBEDDINGS_PROVIDER
 EOF
 
     # Add providers management configuration
-    cat << EOF >> "$ENV_FILE"
+    cat << EOF >> "$ENV_TARGET"
 PROVIDERS_MANAGEMENT_ENABLED=$PROVIDERS_MANAGEMENT_ENABLED
 EOF
 
     # Set default FINETUNING_PROVIDER to helix if neither OpenAI nor TogetherAI are specified
     if [ -z "$OPENAI_API_KEY" ] && [ -z "$TOGETHER_API_KEY" ] && [ "$AUTODETECTED_LLM" = false ]; then
-        cat << EOF >> "$ENV_FILE"
+        cat << EOF >> "$ENV_TARGET"
 FINETUNING_PROVIDER=helix
 INFERENCE_PROVIDER=helix
 EOF
@@ -1807,7 +1850,7 @@ EOF
         # render node matches GPU_VENDOR (handles multi-GPU systems like Lambda Labs
         # where renderD128 is virtio-gpu and actual GPU is renderD129).
 
-        cat << EOF >> "$ENV_FILE"
+        cat << EOF >> "$ENV_TARGET"
 
 ## Helix Code Configuration (External Agents / PDEs)
 # Sandbox streaming configuration
@@ -1824,7 +1867,7 @@ EOF
     fi
 
     # Continue with the rest of the .env file
-    cat << EOF >> "$ENV_FILE"
+    cat << EOF >> "$ENV_TARGET"
 
 ## Analytics
 # GOOGLE_ANALYTICS_FRONTEND=
@@ -1840,6 +1883,18 @@ EOF
 # EMAIL_MAILGUN_DOMAIN=REPLACE_ME
 # EMAIL_MAILGUN_API_KEY=REPLACE_ME
 EOF
+
+    # Merge user customizations from old .env on upgrades
+    if [ -n "$ENV_FILE_BACKUP" ]; then
+        merge_env_files "$ENV_FILE_BACKUP" "$ENV_TARGET" "$ENV_FILE"
+        rm -f "$ENV_TARGET"
+        echo ""
+        echo "✅ .env updated. User customizations preserved."
+        echo "   Backup: $ENV_FILE_BACKUP"
+        echo "   To review changes: diff $ENV_FILE_BACKUP $ENV_FILE"
+    elif [ "$ENV_TARGET" != "$ENV_FILE" ]; then
+        mv "$ENV_TARGET" "$ENV_FILE"
+    fi
 
     CADDY=false
     # Install Caddy if API_HOST is an HTTPS URL and system is Ubuntu
