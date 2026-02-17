@@ -325,11 +325,19 @@ func (vm *VMManager) ensureCloudInitSeed(vmDir, pubKeyPath string) error {
 	}
 	defer os.RemoveAll(stagingDir)
 
-	// Write user-data (minimal — only SSH key injection)
+	// Write user-data — inject our key and remove any keys baked in during
+	// image provisioning (e.g. the build machine's personal key).
+	// ssh_authorized_keys appends, so we use runcmd to overwrite the file
+	// with only the helix-desktop key.
 	userData := fmt.Sprintf(`#cloud-config
 ssh_authorized_keys:
   - %s
-`, pubKeyStr)
+runcmd:
+  - |
+    echo '%s' > /home/ubuntu/.ssh/authorized_keys
+    chmod 600 /home/ubuntu/.ssh/authorized_keys
+    chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys
+`, pubKeyStr, pubKeyStr)
 	if err := os.WriteFile(filepath.Join(stagingDir, "user-data"), []byte(userData), 0644); err != nil {
 		return fmt.Errorf("failed to write user-data: %w", err)
 	}
@@ -1195,12 +1203,15 @@ else
     docker compose -f "$COMPOSE_FILE" up -d 2>&1
     echo 'STARTED'
 fi
-# In prod mode (install.sh), start sandbox separately.
-# sandbox.sh is not a compose service — it runs as a standalone container.
-# It sources .env for RUNNER_TOKEN and handles stop/rm of any stale container.
+# In prod mode (install.sh), always restart the sandbox container.
+# sandbox.sh creates the container with --restart=always, so it may have
+# auto-started from a previous boot with a stale RUNNER_TOKEN. Stop/rm it
+# and re-run sandbox.sh so it picks up the current token from .env.
 if [ "$COMPOSE_FILE" = "docker-compose.yaml" ] && [ -f sandbox.sh ]; then
+    docker stop helix-sandbox 2>/dev/null || true
+    docker rm helix-sandbox 2>/dev/null || true
     nohup bash sandbox.sh > /tmp/sandbox.log 2>&1 &
-    echo 'SANDBOX_STARTED'
+    echo 'SANDBOX_RESTARTED'
 fi
 `
 	out, err := vm.runSSH("Start stack", script)
