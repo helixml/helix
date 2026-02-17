@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -572,6 +573,7 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 // @Router /api/v1/spec-tasks/{taskId} [put]
 // @Security BearerAuth
 func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	vars := mux.Vars(r)
 	taskID := vars["taskId"]
 	if taskID == "" {
@@ -587,7 +589,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Get existing task
-	task, err := s.Store.GetSpecTask(r.Context(), taskID)
+	task, err := s.Store.GetSpecTask(ctx, taskID)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get SpecTask for update")
 		http.Error(w, "SpecTask not found", http.StatusNotFound)
@@ -601,7 +603,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Authorize user to update task in the project
-	if err := s.authorizeUserToProjectByID(r.Context(), user, task.ProjectID, types.ActionUpdate); err != nil {
+	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -627,10 +629,10 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 
 		// Sync session's ParentApp so restart uses new agent's display settings
 		if task.PlanningSessionID != "" {
-			session, err := s.Store.GetSession(r.Context(), task.PlanningSessionID)
+			session, err := s.Store.GetSession(ctx, task.PlanningSessionID)
 			if err == nil && session != nil && session.ParentApp != updateReq.HelixAppID {
 				session.ParentApp = updateReq.HelixAppID
-				if _, err := s.Store.UpdateSession(r.Context(), *session); err != nil {
+				if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
 					log.Warn().Err(err).
 						Str("session_id", task.PlanningSessionID).
 						Str("new_agent", updateReq.HelixAppID).
@@ -653,9 +655,29 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		task.PublicDesignDocs = *updateReq.PublicDesignDocs
 	}
 
+	// If depends_on is provided, pass IDs to store via task.DependsOn and let UpdateSpecTask sync associations.
+	if updateReq.DependsOn != nil {
+		task.DependsOn = make([]types.SpecTask, 0, len(updateReq.DependsOn))
+		for _, dependsOnID := range updateReq.DependsOn {
+			if dependsOnID == "" {
+				continue
+			}
+			task.DependsOn = append(task.DependsOn, types.SpecTask{ID: dependsOnID})
+		}
+	}
+
 	// Update in store
-	err = s.Store.UpdateSpecTask(r.Context(), task)
+	err = s.Store.UpdateSpecTask(ctx, task)
 	if err != nil {
+		if updateReq.DependsOn != nil {
+			switch {
+			case err.Error() == "failed to update spec task: task cannot depend on itself",
+				err.Error() == "failed to update spec task: depends on task not found",
+				err.Error() == "failed to update spec task: depends on task must be in same project":
+				http.Error(w, strings.TrimPrefix(err.Error(), "failed to update spec task: "), http.StatusBadRequest)
+				return
+			}
+		}
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to update SpecTask")
 		http.Error(w, fmt.Sprintf("failed to update SpecTask: %v", err), http.StatusInternalServerError)
 		return
