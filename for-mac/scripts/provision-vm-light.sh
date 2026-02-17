@@ -264,8 +264,6 @@ runcmd:
   # Enable helix-storage-init service (runs before Docker on every boot)
   - systemctl daemon-reload
   - systemctl enable helix-storage-init.service
-  # Disable cloud-init for subsequent boots (root swap shouldn't re-provision)
-  - touch /etc/cloud/cloud-init.disabled
   # Limit Virtual-1 (VM console) to 1080p so the text console isn't painfully slow at 5K.
   - sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="[^"]*"/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash console=tty0 video=Virtual-1:1920x1080"/' /etc/default/grub
   - update-grub
