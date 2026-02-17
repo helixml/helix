@@ -199,6 +199,8 @@ interface TaskCardProps {
   showMetrics?: boolean;
   /** Hide the "Clone to other projects" menu option (used in clone batch progress view) */
   hideCloneOption?: boolean;
+  /** Whether this card is visible on screen - controls polling behavior */
+  isVisible?: boolean;
 }
 
 // Interface for checklist items from API
@@ -511,7 +513,7 @@ const LiveAgentScreenshot: React.FC<{
   );
 });
 
-export default function TaskCard({
+function TaskCardInner({
   task,
   index,
   columns,
@@ -525,6 +527,7 @@ export default function TaskCard({
   hasExternalRepo = false,
   showMetrics = true,
   hideCloneOption = false,
+  isVisible = true,
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false);
   const [showCloneDialog, setShowCloneDialog] = useState(false);
@@ -537,11 +540,12 @@ export default function TaskCard({
   const deleteSpecTask = useDeleteSpecTask();
 
   // Fetch checklist progress for active tasks (planning/implementation)
+  // Only poll when card is visible on screen to reduce network/CPU load
   const showProgress =
     task.phase === "planning" || task.phase === "implementation";
   const { data: progressData } = useTaskProgress(task.id, {
-    enabled: showProgress,
-    refetchInterval: 5000, // Refresh every 5 seconds for live updates
+    enabled: showProgress && isVisible,
+    refetchInterval: isVisible ? 5000 : false, // Only poll when visible
   });
 
   // Check agent activity status using backend-tracked work state
@@ -1282,3 +1286,19 @@ export default function TaskCard({
     </Card>
   );
 }
+
+// Memoized TaskCard to prevent unnecessary re-renders
+const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
+  // Only re-render when meaningful props change
+  return (
+    prevProps.task.id === nextProps.task.id &&
+    prevProps.task.status === nextProps.task.status &&
+    prevProps.task.updated_at === nextProps.task.updated_at &&
+    prevProps.task.agent_work_state === nextProps.task.agent_work_state &&
+    prevProps.isArchiving === nextProps.isArchiving &&
+    prevProps.isVisible === nextProps.isVisible &&
+    prevProps.focusStartPlanning === nextProps.focusStartPlanning
+  );
+});
+
+export default TaskCard;

@@ -1,29 +1,40 @@
-import React, { FC, useState, useEffect, useCallback, useRef } from 'react';
-import { Box, Button, Typography, CircularProgress, IconButton, Tooltip, Collapse } from '@mui/material';
-import PlayArrow from '@mui/icons-material/PlayArrow';
-import ChatIcon from '@mui/icons-material/Chat';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import React, { FC, useState, useEffect, useCallback, useRef } from "react";
+import {
+  Box,
+  Button,
+  Typography,
+  CircularProgress,
+  IconButton,
+  Tooltip,
+  Collapse,
+} from "@mui/material";
+import PlayArrow from "@mui/icons-material/PlayArrow";
+import ChatIcon from "@mui/icons-material/Chat";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
-import DesktopStreamViewer from './DesktopStreamViewer';
-import ScreenshotViewer from './ScreenshotViewer';
-import SandboxDropZone from './SandboxDropZone';
-import EmbeddedSessionView from '../session/EmbeddedSessionView';
-import RobustPromptInput from '../common/RobustPromptInput';
-import useApi from '../../hooks/useApi';
-import useSnackbar from '../../hooks/useSnackbar';
-import { useStreaming } from '../../contexts/streaming';
-import { SESSION_TYPE_TEXT } from '../../types';
-import { Api } from '../../api/api';
-import { useQueryClient } from '@tanstack/react-query';
-import { GET_SESSION_QUERY_KEY } from '../../services/sessionService';
+import DesktopStreamViewer from "./DesktopStreamViewer";
+import ScreenshotViewer from "./ScreenshotViewer";
+import SandboxDropZone from "./SandboxDropZone";
+import EmbeddedSessionView from "../session/EmbeddedSessionView";
+import RobustPromptInput from "../common/RobustPromptInput";
+import useApi from "../../hooks/useApi";
+import useSnackbar from "../../hooks/useSnackbar";
+import { useStreaming } from "../../contexts/streaming";
+import { SESSION_TYPE_TEXT } from "../../types";
+import { Api } from "../../api/api";
+import { useQueryClient } from "@tanstack/react-query";
+import { GET_SESSION_QUERY_KEY } from "../../services/sessionService";
 
 // Hook to track sandbox container state for external agent sessions
 // Exported for use in SpecTaskDetailContent.tsx toolbar buttons
-export const useSandboxState = (sessionId: string) => {
+export const useSandboxState = (sessionId: string, enabled: boolean = true) => {
   const api = useApi();
-  const [sandboxState, setSandboxState] = React.useState<string>('loading');
+  const [sandboxState, setSandboxState] = React.useState<string>("loading");
 
   React.useEffect(() => {
+    // Skip polling when disabled (e.g., card is off-screen)
+    if (!enabled) return;
+
     const apiClient = api.getApiClient();
     const fetchState = async () => {
       try {
@@ -31,35 +42,38 @@ export const useSandboxState = (sessionId: string) => {
         const response = await apiClient.v1SessionsDetail(sessionId);
         if (response.data) {
           // Check external agent status from session metadata
-          const status = response.data.config?.external_agent_status || '';
-          const desiredState = response.data.config?.desired_state || '';
+          const status = response.data.config?.external_agent_status || "";
+          const desiredState = response.data.config?.desired_state || "";
           const hasContainer = !!response.data.config?.container_name;
 
           // Map session metadata to sandbox state
           // Check stopped status first - it takes priority from the backend check
-          if (status === 'stopped') {
-            setSandboxState('absent');
-          } else if (status === 'running' || (hasContainer && desiredState === 'running')) {
-            setSandboxState('running');
-          } else if (status === 'starting') {
-            setSandboxState('starting');
-          } else if (desiredState === 'stopped') {
+          if (status === "stopped") {
+            setSandboxState("absent");
+          } else if (
+            status === "running" ||
+            (hasContainer && desiredState === "running")
+          ) {
+            setSandboxState("running");
+          } else if (status === "starting") {
+            setSandboxState("starting");
+          } else if (desiredState === "stopped") {
             // Explicitly stopped - show paused UI
-            setSandboxState('absent');
-          } else if (!hasContainer && desiredState === 'running') {
+            setSandboxState("absent");
+          } else if (!hasContainer && desiredState === "running") {
             // Container not created yet but we want it running - show starting
             // This happens immediately after "Start Planning" before container spins up
-            setSandboxState('starting');
+            setSandboxState("starting");
           } else if (!hasContainer) {
             // No container and no desire to run - paused
-            setSandboxState('absent');
+            setSandboxState("absent");
           } else {
             // Default to running if we have a container
-            setSandboxState(hasContainer ? 'running' : 'absent');
+            setSandboxState(hasContainer ? "running" : "absent");
           }
         }
       } catch (err) {
-        console.error('Failed to fetch sandbox state:', err);
+        console.error("Failed to fetch sandbox state:", err);
       }
     };
 
@@ -69,15 +83,15 @@ export const useSandboxState = (sessionId: string) => {
     return () => {
       clearInterval(interval);
     };
-  }, [sessionId]);
+  }, [sessionId, enabled]);
 
   // Backend now returns 'starting' state for recently-created containers
   // Include 'loading' in isStarting to prevent DesktopStreamViewer from mounting
   // before we know the real state (avoids mount/unmount flicker)
-  const isRunning = sandboxState === 'running' || sandboxState === 'resumable';
-  const isStarting = sandboxState === 'starting' || sandboxState === 'loading';
+  const isRunning = sandboxState === "running" || sandboxState === "resumable";
+  const isStarting = sandboxState === "starting" || sandboxState === "loading";
   // Show "paused" only if container was previously running but is now absent
-  const isPaused = sandboxState === 'absent';
+  const isPaused = sandboxState === "absent";
 
   return { sandboxState, isRunning, isPaused, isStarting };
 };
@@ -86,7 +100,7 @@ interface ExternalAgentDesktopViewerProps {
   sessionId: string;
   sandboxId?: string;
   height?: number; // Optional - required for screenshot mode, ignored for stream mode (uses flex)
-  mode?: 'screenshot' | 'stream'; // Screenshot mode for Kanban cards, stream mode for floating window
+  mode?: "screenshot" | "stream"; // Screenshot mode for Kanban cards, stream mode for floating window
   onClientIdCalculated?: (clientId: string) => void;
   // Display settings from app's ExternalAgentConfig
   displayWidth?: number;
@@ -96,7 +110,7 @@ interface ExternalAgentDesktopViewerProps {
   showSessionPanel?: boolean; // Enable the collapsible session panel feature
   specTaskId?: string; // For prompt history sync
   projectId?: string; // For prompt history sync
-  apiClient?: Api<unknown>['api']; // For prompt history sync
+  apiClient?: Api<unknown>["api"]; // For prompt history sync
   defaultPanelOpen?: boolean; // Default state of the session panel (default: false)
 }
 
@@ -104,7 +118,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   sessionId,
   sandboxId,
   height,
-  mode = 'stream', // Default to stream for floating window
+  mode = "stream", // Default to stream for floating window
   onClientIdCalculated,
   displayWidth,
   displayHeight,
@@ -126,7 +140,9 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   // Session panel state
   const [sessionPanelOpen, setSessionPanelOpen] = useState(defaultPanelOpen);
   // Track uploaded file paths to append to prompt input (uses unique key to trigger append)
-  const [uploadedFilePath, setUploadedFilePath] = useState<string | undefined>();
+  const [uploadedFilePath, setUploadedFilePath] = useState<
+    string | undefined
+  >();
   const uploadCountRef = useRef(0);
 
   // NOTE: WebSocket subscription is handled by parent components (SpecTaskDetailContent, etc.)
@@ -141,25 +157,30 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   }, []);
 
   // Handle image paste in RobustPromptInput - uploads without opening file manager
-  const handleImagePaste = useCallback(async (file: File): Promise<string | null> => {
-    try {
-      const response = await api.getApiClient().v1ExternalAgentsUploadCreate(
-        sessionId,
-        { file },
-        { open_file_manager: false }
-      );
+  const handleImagePaste = useCallback(
+    async (file: File): Promise<string | null> => {
+      try {
+        const response = await api
+          .getApiClient()
+          .v1ExternalAgentsUploadCreate(
+            sessionId,
+            { file },
+            { open_file_manager: false },
+          );
 
-      if (response.data?.path) {
-        snackbar.success(`${file.name} uploaded to ~/work/incoming`);
-        return response.data.path;
+        if (response.data?.path) {
+          snackbar.success(`${file.name} uploaded to ~/work/incoming`);
+          return response.data.path;
+        }
+        return null;
+      } catch (error) {
+        console.error("Image upload error:", error);
+        snackbar.error("Failed to upload image");
+        return null;
       }
-      return null;
-    } catch (error) {
-      console.error('Image upload error:', error);
-      snackbar.error('Failed to upload image');
-      return null;
-    }
-  }, [sessionId]);
+    },
+    [sessionId],
+  );
 
   // Once running, remember it to prevent unmounting on transient state changes
   useEffect(() => {
@@ -173,12 +194,12 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     setIsResuming(true);
     try {
       await api.getApiClient().v1SessionsResumeCreate(sessionId);
-      snackbar.success('External agent started successfully');
+      snackbar.success("External agent started successfully");
       // Success - don't reset isResuming here
       // The useEffect below will reset it when container state changes
     } catch (error: any) {
-      console.error('Failed to resume agent:', error);
-      snackbar.error(error?.message || 'Failed to start agent');
+      console.error("Failed to resume agent:", error);
+      snackbar.error(error?.message || "Failed to start agent");
       // Error - reset so user can retry
       setIsResuming(false);
     }
@@ -209,17 +230,22 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
 
   // Handler for sending messages from the session panel
   // IMPORTANT: This hook must be before any early returns to satisfy React's rules of hooks
-  const handleSendMessage = useCallback(async (message: string, interrupt?: boolean) => {
-    await NewInference({
-      type: SESSION_TYPE_TEXT,
-      message,
-      sessionId,
-      interrupt: interrupt ?? true,
-    });
-    // Immediately invalidate session query to refresh the interaction list
-    // This ensures the user's message appears right away without waiting for poll
-    queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) });
-  }, [NewInference, sessionId, queryClient]);
+  const handleSendMessage = useCallback(
+    async (message: string, interrupt?: boolean) => {
+      await NewInference({
+        type: SESSION_TYPE_TEXT,
+        message,
+        sessionId,
+        interrupt: interrupt ?? true,
+      });
+      // Immediately invalidate session query to refresh the interaction list
+      // This ensures the user's message appears right away without waiting for poll
+      queryClient.invalidateQueries({
+        queryKey: GET_SESSION_QUERY_KEY(sessionId),
+      });
+    },
+    [NewInference, sessionId, queryClient],
+  );
 
   // Session panel width
   const SESSION_PANEL_WIDTH = 400;
@@ -229,31 +255,34 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
 
   // Screenshot mode: use traditional early-return rendering
   // Use height prop if provided, otherwise fill parent container (for aspect-ratio containers)
-  const screenshotHeight = height ?? '100%';
+  const screenshotHeight = height ?? "100%";
 
-  if (mode === 'screenshot') {
+  if (mode === "screenshot") {
     // Starting state - show spinner
     if (isStarting) {
       return (
         <Box
           sx={{
-            width: '100%',
+            width: "100%",
             height: screenshotHeight,
-            position: 'relative',
-            border: '1px solid',
-            borderColor: 'divider',
+            position: "relative",
+            border: "1px solid",
+            borderColor: "divider",
             borderRadius: 1,
-            overflow: 'hidden',
-            backgroundColor: '#1a1a1a',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
+            overflow: "hidden",
+            backgroundColor: "#1a1a1a",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
             gap: 2,
           }}
         >
-          <CircularProgress size={32} sx={{ color: 'primary.main' }} />
-          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+          <CircularProgress size={32} sx={{ color: "primary.main" }} />
+          <Typography
+            variant="body2"
+            sx={{ color: "rgba(255,255,255,0.7)", fontWeight: 500 }}
+          >
             Starting Desktop...
           </Typography>
         </Box>
@@ -265,14 +294,14 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
       return (
         <Box
           sx={{
-            width: '100%',
+            width: "100%",
             height: screenshotHeight,
-            position: 'relative',
-            border: '1px solid',
-            borderColor: 'divider',
+            position: "relative",
+            border: "1px solid",
+            borderColor: "divider",
             borderRadius: 1,
-            overflow: 'hidden',
-            backgroundColor: '#1a1a1a',
+            overflow: "hidden",
+            backgroundColor: "#1a1a1a",
           }}
         >
           <Box
@@ -280,43 +309,48 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             src={screenshotUrl}
             alt="Paused Desktop"
             sx={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'contain',
-              filter: 'grayscale(0.5) brightness(0.7) blur(1px)',
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              filter: "grayscale(0.5) brightness(0.7) blur(1px)",
               opacity: 0.6,
             }}
             onError={(e) => {
-              e.currentTarget.style.display = 'none';
+              e.currentTarget.style.display = "none";
             }}
           />
           <Box
             sx={{
-              position: 'absolute',
+              position: "absolute",
               top: 0,
               left: 0,
               right: 0,
               bottom: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
               gap: 2,
-              backgroundColor: 'rgba(0,0,0,0.3)',
+              backgroundColor: "rgba(0,0,0,0.3)",
             }}
           >
-            <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.9)', fontWeight: 500 }}>
+            <Typography
+              variant="body1"
+              sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
+            >
               Desktop Paused
             </Typography>
             <Button
               variant="contained"
               color="primary"
               size="large"
-              startIcon={isResuming ? <CircularProgress size={20} /> : <PlayArrow />}
+              startIcon={
+                isResuming ? <CircularProgress size={20} /> : <PlayArrow />
+              }
               onClick={handleResume}
               disabled={isResuming}
             >
-              {isResuming ? 'Starting...' : 'Start Desktop'}
+              {isResuming ? "Starting..." : "Start Desktop"}
             </Button>
           </Box>
         </Box>
@@ -324,11 +358,13 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     }
 
     return (
-      <Box sx={{
-        height: screenshotHeight,
-        width: '100%',
-        overflow: 'hidden'
-      }}>
+      <Box
+        sx={{
+          height: screenshotHeight,
+          width: "100%",
+          overflow: "hidden",
+        }}
+      >
         <ScreenshotViewer
           sessionId={sessionId}
           autoRefresh={true}
@@ -350,24 +386,27 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     return (
       <Box
         sx={{
-          width: '100%',
+          width: "100%",
           flex: 1,
           minHeight: 0,
-          position: 'relative',
-          border: '1px solid',
-          borderColor: 'divider',
+          position: "relative",
+          border: "1px solid",
+          borderColor: "divider",
           borderRadius: 1,
-          overflow: 'hidden',
-          backgroundColor: '#1a1a1a',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
+          overflow: "hidden",
+          backgroundColor: "#1a1a1a",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
           gap: 2,
         }}
       >
-        <CircularProgress size={32} sx={{ color: 'primary.main' }} />
-        <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+        <CircularProgress size={32} sx={{ color: "primary.main" }} />
+        <Typography
+          variant="body2"
+          sx={{ color: "rgba(255,255,255,0.7)", fontWeight: 500 }}
+        >
           Starting Desktop...
         </Typography>
       </Box>
@@ -380,15 +419,15 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     return (
       <Box
         sx={{
-          width: '100%',
+          width: "100%",
           flex: 1,
           minHeight: 0,
-          position: 'relative',
-          border: '1px solid',
-          borderColor: 'divider',
+          position: "relative",
+          border: "1px solid",
+          borderColor: "divider",
           borderRadius: 1,
-          overflow: 'hidden',
-          backgroundColor: '#1a1a1a',
+          overflow: "hidden",
+          backgroundColor: "#1a1a1a",
         }}
       >
         <Box
@@ -396,43 +435,48 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           src={screenshotUrl}
           alt="Paused Desktop"
           sx={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'contain',
-            filter: 'grayscale(0.5) brightness(0.7) blur(1px)',
+            width: "100%",
+            height: "100%",
+            objectFit: "contain",
+            filter: "grayscale(0.5) brightness(0.7) blur(1px)",
             opacity: 0.6,
           }}
           onError={(e) => {
-            e.currentTarget.style.display = 'none';
+            e.currentTarget.style.display = "none";
           }}
         />
         <Box
           sx={{
-            position: 'absolute',
+            position: "absolute",
             top: 0,
             left: 0,
             right: 0,
             bottom: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
             gap: 2,
-            backgroundColor: 'rgba(0,0,0,0.3)',
+            backgroundColor: "rgba(0,0,0,0.3)",
           }}
         >
-          <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.9)', fontWeight: 500 }}>
+          <Typography
+            variant="body1"
+            sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
+          >
             Desktop Paused
           </Typography>
           <Button
             variant="contained"
             color="primary"
             size="large"
-            startIcon={isResuming ? <CircularProgress size={20} /> : <PlayArrow />}
+            startIcon={
+              isResuming ? <CircularProgress size={20} /> : <PlayArrow />
+            }
             onClick={handleResume}
             disabled={isResuming}
           >
-            {isResuming ? 'Starting...' : 'Start Desktop'}
+            {isResuming ? "Starting..." : "Start Desktop"}
           </Button>
         </Box>
       </Box>
@@ -444,16 +488,30 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   const showReconnectingOverlay = !isRunning && hasEverBeenRunning;
 
   return (
-    <Box sx={{ display: 'flex', flex: 1, minHeight: 0, width: '100%', position: 'relative' }}>
+    <Box
+      sx={{
+        display: "flex",
+        flex: 1,
+        minHeight: 0,
+        width: "100%",
+        position: "relative",
+      }}
+    >
       {/* Main desktop viewer */}
-      <SandboxDropZone sessionId={sessionId} disabled={!isRunning} onFileUploaded={handleFileUploaded}>
-        <Box sx={{
-          flex: 1,
-          minHeight: 0,
-          width: '100%',
-          overflow: 'hidden',
-          position: 'relative',
-        }}>
+      <SandboxDropZone
+        sessionId={sessionId}
+        disabled={!isRunning}
+        onFileUploaded={handleFileUploaded}
+      >
+        <Box
+          sx={{
+            flex: 1,
+            minHeight: 0,
+            width: "100%",
+            overflow: "hidden",
+            position: "relative",
+          }}
+        >
           <DesktopStreamViewer
             sessionId={sessionId}
             sandboxId={sandboxId}
@@ -461,7 +519,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             height={displayHeight}
             fps={displayFps}
             onError={(error) => {
-              console.error('Stream viewer error:', error);
+              console.error("Stream viewer error:", error);
             }}
             onClientIdCalculated={onClientIdCalculated}
             // Suppress DesktopStreamViewer's overlay when we're showing our own reconnecting overlay
@@ -473,35 +531,40 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           {showReconnectingOverlay && (
             <Box
               sx={{
-                position: 'absolute',
+                position: "absolute",
                 top: 0,
                 left: 0,
                 right: 0,
                 bottom: 0,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
                 gap: 2,
-                backgroundColor: 'rgba(0,0,0,0.7)',
+                backgroundColor: "rgba(0,0,0,0.7)",
                 zIndex: 100,
               }}
             >
-              <CircularProgress size={40} sx={{ color: 'warning.main' }} />
-              <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.9)', fontWeight: 500 }}>
-                {isPaused ? 'Desktop Paused' : 'Reconnecting...'}
+              <CircularProgress size={40} sx={{ color: "warning.main" }} />
+              <Typography
+                variant="body1"
+                sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
+              >
+                {isPaused ? "Desktop Paused" : "Reconnecting..."}
               </Typography>
               {isPaused && (
                 <Button
                   variant="contained"
                   color="primary"
                   size="large"
-                  startIcon={isResuming ? <CircularProgress size={20} /> : <PlayArrow />}
+                  startIcon={
+                    isResuming ? <CircularProgress size={20} /> : <PlayArrow />
+                  }
                   onClick={handleResume}
                   disabled={isResuming}
                   sx={{ mt: 1 }}
                 >
-                  {isResuming ? 'Starting...' : 'Restart Desktop'}
+                  {isResuming ? "Starting..." : "Restart Desktop"}
                 </Button>
               )}
             </Box>
@@ -509,29 +572,29 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
 
           {/* Session panel toggle button - positioned on the right edge */}
           {showSessionPanel && (
-            <Tooltip title={sessionPanelOpen ? 'Hide session panel' : 'Show session panel'}>
+            <Tooltip
+              title={
+                sessionPanelOpen ? "Hide session panel" : "Show session panel"
+              }
+            >
               <IconButton
                 onClick={() => setSessionPanelOpen(!sessionPanelOpen)}
                 sx={{
-                  position: 'absolute',
+                  position: "absolute",
                   right: sessionPanelOpen ? SESSION_PANEL_WIDTH + 8 : 8,
                   top: 8,
                   zIndex: 200,
-                  bgcolor: 'background.paper',
-                  border: '1px solid',
-                  borderColor: 'divider',
+                  bgcolor: "background.paper",
+                  border: "1px solid",
+                  borderColor: "divider",
                   boxShadow: 2,
-                  transition: 'right 0.3s ease',
-                  '&:hover': {
-                    bgcolor: 'action.hover',
+                  transition: "right 0.3s ease",
+                  "&:hover": {
+                    bgcolor: "action.hover",
                   },
                 }}
               >
-                {sessionPanelOpen ? (
-                  <ChevronRightIcon />
-                ) : (
-                  <ChatIcon />
-                )}
+                {sessionPanelOpen ? <ChevronRightIcon /> : <ChatIcon />}
               </IconButton>
             </Tooltip>
           )}
@@ -545,26 +608,36 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           orientation="horizontal"
           sx={{
             flexShrink: 0,
-            borderLeft: sessionPanelOpen ? '1px solid' : 'none',
-            borderColor: 'divider',
+            borderLeft: sessionPanelOpen ? "1px solid" : "none",
+            borderColor: "divider",
           }}
         >
           <Box
             sx={{
               width: SESSION_PANEL_WIDTH,
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              bgcolor: 'background.paper',
+              height: "100%",
+              display: "flex",
+              flexDirection: "column",
+              bgcolor: "background.paper",
             }}
           >
             {/* Session messages */}
-            <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <Box
+              sx={{
+                flex: 1,
+                minHeight: 0,
+                overflow: "hidden",
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
               <EmbeddedSessionView sessionId={sessionId} />
             </Box>
 
             {/* Prompt input */}
-            <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
+            <Box
+              sx={{ p: 2, borderTop: 1, borderColor: "divider", flexShrink: 0 }}
+            >
               <RobustPromptInput
                 sessionId={sessionId}
                 specTaskId={specTaskId}
