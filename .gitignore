@@ -115,3 +115,4 @@ api/settings-sync-daemon
 /drm-modeset-test
 /drm-test-client
 /scanout-stream-test
+core.*

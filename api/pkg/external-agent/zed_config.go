@@ -168,7 +168,7 @@ func GenerateZedMCPConfig(
 		ShowOnboarding:         false,
 		AutoOpenPanel:          true,
 	}
-	config.Theme = "One Dark"
+	config.Theme = "Ayu Dark"
 
 	// Configure language_models to route API calls through Helix proxy
 	// CRITICAL: Zed reads api_url from settings.json, NOT from environment variables!

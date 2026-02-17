@@ -123,3 +123,9 @@ EOF
         fi
         sleep 1
     done
+
+    # Add retro user to docker group (created by dockerd)
+    if id -u retro >/dev/null 2>&1; then
+        usermod -aG docker retro 2>/dev/null || true
+        echo "[dockerd] Added retro user to docker group"
+    fi

@@ -389,6 +389,53 @@ RUN <<_CREATE_USER
   chown -R retro:retro /home/retro
 _CREATE_USER
 
+# Custom .bashrc with short prompt using task number
+COPY <<'_BASHRC' /home/retro/.bashrc
+# ~/.bashrc: executed by bash(1) for non-login shells.
+
+# If not running interactively, don't do anything
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+
+# History settings
+HISTCONTROL=ignoreboth
+HISTSIZE=1000
+HISTFILESIZE=2000
+shopt -s histappend
+shopt -s checkwinsize
+
+# Enable color support
+if [ -x /usr/bin/dircolors ]; then
+    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+    alias ls='ls --color=auto'
+    alias grep='grep --color=auto'
+fi
+
+# Custom prompt: Extract task number from HELIX_SPEC_DIR_NAME
+# Format: HELIX_SPEC_DIR_NAME=001036_we-badly-need-to -> task-001036
+# Helix brand colors: purple/magenta for task, cyan for path
+if [ -n "$HELIX_SPEC_DIR_NAME" ]; then
+    TASK_NUM=$(echo "$HELIX_SPEC_DIR_NAME" | cut -d_ -f1)
+    PS1='[\[\033[01;35m\]task-${TASK_NUM}\[\033[00m\]] \[\033[01;36m\]\w\[\033[00m\] \[\033[01;35m\]❯\[\033[00m\] '
+else
+    # Fallback to hostname if HELIX_SPEC_DIR_NAME not set
+    PS1='[\[\033[01;35m\]\h\[\033[00m\]] \[\033[01;36m\]\w\[\033[00m\] \[\033[01;35m\]❯\[\033[00m\] '
+fi
+
+# Enable bash completion
+if ! shopt -oq posix; then
+  if [ -f /usr/share/bash-completion/bash_completion ]; then
+    . /usr/share/bash-completion/bash_completion
+  elif [ -f /etc/bash_completion ]; then
+    . /etc/bash_completion
+  fi
+fi
+_BASHRC
+
+RUN chown retro:retro /home/retro/.bashrc
+
 # GOW utilities and entrypoint (minimal version)
 RUN mkdir -p /opt/gow/bash-lib /opt/gow/startup.d /etc/cont-init.d
 
@@ -555,6 +602,17 @@ RUN apt-get update \
     && apt-get update \
     && apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
+
+# NVIDIA Container Toolkit (enables GPU passthrough in inner containers)
+# This allows the desktop's dockerd to run containers with --runtime=nvidia
+# Supports both amd64 and arm64 (e.g., Jetson devices)
+RUN curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg && \
+    curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+        sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+        tee /etc/apt/sources.list.d/nvidia-container-toolkit.list && \
+    apt-get update -y && \
+    apt-get install -y --no-install-recommends nvidia-container-toolkit nvidia-container-runtime && \
+    rm -rf /var/lib/apt/lists/*
 
 # Kind (Kubernetes in Docker) + kubectl
 # Enables creating local Kubernetes clusters inside the desktop container
