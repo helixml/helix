@@ -389,6 +389,52 @@ RUN <<_CREATE_USER
   chown -R retro:retro /home/retro
 _CREATE_USER
 
+# Custom .bashrc with short prompt using task number
+COPY <<'_BASHRC' /home/retro/.bashrc
+# ~/.bashrc: executed by bash(1) for non-login shells.
+
+# If not running interactively, don't do anything
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+
+# History settings
+HISTCONTROL=ignoreboth
+HISTSIZE=1000
+HISTFILESIZE=2000
+shopt -s histappend
+shopt -s checkwinsize
+
+# Enable color support
+if [ -x /usr/bin/dircolors ]; then
+    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+    alias ls='ls --color=auto'
+    alias grep='grep --color=auto'
+fi
+
+# Custom prompt: Extract task number from HELIX_SPEC_DIR_NAME
+# Format: HELIX_SPEC_DIR_NAME=001036_we-badly-need-to -> task-001036
+if [ -n "$HELIX_SPEC_DIR_NAME" ]; then
+    TASK_NUM=$(echo "$HELIX_SPEC_DIR_NAME" | cut -d_ -f1)
+    PS1='\[\033[01;32m\]task-${TASK_NUM}\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+else
+    # Fallback to hostname if HELIX_SPEC_DIR_NAME not set
+    PS1='\[\033[01;32m\]\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+fi
+
+# Enable bash completion
+if ! shopt -oq posix; then
+  if [ -f /usr/share/bash-completion/bash_completion ]; then
+    . /usr/share/bash-completion/bash_completion
+  elif [ -f /etc/bash_completion ]; then
+    . /etc/bash_completion
+  fi
+fi
+_BASHRC
+
+RUN chown retro:retro /home/retro/.bashrc
+
 # GOW utilities and entrypoint (minimal version)
 RUN mkdir -p /opt/gow/bash-lib /opt/gow/startup.d /etc/cont-init.d
 
