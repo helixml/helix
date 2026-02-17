@@ -167,7 +167,7 @@ fi
 # Ensure buildx directory has correct permissions
 # The docker-shim tries to create the helix-shared builder and needs write access
 mkdir -p ~/.docker/buildx
-sudo chown -R $USER:$USER ~/.docker 2>/dev/null || true
+sudo chown -R retro:retro ~/.docker 2>/dev/null || true
 
 # Build and start the stack
 echo ""
