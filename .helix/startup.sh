@@ -68,12 +68,12 @@ fi
 # (zed-builder:ubuntu25) which has its own Rust installation.
 
 # Check that Docker is available (docker-in-desktop mode)
-if docker info &>/dev/null; then
+if sudo docker info &>/dev/null; then
     echo "✓ Docker available (docker-in-desktop mode)"
 else
     echo "⚠ Warning: Docker not available"
     echo "  The desktop container's dockerd may not have started yet."
-    echo "  Check: docker info"
+    echo "  Check: sudo docker info"
 fi
 
 # Helix repo location - project setup clones it to ~/work/helix
@@ -156,6 +156,11 @@ if tmux has-session -t helix 2>/dev/null; then
     echo "Stopping existing helix tmux session..."
     tmux kill-session -t helix
 fi
+
+# Ensure buildx directory has correct permissions
+# The docker-shim tries to create the helix-shared builder and needs write access
+mkdir -p ~/.docker/buildx
+sudo chown -R $USER:$USER ~/.docker 2>/dev/null || true
 
 # Build and start the stack
 echo ""
