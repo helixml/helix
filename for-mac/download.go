@@ -545,16 +545,8 @@ func (d *VMDownloader) downloadFileParallel(ctx interface{ EventsEmit(string, ..
 	}
 
 verify:
-	// Verify SHA256
-	d.emitProgress(ctx, DownloadProgress{
-		File:       f.Name,
-		BytesDone:  f.Size,
-		BytesTotal: f.Size,
-		Percent:    100,
-		Status:     "verifying",
-	})
-
-	hash, err := sha256File(tmpPath)
+	// Verify SHA256 with progress (hashing 8 GB takes 30-60s)
+	hash, err := d.sha256FileWithProgress(ctx, tmpPath, f)
 	if err != nil {
 		return fmt.Errorf("failed to hash %s: %w", f.Name, err)
 	}
@@ -934,6 +926,51 @@ func sha256File(path string) (string, error) {
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return "", err
+	}
+
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// sha256FileWithProgress hashes a file while emitting "verifying" progress.
+func (d *VMDownloader) sha256FileWithProgress(ctx interface{ EventsEmit(string, ...interface{}) }, path string, f VMManifestFile) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	h := sha256.New()
+	buf := make([]byte, 4*1024*1024)
+	var hashed int64
+	lastReport := time.Now()
+
+	for {
+		n, readErr := file.Read(buf)
+		if n > 0 {
+			h.Write(buf[:n])
+			hashed += int64(n)
+
+			if time.Since(lastReport) > 300*time.Millisecond {
+				pct := float64(hashed) / float64(f.Size) * 100
+				if pct > 100 {
+					pct = 100
+				}
+				d.emitProgress(ctx, DownloadProgress{
+					File:       f.Name,
+					BytesDone:  hashed,
+					BytesTotal: f.Size,
+					Percent:    pct,
+					Status:     "verifying",
+				})
+				lastReport = time.Now()
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return "", readErr
+		}
 	}
 
 	return hex.EncodeToString(h.Sum(nil)), nil
