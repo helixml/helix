@@ -2438,8 +2438,8 @@ elif [ "$GPU_VENDOR" = "virtio" ]; then
     # macOS ARM with virtio-gpu (QEMU VideoToolbox H.264 via scanout)
     GPU_FLAGS="--device /dev/dri"
     GPU_ENV_FLAGS="-e GPU_VENDOR=virtio -e CONTAINER_DOCKER_PATH=${CONTAINER_DOCKER_PATH:-}"
-    # DRM socket for lease manager, DRM cgroup rule, container-docker ZFS mount
-    VIRTIO_FLAGS="-v /run/helix-drm:/run/helix-drm:rw --device-cgroup-rule='c 226:* rmw' -v ${CONTAINER_DOCKER_PATH:-/helix/container-docker}:/container-docker"
+    # DRM socket for lease manager, container-docker ZFS mount
+    VIRTIO_FLAGS="-v /run/helix-drm:/run/helix-drm:rw -v ${CONTAINER_DOCKER_PATH:-/helix/container-docker}:/container-docker"
 elif [ "$GPU_VENDOR" = "none" ]; then
     # Software rendering - no GPU device mounts needed
     GPU_FLAGS=""
@@ -2504,6 +2504,7 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS $VIRTIO_FLAGS \
     --device /dev/uinput \
     --device /dev/uhid \
     --device-cgroup-rule='c 13:* rmw' \
+    --device-cgroup-rule='c 226:* rmw' \
     registry.helixml.tech/helix/helix-sandbox:${SANDBOX_TAG}
 
 if [ $? -eq 0 ]; then

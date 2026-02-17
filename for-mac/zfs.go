@@ -132,6 +132,7 @@ func (z *ZFSCollector) collect() {
 
 func (z *ZFSCollector) sshCmd(command string) (string, error) {
 	args := []string{
+		"-F", "/dev/null", // Don't read ~/.ssh/config (triggers macOS TCC dialog)
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=5",
