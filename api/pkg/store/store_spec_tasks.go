@@ -92,7 +92,7 @@ func (s *PostgresStore) GetSpecTask(ctx context.Context, id string) (*types.Spec
 
 	task := &types.SpecTask{}
 
-	err := s.gdb.WithContext(ctx).Where("id = ?", id).First(&task).Error
+	err := s.gdb.WithContext(ctx).Preload("DependsOn").Where("id = ?", id).First(&task).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("spec task not found: %s", id)

@@ -95,6 +95,52 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSpecTask() {
 	suite.Equal(task.Priority, retrieved.Priority)
 }
 
+func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSpecTask_WithDependsOn() {
+	project := suite.createTestProject()
+	suite.T().Cleanup(func() {
+		_ = suite.db.DeleteProject(context.Background(), project.ID)
+	})
+
+	dependency := &types.SpecTask{
+		ID:             "task-" + system.GenerateUUID(),
+		ProjectID:      project.ID,
+		Name:           "Dependency Task",
+		Type:           "feature",
+		Priority:       types.SpecTaskPriorityMedium,
+		Status:         types.TaskStatusDone,
+		OriginalPrompt: "Dependency prompt",
+		CreatedBy:      "test-user",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	err := suite.db.CreateSpecTask(suite.ctx, dependency)
+	suite.Require().NoError(err)
+
+	task := &types.SpecTask{
+		ID:             "task-" + system.GenerateUUID(),
+		ProjectID:      project.ID,
+		Name:           "Main Task",
+		Type:           "feature",
+		Priority:       types.SpecTaskPriorityHigh,
+		Status:         types.TaskStatusBacklog,
+		OriginalPrompt: "Main prompt",
+		CreatedBy:      "test-user",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+		DependsOn: []types.SpecTask{
+			{ID: dependency.ID},
+		},
+	}
+	err = suite.db.CreateSpecTask(suite.ctx, task)
+	suite.Require().NoError(err)
+
+	retrieved, err := suite.db.GetSpecTask(suite.ctx, task.ID)
+	suite.Require().NoError(err)
+	suite.Len(retrieved.DependsOn, 1)
+	suite.Equal(dependency.ID, retrieved.DependsOn[0].ID)
+	suite.Equal(types.TaskStatusDone, retrieved.DependsOn[0].Status)
+}
+
 func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSpecTask_NotFound() {
 	_, err := suite.db.GetSpecTask(suite.ctx, "non-existent-task")
 	suite.Error(err)
