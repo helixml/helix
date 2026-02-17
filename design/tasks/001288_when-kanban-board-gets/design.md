@@ -158,6 +158,17 @@ Also add a `LIMIT` clause to `fillInMissing*` functions to cap output.
 4. `api/pkg/server/usage_handlers.go` - Auto-select aggregation level, cap max points
 5. `api/pkg/store/store_usage_metrics.go` - Add limit to fillInMissing* functions
 
+## Implementation Notes
+
+### Phase 1: Usage Data Quantization
+- Modified `api/pkg/server/usage_handlers.go` - added `selectAggregationLevel()` function
+- Removed client-side aggregation level selection - server now auto-selects based on time range
+- The `fillInMissing*` functions don't need changes - aggregation level selection naturally bounds the output
+- Kept zero-value data points so charts accurately show "no activity" periods
+
+### Key insight
+The original code let clients request `aggregationLevel: '5min'` and the server would fill ALL 5-minute buckets from task creation to now. For a 7-day task, that's 2016 data points. The fix is simple: server ignores client's requested level and picks the appropriate one automatically.
+
 ## Testing (Self-Verifiable via Chrome MCP)
 
 Use Chrome MCP tools to measure before/after:
