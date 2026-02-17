@@ -126,6 +126,17 @@ export function LicenseCard({ licenseStatus: ls, onLicenseUpdated, showToast }: 
             >
               Get a license at helix.ml
             </a>
+            <span className="license-links-sep">&middot;</span>
+            <a
+              href="#"
+              className="license-link"
+              onClick={(e) => {
+                e.preventDefault();
+                BrowserOpenURL('https://discord.gg/VJftd844GE');
+              }}
+            >
+              Chat to us on Discord
+            </a>
           </div>
           {licenseError && (
             <div className="error-msg" style={{ marginTop: 8 }}>
@@ -196,6 +207,18 @@ export function LicenseCard({ licenseStatus: ls, onLicenseUpdated, showToast }: 
               {startingTrial ? 'Starting trial...' : 'Start 24-Hour Free Trial'}
             </button>
           </div>
+        </div>
+        <div className="license-links" style={{ marginTop: 12 }}>
+          <a
+            href="#"
+            className="license-link"
+            onClick={(e) => {
+              e.preventDefault();
+              BrowserOpenURL('https://discord.gg/VJftd844GE');
+            }}
+          >
+            Chat to us on Discord
+          </a>
         </div>
         {licenseError && (
           <div className="error-msg" style={{ marginTop: 8 }}>
