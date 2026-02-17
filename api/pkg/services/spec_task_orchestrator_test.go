@@ -102,9 +102,11 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_RespectsPlanningLimit(
 	s.store.EXPECT().GetSpecTask(ctx, eventTask.ID).Return(latestTask, nil)
 	s.store.EXPECT().GetProject(ctx, eventTask.ProjectID).Return(project, nil)
 	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
-		ProjectID: eventTask.ProjectID,
+		ProjectID:     eventTask.ProjectID,
+		WithDependsOn: true,
 	}).Return([]*types.SpecTask{
 		{ID: "task-existing", Status: types.TaskStatusSpecGeneration},
+		latestTask,
 	}, nil)
 
 	err := s.orchestrator.handleBacklog(ctx, eventTask)
@@ -141,10 +143,139 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_RespectsImplementation
 	s.store.EXPECT().GetSpecTask(ctx, eventTask.ID).Return(latestTask, nil)
 	s.store.EXPECT().GetProject(ctx, eventTask.ProjectID).Return(project, nil)
 	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
-		ProjectID: eventTask.ProjectID,
+		ProjectID:     eventTask.ProjectID,
+		WithDependsOn: true,
 	}).Return([]*types.SpecTask{
 		{ID: "task-existing", Status: types.TaskStatusQueuedImplementation},
+		latestTask,
 	}, nil)
+
+	err := s.orchestrator.handleBacklog(ctx, eventTask)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_SkipsWhenDependencyNotDone() {
+	ctx := context.Background()
+	eventTask := &types.SpecTask{
+		ID:        "task-123",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusBacklog,
+	}
+
+	latestTask := &types.SpecTask{
+		ID:        "task-123",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusBacklog,
+	}
+
+	project := &types.Project{
+		ID:                    "project-123",
+		AutoStartBacklogTasks: true,
+	}
+
+	latestTaskWithDependencies := &types.SpecTask{
+		ID:        "task-123",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusBacklog,
+		DependsOn: []types.SpecTask{
+			{ID: "dep-1", Status: types.TaskStatusImplementation},
+		},
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, eventTask.ID).Return(latestTask, nil)
+	s.store.EXPECT().GetProject(ctx, eventTask.ProjectID).Return(project, nil)
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID:     eventTask.ProjectID,
+		WithDependsOn: true,
+	}).Return([]*types.SpecTask{
+		latestTaskWithDependencies,
+	}, nil)
+
+	err := s.orchestrator.handleBacklog(ctx, eventTask)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_SkipsWhenDependencyNotFullyLoaded() {
+	ctx := context.Background()
+	eventTask := &types.SpecTask{
+		ID:        "task-123",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusBacklog,
+	}
+
+	latestTask := &types.SpecTask{
+		ID:        "task-123",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusBacklog,
+	}
+
+	project := &types.Project{
+		ID:                    "project-123",
+		AutoStartBacklogTasks: true,
+	}
+
+	latestTaskWithDependencies := &types.SpecTask{
+		ID:        "task-123",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusBacklog,
+		DependsOn: []types.SpecTask{
+			{ID: "dep-1"},
+		},
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, eventTask.ID).Return(latestTask, nil)
+	s.store.EXPECT().GetProject(ctx, eventTask.ProjectID).Return(project, nil)
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID:     eventTask.ProjectID,
+		WithDependsOn: true,
+	}).Return([]*types.SpecTask{
+		latestTaskWithDependencies,
+	}, nil)
+
+	err := s.orchestrator.handleBacklog(ctx, eventTask)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_ProgressesWhenDependencyArchived() {
+	ctx := context.Background()
+	eventTask := &types.SpecTask{
+		ID:        "task-123",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusBacklog,
+	}
+
+	latestTask := &types.SpecTask{
+		ID:        "task-123",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusBacklog,
+	}
+
+	project := &types.Project{
+		ID:                    "project-123",
+		AutoStartBacklogTasks: true,
+	}
+
+	latestTaskWithDependencies := &types.SpecTask{
+		ID:        "task-123",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusBacklog,
+		DependsOn: []types.SpecTask{
+			{ID: "dep-1", Status: types.TaskStatusImplementation, Archived: true},
+		},
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, eventTask.ID).Return(latestTask, nil)
+	s.store.EXPECT().GetProject(ctx, eventTask.ProjectID).Return(project, nil)
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID:     eventTask.ProjectID,
+		WithDependsOn: true,
+	}).Return([]*types.SpecTask{
+		latestTaskWithDependencies,
+	}, nil)
+	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, task *types.SpecTask) error {
+		s.Equal(types.TaskStatusQueuedSpecGeneration, task.Status)
+		return nil
+	})
 
 	err := s.orchestrator.handleBacklog(ctx, eventTask)
 	s.Require().NoError(err)

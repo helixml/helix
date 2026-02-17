@@ -134,7 +134,9 @@ func (o *SpecTaskOrchestrator) orchestrationLoop(ctx context.Context) {
 // processTasks processes all active tasks
 func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 	// Get all tasks (we'll filter active ones)
-	tasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{})
+	tasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		WithDependsOn: true, // Validate dependencies before processing
+	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list tasks for orchestration")
 		return
@@ -245,9 +247,9 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 		return nil
 	}
 
-	planningLimit, implementationLimit := getProjectWIPLimits(project)
 	allProjectTasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
-		ProjectID: latestTask.ProjectID,
+		ProjectID:     latestTask.ProjectID,
+		WithDependsOn: true,
 	})
 	if err != nil {
 		log.Warn().
@@ -258,6 +260,31 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 		return nil
 	}
 
+	var latestTaskWithDependencies *types.SpecTask
+	for _, projectTask := range allProjectTasks {
+		if projectTask.ID == latestTask.ID {
+			latestTaskWithDependencies = projectTask
+			break
+		}
+	}
+	if latestTaskWithDependencies == nil {
+		log.Info().
+			Str("task_id", latestTask.ID).
+			Str("project_id", latestTask.ProjectID).
+			Msg("Skipping backlog task - unable to load task dependencies")
+		return nil
+	}
+
+	if dependencyReady, blockingDependency := areBacklogDependenciesReady(latestTaskWithDependencies.DependsOn); !dependencyReady {
+		log.Info().
+			Str("task_id", latestTask.ID).
+			Str("project_id", latestTask.ProjectID).
+			Str("dependency_task_id", blockingDependency).
+			Msg("Skipping backlog task - waiting for dependency task to be done or archived")
+		return nil
+	}
+
+	planningLimit, implementationLimit := getProjectWIPLimits(project)
 	planningCount := countTasksByStatus(allProjectTasks,
 		types.TaskStatusQueuedSpecGeneration,
 		types.TaskStatusSpecGeneration,
@@ -309,6 +336,22 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 	}
 
 	return nil
+}
+
+func areBacklogDependenciesReady(dependencies []types.SpecTask) (bool, string) {
+	for _, dependency := range dependencies {
+		if dependency.ID == "" {
+			return false, ""
+		}
+		if dependency.Archived {
+			continue
+		}
+		if dependency.Status != types.TaskStatusDone {
+			return false, dependency.ID
+		}
+	}
+
+	return true, ""
 }
 
 func (o *SpecTaskOrchestrator) getBacklogProjectLock(projectID string) (*sync.Mutex, error) {
