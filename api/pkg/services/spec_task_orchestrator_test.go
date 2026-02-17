@@ -52,6 +52,104 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_StopsDesktop() {
 	s.Require().NoError(err)
 }
 
+func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_SkipsWhenStaleEvent() {
+	ctx := context.Background()
+	eventTask := &types.SpecTask{
+		ID:        "task-123",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusBacklog,
+	}
+
+	latestTask := &types.SpecTask{
+		ID:        "task-123",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusQueuedSpecGeneration,
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, eventTask.ID).Return(latestTask, nil)
+
+	err := s.orchestrator.handleBacklog(ctx, eventTask)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_RespectsPlanningLimit() {
+	ctx := context.Background()
+	eventTask := &types.SpecTask{
+		ID:        "task-123",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusBacklog,
+	}
+
+	latestTask := &types.SpecTask{
+		ID:           "task-123",
+		ProjectID:    "project-123",
+		Status:       types.TaskStatusBacklog,
+		JustDoItMode: false,
+	}
+
+	project := &types.Project{
+		ID:                    "project-123",
+		AutoStartBacklogTasks: true,
+		Metadata: types.ProjectMetadata{
+			BoardSettings: &types.BoardSettings{
+				WIPLimits: types.WIPLimits{
+					Planning: 1,
+				},
+			},
+		},
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, eventTask.ID).Return(latestTask, nil)
+	s.store.EXPECT().GetProject(ctx, eventTask.ProjectID).Return(project, nil)
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID: eventTask.ProjectID,
+	}).Return([]*types.SpecTask{
+		{ID: "task-existing", Status: types.TaskStatusSpecGeneration},
+	}, nil)
+
+	err := s.orchestrator.handleBacklog(ctx, eventTask)
+	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_RespectsImplementationLimitForJustDoIt() {
+	ctx := context.Background()
+	eventTask := &types.SpecTask{
+		ID:        "task-123",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusBacklog,
+	}
+
+	latestTask := &types.SpecTask{
+		ID:           "task-123",
+		ProjectID:    "project-123",
+		Status:       types.TaskStatusBacklog,
+		JustDoItMode: true,
+	}
+
+	project := &types.Project{
+		ID:                    "project-123",
+		AutoStartBacklogTasks: true,
+		Metadata: types.ProjectMetadata{
+			BoardSettings: &types.BoardSettings{
+				WIPLimits: types.WIPLimits{
+					Implementation: 1,
+				},
+			},
+		},
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, eventTask.ID).Return(latestTask, nil)
+	s.store.EXPECT().GetProject(ctx, eventTask.ProjectID).Return(project, nil)
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID: eventTask.ProjectID,
+	}).Return([]*types.SpecTask{
+		{ID: "task-existing", Status: types.TaskStatusQueuedImplementation},
+	}, nil)
+
+	err := s.orchestrator.handleBacklog(ctx, eventTask)
+	s.Require().NoError(err)
+}
+
 // Note: These are simplified unit tests focusing on testable functions
 // Full integration tests with store/wolf mocking should be in integration test suite
 
@@ -143,8 +241,8 @@ func TestSanitizeForBranchName(t *testing.T) {
 		{"UPPERCASE TEXT", "uppercase-text"},
 		{"Multiple   Spaces", "multiple-spaces"},
 		{"Special!@#$%Characters", "specialcharacters"},
-		{"Task with\nnewline", "task-with-newline"},                          // Newlines become hyphens
-		{"Task with\ttab", "task-with-tab"},                                  // Tabs become hyphens
+		{"Task with\nnewline", "task-with-newline"},                         // Newlines become hyphens
+		{"Task with\ttab", "task-with-tab"},                                 // Tabs become hyphens
 		{"Connect to Azure DevOps\n^ in dialog", "connect-to-azure-devops"}, // Regression test
 	}
 

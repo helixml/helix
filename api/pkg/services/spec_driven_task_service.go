@@ -170,8 +170,8 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		Status:         types.TaskStatusBacklog,
 		OriginalPrompt: req.Prompt,
 		CreatedBy:      req.UserID,
-		HelixAppID:     helixAppID,        // Helix agent used for entire workflow
-		JustDoItMode:   req.JustDoItMode,  // Set Just Do It mode from request
+		HelixAppID:     helixAppID,       // Helix agent used for entire workflow
+		JustDoItMode:   req.JustDoItMode, // Set Just Do It mode from request
 		// Branch configuration
 		BranchMode:   branchMode,
 		BaseBranch:   req.BaseBranch,    // User-specified base branch (empty = use repo default)
@@ -180,6 +180,15 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		// Repositories inherited from parent project - no task-level repo configuration
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
+	}
+	if req.DependsOn != nil {
+		task.DependsOn = make([]types.SpecTask, 0, len(req.DependsOn))
+		for _, dependsOnID := range req.DependsOn {
+			if dependsOnID == "" {
+				continue
+			}
+			task.DependsOn = append(task.DependsOn, types.SpecTask{ID: dependsOnID})
+		}
 	}
 
 	// Assign task number immediately at creation time so it's always visible in UI
@@ -537,10 +546,10 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SessionID:           session.ID,
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment for spec generation",
-		ProjectPath:         "workspace",        // Use relative path
-		SpecTaskID:          task.ID,            // For task-scoped workspace
-		PrimaryRepositoryID: primaryRepoID,      // Primary repo to open in Zed
-		RepositoryIDs:       repositoryIDs,      // ALL project repos to checkout
+		ProjectPath:         "workspace",   // Use relative path
+		SpecTaskID:          task.ID,       // For task-scoped workspace
+		PrimaryRepositoryID: primaryRepoID, // Primary repo to open in Zed
+		RepositoryIDs:       repositoryIDs, // ALL project repos to checkout
 		DisplayWidth:        displayWidth,
 		DisplayHeight:       displayHeight,
 		DisplayRefreshRate:  displayRefreshRate,
@@ -918,10 +927,10 @@ Follow these guidelines when making changes:
 		SessionID:           session.ID,
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment",
-		ProjectPath:         "workspace",        // Use relative path
-		SpecTaskID:          task.ID,            // For task-scoped workspace
-		PrimaryRepositoryID: primaryRepoID,      // Primary repo to open in Zed
-		RepositoryIDs:       repositoryIDs,      // ALL project repos to checkout
+		ProjectPath:         "workspace",   // Use relative path
+		SpecTaskID:          task.ID,       // For task-scoped workspace
+		PrimaryRepositoryID: primaryRepoID, // Primary repo to open in Zed
+		RepositoryIDs:       repositoryIDs, // ALL project repos to checkout
 		DisplayWidth:        displayWidthJDI,
 		DisplayHeight:       displayHeightJDI,
 		DisplayRefreshRate:  displayRefreshRateJDI,
