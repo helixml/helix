@@ -144,6 +144,7 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 // @Param   status query string false "Filter by status"
 // @Param   user_id query string false "Filter by user ID"
 // @Param   include_archived query bool false "Include archived tasks" default(false)
+// @Param   with_depends_on query bool false "Include depends on tasks" default(false)
 // @Param   limit query int false "Limit number of results" default(50)
 // @Param   offset query int false "Offset for pagination" default(0)
 // @Success 200 {array} types.SpecTask
@@ -176,6 +177,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		ProjectID:       projectID,
 		Status:          types.SpecTaskStatus(query.Get("status")),
 		UserID:          query.Get("user_id"),
+		WithDependsOn:   query.Get("with_depends_on") == "true",
 		Limit:           parseIntQuery(query.Get("limit"), 0), // 0 = no limit, return all tasks
 		Offset:          parseIntQuery(query.Get("offset"), 0),
 		IncludeArchived: query.Get("include_archived") == "true",
