@@ -1,5 +1,5 @@
 import React from 'react'
-import { Box, Button, Alert } from '@mui/material'
+import { Box, Button, Alert, Tooltip } from '@mui/material'
 import CodeIcon from '@mui/icons-material/Code'
 
 interface ReviewActionFooterProps {
@@ -7,6 +7,8 @@ interface ReviewActionFooterProps {
   unresolvedCount: number
   startingImplementation: boolean
   implementationStarted: boolean // True if task is already in implementation phase
+  isBlockedByDependencies?: boolean
+  blockedReason?: string
   onApprove: () => void
   onRequestChanges: () => void
   onReject: () => void
@@ -18,6 +20,8 @@ export default function ReviewActionFooter({
   unresolvedCount,
   startingImplementation,
   implementationStarted,
+  isBlockedByDependencies = false,
+  blockedReason = '',
   onApprove,
   onRequestChanges,
   onReject,
@@ -44,16 +48,24 @@ export default function ReviewActionFooter({
               : 'Design approved! Ready to start implementation.'}
           </Alert>
           {!implementationStarted && (
-            <Button
-              variant="contained"
-              color="primary"
-              size="large"
-              startIcon={<CodeIcon />}
-              onClick={onStartImplementation}
-              disabled={startingImplementation}
-            >
-              {startingImplementation ? 'Starting Implementation...' : 'Start Implementation'}
-            </Button>
+            <Tooltip title={isBlockedByDependencies ? blockedReason : ''} placement="top">
+              <span>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  size="large"
+                  startIcon={<CodeIcon />}
+                  onClick={onStartImplementation}
+                  disabled={startingImplementation}
+                >
+                  {startingImplementation
+                    ? 'Starting Implementation...'
+                    : isBlockedByDependencies
+                    ? 'Queue Implementation'
+                    : 'Start Implementation'}
+                </Button>
+              </span>
+            </Tooltip>
           )}
         </Box>
       ) : reviewStatus !== 'superseded' ? (

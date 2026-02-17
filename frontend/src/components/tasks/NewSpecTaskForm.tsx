@@ -15,6 +15,7 @@ import {
   CircularProgress,
   Checkbox,
   FormControlLabel,
+  Autocomplete,
   Tooltip,
   IconButton,
 } from '@mui/material'
@@ -27,7 +28,7 @@ import { X } from 'lucide-react'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { CodeAgentRuntime, generateAgentName, ICreateAgentParams } from '../../contexts/apps'
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from '../../types'
-import { TypesCreateTaskRequest, TypesSpecTaskPriority, TypesBranchMode, TypesSpecTask } from '../../api/api'
+import { TypesSpecTaskPriority, TypesBranchMode, TypesSpecTask, TypesSpecTaskStatus } from '../../api/api'
 import AgentDropdown from '../agent/AgentDropdown'
 
 import useAccount from '../../hooks/useAccount'
@@ -35,6 +36,7 @@ import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import useApps from '../../hooks/useApps'
 import { useGetProject, useGetProjectRepositories } from '../../services'
+import { useSpecTasks } from '../../services/specTaskService'
 
 // Recommended models for zed_external agents (state-of-the-art coding models)
 const RECOMMENDED_MODELS = [
@@ -80,10 +82,16 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   // Fetch project data
   const { data: project } = useGetProject(projectId, !!projectId)
   const { data: projectRepositories = [] } = useGetProjectRepositories(projectId, !!projectId)
+  const { data: projectTasks = [] } = useSpecTasks({
+    projectId,
+    withDependsOn: true,
+    enabled: !!projectId,
+  })
 
   // Form state
   const [taskPrompt, setTaskPrompt] = useState('')
   const [taskPriority, setTaskPriority] = useState('medium')
+  const [selectedDependencyTaskIds, setSelectedDependencyTaskIds] = useState<string[]>([])
   const [selectedHelixAgent, setSelectedHelixAgent] = useState('')
   const [justDoItMode, setJustDoItMode] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
@@ -115,6 +123,18 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     const defaultRepo = projectRepositories.find(r => r.id === defaultRepoId)
     return defaultRepo?.default_branch || 'main'
   }, [projectRepositories, defaultRepoId])
+
+  const dependencyTaskOptions = useMemo(
+    () => projectTasks.filter((task) => !!task.id && task.status !== TypesSpecTaskStatus.TaskStatusDone),
+    [projectTasks]
+  )
+
+  const selectedDependencyTasks = useMemo(() => {
+    const taskById = new Map(dependencyTaskOptions.map((task) => [task.id, task]))
+    return selectedDependencyTaskIds
+      .map((taskId) => taskById.get(taskId))
+      .filter((task): task is NonNullable<typeof task> => !!task)
+  }, [dependencyTaskOptions, selectedDependencyTaskIds])
 
   // Set baseBranch to default when component mounts
   useEffect(() => {
@@ -256,6 +276,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const resetForm = useCallback(() => {
     setTaskPrompt('')
     setTaskPriority('medium')
+    setSelectedDependencyTaskIds([])
     setSelectedHelixAgent('')
     setJustDoItMode(false)
     setBranchMode(TypesBranchMode.BranchModeNew)
@@ -300,12 +321,13 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         agentId = newAgentId
       }
 
-      const createTaskRequest: TypesCreateTaskRequest = {
+      const createTaskRequest = {
         prompt: taskPrompt,
         priority: taskPriority as TypesSpecTaskPriority,
         project_id: projectId,
         app_id: agentId || undefined,
         just_do_it_mode: justDoItMode,
+        depends_on: selectedDependencyTasks.map((task) => task.id || '').filter((taskId) => !!taskId),
         branch_mode: branchMode,
         base_branch: branchMode === TypesBranchMode.BranchModeNew ? baseBranch : undefined,
         branch_prefix: branchMode === TypesBranchMode.BranchModeNew && branchPrefix ? branchPrefix : undefined,
@@ -343,7 +365,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [taskPrompt, justDoItMode, selectedHelixAgent])
+  }, [taskPrompt, justDoItMode, selectedHelixAgent, selectedDependencyTaskIds])
 
   // Keyboard shortcut: Ctrl/Cmd+J to toggle Just Do It mode
   useEffect(() => {
@@ -365,7 +387,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, borderBottom: 1, borderColor: 'divider' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <AddIcon />
-            <Typography variant="h6">New SpecTask</Typography>
+            <Typography variant="h6">New SpecTask XXX</Typography>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             {onClose && (
@@ -421,6 +443,44 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             }
             inputRef={taskPromptRef}
             size="small"
+          />
+
+          <Autocomplete
+            multiple
+            options={dependencyTaskOptions}
+            value={selectedDependencyTasks}
+            onChange={(_, selectedTasks) => {
+              setSelectedDependencyTaskIds(
+                selectedTasks.map((task) => task.id || '').filter((taskId) => !!taskId)
+              )
+            }}
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+            getOptionLabel={(task) =>
+              task.name || task.short_title || task.description || task.original_prompt || task.id || 'Untitled task'
+            }
+            filterSelectedOptions
+            clearOnBlur={false}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Depends on"
+                placeholder="Search and select tasks"
+                size="small"
+                helperText="Optional: this task will be blocked until selected dependencies are done"
+              />
+            )}
+            renderOption={(props, option) => (
+              <li {...props} key={option.id}>
+                <Box sx={{ display: 'flex', flexDirection: 'column', py: 0.25 }}>
+                  <Typography variant="body2">
+                    {option.name || option.short_title || `Task #${option.task_number || '?'}`}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {`#${option.task_number || '?'} • ${option.status || 'unknown'}`}
+                  </Typography>
+                </Box>
+              </li>
+            )}
           />
 
           {/* Branch Configuration */}

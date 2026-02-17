@@ -172,6 +172,14 @@ interface SpecTaskWithExtras {
   agent_work_state?: "idle" | "working" | "done"; // Backend-tracked work state
   // Task number for display
   task_number?: number;
+  depends_on?: TaskDependency[];
+}
+
+interface TaskDependency {
+  id?: string;
+  task_number?: number;
+  status?: string;
+  archived?: boolean;
 }
 
 interface KanbanColumn {
@@ -199,6 +207,9 @@ interface TaskCardProps {
   showMetrics?: boolean;
   /** Hide the "Clone to other projects" menu option (used in clone batch progress view) */
   hideCloneOption?: boolean;
+  highlightedTaskIds?: string[] | null;
+  onDependencyHoverStart?: (taskIds: string[]) => void;
+  onDependencyHoverEnd?: () => void;
 }
 
 // Interface for checklist items from API
@@ -525,6 +536,9 @@ export default function TaskCard({
   hasExternalRepo = false,
   showMetrics = true,
   hideCloneOption = false,
+  highlightedTaskIds,
+  onDependencyHoverStart,
+  onDependencyHoverEnd,
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false);
   const [showCloneDialog, setShowCloneDialog] = useState(false);
@@ -600,6 +614,28 @@ export default function TaskCard({
 
   const accentColor = getPhaseAccent(task.phase);
   const isArchived = task.archived ?? false;
+  const isDependencyHighlighted =
+    !!task.id && !!highlightedTaskIds?.includes(task.id);
+  const unfinishedDependencies = useMemo(() => {
+    const dependencies = task.depends_on || [];
+    return dependencies.filter((dependency) => {
+      const dependencyStatus = dependency.status || "";
+      const isCompleted =
+        dependencyStatus === "done" || dependencyStatus === "completed";
+      return !dependency.archived && !isCompleted;
+    });
+  }, [task.depends_on]);
+  const blockingDependency = unfinishedDependencies[0];
+
+  const formatDependencyTaskRef = (dependency: TaskDependency) => {
+    if (dependency.task_number && dependency.task_number > 0) {
+      return String(dependency.task_number).padStart(6, "0");
+    }
+    if (dependency.id) {
+      return dependency.id.slice(0, 8);
+    }
+    return "?";
+  };
 
   // Handle card click - always open task detail view (session viewer)
   const handleCardClick = () => {
@@ -623,7 +659,13 @@ export default function TaskCard({
         borderColor: isArchived
           ? "rgba(156, 163, 175, 0.4)"
           : "rgba(0, 0, 0, 0.08)",
-        borderLeft: `3px ${isArchived ? "dashed" : "solid"} ${isArchived ? "rgba(156, 163, 175, 0.5)" : accentColor}`,
+        borderLeft: `3px ${isArchived ? "dashed" : "solid"} ${
+          isArchived
+            ? "rgba(156, 163, 175, 0.5)"
+            : isDependencyHighlighted
+              ? "#ef4444"
+              : accentColor
+        }`,
         boxShadow: "none",
         transition: "all 0.15s ease-in-out",
         opacity: isArchiving ? 0.5 : isArchived ? 0.7 : 1,
@@ -922,6 +964,33 @@ export default function TaskCard({
         {/* Backlog phase */}
         {task.phase === "backlog" && (
           <Box sx={{ mt: 1.5 }}>
+            {blockingDependency && blockingDependency.id && (
+              <Typography
+                variant="caption"
+                onMouseEnter={() =>
+                  onDependencyHoverStart?.(
+                    unfinishedDependencies
+                      .map((dependency) => dependency.id)
+                      .filter((id): id is string => !!id),
+                  )
+                }
+                onMouseLeave={() => onDependencyHoverEnd?.()}
+                sx={{
+                  mb: 0.75,
+                  display: "inline-flex",
+                  fontSize: "0.72rem",
+                  color: "text.secondary",
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  "&:hover": {
+                    color: "primary.main",
+                    textDecoration: "underline",
+                  },
+                }}
+              >
+                Depends on: #{formatDependencyTaskRef(blockingDependency)}
+              </Typography>
+            )}
             {task.metadata?.error && (
               <Box
                 sx={{
@@ -964,6 +1033,12 @@ export default function TaskCard({
               isQueued={task.planningStatus === "queued"}
               isPlanningFull={isPlanningFull}
               planningLimit={planningColumn?.limit}
+              isBlockedByDependencies={unfinishedDependencies.length > 0}
+              blockedReason={
+                blockingDependency
+                  ? `Depends on: #${formatDependencyTaskRef(blockingDependency)}`
+                  : ""
+              }
             />
             {isPlanningFull && (
               <Typography
