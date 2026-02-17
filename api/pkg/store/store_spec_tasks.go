@@ -175,6 +175,10 @@ func syncSpecTaskDependsOn(ctx context.Context, tx *gorm.DB, task *types.SpecTas
 		}
 	}
 
+	if err := validateSpecTaskDependencyGraph(ctx, tx, task.ProjectID, task.ID, dependencyIDs); err != nil {
+		return err
+	}
+
 	args := make([]interface{}, 0, len(dependencies))
 	for i := range dependencies {
 		args = append(args, &dependencies[i])
@@ -185,6 +189,63 @@ func syncSpecTaskDependsOn(ctx context.Context, tx *gorm.DB, task *types.SpecTas
 	}
 
 	return nil
+}
+
+type specTaskDependencyEdge struct {
+	SpecTaskID  string
+	DependsOnID string
+}
+
+func validateSpecTaskDependencyGraph(ctx context.Context, tx *gorm.DB, projectID, taskID string, dependencyIDs []string) error {
+	var edges []specTaskDependencyEdge
+	if err := tx.WithContext(ctx).Raw(`
+		SELECT std.spec_task_id, std.depends_on_id
+		FROM spec_task_dependencies std
+		JOIN spec_tasks owner ON owner.id = std.spec_task_id
+		JOIN spec_tasks dependency ON dependency.id = std.depends_on_id
+		WHERE owner.project_id = ? AND dependency.project_id = ?
+	`, projectID, projectID).Scan(&edges).Error; err != nil {
+		return fmt.Errorf("failed to load spec task dependency graph: %w", err)
+	}
+
+	graph := make(map[string][]string, len(edges)+1)
+	for _, edge := range edges {
+		graph[edge.SpecTaskID] = append(graph[edge.SpecTaskID], edge.DependsOnID)
+	}
+	graph[taskID] = dependencyIDs
+
+	for _, dependencyID := range dependencyIDs {
+		if hasSpecTaskDependencyPath(graph, dependencyID, taskID) {
+			return fmt.Errorf("circular dependency detected")
+		}
+	}
+
+	return nil
+}
+
+func hasSpecTaskDependencyPath(graph map[string][]string, fromID, toID string) bool {
+	if fromID == toID {
+		return true
+	}
+
+	visited := map[string]struct{}{fromID: {}}
+	stack := append([]string(nil), graph[fromID]...)
+
+	for len(stack) > 0 {
+		current := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		if current == toID {
+			return true
+		}
+		if _, ok := visited[current]; ok {
+			continue
+		}
+		visited[current] = struct{}{}
+		stack = append(stack, graph[current]...)
+	}
+
+	return false
 }
 
 func extractSpecTaskDependencyIDs(dependsOn []types.SpecTask) []string {

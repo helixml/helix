@@ -799,6 +799,43 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSpecTask_WithDepend
 	suite.Empty(foundMainTask.DependsOn)
 }
 
+func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSpecTask_WithDependsOn_CircularDependencyRejected() {
+	project := suite.createTestProject()
+	suite.T().Cleanup(func() {
+		_ = suite.db.DeleteProject(context.Background(), project.ID)
+	})
+
+	createTask := func(name string) *types.SpecTask {
+		task := &types.SpecTask{
+			ID:             "task-" + system.GenerateUUID(),
+			ProjectID:      project.ID,
+			Name:           name,
+			Type:           "feature",
+			Priority:       types.SpecTaskPriorityMedium,
+			Status:         types.TaskStatusBacklog,
+			OriginalPrompt: "Prompt",
+			CreatedBy:      "test-user",
+			CreatedAt:      time.Now(),
+			UpdatedAt:      time.Now(),
+		}
+		err := suite.db.CreateSpecTask(suite.ctx, task)
+		suite.Require().NoError(err)
+		return task
+	}
+
+	taskA := createTask("Task A")
+	taskB := createTask("Task B")
+
+	taskB.DependsOn = []types.SpecTask{{ID: taskA.ID}}
+	err := suite.db.UpdateSpecTask(suite.ctx, taskB)
+	suite.Require().NoError(err)
+
+	taskA.DependsOn = []types.SpecTask{{ID: taskB.ID}}
+	err = suite.db.UpdateSpecTask(suite.ctx, taskA)
+	suite.Error(err)
+	suite.Contains(err.Error(), "circular dependency detected")
+}
+
 func (suite *PostgresStoreTestSuite) TestPostgresStore_SubscribeForTasks() {
 	project := suite.createTestProject()
 	suite.T().Cleanup(func() {
