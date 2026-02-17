@@ -149,9 +149,25 @@ Also add a `LIMIT` clause to `fillInMissing*` functions to cap output.
 4. `api/pkg/server/usage_handlers.go` - Auto-select aggregation level, cap max points
 5. `api/pkg/store/store_usage_metrics.go` - Add limit to fillInMissing* functions
 
-## Testing
+## Testing (Self-Verifiable via Chrome MCP)
 
-1. Create 100 test tasks via API
-2. Measure scroll FPS with Chrome DevTools Performance tab
-3. Verify network tab shows reduced polling when scrolled
-4. Memory snapshot before/after scrolling to check for leaks
+Use Chrome MCP tools to measure before/after:
+
+1. **Baseline measurement**: Navigate to Kanban board with 20+ tasks
+   - `performance_start_trace` with reload
+   - `list_network_requests` to count usage endpoint calls and payload sizes
+   - `take_screenshot` to document current state
+
+2. **After Phase 1 (usage quantization)**:
+   - `list_network_requests` - verify usage payloads dropped from ~200KB to ~5KB
+   - Compare total network transfer over 60s
+
+3. **After Phase 2-4 (frontend optimizations)**:
+   - `performance_start_trace` during scroll
+   - Check for jank in trace results
+   - `list_network_requests` - verify off-screen cards stop polling
+
+4. **Memory leak check**:
+   - `evaluate_script` to get `performance.memory.usedJSHeapSize`
+   - Scroll up/down for 2 minutes
+   - Compare heap size - should be stable

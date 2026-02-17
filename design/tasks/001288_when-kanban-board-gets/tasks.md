@@ -28,10 +28,10 @@
 - [ ] Skip screenshot polling entirely for cards in "backlog" and "completed" columns
 - [ ] Reduce screenshot polling from 1.7s to 3s for non-focused cards
 
-## Phase 5: Testing & Verification
+## Phase 5: Testing & Verification (via Chrome MCP)
 
-- [ ] Create test script to generate 100 tasks via API
-- [ ] Measure scroll FPS before/after with Chrome DevTools
-- [ ] Verify network requests decrease when scrolling (off-screen cards stop polling)
-- [ ] Check memory usage stays stable over 5 minutes of use
-- [ ] Verify usage endpoint returns <50 data points for week-old tasks
+- [ ] Baseline: `performance_start_trace` + `list_network_requests` on Kanban with 20+ tasks
+- [ ] After Phase 1: Verify usage endpoint payloads dropped from ~200KB to ~5KB via `list_network_requests`
+- [ ] After Phase 2-4: `performance_start_trace` during scroll to check for jank
+- [ ] Verify off-screen cards stop polling via `list_network_requests` filtering
+- [ ] Memory leak check: `evaluate_script` for `performance.memory.usedJSHeapSize` before/after 2 min scroll
