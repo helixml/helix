@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,18 +46,20 @@ type DiskUsage struct {
 
 // ZFSCollector collects ZFS stats from the VM via SSH
 type ZFSCollector struct {
-	mu        sync.RWMutex
-	stats     ZFSStats
-	diskUsage DiskUsage
-	sshPort   int
-	stopCh    chan struct{}
+	mu         sync.RWMutex
+	stats      ZFSStats
+	diskUsage  DiskUsage
+	sshPort    int
+	sshKeyPath string
+	stopCh     chan struct{}
 }
 
 // NewZFSCollector creates a new ZFS stats collector
 func NewZFSCollector(sshPort int) *ZFSCollector {
 	return &ZFSCollector{
-		sshPort: sshPort,
-		stopCh:  make(chan struct{}),
+		sshPort:    sshPort,
+		sshKeyPath: filepath.Join(getHelixDataDir(), "ssh", "helix_ed25519"),
+		stopCh:     make(chan struct{}),
 	}
 }
 
@@ -128,15 +131,17 @@ func (z *ZFSCollector) collect() {
 }
 
 func (z *ZFSCollector) sshCmd(command string) (string, error) {
-	cmd := exec.Command("ssh",
+	args := []string{
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=5",
 		"-o", "LogLevel=ERROR",
-		"-p", fmt.Sprintf("%d", z.sshPort),
-		"ubuntu@localhost",
-		command,
-	)
+	}
+	if z.sshKeyPath != "" {
+		args = append(args, "-i", z.sshKeyPath, "-o", "IdentitiesOnly=yes")
+	}
+	args = append(args, "-p", fmt.Sprintf("%d", z.sshPort), "ubuntu@localhost", command)
+	cmd := exec.Command("ssh", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("ssh command failed: %w", err)
