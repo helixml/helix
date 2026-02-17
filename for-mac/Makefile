@@ -41,6 +41,7 @@ rebuild-qemu:
 	@mkdir -p $(MACOS_DIR)
 	@cp -f $(SYSROOT)/bin/qemu-system-aarch64 $(MACOS_DIR)/qemu-system-aarch64
 	@cp -f $(SYSROOT)/lib/libqemu-aarch64-softmmu.dylib $(MACOS_DIR)/libqemu-aarch64-softmmu.dylib
+	@if [ -f $(SYSROOT)/bin/qemu-img ]; then cp -f $(SYSROOT)/bin/qemu-img $(MACOS_DIR)/qemu-img; fi
 	@# Fix dylib paths (same as build-helix-app.sh Step 6)
 	@install_name_tool -id "@rpath/libqemu-aarch64-softmmu.dylib" \
 		$(MACOS_DIR)/libqemu-aarch64-softmmu.dylib 2>/dev/null || true
@@ -51,6 +52,10 @@ rebuild-qemu:
 		$(MACOS_DIR)/qemu-system-aarch64 2>/dev/null || true
 	@install_name_tool -add_rpath "@executable_path/../Frameworks" \
 		$(MACOS_DIR)/libqemu-aarch64-softmmu.dylib 2>/dev/null || true
+	@if [ -f $(MACOS_DIR)/qemu-img ]; then \
+		install_name_tool -add_rpath "@executable_path/../Frameworks" \
+			$(MACOS_DIR)/qemu-img 2>/dev/null || true; \
+	fi
 	@echo "[rebuild-qemu] Creating dev QEMU..."
 	@$(MAKE) sign-dev-qemu
 	@echo "[rebuild-qemu] Done. Restart the VM to use the new QEMU."
