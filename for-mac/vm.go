@@ -1193,14 +1193,14 @@ if docker compose -f "$COMPOSE_FILE" ps --format '{{.Service}}' 2>/dev/null | gr
 else
     echo 'Starting Helix stack...'
     docker compose -f "$COMPOSE_FILE" up -d 2>&1
-    # In prod mode (install.sh), start sandbox separately via sandbox.sh
-    if [ "$COMPOSE_FILE" = "docker-compose.yaml" ] && [ -f sandbox.sh ]; then
-        docker stop helix-sandbox 2>/dev/null || true
-        docker rm helix-sandbox 2>/dev/null || true
-        nohup bash sandbox.sh > /tmp/sandbox.log 2>&1 &
-        echo 'SANDBOX_STARTED'
-    fi
     echo 'STARTED'
+fi
+# In prod mode (install.sh), start sandbox separately.
+# sandbox.sh is not a compose service — it runs as a standalone container.
+# It sources .env for RUNNER_TOKEN and handles stop/rm of any stale container.
+if [ "$COMPOSE_FILE" = "docker-compose.yaml" ] && [ -f sandbox.sh ]; then
+    nohup bash sandbox.sh > /tmp/sandbox.log 2>&1 &
+    echo 'SANDBOX_STARTED'
 fi
 `
 	out, err := vm.runSSH("Start stack", script)
