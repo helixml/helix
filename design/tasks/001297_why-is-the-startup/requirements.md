@@ -8,24 +8,26 @@ Errors:
 1. `Permission denied` when accessing `~/.docker/config.json`
 2. `unknown flag: --provenance` - BuildKit plugin fails to load
 
+## Root Cause
+
+When Docker can't read `~/.docker/config.json`, it fails to load CLI plugins including `buildx`. The `--provenance=false` flag requires buildx.
+
 ## User Stories
 
 ### US1: Developer can start Helix in any new environment
 As a developer setting up a new dev environment, I want `./stack start` to work automatically without manual permission fixes.
 
 **Acceptance Criteria:**
-- [ ] Stack script detects and fixes `~/.docker/` permission issues before Docker commands
-- [ ] Fix runs automatically without user intervention
-- [ ] Works on fresh environments where `~/.docker/` may not exist or be owned by root
-- [ ] `docker buildx` commands succeed after the fix
+- [ ] Stack script works even when `~/.docker/` has wrong permissions
+- [ ] No `sudo` prompts required
+- [ ] Works on fresh environments
+- [ ] `docker build` commands with BuildKit features succeed
+
+## Solution
+
+Set `DOCKER_CONFIG` environment variable to bypass broken config directory when permissions are wrong. This is simpler than fixing permissions and doesn't require `sudo`.
 
 ## Scope
 
-- **In scope:** Modify `./stack` script to auto-fix Docker config permissions
-- **Out of scope:** Other Docker installation issues, network problems
-
-## Constraints
-
-- Fix must work without requiring `sudo` password prompt (use `sudo` only if necessary)
-- Must not break existing working environments
-- Should be idempotent (safe to run multiple times)
+- **In scope:** Modify `./stack` script to detect and work around Docker config permission issues
+- **Out of scope:** Fixing the underlying permission problem (user can do that manually if they want)
