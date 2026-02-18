@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,11 +11,13 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/anthropic"
+	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 
+	anthropic_sdk "github.com/anthropics/anthropic-sdk-go" // imported as anthropic
 	"github.com/rs/zerolog/log"
 )
 
@@ -45,6 +48,30 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 		Str("spec_task_id", user.SpecTaskID).
 		Str("organization_id", user.OrganizationID).
 		Logger()
+
+	// Validate the request
+	if s.Cfg.Providers.BillingEnabled {
+		modelName, ok := parseAnthropicRequestModel(bts)
+		if !ok {
+			return
+		}
+
+		_, err = s.modelInfoProvider.GetModelInfo(r.Context(), &model.ModelInfoRequest{
+			BaseURL:  endpoint.BaseURL,
+			Provider: endpoint.Name,
+			Model:    modelName,
+		})
+		if err != nil {
+			log.Error().Err(err).
+				Str("model", modelName).
+				Str("provider", endpoint.Name).
+				Str("base_url", endpoint.BaseURL).
+				Msg("failed to get model info for billing")
+			http.Error(w, fmt.Sprintf("Could not find model information for model '%s', error: %s", modelName, err.Error()), http.StatusPreconditionFailed)
+			return
+		}
+		// OK
+	}
 
 	ctx := oai.SetContextValues(r.Context(), &oai.ContextValues{
 		OwnerID:         user.ID,
@@ -80,6 +107,23 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 	logger.Info().Msg("has enough balance, proxying request")
 
 	s.anthropicProxy.ServeHTTP(w, r)
+}
+
+func parseAnthropicRequestModel(body []byte) (string, bool) {
+	if len(body) == 0 {
+		return "", false
+	}
+
+	var req anthropic_sdk.Message
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", false
+	}
+
+	if req.Model == "" {
+		return "", false
+	}
+
+	return string(req.Model), true
 }
 
 // anthropicTokenCountHandler proxies the token counting request to Anthropic.
