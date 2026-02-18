@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useId } from "react";
 import { Box, Tooltip } from "@mui/material";
 import useTheme from "@mui/material/styles/useTheme";
 import { LineChart } from "@mui/x-charts";
@@ -38,9 +38,11 @@ const UsagePulseChart: React.FC<UsagePulseChartProps> = ({
     return { chartData: data, chartLabels: labels, totalTokens: total };
   }, [usageData]);
 
+  const uniqueId = useId();
+
   if (!chartData || chartData.length === 0 || totalTokens === 0) return null;
 
-  const gradientId = `usageGradient-${taskId}`;
+  const gradientId = `usageGradient-${uniqueId}`;
 
   return (
     <Tooltip title={`${totalTokens.toLocaleString()} tokens used`}>
