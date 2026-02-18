@@ -823,16 +823,17 @@ type InferenceRequestFilter struct {
 }
 
 type ApiKey struct { //nolint:revive
-	Created    time.Time       `json:"created"`
-	Owner      string          `json:"owner"`
-	OwnerType  OwnerType       `json:"owner_type"`
-	Key        string          `json:"key" gorm:"primaryKey"`
-	Name       string          `json:"name"`
-	Type       APIKeyType      `json:"type" gorm:"default:api"`
-	AppID      *sql.NullString `json:"app_id"`
-	ProjectID  string          `json:"project_id"`   // Used for isolation and metrics tracking
-	SpecTaskID string          `json:"spec_task_id"` // Used for isolation and metrics tracking
-	SessionID  string          `json:"session_id"`   // Session this key is scoped to (ephemeral keys)
+	Created        time.Time       `json:"created"`
+	Owner          string          `json:"owner"`
+	OwnerType      OwnerType       `json:"owner_type"`
+	Key            string          `json:"key" gorm:"primaryKey"`
+	Name           string          `json:"name"`
+	Type           APIKeyType      `json:"type" gorm:"default:api"`
+	AppID          *sql.NullString `json:"app_id"`
+	OrganizationID string          `json:"organization_id"` // Used for isolation and metrics tracking
+	ProjectID      string          `json:"project_id"`      // Used for isolation and metrics tracking
+	SpecTaskID     string          `json:"spec_task_id"`    // Used for isolation and metrics tracking
+	SessionID      string          `json:"session_id"`      // Session this key is scoped to (ephemeral keys)
 }
 
 type OwnerContext struct {
@@ -2276,15 +2277,15 @@ type ZedSettingsOverride struct {
 
 // ZedConfigResponse is returned from /api/v1/sessions/{id}/zed-config
 type ZedConfigResponse struct {
-	ContextServers  map[string]interface{} `json:"context_servers"`
-	LanguageModels  map[string]interface{} `json:"language_models,omitempty"`
-	Assistant       map[string]interface{} `json:"assistant,omitempty"`
-	ExternalSync    map[string]interface{} `json:"external_sync,omitempty"`
-	Agent           map[string]interface{} `json:"agent,omitempty"`
-	Theme           string                 `json:"theme,omitempty"`
-	Version         int64                  `json:"version"`                     // Unix timestamp of app config update
-	CodeAgentConfig                *CodeAgentConfig `json:"code_agent_config,omitempty"`                  // Code agent configuration for Zed agentic coding
-	ClaudeSubscriptionAvailable    bool             `json:"claude_subscription_available,omitempty"`      // True if user has an active Claude subscription for credential sync
+	ContextServers              map[string]interface{} `json:"context_servers"`
+	LanguageModels              map[string]interface{} `json:"language_models,omitempty"`
+	Assistant                   map[string]interface{} `json:"assistant,omitempty"`
+	ExternalSync                map[string]interface{} `json:"external_sync,omitempty"`
+	Agent                       map[string]interface{} `json:"agent,omitempty"`
+	Theme                       string                 `json:"theme,omitempty"`
+	Version                     int64                  `json:"version"`                                 // Unix timestamp of app config update
+	CodeAgentConfig             *CodeAgentConfig       `json:"code_agent_config,omitempty"`             // Code agent configuration for Zed agentic coding
+	ClaudeSubscriptionAvailable bool                   `json:"claude_subscription_available,omitempty"` // True if user has an active Claude subscription for credential sync
 }
 
 // CodeAgentConfig contains configuration for Zed's code agent (agentic coding).
