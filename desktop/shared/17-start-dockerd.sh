@@ -130,29 +130,28 @@ EOF
         echo "[dockerd] Added retro user to docker group"
     fi
 
-    # Set up shared BuildKit builder if BUILDKIT_HOST is available.
-    # This allows all desktop containers to share a single BuildKit daemon
-    # running in the sandbox, with persistent cache across sessions.
-    if [ -n "${BUILDKIT_HOST:-}" ]; then
-        echo "[dockerd] Setting up shared BuildKit builder at $BUILDKIT_HOST"
-
-        # Create the helix-shared builder pointing to the sandbox's BuildKit
-        if ! docker buildx inspect helix-shared &>/dev/null; then
-            docker buildx create \
-                --name helix-shared \
-                --driver remote \
-                "$BUILDKIT_HOST" 2>/dev/null || true
-            echo "[dockerd] Created helix-shared builder"
-        else
-            echo "[dockerd] helix-shared builder already exists"
-        fi
-
-        # Set it as the default builder
-        docker buildx use helix-shared --default 2>/dev/null || true
-        echo "[dockerd] Set helix-shared as default builder"
-
-        # Remove the 'default' builder to avoid confusion (optional but cleaner)
-        # docker buildx rm default 2>/dev/null || true
-    else
-        echo "[dockerd] BUILDKIT_HOST not set, using local docker builder"
+    # Set up shared BuildKit builder - REQUIRED for cache sharing across sessions.
+    # The sandbox runs a shared BuildKit daemon that all desktop containers use.
+    if [ -z "${BUILDKIT_HOST:-}" ]; then
+        echo "[dockerd] FATAL: BUILDKIT_HOST not set"
+        echo "[dockerd] Hydra must set BUILDKIT_HOST to the shared BuildKit endpoint"
+        exit 1
     fi
+
+    echo "[dockerd] Setting up shared BuildKit builder at $BUILDKIT_HOST"
+
+    # Create the helix-shared builder pointing to the sandbox's BuildKit
+    if ! docker buildx inspect helix-shared &>/dev/null; then
+        docker buildx create \
+            --name helix-shared \
+            --driver remote \
+            "$BUILDKIT_HOST"
+        echo "[dockerd] Created helix-shared builder"
+    else
+        echo "[dockerd] helix-shared builder already exists"
+    fi
+
+    # Set it as the default builder and remove the local 'default' to avoid confusion
+    docker buildx use helix-shared --default
+    docker buildx rm default 2>/dev/null || true
+    echo "[dockerd] Set helix-shared as default builder (removed local default)"

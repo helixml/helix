@@ -835,7 +835,7 @@ ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
     CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080
 
 # Start dockerd inside desktop container if /var/lib/docker is volume-mounted
-ADD desktop/ubuntu-config/cont-init.d/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
+ADD desktop/shared/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
 RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh
 
 # Workspace README
