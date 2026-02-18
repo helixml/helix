@@ -1,32 +1,31 @@
-# Requirements: Fix Startup Script Failure
+# Requirements: Fix Startup Script for New Environments
 
 ## Problem Statement
 
-The `./stack start` command fails during the Zed build phase with two errors:
-1. `Permission denied` when accessing `/home/retro/.docker/config.json`
-2. `unknown flag: --provenance` - BuildKit is not loading due to config access issue
+The `./stack start` command fails when Docker's `~/.docker/` directory has incorrect permissions (owned by root instead of user). This commonly happens when Docker is first run with `sudo`.
 
-## Root Cause Analysis
-
-- `/home/retro/.docker/` directory is owned by `root` instead of `retro` user
-- This prevents Docker from loading the config file and CLI plugins (buildx)
-- Without buildx, the `--provenance=false` flag is unrecognized
+Errors:
+1. `Permission denied` when accessing `~/.docker/config.json`
+2. `unknown flag: --provenance` - BuildKit plugin fails to load
 
 ## User Stories
 
-### US1: Developer can start the Helix stack
-As a developer, I want `./stack start` to complete successfully so I can run the development environment.
+### US1: Developer can start Helix in any new environment
+As a developer setting up a new dev environment, I want `./stack start` to work automatically without manual permission fixes.
 
 **Acceptance Criteria:**
-- [ ] `./stack start` runs without permission errors
-- [ ] Zed binary builds via Docker with BuildKit features
-- [ ] All containers start correctly
+- [ ] Stack script detects and fixes `~/.docker/` permission issues before Docker commands
+- [ ] Fix runs automatically without user intervention
+- [ ] Works on fresh environments where `~/.docker/` may not exist or be owned by root
+- [ ] `docker buildx` commands succeed after the fix
 
-## Fix Required
+## Scope
 
-Fix the Docker config directory permissions:
-```bash
-sudo chown -R retro:retro /home/retro/.docker
-```
+- **In scope:** Modify `./stack` script to auto-fix Docker config permissions
+- **Out of scope:** Other Docker installation issues, network problems
 
-This is a one-time fix for this specific environment, not a code change.
+## Constraints
+
+- Fix must work without requiring `sudo` password prompt (use `sudo` only if necessary)
+- Must not break existing working environments
+- Should be idempotent (safe to run multiple times)
