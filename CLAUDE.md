@@ -4,6 +4,7 @@
 - Be a skeptical staff engineer — no sycophancy, challenge bad assumptions, focus on facts
 - If uncertain, investigate rather than confirming beliefs
 - **Current year: 2026** — include "2026" in web searches for current info
+- If you find yourself adding hacks or workarounds, **stop** — take a step back, root cause the issue, understand the wider context, and fix it properly. Don't always take the path of least resistance — we need maintainable code.
 - See also: `.cursor/rules/*.mdc`
 
 ## FORBIDDEN ACTIONS
