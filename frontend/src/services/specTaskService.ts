@@ -40,6 +40,8 @@ const QUERY_KEYS = {
   reposWithoutProjects: (orgId?: string) =>
     ["repositories", "without-projects", orgId] as const,
   zedThreads: (id: string) => ["spec-tasks", id, "zed-threads"] as const,
+  batchTaskProgress: (projectId: string) =>
+    ["projects", projectId, "tasks-progress"] as const,
 };
 
 // Hook to fetch all spec tasks with react-query
@@ -102,6 +104,32 @@ export function useTaskProgress(
     },
     enabled: options?.enabled !== false && !!taskId,
     refetchInterval: options?.refetchInterval ?? 10000, // Refresh every 10 seconds by default
+  });
+}
+
+// Batch fetch progress for ALL tasks in a project - single request instead of N requests
+export function useBatchTaskProgress(
+  projectId: string,
+  options?: {
+    enabled?: boolean;
+    refetchInterval?: number | false;
+    includeChecklist?: boolean;
+  },
+) {
+  const api = useApi();
+
+  return useQuery({
+    queryKey: QUERY_KEYS.batchTaskProgress(projectId),
+    queryFn: async () => {
+      const response = await api
+        .getApiClient()
+        .v1ProjectsTasksProgressDetail(projectId, {
+          include_checklist: options?.includeChecklist ?? true,
+        });
+      return response.data;
+    },
+    enabled: options?.enabled !== false && !!projectId,
+    refetchInterval: options?.refetchInterval ?? 10000, // Single poll for all tasks
   });
 }
 
@@ -372,6 +400,7 @@ const specTaskService = {
   useSpecTask,
   useSpecTaskUsage,
   useTaskProgress,
+  useBatchTaskProgress,
   useZedInstanceStatus,
   useZedThreads,
   useCloneGroups,

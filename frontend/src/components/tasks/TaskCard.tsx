@@ -45,6 +45,7 @@ import {
   useUpdateSpecTask,
   useDeleteSpecTask,
 } from "../../services/specTaskService";
+import { ServerTaskProgressResponse } from "../../api/api";
 import { TypesSpecTaskStatus } from "../../api/api";
 import UsagePulseChart from "./UsagePulseChart";
 import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopViewer";
@@ -201,6 +202,8 @@ interface TaskCardProps {
   hideCloneOption?: boolean;
   /** Whether this card is visible on screen - controls polling behavior */
   isVisible?: boolean;
+  /** Pre-fetched progress data from batch endpoint - if provided, skips individual fetch */
+  progressData?: ServerTaskProgressResponse;
 }
 
 // Interface for checklist items from API
@@ -528,6 +531,7 @@ function TaskCardInner({
   showMetrics = true,
   hideCloneOption = false,
   isVisible = true,
+  progressData: externalProgressData,
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false);
   const [showCloneDialog, setShowCloneDialog] = useState(false);
@@ -541,12 +545,15 @@ function TaskCardInner({
 
   // Fetch checklist progress for active tasks (planning/implementation)
   // Only poll when card is visible on screen to reduce network/CPU load
+  // Skip individual fetch if progress data is provided from batch endpoint
   const showProgress =
     task.phase === "planning" || task.phase === "implementation";
-  const { data: progressData } = useTaskProgress(task.id, {
-    enabled: showProgress && isVisible,
-    refetchInterval: isVisible ? 5000 : false, // Only poll when visible
+  const { data: fetchedProgressData } = useTaskProgress(task.id, {
+    enabled: showProgress && isVisible && !externalProgressData,
+    refetchInterval: isVisible && !externalProgressData ? 5000 : false,
   });
+  // Use externally provided data if available, otherwise use fetched data
+  const progressData = externalProgressData ?? fetchedProgressData;
 
   // Check agent activity status using backend-tracked work state
   const { isActive, needsAttention, markAsSeen } = useAgentActivityCheck(

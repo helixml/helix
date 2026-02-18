@@ -571,10 +571,26 @@ export interface ServerAppCreateResponse {
   user?: TypesUser;
 }
 
+export interface ServerBatchTaskProgressResponse {
+  project_id?: string;
+  /** keyed by task_id */
+  tasks?: Record<string, ServerTaskProgressResponse>;
+}
+
+export interface ServerClaudeLoginSessionResponse {
+  session_id?: string;
+}
+
 export interface ServerClaudeModel {
   description?: string;
   id?: string;
   name?: string;
+}
+
+export interface ServerClaudePollLoginResponse {
+  /** Raw credentials JSON */
+  credentials?: string;
+  found?: boolean;
 }
 
 export interface ServerClientBufferStats {
@@ -3774,7 +3790,7 @@ export interface TypesSandboxInstance {
    * Desktop image versions available on this sandbox
    * Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
    */
-  desktop_versions?: number[];
+  desktop_versions?: Record<string, string>;
   /** GPU configuration */
   gpu_vendor?: string;
   /** Hostname for DNS resolution */
@@ -3853,12 +3869,15 @@ export interface TypesSecret {
 }
 
 export interface TypesServerConfigForFrontend {
+  active_concurrent_desktops?: number;
   apps_enabled?: boolean;
   auth_provider?: TypesAuthProvider;
   /** Charging for usage */
   billing_enabled?: boolean;
   deployment_id?: string;
   disable_llm_call_logging?: boolean;
+  /** "mac-desktop", "server", "cloud", etc. */
+  edition?: string;
   eval_user_id?: string;
   filestore_prefix?: string;
   google_analytics_frontend?: string;
@@ -6441,6 +6460,42 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Check if Claude credentials file has been written inside the desktop container
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsPollLoginDetail
+     * @summary Poll for Claude login credentials
+     * @request GET:/api/v1/claude-subscriptions/poll-login/{sessionId}
+     * @secure
+     */
+    v1ClaudeSubscriptionsPollLoginDetail: (sessionId: string, params: RequestParams = {}) =>
+      this.request<ServerClaudePollLoginResponse, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/poll-login/${sessionId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Launch a temporary desktop session for interactive Claude OAuth login
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsStartLoginCreate
+     * @summary Start a Claude login session
+     * @request POST:/api/v1/claude-subscriptions/start-login
+     * @secure
+     */
+    v1ClaudeSubscriptionsStartLoginCreate: (params: RequestParams = {}) =>
+      this.request<ServerClaudeLoginSessionResponse, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/start-login`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get status breakdown and progress of all cloned tasks
      *
      * @tags CloneGroups
@@ -9011,6 +9066,33 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get progress information for all spec-driven tasks in a project in a single request. This is more efficient than calling the individual progress endpoint for each task.
+     *
+     * @tags spec-driven-tasks
+     * @name V1ProjectsTasksProgressDetail
+     * @summary Get progress for all tasks in a project
+     * @request GET:/api/v1/projects/{id}/tasks-progress
+     */
+    v1ProjectsTasksProgressDetail: (
+      id: string,
+      query?: {
+        /**
+         * Include checklist progress (slower, parses git files)
+         * @default false
+         */
+        include_checklist?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerBatchTaskProgressResponse, TypesAPIError>({
+        path: `/api/v1/projects/${id}/tasks-progress`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get token usage metrics for a project (combined across all tasks)
      *
      * @tags Projects
@@ -10265,6 +10347,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/claude-credentials`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Push refreshed Claude OAuth credentials back to the API (e.g. after Claude Code refreshes its token). Only accepts runner/session-scoped tokens.
+     *
+     * @tags Claude
+     * @name V1SessionsClaudeCredentialsUpdate
+     * @summary Update Claude credentials for a session
+     * @request PUT:/api/v1/sessions/{id}/claude-credentials
+     * @secure
+     */
+    v1SessionsClaudeCredentialsUpdate: (id: string, body: TypesClaudeOAuthCredentials, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/claude-credentials`,
+        method: "PUT",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

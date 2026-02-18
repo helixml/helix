@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -459,6 +460,124 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(progress)
+}
+
+// BatchTaskProgressResponse contains progress for all tasks in a project
+type BatchTaskProgressResponse struct {
+	ProjectID string                          `json:"project_id"`
+	Tasks     map[string]TaskProgressResponse `json:"tasks"` // keyed by task_id
+}
+
+// getBatchTaskProgress godoc
+// @Summary Get progress for all tasks in a project
+// @Description Get progress information for all spec-driven tasks in a project in a single request. This is more efficient than calling the individual progress endpoint for each task.
+// @Tags    spec-driven-tasks
+// @Produce json
+// @Param   id path string true "Project ID"
+// @Param   include_checklist query bool false "Include checklist progress (slower, parses git files)" default(false)
+// @Success 200 {object} BatchTaskProgressResponse
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router  /api/v1/projects/{id}/tasks-progress [get]
+func (s *HelixAPIServer) getBatchTaskProgress(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	projectID := vars["id"]
+
+	if projectID == "" {
+		http.Error(w, "project ID is required", http.StatusBadRequest)
+		return
+	}
+
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to access the project
+	if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionGet); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if checklist progress is requested (it's slower due to git file parsing)
+	includeChecklist := r.URL.Query().Get("include_checklist") == "true"
+
+	// Get all non-archived tasks for this project in a single query
+	tasks, err := s.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID:       projectID,
+		IncludeArchived: false,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("project_id", projectID).Msg("Failed to list tasks for batch progress")
+		http.Error(w, "failed to list tasks", http.StatusInternalServerError)
+		return
+	}
+
+	// Build response with progress for each task
+	response := BatchTaskProgressResponse{
+		ProjectID: projectID,
+		Tasks:     make(map[string]TaskProgressResponse, len(tasks)),
+	}
+
+	for _, task := range tasks {
+		progress := TaskProgressResponse{
+			TaskID:    task.ID,
+			Status:    getSpecificationStatus(task.Status),
+			CreatedAt: task.CreatedAt,
+			UpdatedAt: task.UpdatedAt,
+			Specification: PhaseProgress{
+				Status:        getSpecificationStatus(task.Status),
+				SessionID:     task.PlanningSessionID,
+				StartedAt:     &task.CreatedAt,
+				CompletedAt:   task.SpecApprovedAt,
+				RevisionCount: task.SpecRevisionCount,
+			},
+			Implementation: PhaseProgress{
+				Status:    getImplementationStatus(task.Status),
+				SessionID: task.PlanningSessionID,
+				StartedAt: task.SpecApprovedAt,
+			},
+		}
+
+		response.Tasks[task.ID] = progress
+	}
+
+	// Fetch checklists in parallel if requested (expensive but parallelizable)
+	if includeChecklist && len(tasks) > 0 {
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+
+		// Limit concurrency to avoid overwhelming the filesystem
+		semaphore := make(chan struct{}, 10)
+
+		for _, task := range tasks {
+			wg.Add(1)
+			go func(t *types.SpecTask) {
+				defer wg.Done()
+
+				// Acquire semaphore
+				semaphore <- struct{}{}
+				defer func() { <-semaphore }()
+
+				checklistProgress := s.getChecklistProgress(ctx, t)
+				if checklistProgress != nil {
+					mu.Lock()
+					if progress, ok := response.Tasks[t.ID]; ok {
+						progress.Checklist = checklistProgress
+						response.Tasks[t.ID] = progress
+					}
+					mu.Unlock()
+				}
+			}(task)
+		}
+
+		wg.Wait()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 // Helper functions

@@ -65,7 +65,12 @@ import useRouter from "../../hooks/useRouter";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
 import TaskCard from "./TaskCard";
-import { SpecTask, useSpecTasks } from "../../services/specTaskService";
+import {
+  SpecTask,
+  useSpecTasks,
+  useBatchTaskProgress,
+} from "../../services/specTaskService";
+import { ServerTaskProgressResponse } from "../../api/api";
 import BacklogTableView from "./BacklogTableView";
 import { useCreateSampleRepository } from "../../services/gitRepositoryService";
 import { useSampleTypes } from "../../hooks/useSampleTypes";
@@ -225,6 +230,8 @@ const DroppableColumn: React.FC<{
   showMetrics?: boolean;
   theme: any;
   onHeaderClick?: () => void;
+  /** Batch progress data keyed by task ID - avoids per-card polling */
+  batchProgressData?: Record<string, ServerTaskProgressResponse>;
 }> = ({
   column,
   columns,
@@ -239,6 +246,7 @@ const DroppableColumn: React.FC<{
   showMetrics,
   theme,
   onHeaderClick,
+  batchProgressData,
 }): JSX.Element => {
   // Simplified - no drag and drop, no complex interactions
   const setNodeRef = (node: HTMLElement | null) => {};
@@ -260,6 +268,7 @@ const DroppableColumn: React.FC<{
         isArchiving={task.id === archivingTaskId}
         hasExternalRepo={hasExternalRepo}
         showMetrics={showMetrics}
+        progressData={batchProgressData?.[task.id]}
       />
     );
   };
@@ -480,6 +489,17 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   // Use props for showArchived and showMetrics (controlled from parent)
   const showArchived = showArchivedProp;
   const showMetrics = showMetricsProp !== undefined ? showMetricsProp : true;
+
+  // Batch fetch progress for ALL tasks in project - single request instead of N requests
+  const { data: batchProgressResponse } = useBatchTaskProgress(
+    projectId || "",
+    {
+      enabled: !!projectId,
+      refetchInterval: 10000, // Poll every 10 seconds for all tasks
+      includeChecklist: true,
+    },
+  );
+  const batchProgressData = batchProgressResponse?.tasks;
 
   // Planning form state
   const [newTaskRequirements, setNewTaskRequirements] = useState("");
@@ -1160,6 +1180,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                   ? () => setBacklogExpanded(true)
                   : undefined
               }
+              batchProgressData={batchProgressData}
             />
           ))
         )}

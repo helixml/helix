@@ -872,6 +872,21 @@ definitions:
         - $ref: '#/definitions/types.User'
         description: Owner user struct, populated by the server for organization views
     type: object
+  server.BatchTaskProgressResponse:
+    properties:
+      project_id:
+        type: string
+      tasks:
+        additionalProperties:
+          $ref: '#/definitions/server.TaskProgressResponse'
+        description: keyed by task_id
+        type: object
+    type: object
+  server.ClaudeLoginSessionResponse:
+    properties:
+      session_id:
+        type: string
+    type: object
   server.ClaudeModel:
     properties:
       description:
@@ -880,6 +895,14 @@ definitions:
         type: string
       name:
         type: string
+    type: object
+  server.ClaudePollLoginResponse:
+    properties:
+      credentials:
+        description: Raw credentials JSON
+        type: string
+      found:
+        type: boolean
     type: object
   server.ClientBufferStats:
     properties:
@@ -6204,12 +6227,12 @@ definitions:
       created:
         type: string
       desktop_versions:
+        additionalProperties:
+          type: string
         description: |-
           Desktop image versions available on this sandbox
           Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
-        items:
-          type: integer
-        type: array
+        type: object
       gpu_vendor:
         description: GPU configuration
         type: string
@@ -6359,6 +6382,8 @@ definitions:
     type: object
   types.ServerConfigForFrontend:
     properties:
+      active_concurrent_desktops:
+        type: integer
       apps_enabled:
         type: boolean
       auth_provider:
@@ -6370,6 +6395,9 @@ definitions:
         type: string
       disable_llm_call_logging:
         type: boolean
+      edition:
+        description: '"mac-desktop", "server", "cloud", etc.'
+        type: string
       eval_user_id:
         type: string
       filestore_prefix:
@@ -9986,6 +10014,68 @@ paths:
       summary: List available Claude models
       tags:
       - Claude
+  /api/v1/claude-subscriptions/poll-login/{sessionId}:
+    get:
+      description: Check if Claude credentials file has been written inside the desktop
+        container
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.ClaudePollLoginResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Poll for Claude login credentials
+      tags:
+      - Claude
+  /api/v1/claude-subscriptions/start-login:
+    post:
+      description: Launch a temporary desktop session for interactive Claude OAuth
+        login
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.ClaudeLoginSessionResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Start a Claude login session
+      tags:
+      - Claude
   /api/v1/clone-groups/{groupId}/progress:
     get:
       description: Get status breakdown and progress of all cloned tasks
@@ -13576,6 +13666,40 @@ paths:
       summary: Get startup script version history
       tags:
       - Projects
+  /api/v1/projects/{id}/tasks-progress:
+    get:
+      description: Get progress information for all spec-driven tasks in a project
+        in a single request. This is more efficient than calling the individual progress
+        endpoint for each task.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - default: false
+        description: Include checklist progress (slower, parses git files)
+        in: query
+        name: include_checklist
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.BatchTaskProgressResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: Get progress for all tasks in a project
+      tags:
+      - spec-driven-tasks
   /api/v1/projects/{id}/usage:
     get:
       consumes:
@@ -15332,6 +15456,54 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: Get Claude credentials for a session
+      tags:
+      - Claude
+    put:
+      consumes:
+      - application/json
+      description: |-
+        Push refreshed Claude OAuth credentials back to the API (e.g. after Claude Code refreshes its token).
+        Only accepts runner/session-scoped tokens.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Refreshed credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/types.ClaudeOAuthCredentials'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Update Claude credentials for a session
       tags:
       - Claude
   /api/v1/sessions/{id}/expose:
