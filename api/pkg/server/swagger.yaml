@@ -872,6 +872,28 @@ definitions:
         - $ref: '#/definitions/types.User'
         description: Owner user struct, populated by the server for organization views
     type: object
+  server.BatchTaskProgressResponse:
+    properties:
+      project_id:
+        type: string
+      tasks:
+        additionalProperties:
+          $ref: '#/definitions/server.TaskProgressResponse'
+        description: keyed by task_id
+        type: object
+    type: object
+  server.BatchTaskUsageResponse:
+    properties:
+      project_id:
+        type: string
+      tasks:
+        additionalProperties:
+          items:
+            $ref: '#/definitions/types.AggregatedUsageMetric'
+          type: array
+        description: keyed by task_id
+        type: object
+    type: object
   server.ClaudeLoginSessionResponse:
     properties:
       session_id:
@@ -1871,6 +1893,9 @@ definitions:
       key:
         type: string
       name:
+        type: string
+      organization_id:
+        description: Used for isolation and metrics tracking
         type: string
       owner:
         type: string
@@ -8633,6 +8658,9 @@ definitions:
         type: boolean
       onboarding_completed_at:
         type: string
+      organization_id:
+        description: Organization this API key is scoped to (ephemeral keys)
+        type: string
       password_hash:
         description: bcrypt hash of the password
         items:
@@ -13704,6 +13732,69 @@ paths:
       summary: Get startup script version history
       tags:
       - Projects
+  /api/v1/projects/{id}/tasks-progress:
+    get:
+      description: Get progress information for all spec-driven tasks in a project
+        in a single request. This is more efficient than calling the individual progress
+        endpoint for each task.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - default: false
+        description: Include checklist progress (slower, parses git files)
+        in: query
+        name: include_checklist
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.BatchTaskProgressResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: Get progress for all tasks in a project
+      tags:
+      - spec-driven-tasks
+  /api/v1/projects/{id}/tasks-usage:
+    get:
+      description: Get usage metrics for all spec-driven tasks in a project in a single
+        request. This is more efficient than calling the individual usage endpoint
+        for each task.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.BatchTaskUsageResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: Get usage for all tasks in a project
+      tags:
+      - spec-driven-tasks
   /api/v1/projects/{id}/usage:
     get:
       consumes:

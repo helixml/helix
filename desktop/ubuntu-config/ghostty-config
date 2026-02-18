@@ -1,4 +1,4 @@
-# Ghostty Terminal Configuration for Helix Desktop
+im st# Ghostty Terminal Configuration for Helix Desktop
 # Modern GPU-accelerated terminal with native blur support
 
 # CRITICAL: Disable single-instance mode
@@ -18,8 +18,8 @@ window-decoration = true
 window-padding-x = 8
 window-padding-y = 8
 
-# Scrollback - match gnome-terminal setting (500k lines)
-scrollback-limit = 500000
+# Scrollback - 100MB (note: this is in bytes, not lines)
+scrollback-limit = 100000000
 
 # Cursor settings
 cursor-style = block

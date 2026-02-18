@@ -41,11 +41,14 @@ import {
   useStopAgent,
 } from "../../services/specTaskWorkflowService";
 import {
-  useTaskProgress,
   useUpdateSpecTask,
   useDeleteSpecTask,
 } from "../../services/specTaskService";
-import { TypesSpecTaskStatus } from "../../api/api";
+import {
+  ServerTaskProgressResponse,
+  TypesSpecTaskStatus,
+  TypesAggregatedUsageMetric,
+} from "../../api/api";
 import UsagePulseChart from "./UsagePulseChart";
 import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopViewer";
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
@@ -200,12 +203,16 @@ interface TaskCardProps {
   ) => Promise<void>;
   onTaskClick?: (task: SpecTaskWithExtras) => void;
   onReviewDocs?: (task: SpecTaskWithExtras) => void;
-  projectId?: string;  
+  projectId?: string;
   isArchiving?: boolean;
   hasExternalRepo?: boolean;
   showMetrics?: boolean;
   /** Hide the "Clone to other projects" menu option (used in clone batch progress view) */
   hideCloneOption?: boolean;
+  /** Pre-fetched progress data from batch endpoint - required */
+  progressData?: ServerTaskProgressResponse;
+  /** Pre-fetched usage data from batch endpoint - required */
+  usageData?: TypesAggregatedUsageMetric[];
   highlightedTaskIds?: string[] | null;
   onDependencyHoverStart?: (taskIds: string[]) => void;
   onDependencyHoverEnd?: () => void;
@@ -521,7 +528,7 @@ const LiveAgentScreenshot: React.FC<{
   );
 });
 
-export default function TaskCard({
+function TaskCardInner({
   task,
   index,
   columns,
@@ -534,6 +541,8 @@ export default function TaskCard({
   hasExternalRepo = false,
   showMetrics = true,
   hideCloneOption = false,
+  progressData,
+  usageData,
   highlightedTaskIds,
   onDependencyHoverStart,
   onDependencyHoverEnd,
@@ -548,13 +557,9 @@ export default function TaskCard({
   const updateSpecTask = useUpdateSpecTask();
   const deleteSpecTask = useDeleteSpecTask();
 
-  // Fetch checklist progress for active tasks (planning/implementation)
+  // Check if we should show progress (planning/implementation phases)
   const showProgress =
     task.phase === "planning" || task.phase === "implementation";
-  const { data: progressData } = useTaskProgress(task.id, {
-    enabled: showProgress,
-    refetchInterval: 5000, // Refresh every 5 seconds for live updates
-  });
 
   // Check agent activity status using backend-tracked work state
   const { isActive, needsAttention, markAsSeen } = useAgentActivityCheck(
@@ -940,7 +945,7 @@ export default function TaskCard({
             task.phase === "review" ||
             task.phase === "implementation" ||
             task.phase === "pull_request") && (
-            <UsagePulseChart taskId={task.id} accentColor={accentColor} />
+            <UsagePulseChart accentColor={accentColor} usageData={usageData} />
           )}
 
         {/* Gorgeous checklist progress for active tasks */}
@@ -1359,3 +1364,19 @@ export default function TaskCard({
     </Card>
   );
 }
+
+// Memoized TaskCard to prevent unnecessary re-renders
+const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
+  // Only re-render when meaningful props change
+  return (
+    prevProps.task.id === nextProps.task.id &&
+    prevProps.task.status === nextProps.task.status &&
+    prevProps.task.updated_at === nextProps.task.updated_at &&
+    prevProps.task.agent_work_state === nextProps.task.agent_work_state &&
+    prevProps.isArchiving === nextProps.isArchiving &&
+    prevProps.isVisible === nextProps.isVisible &&
+    prevProps.focusStartPlanning === nextProps.focusStartPlanning
+  );
+});
+
+export default TaskCard;

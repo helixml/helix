@@ -57,15 +57,12 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 # Copy Go source AFTER dependencies are downloaded for better caching
 COPY api ./api
-COPY desktop/docker-shim ./desktop/docker-shim
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     echo "Building Go binaries..." && \
     CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w" -o /desktop-bridge ./cmd/desktop-bridge && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
-    cd /app/desktop/docker-shim && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /docker-shim .
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon
 
 # ====================================================================
 # Rust build stage for GStreamer zero-copy plugin
@@ -555,16 +552,9 @@ RUN curl -Lo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-
     && curl -Lo /usr/local/bin/kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
     && chmod +x /usr/local/bin/kubectl
 
-# Docker shim for shared BuildKit cache
-# The Go-based docker-shim intercepts docker/docker-compose commands to inject
-# BuildKit cache flags for shared caching across sessions.
-COPY --from=go-build-env /docker-shim /usr/local/bin/docker-shim
-RUN mv /usr/bin/docker /usr/bin/docker.real \
-    && ln -s /usr/local/bin/docker-shim /usr/bin/docker \
-    && chmod 755 /usr/bin/docker.real /usr/local/bin/docker-shim \
-    && mv /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real \
-    && ln -s /usr/local/bin/docker-shim /usr/libexec/docker/cli-plugins/docker-compose \
-    && chmod 755 /usr/libexec/docker/cli-plugins/docker-compose.real
+# NOTE: docker-shim removed - shared BuildKit builder is now set up in
+# 17-start-dockerd.sh init script after dockerd starts. This is simpler
+# and the builder is set as the default, so no command interception needed.
 
 # Utilities and dev tools (Sway-specific + common)
 RUN apt-get update && apt-get install -y \
@@ -739,7 +729,7 @@ ADD desktop/sway-config/15-setup-gpu-permissions.sh /etc/cont-init.d/15-setup-gp
 RUN chmod 755 /etc/cont-init.d/15-setup-gpu-permissions.sh
 
 # Start dockerd inside desktop container if /var/lib/docker is volume-mounted
-ADD desktop/ubuntu-config/cont-init.d/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
+ADD desktop/shared/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
 RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh
 
 # Workspace README
