@@ -55,6 +55,9 @@ interface CodingAgentFormProps {
   onAgentCreated?: (app: IApp) => void
   showCreateButton?: boolean
   createButtonLabel?: string
+  createButtonVariant?: 'text' | 'outlined' | 'contained'
+  createButtonColor?: 'inherit' | 'primary' | 'secondary' | 'success' | 'error' | 'info' | 'warning'
+  createButtonSx?: SxProps<Theme>
 }
 
 const defaultRuntimeDescription = 'Choose which code agent runtime to use inside Zed.'
@@ -97,6 +100,9 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
   onAgentCreated,
   showCreateButton = true,
   createButtonLabel = 'Create Agent',
+  createButtonVariant = 'outlined',
+  createButtonColor = 'secondary',
+  createButtonSx,
 }: CodingAgentFormProps, ref) {
   const apps = useApps()
   const [createError, setCreateError] = useState('')
@@ -336,11 +342,12 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
       {showCreateButton && (
         <Box sx={{ mt: 2 }}>
           <Button
-            variant="outlined"
-            color="secondary"
+            variant={createButtonVariant}
+            color={createButtonColor}
             onClick={handleCreateAgent}
             disabled={createButtonDisabled}
             startIcon={isCreating ? <CircularProgress size={16} /> : undefined}
+            sx={createButtonSx}
           >
             {isCreating ? 'Creating...' : createButtonLabel}
           </Button>

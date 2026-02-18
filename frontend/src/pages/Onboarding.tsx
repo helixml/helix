@@ -1197,7 +1197,8 @@ export default function Onboarding() {
                       ? 'Choose a Claude model for code generation.'
                       : 'Choose a capable model for agentic coding.'}
                     modelPickerDisplayMode="full"
-                    modelPickerAutoSelectFirst={false}
+                    modelPickerAutoSelectFirst={true}
+                    showCreateButton={false}
                     labelSx={labelSx}
                     captionSx={helperSx}
                     selectSx={{
