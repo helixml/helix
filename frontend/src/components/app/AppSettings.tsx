@@ -824,12 +824,12 @@ const AppSettings: FC<AppSettingsProps> = ({
                 <AdvancedModelPicker
                   recommendedModels={RECOMMENDED_MODELS.zedExternal}
                   hint="Select the LLM for code generation"
-                  selectedProvider={generation_model_provider}
-                  selectedModelId={generation_model}
+                  selectedProvider={provider}
+                  selectedModelId={model}
                   onSelectModel={(provider, modelId) => {
-                    setGenerationModel(modelId);
-                    setGenerationModelProvider(provider);
-                    onUpdate({ ...app, generation_model: modelId, generation_model_provider: provider });
+                    setModel(modelId);
+                    setProvider(provider);
+                    onUpdate({ ...app, model: modelId, provider });
                   }}
                   currentType="text"
                   displayMode="short"
