@@ -4,7 +4,6 @@ import {
   Box,
   Button,
   Typography,
-  Alert,
   Chip,
   Stack,
   TextField,
@@ -25,11 +24,14 @@ import {
 } from '@mui/icons-material'
 import { X } from 'lucide-react'
 
-import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
-import { CodeAgentRuntime, generateAgentName, ICreateAgentParams } from '../../contexts/apps'
+import { CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from '../../types'
 import { TypesSpecTaskPriority, TypesBranchMode, TypesSpecTask, TypesSpecTaskStatus } from '../../api/api'
 import AgentDropdown from '../agent/AgentDropdown'
+import CodingAgentForm, { CodingAgentFormHandle } from '../agent/CodingAgentForm'
+import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
+import { useListProviders } from '../../services/providersService'
+import { TypesProviderEndpointType } from '../../api/api'
 
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
@@ -146,12 +148,24 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   // Inline agent creation state
   const [showCreateAgentForm, setShowCreateAgentForm] = useState(false)
   const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent')
+  const [claudeCodeMode, setClaudeCodeMode] = useState<'subscription' | 'api_key'>('subscription')
   const [selectedProvider, setSelectedProvider] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
   const [newAgentName, setNewAgentName] = useState('-')
   const [userModifiedName, setUserModifiedName] = useState(false)
   const [creatingAgent, setCreatingAgent] = useState(false)
-  const [agentError, setAgentError] = useState('')
+  const codingAgentFormRef = useRef<CodingAgentFormHandle>(null)
+  const { data: claudeSubscriptions } = useClaudeSubscriptions()
+  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
+  const { data: providerEndpoints } = useListProviders({ loadModels: false })
+  const hasAnthropicProvider = useMemo(() => {
+    if (!providerEndpoints) return false
+    return providerEndpoints.some(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser && p.name === 'anthropic')
+  }, [providerEndpoints])
+  const userProviderCount = useMemo(() => {
+    if (!providerEndpoints) return 0
+    return providerEndpoints.filter(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser).length
+  }, [providerEndpoints])
 
   // Ref for task prompt text field
   const taskPromptRef = useRef<HTMLTextAreaElement>(null)
@@ -192,6 +206,13 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     }
   }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm])
 
+  useEffect(() => {
+    if (hasClaudeSubscription && !hasAnthropicProvider && userProviderCount === 0) {
+      setCodeAgentRuntime('claude_code')
+      setClaudeCodeMode('subscription')
+    }
+  }, [hasClaudeSubscription, hasAnthropicProvider, userProviderCount])
+
   // Load apps on mount
   useEffect(() => {
     if (account.user?.id) {
@@ -225,53 +246,6 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   }, [embedded])
 
   // Handle inline agent creation
-  const handleCreateAgent = async (): Promise<string | null> => {
-    if (!newAgentName.trim()) {
-      setAgentError('Please enter a name for the agent')
-      return null
-    }
-    if (!selectedModel) {
-      setAgentError('Please select a model')
-      return null
-    }
-
-    setCreatingAgent(true)
-    setAgentError('')
-
-    try {
-      const params: ICreateAgentParams = {
-        name: newAgentName.trim(),
-        description: 'Code development agent for spec tasks',
-        agentType: AGENT_TYPE_ZED_EXTERNAL,
-        codeAgentRuntime,
-        model: selectedModel,
-        generationModelProvider: selectedProvider,
-        generationModel: selectedModel,
-        reasoningModelProvider: '',
-        reasoningModel: '',
-        reasoningModelEffort: 'none',
-        smallReasoningModelProvider: '',
-        smallReasoningModel: '',
-        smallReasoningModelEffort: 'none',
-        smallGenerationModelProvider: '',
-        smallGenerationModel: '',
-      }
-
-      const newApp = await apps.createAgent(params)
-      if (newApp) {
-        return newApp.id
-      }
-      setAgentError('Failed to create agent')
-      return null
-    } catch (err) {
-      console.error('Failed to create agent:', err)
-      setAgentError(err instanceof Error ? err.message : 'Failed to create agent')
-      return null
-    } finally {
-      setCreatingAgent(false)
-    }
-  }
-
   // Reset form
   const resetForm = useCallback(() => {
     setTaskPrompt('')
@@ -286,11 +260,11 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     setShowBranchCustomization(false)
     setShowCreateAgentForm(false)
     setCodeAgentRuntime('zed_agent')
+    setClaudeCodeMode('subscription')
     setSelectedProvider('')
     setSelectedModel('')
     setNewAgentName('-')
     setUserModifiedName(false)
-    setAgentError('')
   }, [defaultBranchName])
 
   // Handle task creation
@@ -309,16 +283,15 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
 
     try {
       let agentId = selectedHelixAgent
-      setAgentError('')
 
       // Create agent inline if showing create form
       if (showCreateAgentForm) {
-        const newAgentId = await handleCreateAgent()
-        if (!newAgentId) {
+        const createdAgent = await codingAgentFormRef.current?.handleCreateAgent()
+        if (!createdAgent?.id) {
           setIsCreating(false)
           return
         }
-        agentId = newAgentId
+        agentId = createdAgent.id
       }
 
       const createTaskRequest = {
@@ -645,69 +618,39 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
               </Box>
             ) : (
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <Typography variant="body2" color="text.secondary">
-                  Code Agent Runtime
-                </Typography>
-                <FormControl fullWidth size="small">
-                  <Select
-                    value={codeAgentRuntime}
-                    onChange={(e) => setCodeAgentRuntime(e.target.value as CodeAgentRuntime)}
-                    disabled={creatingAgent}
-                  >
-                    <MenuItem value="zed_agent">
-                      <Box>
-                        <Typography variant="body2">Zed Agent (Built-in)</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Uses Zed's native agent panel with direct API integration
-                        </Typography>
-                      </Box>
-                    </MenuItem>
-                    <MenuItem value="qwen_code">
-                      <Box>
-                        <Typography variant="body2">Qwen Code</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Uses qwen-code CLI as a custom agent server (OpenAI-compatible)
-                        </Typography>
-                      </Box>
-                    </MenuItem>
-                  </Select>
-                </FormControl>
-
-                <Typography variant="body2" color="text.secondary">
-                  Code Agent Model
-                </Typography>
-                <AdvancedModelPicker
+                <CodingAgentForm
+                  ref={codingAgentFormRef}
+                  value={{
+                    codeAgentRuntime,
+                    claudeCodeMode,
+                    selectedProvider,
+                    selectedModel,
+                    agentName: newAgentName,
+                  }}
+                  onChange={(nextValue) => {
+                    setCodeAgentRuntime(nextValue.codeAgentRuntime)
+                    setClaudeCodeMode(nextValue.claudeCodeMode)
+                    setSelectedProvider(nextValue.selectedProvider)
+                    setSelectedModel(nextValue.selectedModel)
+                    if (nextValue.agentName !== newAgentName) {
+                      setUserModifiedName(true)
+                    }
+                    setNewAgentName(nextValue.agentName)
+                  }}
+                  disabled={creatingAgent || isCreating}
+                  hasClaudeSubscription={hasClaudeSubscription}
+                  hasAnthropicProvider={hasAnthropicProvider}
                   recommendedModels={RECOMMENDED_MODELS}
-                  hint="Choose a capable model for agentic coding."
-                  selectedProvider={selectedProvider}
-                  selectedModelId={selectedModel}
-                  onSelectModel={(provider, model) => {
-                    setSelectedProvider(provider)
-                    setSelectedModel(model)
+                  createAgentDescription="Code development agent for spec tasks"
+                  onCreateStateChange={setCreatingAgent}
+                  onAgentCreated={(app) => {
+                    setSelectedHelixAgent(app.id)
+                    setShowCreateAgentForm(false)
                   }}
-                  currentType="text"
-                  displayMode="short"
-                  disabled={creatingAgent}
+                  modelPickerHint="Choose a capable model for agentic coding."
+                  modelPickerDisplayMode="short"
+                  sx={{ display: 'flex', flexDirection: 'column', gap: 0 }}
                 />
-
-                <Typography variant="body2" color="text.secondary">
-                  Agent Name
-                </Typography>
-                <TextField
-                  value={newAgentName}
-                  onChange={(e) => {
-                    setNewAgentName(e.target.value)
-                    setUserModifiedName(true)
-                  }}
-                  size="small"
-                  fullWidth
-                  disabled={creatingAgent}
-                  helperText="Auto-generated from model and runtime. Edit to customize."
-                />
-
-                {agentError && (
-                  <Alert severity="error">{agentError}</Alert>
-                )}
 
                 {sortedApps.length > 0 && (
                   <Button
@@ -766,7 +709,19 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
           onClick={handleCreateTask}
           variant="contained"
           color="secondary"
-          disabled={!taskPrompt.trim() || isCreating || creatingAgent || (showCreateAgentForm && !selectedModel)}
+          disabled={
+            !taskPrompt.trim() ||
+            isCreating ||
+            creatingAgent ||
+            (
+              showCreateAgentForm &&
+              !(
+                codeAgentRuntime === 'claude_code' &&
+                claudeCodeMode === 'subscription'
+              ) &&
+              (!selectedModel || !selectedProvider)
+            )
+          }
           startIcon={isCreating || creatingAgent ? <CircularProgress size={16} /> : <AddIcon />}
           sx={{
             '& .MuiButton-endIcon': {

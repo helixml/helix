@@ -10,9 +10,6 @@ import Select from '@mui/material/Select'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import Divider from '@mui/material/Divider'
-import Radio from '@mui/material/Radio'
-import RadioGroup from '@mui/material/RadioGroup'
-import FormControlLabel from '@mui/material/FormControlLabel'
 
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
@@ -31,12 +28,10 @@ import Alert from '@mui/material/Alert'
 
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
-import useApps from '../hooks/useApps'
 import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../types'
 import { CodeAgentRuntime, generateAgentName } from '../contexts/apps'
-import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker'
 import BrowseProvidersDialog from '../components/project/BrowseProvidersDialog'
 import { SELECTED_ORG_STORAGE_KEY } from '../utils/localStorage'
 import { useCreateOrg } from '../services/orgService'
@@ -46,6 +41,8 @@ import { PROVIDERS, Provider } from '../components/providers/types'
 import AddProviderDialog from '../components/providers/AddProviderDialog'
 import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from '../components/account/ClaudeSubscriptionConnect'
 import AnthropicLogo from '../components/providers/logos/anthropic'
+import CodingAgentForm from '../components/agent/CodingAgentForm'
+import type { CodingAgentFormHandle } from '../components/agent/CodingAgentForm'
 
 const RECOMMENDED_MODELS = [
   'claude-opus-4-6',
@@ -134,7 +131,6 @@ const STEPS: StepConfig[] = [
 export default function Onboarding() {
   const account = useAccount()
   const api = useApi()
-  const apps = useApps()
   const snackbar = useSnackbar()
   const router = useRouter()
 
@@ -191,6 +187,7 @@ export default function Onboarding() {
   const [userModifiedAgentName, setUserModifiedAgentName] = useState(false)
   const [creatingAgent, setCreatingAgent] = useState(false)
   const [createdAgentId, setCreatedAgentId] = useState<string>('')
+  const codingAgentFormRef = useRef<CodingAgentFormHandle>(null)
 
   // Step 4: Task
   const [taskPrompt, setTaskPrompt] = useState('')
@@ -459,8 +456,9 @@ export default function Onboarding() {
       snackbar.error('Please select an agent')
       return
     }
-    if (agentMode === 'create' && !selectedModel && !(codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription')) {
-      snackbar.error('Please select a model for the agent')
+    const isClaudeCodeSub = codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription'
+    if (agentMode === 'create' && !isClaudeCodeSub && (!selectedModel || !selectedProvider)) {
+      snackbar.error('Please select both provider and model for the agent')
       return
     }
 
@@ -480,41 +478,13 @@ export default function Onboarding() {
       if (agentMode === 'select') {
         agentId = selectedAgentId
       } else {
-        setCreatingAgent(true)
-        try {
-          const isClaudeCodeSub = codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription'
-          const agentName = newAgentName.trim() || generateAgentName(selectedModel, codeAgentRuntime)
-          const newApp = await apps.createAgent({
-            name: agentName,
-            description: 'Code development agent',
-            agentType: AGENT_TYPE_ZED_EXTERNAL,
-            codeAgentRuntime,
-            model: isClaudeCodeSub ? '' : selectedModel,
-            organizationId: orgId,
-            generationModelProvider: isClaudeCodeSub ? '' : selectedProvider,
-            generationModel: isClaudeCodeSub ? '' : selectedModel,
-            reasoningModelProvider: '',
-            reasoningModel: '',
-            reasoningModelEffort: 'none',
-            smallReasoningModelProvider: '',
-            smallReasoningModel: '',
-            smallReasoningModelEffort: 'none',
-            smallGenerationModelProvider: '',
-            smallGenerationModel: '',
-          })
-          if (!newApp?.id) {
-            snackbar.error('Failed to create agent')
-            return
-          }
-          agentId = newApp.id
-          setCreatedAgentId(newApp.id)
-        } catch (err) {
-          console.error('Failed to create agent:', err)
+        const createdAgent = await codingAgentFormRef.current?.handleCreateAgent()
+        if (!createdAgent?.id) {
           snackbar.error('Failed to create agent')
           return
-        } finally {
-          setCreatingAgent(false)
         }
+        agentId = createdAgent.id
+        setCreatedAgentId(createdAgent.id)
       }
 
       if (!agentId) {
@@ -608,7 +578,7 @@ export default function Onboarding() {
     } finally {
       setCreatingProject(false)
     }
-  }, [projectName, projectDescription, repoMode, linkedExternalRepo, createdOrg, account, api, apps, markComplete, snackbar, agentMode, selectedAgentId, selectedModel, selectedProvider, codeAgentRuntime, newAgentName])
+  }, [projectName, projectDescription, repoMode, linkedExternalRepo, createdOrg, account, api, markComplete, snackbar, agentMode, selectedAgentId])
 
   // Step 4: Create task
   const handleCreateTask = useCallback(async () => {
@@ -1182,172 +1152,77 @@ export default function Onboarding() {
                 </FormControl>
               ) : (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mb: 2 }}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel
-                      sx={{
-                        color: 'rgba(255,255,255,0.4)',
-                        fontSize: '0.82rem',
-                        '&.Mui-focused': { color: ACCENT },
-                      }}
-                    >
-                      Code Agent Runtime
-                    </InputLabel>
-                    <Select
-                      value={codeAgentRuntime}
-                      onChange={e => setCodeAgentRuntime(e.target.value as CodeAgentRuntime)}
-                      label="Code Agent Runtime"
-                      sx={{
-                        color: '#fff',
-                        fontSize: '0.82rem',
-                        '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' },
-                        '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
-                        '&.Mui-focused fieldset': { borderColor: ACCENT },
-                        '& .MuiSvgIcon-root': { color: 'rgba(255,255,255,0.4)' },
-                      }}
-                      MenuProps={{
-                        PaperProps: {
-                          sx: {
-                            bgcolor: '#1a1a2e',
-                            color: '#fff',
-                          },
-                        },
-                      }}
-                    >
-                      <MenuItem value="zed_agent" sx={{ fontSize: '0.82rem' }}>
-                        <Box>
-                          <Typography sx={{ fontSize: '0.82rem', color: '#fff' }}>Zed Agent (Built-in)</Typography>
-                          <Typography sx={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)' }}>
-                            Uses Zed's native agent panel
-                          </Typography>
-                        </Box>
-                      </MenuItem>
-                      <MenuItem value="qwen_code" sx={{ fontSize: '0.82rem' }}>
-                        <Box>
-                          <Typography sx={{ fontSize: '0.82rem', color: '#fff' }}>Qwen Code</Typography>
-                          <Typography sx={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)' }}>
-                            Uses qwen-code CLI as a custom agent server
-                          </Typography>
-                        </Box>
-                      </MenuItem>
-                      <MenuItem value="claude_code" sx={{ fontSize: '0.82rem' }}>
-                        <Box>
-                          <Typography sx={{ fontSize: '0.82rem', color: '#fff' }}>Claude Code</Typography>
-                          <Typography sx={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)' }}>
-                            Anthropic's coding agent — works with Claude subscriptions
-                          </Typography>
-                        </Box>
-                      </MenuItem>
-                    </Select>
-                  </FormControl>
-
-                  {codeAgentRuntime === 'claude_code' ? (
-                    <>
-                      <Box sx={{ p: 1.5, borderRadius: 1.5, border: '1px solid rgba(255,255,255,0.06)', bgcolor: 'rgba(255,255,255,0.02)' }}>
-                        <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.78rem', mb: 0.5 }}>
-                          Credentials
-                        </Typography>
-                        <FormControl>
-                          <RadioGroup
-                            value={claudeCodeMode}
-                            onChange={(e) => {
-                              const mode = e.target.value as 'subscription' | 'api_key'
-                              setClaudeCodeMode(mode)
-                              if (mode === 'subscription') {
-                                setSelectedProvider('')
-                                setSelectedModel('')
-                                setHasUserSelectedModel(false)
-                              }
-                            }}
-                          >
-                            <FormControlLabel
-                              value="subscription"
-                              control={<Radio size="small" sx={{ color: 'rgba(255,255,255,0.3)', '&.Mui-checked': { color: ACCENT } }} />}
-                              disabled={!hasClaudeSubscription}
-                              label={
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                  <Typography sx={{ fontSize: '0.78rem', color: '#fff' }}>Claude Subscription</Typography>
-                                  {hasClaudeSubscription ? (
-                                    <CheckCircleIcon sx={{ fontSize: 14, color: ACCENT }} />
-                                  ) : (
-                                    <Typography sx={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)' }}>(not connected)</Typography>
-                                  )}
-                                </Box>
-                              }
-                            />
-                            <FormControlLabel
-                              value="api_key"
-                              control={<Radio size="small" sx={{ color: 'rgba(255,255,255,0.3)', '&.Mui-checked': { color: ACCENT } }} />}
-                              disabled={!hasAnthropicProvider}
-                              label={
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                  <Typography sx={{ fontSize: '0.78rem', color: '#fff' }}>Anthropic API Key</Typography>
-                                  {hasAnthropicProvider ? (
-                                    <CheckCircleIcon sx={{ fontSize: 14, color: ACCENT }} />
-                                  ) : (
-                                    <Typography sx={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)' }}>(not configured)</Typography>
-                                  )}
-                                </Box>
-                              }
-                            />
-                          </RadioGroup>
-                        </FormControl>
-                        {!hasClaudeSubscription && !hasAnthropicProvider && (
-                          <Typography sx={{ color: 'warning.main', fontSize: '0.72rem', mt: 0.5 }}>
-                            Connect a Claude subscription or add an Anthropic API key in Providers.
-                          </Typography>
-                        )}
-                      </Box>
-
-                      {claudeCodeMode === 'api_key' && (
-                        <AdvancedModelPicker
-                          recommendedModels={RECOMMENDED_MODELS}
-                          autoSelectFirst={false}
-                          hint="Choose a Claude model for code generation."
-                          selectedProvider={selectedProvider}
-                          selectedModelId={selectedModel}
-                          onSelectModel={(provider, model) => {
-                            setHasUserSelectedModel(true)
-                            setSelectedProvider(provider)
-                            setSelectedModel(model)
-                          }}
-                          currentType="text"
-                          displayMode="full"
-                          disabled={creatingAgent}
-                        />
-                      )}
-                    </>
-                  ) : (
-                    <AdvancedModelPicker
-                      recommendedModels={RECOMMENDED_MODELS}
-                      autoSelectFirst={false}
-                      hint="Choose a capable model for agentic coding."
-                      selectedProvider={selectedProvider}
-                      selectedModelId={selectedModel}
-                      onSelectModel={(provider, model) => {
-                        setHasUserSelectedModel(true)
-                        setSelectedProvider(provider)
-                        setSelectedModel(model)
-                      }}
-                      currentType="text"
-                      displayMode="full"
-                      disabled={creatingAgent}
-                    />
-                  )}
-
-                  <TextField
-                    fullWidth
-                    size="small"
-                    label="Agent Name"
-                    value={newAgentName}
-                    onChange={e => {
-                      setNewAgentName(e.target.value)
-                      setUserModifiedAgentName(true)
+                  <CodingAgentForm
+                    ref={codingAgentFormRef}
+                    value={{
+                      codeAgentRuntime,
+                      claudeCodeMode,
+                      selectedProvider,
+                      selectedModel,
+                      agentName: newAgentName,
                     }}
-                    variant="outlined"
-                    InputProps={{ sx: inputSx }}
-                    InputLabelProps={{ sx: labelSx }}
-                    FormHelperTextProps={{ sx: helperSx }}
-                    helperText="Auto-generated from model and runtime"
+                    onChange={(nextValue) => {
+                      const switchedToClaudeSubscription =
+                        (codeAgentRuntime !== 'claude_code' || claudeCodeMode !== 'subscription') &&
+                        nextValue.codeAgentRuntime === 'claude_code' &&
+                        nextValue.claudeCodeMode === 'subscription'
+                      setCodeAgentRuntime(nextValue.codeAgentRuntime)
+                      setClaudeCodeMode(nextValue.claudeCodeMode)
+                      setSelectedProvider(nextValue.selectedProvider)
+                      setSelectedModel(nextValue.selectedModel)
+                      if (nextValue.selectedModel !== selectedModel) {
+                        setHasUserSelectedModel(true)
+                      }
+                      if (switchedToClaudeSubscription) {
+                        setHasUserSelectedModel(false)
+                      }
+                      if (nextValue.agentName !== newAgentName) {
+                        setUserModifiedAgentName(true)
+                      }
+                      setNewAgentName(nextValue.agentName)
+                    }}
+                    disabled={creatingAgent}
+                    hasClaudeSubscription={hasClaudeSubscription}
+                    hasAnthropicProvider={hasAnthropicProvider}
+                    recommendedModels={RECOMMENDED_MODELS}
+                    createAgentDescription="Code development agent"
+                    createAgentOrganizationId={createdOrg?.id}
+                    onCreateStateChange={setCreatingAgent}
+                    onAgentCreated={(app) => {
+                      setCreatedAgentId(app.id)
+                      setSelectedAgentId(app.id)
+                      setAgentMode('select')
+                    }}
+                    modelPickerHint={codeAgentRuntime === 'claude_code'
+                      ? 'Choose a Claude model for code generation.'
+                      : 'Choose a capable model for agentic coding.'}
+                    modelPickerDisplayMode="full"
+                    modelPickerAutoSelectFirst={false}
+                    labelSx={labelSx}
+                    captionSx={helperSx}
+                    selectSx={{
+                      color: '#fff',
+                      fontSize: '0.82rem',
+                      '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' },
+                      '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
+                      '&.Mui-focused fieldset': { borderColor: ACCENT },
+                      '& .MuiSvgIcon-root': { color: 'rgba(255,255,255,0.4)' },
+                    }}
+                    menuPaperSx={{
+                      bgcolor: '#1a1a2e',
+                      color: '#fff',
+                    }}
+                    textFieldInputSx={inputSx}
+                    textFieldLabelSx={labelSx}
+                    textFieldHelperSx={helperSx}
+                    claudeCredentialsBoxSx={{
+                      borderRadius: 1.5,
+                      border: '1px solid rgba(255,255,255,0.06)',
+                      bgcolor: 'rgba(255,255,255,0.02)',
+                    }}
+                    claudeRadioSx={{ color: 'rgba(255,255,255,0.3)', '&.Mui-checked': { color: ACCENT } }}
+                    agentNameHelperText="Auto-generated from model and runtime"
+                    sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}
                   />
                 </Box>
               )}
@@ -1359,7 +1234,14 @@ export default function Onboarding() {
                   creatingProject || creatingAgent || !projectName.trim() || !createdOrg ||
                   (repoMode === 'external' && !linkedExternalRepo) ||
                   (agentMode === 'select' && !selectedAgentId) ||
-                  (agentMode === 'create' && !selectedModel && !(codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription'))
+                  (
+                    agentMode === 'create' &&
+                    !(
+                      codeAgentRuntime === 'claude_code' &&
+                      claudeCodeMode === 'subscription'
+                    ) &&
+                    (!selectedModel || !selectedProvider)
+                  )
                 }
                 sx={btnSx}
                 startIcon={(creatingProject || creatingAgent) ? <CircularProgress size={14} sx={{ color: '#000' }} /> : <FolderIcon sx={{ fontSize: 16 }} />}
