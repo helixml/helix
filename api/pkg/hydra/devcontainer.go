@@ -493,12 +493,13 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 			"HELIX_VIDEO_MODE=scanout",
 			"XDG_RUNTIME_DIR=/run/user/1000",
 		)
-		// Pass QEMU frame export port so desktop-bridge connects to the right port.
-		// The macOS desktop app sets this in .env.vm; default 15937 for backwards compat.
-		if fePort := os.Getenv("HELIX_FRAME_EXPORT_PORT"); fePort != "" {
-			env = append(env, "HELIX_FRAME_EXPORT_PORT="+fePort)
-		}
 		log.Debug().Str("socket", drmSock).Msg("DRM manager socket found, setting scanout env vars")
+	}
+	// Pass QEMU frame export port unconditionally — detect-render-node.sh can
+	// independently trigger scanout mode (GPU_VENDOR=virtio) even without the
+	// DRM socket, and desktop-bridge needs the correct port either way.
+	if fePort := os.Getenv("HELIX_FRAME_EXPORT_PORT"); fePort != "" {
+		env = append(env, "HELIX_FRAME_EXPORT_PORT="+fePort)
 	}
 
 	// Pass Docker nesting depth for address pool isolation.

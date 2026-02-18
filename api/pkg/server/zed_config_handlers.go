@@ -665,8 +665,9 @@ func (apiServer *HelixAPIServer) getAPIKeyForSession(ctx context.Context, sessio
 	}
 
 	apiKey, err := apiServer.specDrivenTaskService.GetOrCreateSessionAPIKey(ctx, &services.SessionAPIKeyRequest{
-		UserID:    session.Owner,
-		SessionID: session.ID,
+		UserID:         session.Owner,
+		SessionID:      session.ID,
+		OrganizationID: session.OrganizationID,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to get session API key for session %s: %w", session.ID, err)

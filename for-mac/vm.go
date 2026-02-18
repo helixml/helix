@@ -164,12 +164,15 @@ func (vm *VMManager) getSpiceSocketPath() string {
 }
 
 // bindAddr returns the address to bind forwarded ports to.
-// Returns "0.0.0.0" if network exposure is enabled, empty string (localhost) otherwise.
+// Returns empty string (QEMU defaults to 0.0.0.0) if network exposure is enabled,
+// "127.0.0.1" to restrict to localhost otherwise.
+// Note: QEMU's SLIRP defaults to INADDR_ANY when the host address is empty,
+// so we must explicitly pass 127.0.0.1 to restrict access.
 func (vm *VMManager) bindAddr() string {
 	if vm.config.ExposeOnNetwork {
-		return "0.0.0.0"
+		return ""
 	}
-	return ""
+	return "127.0.0.1"
 }
 
 // adminUserIDs returns the ADMIN_USER_IDS env var value.
@@ -941,6 +944,7 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 			// long before sshd is running inside the guest.
 			if !sshReady {
 				sshArgs := []string{
+					"-F", "/dev/null", // Don't read ~/.ssh/config (triggers macOS TCC dialog)
 					"-o", "StrictHostKeyChecking=no",
 					"-o", "UserKnownHostsFile=/dev/null",
 					"-o", "ConnectTimeout=2",
@@ -1013,13 +1017,14 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 				apiCheckCount++
 				elapsed := time.Since(stackStartedAt)
 				if elapsed > apiTimeout {
-					// API didn't come up — check what's wrong with docker compose
+					// API didn't come up — gather diagnostic info
 					log.Printf("API not ready after %v — checking container status", apiTimeout)
-					errMsg := vm.diagnoseAPIFailure()
+					diag := vm.diagnoseAPIFailure()
 					vm.statusMu.Lock()
 					vm.status.BootStage = ""
 					vm.statusMu.Unlock()
-					vm.setError(fmt.Errorf("API failed to start: %s", errMsg))
+					vm.setError(fmt.Errorf("unable to reach API on port %d after %.0f minutes. Diagnostics:\n%s",
+						vm.config.APIPort, apiTimeout.Minutes(), diag))
 					return
 				}
 
@@ -1069,7 +1074,9 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 	}
 }
 
-// diagnoseAPIFailure checks docker compose inside the VM to determine why the API isn't starting
+// diagnoseAPIFailure checks docker compose inside the VM to gather diagnostic info
+// about why the API health check is failing. This only runs after the timeout —
+// it does NOT gate readiness, it just collects context for the error message.
 func (vm *VMManager) diagnoseAPIFailure() string {
 	composeFile := vm.composeFile
 	if composeFile == "" {
@@ -1091,7 +1098,7 @@ func (vm *VMManager) diagnoseAPIFailure() string {
 		log.Printf("API container logs:\n%s", logOut)
 	}
 
-	return fmt.Sprintf("containers: %s", status)
+	return status
 }
 
 // checkAPIHealth verifies the Helix API is actually responding to HTTP requests.
@@ -1144,6 +1151,7 @@ func (vm *VMManager) checkSandboxReady() bool {
 // (e.g., docker compose image pulls) under I/O pressure.
 func (vm *VMManager) sshCommand(script string) *exec.Cmd {
 	args := []string{
+		"-F", "/dev/null", // Don't read ~/.ssh/config (triggers macOS TCC dialog)
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=5",
@@ -1502,6 +1510,32 @@ fi
 # Identify this as the Mac Desktop edition for Launchpad telemetry
 if ! grep -q '^HELIX_EDITION=' "$ENV_FILE" 2>/dev/null; then
     echo 'HELIX_EDITION=mac-desktop' >> "$ENV_FILE"
+    CHANGED=1
+fi
+
+# GPU vendor — sandbox.sh and Hydra use this to configure the video pipeline.
+# On macOS ARM VMs the GPU is virtio-gpu (QEMU VideoToolbox scanout encoding).
+if grep -q '^GPU_VENDOR=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^GPU_VENDOR=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "virtio" ]; then
+        sed -i "s|^GPU_VENDOR=.*|GPU_VENDOR=virtio|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo 'GPU_VENDOR=virtio' >> "$ENV_FILE"
+    CHANGED=1
+fi
+
+# Sandbox Docker storage — use bind mount path on root disk so pre-baked
+# desktop images survive the ZFS mount over /var/lib/docker/volumes/.
+if grep -q '^SANDBOX_DOCKER_VOLUME=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^SANDBOX_DOCKER_VOLUME=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "/var/lib/helix-sandbox-docker" ]; then
+        sed -i "s|^SANDBOX_DOCKER_VOLUME=.*|SANDBOX_DOCKER_VOLUME=/var/lib/helix-sandbox-docker|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo 'SANDBOX_DOCKER_VOLUME=/var/lib/helix-sandbox-docker' >> "$ENV_FILE"
     CHANGED=1
 fi
 
@@ -1895,7 +1929,17 @@ func (vm *VMManager) findVulkanICD() string {
 // KosmicKrisp produces dramatically better rendering quality under concurrent
 // GNOME sessions with virglrenderer's Venus Vulkan path.
 func (vm *VMManager) buildQEMUEnv() []string {
-	env := os.Environ()
+	// Start with inherited environment but override HOME to the Helix data dir.
+	// Glib's g_get_home_dir() stat()s $HOME on init, which triggers the macOS
+	// TCC "access data from other apps" dialog when $HOME is the real home dir.
+	helixHome := getHelixDataDir()
+	var env []string
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "HOME=") {
+			env = append(env, e)
+		}
+	}
+	env = append(env, "HOME="+helixHome)
 
 	// Tell ANGLE to use the Metal backend for EGL/GLES on macOS.
 	// Without this, ANGLE can't initialize and QEMU fails with

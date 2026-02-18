@@ -65,6 +65,9 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.vm.SetAppContext(ctx)
+
+	// Request macOS notification permission (no-ops if already granted/denied)
+	initNotifications()
 	s := a.settings.Get()
 	a.vm.desktopSecret = s.DesktopSecret
 	a.vm.consolePassword = s.ConsolePassword
@@ -279,6 +282,8 @@ func (a *App) DownloadVMImages() error {
 				log.Printf("Saved installed VM version: %s", m.Version)
 			}
 		}
+		// macOS notification so the user knows the download finished
+		sendNotification("Helix", "VM images downloaded successfully. Starting up...")
 	}()
 
 	return nil
@@ -475,6 +480,10 @@ func (a *App) SaveSettings(s AppSettings) error {
 	s.DesktopSecret = old.DesktopSecret
 	s.ConsolePassword = old.ConsolePassword
 	s.InstalledVMVersion = old.InstalledVMVersion
+	s.RunnerToken = old.RunnerToken
+	s.PostgresPassword = old.PostgresPassword
+	s.EncryptionKey = old.EncryptionKey
+	s.JWTSecret = old.JWTSecret
 
 	if err := a.settings.Save(s); err != nil {
 		return err

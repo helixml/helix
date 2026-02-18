@@ -46,7 +46,7 @@ type authMiddleware struct {
 	oidcClient     authpkg.OIDC // For OIDC token validation (nil if not using OIDC)
 	store          store.Store
 	cfg            authMiddlewareConfig
-	serverCfg      *config.ServerConfig // Server config for cookie management
+	serverCfg      *config.ServerConfig    // Server config for cookie management
 	sessionManager *authpkg.SessionManager // BFF session manager (nil if not using sessions)
 }
 
@@ -210,6 +210,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		user.ProjectID = apiKey.ProjectID
 		user.SpecTaskID = apiKey.SpecTaskID
 		user.SessionID = apiKey.SessionID
+		user.OrganizationID = apiKey.OrganizationID
 
 		// Ensure user_meta exists with slug for GitHub-style URLs
 		if user.ID != "" {

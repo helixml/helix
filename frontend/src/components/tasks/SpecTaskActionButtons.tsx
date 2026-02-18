@@ -44,6 +44,10 @@ interface SpecTaskActionButtonsProps {
   isPlanningFull?: boolean
   /** Planning column limit for error message */
   planningLimit?: number
+  /** Whether task has unfinished dependencies that block planning start */
+  isBlockedByDependencies?: boolean
+  /** Tooltip text explaining why start action is blocked */
+  blockedReason?: string
 }
 
 interface CompactActionButtonProps {
@@ -117,6 +121,8 @@ export default function SpecTaskActionButtons({
   isQueued = false,
   isPlanningFull = false,
   planningLimit,
+  isBlockedByDependencies = false,
+  blockedReason = '',
 }: SpecTaskActionButtonsProps) {
   const approveImplementationMutation = useApproveImplementation(task.id)
   const stopAgentMutation = useStopAgent(task.id)
@@ -133,10 +139,22 @@ export default function SpecTaskActionButtons({
 
   // Backlog phase: Start Planning button
   if (task.status === 'backlog') {
+    const isStartDisabled =
+      isArchived || isPlanningFull || isStartingPlanning || isQueued
+    const startTooltip = isArchived
+      ? 'Task is archived'
+      : isBlockedByDependencies
+      ? blockedReason
+      : isPlanningFull
+      ? `Planning column at capacity (${planningLimit})`
+      : ''
+
     const startLabel = isQueued
       ? 'Queued'
       : isStartingPlanning
       ? 'Starting...'
+      : isBlockedByDependencies
+      ? 'Queue Planning'
       : task.metadata?.error
       ? (task.just_do_it_mode ? 'Retry' : 'Retry Planning')
       : task.just_do_it_mode
@@ -147,7 +165,7 @@ export default function SpecTaskActionButtons({
       return (
         <Box sx={{ display: 'flex', gap: 1 }}>
           <CompactActionButton
-            tooltip={isArchived ? 'Task is archived' : isPlanningFull ? `Planning column at capacity (${planningLimit})` : ''}
+            tooltip={startTooltip}
             color={task.just_do_it_mode ? 'success' : 'warning'}
             icon={isQueued || isStartingPlanning ? <CircularProgress size={18} color="inherit" /> : <PlayIcon sx={{ fontSize: 18 }} />}
             label={startLabel}
@@ -155,7 +173,7 @@ export default function SpecTaskActionButtons({
               e.stopPropagation()
               onStartPlanning?.()
             }}
-            disabled={isArchived || isPlanningFull || isStartingPlanning || isQueued}
+            disabled={isStartDisabled}
           />
         </Box>
       )
@@ -163,7 +181,7 @@ export default function SpecTaskActionButtons({
 
     return (
       <Box sx={isInline ? { display: 'flex', gap: 1 } : { mt: 1.5 }}>
-        <Tooltip title={isArchived ? 'Task is archived' : isPlanningFull ? `Planning column at capacity (${planningLimit})` : ''} placement="top">
+        <Tooltip title={startTooltip} placement="top">
           <span style={{ width: isInline ? 'auto' : '100%' }}>
             <Button
               size={buttonSize}
@@ -174,7 +192,7 @@ export default function SpecTaskActionButtons({
                 e.stopPropagation()
                 onStartPlanning?.()
               }}
-              disabled={isArchived || isPlanningFull || isStartingPlanning || isQueued}
+              disabled={isStartDisabled}
               fullWidth={!isInline}
               sx={buttonSx}
             >

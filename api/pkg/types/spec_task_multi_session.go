@@ -10,18 +10,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// Extensions to existing SpecTask for multi-session support
-type SpecTaskMultiSessionExtensions struct {
-	// Multi-session support fields - these should be added to existing SpecTask struct
-	ZedInstanceID   string         `json:"zed_instance_id,omitempty" gorm:"size:255;index"`
-	ProjectPath     string         `json:"project_path,omitempty" gorm:"size:500"`
-	WorkspaceConfig datatypes.JSON `json:"workspace_config,omitempty" gorm:"type:jsonb"`
-
-	// Relationships (loaded via joins, not stored)
-	WorkSessions []SpecTaskWorkSession `json:"work_sessions,omitempty" gorm:"foreignKey:SpecTaskID"`
-	ZedThreads   []SpecTaskZedThread   `json:"zed_threads,omitempty" gorm:"foreignKey:SpecTaskID"`
-}
-
 // SpecTaskWorkSession represents an individual work unit within a SpecTask
 // Maps 1:1 to a Helix Session during implementation phase
 type SpecTaskWorkSession struct {
@@ -103,7 +91,7 @@ type SpecTaskImplementationTask struct {
 
 	// Implementation tracking
 	Status                SpecTaskImplementationStatus `json:"status" gorm:"not null;size:50;default:pending;index"`
-	AssignedWorkSessionID *string                       `json:"assigned_work_session_id,omitempty" gorm:"size:255;index"`
+	AssignedWorkSessionID *string                      `json:"assigned_work_session_id,omitempty" gorm:"size:255;index"`
 
 	CreatedAt   time.Time  `json:"created_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`

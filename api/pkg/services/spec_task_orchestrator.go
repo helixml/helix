@@ -24,6 +24,7 @@ type SpecTaskOrchestrator struct {
 	containerExecutor     ContainerExecutor // Executor for external agent containers
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
+	backlogProjectLocks   sync.Map // map[project_id]*sync.Mutex
 	orchestrationInterval time.Duration
 	prPollInterval        time.Duration // Interval for polling external PR status (default 1 minute)
 	testMode              bool
@@ -133,7 +134,9 @@ func (o *SpecTaskOrchestrator) orchestrationLoop(ctx context.Context) {
 // processTasks processes all active tasks
 func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 	// Get all tasks (we'll filter active ones)
-	tasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{})
+	tasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		WithDependsOn: true, // Validate dependencies before processing
+	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list tasks for orchestration")
 		return
@@ -213,8 +216,24 @@ func (o *SpecTaskOrchestrator) processTask(ctx context.Context, task *types.Spec
 
 // handleBacklog handles tasks in backlog state - creates external agent and starts planning
 func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.SpecTask) error {
+	projectLock, err := o.getBacklogProjectLock(task.ProjectID)
+	if err != nil {
+		return err
+	}
+	projectLock.Lock()
+	defer projectLock.Unlock()
+
+	latestTask, err := o.store.GetSpecTask(ctx, task.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get latest task: %w", err)
+	}
+
+	if latestTask.Status != types.TaskStatusBacklog {
+		return nil
+	}
+
 	// Check if project has auto-start enabled
-	project, err := o.store.GetProject(ctx, task.ProjectID)
+	project, err := o.store.GetProject(ctx, latestTask.ProjectID)
 	if err != nil {
 		return fmt.Errorf("failed to get project: %w", err)
 	}
@@ -222,56 +241,96 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 	if !project.AutoStartBacklogTasks {
 		// Auto-start is disabled - don't process backlog tasks automatically
 		log.Trace().
-			Str("task_id", task.ID).
-			Str("project_id", task.ProjectID).
+			Str("task_id", latestTask.ID).
+			Str("project_id", latestTask.ProjectID).
 			Msg("Skipping backlog task - auto-start is disabled for this project")
 		return nil
 	}
 
-	// Check WIP limits for planning column before auto-starting
-	// Get default project to load board settings
-
-	var planningLimit = 3
-
-	if project.Metadata.BoardSettings != nil &&
-		project.Metadata.BoardSettings.WIPLimits.Planning > 0 {
-		planningLimit = project.Metadata.BoardSettings.WIPLimits.Planning
-	}
-
-	// Count tasks currently in planning for THIS project
-	planningTasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
-		ProjectID: task.ProjectID,
-		Status:    types.TaskStatusSpecGeneration,
+	allProjectTasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID:     latestTask.ProjectID,
+		WithDependsOn: true,
 	})
 	if err != nil {
-		log.Warn().Err(err).Msg("Failed to check planning column WIP limit")
-	} else if len(planningTasks) >= planningLimit {
-		// Planning column is at WIP limit - don't auto-start
+		log.Warn().
+			Err(err).
+			Str("task_id", latestTask.ID).
+			Str("project_id", latestTask.ProjectID).
+			Msg("Failed to list project tasks for WIP checks")
+		return nil
+	}
+
+	var latestTaskWithDependencies *types.SpecTask
+	for _, projectTask := range allProjectTasks {
+		if projectTask.ID == latestTask.ID {
+			latestTaskWithDependencies = projectTask
+			break
+		}
+	}
+	if latestTaskWithDependencies == nil {
 		log.Info().
-			Str("task_id", task.ID).
-			Str("project_id", task.ProjectID).
-			Int("planning_count", len(planningTasks)).
+			Str("task_id", latestTask.ID).
+			Str("project_id", latestTask.ProjectID).
+			Msg("Skipping backlog task - unable to load task dependencies")
+		return nil
+	}
+
+	if dependencyReady, blockingDependency := areBacklogDependenciesReady(latestTaskWithDependencies.DependsOn); !dependencyReady {
+		log.Info().
+			Str("task_id", latestTask.ID).
+			Str("project_id", latestTask.ProjectID).
+			Str("dependency_task_id", blockingDependency).
+			Msg("Skipping backlog task - waiting for dependency task to be done or archived")
+		return nil
+	}
+
+	planningLimit, implementationLimit := getProjectWIPLimits(project)
+	planningCount := countTasksByStatus(allProjectTasks,
+		types.TaskStatusQueuedSpecGeneration,
+		types.TaskStatusSpecGeneration,
+	)
+	implementationCount := countTasksByStatus(allProjectTasks,
+		types.TaskStatusQueuedImplementation,
+		types.TaskStatusImplementationQueued,
+		types.TaskStatusImplementation,
+	)
+
+	if latestTask.JustDoItMode {
+		if implementationCount >= implementationLimit {
+			log.Info().
+				Str("task_id", latestTask.ID).
+				Str("project_id", latestTask.ProjectID).
+				Int("implementation_count", implementationCount).
+				Int("wip_limit", implementationLimit).
+				Msg("Skipping backlog task - implementation column at WIP limit")
+			return nil
+		}
+	} else if planningCount >= planningLimit {
+		log.Info().
+			Str("task_id", latestTask.ID).
+			Str("project_id", latestTask.ProjectID).
+			Int("planning_count", planningCount).
 			Int("wip_limit", planningLimit).
 			Msg("Skipping backlog task - planning column at WIP limit")
 		return nil
 	}
 
 	log.Info().
-		Str("task_id", task.ID).
-		Str("helix_app_id", task.HelixAppID).
+		Str("task_id", latestTask.ID).
+		Str("helix_app_id", latestTask.HelixAppID).
 		Msg("Auto-starting SpecTask planning phase")
 
 	// Delegate to the canonical StartSpecGeneration implementation
 	// This ensures both explicit start and auto-start use the same code path
 	// Auto-start doesn't have user browser context, so pass empty options
-	// o.specTaskService.StartSpecGeneration(ctx, task)
-	if task.JustDoItMode {
-		task.Status = types.TaskStatusQueuedImplementation
+	// o.specTaskService.StartSpecGeneration(ctx, latestTask)
+	if latestTask.JustDoItMode {
+		latestTask.Status = types.TaskStatusQueuedImplementation
 	} else {
-		task.Status = types.TaskStatusQueuedSpecGeneration
+		latestTask.Status = types.TaskStatusQueuedSpecGeneration
 	}
 
-	err = o.store.UpdateSpecTask(ctx, task)
+	err = o.store.UpdateSpecTask(ctx, latestTask)
 	if err != nil {
 		return fmt.Errorf("failed to update task status: %w", err)
 	}
@@ -279,8 +338,75 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 	return nil
 }
 
+func areBacklogDependenciesReady(dependencies []types.SpecTask) (bool, string) {
+	for _, dependency := range dependencies {
+		if dependency.ID == "" {
+			return false, ""
+		}
+		if dependency.Archived {
+			continue
+		}
+		if dependency.Status != types.TaskStatusDone {
+			return false, dependency.ID
+		}
+	}
+
+	return true, ""
+}
+
+func (o *SpecTaskOrchestrator) getBacklogProjectLock(projectID string) (*sync.Mutex, error) {
+	if projectID == "" {
+		return nil, fmt.Errorf("project_id is required")
+	}
+
+	lock, _ := o.backlogProjectLocks.LoadOrStore(projectID, &sync.Mutex{})
+	return lock.(*sync.Mutex), nil
+}
+
+func getProjectWIPLimits(project *types.Project) (int, int) {
+	planningLimit := 3
+	implementationLimit := 5
+
+	if project.Metadata.BoardSettings != nil {
+		if project.Metadata.BoardSettings.WIPLimits.Planning > 0 {
+			planningLimit = project.Metadata.BoardSettings.WIPLimits.Planning
+		}
+		if project.Metadata.BoardSettings.WIPLimits.Implementation > 0 {
+			implementationLimit = project.Metadata.BoardSettings.WIPLimits.Implementation
+		}
+	}
+
+	return planningLimit, implementationLimit
+}
+
+func countTasksByStatus(tasks []*types.SpecTask, statuses ...types.SpecTaskStatus) int {
+	statusMap := make(map[types.SpecTaskStatus]struct{}, len(statuses))
+	for _, status := range statuses {
+		statusMap[status] = struct{}{}
+	}
+
+	count := 0
+	for _, task := range tasks {
+		if _, ok := statusMap[task.Status]; ok {
+			count++
+		}
+	}
+
+	return count
+}
+
 // handleQueuedSpecGeneration handles tasks in queued spec generation
 func (o *SpecTaskOrchestrator) handleQueuedSpecGeneration(ctx context.Context, task *types.SpecTask) error {
+	dependenciesReady, blockingDependency := areBacklogDependenciesReady(task.DependsOn)
+	if !dependenciesReady {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("project_id", task.ProjectID).
+			Str("dependency_task_id", blockingDependency).
+			Msg("Skipping queued spec generation task - waiting for dependency task to be done or archived")
+		return nil
+	}
+
 	o.wg.Add(1)
 	go func() {
 		defer o.wg.Done()
@@ -292,6 +418,16 @@ func (o *SpecTaskOrchestrator) handleQueuedSpecGeneration(ctx context.Context, t
 
 // handleQueuedImplementation handles tasks in queued implementation
 func (o *SpecTaskOrchestrator) handleQueuedImplementation(ctx context.Context, task *types.SpecTask) error {
+	dependenciesReady, blockingDependency := areBacklogDependenciesReady(task.DependsOn)
+	if !dependenciesReady {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("project_id", task.ProjectID).
+			Str("dependency_task_id", blockingDependency).
+			Msg("Skipping queued implementation task - waiting for dependency task to be done or archived")
+		return nil
+	}
+
 	// Check if implementation session is complete
 	// This would integrate with existing SpecDrivenTaskService
 	// For now, we'll assume implementation is ready when all implementation tasks exist

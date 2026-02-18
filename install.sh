@@ -2478,6 +2478,7 @@ if docker ps -a --format '{{.Names}}' | grep -q "^helix-sandbox$"; then
 fi
 
 # Build GPU-specific flags
+VIRTIO_FLAGS=""
 if [ "$GPU_VENDOR" = "nvidia" ]; then
     GPU_FLAGS="--gpus all --runtime nvidia --device /dev/dri"
     GPU_ENV_FLAGS="-e NVIDIA_DRIVER_CAPABILITIES=all -e NVIDIA_VISIBLE_DEVICES=all -e GPU_VENDOR=nvidia"
@@ -2488,6 +2489,12 @@ elif [ "$GPU_VENDOR" = "amd" ]; then
 elif [ "$GPU_VENDOR" = "intel" ]; then
     GPU_FLAGS="--device /dev/dri"
     GPU_ENV_FLAGS="-e GPU_VENDOR=intel"
+elif [ "$GPU_VENDOR" = "virtio" ]; then
+    # macOS ARM with virtio-gpu (QEMU VideoToolbox H.264 via scanout)
+    GPU_FLAGS="--device /dev/dri"
+    GPU_ENV_FLAGS="-e GPU_VENDOR=virtio -e CONTAINER_DOCKER_PATH=${CONTAINER_DOCKER_PATH:-}"
+    # DRM socket for lease manager, container-docker ZFS mount
+    VIRTIO_FLAGS="-v /run/helix-drm:/run/helix-drm:rw -v ${CONTAINER_DOCKER_PATH:-/helix/container-docker}:/container-docker"
 elif [ "$GPU_VENDOR" = "none" ]; then
     # Software rendering - no GPU device mounts needed
     GPU_FLAGS=""
@@ -2515,12 +2522,21 @@ else
     PRIVILEGED_DOCKER_FLAGS=""
 fi
 
+# Select Docker volume based on GPU vendor
+if [ "$GPU_VENDOR" = "virtio" ]; then
+    # macOS virtio: use bind mount (survives ZFS mount over /var/lib/docker/volumes/)
+    DOCKER_VOLUME="${SANDBOX_DOCKER_VOLUME:-/var/lib/helix-sandbox-docker}"
+else
+    DOCKER_VOLUME="${SANDBOX_DOCKER_VOLUME:-sandbox-storage}"
+fi
+
 # Run the sandbox container
 # Note: Don't use 'eval' here - it breaks quoting for --device-cgroup-rule
-# GPU_FLAGS contains --device /dev/dri for GPU modes (nvidia, amd, intel)
+# GPU_FLAGS contains --device /dev/dri for GPU modes (nvidia, amd, intel, virtio)
 # GPU_ENV_FLAGS contains GPU_VENDOR and software rendering env vars for none mode
+# VIRTIO_FLAGS contains DRM socket mount and cgroup rules for macOS virtio-gpu
 # shellcheck disable=SC2086
-docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS \
+docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS $VIRTIO_FLAGS \
     --privileged \
     --restart=always -d \
     --name helix-sandbox \
@@ -2529,20 +2545,21 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS \
     -e SANDBOX_INSTANCE_ID="$SANDBOX_INSTANCE_ID" \
     -e RUNNER_TOKEN="$RUNNER_TOKEN" \
     -e MAX_SANDBOXES="$MAX_SANDBOXES" \
-    -e ZED_IMAGE=helix-sway:latest \
     -e HELIX_HOSTNAME="$HELIX_HOSTNAME" \
     -e HYDRA_ENABLED=true \
     -e HYDRA_PRIVILEGED_MODE_ENABLED="${PRIVILEGED_DOCKER:-false}" \
     -e SANDBOX_DATA_PATH=/data \
     -e XDG_RUNTIME_DIR=/tmp/sockets \
-    -e HELIX_FRAME_EXPORT_PORT="${HELIX_FRAME_EXPORT_PORT:-}" \
-    -v ${SANDBOX_DOCKER_VOLUME:-sandbox-storage}:/var/lib/docker \
+    -e HELIX_FRAME_EXPORT_PORT="${HELIX_FRAME_EXPORT_PORT:-15937}" \
+    -v ${DOCKER_VOLUME}:/var/lib/docker \
     -v sandbox-data:/data \
     -v hydra-storage:/hydra-data \
     -v /run/udev:/run/udev:rw \
+    -v /var/run/sandbox:/var/run/sandbox:rw \
     --device /dev/uinput \
     --device /dev/uhid \
     --device-cgroup-rule='c 13:* rmw' \
+    --device-cgroup-rule='c 226:* rmw' \
     registry.helixml.tech/helix/helix-sandbox:${SANDBOX_TAG}
 
 if [ $? -eq 0 ]; then
