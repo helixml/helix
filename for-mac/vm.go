@@ -1929,7 +1929,17 @@ func (vm *VMManager) findVulkanICD() string {
 // KosmicKrisp produces dramatically better rendering quality under concurrent
 // GNOME sessions with virglrenderer's Venus Vulkan path.
 func (vm *VMManager) buildQEMUEnv() []string {
-	env := os.Environ()
+	// Start with inherited environment but override HOME to the Helix data dir.
+	// Glib's g_get_home_dir() stat()s $HOME on init, which triggers the macOS
+	// TCC "access data from other apps" dialog when $HOME is the real home dir.
+	helixHome := getHelixDataDir()
+	var env []string
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "HOME=") {
+			env = append(env, e)
+		}
+	}
+	env = append(env, "HOME="+helixHome)
 
 	// Tell ANGLE to use the Metal backend for EGL/GLES on macOS.
 	// Without this, ANGLE can't initialize and QEMU fails with
