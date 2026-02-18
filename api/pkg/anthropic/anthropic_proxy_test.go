@@ -290,3 +290,45 @@ func Test_stripDateFromModelName(t *testing.T) {
 		})
 	}
 }
+
+func Test_parseAnthropicRequestModel(t *testing.T) {
+	tests := []struct {
+		name  string
+		body  []byte
+		want  string
+		found bool
+	}{
+		{
+			name:  "valid model",
+			body:  []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}]}`),
+			want:  "claude-sonnet-4-20250514",
+			found: true,
+		},
+		{
+			name:  "missing model",
+			body:  []byte(`{"messages":[{"role":"user","content":"hi"}]}`),
+			want:  "",
+			found: false,
+		},
+		{
+			name:  "invalid json",
+			body:  []byte(`{"model":"claude-sonnet-4"`),
+			want:  "",
+			found: false,
+		},
+		{
+			name:  "empty body",
+			body:  []byte{},
+			want:  "",
+			found: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := parseAnthropicRequestModel(tt.body)
+			assert.Equal(t, tt.found, ok)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
