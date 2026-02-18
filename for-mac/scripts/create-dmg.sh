@@ -51,7 +51,7 @@ while [[ $# -gt 0 ]]; do
         --build-dir) BUILD_DIR="$2"; shift 2 ;;
         --notarize) NOTARIZE=true; shift ;;
         --upload) UPLOAD=true; shift ;;
-        --skip-styling) log "WARNING: --skip-styling is deprecated (template approach doesn't need it)"; shift ;;
+        --skip-styling) echo "WARNING: --skip-styling is deprecated (template approach doesn't need it)"; shift ;;
         --rebuild-template) REBUILD_TEMPLATE=true; shift ;;
         --version) VERSION="$2"; shift 2 ;;
         --r2-bucket) R2_BUCKET="$2"; shift 2 ;;
