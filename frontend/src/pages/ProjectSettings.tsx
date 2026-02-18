@@ -53,10 +53,9 @@ import Skills from "../components/app/Skills";
 import { TypesAssistantSkills, TypesProject } from "../api/api";
 import SavingToast from "../components/widgets/SavingToast";
 import StartupScriptEditor from "../components/project/StartupScriptEditor";
-import { AdvancedModelPicker } from "../components/create/AdvancedModelPicker";
+import CodingAgentForm from "../components/agent/CodingAgentForm";
 import {
   AppsContext,
-  ICreateAgentParams,
   CodeAgentRuntime,
   generateAgentName,
 } from "../contexts/apps";
@@ -81,6 +80,7 @@ const RECOMMENDED_MODELS = [
   "Qwen/Qwen3-Coder-30B-A3B-Instruct",
   "Qwen/Qwen3-235B-A22B-fp8-tput",
 ];
+import type { CodingAgentFormHandle } from "../components/agent/CodingAgentForm";
 import ProjectRepositoriesList from "../components/project/ProjectRepositoriesList";
 import AgentDropdown from "../components/agent/AgentDropdown";
 import DesktopStreamViewer from "../components/external-agent/DesktopStreamViewer";
@@ -104,6 +104,9 @@ import {
   useGetProjectGuidelinesHistory,
 } from "../services";
 import { useGitRepositories } from "../services/gitRepositoryService";
+import { useClaudeSubscriptions } from "../components/account/ClaudeSubscriptionConnect";
+import { useListProviders } from "../services/providersService";
+import { TypesProviderEndpointType } from "../api/api";
 
 const ProjectSettings: FC = () => {
   const account = useAccount();
@@ -112,7 +115,7 @@ const ProjectSettings: FC = () => {
   const api = useApi();
   const projectId = params.id as string;
   const queryClient = useQueryClient();
-  const { apps, loadApps, createAgent } = useContext(AppsContext);
+  const { apps, loadApps } = useContext(AppsContext);
 
   const { data: project, isLoading, error } = useGetProject(projectId);
   const { data: repositories = [] } = useGetProjectRepositories(projectId);
@@ -351,12 +354,34 @@ const ProjectSettings: FC = () => {
   const [showCreateAgentForm, setShowCreateAgentForm] = useState(false);
   const [codeAgentRuntime, setCodeAgentRuntime] =
     useState<CodeAgentRuntime>("zed_agent");
+  const [claudeCodeMode, setClaudeCodeMode] =
+    useState<"subscription" | "api_key">("subscription");
   const [selectedProvider, setSelectedProvider] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
   const [newAgentName, setNewAgentName] = useState("-");
   const [userModifiedName, setUserModifiedName] = useState(false);
   const [creatingAgent, setCreatingAgent] = useState(false);
-  const [agentError, setAgentError] = useState("");
+  const codingAgentFormRef = useRef<CodingAgentFormHandle>(null);
+  const { data: claudeSubscriptions } = useClaudeSubscriptions();
+  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0;
+  const { data: providerEndpoints } = useListProviders({ loadModels: false });
+  const hasAnthropicProvider = useMemo(() => {
+    if (!providerEndpoints) return false;
+    return providerEndpoints.some(
+      (p) =>
+        p.endpoint_type ===
+          TypesProviderEndpointType.ProviderEndpointTypeUser &&
+        p.name === "anthropic",
+    );
+  }, [providerEndpoints]);
+  const userProviderCount = useMemo(() => {
+    if (!providerEndpoints) return 0;
+    return providerEndpoints.filter(
+      (p) =>
+        p.endpoint_type ===
+        TypesProviderEndpointType.ProviderEndpointTypeUser,
+    ).length;
+  }, [providerEndpoints]);
 
   // Sort apps: zed_external first, then others
   const sortedApps = useMemo(() => {
@@ -397,6 +422,13 @@ const ProjectSettings: FC = () => {
       setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime));
     }
   }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm]);
+
+  useEffect(() => {
+    if (hasClaudeSubscription && !hasAnthropicProvider && userProviderCount === 0) {
+      setCodeAgentRuntime("claude_code");
+      setClaudeCodeMode("subscription");
+    }
+  }, [hasClaudeSubscription, hasAnthropicProvider, userProviderCount]);
 
   // Initialize form from server data
   // This runs when project loads or refetches (standard React Query pattern)
@@ -497,55 +529,14 @@ const ProjectSettings: FC = () => {
   };
 
   const handleCreateAgent = async () => {
-    if (!newAgentName.trim()) {
-      setAgentError("Please enter a name for the agent");
-      return;
-    }
-    if (!selectedModel) {
-      setAgentError("Please select a model");
-      return;
-    }
-
-    setCreatingAgent(true);
-    setAgentError("");
-
-    try {
-      const params: ICreateAgentParams = {
-        name: newAgentName.trim(),
-        description: "Code development agent for spec tasks",
-        agentType: AGENT_TYPE_ZED_EXTERNAL,
-        codeAgentRuntime,
-        model: selectedModel,
-        generationModelProvider: selectedProvider,
-        generationModel: selectedModel,
-        reasoningModelProvider: "",
-        reasoningModel: "",
-        reasoningModelEffort: "none",
-        smallReasoningModelProvider: "",
-        smallReasoningModel: "",
-        smallReasoningModelEffort: "none",
-        smallGenerationModelProvider: "",
-        smallGenerationModel: "",
-      };
-
-      const newApp = await createAgent(params);
-      if (newApp) {
-        setSelectedAgentId(newApp.id);
-        setShowCreateAgentForm(false);
-        // Save directly with the new agent ID (don't rely on stale state)
-        await updateProjectMutation.mutateAsync({
-          default_helix_app_id: newApp.id,
-        });
-        snackbar.success("Agent created and set as default");
-      }
-    } catch (err) {
-      console.error("Failed to create agent:", err);
-      setAgentError(
-        err instanceof Error ? err.message : "Failed to create agent",
-      );
-    } finally {
-      setCreatingAgent(false);
-    }
+    const createdAgent = await codingAgentFormRef.current?.handleCreateAgent();
+    if (!createdAgent?.id) return;
+    setSelectedAgentId(createdAgent.id);
+    setShowCreateAgentForm(false);
+    await updateProjectMutation.mutateAsync({
+      default_helix_app_id: createdAgent.id,
+    });
+    snackbar.success("Agent created and set as default");
   };
 
   const handleSetPrimaryRepo = async (repoId: string) => {
@@ -983,81 +974,61 @@ const ProjectSettings: FC = () => {
               ) : (
                 <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
                   <Typography variant="subtitle2">Create New Agent</Typography>
-
-                  <Typography variant="body2" color="text.secondary">
-                    Code Agent Runtime
-                  </Typography>
-                  <FormControl fullWidth size="small">
-                    <Select
-                      value={codeAgentRuntime}
-                      onChange={(e) =>
-                        setCodeAgentRuntime(e.target.value as CodeAgentRuntime)
+                  <CodingAgentForm
+                    ref={codingAgentFormRef}
+                    value={{
+                      codeAgentRuntime,
+                      claudeCodeMode,
+                      selectedProvider,
+                      selectedModel,
+                      agentName: newAgentName,
+                    }}
+                    onChange={(nextValue) => {
+                      setCodeAgentRuntime(nextValue.codeAgentRuntime);
+                      setClaudeCodeMode(nextValue.claudeCodeMode);
+                      setSelectedProvider(nextValue.selectedProvider);
+                      setSelectedModel(nextValue.selectedModel);
+                      if (nextValue.agentName !== newAgentName) {
+                        setUserModifiedName(true);
                       }
-                      disabled={creatingAgent}
-                    >
-                      <MenuItem value="zed_agent">
-                        <Box>
-                          <Typography variant="body2">
-                            Zed Agent (Built-in)
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Uses Zed's native agent panel with direct API
-                            integration
-                          </Typography>
-                        </Box>
-                      </MenuItem>
-                      <MenuItem value="qwen_code">
-                        <Box>
-                          <Typography variant="body2">Qwen Code</Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Uses qwen-code CLI as a custom agent server
-                            (OpenAI-compatible)
-                          </Typography>
-                        </Box>
-                      </MenuItem>
-                    </Select>
-                  </FormControl>
-
-                  <Typography variant="body2" color="text.secondary">
-                    Code Agent Model
-                  </Typography>
-                  <AdvancedModelPicker
+                      setNewAgentName(nextValue.agentName);
+                    }}
+                    disabled={creatingAgent}
+                    hasClaudeSubscription={hasClaudeSubscription}
+                    hasAnthropicProvider={hasAnthropicProvider}
                     recommendedModels={RECOMMENDED_MODELS}
-                    hint="Choose a capable model for agentic coding."
-                    selectedProvider={selectedProvider}
-                    selectedModelId={selectedModel}
-                    onSelectModel={(provider, model) => {
-                      setSelectedProvider(provider);
-                      setSelectedModel(model);
-                    }}
-                    currentType="text"
-                    displayMode="short"
-                    disabled={creatingAgent}
+                    createAgentDescription="Code development agent for spec tasks"
+                    onCreateStateChange={setCreatingAgent}
+                    onAgentCreated={(app) => setSelectedAgentId(app.id)}
+                    showCreateButton={false}
+                    modelPickerHint="Choose a capable model for agentic coding."
+                    modelPickerDisplayMode="short"
                   />
 
-                  <Typography variant="body2" color="text.secondary">
-                    Agent Name
-                  </Typography>
-                  <TextField
-                    value={newAgentName}
-                    onChange={(e) => {
-                      setNewAgentName(e.target.value);
-                      setUserModifiedName(true);
-                    }}
-                    size="small"
-                    fullWidth
-                    disabled={creatingAgent}
-                    helperText="Auto-generated from model and runtime. Edit to customize."
-                  />
-
-                  {agentError && <Alert severity="error">{agentError}</Alert>}
-
-                  <Box sx={{ display: "flex", gap: 1 }}>
+                  <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end" }}>
+                    {sortedApps.length > 0 && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => setShowCreateAgentForm(false)}
+                        disabled={creatingAgent}
+                      >
+                        Cancel
+                      </Button>
+                    )}
                     <Button
-                      variant="contained"
+                      size="small"
+                      variant="outlined"
+                      color="secondary"
                       onClick={handleCreateAgent}
                       disabled={
-                        creatingAgent || !newAgentName.trim() || !selectedModel
+                        creatingAgent ||
+                        !newAgentName.trim() ||
+                        (!(
+                          codeAgentRuntime === "claude_code" &&
+                          claudeCodeMode === "subscription"
+                        ) &&
+                          (!selectedModel || !selectedProvider))
                       }
                       startIcon={
                         creatingAgent ? (
@@ -1067,14 +1038,6 @@ const ProjectSettings: FC = () => {
                     >
                       {creatingAgent ? "Creating..." : "Create Agent"}
                     </Button>
-                    {sortedApps.length > 0 && (
-                      <Button
-                        onClick={() => setShowCreateAgentForm(false)}
-                        disabled={creatingAgent}
-                      >
-                        Cancel
-                      </Button>
-                    )}
                   </Box>
                 </Box>
               )}

@@ -101,6 +101,40 @@ func (s *PostgresStore) GetWalletByOrg(ctx context.Context, orgID string) (*type
 	return &wallet, nil
 }
 
+type ListWalletsQuery struct {
+	OwnerIDs  []string
+	OwnerType types.OwnerType
+}
+
+func (s *PostgresStore) ListWallets(ctx context.Context, q *ListWalletsQuery) ([]*types.Wallet, error) {
+	if q == nil {
+		return nil, fmt.Errorf("query not specified")
+	}
+
+	if len(q.OwnerIDs) == 0 {
+		return nil, fmt.Errorf("owner_ids not specified")
+	}
+
+	query := s.gdb.WithContext(ctx)
+
+	switch q.OwnerType {
+	case types.OwnerTypeUser:
+		query = query.Where("user_id IN ?", q.OwnerIDs)
+	case types.OwnerTypeOrg:
+		query = query.Where("org_id IN ?", q.OwnerIDs)
+	default:
+		return nil, fmt.Errorf("owner_type must be '%s' or '%s'", types.OwnerTypeUser, types.OwnerTypeOrg)
+	}
+
+	var wallets []*types.Wallet
+	err := query.Order("created_at DESC").Find(&wallets).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return wallets, nil
+}
+
 // UpdateWallet updates subscription ID, status (does not update balance, for that use dedicated method)
 func (s *PostgresStore) UpdateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error) {
 	if wallet.ID == "" {

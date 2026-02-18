@@ -535,8 +535,18 @@ func (d *VMDownloader) downloadFileParallel(ctx interface{ EventsEmit(string, ..
 		}
 
 		wg.Wait()
-		outFile.Close()
 		close(stopProgress)
+
+		// Emit "finalizing" status while the OS flushes dirty pages to disk.
+		// Close on an 8 GB file can take 30-60s as the page cache drains.
+		d.emitProgress(ctx, DownloadProgress{
+			File:       f.Name,
+			BytesDone:  f.Size,
+			BytesTotal: f.Size,
+			Percent:    100,
+			Status:     "finalizing",
+		})
+		outFile.Close()
 
 		// Check for chunk errors (don't delete .tmp — resume will pick up where we left off)
 		if errVal := chunkErr.Load(); errVal != nil {

@@ -30,9 +30,6 @@ import {
   Avatar,
   Chip,
   InputAdornment,
-  Radio,
-  RadioGroup,
-  FormControlLabel,
 } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import GitHubIcon from '@mui/icons-material/GitHub'
@@ -48,13 +45,14 @@ import { useListOAuthConnections, useListOAuthProviders, useListOAuthConnectionR
 import useAccount from '../../hooks/useAccount'
 import useSnackbar from '../../hooks/useSnackbar'
 import useApi from '../../hooks/useApi'
-import { AppsContext, ICreateAgentParams, CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
-import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
+import { AppsContext, CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { findOAuthConnectionForProvider, findOAuthProviderForType, hasRequiredScopes, PROVIDER_TYPES } from '../../utils/oauthProviders'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
 import { useListProviders } from '../../services/providersService'
 import { TypesProviderEndpointType } from '../../api/api'
+import CodingAgentForm from '../agent/CodingAgentForm'
+import type { CodingAgentFormHandle } from '../agent/CodingAgentForm'
 
 // Recommended models for zed_external agents (state-of-the-art coding models)
 const RECOMMENDED_MODELS = [
@@ -107,7 +105,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const snackbar = useSnackbar()
   const api = useApi()
   const queryClient = useQueryClient()
-  const { apps, loadApps, createAgent } = useContext(AppsContext)
+  const { apps, loadApps } = useContext(AppsContext)
   const createProjectMutation = useCreateProject()
 
   // Claude subscription + provider state
@@ -202,7 +200,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const [newAgentName, setNewAgentName] = useState('-')
   const [userModifiedName, setUserModifiedName] = useState(false)
   const [creatingAgent, setCreatingAgent] = useState(false)
-  const [agentError, setAgentError] = useState('')
+  const codingAgentFormRef = useRef<CodingAgentFormHandle>(null)
 
   // Auto-generate name when model or runtime changes (if user hasn't modified it)
   useEffect(() => {
@@ -313,7 +311,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       setSelectedModel('')
       setCodeAgentRuntime('zed_agent')
       setClaudeCodeMode('subscription')
-      setAgentError('')
     } else if (preselectedRepoId) {
       // When opening with a preselected repo, switch to select mode
       setRepoMode('select')
@@ -362,55 +359,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
     const interval = setInterval(checkPopupClosed, 500)
     return () => clearInterval(interval)
   }, [queryClient])
-
-  // Handle creating a new agent
-  const handleCreateAgent = async (): Promise<string | null> => {
-    if (!newAgentName.trim()) {
-      setAgentError('Please enter a name for the agent')
-      return null
-    }
-    if (!selectedModel && !(codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription')) {
-      setAgentError('Please select a model')
-      return null
-    }
-
-    setCreatingAgent(true)
-    setAgentError('')
-
-    try {
-      const isClaudeCodeSub = codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription'
-      const params: ICreateAgentParams = {
-        name: newAgentName.trim(),
-        description: 'Code development agent for spec tasks',
-        agentType: AGENT_TYPE_ZED_EXTERNAL,
-        codeAgentRuntime,
-        model: isClaudeCodeSub ? '' : selectedModel,
-        generationModelProvider: isClaudeCodeSub ? '' : selectedProvider,
-        generationModel: isClaudeCodeSub ? '' : selectedModel,
-        reasoningModelProvider: '',
-        reasoningModel: '',
-        reasoningModelEffort: 'none',
-        smallReasoningModelProvider: '',
-        smallReasoningModel: '',
-        smallReasoningModelEffort: 'none',
-        smallGenerationModelProvider: '',
-        smallGenerationModel: '',
-      }
-
-      const newApp = await createAgent(params)
-      if (newApp) {
-        return newApp.id
-      }
-      setAgentError('Failed to create agent')
-      return null
-    } catch (err) {
-      console.error('Failed to create agent:', err)
-      setAgentError(err instanceof Error ? err.message : 'Failed to create agent')
-      return null
-    } finally {
-      setCreatingAgent(false)
-    }
-  }
 
   // Handle inline repo selection from GitHub OAuth list
   const handleSelectGitHubRepo = (repo: TypesRepositoryInfo) => {
@@ -546,14 +494,12 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
 
     // Handle agent creation if needed
     let agentIdToUse = selectedAgentId
-    setAgentError('')
     if (showCreateAgentForm) {
-      const newAgentId = await handleCreateAgent()
-      if (!newAgentId) {
-        // Error already set in handleCreateAgent
+      const createdAgent = await codingAgentFormRef.current?.handleCreateAgent()
+      if (!createdAgent?.id) {
         return
       }
-      agentIdToUse = newAgentId
+      agentIdToUse = createdAgent.id
     }
 
     try {
@@ -1139,123 +1085,37 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
             </>
           ) : (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Typography variant="body2" color="text.secondary">
-                Code Agent Runtime
-              </Typography>
-              <FormControl fullWidth size="small">
-                <Select
-                  value={codeAgentRuntime}
-                  onChange={(e) => setCodeAgentRuntime(e.target.value as CodeAgentRuntime)}
-                  disabled={creatingAgent}
-                >
-                  <MenuItem value="zed_agent">
-                    <Box>
-                      <Typography variant="body2">Zed Agent (Built-in)</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Uses Zed's native agent panel with direct API integration
-                      </Typography>
-                    </Box>
-                  </MenuItem>
-                  <MenuItem value="qwen_code">
-                    <Box>
-                      <Typography variant="body2">Qwen Code</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Uses qwen-code CLI as a custom agent server (OpenAI-compatible)
-                      </Typography>
-                    </Box>
-                  </MenuItem>
-                  <MenuItem value="claude_code">
-                    <Box>
-                      <Typography variant="body2">Claude Code</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Anthropic's coding agent — works with Claude subscriptions
-                      </Typography>
-                    </Box>
-                  </MenuItem>
-                </Select>
-              </FormControl>
-
-              {codeAgentRuntime === 'claude_code' && (
-                <Box sx={{ p: 1.5, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                    Credentials
-                  </Typography>
-                  <FormControl>
-                    <RadioGroup
-                      value={claudeCodeMode}
-                      onChange={(e) => {
-                        const mode = e.target.value as 'subscription' | 'api_key'
-                        setClaudeCodeMode(mode)
-                        if (mode === 'subscription') {
-                          setSelectedProvider('')
-                          setSelectedModel('')
-                        }
-                      }}
-                    >
-                      <FormControlLabel
-                        value="subscription"
-                        control={<Radio size="small" />}
-                        disabled={!hasClaudeSubscription}
-                        label={
-                          <Typography variant="body2">
-                            Claude Subscription{hasClaudeSubscription ? ' (connected)' : ' (not connected)'}
-                          </Typography>
-                        }
-                      />
-                      <FormControlLabel
-                        value="api_key"
-                        control={<Radio size="small" />}
-                        disabled={!hasAnthropicProvider}
-                        label={
-                          <Typography variant="body2">
-                            Anthropic API Key{hasAnthropicProvider ? ' (configured)' : ' (not configured)'}
-                          </Typography>
-                        }
-                      />
-                    </RadioGroup>
-                  </FormControl>
-                  {!hasClaudeSubscription && !hasAnthropicProvider && (
-                    <Alert severity="warning" sx={{ mt: 1 }}>
-                      Connect a Claude subscription or add an Anthropic API key in Providers.
-                    </Alert>
-                  )}
-                </Box>
-              )}
-
-              {(codeAgentRuntime !== 'claude_code' || claudeCodeMode === 'api_key') && (
-                <>
-                  <Typography variant="body2" color="text.secondary">
-                    Code Agent Model
-                  </Typography>
-                  <AdvancedModelPicker
-                    recommendedModels={RECOMMENDED_MODELS}
-                    hint="Choose a capable model for agentic coding."
-                    selectedProvider={selectedProvider}
-                    selectedModelId={selectedModel}
-                    onSelectModel={(provider, model) => {
-                      setSelectedProvider(provider)
-                      setSelectedModel(model)
-                    }}
-                    currentType="text"
-                    displayMode="short"
-                    disabled={creatingAgent}
-                  />
-                </>
-              )}
-
-              <Typography variant="body2" color="text.secondary">
-                Agent Name
-              </Typography>
-              <TextField
-                value={newAgentName}
-                onChange={(e) => {
-                  setNewAgentName(e.target.value)
-                  setUserModifiedName(true)
+              <CodingAgentForm
+                ref={codingAgentFormRef}
+                value={{
+                  codeAgentRuntime,
+                  claudeCodeMode,
+                  selectedProvider,
+                  selectedModel,
+                  agentName: newAgentName,
                 }}
-                size="small"
-                fullWidth
-                disabled={creatingAgent}
-                helperText="Auto-generated from model and runtime. Edit to customize."
+                onChange={(nextValue) => {
+                  setCodeAgentRuntime(nextValue.codeAgentRuntime)
+                  setClaudeCodeMode(nextValue.claudeCodeMode)
+                  setSelectedProvider(nextValue.selectedProvider)
+                  setSelectedModel(nextValue.selectedModel)
+                  if (nextValue.agentName !== newAgentName) {
+                    setUserModifiedName(true)
+                  }
+                  setNewAgentName(nextValue.agentName)
+                }}
+                disabled={creatingAgent || createProjectMutation.isPending || creatingRepo}
+                hasClaudeSubscription={hasClaudeSubscription}
+                hasAnthropicProvider={hasAnthropicProvider}
+                recommendedModels={RECOMMENDED_MODELS}
+                createAgentDescription="Code development agent for spec tasks"
+                onCreateStateChange={setCreatingAgent}
+                onAgentCreated={(app) => {
+                  setSelectedAgentId(app.id)
+                  setShowCreateAgentForm(false)
+                }}
+                modelPickerHint="Choose a capable model for agentic coding."
+                modelPickerDisplayMode="short"
               />
 
               {sortedApps.length > 0 && (
@@ -1269,12 +1129,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                 </Button>
               )}
             </Box>
-          )}
-
-          {agentError && (
-            <Alert severity="error" sx={{ mt: 1 }}>
-              {agentError}
-            </Alert>
           )}
         </Box>
       </DialogContent>

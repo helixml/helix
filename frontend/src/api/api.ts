@@ -1188,6 +1188,8 @@ export interface TypesApiKey {
   created?: string;
   key?: string;
   name?: string;
+  /** Used for isolation and metrics tracking */
+  organization_id?: string;
   owner?: string;
   owner_type?: TypesOwnerType;
   /** Used for isolation and metrics tracking */
@@ -1935,6 +1937,8 @@ export interface TypesCreateTaskRequest {
   branch_mode?: TypesBranchMode;
   /** For new mode: user-specified prefix (task# appended) */
   branch_prefix?: string;
+  /** Optional: IDs of tasks this task depends on */
+  depends_on?: string[];
   /** Optional: Skip spec planning, go straight to implementation */
   just_do_it_mode?: boolean;
   priority?: TypesSpecTaskPriority;
@@ -3084,6 +3088,13 @@ export interface TypesOpenAIUsage {
   completion_tokens?: number;
   prompt_tokens?: number;
   total_tokens?: number;
+}
+
+export interface TypesOrgDetails {
+  members?: TypesUser[];
+  organization?: TypesOrganization;
+  projects?: TypesProject[];
+  wallet?: TypesWallet;
 }
 
 export interface TypesOrganization {
@@ -4315,6 +4326,7 @@ export interface TypesSpecTask {
   created_at?: string;
   /** Metadata */
   created_by?: string;
+  depends_on?: TypesSpecTask[];
   description?: string;
   design_doc_path?: string;
   /** When design docs were pushed to helix-specs branch */
@@ -4562,6 +4574,8 @@ export enum TypesSpecTaskStatus {
 }
 
 export interface TypesSpecTaskUpdateRequest {
+  /** IDs of tasks this task depends on */
+  depends_on?: string[];
   description?: string;
   /** Agent to use for this task */
   helix_app_id?: string;
@@ -4599,6 +4613,7 @@ export interface TypesSpecTaskWithProject {
   created_at?: string;
   /** Metadata */
   created_by?: string;
+  depends_on?: TypesSpecTask[];
   description?: string;
   design_doc_path?: string;
   /** When design docs were pushed to helix-specs branch */
@@ -5210,6 +5225,8 @@ export interface TypesUser {
   must_change_password?: boolean;
   onboarding_completed?: boolean;
   onboarding_completed_at?: string;
+  /** Organization this API key is scoped to (ephemeral keys) */
+  organization_id?: string;
   /** bcrypt hash of the password */
   password_hash?: number[];
   /** When running in Helix Code sandbox */
@@ -5555,6 +5572,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1AdminOrganizationDomainsList: (params: RequestParams = {}) =>
       this.request<ServerOrganizationDomainInfo[], any>({
         path: `/api/v1/admin/organization-domains`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List all organizations
+     *
+     * @tags organizations
+     * @name V1AdminOrgsList
+     * @summary List organizations with wallets (admin only)
+     * @request GET:/api/v1/admin/orgs
+     * @secure
+     */
+    v1AdminOrgsList: (params: RequestParams = {}) =>
+      this.request<TypesOrgDetails[], any>({
+        path: `/api/v1/admin/orgs`,
         method: "GET",
         secure: true,
         ...params,
@@ -10861,6 +10895,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
          * @default false
          */
         include_archived?: boolean;
+        /**
+         * Include depends on tasks
+         * @default false
+         */
+        with_depends_on?: boolean;
         /**
          * Limit number of results
          * @default 50

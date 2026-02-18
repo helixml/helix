@@ -14,6 +14,10 @@ func (c *Controller) HasEnoughBalance(ctx context.Context, user *types.User, org
 		return true, nil
 	}
 
+	if user.Waitlisted {
+		return false, fmt.Errorf("user is waitlisted")
+	}
+
 	if !c.Options.Config.Stripe.BillingEnabled {
 		// Billing not enabled
 		return true, nil

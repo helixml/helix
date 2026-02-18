@@ -136,6 +136,31 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/orgs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all organizations",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List organizations with wallets (admin only)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.OrgDetails"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/users/{id}": {
             "delete": {
                 "security": [
@@ -11539,6 +11564,13 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Include depends on tasks",
+                        "name": "with_depends_on",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "default": 50,
                         "description": "Limit number of results",
@@ -17021,6 +17053,10 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "organization_id": {
+                    "description": "Used for isolation and metrics tracking",
+                    "type": "string"
+                },
                 "owner": {
                     "type": "string"
                 },
@@ -18737,6 +18773,13 @@ const docTemplate = `{
                 "branch_prefix": {
                     "description": "For new mode: user-specified prefix (task# appended)",
                     "type": "string"
+                },
+                "depends_on": {
+                    "description": "Optional: IDs of tasks this task depends on",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "just_do_it_mode": {
                     "description": "Optional: Skip spec planning, go straight to implementation",
@@ -21485,6 +21528,29 @@ const docTemplate = `{
                 },
                 "total_tokens": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.OrgDetails": {
+            "type": "object",
+            "properties": {
+                "members": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.User"
+                    }
+                },
+                "organization": {
+                    "$ref": "#/definitions/types.Organization"
+                },
+                "projects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Project"
+                    }
+                },
+                "wallet": {
+                    "$ref": "#/definitions/types.Wallet"
                 }
             }
         },
@@ -24409,6 +24475,12 @@ const docTemplate = `{
                     "description": "Metadata",
                     "type": "string"
                 },
+                "depends_on": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTask"
+                    }
+                },
                 "description": {
                     "type": "string"
                 },
@@ -24997,6 +25069,13 @@ const docTemplate = `{
         "types.SpecTaskUpdateRequest": {
             "type": "object",
             "properties": {
+                "depends_on": {
+                    "description": "IDs of tasks this task depends on",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "description": {
                     "type": "string"
                 },
@@ -25083,6 +25162,12 @@ const docTemplate = `{
                 "created_by": {
                     "description": "Metadata",
                     "type": "string"
+                },
+                "depends_on": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTask"
+                    }
                 },
                 "description": {
                     "type": "string"
@@ -26495,6 +26580,10 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "onboarding_completed_at": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "Organization this API key is scoped to (ephemeral keys)",
                     "type": "string"
                 },
                 "password_hash": {

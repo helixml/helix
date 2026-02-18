@@ -422,6 +422,7 @@ type Store interface {
 	GetWallet(ctx context.Context, id string) (*types.Wallet, error)
 	GetWalletByUser(ctx context.Context, userID string) (*types.Wallet, error)
 	GetWalletByOrg(ctx context.Context, orgID string) (*types.Wallet, error)
+	ListWallets(ctx context.Context, q *ListWalletsQuery) ([]*types.Wallet, error)
 	GetWalletByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*types.Wallet, error)
 	UpdateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error)
 	DeleteWallet(ctx context.Context, id string) error

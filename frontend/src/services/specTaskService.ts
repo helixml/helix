@@ -19,8 +19,12 @@ export type {
 // Query keys
 const QUERY_KEYS = {
   specTasksBase: ["spec-tasks"] as const,
-  specTasks: (projectId?: string, archivedOnly?: boolean) =>
-    ["spec-tasks", "list", { projectId, archivedOnly }] as const,
+  specTasks: (
+    projectId?: string,
+    archivedOnly?: boolean,
+    withDependsOn?: boolean,
+  ) =>
+    ["spec-tasks", "list", { projectId, archivedOnly, withDependsOn }] as const,
   specTask: (id: string) => ["spec-tasks", id] as const,
   specTaskUsage: (id: string) => ["spec-tasks", id, "usage"] as const,
   taskProgress: (id: string) => ["spec-tasks", id, "progress"] as const,
@@ -50,17 +54,23 @@ const QUERY_KEYS = {
 export function useSpecTasks(options?: {
   projectId?: string;
   archivedOnly?: boolean;
+  withDependsOn?: boolean;
   enabled?: boolean;
   refetchInterval?: number | false;
 }) {
   const api = useApi();
 
   return useQuery({
-    queryKey: QUERY_KEYS.specTasks(options?.projectId, options?.archivedOnly),
+    queryKey: QUERY_KEYS.specTasks(
+      options?.projectId,
+      options?.archivedOnly,
+      options?.withDependsOn,
+    ),
     queryFn: async () => {
       const response = await api.getApiClient().v1SpecTasksList({
         project_id: options?.projectId || "default",
         include_archived: options?.archivedOnly,
+        with_depends_on: options?.withDependsOn,
       });
       return response.data || [];
     },
@@ -226,7 +236,7 @@ export function useUpdateSpecTask() {
       updates,
     }: {
       taskId: string;
-      updates: TypesSpecTaskUpdateRequest;
+      updates: TypesSpecTaskUpdateRequest & { depends_on?: string[] };
     }) => {
       const response = await api
         .getApiClient()

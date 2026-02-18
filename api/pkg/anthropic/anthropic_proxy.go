@@ -27,6 +27,7 @@ import (
 )
 
 type Proxy struct {
+	cfg                   *config.ServerConfig
 	store                 store.Store
 	anthropicReverseProxy *httputil.ReverseProxy
 	logStores             []logger.LogStore
@@ -38,6 +39,7 @@ type Proxy struct {
 func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.ModelInfoProvider, logStores ...logger.LogStore) *Proxy {
 
 	p := &Proxy{
+		cfg:                   cfg,
 		store:                 store,
 		anthropicReverseProxy: httputil.NewSingleHostReverseProxy(nil),
 		logStores:             logStores,
@@ -45,14 +47,12 @@ func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.Mo
 		wg:                    sync.WaitGroup{},
 	}
 
-	// if cfg.Stripe.BillingEnabled {
 	billingLogger, err := logger.NewBillingLogger(store, cfg.Stripe.BillingEnabled)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to initialize billing logger")
 	} else {
 		p.billingLogger = billingLogger
 	}
-	// }
 
 	// Configure TLS skip verify if enabled
 	if cfg.Tools.TLSSkipVerify {
@@ -96,6 +96,16 @@ func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.Mo
 }
 
 func (s *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	endpoint := GetRequestProviderEndpoint(r.Context())
+	if endpoint == nil {
+		log.Error().Msg("provider endpoint not found in context")
+		return
+	}
+
+	if r.Body == nil {
+		return
+	}
+
 	r = setStartTime(r, time.Now())
 
 	s.anthropicReverseProxy.ServeHTTP(w, r)
@@ -105,6 +115,10 @@ func (s *Proxy) anthropicAPIProxyDirector(r *http.Request) {
 	endpoint := GetRequestProviderEndpoint(r.Context())
 	if endpoint == nil {
 		log.Error().Msg("provider endpoint not found in context")
+		return
+	}
+
+	if r.Body == nil {
 		return
 	}
 
@@ -266,6 +280,7 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 	log.Debug().Interface("usage", respMessage.Usage).Msg("anthropic usage information")
 
 	usage := respMessage.Usage
+	modelName := string(respMessage.Model)
 
 	vals, ok := oai.GetContextValues(ctx)
 	if !ok {
@@ -283,7 +298,7 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 	)
 
 	// Get pricing info for the model
-	modelInfo, err := s.getModelInfo(ctx, provider.BaseURL, provider.Name, string(respMessage.Model))
+	modelInfo, err := s.getModelInfo(ctx, provider.BaseURL, provider.Name, modelName)
 	if err == nil {
 		// Calculate the cost for the call and persist it
 		promptCost, completionCost, err = pricing.CalculateTokenPrice(modelInfo, usage.InputTokens, usage.OutputTokens)
@@ -291,7 +306,7 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 			log.Error().
 				Err(err).
 				Str("user_id", vals.OwnerID).
-				Str("model", string(respMessage.Model)).
+				Str("model", modelName).
 				Str("provider", provider.Name).
 				Err(err).Msg("failed to calculate token price")
 		}
@@ -303,7 +318,7 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 		Str("organization_id", orgID).
 		Str("project_id", vals.ProjectID).
 		Str("spec_task_id", vals.SpecTaskID).
-		Str("model", string(respMessage.Model)).
+		Str("model", modelName).
 		Str("provider", provider.Name).
 		Int("prompt_tokens", int(usage.InputTokens)).
 		Int("completion_tokens", int(usage.OutputTokens)).
@@ -320,7 +335,7 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 		OrganizationID:   orgID,
 		ProjectID:        vals.ProjectID,
 		SpecTaskID:       vals.SpecTaskID,
-		Model:            string(respMessage.Model),
+		Model:            modelName,
 		OriginalRequest:  vals.OriginalRequest,
 		Request:          vals.OriginalRequest,
 		Response:         resp,
@@ -359,22 +374,38 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 }
 
 func (s *Proxy) getModelInfo(ctx context.Context, baseURL, provider, modelName string) (*types.ModelInfo, error) {
-	// Models can come as claude-sonnet-4-20250514, we need to strip the date
-	strippedModelName := stripDateFromModelName(modelName)
 
 	modelInfo, err := s.modelInfoProvider.GetModelInfo(ctx, &model.ModelInfoRequest{
 		BaseURL:  baseURL,
 		Provider: provider,
-		Model:    strippedModelName,
+		Model:    modelName,
 	})
 	if err != nil {
 		log.Warn().
 			Err(err).
-			Str("model", strippedModelName).
+			Str("model", modelName).
 			Str("original_model", modelName).
 			Str("provider", provider).
 			Err(err).Msg("failed to get model info")
-		return nil, err
+
+		// Try stripping
+		// Models can come as claude-sonnet-4-20250514, we need to strip the date
+		strippedModelName := stripDateFromModelName(modelName)
+		modelInfo, err = s.modelInfoProvider.GetModelInfo(ctx, &model.ModelInfoRequest{
+			BaseURL:  baseURL,
+			Provider: provider,
+			Model:    strippedModelName,
+		})
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("model", strippedModelName).
+				Str("original_model", modelName).
+				Str("provider", provider).
+				Err(err).Msg("failed to get model info")
+			return nil, err
+		}
+		// OK, we got model info
 	}
 	return modelInfo, nil
 }

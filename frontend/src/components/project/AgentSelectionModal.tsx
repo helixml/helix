@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useContext, useMemo } from 'react'
+import React, { FC, useState, useEffect, useContext, useMemo, useRef } from 'react'
 import {
   Dialog,
   DialogTitle,
@@ -15,16 +15,9 @@ import {
   Avatar,
   CircularProgress,
   Divider,
-  TextField,
   Alert,
-  FormControl,
-  Select,
-  MenuItem,
   IconButton,
   Tooltip,
-  Radio,
-  RadioGroup,
-  FormControlLabel,
 } from '@mui/material'
 import { Bot } from 'lucide-react'
 import AddIcon from '@mui/icons-material/Add'
@@ -33,12 +26,12 @@ import EditIcon from '@mui/icons-material/Edit'
 
 import useAccount from '../../hooks/useAccount'
 
-import { AppsContext, ICreateAgentParams, CodeAgentRuntime, generateAgentName, CODE_AGENT_RUNTIME_DISPLAY_NAMES } from '../../contexts/apps'
-import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
+import { AppsContext, CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
 import { useListProviders } from '../../services/providersService'
 import { TypesProviderEndpointType } from '../../api/api'
+import CodingAgentForm, { CodingAgentFormHandle } from '../agent/CodingAgentForm'
 
 // Recommended models for zed_external agents (state-of-the-art coding models)
 const RECOMMENDED_MODELS = [
@@ -59,7 +52,6 @@ const RECOMMENDED_MODELS = [
   'Qwen/Qwen3-Coder-30B-A3B-Instruct',
   'Qwen/Qwen3-235B-A22B-fp8-tput',
 ]
-
 interface AgentSelectionModalProps {
   open: boolean
   onClose: () => void
@@ -76,11 +68,11 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
   description = 'Choose a default agent for this project. You can override this when creating individual tasks.',
 }) => {
   const account = useAccount()
-  const { apps, loadApps, createAgent } = useContext(AppsContext)
+  const { apps, loadApps } = useContext(AppsContext)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [showCreateForm, setShowCreateForm] = useState(false)
-  const [createError, setCreateError] = useState<string>('')
+  const codingAgentFormRef = useRef<CodingAgentFormHandle>(null)
 
   // Claude subscription + provider state
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
@@ -171,62 +163,17 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
   }
 
   const handleCreateAgent = async () => {
-    if (!newAgentName.trim()) {
-      setCreateError('Please enter a name for the agent')
-      return
-    }
-
-    if (!selectedModel && !(codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription')) {
-      setCreateError('Please select a model')
-      return
-    }
-
-    setIsCreating(true)
-    setCreateError('')
-
-    try {
-      const isClaudeCodeSub = codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription'
-      const params: ICreateAgentParams = {
-        name: newAgentName.trim(),
-        description: 'Code development agent for spec tasks',
-        agentType: AGENT_TYPE_ZED_EXTERNAL,
-        codeAgentRuntime,
-        model: isClaudeCodeSub ? '' : selectedModel,
-        // For zed_external, the generation model is what matters (that's what Zed uses)
-        generationModelProvider: isClaudeCodeSub ? '' : selectedProvider,
-        generationModel: isClaudeCodeSub ? '' : selectedModel,
-        // Set reasonable defaults for other model settings
-        reasoningModelProvider: '',
-        reasoningModel: '',
-        reasoningModelEffort: 'none',
-        smallReasoningModelProvider: '',
-        smallReasoningModel: '',
-        smallReasoningModelEffort: 'none',
-        smallGenerationModelProvider: '',
-        smallGenerationModel: '',
-      }
-
-      const newApp = await createAgent(params)
-
-      if (newApp) {
-        setSelectedAgentId(newApp.id)
-        setShowCreateForm(false)
-        // Proceed with the selection
-        onSelect(newApp.id)
-        onClose()
-      }
-    } catch (err) {
-      console.error('Failed to create agent:', err)
-      setCreateError(err instanceof Error ? err.message : 'Failed to create agent')
-    } finally {
-      setIsCreating(false)
-    }
+    const createdAgent = await codingAgentFormRef.current?.handleCreateAgent()
+    if (!createdAgent?.id) return
+    setSelectedAgentId(createdAgent.id)
+    setShowCreateForm(false)
+    onSelect(createdAgent.id)
+    onClose()
   }
 
   const handleClose = () => {
     setSelectedAgentId(null)
     setShowCreateForm(false)
-    setCreateError('')
     onClose()
   }
 
@@ -322,145 +269,37 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
               Create New Agent
             </Typography>
 
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Code Agent Runtime
-            </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
-              Choose which code agent runtime to use inside Zed.
-            </Typography>
-            <FormControl fullWidth sx={{ mb: 2 }}>
-              <Select
-                value={codeAgentRuntime}
-                onChange={(e) => setCodeAgentRuntime(e.target.value as CodeAgentRuntime)}
-                disabled={isCreating}
-                size="small"
-              >
-                <MenuItem value="zed_agent">
-                  <Box>
-                    <Typography variant="body2">Zed Agent (Built-in)</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Uses Zed's native agent panel with direct API integration
-                    </Typography>
-                  </Box>
-                </MenuItem>
-                <MenuItem value="qwen_code">
-                  <Box>
-                    <Typography variant="body2">Qwen Code</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Uses qwen-code CLI as a custom agent server (OpenAI-compatible)
-                    </Typography>
-                  </Box>
-                </MenuItem>
-                <MenuItem value="claude_code">
-                  <Box>
-                    <Typography variant="body2">Claude Code</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Anthropic's coding agent — works with Claude subscriptions
-                    </Typography>
-                  </Box>
-                </MenuItem>
-              </Select>
-            </FormControl>
-
-            {codeAgentRuntime === 'claude_code' && (
-              <Box sx={{ p: 1.5, mb: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                  Credentials
-                </Typography>
-                <FormControl>
-                  <RadioGroup
-                    value={claudeCodeMode}
-                    onChange={(e) => {
-                      const mode = e.target.value as 'subscription' | 'api_key'
-                      setClaudeCodeMode(mode)
-                      if (mode === 'subscription') {
-                        setSelectedProvider('')
-                        setSelectedModel('')
-                      }
-                    }}
-                  >
-                    <FormControlLabel
-                      value="subscription"
-                      control={<Radio size="small" />}
-                      disabled={!hasClaudeSubscription}
-                      label={
-                        <Typography variant="body2">
-                          Claude Subscription{hasClaudeSubscription ? ' (connected)' : ' (not connected)'}
-                        </Typography>
-                      }
-                    />
-                    <FormControlLabel
-                      value="api_key"
-                      control={<Radio size="small" />}
-                      disabled={!hasAnthropicProvider}
-                      label={
-                        <Typography variant="body2">
-                          Anthropic API Key{hasAnthropicProvider ? ' (configured)' : ' (not configured)'}
-                        </Typography>
-                      }
-                    />
-                  </RadioGroup>
-                </FormControl>
-                {!hasClaudeSubscription && !hasAnthropicProvider && (
-                  <Alert severity="warning" sx={{ mt: 1 }}>
-                    Connect a Claude subscription or add an Anthropic API key in Providers.
-                  </Alert>
-                )}
-              </Box>
-            )}
-
-            {(codeAgentRuntime !== 'claude_code' || claudeCodeMode === 'api_key') && (
-              <>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  Code Agent Model
-                </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
-                  Choose a model for code generation.
-                </Typography>
-
-                <Box sx={{ mb: 2 }}>
-                  <AdvancedModelPicker
-                    recommendedModels={RECOMMENDED_MODELS}
-                    hint="Choose a capable model for agentic coding. Recommended models appear at the top of the list."
-                    selectedProvider={selectedProvider}
-                    selectedModelId={selectedModel}
-                    onSelectModel={(provider, model) => {
-                      setSelectedProvider(provider)
-                      setSelectedModel(model)
-                    }}
-                    currentType="text"
-                    displayMode="short"
-                    disabled={isCreating}
-                  />
-                </Box>
-              </>
-            )}
-
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Agent Name
-            </Typography>
-            <TextField
-              value={newAgentName}
-              onChange={(e) => {
-                setNewAgentName(e.target.value)
-                setUserModifiedName(true)
+            <CodingAgentForm
+              ref={codingAgentFormRef}
+              value={{
+                codeAgentRuntime,
+                claudeCodeMode,
+                selectedProvider,
+                selectedModel,
+                agentName: newAgentName,
               }}
-              fullWidth
-              size="small"
-              sx={{ mb: 2 }}
+              onChange={(nextValue) => {
+                setCodeAgentRuntime(nextValue.codeAgentRuntime)
+                setClaudeCodeMode(nextValue.claudeCodeMode)
+                setSelectedProvider(nextValue.selectedProvider)
+                setSelectedModel(nextValue.selectedModel)
+                if (nextValue.agentName !== newAgentName) {
+                  setUserModifiedName(true)
+                }
+                setNewAgentName(nextValue.agentName)
+              }}
               disabled={isCreating}
-              helperText="Auto-generated from model and runtime. Edit to customize."
+              hasClaudeSubscription={hasClaudeSubscription}
+              hasAnthropicProvider={hasAnthropicProvider}
+              recommendedModels={RECOMMENDED_MODELS}
+              createAgentDescription="Code development agent for spec tasks"
+              onCreateStateChange={setIsCreating}
+              showCreateButton={false}
+              modelPickerHint="Choose a capable model for agentic coding. Recommended models appear at the top of the list."
+              modelPickerDisplayMode="short"
+              showMcpHint
+              sx={{ mb: 2 }}
             />
-
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-              You can configure MCP servers in the agent settings after creation.
-            </Typography>
-
-            {createError && (
-              <Alert severity="error" sx={{ mb: 2 }}>
-                {createError}
-              </Alert>
-            )}
 
             {sortedApps.length > 0 && (
               <Button
@@ -483,7 +322,15 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
           <Button
             onClick={handleCreateAgent}
             variant="contained"
-            disabled={isCreating || !newAgentName.trim() || (!selectedModel && !(codeAgentRuntime === 'claude_code' && claudeCodeMode === 'subscription'))}
+            disabled={
+              isCreating ||
+              !newAgentName.trim() ||
+              (!(
+                codeAgentRuntime === 'claude_code' &&
+                claudeCodeMode === 'subscription'
+              ) &&
+                (!selectedModel || !selectedProvider))
+            }
             startIcon={isCreating ? <CircularProgress size={16} /> : undefined}
           >
             {isCreating ? 'Creating...' : 'Create & Continue'}

@@ -264,8 +264,6 @@ runcmd:
   # Enable helix-storage-init service (runs before Docker on every boot)
   - systemctl daemon-reload
   - systemctl enable helix-storage-init.service
-  # Disable cloud-init for subsequent boots (root swap shouldn't re-provision)
-  - touch /etc/cloud/cloud-init.disabled
   # Limit Virtual-1 (VM console) to 1080p so the text console isn't painfully slow at 5K.
   - sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="[^"]*"/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash console=tty0 video=Virtual-1:1920x1080"/' /etc/default/grub
   - update-grub
@@ -521,6 +519,7 @@ Wants=systemd-udev-settle.service
 
 [Service]
 Type=simple
+EnvironmentFile=-/etc/helix-drm-manager.env
 ExecStart=/usr/local/bin/helix-drm-manager
 Restart=on-failure
 RestartSec=5
@@ -555,16 +554,17 @@ if ! step_done "run_install_sh"; then
     # Verify docker-compose.yaml was downloaded; if not, download it directly.
     COMPOSE_SIZE=$(run_ssh "wc -c < /opt/HelixML/docker-compose.yaml 2>/dev/null || echo 0")
     if [ "${COMPOSE_SIZE:-0}" -lt 100 ]; then
-        log "docker-compose.yaml is missing or empty — downloading directly..."
-        # Try raw GitHub URL first (works for tags without GitHub releases), then releases URL
-        run_ssh "curl -sL 'https://raw.githubusercontent.com/helixml/helix/${HELIX_VERSION}/docker-compose.yaml' -o /opt/HelixML/docker-compose.yaml" || \
-        run_ssh "curl -sL 'https://get.helixml.tech/helixml/helix/releases/download/${HELIX_VERSION}/docker-compose.yaml' -o /opt/HelixML/docker-compose.yaml"
+        log "docker-compose.yaml is missing or empty — copying from local repo checkout..."
+        scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -P "$SSH_PORT" "$REPO_ROOT/docker-compose.yaml" "${VM_USER}@localhost:/opt/HelixML/docker-compose.yaml"
+        # Replace ${HELIX_VERSION:-latest} with the actual version (same as release-backend does)
+        run_ssh "cd /opt/HelixML && sed -i 's/\${HELIX_VERSION:-latest}/${HELIX_VERSION}/g' docker-compose.yaml"
         COMPOSE_SIZE=$(run_ssh "wc -c < /opt/HelixML/docker-compose.yaml 2>/dev/null || echo 0")
         if [ "${COMPOSE_SIZE:-0}" -lt 100 ]; then
-            log "ERROR: Failed to download docker-compose.yaml"
+            log "ERROR: Failed to copy docker-compose.yaml from local repo"
             exit 1
         fi
-        log "docker-compose.yaml downloaded (${COMPOSE_SIZE} bytes)"
+        log "docker-compose.yaml copied from local repo (${COMPOSE_SIZE} bytes)"
     fi
 
     mark_step "run_install_sh"

@@ -54,6 +54,7 @@ import {
   Stop as StopIcon,
   RocketLaunch as LaunchIcon,
   InfoOutlined as InfoIcon,
+  PlayArrowRounded as AutoPlayIcon,
 } from "@mui/icons-material";
 // Removed drag-and-drop imports to prevent infinite loops
 import { useTheme } from "@mui/material/styles";
@@ -75,6 +76,8 @@ import {
   ServerTaskProgressResponse,
   TypesAggregatedUsageMetric,
 } from "../../api/api";
+import { useGetProject, useUpdateProject } from "../../services/projectService";
+import useSnackbar from "../../hooks/useSnackbar";
 import BacklogTableView from "./BacklogTableView";
 import { useCreateSampleRepository } from "../../services/gitRepositoryService";
 import { useSampleTypes } from "../../hooks/useSampleTypes";
@@ -185,6 +188,14 @@ interface SpecTaskWithExtras extends SpecTask {
   completedSessionsCount?: number;
   specApprovalNeeded?: boolean;
   onReviewDocs?: (task: SpecTaskWithExtras) => void;
+  depends_on?: TaskDependency[];
+}
+
+interface TaskDependency {
+  id?: string;
+  task_number?: number;
+  status?: string;
+  archived?: boolean;
 }
 
 interface KanbanColumn {
@@ -238,6 +249,11 @@ const DroppableColumn: React.FC<{
   batchProgressData?: Record<string, ServerTaskProgressResponse>;
   /** Batch usage data keyed by task ID - avoids per-card polling */
   batchUsageData?: Record<string, TypesAggregatedUsageMetric[]>;
+  autoStartBacklogTasks?: boolean;
+  onToggleAutoStart?: () => void;
+  highlightedTaskIds?: string[] | null;
+  onDependencyHoverStart?: (taskIds: string[]) => void;
+  onDependencyHoverEnd?: () => void;
 }> = ({
   column,
   columns,
@@ -254,6 +270,11 @@ const DroppableColumn: React.FC<{
   onHeaderClick,
   batchProgressData,
   batchUsageData,
+  autoStartBacklogTasks,
+  onToggleAutoStart,
+  highlightedTaskIds,
+  onDependencyHoverStart,
+  onDependencyHoverEnd,
 }): JSX.Element => {
   // Simplified - no drag and drop, no complex interactions
   const setNodeRef = (node: HTMLElement | null) => {};
@@ -277,6 +298,9 @@ const DroppableColumn: React.FC<{
         showMetrics={showMetrics}
         progressData={batchProgressData?.[task.id]}
         usageData={batchUsageData?.[task.id]}
+        highlightedTaskIds={highlightedTaskIds}
+        onDependencyHoverStart={onDependencyHoverStart}
+        onDependencyHoverEnd={onDependencyHoverEnd}
       />
     );
   };
@@ -404,6 +428,86 @@ const DroppableColumn: React.FC<{
                 </Box>
               )}
             </Box>
+            {column.id === "backlog" && onToggleAutoStart && (
+              <Tooltip
+                title={
+                  autoStartBacklogTasks
+                    ? "Auto-start is ON — automatically picking up the next available task"
+                    : "Auto-start is OFF — click to automatically pick up backlog tasks"
+                }
+                arrow
+              >
+                <Box
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleAutoStart();
+                  }}
+                  sx={{
+                    position: "relative",
+                    width: 24,
+                    height: 24,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    borderRadius: "50%",
+                    transition: "background-color 0.2s ease",
+                    "&:hover": {
+                      backgroundColor: "rgba(16, 185, 129, 0.1)",
+                    },
+                  }}
+                >
+                  <AutoPlayIcon
+                    sx={{
+                      fontSize: 16,
+                      color: autoStartBacklogTasks ? "#34d399" : "#10b981",
+                      position: "relative",
+                      zIndex: 1,
+                    }}
+                  />
+                  {autoStartBacklogTasks && (
+                    <>
+                      {/* Fading trail ring */}
+                      <Box
+                        sx={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          width: 24,
+                          height: 24,
+                          borderRadius: "50%",
+                          background:
+                            "conic-gradient(from 0deg, transparent 0%, transparent 60%, rgba(16, 185, 129, 0.03) 68%, rgba(16, 185, 129, 0.1) 78%, rgba(16, 185, 129, 0.3) 88%, #10b981 97%, transparent 98%)",
+                          mask: "radial-gradient(transparent 8px, black 9px, black 11px, transparent 12px)",
+                          WebkitMask:
+                            "radial-gradient(transparent 8px, black 9px, black 11px, transparent 12px)",
+                          animation: "autostart-orbit 2s linear infinite",
+                          "@keyframes autostart-orbit": {
+                            "0%": { transform: "rotate(0deg)" },
+                            "100%": { transform: "rotate(360deg)" },
+                          },
+                        }}
+                      />
+                      {/* Leading dot */}
+                      <Box
+                        sx={{
+                          position: "absolute",
+                          width: 4,
+                          height: 4,
+                          borderRadius: "50%",
+                          backgroundColor: "#10b981",
+                          boxShadow: "0 0 4px 1px rgba(16, 185, 129, 0.6)",
+                          top: 0,
+                          left: 10,
+                          animation: "autostart-orbit 2s linear infinite",
+                          transformOrigin: "2px 12px",
+                        }}
+                      />
+                    </>
+                  )}
+                </Box>
+              </Tooltip>
+            )}
           </Box>
         </Box>
 
@@ -474,6 +578,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const theme = useTheme();
   const api = useApi();
   const account = useAccount();
+  const snackbar = useSnackbar();
 
   // Track initial load to avoid showing loading spinner on refreshes
   const hasLoadedOnceRef = React.useRef(false);
@@ -489,10 +594,36 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const [taskToArchive, setTaskToArchive] = useState<SpecTaskWithExtras | null>(
     null,
   );
+  const [highlightedDependencyTaskIds, setHighlightedDependencyTaskIds] =
+    useState<string[] | null>(null);
   const [archivingTaskId, setArchivingTaskId] = useState<string | null>(null);
 
   // Backlog table view state
   const [backlogExpanded, setBacklogExpanded] = useState(false);
+
+  // Auto-start backlog tasks
+  const { data: project } = useGetProject(projectId || "", !!projectId);
+  const updateProjectMutation = useUpdateProject(projectId || "");
+  const autoStartBacklogTasks = project?.auto_start_backlog_tasks || false;
+  const handleToggleAutoStart = useCallback(() => {
+    const newValue = !autoStartBacklogTasks;
+    updateProjectMutation.mutate(
+      { auto_start_backlog_tasks: newValue },
+      {
+        onSuccess: () => {
+          snackbar.success(
+            newValue
+              ? "Auto-start enabled — backlog tasks will be picked up automatically"
+              : "Auto-start disabled",
+          );
+        },
+        onError: () => {
+          snackbar.error("Failed to update auto-start setting");
+        },
+      },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStartBacklogTasks]);
 
   // Use props for showArchived and showMetrics (controlled from parent)
   const showArchived = showArchivedProp;
@@ -681,6 +812,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   } = useSpecTasks({
     projectId: projectId || "default",
     archivedOnly: showArchived,
+    withDependsOn: true,
     enabled: !!account.user?.id,
     refetchInterval: 3100, // 3.1s - prime to avoid sync with other polling
   });
@@ -829,6 +961,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         params: {
           project_id: projectId || "default",
           archived_only: showArchived,
+          with_depends_on: true,
         },
       });
 
@@ -916,6 +1049,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       const pollForSessionId = async (retryCount = 0, maxRetries = 6) => {
         const response = await api.getApiClient().v1SpecTasksList({
           project_id: projectId || "default",
+          with_depends_on: true,
         });
 
         const tasksData = response.data || response;
@@ -1173,6 +1307,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           <BacklogTableView
             tasks={columns.find((c) => c.id === "backlog")?.tasks || []}
             onClose={() => setBacklogExpanded(false)}
+            autoStartBacklogTasks={autoStartBacklogTasks}
+            onToggleAutoStart={handleToggleAutoStart}
           />
         ) : (
           columns.map((column) => (
@@ -1189,6 +1325,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
               archivingTaskId={archivingTaskId}
               hasExternalRepo={hasExternalRepo}
               showMetrics={showMetrics}
+              highlightedTaskIds={highlightedDependencyTaskIds}
+              onDependencyHoverStart={setHighlightedDependencyTaskIds}
+              onDependencyHoverEnd={() => setHighlightedDependencyTaskIds(null)}
               theme={theme}
               onHeaderClick={
                 column.id === "backlog"
@@ -1197,6 +1336,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
               }
               batchProgressData={batchProgressData}
               batchUsageData={batchUsageData}
+              autoStartBacklogTasks={autoStartBacklogTasks}
+              onToggleAutoStart={handleToggleAutoStart}
             />
           ))
         )}

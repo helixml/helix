@@ -170,8 +170,8 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		Status:         types.TaskStatusBacklog,
 		OriginalPrompt: req.Prompt,
 		CreatedBy:      req.UserID,
-		HelixAppID:     helixAppID,        // Helix agent used for entire workflow
-		JustDoItMode:   req.JustDoItMode,  // Set Just Do It mode from request
+		HelixAppID:     helixAppID,       // Helix agent used for entire workflow
+		JustDoItMode:   req.JustDoItMode, // Set Just Do It mode from request
 		// Branch configuration
 		BranchMode:   branchMode,
 		BaseBranch:   req.BaseBranch,    // User-specified base branch (empty = use repo default)
@@ -180,6 +180,15 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		// Repositories inherited from parent project - no task-level repo configuration
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
+	}
+	if req.DependsOn != nil {
+		task.DependsOn = make([]types.SpecTask, 0, len(req.DependsOn))
+		for _, dependsOnID := range req.DependsOn {
+			if dependsOnID == "" {
+				continue
+			}
+			task.DependsOn = append(task.DependsOn, types.SpecTask{ID: dependsOnID})
+		}
 	}
 
 	// Assign task number immediately at creation time so it's always visible in UI
@@ -356,13 +365,6 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		OwnerType:      types.OwnerTypeUser,
 	}
 
-	// // Create the session in the database
-	// if s.controller == nil || s.controller.Options.Store == nil {
-	// 	log.Error().Str("task_id", task.ID).Msg("Controller or store not available for spec generation")
-	// 	s.markTaskFailed(ctx, task, "Controller or store not available for spec generation")
-	// 	return
-	// }
-
 	session, err = s.store.CreateSession(ctx, *session)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create spec generation session")
@@ -468,8 +470,9 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	// Get session-scoped ephemeral API key for this dev container
 	// Key is minted now and will be revoked when the desktop shuts down
 	userAPIKey, err := s.GetOrCreateSessionAPIKey(ctx, &SessionAPIKeyRequest{
-		UserID:    task.CreatedBy,
-		SessionID: session.ID,
+		OrganizationID: orgID,
+		UserID:         task.CreatedBy,
+		SessionID:      session.ID,
 	})
 	if err != nil {
 		log.Error().Err(err).Str("user_id", task.CreatedBy).Str("session_id", session.ID).Msg("Failed to get session API key for SpecTask")
@@ -537,10 +540,10 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SessionID:           session.ID,
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment for spec generation",
-		ProjectPath:         "workspace",        // Use relative path
-		SpecTaskID:          task.ID,            // For task-scoped workspace
-		PrimaryRepositoryID: primaryRepoID,      // Primary repo to open in Zed
-		RepositoryIDs:       repositoryIDs,      // ALL project repos to checkout
+		ProjectPath:         "workspace",   // Use relative path
+		SpecTaskID:          task.ID,       // For task-scoped workspace
+		PrimaryRepositoryID: primaryRepoID, // Primary repo to open in Zed
+		RepositoryIDs:       repositoryIDs, // ALL project repos to checkout
 		DisplayWidth:        displayWidth,
 		DisplayHeight:       displayHeight,
 		DisplayRefreshRate:  displayRefreshRate,
@@ -857,8 +860,9 @@ Follow these guidelines when making changes:
 	// Get session-scoped ephemeral API key for this dev container
 	// Key is minted now and will be revoked when the desktop shuts down
 	userAPIKey, err := s.GetOrCreateSessionAPIKey(ctx, &SessionAPIKeyRequest{
-		UserID:    task.CreatedBy,
-		SessionID: session.ID,
+		OrganizationID: orgID,
+		UserID:         task.CreatedBy,
+		SessionID:      session.ID,
 	})
 	if err != nil {
 		log.Error().Err(err).Str("user_id", task.CreatedBy).Str("session_id", session.ID).Msg("Failed to get session API key for Just Do It task")
@@ -918,10 +922,10 @@ Follow these guidelines when making changes:
 		SessionID:           session.ID,
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment",
-		ProjectPath:         "workspace",        // Use relative path
-		SpecTaskID:          task.ID,            // For task-scoped workspace
-		PrimaryRepositoryID: primaryRepoID,      // Primary repo to open in Zed
-		RepositoryIDs:       repositoryIDs,      // ALL project repos to checkout
+		ProjectPath:         "workspace",   // Use relative path
+		SpecTaskID:          task.ID,       // For task-scoped workspace
+		PrimaryRepositoryID: primaryRepoID, // Primary repo to open in Zed
+		RepositoryIDs:       repositoryIDs, // ALL project repos to checkout
 		DisplayWidth:        displayWidthJDI,
 		DisplayHeight:       displayHeightJDI,
 		DisplayRefreshRate:  displayRefreshRateJDI,
@@ -1368,8 +1372,9 @@ func (s *SpecDrivenTaskService) detectAndLinkExistingPR(ctx context.Context, tas
 // Keys are minted when a desktop starts and revoked when it shuts down.
 // The SessionID is used for key lifecycle management (creation/revocation).
 type SessionAPIKeyRequest struct {
-	UserID    string
-	SessionID string
+	OrganizationID string
+	UserID         string
+	SessionID      string
 }
 
 // GetOrCreateSessionAPIKey gets or creates an ephemeral API key for a session.
@@ -1384,9 +1389,10 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 
 	// Check for existing session-scoped key
 	existing, err := s.store.GetAPIKey(ctx, &types.ApiKey{
-		Owner:     req.UserID,
-		OwnerType: types.OwnerTypeUser,
-		SessionID: req.SessionID,
+		OrganizationID: req.OrganizationID,
+		Owner:          req.UserID,
+		OwnerType:      types.OwnerTypeUser,
+		SessionID:      req.SessionID,
 	})
 	if err != nil && err != store.ErrNotFound {
 		return "", fmt.Errorf("failed to get existing API key: %w", err)
@@ -1426,14 +1432,15 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 	}
 
 	apiKey := &types.ApiKey{
-		Owner:      req.UserID,
-		OwnerType:  types.OwnerTypeUser,
-		Key:        newKey,
-		Name:       keyName,
-		Type:       types.APIkeytypeAPI,
-		SessionID:  req.SessionID,
-		ProjectID:  projectID,  // For metrics/attribution
-		SpecTaskID: specTaskID, // For metrics/attribution
+		OrganizationID: req.OrganizationID,
+		Owner:          req.UserID,
+		OwnerType:      types.OwnerTypeUser,
+		Key:            newKey,
+		Name:           keyName,
+		Type:           types.APIkeytypeAPI,
+		SessionID:      req.SessionID,
+		ProjectID:      projectID,  // For metrics/attribution
+		SpecTaskID:     specTaskID, // For metrics/attribution
 	}
 
 	createdKey, err := s.store.CreateAPIKey(ctx, apiKey)
@@ -1559,8 +1566,9 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 	// Get or create session-scoped ephemeral API key for this dev container
 	// For resumed sessions, reuse any existing key or mint a new one
 	userAPIKey, err := s.GetOrCreateSessionAPIKey(ctx, &SessionAPIKeyRequest{
-		UserID:    task.CreatedBy,
-		SessionID: session.ID,
+		OrganizationID: task.OrganizationID,
+		UserID:         task.CreatedBy,
+		SessionID:      session.ID,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to get session API key for resume: %w", err)

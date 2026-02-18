@@ -1,9 +1,9 @@
-# Production docker-compose.yaml for HelixML :latest
+# Production docker-compose.yaml for HelixML
 # See https://docs.helixml.tech/helix/private-deployment/controlplane/
 
 services:
   api:
-    image: registry.helixml.tech/helix/controlplane:latest
+    image: registry.helixml.tech/helix/controlplane:${HELIX_VERSION:-latest}
     # If you want to run the API on a different port, set the
     # API_PORT environment variable and also updated env variables
     # connect to Helix
@@ -116,7 +116,7 @@ services:
       - UWSGI_WORKERS=4
       - UWSGI_THREADS=4
   typesense:
-    image: registry.helixml.tech/helix/typesense:latest
+    image: registry.helixml.tech/helix/typesense:${HELIX_VERSION:-latest}
     restart: always
     command: ["--data-dir", "/data", "--api-key", "typesense"]
     # ports:
@@ -132,7 +132,7 @@ services:
     #   - 7317:7317
   haystack:
     profiles: [haystack]
-    image: registry.helixml.tech/helix/haystack:latest
+    image: registry.helixml.tech/helix/haystack:${HELIX_VERSION:-latest}
     restart: always
     environment:
       - PGVECTOR_DSN=postgresql://postgres:${PGVECTOR_PASSWORD-pgvector}@pgvector:5432/postgres

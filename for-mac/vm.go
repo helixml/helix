@@ -153,6 +153,9 @@ type VMManager struct {
 	// Set by startHelixStack(): "docker-compose.dev.yaml" (dev/build-from-source)
 	// or "docker-compose.yaml" (prod/install.sh with pre-built images).
 	composeFile string
+	// SSH keypair paths for cloud-init key injection (generated per-installation)
+	sshPrivKeyPath string
+	sshPubKeyPath  string
 }
 
 // getSpiceSocketPath returns the path for the SPICE Unix socket
@@ -161,12 +164,15 @@ func (vm *VMManager) getSpiceSocketPath() string {
 }
 
 // bindAddr returns the address to bind forwarded ports to.
-// Returns "0.0.0.0" if network exposure is enabled, empty string (localhost) otherwise.
+// Returns empty string (QEMU defaults to 0.0.0.0) if network exposure is enabled,
+// "127.0.0.1" to restrict to localhost otherwise.
+// Note: QEMU's SLIRP defaults to INADDR_ANY when the host address is empty,
+// so we must explicitly pass 127.0.0.1 to restrict access.
 func (vm *VMManager) bindAddr() string {
 	if vm.config.ExposeOnNetwork {
-		return "0.0.0.0"
+		return ""
 	}
-	return ""
+	return "127.0.0.1"
 }
 
 // adminUserIDs returns the ADMIN_USER_IDS env var value.
@@ -262,6 +268,107 @@ func (vm *VMManager) getVMImagePath() string {
 // getZFSDiskPath returns the path to the ZFS data disk
 func (vm *VMManager) getZFSDiskPath() string {
 	return filepath.Join(vm.getVMDir(), "zfs-data.qcow2")
+}
+
+// ensureSSHKeypair generates an ed25519 SSH keypair at
+// ~/Library/Application Support/Helix/ssh/helix_ed25519 if it doesn't exist.
+// Returns the private and public key paths.
+func (vm *VMManager) ensureSSHKeypair() (string, string, error) {
+	sshDir := filepath.Join(getHelixDataDir(), "ssh")
+	privKey := filepath.Join(sshDir, "helix_ed25519")
+	pubKey := privKey + ".pub"
+
+	if _, err := os.Stat(privKey); err == nil {
+		return privKey, pubKey, nil
+	}
+
+	if err := os.MkdirAll(sshDir, 0700); err != nil {
+		return "", "", fmt.Errorf("failed to create SSH directory: %w", err)
+	}
+
+	log.Printf("Generating SSH keypair at %s", privKey)
+	cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-f", privKey, "-N", "", "-C", "helix-desktop")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", "", fmt.Errorf("ssh-keygen failed: %w", err)
+	}
+
+	return privKey, pubKey, nil
+}
+
+// ensureCloudInitSeed creates a cloud-init NoCloud seed ISO at <vmDir>/seed.iso
+// containing the SSH public key. Uses hdiutil (macOS native) to create a hybrid
+// ISO with the CIDATA volume label. Recreates the ISO if the public key changes.
+func (vm *VMManager) ensureCloudInitSeed(vmDir, pubKeyPath string) error {
+	seedISO := filepath.Join(vmDir, "seed.iso")
+
+	pubKeyData, err := os.ReadFile(pubKeyPath)
+	if err != nil {
+		return fmt.Errorf("failed to read public key: %w", err)
+	}
+	pubKeyStr := strings.TrimSpace(string(pubKeyData))
+
+	// Check if seed ISO already exists with the correct key
+	markerFile := filepath.Join(vmDir, ".seed-pubkey")
+	if _, err := os.Stat(seedISO); err == nil {
+		if existing, err := os.ReadFile(markerFile); err == nil {
+			if strings.TrimSpace(string(existing)) == pubKeyStr {
+				return nil // ISO already up to date
+			}
+		}
+	}
+
+	log.Printf("Creating cloud-init seed ISO at %s", seedISO)
+
+	// Create temporary staging directory
+	stagingDir, err := os.MkdirTemp("", "helix-cloudinit-")
+	if err != nil {
+		return fmt.Errorf("failed to create staging dir: %w", err)
+	}
+	defer os.RemoveAll(stagingDir)
+
+	// Write user-data — inject our key and remove any keys baked in during
+	// image provisioning (e.g. the build machine's personal key).
+	// ssh_authorized_keys appends, so we use runcmd to overwrite the file
+	// with only the helix-desktop key.
+	userData := fmt.Sprintf(`#cloud-config
+ssh_authorized_keys:
+  - %s
+runcmd:
+  - |
+    echo '%s' > /home/ubuntu/.ssh/authorized_keys
+    chmod 600 /home/ubuntu/.ssh/authorized_keys
+    chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys
+`, pubKeyStr, pubKeyStr)
+	if err := os.WriteFile(filepath.Join(stagingDir, "user-data"), []byte(userData), 0644); err != nil {
+		return fmt.Errorf("failed to write user-data: %w", err)
+	}
+
+	// Write meta-data with a unique instance-id so cloud-init runs on each new key
+	metaData := fmt.Sprintf("instance-id: helix-%d\nlocal-hostname: helix-vm\n", time.Now().UnixNano())
+	if err := os.WriteFile(filepath.Join(stagingDir, "meta-data"), []byte(metaData), 0644); err != nil {
+		return fmt.Errorf("failed to write meta-data: %w", err)
+	}
+
+	// Create ISO using hdiutil (macOS native, no external dependencies)
+	os.Remove(seedISO) // remove old ISO if it exists
+	cmd := exec.Command("hdiutil", "makehybrid",
+		"-iso", "-joliet",
+		"-default-volume-name", "cidata",
+		"-o", seedISO,
+		stagingDir)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("hdiutil makehybrid failed: %w", err)
+	}
+
+	// Save marker so we know which key the ISO contains
+	os.WriteFile(markerFile, []byte(pubKeyStr), 0644)
+
+	log.Printf("Cloud-init seed ISO created")
+	return nil
 }
 
 // ensureVMExtracted checks if VM disk images exist in the writable location.
@@ -547,6 +654,20 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	imagePath := vm.getVMImagePath()
 	zfsDiskPath := vm.getZFSDiskPath()
 
+	// Generate SSH keypair (per-installation) and cloud-init seed ISO
+	privKey, pubKey, err := vm.ensureSSHKeypair()
+	if err != nil {
+		vm.setError(fmt.Errorf("failed to generate SSH keypair: %w", err))
+		return
+	}
+	vm.sshPrivKeyPath = privKey
+	vm.sshPubKeyPath = pubKey
+
+	if err := vm.ensureCloudInitSeed(vmDir, pubKey); err != nil {
+		vm.setError(fmt.Errorf("failed to create cloud-init seed: %w", err))
+		return
+	}
+
 	// Find EFI firmware (bundled in app or Homebrew)
 	efiCode := vm.findFirmware("edk2-aarch64-code.fd")
 	if efiCode == "" {
@@ -611,6 +732,15 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		)
 	}
 
+	// Attach cloud-init seed ISO for SSH key injection (NoCloud datasource)
+	seedISO := filepath.Join(vmDir, "seed.iso")
+	if _, err := os.Stat(seedISO); err == nil {
+		args = append(args,
+			"-drive", fmt.Sprintf("file=%s,format=raw,if=virtio,readonly=on", seedISO),
+			"-smbios", "type=1,serial=ds=nocloud",
+		)
+	}
+
 	args = append(args,
 		// Network with port forwarding for SSH, API, and video stream
 		"-device", "virtio-net-pci,netdev=net0,romfile=",
@@ -663,7 +793,13 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		vm.setError(fmt.Errorf("failed to create stdout pipe: %w", err))
 		return
 	}
-	vm.cmd.Stderr = os.Stderr // QEMU errors still go to app stderr
+	// Capture QEMU stderr into the logs buffer so errors are visible in the UI.
+	// Also tee to os.Stderr so they appear in the app's terminal output.
+	stderrPipe, err := vm.cmd.StderrPipe()
+	if err != nil {
+		vm.setError(fmt.Errorf("failed to create stderr pipe: %w", err))
+		return
+	}
 	stdinPipe, err := vm.cmd.StdinPipe()
 	if err != nil {
 		vm.setError(fmt.Errorf("failed to create stdin pipe: %w", err))
@@ -717,6 +853,18 @@ func (vm *VMManager) runVM(ctx context.Context) {
 				}
 				return
 			}
+		}
+	}()
+
+	// Forward QEMU stderr to both os.Stderr and the logs ring buffer.
+	// QEMU prints warnings, errors, and virglrenderer diagnostics to stderr
+	// which were previously invisible in the UI.
+	go func() {
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			fmt.Fprintln(os.Stderr, line) // keep original stderr behavior
+			vm.appendLogs([]byte(fmt.Sprintf("\x1b[33m[QEMU] %s\x1b[0m\r\n", line)))
 		}
 	}()
 
@@ -795,19 +943,32 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 			// because QEMU opens the host-side port forwarding immediately,
 			// long before sshd is running inside the guest.
 			if !sshReady {
-				cmd := exec.Command("ssh",
+				sshArgs := []string{
+					"-F", "/dev/null", // Don't read ~/.ssh/config (triggers macOS TCC dialog)
 					"-o", "StrictHostKeyChecking=no",
 					"-o", "UserKnownHostsFile=/dev/null",
 					"-o", "ConnectTimeout=2",
-					"-p", fmt.Sprintf("%d", vm.config.SSHPort),
-					"ubuntu@localhost",
-					"echo ready",
-				)
+				}
+				if vm.sshPrivKeyPath != "" {
+					sshArgs = append(sshArgs, "-i", vm.sshPrivKeyPath, "-o", "IdentitiesOnly=yes")
+				}
+				sshArgs = append(sshArgs, "-p", fmt.Sprintf("%d", vm.config.SSHPort), "ubuntu@localhost", "echo ready")
+				cmd := exec.Command("ssh", sshArgs...)
 				if out, err := cmd.CombinedOutput(); err == nil && strings.Contains(string(out), "ready") {
 					sshReady = true
 					log.Printf("VM SSH is ready")
 					vm.appendLogs([]byte(fmt.Sprintf("\x1b[36m[%s] SSH ready\x1b[0m\r\n",
 						time.Now().Format("15:04:05"))))
+				} else if err != nil {
+					// Log SSH failures so they're visible in the UI logs tab.
+					// Connection refused / timeout are normal during boot, but
+					// auth failures (Permission denied) indicate a real problem.
+					errStr := strings.TrimSpace(string(out))
+					if errStr == "" {
+						errStr = err.Error()
+					}
+					vm.appendLogs([]byte(fmt.Sprintf("\x1b[90m[%s] SSH: %s\x1b[0m\r\n",
+						time.Now().Format("15:04:05"), errStr)))
 				}
 			}
 
@@ -856,13 +1017,14 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 				apiCheckCount++
 				elapsed := time.Since(stackStartedAt)
 				if elapsed > apiTimeout {
-					// API didn't come up — check what's wrong with docker compose
+					// API didn't come up — gather diagnostic info
 					log.Printf("API not ready after %v — checking container status", apiTimeout)
-					errMsg := vm.diagnoseAPIFailure()
+					diag := vm.diagnoseAPIFailure()
 					vm.statusMu.Lock()
 					vm.status.BootStage = ""
 					vm.statusMu.Unlock()
-					vm.setError(fmt.Errorf("API failed to start: %s", errMsg))
+					vm.setError(fmt.Errorf("unable to reach API on port %d after %.0f minutes. Diagnostics:\n%s",
+						vm.config.APIPort, apiTimeout.Minutes(), diag))
 					return
 				}
 
@@ -912,7 +1074,9 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 	}
 }
 
-// diagnoseAPIFailure checks docker compose inside the VM to determine why the API isn't starting
+// diagnoseAPIFailure checks docker compose inside the VM to gather diagnostic info
+// about why the API health check is failing. This only runs after the timeout —
+// it does NOT gate readiness, it just collects context for the error message.
 func (vm *VMManager) diagnoseAPIFailure() string {
 	composeFile := vm.composeFile
 	if composeFile == "" {
@@ -934,7 +1098,7 @@ func (vm *VMManager) diagnoseAPIFailure() string {
 		log.Printf("API container logs:\n%s", logOut)
 	}
 
-	return fmt.Sprintf("containers: %s", status)
+	return status
 }
 
 // checkAPIHealth verifies the Helix API is actually responding to HTTP requests.
@@ -986,16 +1150,19 @@ func (vm *VMManager) checkSandboxReady() bool {
 // Uses generous keepalive settings to avoid killing long-running operations
 // (e.g., docker compose image pulls) under I/O pressure.
 func (vm *VMManager) sshCommand(script string) *exec.Cmd {
-	return exec.Command("ssh",
+	args := []string{
+		"-F", "/dev/null", // Don't read ~/.ssh/config (triggers macOS TCC dialog)
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=5",
 		"-o", "ServerAliveInterval=30",
 		"-o", "ServerAliveCountMax=6",
-		"-p", fmt.Sprintf("%d", vm.config.SSHPort),
-		"ubuntu@localhost",
-		script,
-	)
+	}
+	if vm.sshPrivKeyPath != "" {
+		args = append(args, "-i", vm.sshPrivKeyPath, "-o", "IdentitiesOnly=yes")
+	}
+	args = append(args, "-p", fmt.Sprintf("%d", vm.config.SSHPort), "ubuntu@localhost", script)
+	return exec.Command("ssh", args...)
 }
 
 // ensureDockerRunning starts Docker if it isn't already running.
@@ -1042,14 +1209,17 @@ if docker compose -f "$COMPOSE_FILE" ps --format '{{.Service}}' 2>/dev/null | gr
 else
     echo 'Starting Helix stack...'
     docker compose -f "$COMPOSE_FILE" up -d 2>&1
-    # In prod mode (install.sh), start sandbox separately via sandbox.sh
-    if [ "$COMPOSE_FILE" = "docker-compose.yaml" ] && [ -f sandbox.sh ]; then
-        docker stop helix-sandbox 2>/dev/null || true
-        docker rm helix-sandbox 2>/dev/null || true
-        nohup bash sandbox.sh > /tmp/sandbox.log 2>&1 &
-        echo 'SANDBOX_STARTED'
-    fi
     echo 'STARTED'
+fi
+# In prod mode (install.sh), always restart the sandbox container.
+# sandbox.sh creates the container with --restart=always, so it may have
+# auto-started from a previous boot with a stale RUNNER_TOKEN. Stop/rm it
+# and re-run sandbox.sh so it picks up the current token from .env.
+if [ "$COMPOSE_FILE" = "docker-compose.yaml" ] && [ -f sandbox.sh ]; then
+    docker stop helix-sandbox 2>/dev/null || true
+    docker rm helix-sandbox 2>/dev/null || true
+    nohup bash sandbox.sh > /tmp/sandbox.log 2>&1 &
+    echo 'SANDBOX_RESTARTED'
 fi
 `
 	out, err := vm.runSSH("Start stack", script)
@@ -1340,6 +1510,32 @@ fi
 # Identify this as the Mac Desktop edition for Launchpad telemetry
 if ! grep -q '^HELIX_EDITION=' "$ENV_FILE" 2>/dev/null; then
     echo 'HELIX_EDITION=mac-desktop' >> "$ENV_FILE"
+    CHANGED=1
+fi
+
+# GPU vendor — sandbox.sh and Hydra use this to configure the video pipeline.
+# On macOS ARM VMs the GPU is virtio-gpu (QEMU VideoToolbox scanout encoding).
+if grep -q '^GPU_VENDOR=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^GPU_VENDOR=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "virtio" ]; then
+        sed -i "s|^GPU_VENDOR=.*|GPU_VENDOR=virtio|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo 'GPU_VENDOR=virtio' >> "$ENV_FILE"
+    CHANGED=1
+fi
+
+# Sandbox Docker storage — use bind mount path on root disk so pre-baked
+# desktop images survive the ZFS mount over /var/lib/docker/volumes/.
+if grep -q '^SANDBOX_DOCKER_VOLUME=' "$ENV_FILE" 2>/dev/null; then
+    CURRENT=$(grep '^SANDBOX_DOCKER_VOLUME=' "$ENV_FILE" | cut -d= -f2-)
+    if [ "$CURRENT" != "/var/lib/helix-sandbox-docker" ]; then
+        sed -i "s|^SANDBOX_DOCKER_VOLUME=.*|SANDBOX_DOCKER_VOLUME=/var/lib/helix-sandbox-docker|" "$ENV_FILE"
+        CHANGED=1
+    fi
+else
+    echo 'SANDBOX_DOCKER_VOLUME=/var/lib/helix-sandbox-docker' >> "$ENV_FILE"
     CHANGED=1
 fi
 
@@ -1733,7 +1929,17 @@ func (vm *VMManager) findVulkanICD() string {
 // KosmicKrisp produces dramatically better rendering quality under concurrent
 // GNOME sessions with virglrenderer's Venus Vulkan path.
 func (vm *VMManager) buildQEMUEnv() []string {
-	env := os.Environ()
+	// Start with inherited environment but override HOME to the Helix data dir.
+	// Glib's g_get_home_dir() stat()s $HOME on init, which triggers the macOS
+	// TCC "access data from other apps" dialog when $HOME is the real home dir.
+	helixHome := getHelixDataDir()
+	var env []string
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "HOME=") {
+			env = append(env, e)
+		}
+	}
+	env = append(env, "HOME="+helixHome)
 
 	// Tell ANGLE to use the Metal backend for EGL/GLES on macOS.
 	// Without this, ANGLE can't initialize and QEMU fails with

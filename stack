@@ -1148,6 +1148,10 @@ function transfer-desktop-to-sandbox() {
   local REGISTRY_TAG="localhost:5000/${IMAGE_NAME}:${IMAGE_TAG}"
   local SANDBOX_REGISTRY_TAG="registry:5000/${IMAGE_NAME}:${IMAGE_TAG}"
 
+  # Remove stale runtime-ref before pushing so Hydra can't resolve to the old image
+  # during the transfer window. resolveRegistryImage() also validates tags as defense-in-depth.
+  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" rm -f "/opt/images/${IMAGE_NAME}.runtime-ref" 2>/dev/null || true
+
   # Tag for local registry and push
   echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${REGISTRY_TAG}..."
   docker tag "${IMAGE_NAME}:latest" "$REGISTRY_TAG"

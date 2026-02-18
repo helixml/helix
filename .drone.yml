@@ -758,7 +758,6 @@ steps:
       - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
       - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
       - apt-get update && apt-get install -y gh
-      - sed -i "s/:latest/:$DRONE_TAG/g" docker-compose.yaml
       - sed -i "s/\${HELIX_VERSION:-latest}/$DRONE_TAG/g" docker-compose.yaml
       - |
         if [ -n "$DRONE_TAG" ]; then
@@ -2491,8 +2490,9 @@ platform:
   os: darwin
   arch: arm64
 
-# Wait for ARM64 Docker images to be built before provisioning the VM
+# Wait for ARM64 Docker images and release artifacts before provisioning the VM
 depends_on:
+  - default
   - build-controlplane-arm64
   - build-haystack-arm64
   - build-typesense-arm64

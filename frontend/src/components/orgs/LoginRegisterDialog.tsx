@@ -9,12 +9,54 @@ import {
   Alert,
   Typography,
 } from '@mui/material';
+import type { SxProps, Theme } from '@mui/material';
 import DarkDialog from '../dialog/DarkDialog';
 import useApi from '../../hooks/useApi';
 import useSnackbar from '../../hooks/useSnackbar';
 import useRouter from '../../hooks/useRouter';
 import { TypesLoginRequest, TypesRegisterRequest } from '../../api/api';
 import { useGetConfig } from '../../services/userService';
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const textFieldSx: SxProps<Theme> = {
+  '& .MuiOutlinedInput-root': {
+    '& fieldset': {
+      borderColor: '#2D3748',
+    },
+    '&:hover fieldset': {
+      borderColor: '#00E5FF',
+    },
+    '&.Mui-focused fieldset': {
+      borderColor: '#00E5FF',
+    },
+  },
+  '& .MuiInputLabel-root': {
+    color: '#A0AEC0',
+  },
+  '& .MuiInputLabel-root.Mui-focused': {
+    color: '#00E5FF',
+  },
+  '& .MuiOutlinedInput-input': {
+    color: '#F1F1F1',
+  },
+};
+
+function extractErrorMessage(err: unknown, fallback: string): string {
+  const e = err as { response?: { data?: unknown }; message?: string };
+  if (e?.response?.data) {
+    const data = e.response.data;
+    if (typeof data === 'string') return data;
+    if (typeof data === 'object' && data !== null) {
+      const obj = data as Record<string, unknown>;
+      if (typeof obj.message === 'string') return obj.message;
+      if (typeof obj.error === 'string') return obj.error;
+      return JSON.stringify(data);
+    }
+  }
+  if (e?.message) return e.message;
+  return fallback;
+}
 
 interface LoginRegisterDialogProps {
   open: boolean;
@@ -53,6 +95,8 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
   };
 
   const handleLogin = async () => {
+    if (loading) return;
+
     // Read from DOM to handle iOS autofill (which doesn't trigger onChange)
     const form = formRef.current;
     const emailValue = (form?.querySelector('input[name="username"]') as HTMLInputElement)?.value || email;
@@ -60,6 +104,11 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
 
     if (!emailValue || !passwordValue) {
       setError('Please fill in all fields');
+      return;
+    }
+
+    if (!EMAIL_REGEX.test(emailValue)) {
+      setError('Please enter a valid email address');
       return;
     }
 
@@ -73,32 +122,20 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
       };
 
       await apiClient.v1AuthLoginCreate(loginRequest);
-      
+
       snackbar.success('Login successful');
       handleClose();
       window.location.reload();
-    } catch (err: any) {
-      let errorMessage = 'Login failed';
-      if (err?.response?.data) {
-        if (typeof err.response.data === 'string') {
-          errorMessage = err.response.data;
-        } else if (err.response.data.message) {
-          errorMessage = err.response.data.message;
-        } else if (err.response.data.error) {
-          errorMessage = err.response.data.error;
-        } else {
-          errorMessage = JSON.stringify(err.response.data);
-        }
-      } else if (err?.message) {
-        errorMessage = err.message;
-      }
-      setError(errorMessage);
+    } catch (err: unknown) {
+      setError(extractErrorMessage(err, 'Login failed'));
     } finally {
       setLoading(false);
     }
   };
 
   const handleRegister = async () => {
+    if (loading) return;
+
     // Read from DOM to handle iOS autofill (which doesn't trigger onChange)
     const form = formRef.current;
     const emailValue = (form?.querySelector('input[name="username"]') as HTMLInputElement)?.value || email;
@@ -108,6 +145,11 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
 
     if (!emailValue || !fullNameValue || !passwordValue || !passwordConfirmValue) {
       setError('Please fill in all fields');
+      return;
+    }
+
+    if (!EMAIL_REGEX.test(emailValue)) {
+      setError('Please enter a valid email address');
       return;
     }
 
@@ -133,26 +175,12 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
       };
 
       await apiClient.v1AuthRegisterCreate(registerRequest);
-      
+
       snackbar.success('Registration successful');
       handleClose();
       window.location.reload();
-    } catch (err: any) {
-      let errorMessage = 'Registration failed';
-      if (err?.response?.data) {
-        if (typeof err.response.data === 'string') {
-          errorMessage = err.response.data;
-        } else if (err.response.data.message) {
-          errorMessage = err.response.data.message;
-        } else if (err.response.data.error) {
-          errorMessage = err.response.data.error;
-        } else {
-          errorMessage = JSON.stringify(err.response.data);
-        }
-      } else if (err?.message) {
-        errorMessage = err.message;
-      }
-      setError(errorMessage);
+    } catch (err: unknown) {
+      setError(extractErrorMessage(err, 'Registration failed'));
     } finally {
       setLoading(false);
     }
@@ -207,29 +235,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
               inputMode: 'email',
               'data-1p-ignore': 'false',
             }}
-            sx={{
-              mb: 2,
-              '& .MuiOutlinedInput-root': {
-                '& fieldset': {
-                  borderColor: '#2D3748',
-                },
-                '&:hover fieldset': {
-                  borderColor: '#00E5FF',
-                },
-                '&.Mui-focused fieldset': {
-                  borderColor: '#00E5FF',
-                },
-              },
-              '& .MuiInputLabel-root': {
-                color: '#A0AEC0',
-              },
-              '& .MuiInputLabel-root.Mui-focused': {
-                color: '#00E5FF',
-              },
-              '& .MuiOutlinedInput-input': {
-                color: '#F1F1F1',
-              },
-            }}
+            sx={{ mb: 2, ...textFieldSx }}
           />
 
           {mode === 'register' && (
@@ -244,29 +250,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               disabled={isRegistrationDisabled}
-              sx={{
-                mb: 2,
-                '& .MuiOutlinedInput-root': {
-                  '& fieldset': {
-                    borderColor: '#2D3748',
-                  },
-                  '&:hover fieldset': {
-                    borderColor: '#00E5FF',
-                  },
-                  '&.Mui-focused fieldset': {
-                    borderColor: '#00E5FF',
-                  },
-                },
-                '& .MuiInputLabel-root': {
-                  color: '#A0AEC0',
-                },
-                '& .MuiInputLabel-root.Mui-focused': {
-                  color: '#00E5FF',
-                },
-                '& .MuiOutlinedInput-input': {
-                  color: '#F1F1F1',
-                },
-              }}
+              sx={{ mb: 2, ...textFieldSx }}
             />
           )}
 
@@ -285,29 +269,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
               autoComplete: mode === 'login' ? 'current-password' : 'new-password',
               'data-1p-ignore': 'false',
             }}
-            sx={{
-              mb: mode === 'register' ? 2 : 0,
-              '& .MuiOutlinedInput-root': {
-                '& fieldset': {
-                  borderColor: '#2D3748',
-                },
-                '&:hover fieldset': {
-                  borderColor: '#00E5FF',
-                },
-                '&.Mui-focused fieldset': {
-                  borderColor: '#00E5FF',
-                },
-              },
-              '& .MuiInputLabel-root': {
-                color: '#A0AEC0',
-              },
-              '& .MuiInputLabel-root.Mui-focused': {
-                color: '#00E5FF',
-              },
-              '& .MuiOutlinedInput-input': {
-                color: '#F1F1F1',
-              },
-            }}
+            sx={{ mb: mode === 'register' ? 2 : 0, ...textFieldSx }}
           />
 
           {mode === 'login' && (
@@ -318,7 +280,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
                   color: '#A0AEC0',
                   fontSize: '0.875rem',
                 }}
-              >               
+              >
                 <Button
                   variant="text"
                   size="small"
@@ -357,28 +319,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
               value={passwordConfirm}
               onChange={(e) => setPasswordConfirm(e.target.value)}
               disabled={isRegistrationDisabled}
-              sx={{
-                '& .MuiOutlinedInput-root': {
-                  '& fieldset': {
-                    borderColor: '#2D3748',
-                  },
-                  '&:hover fieldset': {
-                    borderColor: '#00E5FF',
-                  },
-                  '&.Mui-focused fieldset': {
-                    borderColor: '#00E5FF',
-                  },
-                },
-                '& .MuiInputLabel-root': {
-                  color: '#A0AEC0',
-                },
-                '& .MuiInputLabel-root.Mui-focused': {
-                  color: '#00E5FF',
-                },
-                '& .MuiOutlinedInput-input': {
-                  color: '#F1F1F1',
-                },
-              }}
+              sx={textFieldSx}
             />
           )}
         </DialogContent>
@@ -448,4 +389,3 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
 };
 
 export default LoginRegisterDialog;
-
