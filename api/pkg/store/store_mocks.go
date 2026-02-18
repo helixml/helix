@@ -3351,21 +3351,6 @@ func (mr *MockStoreMockRecorder) GetWalletByUser(ctx, userID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWalletByUser", reflect.TypeOf((*MockStore)(nil).GetWalletByUser), ctx, userID)
 }
 
-// ListWallets mocks base method.
-func (m *MockStore) ListWallets(ctx context.Context, q *ListWalletsQuery) ([]*types.Wallet, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListWallets", ctx, q)
-	ret0, _ := ret[0].([]*types.Wallet)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListWallets indicates an expected call of ListWallets.
-func (mr *MockStoreMockRecorder) ListWallets(ctx, q any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWallets", reflect.TypeOf((*MockStore)(nil).ListWallets), ctx, q)
-}
-
 // GetZedSettingsOverride mocks base method.
 func (m *MockStore) GetZedSettingsOverride(ctx context.Context, sessionID string) (*types.ZedSettingsOverride, error) {
 	m.ctrl.T.Helper()
@@ -4387,6 +4372,21 @@ func (m *MockStore) ListUsers(ctx context.Context, query *ListUsersQuery) ([]*ty
 func (mr *MockStoreMockRecorder) ListUsers(ctx, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUsers", reflect.TypeOf((*MockStore)(nil).ListUsers), ctx, query)
+}
+
+// ListWallets mocks base method.
+func (m *MockStore) ListWallets(ctx context.Context, q *ListWalletsQuery) ([]*types.Wallet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWallets", ctx, q)
+	ret0, _ := ret[0].([]*types.Wallet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWallets indicates an expected call of ListWallets.
+func (mr *MockStoreMockRecorder) ListWallets(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWallets", reflect.TypeOf((*MockStore)(nil).ListWallets), ctx, q)
 }
 
 // ListWorkSessionsBySpecTask mocks base method.
