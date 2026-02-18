@@ -1,8 +1,8 @@
-# Requirements: Fix Startup Script for New Environments
+# Requirements: Fix Startup Script Failure
 
 ## Problem Statement
 
-The `./stack start` command fails when Docker's `~/.docker/` directory has incorrect permissions (owned by root instead of user). This commonly happens when Docker is first run with `sudo`.
+The `./stack start` command fails inside Helix-in-Helix environments because `~/.docker/` is created with root ownership by `17-start-dockerd.sh`, then the `retro` user can't access it.
 
 Errors:
 1. `Permission denied` when accessing `~/.docker/config.json`
@@ -10,24 +10,23 @@ Errors:
 
 ## Root Cause
 
-When Docker can't read `~/.docker/config.json`, it fails to load CLI plugins including `buildx`. The `--provenance=false` flag requires buildx.
+`17-start-dockerd.sh` runs as root and creates the `helix-shared` buildx builder, which writes to `~/.docker/`. The `retro` user then cannot read this directory, breaking Docker CLI plugin loading.
 
 ## User Stories
 
-### US1: Developer can start Helix in any new environment
-As a developer setting up a new dev environment, I want `./stack start` to work automatically without manual permission fixes.
+### US1: Developer can run stack commands in Helix-in-Helix
+As a developer using Helix-in-Helix, I want `./stack start` to work without permission errors.
 
 **Acceptance Criteria:**
-- [ ] Stack script works even when `~/.docker/` has wrong permissions
-- [ ] No `sudo` prompts required
-- [ ] Works on fresh environments
-- [ ] `docker build` commands with BuildKit features succeed
+- [ ] `~/.docker/` is owned by `retro` user after `17-start-dockerd.sh` completes
+- [ ] `docker buildx version` works as `retro` user
+- [ ] `./stack start` completes successfully
 
 ## Solution
 
-Set `DOCKER_CONFIG` environment variable to bypass broken config directory when permissions are wrong. This is simpler than fixing permissions and doesn't require `sudo`.
+Modify `17-start-dockerd.sh` to `chown` the `.docker` directory to the `retro` user after creating the buildx builder.
 
 ## Scope
 
-- **In scope:** Modify `./stack` script to detect and work around Docker config permission issues
-- **Out of scope:** Fixing the underlying permission problem (user can do that manually if they want)
+- **In scope:** Fix `helix/desktop/shared/17-start-dockerd.sh` to set correct ownership
+- **Out of scope:** Other permission issues, host-level Docker problems

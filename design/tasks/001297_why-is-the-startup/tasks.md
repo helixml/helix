@@ -1,8 +1,9 @@
 # Implementation Tasks
 
-- [ ] Add Docker config accessibility check near top of `helix/stack` (after line ~15, before any Docker commands)
-- [ ] If `~/.docker` exists but is not readable, set `DOCKER_CONFIG` to `${XDG_CONFIG_HOME:-$HOME/.config}/docker`
-- [ ] Create the fallback directory if it doesn't exist
-- [ ] Log a warning when using the fallback so users know what happened
-- [ ] Test on environment with root-owned `~/.docker/`
-- [ ] Test on working environment (verify no change in behavior)
+- [ ] Add `chown` command to `helix/desktop/shared/17-start-dockerd.sh` after buildx setup (around line 158)
+- [ ] Check if `retro` user exists before chown
+- [ ] Check if `/home/retro/.docker` exists before chown
+- [ ] Rebuild desktop image: `./stack build-ubuntu`
+- [ ] Start new Helix-in-Helix session to test
+- [ ] Verify `~/.docker` is owned by `retro:retro`
+- [ ] Verify `./stack start` completes without permission errors
