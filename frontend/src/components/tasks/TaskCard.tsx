@@ -900,7 +900,11 @@ function TaskCardInner({
             task.phase === "review" ||
             task.phase === "implementation" ||
             task.phase === "pull_request") && (
-            <UsagePulseChart taskId={task.id} accentColor={accentColor} />
+            <UsagePulseChart
+              taskId={task.id}
+              accentColor={accentColor}
+              isVisible={isVisible}
+            />
           )}
 
         {/* Gorgeous checklist progress for active tasks */}
