@@ -155,3 +155,10 @@ EOF
     docker buildx use helix-shared --default
     docker buildx rm default 2>/dev/null || true
     echo "[dockerd] Set helix-shared as default builder (removed local default)"
+
+    # Fix ownership of .docker directory for retro user
+    # (buildx commands above run as root and create ~/.docker owned by root)
+    if id -u retro >/dev/null 2>&1 && [ -d /home/retro/.docker ]; then
+        chown -R retro:retro /home/retro/.docker
+        echo "[dockerd] Fixed /home/retro/.docker ownership"
+    fi
