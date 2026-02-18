@@ -13,7 +13,7 @@ import AttachMoneyIcon from '@mui/icons-material/AttachMoney'
 
 import useRouter from '../../hooks/useRouter'
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
-import { UsersIcon } from 'lucide-react'
+import { UsersIcon, BuildingIcon } from 'lucide-react'
 
 const AdminPanelSidebar: FC = () => {
   const router = useRouter()
@@ -105,13 +105,20 @@ const AdminPanelSidebar: FC = () => {
     },
     {
       title: 'User Management',
-      items: [        
+      items: [
         {
           id: 'users',
           label: 'Users',
           icon: <UsersIcon />,
           isActive: currentTab === 'users',
           onClick: () => handleNavigationClick('users')
+        },
+        {
+          id: 'orgs',
+          label: 'Organizations',
+          icon: <BuildingIcon />,
+          isActive: currentTab === 'orgs',
+          onClick: () => handleNavigationClick('orgs')
         }
       ]
     }

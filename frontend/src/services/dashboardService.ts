@@ -66,6 +66,21 @@ export function usersQueryKey(query?: UserListQuery) {
     return ["users", query];
 }
 
+export const adminOrgsQueryKey = () => ["admin-orgs"];
+
+export function useListAdminOrgs() {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+
+    return useQuery({
+        queryKey: adminOrgsQueryKey(),
+        queryFn: async () => {
+            const response = await apiClient.v1AdminOrgsList();
+            return response.data;
+        },
+    });
+}
+
 /**
  * Hook to fetch users list with pagination and search support
  * @param query - Optional query parameters for filtering and pagination

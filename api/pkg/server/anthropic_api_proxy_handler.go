@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,11 +11,13 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/anthropic"
+	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 
+	anthropic_sdk "github.com/anthropics/anthropic-sdk-go" // imported as anthropic
 	"github.com/rs/zerolog/log"
 )
 
@@ -25,22 +28,12 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	// Claude Code allows setting headers: https://docs.anthropic.com/en/docs/claude-code/settings
-	provider := r.Header.Get("X-Provider")
-	orgID := r.Header.Get("X-Org-ID")
-
-	endpoint, err := s.getProviderEndpoint(r.Context(), user, orgID, provider)
+	endpoint, err := s.getProviderEndpoint(r.Context(), user)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get provider endpoint")
 
 		http.Error(w, "Failed to get provider endpoint: "+err.Error(), http.StatusInternalServerError)
 		return
-	}
-
-	if endpoint.OwnerType == types.OwnerTypeOrg {
-		orgID = endpoint.Owner
-	} else {
-		orgID = ""
 	}
 
 	bts, err := io.ReadAll(r.Body)
@@ -49,14 +42,36 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	fmt.Println("XX PSEC TASK ID", user.SpecTaskID)
-
 	logger := log.With().
 		Str("user_id", user.ID).
 		Str("project_id", user.ProjectID).
 		Str("spec_task_id", user.SpecTaskID).
-		Str("organization_id", orgID).
+		Str("organization_id", user.OrganizationID).
 		Logger()
+
+	// Validate the request
+	if s.Cfg.Providers.BillingEnabled {
+		modelName, ok := parseAnthropicRequestModel(bts)
+		if !ok {
+			return
+		}
+
+		_, err = s.modelInfoProvider.GetModelInfo(r.Context(), &model.ModelInfoRequest{
+			BaseURL:  endpoint.BaseURL,
+			Provider: endpoint.Name,
+			Model:    modelName,
+		})
+		if err != nil {
+			log.Error().Err(err).
+				Str("model", modelName).
+				Str("provider", endpoint.Name).
+				Str("base_url", endpoint.BaseURL).
+				Msg("failed to get model info for billing")
+			http.Error(w, fmt.Sprintf("Could not find model information for model '%s', error: %s", modelName, err.Error()), http.StatusPreconditionFailed)
+			return
+		}
+		// OK
+	}
 
 	ctx := oai.SetContextValues(r.Context(), &oai.ContextValues{
 		OwnerID:         user.ID,
@@ -70,11 +85,11 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 	// Restore the buffer
 	r.Body = io.NopCloser(bytes.NewBuffer(bts))
 
-	ctx = oai.SetContextOrganizationID(ctx, orgID)
+	ctx = oai.SetContextOrganizationID(ctx, user.OrganizationID)
 
 	r = r.WithContext(ctx)
 
-	hasEnoughBalance, err := s.Controller.HasEnoughBalance(ctx, getRequestUser(r), orgID, endpoint.BillingEnabled)
+	hasEnoughBalance, err := s.Controller.HasEnoughBalance(ctx, getRequestUser(r), user.OrganizationID, endpoint.BillingEnabled)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to check balance")
 		http.Error(w, "Failed to check balance: "+err.Error(), http.StatusInternalServerError)
@@ -94,66 +109,105 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 	s.anthropicProxy.ServeHTTP(w, r)
 }
 
+func parseAnthropicRequestModel(body []byte) (string, bool) {
+	if len(body) == 0 {
+		return "", false
+	}
+
+	var req anthropic_sdk.Message
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", false
+	}
+
+	if req.Model == "" {
+		return "", false
+	}
+
+	return string(req.Model), true
+}
+
 // anthropicTokenCountHandler proxies the token counting request to Anthropic.
 // Token counting is free according to Anthropic, so we don't check balance.
 // See: https://docs.anthropic.com/en/api/messages-count-tokens
-func (s *HelixAPIServer) anthropicTokenCountHandler(w http.ResponseWriter, r *http.Request) {
-	log.Info().Msg("🔢 [TOKEN_COUNT] Received token counting request")
+// func (s *HelixAPIServer) anthropicTokenCountHandler(w http.ResponseWriter, r *http.Request) {
+// 	log.Info().Msg("🔢 [TOKEN_COUNT] Received token counting request")
 
-	user := getRequestUser(r)
-	if user == nil {
-		log.Warn().Msg("🔢 [TOKEN_COUNT] No user in request, returning 401")
-		http.Error(w, "user is required", http.StatusUnauthorized)
-		return
-	}
+// 	user := getRequestUser(r)
+// 	if user == nil {
+// 		log.Warn().Msg("🔢 [TOKEN_COUNT] No user in request, returning 401")
+// 		http.Error(w, "user is required", http.StatusUnauthorized)
+// 		return
+// 	}
 
-	provider := r.Header.Get("X-Provider")
-	orgID := r.Header.Get("X-Org-ID")
+// 	provider := r.Header.Get("X-Provider")
+// 	orgID := r.Header.Get("X-Org-ID")
 
-	log.Info().
-		Str("user_id", user.ID).
-		Str("provider", provider).
-		Str("org_id", orgID).
-		Msg("🔢 [TOKEN_COUNT] Processing request")
+// 	log.Info().
+// 		Str("user_id", user.ID).
+// 		Str("provider", provider).
+// 		Str("org_id", orgID).
+// 		Msg("🔢 [TOKEN_COUNT] Processing request")
 
-	endpoint, err := s.getProviderEndpoint(r.Context(), user, orgID, provider)
-	if err != nil {
-		log.Error().Err(err).Msg("🔢 [TOKEN_COUNT] Failed to get provider endpoint")
-		http.Error(w, "Failed to get provider endpoint: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+// 	endpoint, err := s.getProviderEndpoint(r.Context(), user, orgID, provider)
+// 	if err != nil {
+// 		log.Error().Err(err).Msg("🔢 [TOKEN_COUNT] Failed to get provider endpoint")
+// 		http.Error(w, "Failed to get provider endpoint: "+err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
 
-	// Set the endpoint in request context for the proxy director
-	r = anthropic.SetRequestProviderEndpoint(r, endpoint)
+// 	// Set the endpoint in request context for the proxy director
+// 	r = anthropic.SetRequestProviderEndpoint(r, endpoint)
 
-	log.Info().
-		Str("user_id", user.ID).
-		Str("provider", endpoint.Name).
-		Str("base_url", endpoint.BaseURL).
-		Msg("🔢 [TOKEN_COUNT] Proxying to Anthropic")
+// 	log.Info().
+// 		Str("user_id", user.ID).
+// 		Str("provider", endpoint.Name).
+// 		Str("base_url", endpoint.BaseURL).
+// 		Msg("🔢 [TOKEN_COUNT] Proxying to Anthropic")
 
-	s.anthropicProxy.ServeHTTP(w, r)
+// 	s.anthropicProxy.ServeHTTP(w, r)
 
-	log.Info().
-		Str("user_id", user.ID).
-		Msg("🔢 [TOKEN_COUNT] Request completed")
-}
+// 	log.Info().
+// 		Str("user_id", user.ID).
+// 		Msg("🔢 [TOKEN_COUNT] Request completed")
+// }
 
-func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.User, orgID, provider string) (*types.ProviderEndpoint, error) {
+func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.User) (*types.ProviderEndpoint, error) {
 	// Default to "anthropic" provider if not specified
 	// This allows Zed and other Anthropic SDK clients to work without setting X-Provider header
-	if provider == "" {
-		provider = "anthropic"
+
+	provider := "anthropic"
+
+	// Helix agent
+	if user.ProjectID != "" {
+		project, err := s.Store.GetProject(ctx, user.ProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("error getting project: %w", err)
+		}
+
+		projectApp, err := s.Store.GetApp(ctx, project.DefaultHelixAppID)
+		if err != nil {
+			return nil, fmt.Errorf("error getting project app: %w", err)
+		}
+
+		if len(projectApp.Config.Helix.Assistants) == 0 {
+			return nil, fmt.Errorf("no assistants found for project app")
+		}
+
+		provider = projectApp.Config.Helix.Assistants[0].Provider
+
+		if provider == "" {
+			return nil, fmt.Errorf("no provider found for project app")
+		}
 	}
 
-	if orgID != "" {
-		_, err := s.authorizeOrgMember(ctx, user, orgID)
+	if user.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(ctx, user, user.OrganizationID)
 		if err != nil {
 			return nil, fmt.Errorf("error authorizing org member: %w", err)
 		}
 
 		q := &store.GetProviderEndpointsQuery{
-			Owner: orgID,
+			Owner: user.OrganizationID,
 		}
 
 		if strings.HasPrefix(provider, system.ProviderEndpointPrefix) {
@@ -171,7 +225,7 @@ func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.Us
 
 	// Try database first for non-org requests
 	q := &store.GetProviderEndpointsQuery{
-		Owner: orgID,
+		Owner: user.OrganizationID,
 	}
 
 	if strings.HasPrefix(provider, system.ProviderEndpointPrefix) {

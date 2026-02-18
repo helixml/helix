@@ -153,7 +153,12 @@ func (sm *SessionManager) createSessionWithDuration(
 func (sm *SessionManager) GetSessionFromRequest(ctx context.Context, r *http.Request) (*types.UserSession, error) {
 	sessionCookie, err := r.Cookie(SessionCookieName)
 	if err != nil {
-		log.Debug().Err(err).Str("path", r.URL.Path).Msg("No session cookie found")
+		switch r.URL.Path {
+		case "/api/v1/sandboxes/local/heartbeat":
+			// Expected to not use cookies
+		default:
+			log.Debug().Err(err).Str("path", r.URL.Path).Msg("No session cookie found")
+		}
 		return nil, ErrSessionNotFound
 	}
 

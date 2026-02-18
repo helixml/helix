@@ -1,22 +1,14 @@
-import React, { FC, useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import React, { FC, useState, useEffect, useMemo, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Box,
   Button,
   Typography,
   Alert,
-  Chip,
   Stack,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
   MenuItem,
   Menu,
-  CircularProgress,
   IconButton,
-  Checkbox,
-  FormControlLabel,
   Tooltip,
   useMediaQuery,
   useTheme,
@@ -41,31 +33,10 @@ import ProjectAuditTrail from '../components/tasks/ProjectAuditTrail';
 import TabsView from '../components/tasks/TabsView';
 import PreviewPanel from '../components/app/PreviewPanel';
 import SpecTasksMobileBottomNav from '../components/tasks/SpecTasksMobileBottomNav';
-import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker';
-import { CodeAgentRuntime, generateAgentName, ICreateAgentParams } from '../contexts/apps';
-import { AGENT_TYPE_ZED_EXTERNAL, IApp, SESSION_TYPE_TEXT } from '../types';
+import NewSpecTaskForm from '../components/tasks/NewSpecTaskForm';
+import { SESSION_TYPE_TEXT } from '../types';
 import { useStreaming } from '../contexts/streaming';
-import { TypesSession } from '../api/api';
-
-// Recommended models for zed_external agents (state-of-the-art coding models)
-const RECOMMENDED_MODELS = [
-  // Anthropic
-  'claude-opus-4-5-20251101',
-  'claude-sonnet-4-5-20250929',
-  'claude-haiku-4-5-20251001',
-  // OpenAI
-  'openai/gpt-5.1-codex',
-  'openai/gpt-oss-120b',
-  // Google Gemini
-  'gemini-2.5-pro',
-  'gemini-2.5-flash',
-  // Zhipu GLM
-  'glm-4.6',
-  // Qwen (Coder + Large)
-  'Qwen/Qwen3-Coder-480B-A35B-Instruct',
-  'Qwen/Qwen3-Coder-30B-A3B-Instruct',
-  'Qwen/Qwen3-235B-A22B-fp8-tput',
-];
+import { TypesSession, TypesSpecTask } from '../api/api';
 
 import useAccount from '../hooks/useAccount';
 import useApi from '../hooks/useApi';
@@ -83,8 +54,6 @@ import {
   useGetStartupScriptHistory,
 } from '../services';
 import { useListSessions, useGetSession } from '../services/sessionService';
-import { TypesCreateTaskRequest, TypesSpecTaskPriority, TypesBranchMode } from '../api/api';
-import AgentDropdown from '../components/agent/AgentDropdown';
 import {
   useListProjectAccessGrants,
   useCreateProjectAccessGrant,
@@ -98,7 +67,6 @@ const SpecTasksPage: FC = () => {
   const snackbar = useSnackbar();
   const router = useRouter();
   const apps = useApps();
-  const queryClient = useQueryClient();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
@@ -128,7 +96,7 @@ const SpecTasksPage: FC = () => {
   // Startup script history - used to detect if user has modified the default script
   // Only fetch when we have a project with a default repo
   const hasDefaultRepo = !!project?.default_repo_id;
-  const { data: startupScriptHistory } = useGetStartupScriptHistory(projectId || '', hasDefaultRepo);
+  const { data: startupScriptHistory, isSuccess: isStartupScriptHistoryLoaded } = useGetStartupScriptHistory(projectId || '', hasDefaultRepo);
   // Script is considered "not configured" if there's only 1 commit (the initial auto-generated script)
   const startupScriptNotConfigured = hasDefaultRepo && (startupScriptHistory?.length ?? 0) <= 1;
 
@@ -258,39 +226,8 @@ const SpecTasksPage: FC = () => {
     refetchInterval: 3700, // 3.7s - prime to avoid sync with other polling
   });
 
-  // Create task form state (SIMPLIFIED)
-  const [taskPrompt, setTaskPrompt] = useState(''); // Single text box for everything
-  const [taskPriority, setTaskPriority] = useState('medium');
-  const [selectedHelixAgent, setSelectedHelixAgent] = useState('');
-  const [justDoItMode, setJustDoItMode] = useState(false); // Just Do It mode: skip spec, go straight to implementation
-
-  // Branch configuration state
-  const [branchMode, setBranchMode] = useState<TypesBranchMode>(TypesBranchMode.BranchModeNew);
-  const [baseBranch, setBaseBranch] = useState('');
-  const [branchPrefix, setBranchPrefix] = useState('');
-  const [workingBranch, setWorkingBranch] = useState('');
-  const [showBranchCustomization, setShowBranchCustomization] = useState(false);
-
   // Get the default repository ID from the project
   const defaultRepoId = project?.default_repo_id;
-
-  // Fetch branches for the default repository
-  const { data: branchesData } = useQuery({
-    queryKey: ['repository-branches', defaultRepoId],
-    queryFn: async () => {
-      if (!defaultRepoId) return [];
-      const response = await api.getApiClient().listGitRepositoryBranches(defaultRepoId);
-      return response.data || [];
-    },
-    enabled: !!defaultRepoId && createDialogOpen,
-    staleTime: 30000, // Cache for 30 seconds
-  });
-
-  // Get the default branch name from the repository
-  const defaultBranchName = useMemo(() => {
-    const defaultRepo = projectRepositories.find(r => r.id === defaultRepoId);
-    return defaultRepo?.default_branch || 'main';
-  }, [projectRepositories, defaultRepoId]);
 
   // Check if the default repo is an external repo (e.g., GitHub, Azure DevOps)
   const hasExternalRepo = useMemo(() => {
@@ -298,74 +235,18 @@ const SpecTasksPage: FC = () => {
     return !!(defaultRepo?.is_external || defaultRepo?.azure_devops || defaultRepo?.external_type);
   }, [projectRepositories, defaultRepoId]);
 
-  // Set baseBranch to default when dialog opens
-  useEffect(() => {
-    if (createDialogOpen && defaultBranchName && !baseBranch) {
-      setBaseBranch(defaultBranchName);
-    }
-  }, [createDialogOpen, defaultBranchName, baseBranch]);
-
-  // Inline agent creation state (same UX as AgentSelectionModal)
-  const [showCreateAgentForm, setShowCreateAgentForm] = useState(false);
-  const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent');
-  const [selectedProvider, setSelectedProvider] = useState('');
-  const [selectedModel, setSelectedModel] = useState('');
-  const [newAgentName, setNewAgentName] = useState('-');
-  const [userModifiedName, setUserModifiedName] = useState(false);
-  const [creatingAgent, setCreatingAgent] = useState(false);
-  const [agentError, setAgentError] = useState('');
-  // Repository configuration moved to project level - no task-level repo selection needed
+  const boardWipLimits = useMemo(() => {
+    const limits = project?.metadata?.board_settings?.wip_limits;
+    if (!limits) return undefined;
+    return {
+      planning: limits.planning ?? 3,
+      review: limits.review ?? 2,
+      implementation: limits.implementation ?? 5,
+    };
+  }, [project?.metadata?.board_settings?.wip_limits]);
 
   // Track newly created task ID for focusing "Start Planning" button
   const [focusTaskId, setFocusTaskId] = useState<string | undefined>(undefined);
-
-  // Ref for task prompt text field to manually focus
-  const taskPromptRef = useRef<HTMLTextAreaElement>(null);
-
-  // Sort apps: project default first, then zed_external, then others
-  const sortedApps = useMemo(() => {
-    if (!apps.apps) return [];
-    const zedExternalApps: IApp[] = [];
-    const otherApps: IApp[] = [];
-    let defaultApp: IApp | null = null;
-    const projectDefaultId = project?.default_helix_app_id;
-
-    apps.apps.forEach((app) => {
-      // Pull out the project's default agent to pin at top
-      if (projectDefaultId && app.id === projectDefaultId) {
-        defaultApp = app;
-        return;
-      }
-
-      const hasZedExternal = app.config?.helix?.assistants?.some(
-        (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
-      ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL;
-      if (hasZedExternal) {
-        zedExternalApps.push(app);
-      } else {
-        otherApps.push(app);
-      }
-    });
-
-    // Project default first, then zed_external, then others
-    const result: IApp[] = [];
-    if (defaultApp) result.push(defaultApp);
-    result.push(...zedExternalApps, ...otherApps);
-    return result;
-  }, [apps.apps, project?.default_helix_app_id]);
-
-  // Create a map of app ID -> app name for displaying agent names
-  const appNamesMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    if (apps.apps) {
-      apps.apps.forEach((app) => {
-        if (app.id) {
-          map[app.id] = app.config?.helix?.name || 'Unnamed Agent';
-        }
-      });
-    }
-    return map;
-  }, [apps.apps]);
 
   // Get display settings from the project's default app for exploratory sessions
   const exploratoryDisplaySettings = useMemo(() => {
@@ -399,52 +280,12 @@ const SpecTasksPage: FC = () => {
     }
   }, [project?.default_helix_app_id, apps.apps])
 
-  // Auto-generate agent name when model or runtime changes (if user hasn't modified it)
-  useEffect(() => {
-    if (!userModifiedName && showCreateAgentForm) {
-      setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime));
-    }
-  }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm]);
-
   // Load tasks and apps on mount
   useEffect(() => {
     if (account.user?.id) {
       apps.loadApps(); // Load available agents
     }
   }, []);
-
-  // Blur task prompt input when dialog closes to prevent hidden typing
-  useEffect(() => {
-    if (!createDialogOpen && taskPromptRef.current) {
-      taskPromptRef.current.blur();
-    }
-  }, [createDialogOpen]);
-
-  // Auto-select default agent when dialog opens
-  useEffect(() => {
-    if (createDialogOpen) {
-      // First priority: use project's default agent if set
-      if (project?.default_helix_app_id) {
-        setSelectedHelixAgent(project.default_helix_app_id);
-        setShowCreateAgentForm(false);
-      } else if (sortedApps.length === 0) {
-        // No agents exist, show create form
-        setShowCreateAgentForm(true);
-        setSelectedHelixAgent('');
-      } else {
-        // Agents exist but project has no default, select first zed_external
-        setSelectedHelixAgent(sortedApps[0]?.id || '');
-        setShowCreateAgentForm(false);
-      }
-
-      // Focus the text field when dialog opens
-      setTimeout(() => {
-        if (taskPromptRef.current) {
-          taskPromptRef.current.focus();
-        }
-      }, 100);
-    }
-  }, [createDialogOpen, sortedApps, project?.default_helix_app_id]);
 
   // Handle URL parameters for opening dialog
   useEffect(() => {
@@ -454,15 +295,6 @@ const SpecTasksPage: FC = () => {
       router.removeParams(['new']);
     }
   }, [router.params.new]);
-
-  // Check authentication
-  const checkLoginStatus = (): boolean => {
-    if (!account.user) {
-      account.setShowLoginWindow(true);
-      return false;
-    }
-    return true;
-  };
 
   // Keyboard shortcut: Enter to toggle new task dialog
   useEffect(() => {
@@ -490,24 +322,6 @@ const SpecTasksPage: FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [createDialogOpen]);
 
-  // Keyboard shortcut: Ctrl/Cmd+Enter to submit task (when dialog is open)
-  // Note: dependencies include justDoItMode to ensure the handler captures the current value
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        if (createDialogOpen && taskPrompt.trim()) {
-          e.preventDefault();
-          handleCreateTask();
-        }
-      }
-    };
-
-    if (createDialogOpen) {
-      window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
-    }
-  }, [createDialogOpen, taskPrompt, justDoItMode, selectedHelixAgent]);
-
   // Keyboard shortcut: ESC to close create task panel or chat panel
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -527,160 +341,6 @@ const SpecTasksPage: FC = () => {
       return () => window.removeEventListener('keydown', handleKeyDown);
     }
   }, [createDialogOpen, chatPanelOpen]);
-
-  // Keyboard shortcut: Ctrl/Cmd+J to toggle Just Do It mode
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'j') {
-        if (createDialogOpen) {
-          e.preventDefault();
-          setJustDoItMode(prev => !prev);
-        }
-      }
-    };
-
-    if (createDialogOpen) {
-      window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
-    }
-  }, [createDialogOpen]);
-
-  // Handle inline agent creation (same pattern as CreateProjectDialog)
-  const handleCreateAgent = async (): Promise<string | null> => {
-    if (!newAgentName.trim()) {
-      setAgentError('Please enter a name for the agent');
-      return null;
-    }
-    if (!selectedModel) {
-      setAgentError('Please select a model');
-      return null;
-    }
-
-    setCreatingAgent(true);
-    setAgentError('');
-
-    try {
-      const params: ICreateAgentParams = {
-        name: newAgentName.trim(),
-        description: 'Code development agent for spec tasks',
-        agentType: AGENT_TYPE_ZED_EXTERNAL,
-        codeAgentRuntime,
-        model: selectedModel,
-        generationModelProvider: selectedProvider,
-        generationModel: selectedModel,
-        reasoningModelProvider: '',
-        reasoningModel: '',
-        reasoningModelEffort: 'none',
-        smallReasoningModelProvider: '',
-        smallReasoningModel: '',
-        smallReasoningModelEffort: 'none',
-        smallGenerationModelProvider: '',
-        smallGenerationModel: '',
-      };
-
-      const newApp = await apps.createAgent(params);
-      if (newApp) {
-        return newApp.id;
-      }
-      setAgentError('Failed to create agent');
-      return null;
-    } catch (err) {
-      console.error('Failed to create agent:', err);
-      setAgentError(err instanceof Error ? err.message : 'Failed to create agent');
-      return null;
-    } finally {
-      setCreatingAgent(false);
-    }
-  };
-
-  // Handle task creation - SIMPLIFIED
-  const handleCreateTask = async () => {
-    if (!checkLoginStatus()) return;
-
-    try {
-      if (!taskPrompt.trim()) {
-        snackbar.error('Please describe what you want to get done');
-        return;
-      }
-
-      let agentId = selectedHelixAgent;
-      setAgentError('');
-
-      // Create agent inline if showing create form
-      if (showCreateAgentForm) {
-        const newAgentId = await handleCreateAgent();
-        if (!newAgentId) {
-          // Error already set in handleCreateAgent
-          return;
-        }
-        agentId = newAgentId;
-      }
-
-      // Create SpecTask with simplified single-field approach
-      // Repository configuration is managed at the project level - no task-level repo selection
-      const createTaskRequest: TypesCreateTaskRequest = {
-        prompt: taskPrompt, // Just the raw user input!
-        priority: taskPriority as TypesSpecTaskPriority,
-        project_id: projectId || 'default', // Use project ID from route, or 'default'
-        app_id: agentId || undefined, // Include selected or created agent if provided
-        just_do_it_mode: justDoItMode, // Just Do It mode: skip spec, go straight to implementation
-        // Branch configuration
-        branch_mode: branchMode,
-        base_branch: branchMode === TypesBranchMode.BranchModeNew ? baseBranch : undefined,
-        branch_prefix: branchMode === TypesBranchMode.BranchModeNew && branchPrefix ? branchPrefix : undefined,
-        working_branch: branchMode === TypesBranchMode.BranchModeExisting ? workingBranch : undefined,
-        // Repositories inherited from parent project - no task-level repo configuration
-      };
-
-      console.log('Creating SpecTask with simplified prompt:', createTaskRequest);
-
-      const response = await api.getApiClient().v1SpecTasksFromPromptCreate(createTaskRequest);
-
-      if (response.data) {
-        console.log('SpecTask created successfully:', response.data);
-        snackbar.success('SpecTask created! Planning agent will generate specifications.');
-        // Invalidate task list to update kanban board immediately
-        queryClient.invalidateQueries({ queryKey: ['spec-tasks'] });
-        setCreateDialogOpen(false);
-        setTaskPrompt('');
-        setTaskPriority('medium');
-        setSelectedHelixAgent(''); // Reset agent selection
-        setJustDoItMode(false); // Reset Just Do It mode
-        // Reset branch configuration
-        setBranchMode(TypesBranchMode.BranchModeNew);
-        setBaseBranch(defaultBranchName);
-        setBranchPrefix('');
-        setWorkingBranch('');
-        setShowBranchCustomization(false);
-        // Reset inline agent creation form
-        setShowCreateAgentForm(false);
-        setCodeAgentRuntime('zed_agent');
-        setSelectedProvider('');
-        setSelectedModel('');
-        setNewAgentName('-');
-        setUserModifiedName(false);
-        setAgentError('');
-
-        // Set focusTaskId to focus the Start Planning button on the new task
-        const newTaskId = response.data.id;
-        if (newTaskId) {
-          setFocusTaskId(newTaskId);
-          // Clear focus after a few seconds so it doesn't persist
-          setTimeout(() => setFocusTaskId(undefined), 5000);
-        }
-
-        // Trigger immediate refresh of Kanban board
-        setRefreshTrigger(prev => prev + 1);
-      }
-    } catch (error: any) {
-      console.error('Failed to create SpecTask:', error);
-      const errorMessage = error?.response?.data?.message
-        || error?.message
-        || 'Failed to create SpecTask. Please try again.';
-      snackbar.error(errorMessage);
-      // Dialog stays open so user doesn't lose their input
-    }
-  };
 
   const handleStartExploratorySession = async () => {
     try {
@@ -836,6 +496,15 @@ const SpecTasksPage: FC = () => {
   const handleOpenCreateDialog = useCallback(() => {
     setChatPanelOpen(false);
     setCreateDialogOpen(true);
+  }, []);
+
+  const handleTaskCreated = useCallback((task: TypesSpecTask) => {
+    setCreateDialogOpen(false);
+    if (task.id) {
+      setFocusTaskId(task.id);
+      setTimeout(() => setFocusTaskId(undefined), 5000);
+    }
+    setRefreshTrigger(prev => prev + 1);
   }, []);
 
   // Invite dialog helpers
@@ -1165,7 +834,7 @@ const SpecTasksPage: FC = () => {
           )}
 
           {/* No startup script warning - show when repo is connected but startup script hasn't been modified */}
-          {projectRepositories.length > 0 && startupScriptNotConfigured && (
+          {projectRepositories.length > 0 && isStartupScriptHistoryLoaded && startupScriptNotConfigured && (
             <Alert
               severity="info"
               sx={{ mb: 2 }}
@@ -1190,7 +859,7 @@ const SpecTasksPage: FC = () => {
               <SpecTaskKanbanBoard
                 userId={account.user?.id}
                 projectId={projectId}
-                wipLimits={project?.metadata?.board_settings?.wip_limits}
+                wipLimits={boardWipLimits}
                 onCreateTask={handleOpenCreateDialog}
                 onTaskClick={(task) => {
                   // Navigate to task detail page
@@ -1207,7 +876,6 @@ const SpecTasksPage: FC = () => {
                 showArchived={showArchived}
                 showMetrics={showMetrics}
                 showMerged={showMerged}
-                hideCreateButton={isMobile}
               />
             )}
             {viewMode === 'workspace' && (
@@ -1255,395 +923,15 @@ const SpecTasksPage: FC = () => {
             zIndex: { xs: 1200, md: 'auto' },
           }}
         >
-        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-          {/* Header */}
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, borderBottom: 1, borderColor: 'divider' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <AddIcon />
-              <Typography variant="h6">New SpecTask</Typography>
-            </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <IconButton onClick={() => setCreateDialogOpen(false)}>
-                <X size={20} />
-              </IconButton>
-            </Box>
-          </Box>
-
-          {/* Content */}
-          <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
-            <Stack spacing={2}>
-              {/* Priority Selector */}
-              <FormControl fullWidth size="small">
-                <InputLabel>Priority</InputLabel>
-                <Select
-                  value={taskPriority}
-                  onChange={(e) => setTaskPriority(e.target.value)}
-                  label="Priority"
-                >
-                  <MenuItem value="low">Low</MenuItem>
-                  <MenuItem value="medium">Medium</MenuItem>
-                  <MenuItem value="high">High</MenuItem>
-                  <MenuItem value="critical">Critical</MenuItem>
-                </Select>
-              </FormControl>
-
-              {/* Single text box for everything */}
-              <TextField
-                label="Describe what you want to get done"
-                fullWidth
-                required
-                multiline
-                rows={9}
-                value={taskPrompt}
-                onChange={(e) => setTaskPrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  // If user presses Enter in empty text box, close panel
-                  if (e.key === 'Enter' && !taskPrompt.trim() && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
-                    e.preventDefault()
-                    setCreateDialogOpen(false)
-                  }
-                }}
-                placeholder={justDoItMode
-                  ? "Describe what you want the agent to do. It will start immediately without planning."
-                  : "Describe the task - the AI will generate specs from this."
-                }
-                helperText={justDoItMode
-                  ? "Agent will start working immediately"
-                  : "Planning agent extracts task name, description, and generates specifications"
-                }
-                inputRef={taskPromptRef}
-                size="small"
-              />
-
-              {/* Branch Configuration */}
-              {defaultRepoId && (
-                <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 2 }}>
-                  <Typography variant="subtitle2" gutterBottom>
-                    Where do you want to work?
-                  </Typography>
-
-                  {/* Mode Selection - Two Cards */}
-                  <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                    <Box
-                      onClick={() => setBranchMode(TypesBranchMode.BranchModeNew)}
-                      sx={{
-                        flex: 1,
-                        p: 1.5,
-                        border: 2,
-                        borderColor: branchMode === TypesBranchMode.BranchModeNew ? 'primary.main' : 'divider',
-                        borderRadius: 1,
-                        cursor: 'pointer',
-                        bgcolor: branchMode === TypesBranchMode.BranchModeNew ? 'action.selected' : 'transparent',
-                        '&:hover': { bgcolor: 'action.hover' },
-                      }}
-                    >
-                      <Typography variant="body2" fontWeight={600}>
-                        Start fresh
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Create a new branch
-                      </Typography>
-                    </Box>
-                    <Box
-                      onClick={() => setBranchMode(TypesBranchMode.BranchModeExisting)}
-                      sx={{
-                        flex: 1,
-                        p: 1.5,
-                        border: 2,
-                        borderColor: branchMode === TypesBranchMode.BranchModeExisting ? 'primary.main' : 'divider',
-                        borderRadius: 1,
-                        cursor: 'pointer',
-                        bgcolor: branchMode === TypesBranchMode.BranchModeExisting ? 'action.selected' : 'transparent',
-                        '&:hover': { bgcolor: 'action.hover' },
-                      }}
-                    >
-                      <Typography variant="body2" fontWeight={600}>
-                        Continue existing
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Resume work on a branch
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  {/* Mode-specific options */}
-                  {branchMode === TypesBranchMode.BranchModeNew ? (
-                    <Stack spacing={1.5}>
-                      {!showBranchCustomization ? (
-                        <Box>
-                          <Typography variant="caption" color="text.secondary">
-                            New branch from <strong>{baseBranch || defaultBranchName}</strong>
-                          </Typography>
-                          <Button
-                            size="small"
-                            onClick={() => setShowBranchCustomization(true)}
-                            sx={{ display: 'block', textTransform: 'none', fontSize: '0.75rem', p: 0, mt: 0.5 }}
-                          >
-                            Customize branches
-                          </Button>
-                        </Box>
-                      ) : (
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                          <Box>
-                            <FormControl fullWidth size="small">
-                              <InputLabel>Base branch</InputLabel>
-                              <Select
-                                value={baseBranch}
-                                onChange={(e) => setBaseBranch(e.target.value)}
-                                label="Base branch"
-                              >
-                                {branchesData?.map((branch: string) => (
-                                  <MenuItem key={branch} value={branch}>
-                                    {branch}
-                                    {branch === defaultBranchName && (
-                                      <Chip label="default" size="small" sx={{ ml: 1, height: 18 }} />
-                                    )}
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
-                            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1.75, display: 'block' }}>
-                              New branch will be created from this base. Use to build on existing work.
-                            </Typography>
-                          </Box>
-                          <TextField
-                            label="Working branch name"
-                            size="small"
-                            fullWidth
-                            value={branchPrefix}
-                            onChange={(e) => setBranchPrefix(e.target.value)}
-                            placeholder="feature/user-auth"
-                            helperText={branchPrefix
-                              ? `Work will be done on: ${branchPrefix}-{task#}`
-                              : "Leave empty to auto-generate. This is where the agent commits changes."
-                            }
-                          />
-                          <Button
-                            size="small"
-                            onClick={() => {
-                              setShowBranchCustomization(false);
-                              setBaseBranch(defaultBranchName);
-                              setBranchPrefix('');
-                            }}
-                            sx={{ alignSelf: 'flex-start', textTransform: 'none', fontSize: '0.75rem' }}
-                          >
-                            Use defaults
-                          </Button>
-                        </Box>
-                      )}
-                    </Stack>
-                  ) : (
-                    <FormControl fullWidth size="small">
-                      <InputLabel>Select branch</InputLabel>
-                      <Select
-                        value={workingBranch}
-                        onChange={(e) => setWorkingBranch(e.target.value)}
-                        label="Select branch"
-                      >
-                        {branchesData
-                          ?.filter((branch: string) => branch !== defaultBranchName)
-                          .map((branch: string) => (
-                            <MenuItem key={branch} value={branch}>
-                              {branch}
-                            </MenuItem>
-                          ))}
-                        {branchesData?.filter((branch: string) => branch !== defaultBranchName).length === 0 && (
-                          <MenuItem disabled value="">
-                            No feature branches available
-                          </MenuItem>
-                        )}
-                      </Select>
-                    </FormControl>
-                  )}
-                </Box>
-              )}
-
-              {/* Agent Selection (dropdown) */}
-              <Box>
-                {!showCreateAgentForm ? (
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <AgentDropdown
-                      value={selectedHelixAgent}
-                      onChange={setSelectedHelixAgent}
-                      agents={sortedApps}
-                    />
-                    <Button
-                      size="small"
-                      onClick={() => setShowCreateAgentForm(true)}
-                      sx={{ alignSelf: 'flex-start', textTransform: 'none', fontSize: '0.75rem' }}
-                    >
-                      + Create new agent
-                    </Button>
-                  </Box>
-                ) : (
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      Code Agent Runtime
-                    </Typography>
-                    <FormControl fullWidth size="small">
-                      <Select
-                        value={codeAgentRuntime}
-                        onChange={(e) => setCodeAgentRuntime(e.target.value as CodeAgentRuntime)}
-                        disabled={creatingAgent}
-                      >
-                        <MenuItem value="zed_agent">
-                          <Box>
-                            <Typography variant="body2">Zed Agent (Built-in)</Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              Uses Zed's native agent panel with direct API integration
-                            </Typography>
-                          </Box>
-                        </MenuItem>
-                        <MenuItem value="qwen_code">
-                          <Box>
-                            <Typography variant="body2">Qwen Code</Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              Uses qwen-code CLI as a custom agent server (OpenAI-compatible)
-                            </Typography>
-                          </Box>
-                        </MenuItem>
-                      </Select>
-                    </FormControl>
-
-                    <Typography variant="body2" color="text.secondary">
-                      Code Agent Model
-                    </Typography>
-                    <AdvancedModelPicker
-                      recommendedModels={RECOMMENDED_MODELS}
-                      hint="Choose a capable model for agentic coding."
-                      selectedProvider={selectedProvider}
-                      selectedModelId={selectedModel}
-                      onSelectModel={(provider, model) => {
-                        setSelectedProvider(provider);
-                        setSelectedModel(model);
-                      }}
-                      currentType="text"
-                      displayMode="short"
-                      disabled={creatingAgent}
-                    />
-
-                    <Typography variant="body2" color="text.secondary">
-                      Agent Name
-                    </Typography>
-                    <TextField
-                      value={newAgentName}
-                      onChange={(e) => {
-                        setNewAgentName(e.target.value);
-                        setUserModifiedName(true);
-                      }}
-                      size="small"
-                      fullWidth
-                      disabled={creatingAgent}
-                      helperText="Auto-generated from model and runtime. Edit to customize."
-                    />
-
-                    {agentError && (
-                      <Alert severity="error">{agentError}</Alert>
-                    )}
-
-                    {sortedApps.length > 0 && (
-                      <Button
-                        size="small"
-                        onClick={() => setShowCreateAgentForm(false)}
-                        sx={{ alignSelf: 'flex-start' }}
-                        disabled={creatingAgent}
-                      >
-                        Back to agent list
-                      </Button>
-                    )}
-                  </Box>
-                )}
-              </Box>
-
-              {/* Just Do It Mode Checkbox */}
-              <FormControl fullWidth>
-                <Tooltip title={`Skip writing a spec and just get the agent to immediately start doing what you ask (${navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'})`} placement="top">
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={justDoItMode}
-                        onChange={(e) => setJustDoItMode(e.target.checked)}
-                        color="warning"
-                      />
-                    }
-                    label={
-                      <Box>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                            Just Do It
-                          </Typography>
-                          {!isMobile && (
-                            <Box component="span" sx={{ fontSize: '0.65rem', opacity: 0.6, fontFamily: 'monospace', border: '1px solid', borderColor: 'divider', borderRadius: '3px', px: 0.5 }}>
-                              {navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'}
-                            </Box>
-                          )}
-                        </Box>
-                        <Typography variant="caption" color="text.secondary">
-                          Skip spec planning — useful for tasks that don't require planning code changes (e.g., if you don't want the agent to push code)
-                        </Typography>
-                      </Box>
-                    }
-                  />
-                </Tooltip>
-              </FormControl>
-            </Stack>
-          </Box>
-
-          {/* Footer Actions */}
-          <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-            <Button onClick={() => {
-              setCreateDialogOpen(false);
-              setTaskPrompt('');
-              setTaskPriority('medium');
-              setSelectedHelixAgent('');
-              setJustDoItMode(false);
-              // Reset branch configuration
-              setBranchMode(TypesBranchMode.BranchModeNew);
-              setBaseBranch(defaultBranchName);
-              setBranchPrefix('');
-              setWorkingBranch('');
-              setShowBranchCustomization(false);
-              // Reset inline agent creation form
-              setShowCreateAgentForm(false);
-              setCodeAgentRuntime('zed_agent');
-              setSelectedProvider('');
-              setSelectedModel('');
-              setNewAgentName('-');
-              setUserModifiedName(false);
-              setAgentError('');
-            }}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleCreateTask}
-              variant="contained"
-              color="secondary"
-              disabled={!taskPrompt.trim() || creatingAgent || (showCreateAgentForm && !selectedModel)}
-              startIcon={creatingAgent ? <CircularProgress size={16} /> : <AddIcon />}
-              sx={{
-                '& .MuiButton-endIcon': {
-                  ml: 1,
-                  opacity: 0.6,
-                  fontSize: '0.75rem',
-                },
-              }}
-              endIcon={
-                !isMobile ? (
-                  <Box component="span" sx={{
-                    fontSize: '0.75rem',
-                    opacity: 0.6,
-                    fontFamily: 'monospace',
-                    ml: 1,
-                  }}>
-                    {navigator.platform.includes('Mac') ? '⌘↵' : 'Ctrl+↵'}
-                  </Box>
-                ) : undefined
-              }
-            >
-              Create Task
-            </Button>
-          </Box>
-        </Box>
+          {createDialogOpen && projectId && (
+            <NewSpecTaskForm
+              projectId={projectId}
+              onTaskCreated={handleTaskCreated}
+              onClose={() => setCreateDialogOpen(false)}
+              showHeader={true}
+              embedded={false}
+            />
+          )}
         </Box>
 
         {/* RIGHT PANEL: Chat with Project Manager Agent - full screen on mobile */}

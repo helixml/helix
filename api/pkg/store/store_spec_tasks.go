@@ -27,9 +27,20 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 		return fmt.Errorf("project ID is required")
 	}
 
-	result := s.gdb.WithContext(ctx).Create(task)
-	if result.Error != nil {
-		return fmt.Errorf("failed to create spec task: %w", result.Error)
+	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Omit("DependsOn").Create(task)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		if err := syncSpecTaskDependsOn(ctx, tx, task); err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create spec task: %w", err)
 	}
 
 	log.Info().
@@ -81,7 +92,7 @@ func (s *PostgresStore) GetSpecTask(ctx context.Context, id string) (*types.Spec
 
 	task := &types.SpecTask{}
 
-	err := s.gdb.WithContext(ctx).Where("id = ?", id).First(&task).Error
+	err := s.gdb.WithContext(ctx).Preload("DependsOn").Where("id = ?", id).First(&task).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("spec task not found: %s", id)
@@ -100,14 +111,23 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 
 	task.UpdatedAt = time.Now()
 
-	result := s.gdb.WithContext(ctx).Save(task)
+	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Omit("DependsOn").Save(task)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("spec task not found: %s", task.ID)
+		}
 
-	if result.Error != nil {
-		return fmt.Errorf("failed to update spec task: %w", result.Error)
-	}
+		if err := syncSpecTaskDependsOn(ctx, tx, task); err != nil {
+			return err
+		}
 
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("spec task not found: %s", task.ID)
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update spec task: %w", err)
 	}
 
 	log.Info().
@@ -121,9 +141,144 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 	return nil
 }
 
+func syncSpecTaskDependsOn(ctx context.Context, tx *gorm.DB, task *types.SpecTask) error {
+	if task.DependsOn == nil {
+		return nil
+	}
+
+	dependencyIDs := extractSpecTaskDependencyIDs(task.DependsOn)
+	for _, dependencyID := range dependencyIDs {
+		if dependencyID == task.ID {
+			return fmt.Errorf("task cannot depend on itself")
+		}
+	}
+
+	if len(dependencyIDs) == 0 {
+		if err := tx.WithContext(ctx).Model(task).Association("DependsOn").Clear(); err != nil {
+			return fmt.Errorf("failed to clear spec task dependencies: %w", err)
+		}
+		return nil
+	}
+
+	var dependencies []types.SpecTask
+	err := tx.WithContext(ctx).Where("id IN ?", dependencyIDs).Find(&dependencies).Error
+	if err != nil {
+		return fmt.Errorf("failed to load spec task dependencies: %w", err)
+	}
+	if len(dependencies) != len(dependencyIDs) {
+		return fmt.Errorf("depends on task not found")
+	}
+
+	for _, dependency := range dependencies {
+		if dependency.ProjectID != task.ProjectID {
+			return fmt.Errorf("depends on task must be in same project")
+		}
+	}
+
+	if err := validateSpecTaskDependencyGraph(ctx, tx, task.ProjectID, task.ID, dependencyIDs); err != nil {
+		return err
+	}
+
+	args := make([]interface{}, 0, len(dependencies))
+	for i := range dependencies {
+		args = append(args, &dependencies[i])
+	}
+
+	if err := tx.WithContext(ctx).Model(task).Association("DependsOn").Replace(args...); err != nil {
+		return fmt.Errorf("failed to sync spec task dependencies: %w", err)
+	}
+
+	return nil
+}
+
+type specTaskDependencyEdge struct {
+	SpecTaskID  string
+	DependsOnID string
+}
+
+func validateSpecTaskDependencyGraph(ctx context.Context, tx *gorm.DB, projectID, taskID string, dependencyIDs []string) error {
+	var edges []specTaskDependencyEdge
+	if err := tx.WithContext(ctx).Raw(`
+		SELECT std.spec_task_id, std.depends_on_id
+		FROM spec_task_dependencies std
+		JOIN spec_tasks owner ON owner.id = std.spec_task_id
+		JOIN spec_tasks dependency ON dependency.id = std.depends_on_id
+		WHERE owner.project_id = ? AND dependency.project_id = ?
+	`, projectID, projectID).Scan(&edges).Error; err != nil {
+		return fmt.Errorf("failed to load spec task dependency graph: %w", err)
+	}
+
+	graph := make(map[string][]string, len(edges)+1)
+	for _, edge := range edges {
+		graph[edge.SpecTaskID] = append(graph[edge.SpecTaskID], edge.DependsOnID)
+	}
+	graph[taskID] = dependencyIDs
+
+	for _, dependencyID := range dependencyIDs {
+		if hasSpecTaskDependencyPath(graph, dependencyID, taskID) {
+			return fmt.Errorf("circular dependency detected")
+		}
+	}
+
+	return nil
+}
+
+func hasSpecTaskDependencyPath(graph map[string][]string, fromID, toID string) bool {
+	if fromID == toID {
+		return true
+	}
+
+	visited := map[string]struct{}{fromID: {}}
+	stack := append([]string(nil), graph[fromID]...)
+
+	for len(stack) > 0 {
+		current := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		if current == toID {
+			return true
+		}
+		if _, ok := visited[current]; ok {
+			continue
+		}
+		visited[current] = struct{}{}
+		stack = append(stack, graph[current]...)
+	}
+
+	return false
+}
+
+func extractSpecTaskDependencyIDs(dependsOn []types.SpecTask) []string {
+	if len(dependsOn) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(dependsOn))
+	dependencyIDs := make([]string, 0, len(dependsOn))
+	for _, dependency := range dependsOn {
+		if dependency.ID == "" {
+			continue
+		}
+		if _, exists := seen[dependency.ID]; exists {
+			continue
+		}
+		seen[dependency.ID] = struct{}{}
+		dependencyIDs = append(dependencyIDs, dependency.ID)
+	}
+
+	return dependencyIDs
+}
+
 func (s *PostgresStore) DeleteSpecTask(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("task ID is required")
+	}
+
+	// Clean up junction table entries where this task is either the owner or a dependency
+	if err := s.gdb.WithContext(ctx).Exec(
+		"DELETE FROM spec_task_dependencies WHERE spec_task_id = ? OR depends_on_id = ?", id, id,
+	).Error; err != nil {
+		return fmt.Errorf("failed to delete spec task dependencies: %w", err)
 	}
 
 	result := s.gdb.WithContext(ctx).Delete(&types.SpecTask{}, "id = ?", id)
@@ -149,43 +304,45 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	db := s.gdb.WithContext(ctx)
 
 	// Apply filters using GORM query builder
-	if filters != nil {
-		if filters.ProjectID != "" {
-			db = db.Where("project_id = ?", filters.ProjectID)
-		}
-		if filters.Status != "" {
-			db = db.Where("status = ?", filters.Status)
-		}
-		if filters.UserID != "" {
-			db = db.Where("created_by = ?", filters.UserID)
-		}
-		if filters.Type != "" {
-			db = db.Where("type = ?", filters.Type)
-		}
-		if filters.Priority != "" {
-			db = db.Where("priority = ?", filters.Priority)
-		}
-		// Archive filtering logic
-		if filters.ArchivedOnly {
-			db = db.Where("archived = ?", true)
-		} else if !filters.IncludeArchived {
-			db = db.Where("archived = ? OR archived IS NULL", false)
-		}
-		// DesignDocPath filter - used for matching pushed design doc directories to tasks
-		if filters.DesignDocPath != "" {
-			db = db.Where("design_doc_path = ?", filters.DesignDocPath)
-		}
-		// BranchName filter - used for uniqueness check across projects
-		if filters.BranchName != "" {
-			db = db.Where("branch_name = ?", filters.BranchName)
-		}
 
-		if filters.Limit > 0 {
-			db = db.Limit(filters.Limit)
-		}
-		if filters.Offset > 0 {
-			db = db.Offset(filters.Offset)
-		}
+	if filters.WithDependsOn {
+		db = db.Preload("DependsOn")
+	}
+	if filters.ProjectID != "" {
+		db = db.Where("project_id = ?", filters.ProjectID)
+	}
+	if filters.Status != "" {
+		db = db.Where("status = ?", filters.Status)
+	}
+	if filters.UserID != "" {
+		db = db.Where("created_by = ?", filters.UserID)
+	}
+	if filters.Type != "" {
+		db = db.Where("type = ?", filters.Type)
+	}
+	if filters.Priority != "" {
+		db = db.Where("priority = ?", filters.Priority)
+	}
+	// Archive filtering logic
+	if filters.ArchivedOnly {
+		db = db.Where("archived = ?", true)
+	} else if !filters.IncludeArchived {
+		db = db.Where("archived = ? OR archived IS NULL", false)
+	}
+	// DesignDocPath filter - used for matching pushed design doc directories to tasks
+	if filters.DesignDocPath != "" {
+		db = db.Where("design_doc_path = ?", filters.DesignDocPath)
+	}
+	// BranchName filter - used for uniqueness check across projects
+	if filters.BranchName != "" {
+		db = db.Where("branch_name = ?", filters.BranchName)
+	}
+
+	if filters.Limit > 0 {
+		db = db.Limit(filters.Limit)
+	}
+	if filters.Offset > 0 {
+		db = db.Offset(filters.Offset)
 	}
 
 	err := db.Order("created_at DESC").Find(&tasks).Error
