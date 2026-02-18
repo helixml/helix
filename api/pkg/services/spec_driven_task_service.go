@@ -365,13 +365,6 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		OwnerType:      types.OwnerTypeUser,
 	}
 
-	// // Create the session in the database
-	// if s.controller == nil || s.controller.Options.Store == nil {
-	// 	log.Error().Str("task_id", task.ID).Msg("Controller or store not available for spec generation")
-	// 	s.markTaskFailed(ctx, task, "Controller or store not available for spec generation")
-	// 	return
-	// }
-
 	session, err = s.store.CreateSession(ctx, *session)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create spec generation session")
@@ -477,8 +470,9 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	// Get session-scoped ephemeral API key for this dev container
 	// Key is minted now and will be revoked when the desktop shuts down
 	userAPIKey, err := s.GetOrCreateSessionAPIKey(ctx, &SessionAPIKeyRequest{
-		UserID:    task.CreatedBy,
-		SessionID: session.ID,
+		OrganizationID: orgID,
+		UserID:         task.CreatedBy,
+		SessionID:      session.ID,
 	})
 	if err != nil {
 		log.Error().Err(err).Str("user_id", task.CreatedBy).Str("session_id", session.ID).Msg("Failed to get session API key for SpecTask")
@@ -866,8 +860,9 @@ Follow these guidelines when making changes:
 	// Get session-scoped ephemeral API key for this dev container
 	// Key is minted now and will be revoked when the desktop shuts down
 	userAPIKey, err := s.GetOrCreateSessionAPIKey(ctx, &SessionAPIKeyRequest{
-		UserID:    task.CreatedBy,
-		SessionID: session.ID,
+		OrganizationID: orgID,
+		UserID:         task.CreatedBy,
+		SessionID:      session.ID,
 	})
 	if err != nil {
 		log.Error().Err(err).Str("user_id", task.CreatedBy).Str("session_id", session.ID).Msg("Failed to get session API key for Just Do It task")
@@ -1377,8 +1372,9 @@ func (s *SpecDrivenTaskService) detectAndLinkExistingPR(ctx context.Context, tas
 // Keys are minted when a desktop starts and revoked when it shuts down.
 // The SessionID is used for key lifecycle management (creation/revocation).
 type SessionAPIKeyRequest struct {
-	UserID    string
-	SessionID string
+	OrganizationID string
+	UserID         string
+	SessionID      string
 }
 
 // GetOrCreateSessionAPIKey gets or creates an ephemeral API key for a session.
@@ -1393,9 +1389,10 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 
 	// Check for existing session-scoped key
 	existing, err := s.store.GetAPIKey(ctx, &types.ApiKey{
-		Owner:     req.UserID,
-		OwnerType: types.OwnerTypeUser,
-		SessionID: req.SessionID,
+		OrganizationID: req.OrganizationID,
+		Owner:          req.UserID,
+		OwnerType:      types.OwnerTypeUser,
+		SessionID:      req.SessionID,
 	})
 	if err != nil && err != store.ErrNotFound {
 		return "", fmt.Errorf("failed to get existing API key: %w", err)
@@ -1435,14 +1432,15 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 	}
 
 	apiKey := &types.ApiKey{
-		Owner:      req.UserID,
-		OwnerType:  types.OwnerTypeUser,
-		Key:        newKey,
-		Name:       keyName,
-		Type:       types.APIkeytypeAPI,
-		SessionID:  req.SessionID,
-		ProjectID:  projectID,  // For metrics/attribution
-		SpecTaskID: specTaskID, // For metrics/attribution
+		OrganizationID: req.OrganizationID,
+		Owner:          req.UserID,
+		OwnerType:      types.OwnerTypeUser,
+		Key:            newKey,
+		Name:           keyName,
+		Type:           types.APIkeytypeAPI,
+		SessionID:      req.SessionID,
+		ProjectID:      projectID,  // For metrics/attribution
+		SpecTaskID:     specTaskID, // For metrics/attribution
 	}
 
 	createdKey, err := s.store.CreateAPIKey(ctx, apiKey)
@@ -1568,8 +1566,9 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 	// Get or create session-scoped ephemeral API key for this dev container
 	// For resumed sessions, reuse any existing key or mint a new one
 	userAPIKey, err := s.GetOrCreateSessionAPIKey(ctx, &SessionAPIKeyRequest{
-		UserID:    task.CreatedBy,
-		SessionID: session.ID,
+		OrganizationID: task.OrganizationID,
+		UserID:         task.CreatedBy,
+		SessionID:      session.ID,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to get session API key for resume: %w", err)
