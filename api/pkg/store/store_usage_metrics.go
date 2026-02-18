@@ -138,7 +138,7 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
 			SUM(response_size_bytes) as response_size_bytes,
-			COUNT(DISTINCT interaction_id) as total_requests
+			COUNT(DISTINCT id) as total_requests
 		`).
 		Where("provider = ? AND date >= ? AND date <= ?", provider, from, to).
 		Group("user_id, date").
@@ -246,7 +246,7 @@ func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAgg
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
 			SUM(response_size_bytes) as response_size_bytes,
-			COUNT(DISTINCT interaction_id) as total_requests
+			COUNT(DISTINCT id) as total_requests
 		`)
 
 	if q.ProjectID != "" {
