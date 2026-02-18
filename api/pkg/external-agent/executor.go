@@ -7,6 +7,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+//go:generate mockgen -source $GOFILE -destination executor_mocks.go -package $GOPACKAGE
+
 // Executor defines the interface for external agent executors
 type Executor interface {
 	// Desktop session methods
@@ -15,13 +17,6 @@ type Executor interface {
 	GetSession(sessionID string) (*ZedSession, error)
 	CleanupExpiredSessions(ctx context.Context, timeout time.Duration)
 	ListSessions() []*ZedSession
-
-	// Multi-session SpecTask methods
-	StartZedInstance(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error)
-	CreateZedThread(ctx context.Context, instanceID, threadID string, config map[string]interface{}) error
-	StopZedInstance(ctx context.Context, instanceID string) error
-	GetInstanceStatus(instanceID string) (*ZedInstanceStatus, error)
-	ListInstanceThreads(instanceID string) ([]*ZedThreadInfo, error)
 
 	// Screenshot support
 	FindContainerBySessionID(ctx context.Context, helixSessionID string) (string, error)

@@ -82,6 +82,9 @@ func NewHydraExecutor(cfg HydraExecutorConfig) *HydraExecutor {
 func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
 	// Get or create a per-session lock to prevent concurrent container creation
 	h.creationLocksMutex.Lock()
+
+	// Check limits for the user/org
+
 	sessionLock, exists := h.creationLocks[agent.SessionID]
 	if !exists {
 		sessionLock = &sync.Mutex{}
@@ -94,6 +97,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	defer sessionLock.Unlock()
 
 	log.Info().
+		Str("organization_id", agent.OrganizationID).
 		Str("session_id", agent.SessionID).
 		Str("user_id", agent.UserID).
 		Str("project_path", agent.ProjectPath).
@@ -532,36 +536,6 @@ func (h *HydraExecutor) ListSessions() []*ZedSession {
 	return sessions
 }
 
-// StartZedInstance starts a Zed instance (alias for StartDesktop for multi-session support)
-func (h *HydraExecutor) StartZedInstance(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
-	return h.StartDesktop(ctx, agent)
-}
-
-// CreateZedThread creates a new thread in an existing Zed instance
-func (h *HydraExecutor) CreateZedThread(ctx context.Context, instanceID, threadID string, config map[string]interface{}) error {
-	// Thread management is handled by the agent inside the container
-	// This is a placeholder for future multi-thread support
-	log.Info().
-		Str("instance_id", instanceID).
-		Str("thread_id", threadID).
-		Msg("CreateZedThread called (no-op in Hydra executor)")
-	return nil
-}
-
-// DeleteZedThread deletes a thread from a Zed instance
-func (h *HydraExecutor) DeleteZedThread(ctx context.Context, instanceID, threadID string) error {
-	log.Info().
-		Str("instance_id", instanceID).
-		Str("thread_id", threadID).
-		Msg("DeleteZedThread called (no-op in Hydra executor)")
-	return nil
-}
-
-// StopZedInstance stops a Zed instance (alias for StopDesktop)
-func (h *HydraExecutor) StopZedInstance(ctx context.Context, instanceID string) error {
-	return h.StopDesktop(ctx, instanceID)
-}
-
 // GetInstanceStatus returns the status of a Zed instance
 func (h *HydraExecutor) GetInstanceStatus(instanceID string) (*ZedInstanceStatus, error) {
 	h.mutex.RLock()
@@ -578,20 +552,6 @@ func (h *HydraExecutor) GetInstanceStatus(instanceID string) (*ZedInstanceStatus
 		ThreadCount: 1,
 		ProjectPath: session.ProjectPath,
 	}, nil
-}
-
-// ListInstanceThreads returns threads for an instance
-func (h *HydraExecutor) ListInstanceThreads(instanceID string) ([]*ZedThreadInfo, error) {
-	h.mutex.RLock()
-	defer h.mutex.RUnlock()
-
-	_, exists := h.sessions[instanceID]
-	if !exists {
-		return nil, fmt.Errorf("instance %s not found", instanceID)
-	}
-
-	// Hydra executor doesn't support multi-threading yet
-	return []*ZedThreadInfo{}, nil
 }
 
 // FindContainerBySessionID finds the container name for a session
