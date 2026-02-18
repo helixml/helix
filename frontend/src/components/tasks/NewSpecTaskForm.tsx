@@ -360,7 +360,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, borderBottom: 1, borderColor: 'divider' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <AddIcon />
-            <Typography variant="h6">New SpecTask XXX</Typography>
+            <Typography variant="h6">New SpecTask</Typography>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             {onClose && (
