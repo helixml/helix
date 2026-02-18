@@ -317,7 +317,7 @@ func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, a
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
 			SUM(response_size_bytes) as response_size_bytes,
-			COUNT(DISTINCT interaction_id) as total_requests
+			COUNT(DISTINCT id) as total_requests
 		`).
 		Where("app_id = ? AND date >= ? AND date <= ?", appID, from, to).
 		Group("user_id, date").
