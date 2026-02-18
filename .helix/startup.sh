@@ -19,6 +19,16 @@
 
 set -xeuo pipefail
 
+# Add Go bin to PATH permanently for tools like swag, mockgen
+if ! grep -q 'export PATH=.*go/bin' ~/.bashrc 2>/dev/null; then
+    echo '' >> ~/.bashrc
+    echo '# Go bin path for swag, mockgen, etc.' >> ~/.bashrc
+    echo 'export PATH="$PATH:$HOME/go/bin"' >> ~/.bashrc
+    echo "Added ~/go/bin to ~/.bashrc"
+fi
+# Also set for current script
+export PATH="$PATH:$HOME/go/bin"
+
 echo "========================================"
 echo "  Helix-in-Helix Development Setup"
 echo "========================================"
