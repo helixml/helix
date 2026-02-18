@@ -91,9 +91,22 @@ fi
 if [ "$SKIP_WAILS" = false ]; then
     log "Step 1: Building Wails app..."
     cd "$FOR_MAC_DIR"
+    # Build-time app version for About panel and updater logic.
+    # Priority: explicit APP_VERSION > CI tag envs > exact git tag > short SHA.
+    APP_VERSION="${APP_VERSION:-${DRONE_TAG:-${VERSION:-${GITHUB_REF_NAME:-}}}}"
+    if [ -z "$APP_VERSION" ]; then
+        APP_VERSION="$(git -C "$REPO_ROOT" describe --tags --exact-match 2>/dev/null || true)"
+    fi
+    if [ -z "$APP_VERSION" ]; then
+        APP_VERSION="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo "dev")"
+    fi
+    # UI renders "v{appVersion}", so avoid double-prefix when tag already starts with "v".
+    APP_VERSION="${APP_VERSION#v}"
+    log "  App version: $APP_VERSION"
+
     # -skipbindings avoids launching a GUI window which hangs in headless environments.
     # Bindings are pre-generated in frontend/wailsjs/ and committed to the repo.
-    wails build -clean -skipbindings
+    wails build -clean -skipbindings -ldflags "-X main.Version=${APP_VERSION}"
     log "Wails build complete"
 else
     log "Step 1: Skipping Wails build (--skip-wails)"
