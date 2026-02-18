@@ -577,6 +577,12 @@ export interface ServerBatchTaskProgressResponse {
   tasks?: Record<string, ServerTaskProgressResponse>;
 }
 
+export interface ServerBatchTaskUsageResponse {
+  project_id?: string;
+  /** keyed by task_id */
+  tasks?: Record<string, TypesAggregatedUsageMetric[]>;
+}
+
 export interface ServerClaudeLoginSessionResponse {
   session_id?: string;
 }
@@ -9088,6 +9094,22 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/projects/${id}/tasks-progress`,
         method: "GET",
         query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get usage metrics for all spec-driven tasks in a project in a single request. This is more efficient than calling the individual usage endpoint for each task.
+     *
+     * @tags spec-driven-tasks
+     * @name V1ProjectsTasksUsageDetail
+     * @summary Get usage for all tasks in a project
+     * @request GET:/api/v1/projects/{id}/tasks-usage
+     */
+    v1ProjectsTasksUsageDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerBatchTaskUsageResponse, TypesAPIError>({
+        path: `/api/v1/projects/${id}/tasks-usage`,
+        method: "GET",
         format: "json",
         ...params,
       }),

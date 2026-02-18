@@ -882,6 +882,18 @@ definitions:
         description: keyed by task_id
         type: object
     type: object
+  server.BatchTaskUsageResponse:
+    properties:
+      project_id:
+        type: string
+      tasks:
+        additionalProperties:
+          items:
+            $ref: '#/definitions/types.AggregatedUsageMetric'
+          type: array
+        description: keyed by task_id
+        type: object
+    type: object
   server.ClaudeLoginSessionResponse:
     properties:
       session_id:
@@ -13698,6 +13710,35 @@ paths:
           schema:
             $ref: '#/definitions/types.APIError'
       summary: Get progress for all tasks in a project
+      tags:
+      - spec-driven-tasks
+  /api/v1/projects/{id}/tasks-usage:
+    get:
+      description: Get usage metrics for all spec-driven tasks in a project in a single
+        request. This is more efficient than calling the individual usage endpoint
+        for each task.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.BatchTaskUsageResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: Get usage for all tasks in a project
       tags:
       - spec-driven-tasks
   /api/v1/projects/{id}/usage:

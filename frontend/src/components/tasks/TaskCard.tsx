@@ -41,12 +41,14 @@ import {
   useStopAgent,
 } from "../../services/specTaskWorkflowService";
 import {
-  useTaskProgress,
   useUpdateSpecTask,
   useDeleteSpecTask,
 } from "../../services/specTaskService";
-import { ServerTaskProgressResponse } from "../../api/api";
-import { TypesSpecTaskStatus } from "../../api/api";
+import {
+  ServerTaskProgressResponse,
+  TypesSpecTaskStatus,
+  TypesAggregatedUsageMetric,
+} from "../../api/api";
 import UsagePulseChart from "./UsagePulseChart";
 import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopViewer";
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
@@ -200,10 +202,10 @@ interface TaskCardProps {
   showMetrics?: boolean;
   /** Hide the "Clone to other projects" menu option (used in clone batch progress view) */
   hideCloneOption?: boolean;
-  /** Whether this card is visible on screen - controls polling behavior */
-  isVisible?: boolean;
-  /** Pre-fetched progress data from batch endpoint - if provided, skips individual fetch */
+  /** Pre-fetched progress data from batch endpoint - required */
   progressData?: ServerTaskProgressResponse;
+  /** Pre-fetched usage data from batch endpoint - required */
+  usageData?: TypesAggregatedUsageMetric[];
 }
 
 // Interface for checklist items from API
@@ -530,8 +532,8 @@ function TaskCardInner({
   hasExternalRepo = false,
   showMetrics = true,
   hideCloneOption = false,
-  isVisible = true,
-  progressData: externalProgressData,
+  progressData,
+  usageData,
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false);
   const [showCloneDialog, setShowCloneDialog] = useState(false);
@@ -543,17 +545,9 @@ function TaskCardInner({
   const updateSpecTask = useUpdateSpecTask();
   const deleteSpecTask = useDeleteSpecTask();
 
-  // Fetch checklist progress for active tasks (planning/implementation)
-  // Only poll when card is visible on screen to reduce network/CPU load
-  // Skip individual fetch if progress data is provided from batch endpoint
+  // Check if we should show progress (planning/implementation phases)
   const showProgress =
     task.phase === "planning" || task.phase === "implementation";
-  const { data: fetchedProgressData } = useTaskProgress(task.id, {
-    enabled: showProgress && isVisible && !externalProgressData,
-    refetchInterval: isVisible && !externalProgressData ? 5000 : false,
-  });
-  // Use externally provided data if available, otherwise use fetched data
-  const progressData = externalProgressData ?? fetchedProgressData;
 
   // Check agent activity status using backend-tracked work state
   const { isActive, needsAttention, markAsSeen } = useAgentActivityCheck(
@@ -907,11 +901,7 @@ function TaskCardInner({
             task.phase === "review" ||
             task.phase === "implementation" ||
             task.phase === "pull_request") && (
-            <UsagePulseChart
-              taskId={task.id}
-              accentColor={accentColor}
-              isVisible={isVisible}
-            />
+            <UsagePulseChart accentColor={accentColor} usageData={usageData} />
           )}
 
         {/* Gorgeous checklist progress for active tasks */}

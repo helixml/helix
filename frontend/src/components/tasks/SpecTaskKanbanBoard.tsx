@@ -69,8 +69,12 @@ import {
   SpecTask,
   useSpecTasks,
   useBatchTaskProgress,
+  useBatchTaskUsage,
 } from "../../services/specTaskService";
-import { ServerTaskProgressResponse } from "../../api/api";
+import {
+  ServerTaskProgressResponse,
+  TypesAggregatedUsageMetric,
+} from "../../api/api";
 import BacklogTableView from "./BacklogTableView";
 import { useCreateSampleRepository } from "../../services/gitRepositoryService";
 import { useSampleTypes } from "../../hooks/useSampleTypes";
@@ -232,6 +236,8 @@ const DroppableColumn: React.FC<{
   onHeaderClick?: () => void;
   /** Batch progress data keyed by task ID - avoids per-card polling */
   batchProgressData?: Record<string, ServerTaskProgressResponse>;
+  /** Batch usage data keyed by task ID - avoids per-card polling */
+  batchUsageData?: Record<string, TypesAggregatedUsageMetric[]>;
 }> = ({
   column,
   columns,
@@ -247,6 +253,7 @@ const DroppableColumn: React.FC<{
   theme,
   onHeaderClick,
   batchProgressData,
+  batchUsageData,
 }): JSX.Element => {
   // Simplified - no drag and drop, no complex interactions
   const setNodeRef = (node: HTMLElement | null) => {};
@@ -269,6 +276,7 @@ const DroppableColumn: React.FC<{
         hasExternalRepo={hasExternalRepo}
         showMetrics={showMetrics}
         progressData={batchProgressData?.[task.id]}
+        usageData={batchUsageData?.[task.id]}
       />
     );
   };
@@ -500,6 +508,13 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     },
   );
   const batchProgressData = batchProgressResponse?.tasks;
+
+  // Batch fetch usage for ALL tasks in project - single request instead of N requests
+  const { data: batchUsageResponse } = useBatchTaskUsage(projectId || "", {
+    enabled: !!projectId,
+    refetchInterval: 60000, // Poll every 60 seconds for usage (less frequent than progress)
+  });
+  const batchUsageData = batchUsageResponse?.tasks;
 
   // Planning form state
   const [newTaskRequirements, setNewTaskRequirements] = useState("");
@@ -1181,6 +1196,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                   : undefined
               }
               batchProgressData={batchProgressData}
+              batchUsageData={batchUsageData}
             />
           ))
         )}

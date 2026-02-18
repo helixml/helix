@@ -1,13 +1,17 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // getUsage godoc
@@ -203,4 +207,118 @@ func selectAggregationLevel(from, to time.Time) store.AggregationLevel {
 	// pointsAtHourly < minPoints but pointsAt5Min > maxPoints
 	// Use hourly anyway (slightly sparse is better than 1000+ points)
 	return store.AggregationLevelHourly
+}
+
+// BatchTaskUsageResponse contains usage metrics for all tasks in a project
+type BatchTaskUsageResponse struct {
+	ProjectID string                                    `json:"project_id"`
+	Tasks     map[string][]*types.AggregatedUsageMetric `json:"tasks"` // keyed by task_id
+}
+
+// getBatchTaskUsage godoc
+// @Summary Get usage for all tasks in a project
+// @Description Get usage metrics for all spec-driven tasks in a project in a single request. This is more efficient than calling the individual usage endpoint for each task.
+// @Tags    spec-driven-tasks
+// @Produce json
+// @Param   id path string true "Project ID"
+// @Success 200 {object} BatchTaskUsageResponse
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router  /api/v1/projects/{id}/tasks-usage [get]
+func (s *HelixAPIServer) getBatchTaskUsage(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	projectID := vars["id"]
+
+	if projectID == "" {
+		http.Error(w, "project ID is required", http.StatusBadRequest)
+		return
+	}
+
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to access the project
+	if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionGet); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Get all non-archived tasks for this project
+	tasks, err := s.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID:       projectID,
+		IncludeArchived: false,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("project_id", projectID).Msg("Failed to list tasks for batch usage")
+		http.Error(w, "failed to list tasks", http.StatusInternalServerError)
+		return
+	}
+
+	// Build response with usage for each task
+	response := BatchTaskUsageResponse{
+		ProjectID: projectID,
+		Tasks:     make(map[string][]*types.AggregatedUsageMetric, len(tasks)),
+	}
+
+	// Fetch usage in parallel with concurrency limit
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	semaphore := make(chan struct{}, 10) // Limit to 10 concurrent DB queries
+
+	for _, task := range tasks {
+		wg.Add(1)
+		go func(t *types.SpecTask) {
+			defer wg.Done()
+
+			// Acquire semaphore
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			// Calculate time range for this task
+			var from time.Time
+			switch {
+			case t.PlanningStartedAt != nil:
+				from = *t.PlanningStartedAt
+			case t.StartedAt != nil:
+				from = *t.StartedAt
+			default:
+				from = t.CreatedAt
+			}
+
+			// Ensure minimum 30 min range
+			minFrom := time.Now().Add(-30 * time.Minute)
+			if from.After(minFrom) {
+				from = minFrom
+			}
+
+			to := time.Now()
+			aggregationLevel := selectAggregationLevel(from, to)
+
+			metrics, err := s.Store.GetAggregatedUsageMetrics(ctx, &store.GetAggregatedUsageMetricsQuery{
+				AggregationLevel: aggregationLevel,
+				UserID:           user.ID,
+				ProjectID:        projectID,
+				SpecTaskID:       t.ID,
+				From:             from,
+				To:               to,
+			})
+			if err != nil {
+				log.Error().Err(err).Str("task_id", t.ID).Msg("Failed to get usage for task")
+				return
+			}
+
+			mu.Lock()
+			response.Tasks[t.ID] = metrics
+			mu.Unlock()
+		}(task)
+	}
+
+	wg.Wait()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }

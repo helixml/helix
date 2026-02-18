@@ -2,27 +2,19 @@ import React, { useMemo } from "react";
 import { Box, Tooltip } from "@mui/material";
 import useTheme from "@mui/material/styles/useTheme";
 import { LineChart } from "@mui/x-charts";
-import { useSpecTaskUsage } from "../../services/specTaskService";
 import { TypesAggregatedUsageMetric } from "../../api/api";
 
 interface UsagePulseChartProps {
-  taskId: string;
   accentColor: string;
-  isVisible?: boolean; // Only poll when visible on screen
+  /** Usage data from batch endpoint - required */
+  usageData?: TypesAggregatedUsageMetric[];
 }
 
 const UsagePulseChart: React.FC<UsagePulseChartProps> = ({
-  taskId,
   accentColor,
-  isVisible = true,
+  usageData,
 }) => {
   const theme = useTheme();
-
-  const { data: usageData, isLoading } = useSpecTaskUsage(taskId, {
-    aggregationLevel: "5min",
-    enabled: !!taskId && isVisible, // Don't fetch if not visible
-    refetchInterval: isVisible ? 60000 : false, // Only poll when visible
-  });
 
   const { chartData, chartLabels, totalTokens } = useMemo(() => {
     if (!usageData || usageData.length === 0)
@@ -45,36 +37,6 @@ const UsagePulseChart: React.FC<UsagePulseChartProps> = ({
     const total = data.reduce((a, b) => a + b, 0);
     return { chartData: data, chartLabels: labels, totalTokens: total };
   }, [usageData]);
-
-  if (isLoading) {
-    return (
-      <Box
-        sx={{
-          width: "100%",
-          height: 50,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <Box
-          sx={{
-            width: 16,
-            height: 16,
-            borderRadius: "50%",
-            border: "2px solid",
-            borderColor: accentColor,
-            borderTopColor: "transparent",
-            animation: "spin 1s linear infinite",
-            "@keyframes spin": {
-              "0%": { transform: "rotate(0deg)" },
-              "100%": { transform: "rotate(360deg)" },
-            },
-          }}
-        />
-      </Box>
-    );
-  }
 
   if (!chartData || chartData.length === 0 || totalTokens === 0) return null;
 
