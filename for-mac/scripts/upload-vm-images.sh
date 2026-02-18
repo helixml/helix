@@ -118,9 +118,9 @@ else
     UNCOMPRESSED_SIZE=$(stat -f%z "$UNCOMPRESSED" 2>/dev/null || stat -c%s "$UNCOMPRESSED" 2>/dev/null)
     log "  Uncompressed qcow2: $(echo "$UNCOMPRESSED_SIZE" | awk '{printf "%.1f GB", $1/1073741824}')"
 
-    log "Step 1b: Compressing with zstd -15 (this may take a few minutes)..."
+    log "Step 1b: Compressing with zstd -3 (multithreaded)..."
     DISK_PATH="${UPLOAD_DIR}/disk.qcow2.zst"
-    zstd -T0 -15 "$UNCOMPRESSED" -o "$DISK_PATH" --force 2>&1
+    zstd -T0 -3 "$UNCOMPRESSED" -o "$DISK_PATH" --force 2>&1
     COMP_SIZE=$(stat -f%z "$DISK_PATH" 2>/dev/null || stat -c%s "$DISK_PATH" 2>/dev/null)
     RATIO=$(echo "scale=1; 100 - $COMP_SIZE * 100 / $UNCOMPRESSED_SIZE" | bc)
     log "  Compressed: $(echo "$COMP_SIZE" | awk '{printf "%.1f GB", $1/1073741824}') (${RATIO}% smaller than uncompressed)"
