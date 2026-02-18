@@ -340,6 +340,7 @@ export interface IServerConfig {
   stripe_enabled: boolean,
   sentry_dsn_frontend: string,
   google_analytics_frontend: string,
+  providers_management_enabled: boolean,
   eval_user_id: string,
   tools_enabled: boolean,
   apps_enabled: boolean,
