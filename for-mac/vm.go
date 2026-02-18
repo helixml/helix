@@ -164,12 +164,15 @@ func (vm *VMManager) getSpiceSocketPath() string {
 }
 
 // bindAddr returns the address to bind forwarded ports to.
-// Returns "0.0.0.0" if network exposure is enabled, empty string (localhost) otherwise.
+// Returns empty string (QEMU defaults to 0.0.0.0) if network exposure is enabled,
+// "127.0.0.1" to restrict to localhost otherwise.
+// Note: QEMU's SLIRP defaults to INADDR_ANY when the host address is empty,
+// so we must explicitly pass 127.0.0.1 to restrict access.
 func (vm *VMManager) bindAddr() string {
 	if vm.config.ExposeOnNetwork {
-		return "0.0.0.0"
+		return ""
 	}
-	return ""
+	return "127.0.0.1"
 }
 
 // adminUserIDs returns the ADMIN_USER_IDS env var value.
@@ -1014,13 +1017,14 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 				apiCheckCount++
 				elapsed := time.Since(stackStartedAt)
 				if elapsed > apiTimeout {
-					// API didn't come up — check what's wrong with docker compose
+					// API didn't come up — gather diagnostic info
 					log.Printf("API not ready after %v — checking container status", apiTimeout)
-					errMsg := vm.diagnoseAPIFailure()
+					diag := vm.diagnoseAPIFailure()
 					vm.statusMu.Lock()
 					vm.status.BootStage = ""
 					vm.statusMu.Unlock()
-					vm.setError(fmt.Errorf("API failed to start: %s", errMsg))
+					vm.setError(fmt.Errorf("unable to reach API on port %d after %.0f minutes. Diagnostics:\n%s",
+						vm.config.APIPort, apiTimeout.Minutes(), diag))
 					return
 				}
 
@@ -1070,7 +1074,9 @@ func (vm *VMManager) waitForReady(ctx context.Context) {
 	}
 }
 
-// diagnoseAPIFailure checks docker compose inside the VM to determine why the API isn't starting
+// diagnoseAPIFailure checks docker compose inside the VM to gather diagnostic info
+// about why the API health check is failing. This only runs after the timeout —
+// it does NOT gate readiness, it just collects context for the error message.
 func (vm *VMManager) diagnoseAPIFailure() string {
 	composeFile := vm.composeFile
 	if composeFile == "" {
@@ -1092,7 +1098,7 @@ func (vm *VMManager) diagnoseAPIFailure() string {
 		log.Printf("API container logs:\n%s", logOut)
 	}
 
-	return fmt.Sprintf("containers: %s", status)
+	return status
 }
 
 // checkAPIHealth verifies the Helix API is actually responding to HTTP requests.
