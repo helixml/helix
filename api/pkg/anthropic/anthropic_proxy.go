@@ -96,6 +96,16 @@ func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.Mo
 }
 
 func (s *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	endpoint := GetRequestProviderEndpoint(r.Context())
+	if endpoint == nil {
+		log.Error().Msg("provider endpoint not found in context")
+		return
+	}
+
+	if r.Body == nil {
+		return
+	}
+
 	r = setStartTime(r, time.Now())
 
 	s.anthropicReverseProxy.ServeHTTP(w, r)
@@ -110,35 +120,6 @@ func (s *Proxy) anthropicAPIProxyDirector(r *http.Request) {
 
 	if r.Body == nil {
 		return
-	}
-
-	if s.cfg.Providers.BillingEnabled {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			log.Error().Err(err).Msg("failed to read anthropic request body")
-			return
-		}
-		r.Body = io.NopCloser(bytes.NewBuffer(body))
-
-		modelName, ok := parseAnthropicRequestModel(body)
-		if !ok {
-			return
-		}
-
-		_, err = s.modelInfoProvider.GetModelInfo(r.Context(), &model.ModelInfoRequest{
-			BaseURL:  endpoint.BaseURL,
-			Provider: endpoint.Name,
-			Model:    modelName,
-		})
-		if err != nil {
-			log.Error().Err(err).
-				Str("model", modelName).
-				Str("provider", endpoint.Name).
-				Str("base_url", endpoint.BaseURL).
-				Msg("failed to get model info for billing")
-			return
-		}
-		// OK
 	}
 
 	u, err := url.Parse(endpoint.BaseURL)
@@ -393,22 +374,38 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 }
 
 func (s *Proxy) getModelInfo(ctx context.Context, baseURL, provider, modelName string) (*types.ModelInfo, error) {
-	// Models can come as claude-sonnet-4-20250514, we need to strip the date
-	strippedModelName := stripDateFromModelName(modelName)
 
 	modelInfo, err := s.modelInfoProvider.GetModelInfo(ctx, &model.ModelInfoRequest{
 		BaseURL:  baseURL,
 		Provider: provider,
-		Model:    strippedModelName,
+		Model:    modelName,
 	})
 	if err != nil {
 		log.Warn().
 			Err(err).
-			Str("model", strippedModelName).
+			Str("model", modelName).
 			Str("original_model", modelName).
 			Str("provider", provider).
 			Err(err).Msg("failed to get model info")
-		return nil, err
+
+		// Try stripping
+		// Models can come as claude-sonnet-4-20250514, we need to strip the date
+		strippedModelName := stripDateFromModelName(modelName)
+		modelInfo, err = s.modelInfoProvider.GetModelInfo(ctx, &model.ModelInfoRequest{
+			BaseURL:  baseURL,
+			Provider: provider,
+			Model:    strippedModelName,
+		})
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("model", strippedModelName).
+				Str("original_model", modelName).
+				Str("provider", provider).
+				Err(err).Msg("failed to get model info")
+			return nil, err
+		}
+		// OK, we got model info
 	}
 	return modelInfo, nil
 }
@@ -455,21 +452,4 @@ func isNumeric(s string) bool {
 		}
 	}
 	return true
-}
-
-func parseAnthropicRequestModel(body []byte) (string, bool) {
-	if len(body) == 0 {
-		return "", false
-	}
-
-	var req anthropic.Message
-	if err := json.Unmarshal(body, &req); err != nil {
-		return "", false
-	}
-
-	if req.Model == "" {
-		return "", false
-	}
-
-	return string(req.Model), true
 }
