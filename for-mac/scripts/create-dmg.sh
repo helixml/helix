@@ -225,6 +225,34 @@ log "  Mounted at: $MOUNT_DIR"
 rm -rf "$MOUNT_DIR/${APP_BUNDLE_NAME}.app"
 cp -R "$APP_BUNDLE" "$MOUNT_DIR/"
 
+# Apply Finder styling (background, icon positions, window size)
+# The .DS_Store from the template is often ignored by Finder, so we
+# re-apply styling via AppleScript on every build. This requires a GUI
+# session (logged-in user) but works on macOS exec CI runners.
+VOLUME_NAME=$(basename "$MOUNT_DIR")
+log "Applying Finder styling..."
+osascript <<APPLESCRIPT || log "WARNING: Finder styling failed (no GUI session?) — DMG will work but lack background"
+    tell application "Finder"
+        tell disk "$VOLUME_NAME"
+            open
+            set current view of container window to icon view
+            set toolbar visible of container window to false
+            set statusbar visible of container window to false
+            set the bounds of container window to {100, 100, 760, 500}
+            set viewOptions to the icon view options of container window
+            set arrangement of viewOptions to not arranged
+            set icon size of viewOptions to 128
+            set background picture of viewOptions to file ".background:background.png"
+            set position of item "${APP_BUNDLE_NAME}.app" of container window to {490, 175}
+            set position of item "Applications" of container window to {170, 175}
+            close
+            open
+            delay 2
+            close
+        end tell
+    end tell
+APPLESCRIPT
+
 sync
 log "Unmounting DMG..."
 hdiutil detach "$MOUNT_DIR" -quiet || hdiutil detach "$MOUNT_DIR" -force
