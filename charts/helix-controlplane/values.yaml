@@ -288,7 +288,7 @@ kodit:
   # Kodit application image
   image:
     repository: registry.helixml.tech/helix/kodit
-    tag: "0.5.24"
+    tag: "1.0.0"
     pullPolicy: IfNotPresent
 
   # Database authentication (for kodit's vectorchord database)
@@ -306,7 +306,7 @@ kodit:
   enrichment:
     # Base URL for enrichment API (defaults to Helix controlplane)
     baseUrl: "" # Defaults to http://<fullname>:80/v1
-    model: "openai/kodit-model"
+    model: "kodit-model"
     parallelTasks: "3"
     timeout: "120"
     # API key for enrichment endpoint
