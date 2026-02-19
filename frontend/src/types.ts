@@ -673,6 +673,12 @@ export interface IAssistantConfig {
    */
   code_agent_runtime?: 'zed_agent' | 'qwen_code';
   /**
+   * CodeAgentCredentialType specifies how the code agent authenticates.
+   * "api_key" (default): uses an API key routed through the Helix proxy.
+   * "subscription": uses OAuth credentials directly (e.g., Claude subscription).
+   */
+  code_agent_credential_type?: 'api_key' | 'subscription';
+  /**
    * ContextLimit - the number of messages to include in the context for the AI assistant.
    * When set to 1, the AI assistant will only see and remember the most recent message.
    */
@@ -897,6 +903,7 @@ export interface IAppFlatState {
   small_generation_model?: string
   small_generation_model_provider?: string
   code_agent_runtime?: 'zed_agent' | 'qwen_code'
+  code_agent_credential_type?: 'api_key' | 'subscription'
   context_limit?: number
   frequency_penalty?: number
   max_tokens?: number
