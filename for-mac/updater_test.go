@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"testing"
 )
 
@@ -94,5 +95,91 @@ func TestIsNewer(t *testing.T) {
 				t.Errorf("IsNewer(%q, %q) = %v, want %v", tt.current, tt.latest, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestUpdaterIsVMDownloading(t *testing.T) {
+	u := NewUpdater()
+	if u.IsVMDownloading() {
+		t.Error("new Updater should not be downloading")
+	}
+
+	// Simulate setting vmDownloading
+	u.mu.Lock()
+	u.vmDownloading = true
+	u.mu.Unlock()
+
+	if !u.IsVMDownloading() {
+		t.Error("expected IsVMDownloading to return true")
+	}
+}
+
+func TestUpdaterCancelSplitFunctions(t *testing.T) {
+	u := NewUpdater()
+
+	appCancelled := false
+	vmCancelled := false
+
+	_, appCancel := context.WithCancel(context.Background())
+	_, vmCancel := context.WithCancel(context.Background())
+
+	// Wrap cancel funcs to track calls
+	u.mu.Lock()
+	u.appCancelFunc = func() { appCancelled = true; appCancel() }
+	u.vmCancelFunc = func() { vmCancelled = true; vmCancel() }
+	u.mu.Unlock()
+
+	u.Cancel()
+
+	if !appCancelled {
+		t.Error("expected appCancelFunc to be called")
+	}
+	if !vmCancelled {
+		t.Error("expected vmCancelFunc to be called")
+	}
+
+	// After cancel, both should be nil
+	u.mu.Lock()
+	if u.appCancelFunc != nil {
+		t.Error("appCancelFunc should be nil after Cancel()")
+	}
+	if u.vmCancelFunc != nil {
+		t.Error("vmCancelFunc should be nil after Cancel()")
+	}
+	u.mu.Unlock()
+}
+
+func TestUpdaterCancelOnlyApp(t *testing.T) {
+	u := NewUpdater()
+
+	appCancelled := false
+	_, appCancel := context.WithCancel(context.Background())
+
+	u.mu.Lock()
+	u.appCancelFunc = func() { appCancelled = true; appCancel() }
+	// vmCancelFunc is nil
+	u.mu.Unlock()
+
+	u.Cancel() // should not panic
+
+	if !appCancelled {
+		t.Error("expected appCancelFunc to be called")
+	}
+}
+
+func TestUpdaterVMDownloadingGuard(t *testing.T) {
+	u := NewUpdater()
+
+	// Simulate a download in progress
+	u.mu.Lock()
+	u.vmDownloading = true
+	u.mu.Unlock()
+
+	err := u.DownloadVMUpdate(nil, nil, false)
+	if err == nil {
+		t.Fatal("expected error when download already in progress")
+	}
+	if err.Error() != "VM download already in progress" {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
