@@ -374,7 +374,9 @@ export default function Onboarding() {
       localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrg.name)
     }
     if (createdProjectId && createdOrg) {
-      router.navigateReplace('org_projects', { org_id: createdOrg.name })
+      router.navigateReplace('org_project-specs', { org_id: createdOrg.name, id: createdProjectId })
+    } else if (createdProjectId) {
+      router.navigateReplace('project-specs', { id: createdProjectId })
     } else {
       router.navigateReplace('projects')
     }
