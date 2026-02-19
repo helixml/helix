@@ -17,49 +17,29 @@ The `should_be_following` field controls whether the workspace follows the agent
 
 ## Design Decision
 
-**Approach: Add a configurable setting with `true` as default**
+**Approach: Flip the default to `true`**
 
-Rather than just flipping the hardcoded boolean, we'll add a new setting `auto_follow_agent` to `AgentSettings`. This allows users who dislike the behavior to disable it.
+This is a one-line change. No need for a configurable setting in our Helix fork - if configurability is needed later, the settings-sync-daemon can set it via the existing Zed settings mechanism.
 
-### Why a setting instead of just changing the default?
-- Some users may find auto-follow distracting
-- Consistent with other agent behaviors (e.g., `always_allow_tool_actions`, `expand_edit_card`)
-- Minimal additional complexity
+## Change Required
 
-## Changes Required
+In `crates/agent_ui/src/acp/thread_view/active_thread.rs`, update `AcpThreadView::new`:
 
-### 1. Settings Content (`settings_content/src/agent.rs`)
-Add field to `AgentSettingsContent`:
 ```rust
-/// Whether to automatically follow the agent's activity when sending messages.
-/// Default: true
-pub auto_follow_agent: Option<bool>,
-```
+// Before
+should_be_following: false,
 
-### 2. Agent Settings (`agent_settings/src/agent_settings.rs`)
-Add field to `AgentSettings` struct and `from_settings` implementation:
-```rust
-pub auto_follow_agent: bool,
-// In from_settings:
-auto_follow_agent: agent.auto_follow_agent.unwrap_or(true),
-```
-
-### 3. Thread View (`agent_ui/src/acp/thread_view/active_thread.rs`)
-Read setting in `AcpThreadView::new`:
-```rust
-should_be_following: AgentSettings::get_global(cx).auto_follow_agent,
+// After
+should_be_following: true,
 ```
 
 ## File Changes Summary
 
 | File | Change |
 |------|--------|
-| `crates/settings_content/src/agent.rs` | Add `auto_follow_agent` field |
-| `crates/agent_settings/src/agent_settings.rs` | Add field + mapping |
-| `crates/agent_ui/src/acp/thread_view/active_thread.rs` | Read setting for default |
+| `crates/agent_ui/src/acp/thread_view/active_thread.rs` | Change `should_be_following: false` to `true` |
 
 ## Testing
 
 - Manual: Start new thread, verify editor follows agent by default
-- Manual: Set `"agent": { "auto_follow_agent": false }`, verify follow mode is off by default
-- Existing follow/unfollow toggle should continue to work
+- Manual: Toggle button still works to disable follow mode during generation
