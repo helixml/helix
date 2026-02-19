@@ -64,3 +64,21 @@ Helix will set this in its Zed configuration:
   }
 }
 ```
+
+## Implementation Notes
+
+### Files Modified
+1. `crates/settings_content/src/settings_content.rs` - Added `suggest_dev_container: Option<bool>` field to `RemoteSettingsContent` struct with doc comment
+2. `crates/recent_projects/src/remote_connections.rs` - Added `suggest_dev_container: bool` field to `RemoteSettings` struct and updated `from_settings()` to read it (defaults to `true` when unset)
+3. `crates/recent_projects/src/dev_container_suggest.rs` - Added check at the start of `suggest_on_worktree_updated()` that returns early if setting is `false`
+4. `assets/settings/default.json` - Added `"suggest_dev_container": true` with comment
+
+### Pattern Used
+The codebase has a two-layer settings architecture:
+- `RemoteSettingsContent` (in settings_content crate) - Schema definition with `Option<T>` fields
+- `RemoteSettings` (in recent_projects crate) - Runtime settings with concrete types, populated via `impl Settings for RemoteSettings`
+
+The setting is accessed via `RemoteSettings::get_global(cx).suggest_dev_container` in the suggestion code.
+
+### Gotcha
+The default.json also had a trailing comma issue - line 1088 needed a comma added after `"auto_open_panel": false` since it's no longer the last field in its object.
