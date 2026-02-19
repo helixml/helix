@@ -121,6 +121,7 @@ export interface ICreateAgentParams {
   agentType?: IAgentType;
 
   codeAgentRuntime?: CodeAgentRuntime;
+  codeAgentCredentialType?: 'api_key' | 'subscription';
 
   model?: string;
   provider?: string;
@@ -223,6 +224,7 @@ export const useAppsContext = (): IAppsContext => {
               agent_mode: false,
               agent_type: params.agentType || 'helix_basic',
               code_agent_runtime: params.codeAgentRuntime || 'zed_agent',
+              code_agent_credential_type: params.codeAgentCredentialType || 'api_key',
               reasoning_model_provider: params.reasoningModelProvider,
               reasoning_model: params.reasoningModel,
               reasoning_model_effort: params.reasoningModelEffort,
