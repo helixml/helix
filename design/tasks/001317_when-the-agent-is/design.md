@@ -31,3 +31,11 @@ Filter to only non-empty lines: `lines.filter(l => l.trim())`. Rejected because 
 ## Files Changed
 
 - `frontend/src/components/spec-tasks/InlineCommentBubble.tsx` - Add `trimEnd()` before splitting lines
+
+## Implementation Notes
+
+- The fix is on line 50: `displayResponse.trimEnd().split("\n")` 
+- This trims trailing whitespace/newlines before counting and slicing lines
+- The expanded view still shows the full `displayResponse` (unmodified), only the truncated view uses the trimmed version for line counting
+- Streaming responses work correctly because `trimEnd()` is applied fresh on each render via `useMemo`
+- Build verified with `yarn build` - no errors
