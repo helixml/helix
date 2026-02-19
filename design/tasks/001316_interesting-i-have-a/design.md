@@ -81,3 +81,29 @@ Use git history check:
 1. **Open PR detection**: Create task, open PR externally via ADO/GitHub, verify task moves to `pull_request` column
 2. **Merged branch detection**: Create task, merge PR externally, verify task moves to `done`
 3. **Edge case**: Branch deleted after merge (should still detect via `LastPushCommitHash`)
+
+## Implementation Notes
+
+### Files Modified
+
+1. **`api/pkg/services/git_repository_service.go`** - Added two new methods:
+   - `IsBranchMerged(ctx, repoID, branchName, targetBranch)` - Checks if branch HEAD is ancestor of target
+   - `IsCommitInBranch(ctx, repoID, commitSHA, targetBranch)` - Fallback for when branch is deleted
+
+2. **`api/pkg/services/spec_task_orchestrator.go`** - Added:
+   - `detectExternalPRActivity()` - Main function called from poll loop
+   - `checkTaskForExternalPRActivity()` - Per-task check logic
+   - Modified `prPollLoop()` to call `detectExternalPRActivity()` after `pollPullRequests()`
+
+### Key Discoveries
+
+- `IsBranchMergedInto` already existed on the low-level `GitRepo` helper, but no service-level wrapper existed
+- The `pollPullRequests()` function only handled tasks already in `pull_request` status
+- External repos are the only ones that need this detection (internal repos use git hooks via `handleMainBranchPush`)
+- PR state comparison: ADO uses "active" for open PRs, but ListPullRequests normalizes to `types.PullRequestStateOpen`
+- Branch refs in ADO are prefixed with `refs/heads/`, so we check both formats
+
+### Rate Limiting
+
+- Max 10 tasks processed per poll cycle (30-second interval)
+- This prevents API exhaustion when many tasks are in spec_review/implementation status
