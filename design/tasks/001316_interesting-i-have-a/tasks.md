@@ -1,7 +1,7 @@
 # Implementation Tasks
 
-- [~] Add `IsBranchMerged(ctx, repoID, branchName, targetBranch)` method to `git_repository_service.go` if not present
-- [ ] Add `detectExternalPRActivity()` function in `spec_task_orchestrator.go` that:
+- [x] Add `IsBranchMerged(ctx, repoID, branchName, targetBranch)` method to `git_repository_service.go` if not present
+- [~] Add `detectExternalPRActivity()` function in `spec_task_orchestrator.go` that:
   - Lists tasks in `spec_review` or `implementation` status with non-empty `BranchName` but no `PullRequestID`
   - For each task, checks for open PRs on that branch
   - If open PR found: link it (`PullRequestID`, `PullRequestURL`) and transition to `pull_request` status
