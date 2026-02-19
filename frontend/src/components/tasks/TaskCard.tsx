@@ -154,7 +154,7 @@ interface SpecTaskWithExtras {
     | "queued";
   planning_session_id?: string;
   archived?: boolean;
-  metadata?: { error?: string };
+  metadata?: { error?: string; error_timestamp?: string };
   merged_to_main?: boolean;
   just_do_it_mode?: boolean;
   started_at?: string;
@@ -464,7 +464,8 @@ const LiveAgentScreenshot: React.FC<{
   sessionId: string;
   projectId?: string;
   onClick?: () => void;
-}> = React.memo(({ sessionId, projectId, onClick }) => {
+  startupErrorMessage?: string;
+}> = React.memo(({ sessionId, projectId, onClick, startupErrorMessage }) => {
   return (
     <Box
       onClick={(e) => {
@@ -491,7 +492,11 @@ const LiveAgentScreenshot: React.FC<{
       }}
     >
       <Box sx={{ position: "relative", height: "100%" }}>
-        <ExternalAgentDesktopViewer sessionId={sessionId} mode="screenshot" />
+        <ExternalAgentDesktopViewer
+          sessionId={sessionId}
+          mode="screenshot"
+          startupErrorMessage={startupErrorMessage}
+        />
       </Box>
       <Box
         sx={{
@@ -566,6 +571,7 @@ export default function TaskCard({
     task.started_at,
     task.status === "implementation",
   );
+  const taskError = task.metadata?.error?.trim();
 
   // Check if planning column is full
   const planningColumn = columns.find((col) => col.id === "planning");
@@ -951,14 +957,39 @@ export default function TaskCard({
           />
         )}
 
+        {/* Show task error prominently and avoid desktop viewer when errored */}
+        {taskError && (
+          <Box
+            sx={{
+              mb: 1,
+              px: 1.5,
+              py: 1,
+              backgroundColor: "rgba(239, 68, 68, 0.08)",
+              borderRadius: 1,
+              border: "1px solid rgba(239, 68, 68, 0.2)",
+            }}
+          >
+            <Typography
+              variant="caption"
+              sx={{ fontWeight: 500, color: "#ef4444", fontSize: "0.7rem" }}
+            >
+              ⚠ {taskError}
+            </Typography>
+          </Box>
+        )}
+
         {/* Live screenshot for active sessions - click opens desktop viewer */}
         {/* Don't show for completed/merged tasks - the container is shut down */}
         {task.planning_session_id &&
           task.phase !== "completed" &&
-          !task.merged_to_main && (
+          !task.merged_to_main &&
+          !taskError && (
             <LiveAgentScreenshot
               sessionId={task.planning_session_id}
               projectId={projectId}
+              startupErrorMessage={
+                typeof task.metadata?.error === "string" ? task.metadata.error : undefined
+              }
               onClick={() => onTaskClick?.(task)}
             />
           )}
@@ -992,25 +1023,6 @@ export default function TaskCard({
               >
                 Depends on: #{formatDependencyTaskRef(blockingDependency)}
               </Typography>
-            )}
-            {task.metadata?.error && (
-              <Box
-                sx={{
-                  mb: 1,
-                  px: 1.5,
-                  py: 1,
-                  backgroundColor: "rgba(239, 68, 68, 0.08)",
-                  borderRadius: 1,
-                  border: "1px solid rgba(239, 68, 68, 0.2)",
-                }}
-              >
-                <Typography
-                  variant="caption"
-                  sx={{ fontWeight: 500, color: "#ef4444", fontSize: "0.7rem" }}
-                >
-                  ⚠ {task.metadata.error as string}
-                </Typography>
-              </Box>
             )}
             <SpecTaskActionButtons
               task={{

@@ -12,7 +12,7 @@ import { useGetConfig } from '../../services/userService'
 import { useGetWallet } from '../../services/useBilling'
 import { getWithTTL, setWithTTL } from '../../utils/localStorage'
 
-const LOW_BALANCE_THRESHOLD = 5.0
+const LOW_BALANCE_THRESHOLD = 10.0
 const DISMISS_STORAGE_KEY = 'low-credits-dismissed'
 const DISMISS_TTL_HOURS = 12
 

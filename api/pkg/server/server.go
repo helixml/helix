@@ -235,6 +235,9 @@ func NewServer(
 
 	quotaManager := quota.NewDefaultQuotaManager(store, cfg, externalAgentExecutor)
 
+	// Set it after initializing it as it depends on the external agent executor
+	externalAgentExecutor.SetQuotaManager(quotaManager)
+
 	// Initialize external agent runner connection manager
 	externalAgentRunnerManager := NewExternalAgentRunnerManager()
 
