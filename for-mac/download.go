@@ -151,6 +151,14 @@ func (d *VMDownloader) CheckFilesExist() (allExist bool, missing []VMManifestFil
 
 	vmDir := filepath.Join(getHelixDataDir(), "vm", "helix-desktop")
 	for _, f := range d.manifest.Files {
+		// Skip efi_vars.fd — we always use the clean template from the app
+		// bundle instead. Downloaded EFI vars encode partition GUIDs from the
+		// build machine which may not match the disk image, causing UEFI to
+		// fail to find the bootloader.
+		if f.Name == "efi_vars.fd" {
+			continue
+		}
+
 		// For compressed files, check the decompressed output
 		checkName := f.Name
 		checkSize := f.Size
@@ -221,6 +229,11 @@ func (d *VMDownloader) DownloadAll(ctx interface{ EventsEmit(string, ...interfac
 	const maxFileRetries = 3
 
 	for _, f := range missing {
+		// Skip efi_vars.fd — use clean template from app bundle instead
+		if f.Name == "efi_vars.fd" {
+			continue
+		}
+
 		select {
 		case <-d.cancel:
 			return fmt.Errorf("download cancelled")
