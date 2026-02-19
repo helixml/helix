@@ -462,6 +462,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     enabled: !!activeSessionId,
   });
   const sessionData = sessionResponse?.data;
+  const taskMetadataError =
+    typeof task?.metadata?.error === "string" ? task.metadata.error : "";
 
   // Sync justDoItMode when task changes
   useEffect(() => {
@@ -1898,6 +1900,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       displayWidth={displaySettings.width}
                       displayHeight={displaySettings.height}
                       displayFps={displaySettings.fps}
+                      startupErrorMessage={taskMetadataError}
                     />
                   ))}
                 {currentView === "changes" && (
@@ -2357,6 +2360,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     displayWidth={displaySettings.width}
                     displayHeight={displaySettings.height}
                     displayFps={displaySettings.fps}
+                    startupErrorMessage={taskMetadataError}
                   />
                 )}
               </Box>

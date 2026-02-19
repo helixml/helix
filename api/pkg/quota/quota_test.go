@@ -17,11 +17,11 @@ import (
 type QuotaManagerSuite struct {
 	suite.Suite
 
-	ctrl         *gomock.Controller
-	store        *store.MockStore
-	executor     *external_agent.MockExecutor
-	manager      *DefaultQuotaManager
-	cfg          *config.ServerConfig
+	ctrl     *gomock.Controller
+	store    *store.MockStore
+	executor *external_agent.MockExecutor
+	manager  *DefaultQuotaManager
+	cfg      *config.ServerConfig
 }
 
 func TestQuotaManagerSuite(t *testing.T) {
@@ -33,49 +33,16 @@ func (s *QuotaManagerSuite) SetupTest() {
 	s.store = store.NewMockStore(s.ctrl)
 	s.executor = external_agent.NewMockExecutor(s.ctrl)
 
-	s.cfg = &config.ServerConfig{
-		SubscriptionQuotas: config.SubscriptionQuotas{
-			Projects: struct {
-				Enabled bool `envconfig:"PROJECTS_ENABLED" default:"true" description:"Enable project quotas"`
-				Free    struct {
-					MaxConcurrentDesktops int `envconfig:"PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS" default:"2"`
-					MaxProjects           int `envconfig:"PROJECTS_FREE_MAX_PROJECTS" default:"3"`
-					MaxRepositories       int `envconfig:"PROJECTS_FREE_MAX_REPOSITORIES" default:"3"`
-					MaxSpecTasks          int `envconfig:"PROJECTS_FREE_MAX_SPEC_TASKS" default:"500"`
-				}
-				Pro struct {
-					MaxConcurrentDesktops int `envconfig:"PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS" default:"5"`
-					MaxProjects           int `envconfig:"PROJECTS_PRO_MAX_PROJECTS" default:"20"`
-					MaxRepositories       int `envconfig:"PROJECTS_PRO_MAX_REPOSITORIES" default:"20"`
-					MaxSpecTasks          int `envconfig:"PROJECTS_PRO_MAX_SPEC_TASKS" default:"10000"`
-				}
-			}{
-				Enabled: true,
-				Free: struct {
-					MaxConcurrentDesktops int `envconfig:"PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS" default:"2"`
-					MaxProjects           int `envconfig:"PROJECTS_FREE_MAX_PROJECTS" default:"3"`
-					MaxRepositories       int `envconfig:"PROJECTS_FREE_MAX_REPOSITORIES" default:"3"`
-					MaxSpecTasks          int `envconfig:"PROJECTS_FREE_MAX_SPEC_TASKS" default:"500"`
-				}{
-					MaxConcurrentDesktops: 2,
-					MaxProjects:           3,
-					MaxRepositories:       3,
-					MaxSpecTasks:          500,
-				},
-				Pro: struct {
-					MaxConcurrentDesktops int `envconfig:"PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS" default:"5"`
-					MaxProjects           int `envconfig:"PROJECTS_PRO_MAX_PROJECTS" default:"20"`
-					MaxRepositories       int `envconfig:"PROJECTS_PRO_MAX_REPOSITORIES" default:"20"`
-					MaxSpecTasks          int `envconfig:"PROJECTS_PRO_MAX_SPEC_TASKS" default:"10000"`
-				}{
-					MaxConcurrentDesktops: 5,
-					MaxProjects:           20,
-					MaxRepositories:       20,
-					MaxSpecTasks:          10000,
-				},
-			},
-		},
-	}
+	s.cfg = &config.ServerConfig{}
+	s.cfg.SubscriptionQuotas.Projects.Enabled = true
+	s.cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops = 2
+	s.cfg.SubscriptionQuotas.Projects.Free.MaxProjects = 3
+	s.cfg.SubscriptionQuotas.Projects.Free.MaxRepositories = 3
+	s.cfg.SubscriptionQuotas.Projects.Free.MaxSpecTasks = 500
+	s.cfg.SubscriptionQuotas.Projects.Pro.MaxConcurrentDesktops = 5
+	s.cfg.SubscriptionQuotas.Projects.Pro.MaxProjects = 20
+	s.cfg.SubscriptionQuotas.Projects.Pro.MaxRepositories = 20
+	s.cfg.SubscriptionQuotas.Projects.Pro.MaxSpecTasks = 10000
 
 	s.manager = NewDefaultQuotaManager(s.store, s.cfg, s.executor)
 }
