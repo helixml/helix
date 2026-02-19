@@ -146,6 +146,10 @@ export function SendConsoleInput(arg1) {
   return window['go']['main']['App']['SendConsoleInput'](arg1);
 }
 
+export function SetCursor(arg1) {
+  return window['go']['main']['App']['SetCursor'](arg1);
+}
+
 export function SetVMConfig(arg1) {
   return window['go']['main']['App']['SetVMConfig'](arg1);
 }

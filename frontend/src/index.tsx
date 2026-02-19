@@ -105,6 +105,19 @@ if (window.parent !== window) {
       // invalid URL, ignore
     }
   }, true)
+
+  // WKWebView cursor bridge: WKWebView doesn't propagate CSS resize cursors
+  // (col-resize, row-resize, etc.) from cross-origin iframe content to native
+  // NSCursor. Detect cursor changes and forward them to the parent frame,
+  // which calls native NSCursor via a Go binding.
+  let lastCursor = ''
+  document.addEventListener('mousemove', (e) => {
+    const cursor = getComputedStyle(e.target as Element).cursor
+    if (cursor !== lastCursor) {
+      lastCursor = cursor
+      window.parent.postMessage({ type: 'helix:cursor', cursor }, '*')
+    }
+  }, { passive: true })
 }
 
 const container = document.getElementById('root');
