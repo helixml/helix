@@ -2,7 +2,7 @@
 
 ## Code Change
 
-- [ ] In `crates/agent_ui/src/acp/thread_view/active_thread.rs`, change `should_be_following: false` to `should_be_following: true` in `AcpThreadView::new` (around line 375)
+- [~] In `crates/agent_ui/src/acp/thread_view/active_thread.rs`, change `should_be_following: false` to `should_be_following: true` in `AcpThreadView::new` (around line 375)
 
 ## Testing
 
