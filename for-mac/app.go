@@ -829,13 +829,36 @@ func (a *App) CancelUpdate() {
 	a.updater.Cancel()
 }
 
-// IsVMUpdateAvailable returns true if the VM manifest version differs from installed.
+// IsVMUpdateAvailable returns true if the bundled VM manifest version differs
+// from the installed VM version. This works regardless of whether an app update
+// is available — it catches both post-app-update and manual .app replacement.
 func (a *App) IsVMUpdateAvailable() bool {
-	info := a.updater.GetInfo()
-	if !info.Available {
+	m, err := a.downloader.LoadManifest()
+	if err != nil || m == nil {
 		return false
 	}
-	return a.settings.Get().InstalledVMVersion != info.LatestVersion
+	return a.settings.Get().InstalledVMVersion != m.Version
+}
+
+// isVMStale returns true if the installed VM version doesn't match either:
+// 1. The bundled manifest version (post-app-update or manual install), or
+// 2. The CDN-reported latest version (if an app update is available).
+func (a *App) isVMStale() bool {
+	installed := a.settings.Get().InstalledVMVersion
+
+	// Check bundled manifest
+	m, err := a.downloader.LoadManifest()
+	if err == nil && m != nil && installed != m.Version {
+		return true
+	}
+
+	// Check CDN latest version (from last update check)
+	info := a.updater.GetInfo()
+	if info.LatestVersion != "" && installed != info.LatestVersion {
+		return true
+	}
+
+	return false
 }
 
 // IsVMUpdateStagedCheck returns true if a staged VM disk image is ready.
@@ -845,7 +868,10 @@ func (a *App) IsVMUpdateStagedCheck() bool {
 
 // startUpdateChecker runs periodic update checks.
 func (a *App) startUpdateChecker() {
-	// Initial check after 10 seconds
+	// Check bundled VM version on startup (handles post-app-update and manual .app replacement)
+	a.checkVMVersionOnStartup()
+
+	// Initial CDN check after 10 seconds
 	time.Sleep(10 * time.Second)
 	a.performUpdateCheck()
 
@@ -855,6 +881,46 @@ func (a *App) startUpdateChecker() {
 	for range ticker.C {
 		a.performUpdateCheck()
 	}
+}
+
+// checkVMVersionOnStartup compares the bundled vm-manifest.json version against
+// the installed VM version. If they differ (and disk.qcow2 exists — not first
+// install), it auto-starts a background VM download. This handles:
+// - App auto-update restart: new app has newer bundled manifest
+// - Manual .app replacement: user downloads new .app from website
+func (a *App) checkVMVersionOnStartup() {
+	m, err := a.downloader.LoadManifest()
+	if err != nil || m == nil {
+		log.Printf("Startup VM check: no bundled manifest found: %v", err)
+		return
+	}
+
+	installed := a.settings.Get().InstalledVMVersion
+	if installed == "" || installed == m.Version {
+		log.Printf("Startup VM check: installed=%s, bundled=%s — no update needed", installed, m.Version)
+		return
+	}
+
+	// Don't trigger on first install (no disk.qcow2 yet)
+	vmDir := filepath.Join(getHelixDataDir(), "vm", "helix-desktop")
+	rootDisk := filepath.Join(vmDir, "disk.qcow2")
+	if _, err := os.Stat(rootDisk); err != nil {
+		log.Printf("Startup VM check: disk.qcow2 doesn't exist (first install), skipping")
+		return
+	}
+
+	// Check if a staged update already exists with the right version
+	if IsVMUpdateStaged() {
+		stagedVersion := GetStagedVMVersion()
+		if stagedVersion == m.Version {
+			log.Printf("Startup VM check: staged update v%s already ready", stagedVersion)
+			wailsRuntime.EventsEmit(a.ctx, "update:vm-ready")
+			return
+		}
+	}
+
+	log.Printf("Startup VM check: installed=%s, bundled=%s — VM update available", installed, m.Version)
+	wailsRuntime.EventsEmit(a.ctx, "update:vm-available", m.Version)
 }
 
 func (a *App) performUpdateCheck() {
@@ -868,19 +934,49 @@ func (a *App) performUpdateCheck() {
 		wailsRuntime.EventsEmit(a.ctx, "update:available", info)
 	}
 
-	// Check for stale VM images
+	// Check for stale VM images — independent of app update availability.
+	// This catches: post-app-update, manual .app replacement, and CDN-only VM updates.
 	if IsVMUpdateStaged() {
 		log.Println("Staged VM update found, emitting vm-ready event")
 		wailsRuntime.EventsEmit(a.ctx, "update:vm-ready")
-	} else if info.Available && a.settings.Get().InstalledVMVersion != info.LatestVersion {
-		// Auto-start VM background download
-		log.Println("VM images stale, starting background download...")
-		go func() {
-			if err := a.updater.DownloadVMUpdate(a.settings, a.downloader); err != nil {
-				log.Printf("Background VM update download failed: %v", err)
-			}
-		}()
+	} else if a.isVMStale() {
+		log.Println("VM images stale, notifying user...")
+		wailsRuntime.EventsEmit(a.ctx, "update:vm-available", info.LatestVersion)
 	}
+}
+
+// RedownloadVMImage forces a VM image download using the bundled manifest,
+// regardless of version comparison. Useful for recovering from corrupt disk images.
+func (a *App) RedownloadVMImage() error {
+	m, err := a.downloader.LoadManifest()
+	if err != nil || m == nil {
+		return fmt.Errorf("no bundled VM manifest found: %v", err)
+	}
+
+	// Temporarily set InstalledVMVersion to empty so DownloadVMUpdate doesn't
+	// short-circuit with "already at version X".
+	s := a.settings.Get()
+	origVersion := s.InstalledVMVersion
+	s.InstalledVMVersion = ""
+	if err := a.settings.Save(s); err != nil {
+		return fmt.Errorf("failed to clear installed version: %w", err)
+	}
+
+	go func() {
+		if err := a.updater.DownloadVMUpdate(a.settings, a.downloader); err != nil {
+			log.Printf("Re-download VM image failed: %v", err)
+			wailsRuntime.EventsEmit(a.ctx, "update:vm-progress", UpdateProgress{
+				Phase: "downloading_vm",
+				Error: err.Error(),
+			})
+			// Restore the original version on failure
+			s := a.settings.Get()
+			s.InstalledVMVersion = origVersion
+			a.settings.Save(s)
+		}
+	}()
+
+	return nil
 }
 
 // openBrowser opens a URL in the default browser

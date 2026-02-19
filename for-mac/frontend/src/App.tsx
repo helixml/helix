@@ -17,6 +17,7 @@ import {
   GetUpdateInfo,
   CheckForUpdate,
   StartVM,
+  DownloadVMUpdate,
 } from "../wailsjs/go/main/App";
 import {
   EventsOn,
@@ -109,6 +110,7 @@ export function App() {
     error?: string;
   } | null>(null);
   const [vmUpdateReady, setVmUpdateReady] = useState(false);
+  const [vmUpdateAvailable, setVmUpdateAvailable] = useState<string | null>(null);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -201,6 +203,7 @@ export function App() {
     });
 
     EventsOn("update:vm-progress", (progress: any) => {
+      setVmUpdateAvailable(null); // download started, clear the prompt
       if (progress?.error) {
         setVmUpdateProgress(null);
       } else if (progress?.phase === "ready") {
@@ -211,7 +214,12 @@ export function App() {
       }
     });
 
+    EventsOn("update:vm-available", (version: string) => {
+      setVmUpdateAvailable(version || "new");
+    });
+
     EventsOn("update:vm-ready", () => {
+      setVmUpdateAvailable(null);
       setVmUpdateReady(true);
     });
 
@@ -255,6 +263,7 @@ export function App() {
       EventsOff("auth:ready");
       EventsOff("update:available");
       EventsOff("update:vm-progress");
+      EventsOff("update:vm-available");
       EventsOff("update:vm-ready");
       window.removeEventListener('message', handleMessage);
     };
@@ -465,6 +474,20 @@ export function App() {
           </button>
         )}
 
+        {vmUpdateAvailable && !vmUpdateProgress && !vmUpdateReady && (
+          <button
+            className="update-badge"
+            onDoubleClick={(e) => e.stopPropagation()}
+            onClick={() => {
+              DownloadVMUpdate().catch(() => {});
+              setVmUpdateAvailable(null);
+            }}
+            title={`System update available — click to download`}
+          >
+            System update
+          </button>
+        )}
+
         {vmUpdateProgress && (
           <div
             className="update-progress-pill"
@@ -640,6 +663,7 @@ export function App() {
           updateInfo={updateInfo}
           vmUpdateProgress={vmUpdateProgress}
           vmUpdateReady={vmUpdateReady}
+          vmUpdateAvailable={vmUpdateAvailable}
         />
       )}
 

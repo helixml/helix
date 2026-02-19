@@ -124,10 +124,11 @@ func IsNewer(current, latest string) bool {
 
 // Updater handles checking for and applying updates.
 type Updater struct {
-	mu         sync.Mutex
-	info       UpdateInfo
-	cancelFunc context.CancelFunc
-	appCtx     context.Context // Wails app context for event emission
+	mu            sync.Mutex
+	info          UpdateInfo
+	cancelFunc    context.CancelFunc
+	appCtx        context.Context // Wails app context for event emission
+	vmDownloading bool            // true while DownloadVMUpdate is running
 }
 
 // NewUpdater creates an Updater.
@@ -325,35 +326,56 @@ func (u *Updater) ApplyAppUpdate(appCtx context.Context) error {
 
 // DownloadVMUpdate downloads the new VM disk image to a staging path.
 // The old VM keeps running while this happens.
+// It first tries to fetch the manifest from the CDN (for app version mismatch),
+// then falls back to the bundled manifest (for post-app-update or manual install).
 func (u *Updater) DownloadVMUpdate(settings *SettingsManager, downloader *VMDownloader) error {
 	u.mu.Lock()
+	if u.vmDownloading {
+		u.mu.Unlock()
+		return fmt.Errorf("VM download already in progress")
+	}
+	u.vmDownloading = true
 	info := u.info
 	u.mu.Unlock()
-
-	if !info.Available && info.LatestVersion == "" {
-		return fmt.Errorf("no update info available")
-	}
-
-	// Fetch the new manifest from CDN
-	manifestURL := info.VMManifestURL
-	if manifestURL == "" {
-		manifestURL = fmt.Sprintf(vmManifestURLTpl, info.LatestVersion)
-	}
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(manifestURL)
-	if err != nil {
-		return fmt.Errorf("failed to fetch VM manifest: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("VM manifest fetch returned HTTP %d", resp.StatusCode)
-	}
+	defer func() {
+		u.mu.Lock()
+		u.vmDownloading = false
+		u.mu.Unlock()
+	}()
 
 	var manifest VMManifest
-	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
-		return fmt.Errorf("failed to parse VM manifest: %w", err)
+
+	// Try CDN manifest first (when an app update reported a newer version)
+	if info.VMManifestURL != "" || info.LatestVersion != "" {
+		manifestURL := info.VMManifestURL
+		if manifestURL == "" {
+			manifestURL = fmt.Sprintf(vmManifestURLTpl, info.LatestVersion)
+		}
+
+		client := &http.Client{Timeout: 30 * time.Second}
+		resp, err := client.Get(manifestURL)
+		if err == nil {
+			if resp.StatusCode == http.StatusOK {
+				if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
+					log.Printf("Failed to parse CDN VM manifest: %v, falling back to bundled", err)
+				}
+			} else {
+				log.Printf("CDN VM manifest returned HTTP %d, falling back to bundled", resp.StatusCode)
+			}
+			resp.Body.Close()
+		} else {
+			log.Printf("Failed to fetch CDN VM manifest: %v, falling back to bundled", err)
+		}
+	}
+
+	// Fall back to bundled manifest (post-app-update or manual .app replacement)
+	if manifest.Version == "" {
+		m, err := downloader.LoadManifest()
+		if err != nil || m == nil {
+			return fmt.Errorf("no VM manifest available (CDN and bundled both failed)")
+		}
+		manifest = *m
+		log.Printf("Using bundled VM manifest v%s", manifest.Version)
 	}
 
 	// Check if there's actually a new version
@@ -373,6 +395,13 @@ func (u *Updater) DownloadVMUpdate(settings *SettingsManager, downloader *VMDown
 
 	// Download each file in the manifest to a .staged path
 	for _, f := range manifest.Files {
+		// Skip efi_vars.fd — use the clean template from the app bundle instead.
+		// Downloaded EFI vars encode partition GUIDs from the build machine which
+		// may not match the disk image, causing UEFI boot failure.
+		if f.Name == "efi_vars.fd" {
+			continue
+		}
+
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("VM update download cancelled")
