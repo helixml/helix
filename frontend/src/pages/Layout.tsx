@@ -5,7 +5,7 @@ import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Drawer from '@mui/material/Drawer'
 import Alert from '@mui/material/Alert'
-import Collapse from '@mui/material/Collapse'
+import MuiSnackbar from '@mui/material/Snackbar'
 
 import Sidebar from '../components/system/Sidebar'
 import SessionsSidebar from '../components/session/SessionsSidebar'
@@ -229,21 +229,22 @@ const Layout: FC<{
 
   return (
     <>
-      <Collapse in={showVersionBanner && hasNewVersion}>
+      <MuiSnackbar
+        open={showVersionBanner && hasNewVersion}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
         <Alert
           severity="info"
-          sx={{
-            borderRadius: 0,
-          }}
           onClose={() => setShowVersionBanner(false)}
+          sx={{ width: '100%' }}
         >
-          A new version of Helix ({account.serverConfig?.latest_version}) is available! You are currently running version {account.serverConfig?.version}. Learn more <a style={{color: 'white'}} href={`https://github.com/helixml/helix/releases/${account.serverConfig?.latest_version}`} target="_blank" rel="noopener noreferrer">here</a>.
+          A new version of Helix ({account.serverConfig?.latest_version}) is available! You are running {account.serverConfig?.version}. Learn more <a style={{color: 'white'}} href={`https://github.com/helixml/helix/releases/${account.serverConfig?.latest_version}`} target="_blank" rel="noopener noreferrer">here</a>.
         </Alert>
-      </Collapse>
+      </MuiSnackbar>
       <Box
         id="root-container"
         sx={{
-          minHeight: showVersionBanner && hasNewVersion ? 'calc(100dvh - 48px)' : '100dvh',
+          minHeight: '100dvh',
           height: '100%',
           display: 'flex',
           backgroundColor: lightTheme.backgroundColor, // Extend background behind iOS safe area
