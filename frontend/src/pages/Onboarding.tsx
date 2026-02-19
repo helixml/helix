@@ -806,7 +806,7 @@ export default function Onboarding() {
                     gap: 1.5,
                   }}
                 >
-                  <Box sx={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Box sx={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#fff' }}>
                     <AnthropicLogo style={{ width: 24, height: 24 }} />
                   </Box>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -877,9 +877,9 @@ export default function Onboarding() {
                         gap: 1.5,
                       }}
                     >
-                      <Box sx={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Box sx={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#fff' }}>
                         {typeof Logo === 'string' ? (
-                          <img src={Logo} alt="" style={{ width: 24, height: 24 }} />
+                          <img src={Logo} alt="" style={{ width: 24, height: 24, background: '#fff', borderRadius: 4 }} />
                         ) : (
                           <Logo style={{ width: 24, height: 24 }} />
                         )}
