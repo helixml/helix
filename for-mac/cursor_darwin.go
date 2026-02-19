@@ -64,12 +64,12 @@ static NSCursor* createDiagonalResizeCursor(CGFloat angle) {
 }
 
 static NSCursor* neswResizeCursor(void) {
-	if (!_neswResizeCursor) _neswResizeCursor = createDiagonalResizeCursor(45);
+	if (!_neswResizeCursor) _neswResizeCursor = createDiagonalResizeCursor(135);
 	return _neswResizeCursor;
 }
 
 static NSCursor* nwseResizeCursor(void) {
-	if (!_nwseResizeCursor) _nwseResizeCursor = createDiagonalResizeCursor(135);
+	if (!_nwseResizeCursor) _nwseResizeCursor = createDiagonalResizeCursor(45);
 	return _nwseResizeCursor;
 }
 
