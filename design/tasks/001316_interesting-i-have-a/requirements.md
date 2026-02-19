@@ -1,4 +1,4 @@
-# Requirements: Auto-Detect Merged PRs for Spec Tasks
+# Requirements: Auto-Detect External PRs and Merged Branches for Spec Tasks
 
 ## Problem Statement
 
@@ -6,19 +6,19 @@ When a spec task has status `spec_review` (or `implementation`), the UI shows an
 
 ## User Stories
 
-### US1: Merged PR Detection on Task Load
-As a user viewing a spec task, when the task's branch has already been merged to main, I want the system to automatically detect this and move the task to "done" status, so I don't see misleading action buttons.
+### US1: Open PR Detection
+As a user with a task in `spec_review` or `implementation` status, when a PR is opened externally for the task's branch (via ADO/GitHub/GitLab UI), I want the system to detect this within 1-2 minutes and move the task to `pull_request` status.
 
-### US2: Periodic Merged Branch Detection
-As a user with tasks in `spec_review` or `implementation` status, when a PR gets merged externally (via ADO/GitHub/GitLab UI), I want the system to detect this within 1-2 minutes and automatically complete the task.
+### US2: Merged Branch Detection
+As a user with a task in `spec_review` or `implementation` status, when the task's branch gets merged to main externally, I want the system to detect this within 1-2 minutes and automatically complete the task.
 
 ## Acceptance Criteria
 
-1. **AC1**: When loading a task in `spec_review` or `implementation` status, the system checks if the task's branch has been merged to main
-2. **AC2**: If the branch is merged, the task is automatically transitioned to `done` status with `merged_to_main=true` and `merged_at` set
-3. **AC3**: The existing PR polling loop (`pollPullRequests`) is extended to also check for merged branches on tasks without a `PullRequestID`
+1. **AC1**: The system periodically checks tasks in `spec_review` or `implementation` status that have a `BranchName` but no `PullRequestID`
+2. **AC2**: If an open PR is found for the branch, the task is transitioned to `pull_request` status with `PullRequestID` and `PullRequestURL` set
+3. **AC3**: If the branch is merged (no open PR), the task is transitioned to `done` status with `merged_to_main=true` and `merged_at` set
 4. **AC4**: Works for all supported git providers: GitHub, GitLab, Azure DevOps
-5. **AC5**: No UI changes required - the existing buttons will disappear once status is "done"
+5. **AC5**: No UI changes required - the existing buttons will update based on new status
 
 ## Out of Scope
 
