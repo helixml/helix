@@ -121,8 +121,11 @@ static NSCursor* cursorForName(NSString *n) {
 }
 
 static void setCursorByName(const char* name) {
+	// Copy the C string into an NSString BEFORE dispatching — the Go caller
+	// frees the C string (via defer C.free) before the async block executes,
+	// so capturing the raw pointer would be a use-after-free.
+	NSString *n = [NSString stringWithUTF8String:name];
 	dispatch_async(dispatch_get_main_queue(), ^{
-		NSString *n = [NSString stringWithUTF8String:name];
 		NSCursor *cursor = cursorForName(n);
 
 		NSLog(@"[Cursor] setCursorByName: '%@' → %@", n, cursor ? [cursor description] : @"nil (WKWebView default)");
