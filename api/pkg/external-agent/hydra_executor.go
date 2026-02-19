@@ -133,7 +133,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	if err != nil {
 		return nil, fmt.Errorf("failed to check limits: %w", err)
 	}
-	if limitReached.LimitReached {
+	if limitReached != nil && limitReached.LimitReached {
 		return nil, fmt.Errorf("desktop limit reached (%d). Stop some of the existing sessions or upgrade your plan", limitReached.Limit)
 	}
 
@@ -1166,7 +1166,7 @@ func (h *HydraExecutor) checkLimits(ctx context.Context, agent *types.DesktopAge
 
 	// Check if limits are disabled
 	if !systemSettings.EnforceQuotas {
-		return nil, nil
+		return &types.QuotaLimitReachedResponse{LimitReached: false}, nil
 	}
 
 	limitReached, err := h.quotaManager.LimitReached(ctx, &types.QuotaLimitReachedRequest{
