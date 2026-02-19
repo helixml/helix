@@ -114,6 +114,7 @@ if (window.parent !== window) {
   document.addEventListener('mousemove', (e) => {
     const cursor = getComputedStyle(e.target as Element).cursor
     if (cursor !== lastCursor) {
+      console.log('[Cursor:iframe] cursor changed:', lastCursor, '→', cursor, 'target:', (e.target as Element).tagName, (e.target as Element).className)
       lastCursor = cursor
       window.parent.postMessage({ type: 'helix:cursor', cursor }, '*')
     }

@@ -125,6 +125,8 @@ static void setCursorByName(const char* name) {
 		NSString *n = [NSString stringWithUTF8String:name];
 		NSCursor *cursor = cursorForName(n);
 
+		NSLog(@"[Cursor] setCursorByName: '%@' → %@", n, cursor ? [cursor description] : @"nil (WKWebView default)");
+
 		if (cursor) {
 			_desiredCursor = cursor;
 			[cursor set];
