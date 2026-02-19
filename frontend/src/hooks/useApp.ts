@@ -941,7 +941,7 @@ export const useApp = (appId: string) => {
         setIsSafeToSave(true)
       }, 1000)
     }
-  }, [providers, account.models, app, isLoadingProviders])
+  }, [app, isProvidersSuccess])
 
   // Callback for ModelPicker to report when it has loaded models for a provider
   // const onProviderModelsLoaded = useCallback((provider: string) => {
