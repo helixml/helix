@@ -130,6 +130,10 @@ export function OpenSession(arg1) {
   return window['go']['main']['App']['OpenSession'](arg1);
 }
 
+export function RedownloadVMImage() {
+  return window['go']['main']['App']['RedownloadVMImage']();
+}
+
 export function ResizeConsole(arg1, arg2) {
   return window['go']['main']['App']['ResizeConsole'](arg1, arg2);
 }
