@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -56,9 +57,13 @@ type ZFSCollector struct {
 
 // NewZFSCollector creates a new ZFS stats collector
 func NewZFSCollector(sshPort int) *ZFSCollector {
+	keyPath := filepath.Join(getHelixDataDir(), "ssh", "helix_ed25519")
+	if _, err := os.Stat(keyPath); err != nil {
+		keyPath = "" // Dev mode: use default SSH agent keys
+	}
 	return &ZFSCollector{
 		sshPort:    sshPort,
-		sshKeyPath: filepath.Join(getHelixDataDir(), "ssh", "helix_ed25519"),
+		sshKeyPath: keyPath,
 		stopCh:     make(chan struct{}),
 	}
 }
