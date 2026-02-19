@@ -15,6 +15,18 @@ should_be_following: false,  // Currently defaults to false
 
 The `should_be_following` field controls whether the workspace follows the agent's activity. When `true`, the editor scrolls to show files being edited and tracks cursor position.
 
+## Architecture Note: AcpThreadView Covers All Agents
+
+All agents use `AcpThreadView`, including:
+- **Built-in Zed Agent** (NativeAgent) - implements ACP protocol internally
+- **External ACP agents** (Claude Code, Gemini CLI, Codex, custom agents)
+
+The native Zed Agent is just a special case that implements the ACP protocol. Both call sites that create `AcpThreadView::new` are in `AcpServerView`:
+- `from_existing_thread()` - for WebSocket-created threads
+- `initial_state()` - for normal thread creation
+
+So this single change affects all agent types uniformly.
+
 ## Design Decision
 
 **Approach: Flip the default to `true`**
@@ -41,5 +53,6 @@ should_be_following: true,
 
 ## Testing
 
-- Manual: Start new thread, verify editor follows agent by default
+- Manual: Start new thread with Zed Agent, verify editor follows agent by default
+- Manual: Start new thread with external agent (e.g., Claude Code), verify same behavior
 - Manual: Toggle button still works to disable follow mode during generation
