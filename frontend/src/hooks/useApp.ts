@@ -391,6 +391,10 @@ export const useApp = (appId: string) => {
       assistants[0].code_agent_runtime = updates.code_agent_runtime
     }
 
+    if (updates.code_agent_credential_type !== undefined) {
+      assistants[0].code_agent_credential_type = updates.code_agent_credential_type
+    }
+
     if (updates.context_limit !== undefined) {
       assistants[0].context_limit = updates.context_limit
     }
