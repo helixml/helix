@@ -804,7 +804,7 @@ func (a *App) ApplyAppUpdate() error {
 // DownloadVMUpdate downloads the new VM disk image in the background.
 func (a *App) DownloadVMUpdate() error {
 	go func() {
-		if err := a.updater.DownloadVMUpdate(a.settings, a.downloader); err != nil {
+		if err := a.updater.DownloadVMUpdate(a.settings, a.downloader, false); err != nil {
 			log.Printf("VM update download failed: %v", err)
 			wailsRuntime.EventsEmit(a.ctx, "update:vm-progress", UpdateProgress{
 				Phase: "downloading_vm",
@@ -936,12 +936,22 @@ func (a *App) performUpdateCheck() {
 
 	// Check for stale VM images — independent of app update availability.
 	// This catches: post-app-update, manual .app replacement, and CDN-only VM updates.
+	// Skip if a download is already in progress (avoids re-showing the badge).
 	if IsVMUpdateStaged() {
 		log.Println("Staged VM update found, emitting vm-ready event")
 		wailsRuntime.EventsEmit(a.ctx, "update:vm-ready")
-	} else if a.isVMStale() {
+	} else if !a.updater.IsVMDownloading() && a.isVMStale() {
 		log.Println("VM images stale, notifying user...")
-		wailsRuntime.EventsEmit(a.ctx, "update:vm-available", info.LatestVersion)
+		// Use the actual target version: prefer bundled manifest version,
+		// fall back to CDN version, then "new" as last resort.
+		targetVersion := info.LatestVersion
+		if m, err := a.downloader.LoadManifest(); err == nil && m != nil {
+			targetVersion = m.Version
+		}
+		if targetVersion == "" {
+			targetVersion = "new"
+		}
+		wailsRuntime.EventsEmit(a.ctx, "update:vm-available", targetVersion)
 	}
 }
 
@@ -953,26 +963,13 @@ func (a *App) RedownloadVMImage() error {
 		return fmt.Errorf("no bundled VM manifest found: %v", err)
 	}
 
-	// Temporarily set InstalledVMVersion to empty so DownloadVMUpdate doesn't
-	// short-circuit with "already at version X".
-	s := a.settings.Get()
-	origVersion := s.InstalledVMVersion
-	s.InstalledVMVersion = ""
-	if err := a.settings.Save(s); err != nil {
-		return fmt.Errorf("failed to clear installed version: %w", err)
-	}
-
 	go func() {
-		if err := a.updater.DownloadVMUpdate(a.settings, a.downloader); err != nil {
+		if err := a.updater.DownloadVMUpdate(a.settings, a.downloader, true); err != nil {
 			log.Printf("Re-download VM image failed: %v", err)
 			wailsRuntime.EventsEmit(a.ctx, "update:vm-progress", UpdateProgress{
 				Phase: "downloading_vm",
 				Error: err.Error(),
 			})
-			// Restore the original version on failure
-			s := a.settings.Get()
-			s.InstalledVMVersion = origVersion
-			a.settings.Save(s)
 		}
 	}()
 

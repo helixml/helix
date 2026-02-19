@@ -479,8 +479,11 @@ export function App() {
             className="update-badge"
             onDoubleClick={(e) => e.stopPropagation()}
             onClick={() => {
-              DownloadVMUpdate().catch(() => {});
               setVmUpdateAvailable(null);
+              DownloadVMUpdate().catch((err) => {
+                showToast('Download failed: ' + err);
+                setVmUpdateAvailable(vmUpdateAvailable);
+              });
             }}
             title={`System update available — click to download`}
           >
