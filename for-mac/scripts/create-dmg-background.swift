@@ -25,11 +25,10 @@ let APP_ICON_X: CGFloat = 170
 let APPLICATIONS_X: CGFloat = 490
 let ICON_Y: CGFloat = 175  // vertical center for icons (Finder coordinates, top-down)
 
-// Colors — white background with subtle gray chevron arrow (like Google Drive DMG)
+// Colors — white background with visible gray triangles
 let BG_TOP = (r: 1.0, g: 1.0, b: 1.0)                                   // #FFFFFF white
 let BG_BOTTOM = (r: 1.0, g: 1.0, b: 1.0)                                // #FFFFFF white
-let ARROW_COLOR = (r: 0.72, g: 0.72, b: 0.72)                           // Light gray #B8B8B8
-let ARROW_ALPHA = 1.0                                                     // Fully opaque
+let ARROW_COLOR = (r: 0.55, g: 0.55, b: 0.55)                           // Medium gray #8C8C8C
 
 // MARK: - Argument parsing
 
@@ -94,13 +93,13 @@ for i in 0..<HEIGHT {
 let arrowY = CGFloat(HEIGHT) - ICON_Y  // flip to CG coords
 let centerX = (APP_ICON_X + APPLICATIONS_X) / 2  // center between icons
 
-let triangleWidth: CGFloat = 14    // horizontal size of each triangle
-let triangleHeight: CGFloat = 24   // vertical size of each triangle
-let spacing: CGFloat = 22          // center-to-center distance between triangles
+let triangleWidth: CGFloat = 28    // horizontal size of each triangle
+let triangleHeight: CGFloat = 44   // vertical size of each triangle
+let spacing: CGFloat = 40          // center-to-center distance between triangles
 let count = 3
 
 // Alphas fade from left (lighter) to right (darker) to suggest direction
-let alphas: [CGFloat] = [0.35, 0.55, 0.80]
+let alphas: [CGFloat] = [0.45, 0.65, 0.90]
 
 for i in 0..<count {
     let offset = CGFloat(i - count / 2) * spacing
