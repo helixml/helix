@@ -40,7 +40,7 @@ BUILD_DIR=""
 
 NOTARIZE=false
 UPLOAD=false
-SKIP_STYLING=false
+REBUILD_TEMPLATE=false
 VERSION=""
 R2_BUCKET=""
 
@@ -51,7 +51,8 @@ while [[ $# -gt 0 ]]; do
         --build-dir) BUILD_DIR="$2"; shift 2 ;;
         --notarize) NOTARIZE=true; shift ;;
         --upload) UPLOAD=true; shift ;;
-        --skip-styling) SKIP_STYLING=true; shift ;;
+        --skip-styling) echo "WARNING: --skip-styling is deprecated (template approach doesn't need it)"; shift ;;
+        --rebuild-template) REBUILD_TEMPLATE=true; shift ;;
         --version) VERSION="$2"; shift 2 ;;
         --r2-bucket) R2_BUCKET="$2"; shift 2 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
@@ -70,6 +71,78 @@ if [ -z "$VERSION" ]; then
 fi
 
 log() { echo "[$(date +%H:%M:%S)] $*"; }
+
+# =============================================================================
+# Rebuild DMG template (requires GUI session with Finder)
+# =============================================================================
+
+if [ "$REBUILD_TEMPLATE" = true ]; then
+    DMG_BACKGROUND="${FOR_MAC_DIR}/assets/dmg-background.png"
+    DMG_TEMPLATE="${FOR_MAC_DIR}/assets/dmg-template.dmg"
+
+    if [ ! -f "$DMG_BACKGROUND" ]; then
+        echo "ERROR: Background image not found. Run: swift scripts/create-dmg-background.swift"
+        exit 1
+    fi
+
+    log "Rebuilding DMG template (requires Finder)..."
+    TMPL_TEMP="/tmp/dmg-template-staging"
+    rm -rf "$TMPL_TEMP"
+    mkdir -p "$TMPL_TEMP/${APP_BUNDLE_NAME}.app/Contents/MacOS"
+    touch "$TMPL_TEMP/${APP_BUNDLE_NAME}.app/Contents/MacOS/${APP_BUNDLE_NAME}"
+
+    rm -f /tmp/dmg-template-rw.dmg
+    hdiutil create -fs HFS+ -srcfolder "$TMPL_TEMP" -volname "$DMG_VOLUME" \
+        -format UDRW -size 50m /tmp/dmg-template-rw.dmg
+    rm -rf "$TMPL_TEMP"
+
+    MOUNT_DIR=$(hdiutil attach /tmp/dmg-template-rw.dmg -readwrite -noverify -noautoopen | \
+        grep "/Volumes/" | awk -F'\t' '{print $NF}' | head -1)
+    VOLUME_NAME=$(basename "$MOUNT_DIR")
+    log "  Mounted at: $MOUNT_DIR"
+
+    # Create Finder alias (carries proper /Applications icon)
+    osascript -e "tell application \"Finder\" to make new alias file at (POSIX file \"$MOUNT_DIR\" as alias) to (POSIX file \"/Applications\" as alias) with properties {name:\"Applications\"}"
+
+    # Copy background
+    mkdir -p "$MOUNT_DIR/.background"
+    cp "$DMG_BACKGROUND" "$MOUNT_DIR/.background/background.png"
+
+    # Apply Finder styling
+    osascript <<APPLESCRIPT
+    tell application "Finder"
+        tell disk "$VOLUME_NAME"
+            open
+            set current view of container window to icon view
+            set toolbar visible of container window to false
+            set statusbar visible of container window to false
+            set the bounds of container window to {100, 100, 760, 500}
+            set viewOptions to the icon view options of container window
+            set arrangement of viewOptions to not arranged
+            set icon size of viewOptions to 128
+            set background picture of viewOptions to file ".background:background.png"
+            set position of item "${APP_BUNDLE_NAME}.app" of container window to {170, 175}
+            set position of item "Applications" of container window to {490, 175}
+            close
+            open
+            delay 2
+            close
+        end tell
+    end tell
+APPLESCRIPT
+
+    sync
+    hdiutil detach "$MOUNT_DIR" -quiet || hdiutil detach "$MOUNT_DIR" -force
+
+    # Compress and save
+    rm -f "$DMG_TEMPLATE"
+    hdiutil convert /tmp/dmg-template-rw.dmg -format UDZO -o "$DMG_TEMPLATE"
+    rm -f /tmp/dmg-template-rw.dmg
+
+    log "Template saved: $DMG_TEMPLATE ($(du -h "$DMG_TEMPLATE" | awk '{print $1}'))"
+    log "Commit this file to the repo."
+    exit 0
+fi
 
 # Verify app bundle exists
 if [ ! -d "$APP_BUNDLE" ]; then
@@ -102,131 +175,66 @@ rm -f "$DMG_OUTPUT"
 rm -rf "$DMG_TEMP"
 
 # =============================================================================
-# Create staging directory with app + Applications symlink
-# =============================================================================
-
-log "Creating DMG staging area..."
-mkdir -p "$DMG_TEMP"
-
-# Copy app bundle to staging
-cp -R "$APP_BUNDLE" "$DMG_TEMP/"
-
-# Create Applications symlink for drag-and-drop install
-ln -s /Applications "$DMG_TEMP/Applications"
-
-# =============================================================================
-# Create DMG with styled Finder window
+# Create DMG from pre-built template
 # =============================================================================
 #
-# Flow: UDRW (read-write) → mount → copy background + AppleScript styling
+# Uses a pre-built template DMG (assets/dmg-template.dmg) that contains:
+#   - Finder alias to /Applications (with proper icon — requires GUI to create)
+#   - Background image with arrow
+#   - .DS_Store with Finder layout (icon positions, window size, icon view)
+#
+# Flow: template (UDZO) → convert to UDRW → mount → swap app bundle
 #       → unmount → convert to ULFO (compressed, read-only)
 #
-# Use --skip-styling for headless/CI builds that can't run AppleScript.
+# To regenerate the template (requires GUI session with Finder):
+#   ./scripts/create-dmg.sh --rebuild-template
+#
+# The --skip-styling flag is no longer needed — the template already has
+# all Finder styling baked in.
 
-DMG_BACKGROUND="${FOR_MAC_DIR}/assets/dmg-background.png"
+DMG_TEMPLATE="${FOR_MAC_DIR}/assets/dmg-template.dmg"
 DMG_RW="${DMG_OUTPUT%.dmg}-rw.dmg"
 
-if [ "$SKIP_STYLING" = true ] || [ ! -f "$DMG_BACKGROUND" ]; then
-    # Unstyled path: single-step ULFO creation (for CI or missing background)
-    if [ ! -f "$DMG_BACKGROUND" ]; then
-        log "WARNING: Background image not found at $DMG_BACKGROUND"
-        log "  Run: swift scripts/create-dmg-background.swift"
-        log "  Falling back to unstyled DMG"
-    fi
-    log "Creating DMG (ULFO/lzfse, unstyled)..."
-    hdiutil create \
-        -fs HFS+ \
-        -srcfolder "$DMG_TEMP" \
-        -volname "$DMG_VOLUME" \
-        -format ULFO \
-        "$DMG_OUTPUT"
-    rm -rf "$DMG_TEMP"
-else
-    # Styled path: create read-write, style with AppleScript, convert to ULFO
-    log "Creating read-write DMG..."
-    rm -f "$DMG_RW"
-
-    # Calculate size: app bundle + 20MB headroom for background + .DS_Store
-    APP_SIZE_KB=$(du -sk "$DMG_TEMP" | awk '{print $1}')
-    DMG_SIZE_MB=$(( (APP_SIZE_KB / 1024) + 20 ))
-
-    hdiutil create \
-        -fs HFS+ \
-        -srcfolder "$DMG_TEMP" \
-        -volname "$DMG_VOLUME" \
-        -format UDRW \
-        -size "${DMG_SIZE_MB}m" \
-        "$DMG_RW"
-
-    rm -rf "$DMG_TEMP"
-
-    # Mount the read-write DMG
-    log "Mounting DMG for styling..."
-    MOUNT_DIR=$(hdiutil attach "$DMG_RW" -readwrite -noverify -noautoopen | \
-        grep "/Volumes/" | awk -F'\t' '{print $NF}' | head -1)
-
-    if [ -z "$MOUNT_DIR" ] || [ ! -d "$MOUNT_DIR" ]; then
-        echo "ERROR: Failed to mount DMG. Mount output:"
-        hdiutil attach "$DMG_RW" -readwrite -noverify -noautoopen
-        exit 1
-    fi
-    log "  Mounted at: $MOUNT_DIR"
-
-    # Extract the actual volume name (might be "Helix 1" if another Helix is mounted)
-    VOLUME_NAME=$(basename "$MOUNT_DIR")
-    log "  Volume name: $VOLUME_NAME"
-
-    # Copy background image into hidden .background directory
-    mkdir -p "$MOUNT_DIR/.background"
-    cp "$DMG_BACKGROUND" "$MOUNT_DIR/.background/background.png"
-
-    # Style the Finder window with AppleScript
-    log "Applying Finder styling..."
-    osascript <<APPLESCRIPT
-    tell application "Finder"
-        tell disk "$VOLUME_NAME"
-            open
-            set current view of container window to icon view
-            set toolbar visible of container window to false
-            set statusbar visible of container window to false
-
-            -- Window size: 660x400 to match background image
-            set the bounds of container window to {100, 100, 760, 500}
-
-            set viewOptions to the icon view options of container window
-            set arrangement of viewOptions to not arranged
-            set icon size of viewOptions to 128
-            set background picture of viewOptions to file ".background:background.png"
-
-            -- Position icons: app on left, Applications on right
-            set position of item "$APP_BUNDLE_NAME.app" of container window to {170, 175}
-            set position of item "Applications" of container window to {490, 175}
-
-            close
-            open
-            -- Let Finder write .DS_Store
-            delay 2
-            close
-        end tell
-    end tell
-APPLESCRIPT
-
-    # Flush filesystem
-    sync
-
-    # Unmount
-    log "Unmounting DMG..."
-    hdiutil detach "$MOUNT_DIR" -quiet || hdiutil detach "$MOUNT_DIR" -force
-
-    # Convert to compressed read-only ULFO
-    log "Converting to ULFO (lzfse compressed)..."
-    hdiutil convert "$DMG_RW" \
-        -format ULFO \
-        -o "$DMG_OUTPUT"
-
-    # Clean up intermediate image
-    rm -f "$DMG_RW"
+if [ ! -f "$DMG_TEMPLATE" ]; then
+    echo "ERROR: DMG template not found at: $DMG_TEMPLATE"
+    echo "Run: ./scripts/create-dmg.sh --rebuild-template (requires GUI session)"
+    exit 1
 fi
+
+# Convert compressed template to read-write
+log "Preparing DMG from template..."
+rm -f "$DMG_RW"
+hdiutil convert "$DMG_TEMPLATE" -format UDRW -o "$DMG_RW"
+
+# Resize to fit the app bundle + headroom
+APP_SIZE_KB=$(du -sk "$APP_BUNDLE" | awk '{print $1}')
+DMG_SIZE_MB=$(( (APP_SIZE_KB / 1024) + 20 ))
+hdiutil resize -size "${DMG_SIZE_MB}m" "$DMG_RW" 2>/dev/null || true
+
+# Mount
+log "Mounting DMG..."
+MOUNT_DIR=$(hdiutil attach "$DMG_RW" -readwrite -noverify -noautoopen | \
+    grep "/Volumes/" | awk -F'\t' '{print $NF}' | head -1)
+if [ -z "$MOUNT_DIR" ] || [ ! -d "$MOUNT_DIR" ]; then
+    echo "ERROR: Failed to mount DMG."
+    exit 1
+fi
+log "  Mounted at: $MOUNT_DIR"
+
+# Swap placeholder app with real app
+rm -rf "$MOUNT_DIR/${APP_BUNDLE_NAME}.app"
+cp -R "$APP_BUNDLE" "$MOUNT_DIR/"
+
+sync
+log "Unmounting DMG..."
+hdiutil detach "$MOUNT_DIR" -quiet || hdiutil detach "$MOUNT_DIR" -force
+
+# Convert to compressed read-only ULFO
+log "Converting to ULFO (lzfse compressed)..."
+hdiutil convert "$DMG_RW" \
+    -format ULFO \
+    -o "$DMG_OUTPUT"
+rm -f "$DMG_RW"
 
 DMG_SIZE=$(du -h "$DMG_OUTPUT" | awk '{print $1}')
 
