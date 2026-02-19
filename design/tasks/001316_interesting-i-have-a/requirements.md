@@ -2,7 +2,7 @@
 
 ## Problem Statement
 
-When a spec task has status `spec_review` (or `implementation`), the UI shows an "Open PR" button. However, if a PR was already opened AND merged externally (outside of the normal Helix workflow), the task remains stuck showing "Open PR" instead of being automatically moved to "done" status.
+When a spec task has status `spec_review` (or `implementation`), the UI shows an "Open PR" button. However, if a PR was already opened or merged externally (outside of the normal Helix workflow), the task remains stuck showing "Open PR" instead of being automatically moved to the right state.
 
 ## User Stories
 
