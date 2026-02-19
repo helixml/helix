@@ -7591,6 +7591,95 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/tasks-progress": {
+            "get": {
+                "description": "Get progress information for all spec-driven tasks in a project in a single request. This is more efficient than calling the individual progress endpoint for each task.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Get progress for all tasks in a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Include checklist progress (slower, parses git files)",
+                        "name": "include_checklist",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.BatchTaskProgressResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/tasks-usage": {
+            "get": {
+                "description": "Get usage metrics for all spec-driven tasks in a project in a single request. This is more efficient than calling the individual usage endpoint for each task.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Get usage for all tasks in a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.BatchTaskUsageResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/usage": {
             "get": {
                 "security": [
@@ -15456,6 +15545,39 @@
                 }
             }
         },
+        "server.BatchTaskProgressResponse": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "string"
+                },
+                "tasks": {
+                    "description": "keyed by task_id",
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/server.TaskProgressResponse"
+                    }
+                }
+            }
+        },
+        "server.BatchTaskUsageResponse": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "string"
+                },
+                "tasks": {
+                    "description": "keyed by task_id",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/definitions/types.AggregatedUsageMetric"
+                        }
+                    }
+                }
+            }
+        },
         "server.ClaudeLoginSessionResponse": {
             "type": "object",
             "properties": {
@@ -16925,6 +17047,10 @@
                     "type": "string"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "Used for isolation and metrics tracking",
                     "type": "string"
                 },
                 "owner": {
@@ -26450,6 +26576,10 @@
                     "type": "boolean"
                 },
                 "onboarding_completed_at": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "Organization this API key is scoped to (ephemeral keys)",
                     "type": "string"
                 },
                 "password_hash": {

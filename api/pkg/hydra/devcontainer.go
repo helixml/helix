@@ -515,8 +515,8 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 
 	// Add BUILDKIT_HOST for shared BuildKit cache support
 	// Dev containers mount their per-session Docker socket, but helix-buildkit runs
-	// on the sandbox's main dockerd. Pass the BuildKit endpoint directly so docker-shim
-	// can create the buildx builder without looking up the container.
+	// on the sandbox's main dockerd. Pass the BuildKit endpoint directly so the
+	// 17-start-dockerd.sh init script can create the helix-shared buildx builder.
 	if buildkitHost := GetBuildKitHost(); buildkitHost != "" {
 		env = append(env, fmt.Sprintf("BUILDKIT_HOST=%s", buildkitHost))
 		log.Debug().Str("buildkit_host", buildkitHost).Msg("Added BUILDKIT_HOST to dev container env")

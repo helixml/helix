@@ -66,7 +66,16 @@ import useRouter from "../../hooks/useRouter";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
 import TaskCard from "./TaskCard";
-import { SpecTask, useSpecTasks } from "../../services/specTaskService";
+import {
+  SpecTask,
+  useSpecTasks,
+  useBatchTaskProgress,
+  useBatchTaskUsage,
+} from "../../services/specTaskService";
+import {
+  ServerTaskProgressResponse,
+  TypesAggregatedUsageMetric,
+} from "../../api/api";
 import { useGetProject, useUpdateProject } from "../../services/projectService";
 import useSnackbar from "../../hooks/useSnackbar";
 import BacklogTableView from "./BacklogTableView";
@@ -236,6 +245,10 @@ const DroppableColumn: React.FC<{
   showMetrics?: boolean;
   theme: any;
   onHeaderClick?: () => void;
+  /** Batch progress data keyed by task ID - avoids per-card polling */
+  batchProgressData?: Record<string, ServerTaskProgressResponse>;
+  /** Batch usage data keyed by task ID - avoids per-card polling */
+  batchUsageData?: Record<string, TypesAggregatedUsageMetric[]>;
   autoStartBacklogTasks?: boolean;
   onToggleAutoStart?: () => void;
   highlightedTaskIds?: string[] | null;
@@ -255,6 +268,8 @@ const DroppableColumn: React.FC<{
   showMetrics,
   theme,
   onHeaderClick,
+  batchProgressData,
+  batchUsageData,
   autoStartBacklogTasks,
   onToggleAutoStart,
   highlightedTaskIds,
@@ -281,6 +296,8 @@ const DroppableColumn: React.FC<{
         isArchiving={task.id === archivingTaskId}
         hasExternalRepo={hasExternalRepo}
         showMetrics={showMetrics}
+        progressData={batchProgressData?.[task.id]}
+        usageData={batchUsageData?.[task.id]}
         highlightedTaskIds={highlightedTaskIds}
         onDependencyHoverStart={onDependencyHoverStart}
         onDependencyHoverEnd={onDependencyHoverEnd}
@@ -459,9 +476,11 @@ const DroppableColumn: React.FC<{
                           width: 24,
                           height: 24,
                           borderRadius: "50%",
-                          background: "conic-gradient(from 0deg, transparent 0%, transparent 60%, rgba(16, 185, 129, 0.03) 68%, rgba(16, 185, 129, 0.1) 78%, rgba(16, 185, 129, 0.3) 88%, #10b981 97%, transparent 98%)",
+                          background:
+                            "conic-gradient(from 0deg, transparent 0%, transparent 60%, rgba(16, 185, 129, 0.03) 68%, rgba(16, 185, 129, 0.1) 78%, rgba(16, 185, 129, 0.3) 88%, #10b981 97%, transparent 98%)",
                           mask: "radial-gradient(transparent 8px, black 9px, black 11px, transparent 12px)",
-                          WebkitMask: "radial-gradient(transparent 8px, black 9px, black 11px, transparent 12px)",
+                          WebkitMask:
+                            "radial-gradient(transparent 8px, black 9px, black 11px, transparent 12px)",
                           animation: "autostart-orbit 2s linear infinite",
                           "@keyframes autostart-orbit": {
                             "0%": { transform: "rotate(0deg)" },
@@ -583,8 +602,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const [backlogExpanded, setBacklogExpanded] = useState(false);
 
   // Auto-start backlog tasks
-  const { data: project } = useGetProject(projectId || '', !!projectId);
-  const updateProjectMutation = useUpdateProject(projectId || '');
+  const { data: project } = useGetProject(projectId || "", !!projectId);
+  const updateProjectMutation = useUpdateProject(projectId || "");
   const autoStartBacklogTasks = project?.auto_start_backlog_tasks || false;
   const handleToggleAutoStart = useCallback(() => {
     const newValue = !autoStartBacklogTasks;
@@ -595,7 +614,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           snackbar.success(
             newValue
               ? "Auto-start enabled — backlog tasks will be picked up automatically"
-              : "Auto-start disabled"
+              : "Auto-start disabled",
           );
         },
         onError: () => {
@@ -609,6 +628,24 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   // Use props for showArchived and showMetrics (controlled from parent)
   const showArchived = showArchivedProp;
   const showMetrics = showMetricsProp !== undefined ? showMetricsProp : true;
+
+  // Batch fetch progress for ALL tasks in project - single request instead of N requests
+  const { data: batchProgressResponse } = useBatchTaskProgress(
+    projectId || "",
+    {
+      enabled: !!projectId,
+      refetchInterval: 10000, // Poll every 10 seconds for all tasks
+      includeChecklist: true,
+    },
+  );
+  const batchProgressData = batchProgressResponse?.tasks;
+
+  // Batch fetch usage for ALL tasks in project - single request instead of N requests
+  const { data: batchUsageResponse } = useBatchTaskUsage(projectId || "", {
+    enabled: !!projectId,
+    refetchInterval: 60000, // Poll every 60 seconds for usage (less frequent than progress)
+  });
+  const batchUsageData = batchUsageResponse?.tasks;
 
   // Planning form state
   const [newTaskRequirements, setNewTaskRequirements] = useState("");
@@ -1297,6 +1334,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                   ? () => setBacklogExpanded(true)
                   : undefined
               }
+              batchProgressData={batchProgressData}
+              batchUsageData={batchUsageData}
               autoStartBacklogTasks={autoStartBacklogTasks}
               onToggleAutoStart={handleToggleAutoStart}
             />
