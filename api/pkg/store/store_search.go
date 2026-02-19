@@ -90,7 +90,7 @@ func (s *PostgresStore) searchProjects(ctx context.Context, query string, req *t
 	if req.OrganizationID != "" {
 		q = q.Where("organization_id = ?", req.OrganizationID)
 	} else {
-		q = q.Where("user_id = ?", req.UserID)
+		q = q.Where("user_id = ? AND (organization_id = '' OR organization_id IS NULL)", req.UserID)
 	}
 
 	// Name: prefix match, Description: contains match
@@ -121,7 +121,7 @@ func (s *PostgresStore) searchSpecTasks(ctx context.Context, query string, req *
 	if req.OrganizationID != "" {
 		q = q.Where("organization_id = ?", req.OrganizationID)
 	} else {
-		q = q.Where("user_id = ?", req.UserID)
+		q = q.Where("user_id = ? AND (organization_id = '' OR organization_id IS NULL)", req.UserID)
 	}
 
 	q = q.Where("archived = false").
@@ -163,7 +163,7 @@ func (s *PostgresStore) searchSessions(ctx context.Context, query string, req *t
 	if req.OrganizationID != "" {
 		q = q.Where("organization_id = ?", req.OrganizationID)
 	} else {
-		q = q.Where("owner = ?", req.UserID)
+		q = q.Where("owner = ? AND (organization_id = '' OR organization_id IS NULL)", req.UserID)
 	}
 
 	err := q.Limit(req.Limit).Find(&sessions).Error
@@ -195,7 +195,7 @@ func (s *PostgresStore) searchPrompts(ctx context.Context, query string, req *ty
 	if req.OrganizationID != "" {
 		q = q.Where("organization_id = ?", req.OrganizationID)
 	} else {
-		q = q.Where("user_id = ?", req.UserID)
+		q = q.Where("user_id = ? AND (organization_id = '' OR organization_id IS NULL)", req.UserID)
 	}
 
 	q = q.Where("LOWER(content) LIKE ?", "%"+query+"%")
@@ -230,7 +230,7 @@ func (s *PostgresStore) searchKnowledge(ctx context.Context, query string, req *
 	if req.OrganizationID != "" {
 		q = q.Where("organization_id = ?", req.OrganizationID)
 	} else {
-		q = q.Where("owner = ?", req.UserID)
+		q = q.Where("owner = ? AND (organization_id = '' OR organization_id IS NULL)", req.UserID)
 	}
 
 	// Name: prefix match, Description: contains match
@@ -261,7 +261,7 @@ func (s *PostgresStore) searchGitRepositories(ctx context.Context, query string,
 	if req.OrganizationID != "" {
 		q = q.Where("organization_id = ?", req.OrganizationID)
 	} else {
-		q = q.Where("owner_id = ?", req.UserID)
+		q = q.Where("owner_id = ? AND (organization_id = '' OR organization_id IS NULL)", req.UserID)
 	}
 
 	// Name: prefix match, Description: contains match
@@ -292,11 +292,12 @@ func (s *PostgresStore) searchApps(ctx context.Context, query string, req *types
 	if req.OrganizationID != "" {
 		q = q.Where("organization_id = ?", req.OrganizationID)
 	} else {
-		q = q.Where("owner = ?", req.UserID)
+		q = q.Where("owner = ? AND (organization_id = '' OR organization_id IS NULL)", req.UserID)
 	}
 
 	// Name: prefix match, Description: contains match
-	q = q.Where("LOWER(config->>'name') LIKE ? OR LOWER(config->>'description') LIKE ?", query+"%", "%"+query+"%")
+	// App.Config is AppConfig with nested Helix field: config->'helix'->>'name'
+	q = q.Where("LOWER(config->'helix'->>'name') LIKE ? OR LOWER(config->'helix'->>'description') LIKE ?", query+"%", "%"+query+"%")
 
 	err := q.Limit(req.Limit).Find(&apps).Error
 	if err != nil {

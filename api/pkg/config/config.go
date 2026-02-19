@@ -42,6 +42,8 @@ type ServerConfig struct {
 	LicenseKey string `envconfig:"LICENSE_KEY"`
 	// Launchpad URL for version pings
 	LaunchpadURL string `envconfig:"LAUNCHPAD_URL" default:"https://deploy.helix.ml"`
+	// Edition identifies the deployment type (e.g., "mac-desktop", "server", "cloud")
+	Edition string `envconfig:"HELIX_EDITION" default:""`
 
 	SBMessage string `envconfig:"SB_MESSAGE" default:""`
 }
@@ -156,6 +158,11 @@ type Auth struct {
 	OIDC                OIDC
 	Regular             Regular
 	Waitlist            bool `envconfig:"AUTH_WAITLIST_ENABLED" default:"false"`
+
+	// DesktopAutoLoginSecret is a shared secret that enables automatic admin login
+	// for the Helix Desktop app. When set, GET /api/v1/auth/desktop-callback?token=<secret>
+	// creates an admin session and redirects to /.
+	DesktopAutoLoginSecret string `envconfig:"DESKTOP_AUTO_LOGIN_SECRET"`
 }
 
 type Regular struct {
@@ -501,10 +508,10 @@ type SubscriptionQuotas struct {
 			MaxSpecTasks          int `envconfig:"PROJECTS_FREE_MAX_SPEC_TASKS" default:"500"` // Non-archived/done
 		}
 		Pro struct {
-			MaxConcurrentDesktops int `envconfig:"PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS" default:"5"`
-			MaxProjects           int `envconfig:"PROJECTS_PRO_MAX_PROJECTS" default:"20"`
-			MaxRepositories       int `envconfig:"PROJECTS_PRO_MAX_REPOSITORIES" default:"20"`
-			MaxSpecTasks          int `envconfig:"PROJECTS_PRO_MAX_SPEC_TASKS" default:"10000"` // Non-archived/done
+			MaxConcurrentDesktops int `envconfig:"PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS" default:"30"`
+			MaxProjects           int `envconfig:"PROJECTS_PRO_MAX_PROJECTS" default:"50"`
+			MaxRepositories       int `envconfig:"PROJECTS_PRO_MAX_REPOSITORIES" default:"100"`
+			MaxSpecTasks          int `envconfig:"PROJECTS_PRO_MAX_SPEC_TASKS" default:"50000"` // Non-archived/done
 		}
 	}
 }

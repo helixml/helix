@@ -49,8 +49,8 @@ type WorkSession struct {
 	Status      WorkStatus `json:"status" gorm:"not null;size:50;default:pending;index"`
 
 	// Relationships for spawning/branching
-	ParentWorkSessionID string `json:"parent_work_session_id,omitempty" gorm:"size:255;index"`
-	SpawnedBySessionID  string `json:"spawned_by_session_id,omitempty" gorm:"size:255;index"`
+	ParentWorkSessionID *string `json:"parent_work_session_id,omitempty" gorm:"size:255;index"`
+	SpawnedBySessionID  *string `json:"spawned_by_session_id,omitempty" gorm:"size:255;index"`
 
 	// Configuration
 	AgentConfig       datatypes.JSON `json:"agent_config,omitempty" gorm:"type:jsonb"`

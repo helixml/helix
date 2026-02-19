@@ -15,7 +15,11 @@ import {
   CircularProgress,
   IconButton,
 } from "@mui/material";
-import { Close as CloseIcon } from "@mui/icons-material";
+import {
+  Close as CloseIcon,
+  PlayArrowRounded as AutoPlayIcon,
+} from "@mui/icons-material";
+import Tooltip from "@mui/material/Tooltip";
 import { useTheme } from "@mui/material/styles";
 import useSnackbar from "../../hooks/useSnackbar";
 
@@ -50,11 +54,15 @@ const getPriorityColor = (priority: string) => {
 interface BacklogTableViewProps {
   tasks: SpecTask[];
   onClose: () => void;
+  autoStartBacklogTasks?: boolean;
+  onToggleAutoStart?: () => void;
 }
 
 const BacklogTableView: React.FC<BacklogTableViewProps> = ({
   tasks,
   onClose,
+  autoStartBacklogTasks,
+  onToggleAutoStart,
 }) => {
   const theme = useTheme();
   const snackbar = useSnackbar();
@@ -198,6 +206,81 @@ const BacklogTableView: React.FC<BacklogTableViewProps> = ({
             size="small"
             sx={{ height: 20, fontSize: "0.75rem" }}
           />
+          {onToggleAutoStart && (
+            <Tooltip
+              title={
+                autoStartBacklogTasks
+                  ? "Auto-start is ON — automatically picking up the next available task"
+                  : "Auto-start is OFF — click to automatically pick up backlog tasks"
+              }
+              arrow
+            >
+              <Box
+                onClick={onToggleAutoStart}
+                sx={{
+                  position: "relative",
+                  width: 24,
+                  height: 24,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  borderRadius: "50%",
+                  transition: "background-color 0.2s ease",
+                  "&:hover": {
+                    backgroundColor: "rgba(16, 185, 129, 0.1)",
+                  },
+                }}
+              >
+                <AutoPlayIcon
+                  sx={{
+                    fontSize: 18,
+                    color: autoStartBacklogTasks ? "#34d399" : "#10b981",
+                    position: "relative",
+                    zIndex: 1,
+                  }}
+                />
+                {autoStartBacklogTasks && (
+                  <>
+                    {/* Fading trail ring */}
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: 24,
+                        height: 24,
+                        borderRadius: "50%",
+                        background: "conic-gradient(from 0deg, transparent 0%, transparent 60%, rgba(16, 185, 129, 0.03) 68%, rgba(16, 185, 129, 0.1) 78%, rgba(16, 185, 129, 0.3) 88%, #10b981 97%, transparent 98%)",
+                        mask: "radial-gradient(transparent 8px, black 9px, black 11px, transparent 12px)",
+                        WebkitMask: "radial-gradient(transparent 8px, black 9px, black 11px, transparent 12px)",
+                        animation: "autostart-orbit 2s linear infinite",
+                        "@keyframes autostart-orbit": {
+                          "0%": { transform: "rotate(0deg)" },
+                          "100%": { transform: "rotate(360deg)" },
+                        },
+                      }}
+                    />
+                    {/* Leading dot */}
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        width: 4,
+                        height: 4,
+                        borderRadius: "50%",
+                        backgroundColor: "#10b981",
+                        boxShadow: "0 0 4px 1px rgba(16, 185, 129, 0.6)",
+                        top: 0,
+                        left: 10,
+                        animation: "autostart-orbit 2s linear infinite",
+                        transformOrigin: "2px 12px",
+                      }}
+                    />
+                  </>
+                )}
+              </Box>
+            </Tooltip>
+          )}
         </Box>
         <IconButton size="small" onClick={onClose}>
           <CloseIcon />

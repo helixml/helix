@@ -18,8 +18,8 @@ window-decoration = true
 window-padding-x = 8
 window-padding-y = 8
 
-# Scrollback - match gnome-terminal setting (500k lines)
-scrollback-limit = 500000
+# Scrollback - 100MB (note: this is in bytes, not lines)
+scrollback-limit = 100000000
 
 # Cursor settings
 cursor-style = block
@@ -30,3 +30,9 @@ copy-on-select = clipboard
 
 # Confirm close if there are running processes
 confirm-close-surface = false
+
+# macOS keyboard support (XKB remaps Super/Command → Ctrl)
+# performable: copies if there's a selection, sends SIGINT if not
+keybind = performable:ctrl+c=copy_to_clipboard
+# Paste on Ctrl+V (which is Command+V for macOS users via XKB remap)
+keybind = ctrl+v=paste_from_clipboard

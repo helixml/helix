@@ -95,6 +95,52 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSpecTask() {
 	suite.Equal(task.Priority, retrieved.Priority)
 }
 
+func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSpecTask_WithDependsOn() {
+	project := suite.createTestProject()
+	suite.T().Cleanup(func() {
+		_ = suite.db.DeleteProject(context.Background(), project.ID)
+	})
+
+	dependency := &types.SpecTask{
+		ID:             "task-" + system.GenerateUUID(),
+		ProjectID:      project.ID,
+		Name:           "Dependency Task",
+		Type:           "feature",
+		Priority:       types.SpecTaskPriorityMedium,
+		Status:         types.TaskStatusDone,
+		OriginalPrompt: "Dependency prompt",
+		CreatedBy:      "test-user",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	err := suite.db.CreateSpecTask(suite.ctx, dependency)
+	suite.Require().NoError(err)
+
+	task := &types.SpecTask{
+		ID:             "task-" + system.GenerateUUID(),
+		ProjectID:      project.ID,
+		Name:           "Main Task",
+		Type:           "feature",
+		Priority:       types.SpecTaskPriorityHigh,
+		Status:         types.TaskStatusBacklog,
+		OriginalPrompt: "Main prompt",
+		CreatedBy:      "test-user",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+		DependsOn: []types.SpecTask{
+			{ID: dependency.ID},
+		},
+	}
+	err = suite.db.CreateSpecTask(suite.ctx, task)
+	suite.Require().NoError(err)
+
+	retrieved, err := suite.db.GetSpecTask(suite.ctx, task.ID)
+	suite.Require().NoError(err)
+	suite.Len(retrieved.DependsOn, 1)
+	suite.Equal(dependency.ID, retrieved.DependsOn[0].ID)
+	suite.Equal(types.TaskStatusDone, retrieved.DependsOn[0].Status)
+}
+
 func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSpecTask_NotFound() {
 	_, err := suite.db.GetSpecTask(suite.ctx, "non-existent-task")
 	suite.Error(err)
@@ -522,6 +568,318 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListSpecTasks_FilterByDes
 	suite.NoError(err)
 	suite.Len(tasks, 1)
 	suite.Equal(designDocPath, tasks[0].DesignDocPath)
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListSpecTasks_WithDependsOn() {
+	project := suite.createTestProject()
+	suite.T().Cleanup(func() {
+		_ = suite.db.DeleteProject(context.Background(), project.ID)
+	})
+
+	dep1 := &types.SpecTask{
+		ID:             "task-" + system.GenerateUUID(),
+		ProjectID:      project.ID,
+		Name:           "Dependency 1",
+		Type:           "feature",
+		Priority:       types.SpecTaskPriorityMedium,
+		Status:         types.TaskStatusBacklog,
+		OriginalPrompt: "Dep prompt 1",
+		CreatedBy:      "test-user",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	err := suite.db.CreateSpecTask(suite.ctx, dep1)
+	suite.Require().NoError(err)
+
+	dep2 := &types.SpecTask{
+		ID:             "task-" + system.GenerateUUID(),
+		ProjectID:      project.ID,
+		Name:           "Dependency 2",
+		Type:           "feature",
+		Priority:       types.SpecTaskPriorityMedium,
+		Status:         types.TaskStatusBacklog,
+		OriginalPrompt: "Dep prompt 2",
+		CreatedBy:      "test-user",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	err = suite.db.CreateSpecTask(suite.ctx, dep2)
+	suite.Require().NoError(err)
+
+	mainTask := &types.SpecTask{
+		ID:             "task-" + system.GenerateUUID(),
+		ProjectID:      project.ID,
+		Name:           "Main Task",
+		Type:           "feature",
+		Priority:       types.SpecTaskPriorityHigh,
+		Status:         types.TaskStatusBacklog,
+		OriginalPrompt: "Main prompt",
+		CreatedBy:      "test-user",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	err = suite.db.CreateSpecTask(suite.ctx, mainTask)
+	suite.Require().NoError(err)
+
+	err = suite.db.gdb.WithContext(suite.ctx).Model(mainTask).Association("DependsOn").Append(dep1, dep2)
+	suite.Require().NoError(err)
+
+	tasksWithoutDependsOn, err := suite.db.ListSpecTasks(suite.ctx, &types.SpecTaskFilters{
+		ProjectID:     project.ID,
+		WithDependsOn: false,
+	})
+	suite.Require().NoError(err)
+
+	var foundWithoutDependsOn *types.SpecTask
+	for _, task := range tasksWithoutDependsOn {
+		if task.ID == mainTask.ID {
+			foundWithoutDependsOn = task
+			break
+		}
+	}
+	suite.Require().NotNil(foundWithoutDependsOn)
+	suite.Empty(foundWithoutDependsOn.DependsOn)
+
+	tasksWithDependsOn, err := suite.db.ListSpecTasks(suite.ctx, &types.SpecTaskFilters{
+		ProjectID:     project.ID,
+		WithDependsOn: true,
+	})
+	suite.Require().NoError(err)
+
+	var foundWithDependsOn *types.SpecTask
+	for _, task := range tasksWithDependsOn {
+		if task.ID == mainTask.ID {
+			foundWithDependsOn = task
+			break
+		}
+	}
+	suite.Require().NotNil(foundWithDependsOn)
+	suite.Len(foundWithDependsOn.DependsOn, 2)
+
+	dependsOnIDs := map[string]bool{}
+	for _, dep := range foundWithDependsOn.DependsOn {
+		dependsOnIDs[dep.ID] = true
+	}
+	suite.True(dependsOnIDs[dep1.ID])
+	suite.True(dependsOnIDs[dep2.ID])
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListSpecTasks_WithDependsOn_DeletedDependencyExcluded() {
+	project := suite.createTestProject()
+	suite.T().Cleanup(func() {
+		_ = suite.db.DeleteProject(context.Background(), project.ID)
+	})
+
+	dependency := &types.SpecTask{
+		ID:             "task-" + system.GenerateUUID(),
+		ProjectID:      project.ID,
+		Name:           "Dependency",
+		Type:           "feature",
+		Priority:       types.SpecTaskPriorityMedium,
+		Status:         types.TaskStatusBacklog,
+		OriginalPrompt: "Dependency prompt",
+		CreatedBy:      "test-user",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	err := suite.db.CreateSpecTask(suite.ctx, dependency)
+	suite.Require().NoError(err)
+
+	mainTask := &types.SpecTask{
+		ID:             "task-" + system.GenerateUUID(),
+		ProjectID:      project.ID,
+		Name:           "Main Task",
+		Type:           "feature",
+		Priority:       types.SpecTaskPriorityHigh,
+		Status:         types.TaskStatusBacklog,
+		OriginalPrompt: "Main prompt",
+		CreatedBy:      "test-user",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	err = suite.db.CreateSpecTask(suite.ctx, mainTask)
+	suite.Require().NoError(err)
+
+	err = suite.db.gdb.WithContext(suite.ctx).Model(mainTask).Association("DependsOn").Append(dependency)
+	suite.Require().NoError(err)
+
+	err = suite.db.DeleteSpecTask(suite.ctx, dependency.ID)
+	suite.Require().NoError(err)
+
+	tasksWithDependsOn, err := suite.db.ListSpecTasks(suite.ctx, &types.SpecTaskFilters{
+		ProjectID:     project.ID,
+		WithDependsOn: true,
+	})
+	suite.Require().NoError(err)
+
+	var foundMainTask *types.SpecTask
+	for _, task := range tasksWithDependsOn {
+		if task.ID == mainTask.ID {
+			foundMainTask = task
+			break
+		}
+	}
+	suite.Require().NotNil(foundMainTask)
+	suite.Empty(foundMainTask.DependsOn)
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_CreateSpecTask_WithDependsOn() {
+	project := suite.createTestProject()
+	suite.T().Cleanup(func() {
+		_ = suite.db.DeleteProject(context.Background(), project.ID)
+	})
+
+	createTask := func(name string) *types.SpecTask {
+		task := &types.SpecTask{
+			ID:             "task-" + system.GenerateUUID(),
+			ProjectID:      project.ID,
+			Name:           name,
+			Type:           "feature",
+			Priority:       types.SpecTaskPriorityMedium,
+			Status:         types.TaskStatusBacklog,
+			OriginalPrompt: "Prompt",
+			CreatedBy:      "test-user",
+			CreatedAt:      time.Now(),
+			UpdatedAt:      time.Now(),
+		}
+		err := suite.db.CreateSpecTask(suite.ctx, task)
+		suite.Require().NoError(err)
+		return task
+	}
+
+	dependencyOne := createTask("Dependency one")
+	dependencyTwo := createTask("Dependency two")
+
+	mainTask := &types.SpecTask{
+		ID:             "task-" + system.GenerateUUID(),
+		ProjectID:      project.ID,
+		Name:           "Main task",
+		Type:           "feature",
+		Priority:       types.SpecTaskPriorityMedium,
+		Status:         types.TaskStatusBacklog,
+		OriginalPrompt: "Prompt",
+		CreatedBy:      "test-user",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+		DependsOn: []types.SpecTask{
+			{ID: dependencyOne.ID},
+			{ID: dependencyTwo.ID},
+		},
+	}
+
+	err := suite.db.CreateSpecTask(suite.ctx, mainTask)
+	suite.Require().NoError(err)
+
+	tasks, err := suite.db.ListSpecTasks(suite.ctx, &types.SpecTaskFilters{
+		ProjectID:     project.ID,
+		WithDependsOn: true,
+	})
+	suite.Require().NoError(err)
+
+	var foundMainTask *types.SpecTask
+	for _, task := range tasks {
+		if task.ID == mainTask.ID {
+			foundMainTask = task
+			break
+		}
+	}
+	suite.Require().NotNil(foundMainTask)
+	suite.Len(foundMainTask.DependsOn, 2)
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSpecTask_WithDependsOn() {
+	project := suite.createTestProject()
+	suite.T().Cleanup(func() {
+		_ = suite.db.DeleteProject(context.Background(), project.ID)
+	})
+
+	createTask := func(name string) *types.SpecTask {
+		task := &types.SpecTask{
+			ID:             "task-" + system.GenerateUUID(),
+			ProjectID:      project.ID,
+			Name:           name,
+			Type:           "feature",
+			Priority:       types.SpecTaskPriorityMedium,
+			Status:         types.TaskStatusBacklog,
+			OriginalPrompt: "Prompt",
+			CreatedBy:      "test-user",
+			CreatedAt:      time.Now(),
+			UpdatedAt:      time.Now(),
+		}
+		err := suite.db.CreateSpecTask(suite.ctx, task)
+		suite.Require().NoError(err)
+		return task
+	}
+
+	mainTask := createTask("Main task")
+	dependencyOne := createTask("Dependency one")
+	dependencyTwo := createTask("Dependency two")
+	dependencyThree := createTask("Dependency three")
+
+	mainTask.DependsOn = []types.SpecTask{{ID: dependencyOne.ID}, {ID: dependencyTwo.ID}}
+	err := suite.db.UpdateSpecTask(suite.ctx, mainTask)
+	suite.Require().NoError(err)
+
+	mainTask.DependsOn = []types.SpecTask{{ID: dependencyThree.ID}}
+	err = suite.db.UpdateSpecTask(suite.ctx, mainTask)
+	suite.Require().NoError(err)
+
+	mainTask.DependsOn = []types.SpecTask{}
+	err = suite.db.UpdateSpecTask(suite.ctx, mainTask)
+	suite.Require().NoError(err)
+
+	tasks, err := suite.db.ListSpecTasks(suite.ctx, &types.SpecTaskFilters{
+		ProjectID:     project.ID,
+		WithDependsOn: true,
+	})
+	suite.Require().NoError(err)
+
+	var foundMainTask *types.SpecTask
+	for _, task := range tasks {
+		if task.ID == mainTask.ID {
+			foundMainTask = task
+			break
+		}
+	}
+	suite.Require().NotNil(foundMainTask)
+	suite.Empty(foundMainTask.DependsOn)
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSpecTask_WithDependsOn_CircularDependencyRejected() {
+	project := suite.createTestProject()
+	suite.T().Cleanup(func() {
+		_ = suite.db.DeleteProject(context.Background(), project.ID)
+	})
+
+	createTask := func(name string) *types.SpecTask {
+		task := &types.SpecTask{
+			ID:             "task-" + system.GenerateUUID(),
+			ProjectID:      project.ID,
+			Name:           name,
+			Type:           "feature",
+			Priority:       types.SpecTaskPriorityMedium,
+			Status:         types.TaskStatusBacklog,
+			OriginalPrompt: "Prompt",
+			CreatedBy:      "test-user",
+			CreatedAt:      time.Now(),
+			UpdatedAt:      time.Now(),
+		}
+		err := suite.db.CreateSpecTask(suite.ctx, task)
+		suite.Require().NoError(err)
+		return task
+	}
+
+	taskA := createTask("Task A")
+	taskB := createTask("Task B")
+
+	taskB.DependsOn = []types.SpecTask{{ID: taskA.ID}}
+	err := suite.db.UpdateSpecTask(suite.ctx, taskB)
+	suite.Require().NoError(err)
+
+	taskA.DependsOn = []types.SpecTask{{ID: taskB.ID}}
+	err = suite.db.UpdateSpecTask(suite.ctx, taskA)
+	suite.Error(err)
+	suite.Contains(err.Error(), "circular dependency detected")
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_SubscribeForTasks() {

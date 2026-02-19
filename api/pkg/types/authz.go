@@ -142,10 +142,11 @@ type User struct {
 	// if the ID of the user is contained in the env setting
 	Admin bool `json:"admin"`
 	// if the token is associated with an app
-	AppID      string `json:"app_id"`
-	ProjectID  string `json:"project_id" gorm:"-"`   // When running in Helix Code sandbox
-	SpecTaskID string `json:"spec_task_id" gorm:"-"` // When running in Helix Code sandbox
-	SessionID  string `json:"session_id" gorm:"-"`   // Session this API key is scoped to (ephemeral keys)
+	AppID          string `json:"app_id"`
+	ProjectID      string `json:"project_id" gorm:"-"`      // When running in Helix Code sandbox
+	SpecTaskID     string `json:"spec_task_id" gorm:"-"`    // When running in Helix Code sandbox
+	SessionID      string `json:"session_id" gorm:"-"`      // Session this API key is scoped to (ephemeral keys)
+	OrganizationID string `json:"organization_id" gorm:"-"` // Organization this API key is scoped to (ephemeral keys)
 	// these are set by the keycloak user based on the token
 	// if it's an app token - the keycloak user is loaded from the owner of the app
 	// if it's a runner token - these values will be empty
@@ -400,4 +401,11 @@ type CreateTeamRequest struct {
 
 type UpdateTeamRequest struct {
 	Name string `json:"name"`
+}
+
+type OrgDetails struct {
+	Organization Organization `json:"organization"`
+	Wallet       Wallet       `json:"wallet"`
+	Members      []User       `json:"members"`
+	Projects     []Project    `json:"projects"`
 }

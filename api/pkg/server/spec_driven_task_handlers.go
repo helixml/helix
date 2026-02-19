@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -144,6 +146,7 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 // @Param   status query string false "Filter by status"
 // @Param   user_id query string false "Filter by user ID"
 // @Param   include_archived query bool false "Include archived tasks" default(false)
+// @Param   with_depends_on query bool false "Include depends on tasks" default(false)
 // @Param   limit query int false "Limit number of results" default(50)
 // @Param   offset query int false "Offset for pagination" default(0)
 // @Success 200 {array} types.SpecTask
@@ -176,6 +179,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		ProjectID:       projectID,
 		Status:          types.SpecTaskStatus(query.Get("status")),
 		UserID:          query.Get("user_id"),
+		WithDependsOn:   query.Get("with_depends_on") == "true",
 		Limit:           parseIntQuery(query.Get("limit"), 0), // 0 = no limit, return all tasks
 		Offset:          parseIntQuery(query.Get("offset"), 0),
 		IncludeArchived: query.Get("include_archived") == "true",
@@ -461,6 +465,124 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(progress)
 }
 
+// BatchTaskProgressResponse contains progress for all tasks in a project
+type BatchTaskProgressResponse struct {
+	ProjectID string                          `json:"project_id"`
+	Tasks     map[string]TaskProgressResponse `json:"tasks"` // keyed by task_id
+}
+
+// getBatchTaskProgress godoc
+// @Summary Get progress for all tasks in a project
+// @Description Get progress information for all spec-driven tasks in a project in a single request. This is more efficient than calling the individual progress endpoint for each task.
+// @Tags    spec-driven-tasks
+// @Produce json
+// @Param   id path string true "Project ID"
+// @Param   include_checklist query bool false "Include checklist progress (slower, parses git files)" default(false)
+// @Success 200 {object} BatchTaskProgressResponse
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router  /api/v1/projects/{id}/tasks-progress [get]
+func (s *HelixAPIServer) getBatchTaskProgress(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	projectID := vars["id"]
+
+	if projectID == "" {
+		http.Error(w, "project ID is required", http.StatusBadRequest)
+		return
+	}
+
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to access the project
+	if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionGet); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if checklist progress is requested (it's slower due to git file parsing)
+	includeChecklist := r.URL.Query().Get("include_checklist") == "true"
+
+	// Get all non-archived tasks for this project in a single query
+	tasks, err := s.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID:       projectID,
+		IncludeArchived: false,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("project_id", projectID).Msg("Failed to list tasks for batch progress")
+		http.Error(w, "failed to list tasks", http.StatusInternalServerError)
+		return
+	}
+
+	// Build response with progress for each task
+	response := BatchTaskProgressResponse{
+		ProjectID: projectID,
+		Tasks:     make(map[string]TaskProgressResponse, len(tasks)),
+	}
+
+	for _, task := range tasks {
+		progress := TaskProgressResponse{
+			TaskID:    task.ID,
+			Status:    getSpecificationStatus(task.Status),
+			CreatedAt: task.CreatedAt,
+			UpdatedAt: task.UpdatedAt,
+			Specification: PhaseProgress{
+				Status:        getSpecificationStatus(task.Status),
+				SessionID:     task.PlanningSessionID,
+				StartedAt:     &task.CreatedAt,
+				CompletedAt:   task.SpecApprovedAt,
+				RevisionCount: task.SpecRevisionCount,
+			},
+			Implementation: PhaseProgress{
+				Status:    getImplementationStatus(task.Status),
+				SessionID: task.PlanningSessionID,
+				StartedAt: task.SpecApprovedAt,
+			},
+		}
+
+		response.Tasks[task.ID] = progress
+	}
+
+	// Fetch checklists in parallel if requested (expensive but parallelizable)
+	if includeChecklist && len(tasks) > 0 {
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+
+		// Limit concurrency to avoid overwhelming the filesystem
+		semaphore := make(chan struct{}, 10)
+
+		for _, task := range tasks {
+			wg.Add(1)
+			go func(t *types.SpecTask) {
+				defer wg.Done()
+
+				// Acquire semaphore
+				semaphore <- struct{}{}
+				defer func() { <-semaphore }()
+
+				checklistProgress := s.getChecklistProgress(ctx, t)
+				if checklistProgress != nil {
+					mu.Lock()
+					if progress, ok := response.Tasks[t.ID]; ok {
+						progress.Checklist = checklistProgress
+						response.Tasks[t.ID] = progress
+					}
+					mu.Unlock()
+				}
+			}(task)
+		}
+
+		wg.Wait()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 // Helper functions
 func parseIntQuery(value string, defaultValue int) int {
 	if value == "" {
@@ -570,6 +692,7 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 // @Router /api/v1/spec-tasks/{taskId} [put]
 // @Security BearerAuth
 func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	vars := mux.Vars(r)
 	taskID := vars["taskId"]
 	if taskID == "" {
@@ -585,7 +708,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Get existing task
-	task, err := s.Store.GetSpecTask(r.Context(), taskID)
+	task, err := s.Store.GetSpecTask(ctx, taskID)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get SpecTask for update")
 		http.Error(w, "SpecTask not found", http.StatusNotFound)
@@ -599,7 +722,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Authorize user to update task in the project
-	if err := s.authorizeUserToProjectByID(r.Context(), user, task.ProjectID, types.ActionUpdate); err != nil {
+	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -625,10 +748,10 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 
 		// Sync session's ParentApp so restart uses new agent's display settings
 		if task.PlanningSessionID != "" {
-			session, err := s.Store.GetSession(r.Context(), task.PlanningSessionID)
+			session, err := s.Store.GetSession(ctx, task.PlanningSessionID)
 			if err == nil && session != nil && session.ParentApp != updateReq.HelixAppID {
 				session.ParentApp = updateReq.HelixAppID
-				if _, err := s.Store.UpdateSession(r.Context(), *session); err != nil {
+				if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
 					log.Warn().Err(err).
 						Str("session_id", task.PlanningSessionID).
 						Str("new_agent", updateReq.HelixAppID).
@@ -651,9 +774,30 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		task.PublicDesignDocs = *updateReq.PublicDesignDocs
 	}
 
+	// If depends_on is provided, pass IDs to store via task.DependsOn and let UpdateSpecTask sync associations.
+	if updateReq.DependsOn != nil {
+		task.DependsOn = make([]types.SpecTask, 0, len(updateReq.DependsOn))
+		for _, dependsOnID := range updateReq.DependsOn {
+			if dependsOnID == "" {
+				continue
+			}
+			task.DependsOn = append(task.DependsOn, types.SpecTask{ID: dependsOnID})
+		}
+	}
+
 	// Update in store
-	err = s.Store.UpdateSpecTask(r.Context(), task)
+	err = s.Store.UpdateSpecTask(ctx, task)
 	if err != nil {
+		if updateReq.DependsOn != nil {
+			switch {
+			case err.Error() == "failed to update spec task: task cannot depend on itself",
+				err.Error() == "failed to update spec task: depends on task not found",
+				err.Error() == "failed to update spec task: depends on task must be in same project",
+				err.Error() == "failed to update spec task: circular dependency detected":
+				http.Error(w, strings.TrimPrefix(err.Error(), "failed to update spec task: "), http.StatusBadRequest)
+				return
+			}
+		}
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to update SpecTask")
 		http.Error(w, fmt.Sprintf("failed to update SpecTask: %v", err), http.StatusInternalServerError)
 		return

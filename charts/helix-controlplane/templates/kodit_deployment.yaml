@@ -62,13 +62,13 @@ spec:
           imagePullPolicy: {{ .Values.kodit.image.pullPolicy | default .Values.image.pullPolicy }}
           args:
             - serve
-            - --host=0.0.0.0
-            - --port=8080
           ports:
             - name: http
               containerPort: 8080
               protocol: TCP
           env:
+            - name: PORT
+              value: "8080"
             - name: DATA_DIR
               value: /data
             - name: DEFAULT_SEARCH_PROVIDER
@@ -112,7 +112,7 @@ spec:
               {{- end }}
             # Database URL constructed from credentials
             - name: DB_URL
-              value: "postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ include "helix-controlplane.fullname" . }}-kodit-vectorchord:5432/$(POSTGRES_DB)"
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ include "helix-controlplane.fullname" . }}-kodit-vectorchord:5432/$(POSTGRES_DB)"
             # Enrichment endpoint configuration
             - name: ENRICHMENT_ENDPOINT_BASE_URL
               value: {{ .Values.kodit.enrichment.baseUrl | default (printf "http://%s:80/v1" (include "helix-controlplane.fullname" .)) | quote }}

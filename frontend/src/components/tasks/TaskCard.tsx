@@ -41,11 +41,14 @@ import {
   useStopAgent,
 } from "../../services/specTaskWorkflowService";
 import {
-  useTaskProgress,
   useUpdateSpecTask,
   useDeleteSpecTask,
 } from "../../services/specTaskService";
-import { TypesSpecTaskStatus } from "../../api/api";
+import {
+  ServerTaskProgressResponse,
+  TypesSpecTaskStatus,
+  TypesAggregatedUsageMetric,
+} from "../../api/api";
 import UsagePulseChart from "./UsagePulseChart";
 import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopViewer";
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
@@ -154,7 +157,7 @@ interface SpecTaskWithExtras {
     | "queued";
   planning_session_id?: string;
   archived?: boolean;
-  metadata?: { error?: string };
+  metadata?: { error?: string; error_timestamp?: string };
   merged_to_main?: boolean;
   just_do_it_mode?: boolean;
   started_at?: string;
@@ -172,6 +175,14 @@ interface SpecTaskWithExtras {
   agent_work_state?: "idle" | "working" | "done"; // Backend-tracked work state
   // Task number for display
   task_number?: number;
+  depends_on?: TaskDependency[];
+}
+
+interface TaskDependency {
+  id?: string;
+  task_number?: number;
+  status?: string;
+  archived?: boolean;
 }
 
 interface KanbanColumn {
@@ -193,12 +204,18 @@ interface TaskCardProps {
   onTaskClick?: (task: SpecTaskWithExtras) => void;
   onReviewDocs?: (task: SpecTaskWithExtras) => void;
   projectId?: string;
-  focusStartPlanning?: boolean;
   isArchiving?: boolean;
   hasExternalRepo?: boolean;
   showMetrics?: boolean;
   /** Hide the "Clone to other projects" menu option (used in clone batch progress view) */
   hideCloneOption?: boolean;
+  /** Pre-fetched progress data from batch endpoint - required */
+  progressData?: ServerTaskProgressResponse;
+  /** Pre-fetched usage data from batch endpoint - required */
+  usageData?: TypesAggregatedUsageMetric[];
+  highlightedTaskIds?: string[] | null;
+  onDependencyHoverStart?: (taskIds: string[]) => void;
+  onDependencyHoverEnd?: () => void;
 }
 
 // Interface for checklist items from API
@@ -454,7 +471,8 @@ const LiveAgentScreenshot: React.FC<{
   sessionId: string;
   projectId?: string;
   onClick?: () => void;
-}> = React.memo(({ sessionId, projectId, onClick }) => {
+  startupErrorMessage?: string;
+}> = React.memo(({ sessionId, projectId, onClick, startupErrorMessage }) => {
   return (
     <Box
       onClick={(e) => {
@@ -481,7 +499,11 @@ const LiveAgentScreenshot: React.FC<{
       }}
     >
       <Box sx={{ position: "relative", height: "100%" }}>
-        <ExternalAgentDesktopViewer sessionId={sessionId} mode="screenshot" />
+        <ExternalAgentDesktopViewer
+          sessionId={sessionId}
+          mode="screenshot"
+          startupErrorMessage={startupErrorMessage}
+        />
       </Box>
       <Box
         sx={{
@@ -511,7 +533,7 @@ const LiveAgentScreenshot: React.FC<{
   );
 });
 
-export default function TaskCard({
+function TaskCardInner({
   task,
   index,
   columns,
@@ -520,11 +542,15 @@ export default function TaskCard({
   onTaskClick,
   onReviewDocs,
   projectId,
-  focusStartPlanning = false,
   isArchiving = false,
   hasExternalRepo = false,
   showMetrics = true,
   hideCloneOption = false,
+  progressData,
+  usageData,
+  highlightedTaskIds,
+  onDependencyHoverStart,
+  onDependencyHoverEnd,
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false);
   const [showCloneDialog, setShowCloneDialog] = useState(false);
@@ -536,13 +562,9 @@ export default function TaskCard({
   const updateSpecTask = useUpdateSpecTask();
   const deleteSpecTask = useDeleteSpecTask();
 
-  // Fetch checklist progress for active tasks (planning/implementation)
+  // Check if we should show progress (planning/implementation phases)
   const showProgress =
     task.phase === "planning" || task.phase === "implementation";
-  const { data: progressData } = useTaskProgress(task.id, {
-    enabled: showProgress,
-    refetchInterval: 5000, // Refresh every 5 seconds for live updates
-  });
 
   // Check agent activity status using backend-tracked work state
   const { isActive, needsAttention, markAsSeen } = useAgentActivityCheck(
@@ -554,6 +576,7 @@ export default function TaskCard({
     task.started_at,
     task.status === "implementation",
   );
+  const taskError = task.metadata?.error?.trim();
 
   // Check if planning column is full
   const planningColumn = columns.find((col) => col.id === "planning");
@@ -600,6 +623,28 @@ export default function TaskCard({
 
   const accentColor = getPhaseAccent(task.phase);
   const isArchived = task.archived ?? false;
+  const isDependencyHighlighted =
+    !!task.id && !!highlightedTaskIds?.includes(task.id);
+  const unfinishedDependencies = useMemo(() => {
+    const dependencies = task.depends_on || [];
+    return dependencies.filter((dependency) => {
+      const dependencyStatus = dependency.status || "";
+      const isCompleted =
+        dependencyStatus === "done" || dependencyStatus === "completed";
+      return !dependency.archived && !isCompleted;
+    });
+  }, [task.depends_on]);
+  const blockingDependency = unfinishedDependencies[0];
+
+  const formatDependencyTaskRef = (dependency: TaskDependency) => {
+    if (dependency.task_number && dependency.task_number > 0) {
+      return String(dependency.task_number).padStart(6, "0");
+    }
+    if (dependency.id) {
+      return dependency.id.slice(0, 8);
+    }
+    return "?";
+  };
 
   // Handle card click - always open task detail view (session viewer)
   const handleCardClick = () => {
@@ -623,7 +668,13 @@ export default function TaskCard({
         borderColor: isArchived
           ? "rgba(156, 163, 175, 0.4)"
           : "rgba(0, 0, 0, 0.08)",
-        borderLeft: `3px ${isArchived ? "dashed" : "solid"} ${isArchived ? "rgba(156, 163, 175, 0.5)" : accentColor}`,
+        borderLeft: `3px ${isArchived ? "dashed" : "solid"} ${
+          isArchived
+            ? "rgba(156, 163, 175, 0.5)"
+            : isDependencyHighlighted
+              ? "#ef4444"
+              : accentColor
+        }`,
         boxShadow: "none",
         transition: "all 0.15s ease-in-out",
         opacity: isArchiving ? 0.5 : isArchived ? 0.7 : 1,
@@ -647,6 +698,7 @@ export default function TaskCard({
             justifyContent: "space-between",
             alignItems: "flex-start",
             mb: 1,
+            minWidth: 0,
           }}
         >
           <Typography
@@ -654,8 +706,10 @@ export default function TaskCard({
             sx={{
               fontWeight: 500,
               flex: 1,
+              minWidth: 0,
               lineHeight: 1.4,
               color: "text.primary",
+              wordBreak: "break-word",
             }}
           >
             {task.name}
@@ -671,6 +725,7 @@ export default function TaskCard({
               height: 24,
               color: "text.secondary",
               ml: 0.5,
+              flexShrink: 0,
               "&:hover": {
                 color: "text.primary",
                 backgroundColor: "rgba(0, 0, 0, 0.04)",
@@ -896,7 +951,7 @@ export default function TaskCard({
             task.phase === "review" ||
             task.phase === "implementation" ||
             task.phase === "pull_request") && (
-            <UsagePulseChart taskId={task.id} accentColor={accentColor} />
+            <UsagePulseChart accentColor={accentColor} usageData={usageData} />
           )}
 
         {/* Gorgeous checklist progress for active tasks */}
@@ -907,14 +962,39 @@ export default function TaskCard({
           />
         )}
 
+        {/* Show task error prominently and avoid desktop viewer when errored */}
+        {taskError && (
+          <Box
+            sx={{
+              mb: 1,
+              px: 1.5,
+              py: 1,
+              backgroundColor: "rgba(239, 68, 68, 0.08)",
+              borderRadius: 1,
+              border: "1px solid rgba(239, 68, 68, 0.2)",
+            }}
+          >
+            <Typography
+              variant="caption"
+              sx={{ fontWeight: 500, color: "#ef4444", fontSize: "0.7rem" }}
+            >
+              ⚠ {taskError}
+            </Typography>
+          </Box>
+        )}
+
         {/* Live screenshot for active sessions - click opens desktop viewer */}
         {/* Don't show for completed/merged tasks - the container is shut down */}
         {task.planning_session_id &&
           task.phase !== "completed" &&
-          !task.merged_to_main && (
+          !task.merged_to_main &&
+          !taskError && (
             <LiveAgentScreenshot
               sessionId={task.planning_session_id}
               projectId={projectId}
+              startupErrorMessage={
+                typeof task.metadata?.error === "string" ? task.metadata.error : undefined
+              }
               onClick={() => onTaskClick?.(task)}
             />
           )}
@@ -922,24 +1002,32 @@ export default function TaskCard({
         {/* Backlog phase */}
         {task.phase === "backlog" && (
           <Box sx={{ mt: 1.5 }}>
-            {task.metadata?.error && (
-              <Box
+            {blockingDependency && blockingDependency.id && (
+              <Typography
+                variant="caption"
+                onMouseEnter={() =>
+                  onDependencyHoverStart?.(
+                    unfinishedDependencies
+                      .map((dependency) => dependency.id)
+                      .filter((id): id is string => !!id),
+                  )
+                }
+                onMouseLeave={() => onDependencyHoverEnd?.()}
                 sx={{
-                  mb: 1,
-                  px: 1.5,
-                  py: 1,
-                  backgroundColor: "rgba(239, 68, 68, 0.08)",
-                  borderRadius: 1,
-                  border: "1px solid rgba(239, 68, 68, 0.2)",
+                  mb: 0.75,
+                  display: "inline-flex",
+                  fontSize: "0.72rem",
+                  color: "text.secondary",
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  "&:hover": {
+                    color: "primary.main",
+                    textDecoration: "underline",
+                  },
                 }}
               >
-                <Typography
-                  variant="caption"
-                  sx={{ fontWeight: 500, color: "#ef4444", fontSize: "0.7rem" }}
-                >
-                  ⚠ {task.metadata.error as string}
-                </Typography>
-              </Box>
+                Depends on: #{formatDependencyTaskRef(blockingDependency)}
+              </Typography>
             )}
             <SpecTaskActionButtons
               task={{
@@ -964,6 +1052,12 @@ export default function TaskCard({
               isQueued={task.planningStatus === "queued"}
               isPlanningFull={isPlanningFull}
               planningLimit={planningColumn?.limit}
+              isBlockedByDependencies={unfinishedDependencies.length > 0}
+              blockedReason={
+                blockingDependency
+                  ? `Depends on: #${formatDependencyTaskRef(blockingDependency)}`
+                  : ""
+              }
             />
             {isPlanningFull && (
               <Typography
@@ -1282,3 +1376,19 @@ export default function TaskCard({
     </Card>
   );
 }
+
+// Memoized TaskCard to prevent unnecessary re-renders
+const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
+  // Only re-render when meaningful props change
+  return (
+    prevProps.task.id === nextProps.task.id &&
+    prevProps.task.status === nextProps.task.status &&
+    prevProps.task.updated_at === nextProps.task.updated_at &&
+    prevProps.task.agent_work_state === nextProps.task.agent_work_state &&
+    prevProps.isArchiving === nextProps.isArchiving &&
+    prevProps.isVisible === nextProps.isVisible &&
+    prevProps.focusStartPlanning === nextProps.focusStartPlanning
+  );
+});
+
+export default TaskCard;

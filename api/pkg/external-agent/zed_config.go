@@ -168,7 +168,7 @@ func GenerateZedMCPConfig(
 		ShowOnboarding:         false,
 		AutoOpenPanel:          true,
 	}
-	config.Theme = "One Dark"
+	config.Theme = "Ayu Dark"
 
 	// Configure language_models to route API calls through Helix proxy
 	// CRITICAL: Zed reads api_url from settings.json, NOT from environment variables!
@@ -250,6 +250,10 @@ func GenerateZedMCPConfig(
 			"CHROME_DEVTOOLS_MCP_HEADLESS": "true",
 			// Set viewport to match typical desktop resolution
 			"CHROME_DEVTOOLS_MCP_VIEWPORT": "1920x1080",
+			// Point to the actual browser binary (Chromium on ARM64, Chrome on amd64).
+			// google-chrome-stable symlink also exists, but CHROME_PATH is the
+			// documented way to configure the MCP server for non-Chrome browsers.
+			"CHROME_PATH": "/usr/bin/google-chrome-stable",
 		},
 	}
 
@@ -558,13 +562,13 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 	if helixAPIURL == "" {
 		helixAPIURL = "http://api:8080"
 	}
-	// In Helix-in-Helix mode, the inner compose stack shadows the "api" hostname.
-	// If "outer-api" resolves (added by H-in-H startup script), use it so Zed
-	// connects to the outer API for LLM inference, not the inner API.
+	// Use "outer-api" instead of "api" for the Zed inference URL. Both resolve
+	// to the same IP in the desktop's /etc/hosts, but "outer-api" survives
+	// Helix-in-Helix scenarios where an inner compose stack shadows "api".
 	if strings.Contains(helixAPIURL, "://api:") {
 		if _, err := net.LookupHost("outer-api"); err == nil {
 			helixAPIURL = strings.Replace(helixAPIURL, "://api:", "://outer-api:", 1)
-			log.Info().Str("url", helixAPIURL).Msg("Helix-in-Helix: rewrote API URL for Zed config")
+			log.Info().Str("url", helixAPIURL).Msg("Rewrote API URL to outer-api for Zed config")
 		}
 	}
 

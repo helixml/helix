@@ -521,7 +521,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	// Initialize ping service if not disabled
 	var pingService *version.PingService
 	if !cfg.DisableVersionPing {
-		pingService = version.NewPingService(postgresStore, cfg.LicenseKey, cfg.LaunchpadURL)
+		pingService = version.NewPingService(postgresStore, cfg.LicenseKey, cfg.LaunchpadURL, cfg.Edition)
 		pingService.Start(ctx)
 		defer pingService.Stop()
 	}

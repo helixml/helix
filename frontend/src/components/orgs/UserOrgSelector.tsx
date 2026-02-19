@@ -843,7 +843,11 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
             <Box
               onClick={(e) => {
                 e.stopPropagation()
-                navigateTo('account')
+                if (currentOrgSlug !== 'default') {
+                  orgNavigateTo('org_billing', { org_id: currentOrgSlug })
+                } else {
+                  navigateTo('account')
+                }
                 // Close the appropriate menu state
                 if (sidebarVisible && menuItemsExpanded) {
                   setMenuItemsExpanded(false)
@@ -860,10 +864,10 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 borderRadius: 1,
                 cursor: 'pointer',
                 transition: 'all 0.2s ease-in-out',
-                backgroundColor: isActive('account') ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
-                border: isActive('account') ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
+                backgroundColor: isActive(['account', 'org_settings', 'org_billing']) ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                border: isActive(['account', 'org_settings', 'org_billing']) ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
                 '&:hover': {
-                  backgroundColor: isActive('account') ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.05)',
+                  backgroundColor: isActive(['account', 'org_settings', 'org_billing']) ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.05)',
                 },
               }}
             >
@@ -871,15 +875,15 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 size={16}
                 style={{
                   marginRight: '10px',
-                  color: isActive('account') ? lightTheme.textColor : lightTheme.textColorFaded
+                  color: isActive(['account', 'org_billing']) ? lightTheme.textColor : lightTheme.textColorFaded
                 }}
               />
               <Typography
                 variant="body2"
                 sx={{
-                  color: isActive('account') ? lightTheme.textColor : lightTheme.textColor,
+                  color: isActive(['account', 'org_billing']) ? lightTheme.textColor : lightTheme.textColor,
                   fontSize: '0.875rem',
-                  fontWeight: isActive('account') ? 600 : 400,
+                  fontWeight: isActive(['account', 'org_billing']) ? 600 : 400,
                   lineHeight: 1.2,
                 }}
               >

@@ -1,0 +1,67 @@
+From dda666bc6de095647e0f91236e537f4195995dd5 Mon Sep 17 00:00:00 2001
+From: Luke Marsden <me@lukemarsden.net>
+Date: Wed, 4 Feb 2026 06:35:42 +0000
+Subject: [PATCH 2/3] Fix helix-frame-export build for macOS
+
+- Rename helix-frame-export.c to .m for Objective-C compilation
+- Update meson.build to use hw_display_modules pattern
+- Fixes compilation with Apple frameworks (Foundation, Metal, etc.)
+
+Required for building QEMU with zero-copy VideoToolbox encoding
+support on macOS ARM64.
+
+Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
+---
+ ...ix-frame-export.c => helix-frame-export.m} |  0
+ hw/display/helix/meson.build                  | 23 +++++++++----------
+ 2 files changed, 11 insertions(+), 12 deletions(-)
+ rename hw/display/helix/{helix-frame-export.c => helix-frame-export.m} (100%)
+
+diff --git a/hw/display/helix/helix-frame-export.c b/hw/display/helix/helix-frame-export.m
+similarity index 100%
+rename from hw/display/helix/helix-frame-export.c
+rename to hw/display/helix/helix-frame-export.m
+diff --git a/hw/display/helix/meson.build b/hw/display/helix/meson.build
+index 8e9709d83b..1564d47c76 100644
+--- a/hw/display/helix/meson.build
++++ b/hw/display/helix/meson.build
+@@ -12,8 +12,6 @@
+ #     softmmu_ss.add(dependency('iosurface'))
+ #   endif
+ 
+-helix_ss = ss.source_set()
+-
+ if host_machine.system() == 'darwin'
+   # Framework dependencies for macOS
+   videotoolbox = dependency('VideoToolbox', required: true)
+@@ -23,16 +21,17 @@ if host_machine.system() == 'darwin'
+   metal = dependency('Metal', required: true)
+   foundation = dependency('Foundation', required: true)
+ 
+-  helix_ss.add(files('helix-frame-export.c'))
+-  helix_ss.add(videotoolbox)
+-  helix_ss.add(corevideo)
+-  helix_ss.add(coremedia)
+-  helix_ss.add(iosurface)
+-  helix_ss.add(metal)
+-  helix_ss.add(foundation)
++  helix_frame_export_ss = ss.source_set()
++  helix_frame_export_ss.add(files('helix-frame-export.m'))
++  helix_frame_export_ss.add(videotoolbox)
++  helix_frame_export_ss.add(corevideo)
++  helix_frame_export_ss.add(coremedia)
++  helix_frame_export_ss.add(iosurface)
++  helix_frame_export_ss.add(metal)
++  helix_frame_export_ss.add(foundation)
+ 
+   # Also need virglrenderer
+-  helix_ss.add(virgl)
+-endif
++  helix_frame_export_ss.add(virgl)
+ 
+-softmmu_ss.add_all(helix_ss)
++  hw_display_modules += {'helix-frame-export': helix_frame_export_ss}
++endif
+-- 
+2.50.1 (Apple Git-155)
+

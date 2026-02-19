@@ -63,8 +63,6 @@ func (s *ProviderHandlersSuite) SetupTest() {
 }
 
 func (s *ProviderHandlersSuite) TestListProviders() {
-	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{ProvidersManagementEnabled: true}, nil)
-
 	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{
 		{
 			Name:           "openai",
@@ -140,8 +138,6 @@ func (s *ProviderHandlersSuite) TestListProviders() {
 }
 
 func (s *ProviderHandlersSuite) TestListProviders_NoModelInfo() {
-	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{ProvidersManagementEnabled: true}, nil)
-
 	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{
 		{
 			Name:           "openai",

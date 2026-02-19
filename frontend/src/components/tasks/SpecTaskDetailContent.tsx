@@ -31,6 +31,7 @@ import {
   Switch,
   FormControlLabel,
   Checkbox,
+  Autocomplete,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import EditIcon from "@mui/icons-material/Edit";
@@ -71,6 +72,7 @@ import {
   useSpecTask,
   useCloneGroups,
   useZedThreads,
+  useSpecTasks,
 } from "../../services/specTaskService";
 import {
   useGetProject,
@@ -133,6 +135,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     enabled: !!taskId,
     refetchInterval: 2300, // 2.3s - prime to avoid sync with other polling
   });
+  const { data: projectTasks = [] } = useSpecTasks({
+    projectId: task?.project_id,
+    withDependsOn: true,
+    enabled: !!task?.project_id,
+  });
 
   // Fetch zed threads for thread switching
   const { data: zedThreadsData } = useZedThreads(taskId);
@@ -160,6 +167,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     name: "",
     description: "",
     priority: "",
+    dependsOnTaskIds: [] as string[],
   });
 
   // Agent selection state
@@ -355,6 +363,42 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Fetch clone groups where this task was the source
   const { data: cloneGroups } = useCloneGroups(taskId);
 
+  const dependencyTaskOptions = useMemo(
+    () =>
+      projectTasks.filter(
+        (projectTask) =>
+          !!projectTask.id &&
+          projectTask.id !== task?.id &&
+          projectTask.status !== TypesSpecTaskStatus.TaskStatusDone,
+      ),
+    [projectTasks, task?.id],
+  );
+
+  const currentTaskDependencies = useMemo(
+    () =>
+      projectTasks.find((projectTask) => projectTask.id === task?.id)?.depends_on ||
+      task?.depends_on ||
+      [],
+    [projectTasks, task?.id, task?.depends_on],
+  );
+
+  const dependencyTaskLookup = useMemo(() => {
+    const tasksForLookup = [...dependencyTaskOptions, ...currentTaskDependencies];
+    return new Map(
+      tasksForLookup
+        .filter((projectTask) => !!projectTask.id)
+        .map((projectTask) => [projectTask.id, projectTask]),
+    );
+  }, [dependencyTaskOptions, currentTaskDependencies]);
+
+  const selectedDependencyTasks = useMemo(
+    () =>
+      editFormData.dependsOnTaskIds
+        .map((taskDependencyId) => dependencyTaskLookup.get(taskDependencyId))
+        .filter((projectTask): projectTask is NonNullable<typeof projectTask> => !!projectTask),
+    [editFormData.dependsOnTaskIds, dependencyTaskLookup],
+  );
+
   // Initialize edit form data when task changes
   useEffect(() => {
     if (task && isEditMode) {
@@ -362,9 +406,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         name: task.name || "",
         description: task.description || task.original_prompt || "",
         priority: task.priority || "medium",
+        dependsOnTaskIds: currentTaskDependencies
+          .map((dependencyTask) => dependencyTask.id || "")
+          .filter((dependencyTaskId) => !!dependencyTaskId),
       });
     }
-  }, [task, isEditMode]);
+  }, [task, isEditMode, currentTaskDependencies]);
 
   // Check if task is completed/merged - container is shut down so desktop view won't work
   const isTaskCompleted = task?.status === "done" || task?.merged_to_main;
@@ -415,6 +462,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     enabled: !!activeSessionId,
   });
   const sessionData = sessionResponse?.data;
+  const taskMetadataError =
+    typeof task?.metadata?.error === "string" ? task.metadata.error : "";
 
   // Sync justDoItMode when task changes
   useEffect(() => {
@@ -640,10 +689,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         name: task.name || "",
         description: task.description || task.original_prompt || "",
         priority: task.priority || "medium",
+        dependsOnTaskIds: currentTaskDependencies
+          .map((dependencyTask) => dependencyTask.id || "")
+          .filter((dependencyTaskId) => !!dependencyTaskId),
       });
       setJustDoItMode(task.just_do_it_mode ?? false);
     }
-  }, [task]);
+  }, [task, currentTaskDependencies]);
 
   const handleSaveEdit = useCallback(async () => {
     if (!task?.id) return;
@@ -656,6 +708,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           description: editFormData.description,
           priority: editFormData.priority as TypesSpecTaskPriority,
           just_do_it_mode: justDoItMode,
+          depends_on: editFormData.dependsOnTaskIds,
         },
       });
       setIsEditMode(false);
@@ -747,7 +800,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           `Uploaded ${successCount} file${successCount > 1 ? "s" : ""} to ~/work/incoming`,
         );
       } else if (successCount > 0 && errorCount > 0) {
-        snackbar.warning(`Uploaded ${successCount}, ${errorCount} failed`);
+        snackbar.info(`Uploaded ${successCount}, ${errorCount} failed`);
       } else if (errorCount > 0) {
         snackbar.error(
           `Failed to upload ${errorCount} file${errorCount > 1 ? "s" : ""}`,
@@ -908,7 +961,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       <Divider sx={{ my: 2 }} />
 
       {/* Priority */}
-      <Box sx={{ mb: 2 }}>
+      <Box sx={{ mb: 4 }}>
         {isEditMode ? (
           <FormControl fullWidth size="small">
             <InputLabel>Priority</InputLabel>
@@ -950,8 +1003,92 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         )}
       </Box>
 
+      <Box sx={{ mb: 4 }}>
+        {isEditMode ? (
+          <Autocomplete
+            multiple
+            options={dependencyTaskOptions}
+            value={selectedDependencyTasks}
+            onChange={(_, selectedTasks) =>
+              setEditFormData((prev) => ({
+                ...prev,
+                dependsOnTaskIds: selectedTasks
+                  .map((selectedTask) => selectedTask.id || "")
+                  .filter((dependencyTaskId) => !!dependencyTaskId),
+              }))
+            }
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+            getOptionLabel={(dependencyTask) =>
+              dependencyTask.name ||
+              dependencyTask.short_title ||
+              dependencyTask.description ||
+              dependencyTask.original_prompt ||
+              dependencyTask.id ||
+              "Untitled task"
+            }
+            filterSelectedOptions
+            clearOnBlur={false}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                size="small"
+                label="Depends on"
+                placeholder="Search and select tasks"
+              />
+            )}
+            renderOption={(props, option) => (
+              <li {...props} key={option.id}>
+                <Box sx={{ display: "flex", flexDirection: "column", py: 0.25 }}>
+                  <Typography variant="body2">
+                    {option.name || option.short_title || `Task #${option.task_number || "?"}`}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {`#${option.task_number || "?"} • ${option.status || "unknown"}`}
+                  </Typography>
+                </Box>
+              </li>
+            )}
+          />
+        ) : (
+          <>
+            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+              Depends on
+            </Typography>
+            {currentTaskDependencies.length > 0 ? (
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+                {currentTaskDependencies.map((dependencyTask) => (
+                  <Chip
+                    key={dependencyTask.id}
+                    size="small"
+                    clickable={!!dependencyTask.id && !!task?.project_id}
+                    onClick={() => {
+                      if (!dependencyTask.id || !task?.project_id) {
+                        return;
+                      }
+                      account.orgNavigate("project-task-detail", {
+                        id: task.project_id,
+                        taskId: dependencyTask.id,
+                      });
+                    }}
+                    label={
+                      dependencyTask.name ||
+                      dependencyTask.short_title ||
+                      `Task #${dependencyTask.task_number || "?"}`
+                    }
+                  />
+                ))}
+              </Box>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                No task dependencies
+              </Typography>
+            )}
+          </>
+        )}
+      </Box>
+
       {isEditMode && (
-        <Box sx={{ mb: 2 }}>
+        <Box sx={{ mb: 4 }}>
           <FormControlLabel
             control={
               <Checkbox
@@ -1316,7 +1453,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {/* When chatCollapsed is true, use mobile-style tab layout even on desktop */}
         {activeSessionId && isBigScreen && !chatCollapsed ? (
           <PanelGroup
-            direction="horizontal"
+            orientation="horizontal"
             style={{ height: "100%", flex: 1 }}
           >
             {/* Left: Chat panel - always visible on desktop */}
@@ -1481,10 +1618,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     size="small"
                     sx={{
                       "& .MuiToggleButton-root": {
-                        py: 0.25,
-                        px: 1,
+                        py: 0.4,
+                        px: 0.8,
+                        minWidth: 62,
                         border: "none",
                         borderRadius: "4px !important",
+                        textTransform: "none",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: 0.2,
                         "&.Mui-selected": {
                           backgroundColor: "action.selected",
                         },
@@ -1492,19 +1635,43 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     }}
                   >
                     <ToggleButton value="desktop" aria-label="Desktop view">
-                      <Tooltip title="Desktop">
-                        <MonitorPlay size={16} />
-                      </Tooltip>
+                      <MonitorPlay size={18} />
+                      <Typography
+                        sx={{
+                          fontSize: "0.65rem",
+                          lineHeight: 1,
+                          fontWeight: 400,
+                          textTransform: "none",
+                        }}
+                      >
+                        Desktop
+                      </Typography>
                     </ToggleButton>
                     <ToggleButton value="changes" aria-label="Changes view">
-                      <Tooltip title="Changes">
-                        <GitCompare size={16} />
-                      </Tooltip>
+                      <GitCompare size={18} />
+                      <Typography
+                        sx={{
+                          fontSize: "0.65rem",
+                          lineHeight: 1,
+                          fontWeight: 400,
+                          textTransform: "none",
+                        }}
+                      >
+                        File Diff
+                      </Typography>
                     </ToggleButton>
                     <ToggleButton value="details" aria-label="Details view">
-                      <Tooltip title="Details">
-                        <SlidersHorizontal size={16} />
-                      </Tooltip>
+                      <SlidersHorizontal size={18} />
+                      <Typography
+                        sx={{
+                          fontSize: "0.65rem",
+                          lineHeight: 1,
+                          fontWeight: 400,
+                          textTransform: "none",
+                        }}
+                      >
+                        Details
+                      </Typography>
                     </ToggleButton>
                   </ToggleButtonGroup>
 
@@ -1524,7 +1691,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     variant="inline"
                     onStartPlanning={handleStartPlanning}
                     onReviewSpec={handleReviewSpec}
-                    onReject={handleArchiveClick}
+                    onReject={(shiftKey) => {
+                      if (shiftKey) {
+                        performArchive();
+                      } else {
+                        setArchiveConfirmOpen(true);
+                      }
+                    }}
                     hasExternalRepo={projectRepositories.some(
                       (r) => r.is_external || r.external_type || r.external_url,
                     )}
@@ -1727,6 +1900,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       displayWidth={displaySettings.width}
                       displayHeight={displaySettings.height}
                       displayFps={displaySettings.fps}
+                      startupErrorMessage={taskMetadataError}
                     />
                   ))}
                 {currentView === "changes" && (
@@ -1772,11 +1946,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 sx={{
                   flexShrink: 0,
                   "& .MuiToggleButton-root": {
-                    py: 0.25,
-                    px: 0.75,
-                    minWidth: 32,
+                    py: 0.35,
+                    px: 0.7,
+                    minWidth: 56,
                     border: "none",
                     borderRadius: "4px !important",
+                    textTransform: "none",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 0.15,
                     "&.Mui-selected": {
                       backgroundColor: "action.selected",
                     },
@@ -1786,29 +1965,61 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 {/* Chat tab - only on mobile when there's an active session */}
                 {activeSessionId && (
                   <ToggleButton value="chat" aria-label="Chat view">
-                    <Tooltip title="Chat">
-                      <ForumOutlinedIcon sx={{ fontSize: 18 }} />
-                    </Tooltip>
+                    <ForumOutlinedIcon sx={{ fontSize: 18 }} />
+                    <Typography
+                      sx={{
+                        fontSize: "0.65rem",
+                        lineHeight: 1,
+                        fontWeight: 400,
+                        textTransform: "none",
+                      }}
+                    >
+                      Chat
+                    </Typography>
                   </ToggleButton>
                 )}
                 {activeSessionId && (
                   <ToggleButton value="desktop" aria-label="Desktop view">
-                    <Tooltip title="Desktop">
-                      <MonitorPlay size={16} />
-                    </Tooltip>
+                    <MonitorPlay size={18} />
+                    <Typography
+                      sx={{
+                        fontSize: "0.65rem",
+                        lineHeight: 1,
+                        fontWeight: 400,
+                        textTransform: "none",
+                      }}
+                    >
+                      Desktop
+                    </Typography>
                   </ToggleButton>
                 )}
                 {activeSessionId && (
                   <ToggleButton value="changes" aria-label="Changes view">
-                    <Tooltip title="Changes">
-                      <GitCompare size={16} />
-                    </Tooltip>
+                    <GitCompare size={18} />
+                    <Typography
+                      sx={{
+                        fontSize: "0.65rem",
+                        lineHeight: 1,
+                        fontWeight: 400,
+                        textTransform: "none",
+                      }}
+                    >
+                      File Diff
+                    </Typography>
                   </ToggleButton>
                 )}
                 <ToggleButton value="details" aria-label="Details view">
-                  <Tooltip title="Details">
-                    <SlidersHorizontal size={16} />
-                  </Tooltip>
+                  <SlidersHorizontal size={18} />
+                  <Typography
+                    sx={{
+                      fontSize: "0.65rem",
+                      lineHeight: 1,
+                      fontWeight: 400,
+                      textTransform: "none",
+                    }}
+                  >
+                    Details
+                  </Typography>
                 </ToggleButton>
               </ToggleButtonGroup>
 
@@ -1841,7 +2052,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 variant="inline"
                 onStartPlanning={handleStartPlanning}
                 onReviewSpec={handleReviewSpec}
-                onReject={handleArchiveClick}
+                onReject={(shiftKey) => {
+                  if (shiftKey) {
+                    performArchive();
+                  } else {
+                    setArchiveConfirmOpen(true);
+                  }
+                }}
                 hasExternalRepo={projectRepositories.some(
                   (r) => r.is_external || r.external_type || r.external_url,
                 )}
@@ -2143,6 +2360,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     displayWidth={displaySettings.width}
                     displayHeight={displaySettings.height}
                     displayFps={displaySettings.fps}
+                    startupErrorMessage={taskMetadataError}
                   />
                 )}
               </Box>

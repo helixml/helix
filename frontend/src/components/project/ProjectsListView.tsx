@@ -325,7 +325,7 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
           Projects
         </Typography>
         <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)' }}>
-          Each Project has a Team of Agents working in parallel to perform tasks, collaborate, and build software.
+          Each Project has a Team of Agents working in parallel to perform tasks, collaborate, or build software.
         </Typography>
       </Box>
 

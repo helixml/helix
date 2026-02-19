@@ -235,6 +235,9 @@ func NewServer(
 
 	quotaManager := quota.NewDefaultQuotaManager(store, cfg, externalAgentExecutor)
 
+	// Set it after initializing it as it depends on the external agent executor
+	externalAgentExecutor.SetQuotaManager(quotaManager)
+
 	// Initialize external agent runner connection manager
 	externalAgentRunnerManager := NewExternalAgentRunnerManager()
 
@@ -610,7 +613,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	router.HandleFunc("/v1/models", apiServer.authMiddleware.auth(apiServer.listModels)).Methods(http.MethodGet)
 	// Anthropic API compatible routes
 	router.HandleFunc("/v1/messages", apiServer.authMiddleware.auth(apiServer.anthropicAPIProxyHandler)).Methods(http.MethodPost, http.MethodOptions)
-	router.HandleFunc("/v1/messages/count_tokens", apiServer.authMiddleware.auth(apiServer.anthropicTokenCountHandler)).Methods(http.MethodPost, http.MethodOptions)
+	// router.HandleFunc("/v1/messages/count_tokens", apiServer.authMiddleware.auth(apiServer.anthropicTokenCountHandler)).Methods(http.MethodPost, http.MethodOptions)
 	// Azure OpenAI API compatible routes
 	router.HandleFunc("/openai/deployments/{model}/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
 
@@ -683,6 +686,17 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/{id}/zed-config", system.Wrapper(apiServer.getZedConfig)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/zed-config/user", system.Wrapper(apiServer.updateZedUserSettings)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/zed-settings", system.Wrapper(apiServer.getMergedZedSettings)).Methods(http.MethodGet)
+
+	// Claude subscription endpoints
+	authRouter.HandleFunc("/claude-subscriptions", system.Wrapper(apiServer.createClaudeSubscription)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/claude-subscriptions", system.Wrapper(apiServer.listClaudeSubscriptions)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/claude-subscriptions/models", system.Wrapper(apiServer.listClaudeModels)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/claude-subscriptions/{id}", system.Wrapper(apiServer.getClaudeSubscription)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/claude-subscriptions/{id}", system.Wrapper(apiServer.deleteClaudeSubscription)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/claude-subscriptions/start-login", system.Wrapper(apiServer.startClaudeLogin)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/claude-subscriptions/poll-login/{sessionId}", system.Wrapper(apiServer.pollClaudeLogin)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/claude-credentials", system.Wrapper(apiServer.getSessionClaudeCredentials)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/claude-credentials", system.Wrapper(apiServer.updateSessionClaudeCredentials)).Methods(http.MethodPut)
 
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.listApps)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.createApp)).Methods(http.MethodPost)
@@ -795,6 +809,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	insecureRouter.HandleFunc("/auth/password-reset", apiServer.passwordReset).Methods(http.MethodPost)
 	insecureRouter.HandleFunc("/auth/password-reset-complete", apiServer.passwordResetComplete).Methods(http.MethodPost)
+	insecureRouter.HandleFunc("/auth/desktop-callback", apiServer.desktopCallback).Methods(http.MethodGet)
 
 	authRouter.HandleFunc("/auth/password-update", apiServer.passwordUpdate).Methods(http.MethodPost) // Update for authenticated users
 	authRouter.HandleFunc("/auth/update", apiServer.accountUpdate).Methods(http.MethodPost)           // Update for authenticated users
@@ -826,9 +841,13 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/organization-domains", apiServer.listOrganizationDomains).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/users", system.DefaultWrapper(apiServer.usersList)).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/users", system.DefaultWrapper(apiServer.createUser)).Methods(http.MethodPost)
+
 	adminRouter.HandleFunc("/admin/users/{id}/password", system.DefaultWrapper(apiServer.adminResetPassword)).Methods(http.MethodPut)
 	adminRouter.HandleFunc("/admin/users/{id}", system.DefaultWrapper(apiServer.adminDeleteUser)).Methods(http.MethodDelete)
 	adminRouter.HandleFunc("/admin/users/{id}/approve", system.DefaultWrapper(apiServer.adminApproveUser)).Methods(http.MethodPost)
+
+	adminRouter.HandleFunc("/admin/orgs", apiServer.adminListOrganizations).Methods(http.MethodGet)
+
 	adminRouter.HandleFunc("/scheduler/heartbeats", system.DefaultWrapper(apiServer.getSchedulerHeartbeats)).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/slots/{slot_id}", system.DefaultWrapper(apiServer.deleteSlot)).Methods(http.MethodDelete)
@@ -1009,6 +1028,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}/move", system.Wrapper(apiServer.moveProject)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/usage", system.Wrapper(apiServer.getProjectUsage)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/move/preview", system.Wrapper(apiServer.moveProjectPreview)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/tasks-progress", apiServer.getBatchTaskProgress).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/tasks-usage", apiServer.getBatchTaskUsage).Methods(http.MethodGet)
 
 	// Project access grant routes
 	authRouter.HandleFunc("/projects/{id}/access-grants", apiServer.listProjectAccessGrants).Methods(http.MethodGet)

@@ -19,14 +19,19 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type QuotaManager interface {
+	LimitReached(ctx context.Context, req *types.QuotaLimitReachedRequest) (*types.QuotaLimitReachedResponse, error)
+}
+
 // HydraExecutor implements the Executor interface using Hydra for dev container management.
 //
 // Architecture: Helix API -> Hydra -> Docker -> Dev Container
 // Video streaming: WebSocket streaming (ws_stream.go)
 type HydraExecutor struct {
-	store    store.Store
-	sessions map[string]*ZedSession
-	mutex    sync.RWMutex
+	store        store.Store
+	quotaManager QuotaManager
+	sessions     map[string]*ZedSession
+	mutex        sync.RWMutex
 
 	// Configuration
 	helixAPIURL   string
@@ -55,6 +60,7 @@ type connmanInterface interface {
 // HydraExecutorConfig holds configuration for creating a HydraExecutor
 type HydraExecutorConfig struct {
 	Store                         store.Store
+	QuotaManager                  QuotaManager
 	HelixAPIURL                   string
 	HelixAPIToken                 string
 	WorkspaceBasePathForContainer string
@@ -67,6 +73,7 @@ type HydraExecutorConfig struct {
 func NewHydraExecutor(cfg HydraExecutorConfig) *HydraExecutor {
 	return &HydraExecutor{
 		store:                         cfg.Store,
+		quotaManager:                  cfg.QuotaManager,
 		sessions:                      make(map[string]*ZedSession),
 		helixAPIURL:                   cfg.HelixAPIURL,
 		helixAPIToken:                 cfg.HelixAPIToken,
@@ -76,6 +83,10 @@ func NewHydraExecutor(cfg HydraExecutorConfig) *HydraExecutor {
 		creationLocks:                 make(map[string]*sync.Mutex),
 		gpuVendor:                     cfg.GPUVendor,
 	}
+}
+
+func (h *HydraExecutor) SetQuotaManager(quotaManager QuotaManager) {
+	h.quotaManager = quotaManager
 }
 
 // StartDesktop starts a dev container using Hydra
@@ -94,6 +105,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	defer sessionLock.Unlock()
 
 	log.Info().
+		Str("organization_id", agent.OrganizationID).
 		Str("session_id", agent.SessionID).
 		Str("user_id", agent.UserID).
 		Str("project_path", agent.ProjectPath).
@@ -116,6 +128,15 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		}, nil
 	}
 
+	// Check limits for the user/org
+	limitReached, err := h.checkLimits(ctx, agent)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check limits: %w", err)
+	}
+	if limitReached != nil && limitReached.LimitReached {
+		return nil, fmt.Errorf("desktop limit reached (%d). Stop some of the existing sessions or upgrade your plan", limitReached.Limit)
+	}
+
 	// Get Hydra client via RevDial
 	// Hydra runner ID follows pattern: hydra-{SANDBOX_INSTANCE_ID}
 	// Determine container type first (needed for sandbox selection)
@@ -125,8 +146,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	sandboxID := agent.SandboxID
 	if sandboxID == "" {
 		// Find an available sandbox with the required desktop image
-		// If UseHostDocker is set, we need a sandbox with PrivilegedMode enabled
-		sandbox, err := h.store.FindAvailableSandbox(ctx, containerType, agent.UseHostDocker)
+		sandbox, err := h.store.FindAvailableSandbox(ctx, containerType)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find available sandbox: %w", err)
 		}
@@ -135,12 +155,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 			log.Info().
 				Str("sandbox_id", sandboxID).
 				Str("container_type", containerType).
-				Bool("use_host_docker", agent.UseHostDocker).
 				Msg("Auto-selected available sandbox")
 		} else {
-			if agent.UseHostDocker {
-				return nil, fmt.Errorf("no privileged sandbox available (UseHostDocker requires HYDRA_PRIVILEGED_MODE_ENABLED=true on sandbox)")
-			}
 			// Fallback to "local" if no sandbox found (for backwards compatibility)
 			sandboxID = "local"
 			log.Warn().
@@ -270,53 +286,22 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		}
 	}
 
-	// ALWAYS create isolated dockerd for each session (security requirement)
-	// This prevents:
-	// 1. Users breaking each other's containers (docker stop/rm)
-	// 2. Users reading secrets from other containers (docker exec/logs)
-	// 3. Network conflicts from docker-compose with conflicting subnets
-	// 4. Container escape to the sandbox's control plane dockerd
-	// This must happen BEFORE buildMounts so we can pass the correct Docker socket
-	var dockerSocket string
-	{
-		log.Info().
-			Str("session_id", agent.SessionID).
-			Msg("Creating isolated Docker instance via Hydra")
+	// Docker-in-desktop mode: the desktop container runs its own dockerd with a
+	// volume-backed /var/lib/docker. No per-session sibling dockerd or network
+	// bridging needed. This is simpler and supports arbitrary DinD nesting.
+	//
+	// The init script 17-start-dockerd.sh inside the desktop container detects
+	// the volume mount and starts dockerd automatically.
+	log.Info().
+		Str("session_id", agent.SessionID).
+		Msg("Docker-in-desktop mode: desktop will run its own dockerd")
 
-		// NOTE: We always create a per-session dockerd, even when UseHostDocker is true.
-		// This is critical for helix-in-helix mode:
-		// - /var/run/docker.sock → per-session dockerd (for inner control plane)
-		// - /var/run/host-docker.sock → host Docker (for inner sandbox, via buildMounts)
-		//
-		// If we passed UseHostDocker here, Hydra would return the host socket for BOTH,
-		// and there would be no isolation for the inner control plane.
-		dockerReq := &hydra.CreateDockerInstanceRequest{
-			ScopeType: hydra.ScopeTypeSession,
-			ScopeID:   agent.SessionID,
-			UserID:    agent.UserID,
-			// UseHostDocker intentionally NOT passed - we always want a per-session dockerd
-		}
-		dockerResp, err := hydraClient.CreateDockerInstance(ctx, dockerReq)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create isolated Docker instance: %w", err)
-		}
-		dockerSocket = dockerResp.DockerSocket
-
-		log.Info().
-			Str("session_id", agent.SessionID).
-			Str("docker_socket", dockerResp.DockerSocket).
-			Msg("Created isolated Docker instance")
-	}
-
-	// Build mounts - pass the Docker socket so it mounts the correct one
-	mounts := h.buildMounts(agent, workspaceDir, containerType, agent.UseHostDocker, dockerSocket)
+	// Build mounts - includes Docker volume for /var/lib/docker
+	mounts := h.buildMounts(agent, workspaceDir, containerType)
 
 	// Create dev container request
 	// NOTE: GPUVendor is empty - Hydra reads it from its own GPU_VENDOR env var
-	// NOTE: DockerSocket is intentionally NOT passed here. Dev containers are always
-	// created on the sandbox's main dockerd. The per-session Hydra dockerd socket
-	// is MOUNTED into the container (via buildMounts) so users' docker commands
-	// go to their isolated dockerd, but the container itself runs on the main dockerd.
+	// Privileged mode is required for the inner dockerd (overlay2 needs it)
 	req := &hydra.CreateDevContainerRequest{
 		SessionID:     agent.SessionID,
 		Image:         image,
@@ -330,7 +315,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		ContainerType: hydra.DevContainerType(containerType),
 		UserID:        agent.UserID,
 		Network:       "bridge",
-		// DockerSocket intentionally omitted - container created on main dockerd
+		Privileged:    true, // Required for inner dockerd (docker-in-desktop mode)
 	}
 
 	// Create dev container via Hydra
@@ -353,29 +338,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Str("ip_address", resp.IPAddress).
 		Msg("Dev container created successfully via Hydra")
 
-	// Bridge the desktop container to the per-session dockerd's network
-	// This enables the desktop to access containers running on the per-session dockerd
-	// (e.g., docker-compose projects started by the user inside the desktop)
-	bridgeReq := &hydra.BridgeDesktopRequest{
-		SessionID:          agent.SessionID,
-		DesktopContainerID: resp.ContainerID,
-	}
-	bridgeResp, err := hydraClient.BridgeDesktop(ctx, bridgeReq)
-	if err != nil {
-		log.Warn().Err(err).
-			Str("session_id", agent.SessionID).
-			Str("container_id", resp.ContainerID).
-			Msg("Failed to bridge desktop to Hydra network (docker-compose access may not work)")
-		// Don't fail - container is running, bridging is optional for basic functionality
-	} else {
-		log.Info().
-			Str("session_id", agent.SessionID).
-			Str("desktop_ip", bridgeResp.DesktopIP).
-			Str("gateway", bridgeResp.Gateway).
-			Str("subnet", bridgeResp.Subnet).
-			Str("interface", bridgeResp.Interface).
-			Msg("Desktop bridged to Hydra network")
-	}
+	// No bridging needed - desktop runs its own dockerd, so all containers
+	// are on the same Docker network inside the desktop container.
 
 	// Wait for desktop-bridge to be ready before returning
 	// Desktop-bridge takes time to start: waits for D-Bus, Wayland, portal, GStreamer init
@@ -589,36 +553,6 @@ func (h *HydraExecutor) ListSessions() []*ZedSession {
 	return sessions
 }
 
-// StartZedInstance starts a Zed instance (alias for StartDesktop for multi-session support)
-func (h *HydraExecutor) StartZedInstance(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
-	return h.StartDesktop(ctx, agent)
-}
-
-// CreateZedThread creates a new thread in an existing Zed instance
-func (h *HydraExecutor) CreateZedThread(ctx context.Context, instanceID, threadID string, config map[string]interface{}) error {
-	// Thread management is handled by the agent inside the container
-	// This is a placeholder for future multi-thread support
-	log.Info().
-		Str("instance_id", instanceID).
-		Str("thread_id", threadID).
-		Msg("CreateZedThread called (no-op in Hydra executor)")
-	return nil
-}
-
-// DeleteZedThread deletes a thread from a Zed instance
-func (h *HydraExecutor) DeleteZedThread(ctx context.Context, instanceID, threadID string) error {
-	log.Info().
-		Str("instance_id", instanceID).
-		Str("thread_id", threadID).
-		Msg("DeleteZedThread called (no-op in Hydra executor)")
-	return nil
-}
-
-// StopZedInstance stops a Zed instance (alias for StopDesktop)
-func (h *HydraExecutor) StopZedInstance(ctx context.Context, instanceID string) error {
-	return h.StopDesktop(ctx, instanceID)
-}
-
 // GetInstanceStatus returns the status of a Zed instance
 func (h *HydraExecutor) GetInstanceStatus(instanceID string) (*ZedInstanceStatus, error) {
 	h.mutex.RLock()
@@ -635,20 +569,6 @@ func (h *HydraExecutor) GetInstanceStatus(instanceID string) (*ZedInstanceStatus
 		ThreadCount: 1,
 		ProjectPath: session.ProjectPath,
 	}, nil
-}
-
-// ListInstanceThreads returns threads for an instance
-func (h *HydraExecutor) ListInstanceThreads(instanceID string) ([]*ZedThreadInfo, error) {
-	h.mutex.RLock()
-	defer h.mutex.RUnlock()
-
-	_, exists := h.sessions[instanceID]
-	if !exists {
-		return nil, fmt.Errorf("instance %s not found", instanceID)
-	}
-
-	// Hydra executor doesn't support multi-threading yet
-	return []*ZedThreadInfo{}, nil
 }
 
 // FindContainerBySessionID finds the container name for a session
@@ -799,6 +719,7 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 
 		// Debug logging
 		"RUST_LOG=info,gst_wayland_display=debug",
+		"GST_DEBUG=vsockenc:5", // TODO: Remove after fixing vsockenc receive thread
 		"SHOW_ACP_DEBUG_LOGS=true",
 
 		// Settings sync daemon port
@@ -896,7 +817,17 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		env = append(env, "GOW_REQUIRED_DEVICES=/dev/dri/card*:/dev/dri/renderD*")
 	}
 
+	// NOTE: BUILDKIT_HOST env var is injected by Hydra server side (devcontainer.go buildEnv)
+	// which runs inside the sandbox where it can query the helix-buildkit container IP.
+
 	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)
+	// Pass through HELIX_ENCODER from outer environment to desktop containers.
+	// This allows selecting the video encoder without rebuilding the desktop image.
+	// Supported values: vsock (default auto-detect), openh264, x264, nvenc
+	if encoderOverride := os.Getenv("HELIX_ENCODER"); encoderOverride != "" {
+		env = append(env, fmt.Sprintf("HELIX_ENCODER=%s", encoderOverride))
+	}
+
 	// These come LAST so they can override defaults (e.g., use user's token instead of runner token)
 	hasUserAPIToken := false
 	for _, e := range agent.Env {
@@ -916,12 +847,12 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	return env
 }
 
-// buildMounts builds volume mounts for the container
+// buildMounts builds volume mounts for the container.
+// In docker-in-desktop mode, we mount a Docker named volume for /var/lib/docker
+// instead of mounting a docker.sock from a sibling dockerd.
 // workspaceDir is already a sandbox-local path (e.g., /data/workspaces/spec-tasks/spt_xxx)
 // containerType is "sway", "ubuntu", or "headless"
-// useHostDocker: if true, also mount the host Docker socket for privileged mode
-// dockerSocket: path to the Docker socket to mount (e.g., per-session Hydra socket), empty for default
-func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir string, containerType string, useHostDocker bool, dockerSocket string) []hydra.MountConfig {
+func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir string, containerType string) []hydra.MountConfig {
 	// CRITICAL: Mount workspace at MULTIPLE paths for compatibility:
 	// 1. Same path (/data/workspaces/...) - for Docker wrapper hacks that resolve symlinks
 	// 2. /home/retro/work - so agent tools see a real directory (not a symlink)
@@ -948,24 +879,18 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 		},
 	}
 
-	// Docker socket mount
-	// If dockerSocket is set (from Hydra isolation), use that specific socket.
-	// Otherwise use the default socket (sandbox's main dockerd).
-	// This ensures desktop containers using Hydra Docker isolation get their
-	// per-session dockerd socket, preventing network conflicts when users
-	// run docker-compose inside the desktop.
-	dockerSocketSource := "/var/run/docker.sock"
-	if dockerSocket != "" {
-		dockerSocketSource = dockerSocket
-		log.Debug().
-			Str("docker_socket", dockerSocket).
-			Msg("Using isolated Docker socket for desktop container")
-	}
+	// Docker-in-desktop: mount a named volume for the inner dockerd's data.
+	// The desktop's 17-start-dockerd.sh init script detects this mountpoint
+	// and starts dockerd automatically. No docker.sock mount needed.
 	mounts = append(mounts, hydra.MountConfig{
-		Source:      dockerSocketSource,
-		Destination: "/var/run/docker.sock",
-		ReadOnly:    false,
+		Source:      fmt.Sprintf("docker-data-%s", agent.SessionID),
+		Destination: "/var/lib/docker",
+		Type:        "volume", // Docker named volume, backed by host ext4
 	})
+
+	// NOTE: Shared BuildKit cache mount (/buildkit-cache) and BUILDKIT_HOST env var
+	// are injected by the Hydra server side (devcontainer.go buildMounts/buildEnv)
+	// which runs inside the sandbox where it can access the correct paths.
 
 	// For Ubuntu/GNOME containers, create a per-session pipewire directory
 	// and mount it to /run/user/1000 where PipeWire daemon creates its socket
@@ -987,17 +912,6 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 		Destination: "/tmp/cores",
 		ReadOnly:    false,
 	})
-
-	// Host Docker socket for privileged mode (Helix-in-Helix development)
-	// When enabled, allows the desktop container to create sandboxes on the host Docker
-	// instead of trying to run DinD-in-DinD (which fails with overlay2 storage driver)
-	if useHostDocker {
-		mounts = append(mounts, hydra.MountConfig{
-			Source:      "/var/run/host-docker.sock",
-			Destination: "/var/run/host-docker.sock",
-			ReadOnly:    false,
-		})
-	}
 
 	return mounts
 }
@@ -1240,4 +1154,29 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 	}
 
 	return nil
+}
+
+// checkLimits checks desktop limits for the user/org
+func (h *HydraExecutor) checkLimits(ctx context.Context, agent *types.DesktopAgent) (*types.QuotaLimitReachedResponse, error) {
+	// Get system settings
+	systemSettings, err := h.store.GetSystemSettings(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get system settings: %w", err)
+	}
+
+	// Check if limits are disabled
+	if !systemSettings.EnforceQuotas {
+		return &types.QuotaLimitReachedResponse{LimitReached: false}, nil
+	}
+
+	limitReached, err := h.quotaManager.LimitReached(ctx, &types.QuotaLimitReachedRequest{
+		UserID:         agent.UserID,
+		OrganizationID: agent.OrganizationID,
+		Resource:       types.ResourceDesktop,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to check limits: %w", err)
+	}
+
+	return limitReached, nil
 }

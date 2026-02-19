@@ -1,9 +1,9 @@
-# Production docker-compose.yaml for HelixML :latest
+# Production docker-compose.yaml for HelixML
 # See https://docs.helixml.tech/helix/private-deployment/controlplane/
 
 services:
   api:
-    image: registry.helixml.tech/helix/controlplane:latest
+    image: registry.helixml.tech/helix/controlplane:${HELIX_VERSION:-latest}
     # If you want to run the API on a different port, set the
     # API_PORT environment variable and also updated env variables
     # connect to Helix
@@ -63,6 +63,14 @@ services:
     restart: always
     # ports:
     #   - 5432:5432
+    command: >
+      postgres
+      -c shared_buffers=32MB
+      -c work_mem=2MB
+      -c max_connections=50
+      -c max_worker_processes=2
+      -c maintenance_work_mem=32MB
+      -c effective_cache_size=256MB
     volumes:
       - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
     environment:
@@ -76,6 +84,14 @@ services:
     restart: always
     # ports:
     #   - 5433:5432
+    command: >
+      postgres
+      -c shared_buffers=32MB
+      -c work_mem=2MB
+      -c max_connections=50
+      -c max_worker_processes=2
+      -c maintenance_work_mem=32MB
+      -c effective_cache_size=256MB
     volumes:
       - ${PGVECTOR_DATA:-helix-pgvector-db}:/var/lib/postgresql/data
     environment:
@@ -100,7 +116,7 @@ services:
       - UWSGI_WORKERS=4
       - UWSGI_THREADS=4
   typesense:
-    image: registry.helixml.tech/helix/typesense:latest
+    image: registry.helixml.tech/helix/typesense:${HELIX_VERSION:-latest}
     restart: always
     command: ["--data-dir", "/data", "--api-key", "typesense"]
     # ports:
@@ -116,7 +132,7 @@ services:
     #   - 7317:7317
   haystack:
     profiles: [haystack]
-    image: registry.helixml.tech/helix/haystack:latest
+    image: registry.helixml.tech/helix/haystack:${HELIX_VERSION:-latest}
     restart: always
     environment:
       - PGVECTOR_DSN=postgresql://postgres:${PGVECTOR_PASSWORD-pgvector}@pgvector:5432/postgres
@@ -145,17 +161,18 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
   kodit:
-    image: registry.helixml.tech/helix/kodit:0.5.24
+    image: registry.helixml.tech/helix/kodit:1.0.0
     ports:
       - 8632:8632
-    command: ["serve", "--host", "0.0.0.0", "--port", "8632"]
+    command: ["serve"]
     restart: always
     depends_on:
       - vectorchord-kodit # Wait for VectorChord to start before Kodit
       - api
     environment:
+      - PORT=8632
       - DATA_DIR=/data
-      - DB_URL=postgresql+asyncpg://postgres:${PGVECTOR_PASSWORD-pgvector}@vectorchord-kodit:5432/kodit
+      - DB_URL=postgresql://postgres:${PGVECTOR_PASSWORD-pgvector}@vectorchord-kodit:5432/kodit
       - DEFAULT_SEARCH_PROVIDER=vectorchord
 
       # External embedding provider
@@ -168,10 +185,11 @@ services:
 
       # External enrichment provider - uses Helix as proxy with runner token auth
       - ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1
-      - ENRICHMENT_ENDPOINT_MODEL=openai/kodit-model
+      - ENRICHMENT_ENDPOINT_MODEL=kodit-model
       - ENRICHMENT_ENDPOINT_API_KEY=${RUNNER_TOKEN-oh-hallo-insecure-token}
-      - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=3
+      - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=1
       - ENRICHMENT_ENDPOINT_TIMEOUT=120
+      - EMBEDDING_ENDPOINT_NUM_PARALLEL_TASKS=1
 
       # Sync configuration
       - SYNC_PERIODIC_ENABLED=true
@@ -190,6 +208,15 @@ services:
 
   vectorchord-kodit:
     image: tensorchord/vchord-suite:pg17-20250601
+    command: >
+      postgres
+      -c shared_preload_libraries=vchord,vchord_bm25,vector,pg_tokenizer
+      -c shared_buffers=32MB
+      -c work_mem=2MB
+      -c max_connections=50
+      -c max_worker_processes=2
+      -c maintenance_work_mem=32MB
+      -c effective_cache_size=256MB
     environment:
       - POSTGRES_DB=kodit
       - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-pgvector}

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,6 +19,7 @@ import (
 
 const (
 	SettingsPath = "/home/retro/.config/zed/settings.json"
+	KeymapPath   = "/home/retro/.config/zed/keymap.json"
 	PollInterval = 30 * time.Second
 	DebounceTime = 500 * time.Millisecond
 )
@@ -37,6 +37,15 @@ type SettingsDaemon struct {
 
 	// Code agent configuration (from Helix API)
 	codeAgentConfig *CodeAgentConfig
+
+	// Whether user has a Claude subscription available for credential sync
+	claudeSubscriptionAvailable bool
+
+	// Track the last expiresAt we know about, so we can detect Claude Code token refreshes
+	lastKnownExpiresAt int64
+
+	// Timestamp of our last write to the credentials file (to ignore our own fsnotify events)
+	lastCredWrite time.Time
 
 	// Current state
 	helixSettings map[string]interface{}
@@ -67,14 +76,15 @@ type AvailableModel struct {
 
 // helixConfigResponse is the response structure from the Helix API's zed-config endpoint
 type helixConfigResponse struct {
-	ContextServers  map[string]interface{} `json:"context_servers"`
-	LanguageModels  map[string]interface{} `json:"language_models"`
-	Assistant       map[string]interface{} `json:"assistant"`
-	ExternalSync    map[string]interface{} `json:"external_sync"`
-	Agent           map[string]interface{} `json:"agent"`
-	Theme           string                 `json:"theme"`
-	Version         int64                  `json:"version"`
-	CodeAgentConfig *CodeAgentConfig       `json:"code_agent_config"`
+	ContextServers              map[string]interface{} `json:"context_servers"`
+	LanguageModels              map[string]interface{} `json:"language_models"`
+	Assistant                   map[string]interface{} `json:"assistant"`
+	ExternalSync                map[string]interface{} `json:"external_sync"`
+	Agent                       map[string]interface{} `json:"agent"`
+	Theme                       string                 `json:"theme"`
+	Version                     int64                  `json:"version"`
+	CodeAgentConfig             *CodeAgentConfig       `json:"code_agent_config"`
+	ClaudeSubscriptionAvailable bool                   `json:"claude_subscription_available,omitempty"`
 }
 
 // generateAgentServerConfig creates the agent_servers configuration for custom agents (like qwen).
@@ -125,6 +135,59 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 					"--include-directories", "/home/retro/work",
 				},
 				"env": env,
+			},
+		}
+
+	case "claude_code":
+		// Claude Code: Uses Zed's built-in Claude Code ACP (@zed-industries/claude-code-acp).
+		// We only set env vars — Zed handles installing and launching the ACP wrapper.
+		// Two modes based on whether baseURL is set:
+		// 1. API key mode (baseURL set): Claude Code uses Helix API proxy
+		// 2. Subscription mode (no baseURL): Claude Code uses OAuth credentials
+		env := map[string]interface{}{
+			"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+			"DISABLE_TELEMETRY":                        "1",
+		}
+
+		if d.codeAgentConfig.BaseURL != "" {
+			// API key mode: route through Helix API proxy
+			baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+			env["ANTHROPIC_BASE_URL"] = baseURL
+			if d.userAPIKey != "" {
+				env["ANTHROPIC_API_KEY"] = d.userAPIKey
+			}
+			log.Printf("Using claude_code runtime (API key mode): base_url=%s", baseURL)
+		} else {
+			// Subscription mode: Claude Code reads OAuth credentials
+			// (including refresh token) from ~/.claude/.credentials.json.
+			// Gate on the file existing — Claude Code's credential reader is
+			// memoized, so if it reads before the file is written, it caches
+			// null permanently. By returning nil here, we omit agent_servers
+			// from Zed settings so Claude Code won't start. On the next poll
+			// cycle, syncClaudeCredentials() will have written the file and
+			// this check will pass.
+			if _, err := os.Stat(ClaudeCredentialsPath); err != nil {
+				log.Printf("Claude credentials file not yet available, deferring claude_code agent_servers: %v", err)
+				return nil
+			}
+			// Write marker so start-zed-core.sh knows to wait for credentials
+			// before launching Zed (belt-and-suspenders with the os.Stat gate above).
+			_ = os.WriteFile(ClaudeSubscriptionMarkerPath, []byte("1"), 0644)
+			// IMPORTANT: Hydra sets ANTHROPIC_BASE_URL on ALL containers, which
+			// leaks into Claude Code's process via env inheritance. We must
+			// explicitly override it to the real Anthropic API so Claude Code
+			// talks directly to Anthropic with OAuth credentials.
+			env["ANTHROPIC_BASE_URL"] = "https://api.anthropic.com"
+			log.Printf("Using claude_code runtime (subscription mode)")
+		}
+
+		// Only set env — no command/args. Zed uses its built-in
+		// @zed-industries/claude-code-acp npm package which speaks ACP.
+		// The raw `claude` CLI does NOT support --experimental-acp.
+		return map[string]interface{}{
+			"claude": map[string]interface{}{
+				"default_mode": "bypassPermissions",
+				"env":          env,
 			},
 		}
 
@@ -299,21 +362,241 @@ func (d *SettingsDaemon) injectKoditAuth() {
 	log.Printf("Injected user API key into Kodit context_server Authorization header")
 }
 
+const (
+	ClaudeCredentialsPath          = "/home/retro/.claude/.credentials.json"
+	ClaudeSubscriptionMarkerPath   = "/tmp/helix-claude-subscription-mode"
+)
+
+// syncClaudeCredentials fetches Claude OAuth credentials from the Helix API
+// and writes them to ~/.claude/.credentials.json for Claude Code to use.
+// Claude Code handles its own token refresh natively — if the on-disk file
+// has a newer expiresAt than the API response, we skip the write to avoid
+// clobbering a token that Claude Code just refreshed.
+func (d *SettingsDaemon) syncClaudeCredentials() {
+	if !d.claudeSubscriptionAvailable {
+		return
+	}
+
+	ctx := context.Background()
+	apiURL := fmt.Sprintf("%s/api/v1/sessions/%s/claude-credentials", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		log.Printf("Failed to create Claude credentials request: %v", err)
+		return
+	}
+
+	if d.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		log.Printf("Failed to fetch Claude credentials: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Failed to fetch Claude credentials: status %d", resp.StatusCode)
+		return
+	}
+
+	// Parse the credentials from the API response
+	var creds struct {
+		AccessToken      string   `json:"accessToken"`
+		RefreshToken     string   `json:"refreshToken"`
+		ExpiresAt        int64    `json:"expiresAt"`
+		Scopes           []string `json:"scopes"`
+		SubscriptionType string   `json:"subscriptionType"`
+		RateLimitTier    string   `json:"rateLimitTier"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&creds); err != nil {
+		log.Printf("Failed to parse Claude credentials: %v", err)
+		return
+	}
+
+	// Before writing, check if the on-disk file has a newer token (Claude Code refreshed it).
+	// If so, skip the write — our watcher will push the refreshed token to the API.
+	if fileExpiresAt := readCredentialsExpiresAt(ClaudeCredentialsPath); fileExpiresAt > creds.ExpiresAt {
+		log.Printf("On-disk credentials are newer (file expiresAt=%d > api expiresAt=%d), skipping write", fileExpiresAt, creds.ExpiresAt)
+		return
+	}
+
+	// Track what the API thinks the current expiresAt is
+	d.lastKnownExpiresAt = creds.ExpiresAt
+
+	// Build the credentials file in Claude's expected format
+	credFile := map[string]interface{}{
+		"claudeAiOauth": map[string]interface{}{
+			"accessToken":      creds.AccessToken,
+			"refreshToken":     creds.RefreshToken,
+			"expiresAt":        creds.ExpiresAt,
+			"scopes":           creds.Scopes,
+			"subscriptionType": creds.SubscriptionType,
+			"rateLimitTier":    creds.RateLimitTier,
+		},
+	}
+
+	credJSON, err := json.MarshalIndent(credFile, "", "  ")
+	if err != nil {
+		log.Printf("Failed to marshal Claude credentials: %v", err)
+		return
+	}
+
+	// Ensure directory exists
+	credDir := filepath.Dir(ClaudeCredentialsPath)
+	if err := os.MkdirAll(credDir, 0700); err != nil {
+		log.Printf("Failed to create Claude credentials directory: %v", err)
+		return
+	}
+
+	// Atomic write
+	tmpFile := ClaudeCredentialsPath + ".tmp"
+	if err := os.WriteFile(tmpFile, credJSON, 0600); err != nil {
+		log.Printf("Failed to write Claude credentials temp file: %v", err)
+		return
+	}
+	if err := os.Rename(tmpFile, ClaudeCredentialsPath); err != nil {
+		log.Printf("Failed to rename Claude credentials file: %v", err)
+		return
+	}
+
+	d.lastCredWrite = time.Now()
+	log.Printf("Synced Claude credentials to %s (expiresAt=%d)", ClaudeCredentialsPath, creds.ExpiresAt)
+}
+
+// readCredentialsExpiresAt reads the expiresAt field from an on-disk credentials file.
+// Returns 0 if the file doesn't exist or can't be parsed.
+func readCredentialsExpiresAt(path string) int64 {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	var credFile struct {
+		ClaudeAiOauth struct {
+			ExpiresAt int64 `json:"expiresAt"`
+		} `json:"claudeAiOauth"`
+	}
+	if err := json.Unmarshal(data, &credFile); err != nil {
+		return 0
+	}
+	return credFile.ClaudeAiOauth.ExpiresAt
+}
+
+// pushCredentialsToAPI reads the on-disk credentials file and PUTs the
+// refreshed credentials back to the Helix API so future sessions get them.
+func (d *SettingsDaemon) pushCredentialsToAPI() {
+	data, err := os.ReadFile(ClaudeCredentialsPath)
+	if err != nil {
+		log.Printf("Failed to read credentials file for push: %v", err)
+		return
+	}
+
+	// Parse the file to extract the inner credentials
+	var credFile struct {
+		ClaudeAiOauth json.RawMessage `json:"claudeAiOauth"`
+	}
+	if err := json.Unmarshal(data, &credFile); err != nil {
+		log.Printf("Failed to parse credentials file for push: %v", err)
+		return
+	}
+	if credFile.ClaudeAiOauth == nil {
+		log.Printf("No claudeAiOauth field in credentials file, skipping push")
+		return
+	}
+
+	// Check if expiresAt is actually newer than what we last knew
+	var creds struct {
+		ExpiresAt int64 `json:"expiresAt"`
+	}
+	if err := json.Unmarshal(credFile.ClaudeAiOauth, &creds); err != nil {
+		log.Printf("Failed to parse expiresAt from credentials: %v", err)
+		return
+	}
+	if creds.ExpiresAt <= d.lastKnownExpiresAt {
+		// Not a refresh — same or older token
+		return
+	}
+
+	log.Printf("Detected token refresh: expiresAt %d -> %d, pushing to API", d.lastKnownExpiresAt, creds.ExpiresAt)
+
+	ctx := context.Background()
+	apiURL := fmt.Sprintf("%s/api/v1/sessions/%s/claude-credentials", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(ctx, "PUT", apiURL, bytes.NewReader(credFile.ClaudeAiOauth))
+	if err != nil {
+		log.Printf("Failed to create PUT credentials request: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if d.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		log.Printf("Failed to PUT refreshed credentials to API: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Failed to PUT refreshed credentials: status %d", resp.StatusCode)
+		return
+	}
+
+	d.lastKnownExpiresAt = creds.ExpiresAt
+	log.Printf("Pushed refreshed Claude credentials to API (expiresAt=%d)", creds.ExpiresAt)
+}
+
+// writeZedKeymap writes Zed keymap.json with terminal copy/paste bindings.
+// XKB remaps Super (Command) → Ctrl, so we configure Zed's terminal to:
+// - Ctrl+C: copy when text is selected, SIGINT when not (via context precedence)
+// - Ctrl+V: paste (macOS users expect Command+V to paste)
+func writeZedKeymap() {
+	keymap := []map[string]interface{}{
+		{
+			"context": "Terminal && selection",
+			"bindings": map[string]string{
+				"ctrl-c": "terminal::Copy",
+			},
+		},
+		{
+			"context": "Terminal",
+			"bindings": map[string]string{
+				"ctrl-v": "terminal::Paste",
+			},
+		},
+	}
+
+	data, err := json.MarshalIndent(keymap, "", "  ")
+	if err != nil {
+		log.Printf("Failed to marshal Zed keymap: %v", err)
+		return
+	}
+
+	dir := filepath.Dir(KeymapPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Printf("Failed to create Zed config directory: %v", err)
+		return
+	}
+
+	if err := os.WriteFile(KeymapPath, data, 0644); err != nil {
+		log.Printf("Failed to write Zed keymap: %v", err)
+		return
+	}
+
+	log.Printf("Wrote Zed keymap to %s", KeymapPath)
+}
+
 func main() {
 	// Environment variables
 	helixURL := os.Getenv("HELIX_API_URL")
 	if helixURL == "" {
 		helixURL = "http://api:8080"
 	}
-	// In Helix-in-Helix mode, the inner compose stack shadows the "api" hostname.
-	// If "outer-api" resolves (added by startup script), use it instead so the
-	// daemon always talks to the outer API for config fetches.
-	if strings.Contains(helixURL, "://api:") {
-		if _, err := net.LookupHost("outer-api"); err == nil {
-			helixURL = strings.Replace(helixURL, "://api:", "://outer-api:", 1)
-			log.Printf("Helix-in-Helix: rewrote API URL to %s", helixURL)
-		}
-	}
+	// The "api" hostname is baked into /etc/hosts by Hydra at container
+	// creation time, so it always resolves to the outer API's IP even if
+	// an inner compose stack later creates its own "api" service.
 	sessionID := os.Getenv("HELIX_SESSION_ID")
 	port := os.Getenv("SETTINGS_SYNC_PORT")
 	if port == "" {
@@ -355,6 +638,9 @@ func main() {
 		sessionID:  sessionID,
 		userAPIKey: userAPIKey,
 	}
+
+	// Write Zed keymap for terminal copy/paste behavior
+	writeZedKeymap()
 
 	// Initial sync from Helix → local with retry
 	// Retry handles race condition where daemon starts before API token is fully available
@@ -424,6 +710,10 @@ func (d *SettingsDaemon) syncFromHelix() error {
 
 	// Store code agent config for generating agent_servers
 	d.codeAgentConfig = config.CodeAgentConfig
+	d.claudeSubscriptionAvailable = config.ClaudeSubscriptionAvailable
+
+	// Sync Claude credentials if available
+	d.syncClaudeCredentials()
 
 	d.helixSettings = map[string]interface{}{
 		"context_servers": config.ContextServers,
@@ -448,6 +738,16 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	if config.Agent != nil {
 		d.helixSettings["agent"] = config.Agent
 	}
+
+	// Always auto-approve tool actions — our fork of Zed respects this for all
+	// agents including Claude Code. This is the Zed-level safety net that
+	// auto-approves permission prompts the ACP sends to Zed.
+	agentSection, ok := d.helixSettings["agent"].(map[string]interface{})
+	if !ok {
+		agentSection = map[string]interface{}{}
+	}
+	agentSection["always_allow_tool_actions"] = true
+	d.helixSettings["agent"] = agentSection
 	if config.Theme != "" {
 		d.helixSettings["theme"] = config.Theme
 	}
@@ -568,7 +868,8 @@ func extractUserOverrides(current, helix map[string]interface{}) map[string]inte
 	return overrides
 }
 
-// startWatcher monitors settings.json for Zed UI changes
+// startWatcher monitors settings.json for Zed UI changes and
+// ~/.claude/.credentials.json for Claude Code token refreshes.
 func (d *SettingsDaemon) startWatcher() error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -594,20 +895,46 @@ func (d *SettingsDaemon) startWatcher() error {
 		return err
 	}
 
+	// Watch the Claude credentials directory (not the file itself) so we catch
+	// atomic renames (which create a new inode). We watch the parent dir and
+	// filter for events on the credentials filename.
+	if d.claudeSubscriptionAvailable {
+		credDir := filepath.Dir(ClaudeCredentialsPath)
+		if err := os.MkdirAll(credDir, 0700); err != nil {
+			log.Printf("Warning: failed to create Claude credentials directory for watcher: %v", err)
+		} else if err := watcher.Add(credDir); err != nil {
+			log.Printf("Warning: failed to watch Claude credentials directory: %v", err)
+		} else {
+			log.Printf("Watching %s for credential refreshes", credDir)
+		}
+	}
+
 	go func() {
-		var debounceTimer *time.Timer
+		var settingsDebounce *time.Timer
+		var credsDebounce *time.Timer
+		credFilename := filepath.Base(ClaudeCredentialsPath)
 
 		for {
 			select {
 			case event := <-watcher.Events:
-				if event.Op&fsnotify.Write == fsnotify.Write {
-					// Debounce rapid writes
-					if debounceTimer != nil {
-						debounceTimer.Stop()
+				if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
+					if filepath.Base(event.Name) == credFilename {
+						// Claude credentials file changed
+						if credsDebounce != nil {
+							credsDebounce.Stop()
+						}
+						credsDebounce = time.AfterFunc(DebounceTime, func() {
+							d.onCredentialsChanged()
+						})
+					} else if event.Name == SettingsPath {
+						// Zed settings file changed
+						if settingsDebounce != nil {
+							settingsDebounce.Stop()
+						}
+						settingsDebounce = time.AfterFunc(DebounceTime, func() {
+							d.onFileChanged()
+						})
 					}
-					debounceTimer = time.AfterFunc(DebounceTime, func() {
-						d.onFileChanged()
-					})
 				}
 			case err := <-watcher.Errors:
 				log.Printf("Watcher error: %v", err)
@@ -616,6 +943,17 @@ func (d *SettingsDaemon) startWatcher() error {
 	}()
 
 	return nil
+}
+
+// onCredentialsChanged handles Claude Code writing refreshed tokens to .credentials.json.
+func (d *SettingsDaemon) onCredentialsChanged() {
+	// Ignore events triggered by our own writes
+	if time.Since(d.lastCredWrite) < 2*time.Second {
+		return
+	}
+
+	log.Printf("Detected credentials file change (not from our write)")
+	d.pushCredentialsToAPI()
 }
 
 // onFileChanged handles Zed UI modifications to settings.json
@@ -739,6 +1077,10 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 		newHelixSettings["theme"] = config.Theme
 	}
 
+	// Update Claude subscription availability and sync credentials
+	d.claudeSubscriptionAvailable = config.ClaudeSubscriptionAvailable
+	d.syncClaudeCredentials()
+
 	// Check if Helix settings or code agent config changed
 	codeAgentChanged := !deepEqual(config.CodeAgentConfig, d.codeAgentConfig)
 	if !deepEqual(newHelixSettings, d.helixSettings) || codeAgentChanged {
@@ -822,3 +1164,4 @@ func deepEqual(a, b interface{}) bool {
 	bJSON, _ := json.Marshal(b)
 	return string(aJSON) == string(bJSON)
 }
+

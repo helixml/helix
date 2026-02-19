@@ -35,15 +35,15 @@ type StartPlanningOptions struct {
 
 // Request types
 type CreateTaskRequest struct {
-	ProjectID     string           `json:"project_id"`
-	Prompt        string           `json:"prompt"`
-	Type          string           `json:"type"`
-	Priority      SpecTaskPriority `json:"priority"`
-	UserID        string           `json:"user_id"`
-	UserEmail     string           `json:"user_email,omitempty"` // Optional: User email for audit trail
-	AppID         string           `json:"app_id"`               // Optional: Helix agent to use for spec generation
-	JustDoItMode  bool             `json:"just_do_it_mode"`      // Optional: Skip spec planning, go straight to implementation
-	UseHostDocker bool             `json:"use_host_docker"`      // Optional: Use host Docker socket (requires privileged sandbox)
+	ProjectID    string           `json:"project_id"`
+	Prompt       string           `json:"prompt"`
+	Type         string           `json:"type"`
+	Priority     SpecTaskPriority `json:"priority"`
+	UserID       string           `json:"user_id"`
+	UserEmail    string           `json:"user_email,omitempty"` // Optional: User email for audit trail
+	AppID        string           `json:"app_id"`               // Optional: Helix agent to use for spec generation
+	JustDoItMode bool             `json:"just_do_it_mode"`      // Optional: Skip spec planning, go straight to implementation
+	DependsOn    []string         `json:"depends_on"`           // Optional: IDs of tasks this task depends on
 
 	// Branch configuration
 	BranchMode    BranchMode `json:"branch_mode,omitempty"`    // "new" or "existing" - defaults to "new"
@@ -63,6 +63,8 @@ type SpecTask struct {
 	OrganizationID string `json:"organization_id" gorm:"index"` // Organization scope for search
 	Name           string `json:"name" gorm:"index"`            // Indexed for search prefix matching
 	Description    string `json:"description" gorm:"type:text"`
+
+	DependsOn []SpecTask `json:"depends_on,omitempty" gorm:"many2many:spec_task_dependencies;"`
 
 	// Short title for tab display (auto-generated from agent writing short-title.txt)
 	// UserShortTitle takes precedence if set (user override)
@@ -122,7 +124,6 @@ type SpecTask struct {
 	SpecApproval      *SpecApprovalResponse `json:"spec_approval,omitempty" gorm:"type:jsonb;serializer:json"`
 	SpecRevisionCount int                   `json:"spec_revision_count"`                                   // Number of spec revisions requested
 	JustDoItMode      bool                  `json:"just_do_it_mode" gorm:"column:yolo_mode;default:false"` // Skip spec planning, go straight to implementation
-	UseHostDocker     bool                  `json:"use_host_docker" gorm:"default:false"`                  // Use host Docker socket (requires privileged sandbox)
 
 	// Implementation tracking
 	ImplementationApprovedBy string     `json:"implementation_approved_by,omitempty"` // User who approved implementation
@@ -132,9 +133,9 @@ type SpecTask struct {
 	LastPushCommitHash string     `json:"last_push_commit_hash,omitempty"`     // Last commit hash pushed to feature branch
 	LastPushAt         *time.Time `json:"last_push_at,omitempty"`              // When branch was last pushed
 	DesignDocsPushedAt *time.Time `json:"design_docs_pushed_at,omitempty"`     // When design docs were pushed to helix-specs branch
-	MergedToMain    bool       `json:"merged_to_main" gorm:"default:false"` // Whether branch was merged to main
-	MergedAt        *time.Time `json:"merged_at,omitempty"`                 // When merge happened
-	MergeCommitHash string     `json:"merge_commit_hash,omitempty"`         // Merge commit hash
+	MergedToMain       bool       `json:"merged_to_main" gorm:"default:false"` // Whether branch was merged to main
+	MergedAt           *time.Time `json:"merged_at,omitempty"`                 // When merge happened
+	MergeCommitHash    string     `json:"merge_commit_hash,omitempty"`         // Merge commit hash
 
 	// Simple tracking
 	EstimatedHours    int        `json:"estimated_hours,omitempty"`
@@ -212,6 +213,7 @@ type SpecTaskFilters struct {
 	Priority        string         `json:"priority,omitempty"`
 	Limit           int            `json:"limit,omitempty"`
 	Offset          int            `json:"offset,omitempty"`
+	WithDependsOn   bool           `json:"with_depends_on,omitempty"`
 	IncludeArchived bool           `json:"include_archived,omitempty"` // If true, include both archived and non-archived
 	ArchivedOnly    bool           `json:"archived_only,omitempty"`    // If true, show only archived tasks
 	DesignDocPath   string         `json:"design_doc_path,omitempty"`  // Filter by exact DesignDocPath (for git push detection)
@@ -224,10 +226,11 @@ type SpecTaskUpdateRequest struct {
 	Priority         SpecTaskPriority `json:"priority,omitempty"`
 	Name             string           `json:"name,omitempty"`
 	Description      string           `json:"description,omitempty"`
-	JustDoItMode     *bool            `json:"just_do_it_mode,omitempty"`     // Pointer to allow explicit false
-	HelixAppID       string           `json:"helix_app_id,omitempty"`        // Agent to use for this task
-	UserShortTitle   *string          `json:"user_short_title,omitempty"`    // User override for tab title (pointer to allow clearing with empty string)
-	PublicDesignDocs *bool            `json:"public_design_docs,omitempty"`  // Pointer to allow explicit false
+	JustDoItMode     *bool            `json:"just_do_it_mode,omitempty"`    // Pointer to allow explicit false
+	HelixAppID       string           `json:"helix_app_id,omitempty"`       // Agent to use for this task
+	UserShortTitle   *string          `json:"user_short_title,omitempty"`   // User override for tab title (pointer to allow clearing with empty string)
+	PublicDesignDocs *bool            `json:"public_design_docs,omitempty"` // Pointer to allow explicit false
+	DependsOn        []string         `json:"depends_on"`                   // IDs of tasks this task depends on
 }
 
 type SpecTaskStatus string

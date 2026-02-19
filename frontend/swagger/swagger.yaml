@@ -872,6 +872,50 @@ definitions:
         - $ref: '#/definitions/types.User'
         description: Owner user struct, populated by the server for organization views
     type: object
+  server.BatchTaskProgressResponse:
+    properties:
+      project_id:
+        type: string
+      tasks:
+        additionalProperties:
+          $ref: '#/definitions/server.TaskProgressResponse'
+        description: keyed by task_id
+        type: object
+    type: object
+  server.BatchTaskUsageResponse:
+    properties:
+      project_id:
+        type: string
+      tasks:
+        additionalProperties:
+          items:
+            $ref: '#/definitions/types.AggregatedUsageMetric'
+          type: array
+        description: keyed by task_id
+        type: object
+    type: object
+  server.ClaudeLoginSessionResponse:
+    properties:
+      session_id:
+        type: string
+    type: object
+  server.ClaudeModel:
+    properties:
+      description:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+    type: object
+  server.ClaudePollLoginResponse:
+    properties:
+      credentials:
+        description: Raw credentials JSON
+        type: string
+      found:
+        type: boolean
+    type: object
   server.ClientBufferStats:
     properties:
       buffer_pct:
@@ -1435,9 +1479,6 @@ definitions:
         items:
           type: string
         type: array
-      use_host_docker:
-        description: Enable host Docker access (for Helix-in-Helix dev)
-        type: boolean
     type: object
   server.SlotLogSummary:
     properties:
@@ -1852,6 +1893,9 @@ definitions:
       key:
         type: string
       name:
+        type: string
+      organization_id:
+        description: Used for isolation and metrics tracking
         type: string
       owner:
         type: string
@@ -2634,6 +2678,61 @@ definitions:
       text:
         type: string
     type: object
+  types.ClaudeOAuthCredentials:
+    properties:
+      accessToken:
+        type: string
+      expiresAt:
+        description: Unix milliseconds
+        type: integer
+      rateLimitTier:
+        type: string
+      refreshToken:
+        type: string
+      scopes:
+        items:
+          type: string
+        type: array
+      subscriptionType:
+        type: string
+    type: object
+  types.ClaudeSubscription:
+    properties:
+      access_token_expires_at:
+        type: string
+      created:
+        type: string
+      created_by:
+        type: string
+      id:
+        type: string
+      last_error:
+        type: string
+      last_refreshed_at:
+        type: string
+      name:
+        type: string
+      owner_id:
+        type: string
+      owner_type:
+        allOf:
+        - $ref: '#/definitions/types.OwnerType'
+        description: '"user" or "org"'
+      rate_limit_tier:
+        type: string
+      scopes:
+        items:
+          type: string
+        type: array
+      status:
+        description: '"active", "expired", "error"'
+        type: string
+      subscription_type:
+        description: '"max", "pro"'
+        type: string
+      updated:
+        type: string
+    type: object
   types.ClipboardData:
     properties:
       data:
@@ -2950,6 +3049,23 @@ definitions:
       repository_id:
         type: string
     type: object
+  types.CreateClaudeSubscriptionRequest:
+    properties:
+      credentials:
+        properties:
+          claudeAiOauth:
+            $ref: '#/definitions/types.ClaudeOAuthCredentials'
+        type: object
+      name:
+        type: string
+      owner_id:
+        description: Required for org-level, auto-set for user
+        type: string
+      owner_type:
+        allOf:
+        - $ref: '#/definitions/types.OwnerType'
+        description: '"user" or "org"'
+    type: object
   types.CreatePullRequestRequest:
     properties:
       description:
@@ -3012,6 +3128,11 @@ definitions:
       branch_prefix:
         description: 'For new mode: user-specified prefix (task# appended)'
         type: string
+      depends_on:
+        description: 'Optional: IDs of tasks this task depends on'
+        items:
+          type: string
+        type: array
       just_do_it_mode:
         description: 'Optional: Skip spec planning, go straight to implementation'
         type: boolean
@@ -3023,9 +3144,6 @@ definitions:
         type: string
       type:
         type: string
-      use_host_docker:
-        description: 'Optional: Use host Docker socket (requires privileged sandbox)'
-        type: boolean
       user_email:
         description: 'Optional: User email for audit trail'
         type: string
@@ -4941,6 +5059,21 @@ definitions:
       total_tokens:
         type: integer
     type: object
+  types.OrgDetails:
+    properties:
+      members:
+        items:
+          $ref: '#/definitions/types.User'
+        type: array
+      organization:
+        $ref: '#/definitions/types.Organization'
+      projects:
+        items:
+          $ref: '#/definitions/types.Project'
+        type: array
+      wallet:
+        $ref: '#/definitions/types.Wallet'
+    type: object
   types.Organization:
     properties:
       auto_join_domain:
@@ -5215,9 +5348,6 @@ definitions:
         type: array
       updated_at:
         type: string
-      use_host_docker:
-        description: Sandbox settings
-        type: boolean
       user_id:
         type: string
     type: object
@@ -6132,12 +6262,12 @@ definitions:
       created:
         type: string
       desktop_versions:
+        additionalProperties:
+          type: string
         description: |-
           Desktop image versions available on this sandbox
           Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
-        items:
-          type: integer
-        type: array
+        type: object
       gpu_vendor:
         description: GPU configuration
         type: string
@@ -6287,6 +6417,8 @@ definitions:
     type: object
   types.ServerConfigForFrontend:
     properties:
+      active_concurrent_desktops:
+        type: integer
       apps_enabled:
         type: boolean
       auth_provider:
@@ -6298,6 +6430,9 @@ definitions:
         type: string
       disable_llm_call_logging:
         type: boolean
+      edition:
+        description: '"mac-desktop", "server", "cloud", etc.'
+        type: string
       eval_user_id:
         type: string
       filestore_prefix:
@@ -7007,6 +7142,10 @@ definitions:
       created_by:
         description: Metadata
         type: string
+      depends_on:
+        items:
+          $ref: '#/definitions/types.SpecTask'
+        type: array
       description:
         type: string
       design_doc_path:
@@ -7138,9 +7277,6 @@ definitions:
         type: string
       updated_at:
         type: string
-      use_host_docker:
-        description: Use host Docker socket (requires privileged sandbox)
-        type: boolean
       user_id:
         description: Owner user ID for search
         type: string
@@ -7453,6 +7589,11 @@ definitions:
     - TaskStatusImplementationFailed
   types.SpecTaskUpdateRequest:
     properties:
+      depends_on:
+        description: IDs of tasks this task depends on
+        items:
+          type: string
+        type: array
       description:
         type: string
       helix_app_id:
@@ -7513,6 +7654,10 @@ definitions:
       created_by:
         description: Metadata
         type: string
+      depends_on:
+        items:
+          $ref: '#/definitions/types.SpecTask'
+        type: array
       description:
         type: string
       design_doc_path:
@@ -7646,9 +7791,6 @@ definitions:
         type: string
       updated_at:
         type: string
-      use_host_docker:
-        description: Use host Docker socket (requires privileged sandbox)
-        type: boolean
       user_id:
         description: Owner user ID for search
         type: string
@@ -8516,6 +8658,9 @@ definitions:
         type: boolean
       onboarding_completed_at:
         type: string
+      organization_id:
+        description: Organization this API key is scoped to (ephemeral keys)
+        type: string
       password_hash:
         description: bcrypt hash of the password
         items:
@@ -8706,6 +8851,10 @@ definitions:
       assistant:
         additionalProperties: true
         type: object
+      claude_subscription_available:
+        description: True if user has an active Claude subscription for credential
+          sync
+        type: boolean
       code_agent_config:
         allOf:
         - $ref: '#/definitions/types.CodeAgentConfig'
@@ -8840,6 +8989,21 @@ paths:
       security:
       - BearerAuth: []
       summary: List organization domains (admin only)
+      tags:
+      - organizations
+  /api/v1/admin/orgs:
+    get:
+      description: List all organizations
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.OrgDetails'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List organizations with wallets (admin only)
       tags:
       - organizations
   /api/v1/admin/users/{id}:
@@ -9774,6 +9938,210 @@ paths:
       summary: Bandwidth probe for adaptive bitrate
       tags:
       - ExternalAgents
+  /api/v1/claude-subscriptions:
+    get:
+      description: List Claude subscriptions for the current user and their org
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.ClaudeSubscription'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List Claude subscriptions
+      tags:
+      - Claude
+    post:
+      consumes:
+      - application/json
+      description: Connect a Claude subscription by providing OAuth credentials
+      parameters:
+      - description: Claude subscription credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateClaudeSubscriptionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ClaudeSubscription'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Create a Claude subscription
+      tags:
+      - Claude
+  /api/v1/claude-subscriptions/{id}:
+    delete:
+      description: Disconnect a Claude subscription
+      parameters:
+      - description: Subscription ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Delete a Claude subscription
+      tags:
+      - Claude
+    get:
+      description: Get details of a specific Claude subscription (no secrets)
+      parameters:
+      - description: Subscription ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ClaudeSubscription'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get a Claude subscription
+      tags:
+      - Claude
+  /api/v1/claude-subscriptions/models:
+    get:
+      description: List Claude models available through Claude Code subscriptions
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/server.ClaudeModel'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List available Claude models
+      tags:
+      - Claude
+  /api/v1/claude-subscriptions/poll-login/{sessionId}:
+    get:
+      description: Check if Claude credentials file has been written inside the desktop
+        container
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.ClaudePollLoginResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Poll for Claude login credentials
+      tags:
+      - Claude
+  /api/v1/claude-subscriptions/start-login:
+    post:
+      description: Launch a temporary desktop session for interactive Claude OAuth
+        login
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.ClaudeLoginSessionResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Start a Claude login session
+      tags:
+      - Claude
   /api/v1/clone-groups/{groupId}/progress:
     get:
       description: Get status breakdown and progress of all cloned tasks
@@ -13364,6 +13732,69 @@ paths:
       summary: Get startup script version history
       tags:
       - Projects
+  /api/v1/projects/{id}/tasks-progress:
+    get:
+      description: Get progress information for all spec-driven tasks in a project
+        in a single request. This is more efficient than calling the individual progress
+        endpoint for each task.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - default: false
+        description: Include checklist progress (slower, parses git files)
+        in: query
+        name: include_checklist
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.BatchTaskProgressResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: Get progress for all tasks in a project
+      tags:
+      - spec-driven-tasks
+  /api/v1/projects/{id}/tasks-usage:
+    get:
+      description: Get usage metrics for all spec-driven tasks in a project in a single
+        request. This is more efficient than calling the individual usage endpoint
+        for each task.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.BatchTaskUsageResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: Get usage for all tasks in a project
+      tags:
+      - spec-driven-tasks
   /api/v1/projects/{id}/usage:
     get:
       consumes:
@@ -15083,6 +15514,93 @@ paths:
       summary: Update a session by ID
       tags:
       - sessions
+  /api/v1/sessions/{id}/claude-credentials:
+    get:
+      description: |-
+        Get decrypted Claude credentials for use inside a desktop container.
+        Only accepts runner/session-scoped tokens.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ClaudeOAuthCredentials'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get Claude credentials for a session
+      tags:
+      - Claude
+    put:
+      consumes:
+      - application/json
+      description: |-
+        Push refreshed Claude OAuth credentials back to the API (e.g. after Claude Code refreshes its token).
+        Only accepts runner/session-scoped tokens.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Refreshed credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/types.ClaudeOAuthCredentials'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Update Claude credentials for a session
+      tags:
+      - Claude
   /api/v1/sessions/{id}/expose:
     get:
       description: Returns all ports currently exposed from the session's dev container
@@ -15781,6 +16299,11 @@ paths:
         description: Include archived tasks
         in: query
         name: include_archived
+        type: boolean
+      - default: false
+        description: Include depends on tasks
+        in: query
+        name: with_depends_on
         type: boolean
       - default: 50
         description: Limit number of results

@@ -52,7 +52,7 @@ export const PROVIDERS: Provider[] = [
     description: 'Access Anthropic Claude models for advanced language tasks.',
     logo: AnthropicLogo,
     base_url: "https://api.anthropic.com/v1",
-    setup_instructions: "Get your API key from https://console.anthropic.com/api-keys"
+    setup_instructions: "Get your API key from https://platform.claude.com/settings/keys"
   },
   {
     id: 'user/aws',

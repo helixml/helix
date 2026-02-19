@@ -53,13 +53,16 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 
 	// Security: Only allow specific commands for safety
 	allowedCommands := map[string]bool{
-		"vkcube":       true,
-		"glxgears":     true,
-		"pkill":        true,
-		"killall":      true,
-		"ls":           true,
-		"echo":         true,
-		"weston-simple-egl": true,
+		"vkcube":             true,
+		"glxgears":           true,
+		"pkill":              true,
+		"killall":            true,
+		"ls":                 true,
+		"echo":               true,
+		"weston-simple-egl":  true,
+		"claude":             true,
+		"cat":                true,
+		"test":               true,
 	}
 
 	cmdName := req.Command[0]

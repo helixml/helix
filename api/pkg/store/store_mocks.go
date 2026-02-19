@@ -163,6 +163,21 @@ func (mr *MockStoreMockRecorder) CreateApp(ctx, tool any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApp", reflect.TypeOf((*MockStore)(nil).CreateApp), ctx, tool)
 }
 
+// CreateClaudeSubscription mocks base method.
+func (m *MockStore) CreateClaudeSubscription(ctx context.Context, sub *types.ClaudeSubscription) (*types.ClaudeSubscription, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateClaudeSubscription", ctx, sub)
+	ret0, _ := ret[0].(*types.ClaudeSubscription)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateClaudeSubscription indicates an expected call of CreateClaudeSubscription.
+func (mr *MockStoreMockRecorder) CreateClaudeSubscription(ctx, sub any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateClaudeSubscription", reflect.TypeOf((*MockStore)(nil).CreateClaudeSubscription), ctx, sub)
+}
+
 // CreateCloneGroup mocks base method.
 func (m *MockStore) CreateCloneGroup(ctx context.Context, group *types.CloneGroup) (*types.CloneGroup, error) {
 	m.ctrl.T.Helper()
@@ -1045,6 +1060,20 @@ func (mr *MockStoreMockRecorder) DeleteApp(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteApp", reflect.TypeOf((*MockStore)(nil).DeleteApp), ctx, id)
 }
 
+// DeleteClaudeSubscription mocks base method.
+func (m *MockStore) DeleteClaudeSubscription(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteClaudeSubscription", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteClaudeSubscription indicates an expected call of DeleteClaudeSubscription.
+func (mr *MockStoreMockRecorder) DeleteClaudeSubscription(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteClaudeSubscription", reflect.TypeOf((*MockStore)(nil).DeleteClaudeSubscription), ctx, id)
+}
+
 // DeleteCrispThread mocks base method.
 func (m *MockStore) DeleteCrispThread(ctx context.Context, olderThan time.Time) error {
 	m.ctrl.T.Helper()
@@ -1763,18 +1792,18 @@ func (mr *MockStoreMockRecorder) EnsureUserMeta(ctx, UserMeta any) *gomock.Call 
 }
 
 // FindAvailableSandbox mocks base method.
-func (m *MockStore) FindAvailableSandbox(ctx context.Context, desktopType string, requirePrivileged bool) (*types.SandboxInstance, error) {
+func (m *MockStore) FindAvailableSandbox(ctx context.Context, desktopType string) (*types.SandboxInstance, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindAvailableSandbox", ctx, desktopType, requirePrivileged)
+	ret := m.ctrl.Call(m, "FindAvailableSandbox", ctx, desktopType)
 	ret0, _ := ret[0].(*types.SandboxInstance)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FindAvailableSandbox indicates an expected call of FindAvailableSandbox.
-func (mr *MockStoreMockRecorder) FindAvailableSandbox(ctx, desktopType, requirePrivileged any) *gomock.Call {
+func (mr *MockStoreMockRecorder) FindAvailableSandbox(ctx, desktopType any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAvailableSandbox", reflect.TypeOf((*MockStore)(nil).FindAvailableSandbox), ctx, desktopType, requirePrivileged)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAvailableSandbox", reflect.TypeOf((*MockStore)(nil).FindAvailableSandbox), ctx, desktopType)
 }
 
 // GenerateRandomState mocks base method.
@@ -1942,6 +1971,36 @@ func (mr *MockStoreMockRecorder) GetAppWithTools(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAppWithTools", reflect.TypeOf((*MockStore)(nil).GetAppWithTools), ctx, id)
 }
 
+// GetClaudeSubscription mocks base method.
+func (m *MockStore) GetClaudeSubscription(ctx context.Context, id string) (*types.ClaudeSubscription, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetClaudeSubscription", ctx, id)
+	ret0, _ := ret[0].(*types.ClaudeSubscription)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetClaudeSubscription indicates an expected call of GetClaudeSubscription.
+func (mr *MockStoreMockRecorder) GetClaudeSubscription(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClaudeSubscription", reflect.TypeOf((*MockStore)(nil).GetClaudeSubscription), ctx, id)
+}
+
+// GetClaudeSubscriptionForOwner mocks base method.
+func (m *MockStore) GetClaudeSubscriptionForOwner(ctx context.Context, ownerID string, ownerType types.OwnerType) (*types.ClaudeSubscription, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetClaudeSubscriptionForOwner", ctx, ownerID, ownerType)
+	ret0, _ := ret[0].(*types.ClaudeSubscription)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetClaudeSubscriptionForOwner indicates an expected call of GetClaudeSubscriptionForOwner.
+func (mr *MockStoreMockRecorder) GetClaudeSubscriptionForOwner(ctx, ownerID, ownerType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClaudeSubscriptionForOwner", reflect.TypeOf((*MockStore)(nil).GetClaudeSubscriptionForOwner), ctx, ownerID, ownerType)
+}
+
 // GetCloneGroup mocks base method.
 func (m *MockStore) GetCloneGroup(ctx context.Context, id string) (*types.CloneGroup, error) {
 	m.ctrl.T.Helper()
@@ -2075,6 +2134,21 @@ func (m *MockStore) GetDynamicModelInfo(ctx context.Context, id string) (*types.
 func (mr *MockStoreMockRecorder) GetDynamicModelInfo(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDynamicModelInfo", reflect.TypeOf((*MockStore)(nil).GetDynamicModelInfo), ctx, id)
+}
+
+// GetEffectiveClaudeSubscription mocks base method.
+func (m *MockStore) GetEffectiveClaudeSubscription(ctx context.Context, userID, orgID string) (*types.ClaudeSubscription, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEffectiveClaudeSubscription", ctx, userID, orgID)
+	ret0, _ := ret[0].(*types.ClaudeSubscription)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEffectiveClaudeSubscription indicates an expected call of GetEffectiveClaudeSubscription.
+func (mr *MockStoreMockRecorder) GetEffectiveClaudeSubscription(ctx, userID, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEffectiveClaudeSubscription", reflect.TypeOf((*MockStore)(nil).GetEffectiveClaudeSubscription), ctx, userID, orgID)
 }
 
 // GetEffectiveSystemSettings mocks base method.
@@ -2977,21 +3051,6 @@ func (mr *MockStoreMockRecorder) GetSpecTaskZedThread(ctx, id any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTaskZedThread", reflect.TypeOf((*MockStore)(nil).GetSpecTaskZedThread), ctx, id)
 }
 
-// GetSpecTaskZedThreadByZedThreadID mocks base method.
-func (m *MockStore) GetSpecTaskZedThreadByZedThreadID(ctx context.Context, zedThreadID string) (*types.SpecTaskZedThread, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetSpecTaskZedThreadByZedThreadID", ctx, zedThreadID)
-	ret0, _ := ret[0].(*types.SpecTaskZedThread)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetSpecTaskZedThreadByZedThreadID indicates an expected call of GetSpecTaskZedThreadByZedThreadID.
-func (mr *MockStoreMockRecorder) GetSpecTaskZedThreadByZedThreadID(ctx, zedThreadID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTaskZedThreadByZedThreadID", reflect.TypeOf((*MockStore)(nil).GetSpecTaskZedThreadByZedThreadID), ctx, zedThreadID)
-}
-
 // GetSpecTaskZedThreadByWorkSession mocks base method.
 func (m *MockStore) GetSpecTaskZedThreadByWorkSession(ctx context.Context, workSessionID string) (*types.SpecTaskZedThread, error) {
 	m.ctrl.T.Helper()
@@ -3005,6 +3064,21 @@ func (m *MockStore) GetSpecTaskZedThreadByWorkSession(ctx context.Context, workS
 func (mr *MockStoreMockRecorder) GetSpecTaskZedThreadByWorkSession(ctx, workSessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTaskZedThreadByWorkSession", reflect.TypeOf((*MockStore)(nil).GetSpecTaskZedThreadByWorkSession), ctx, workSessionID)
+}
+
+// GetSpecTaskZedThreadByZedThreadID mocks base method.
+func (m *MockStore) GetSpecTaskZedThreadByZedThreadID(ctx context.Context, zedThreadID string) (*types.SpecTaskZedThread, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSpecTaskZedThreadByZedThreadID", ctx, zedThreadID)
+	ret0, _ := ret[0].(*types.SpecTaskZedThread)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSpecTaskZedThreadByZedThreadID indicates an expected call of GetSpecTaskZedThreadByZedThreadID.
+func (mr *MockStoreMockRecorder) GetSpecTaskZedThreadByZedThreadID(ctx, zedThreadID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTaskZedThreadByZedThreadID", reflect.TypeOf((*MockStore)(nil).GetSpecTaskZedThreadByZedThreadID), ctx, zedThreadID)
 }
 
 // GetSpecTasksCount mocks base method.
@@ -3292,21 +3366,6 @@ func (mr *MockStoreMockRecorder) GetZedSettingsOverride(ctx, sessionID any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetZedSettingsOverride", reflect.TypeOf((*MockStore)(nil).GetZedSettingsOverride), ctx, sessionID)
 }
 
-// HasPrivilegedSandbox mocks base method.
-func (m *MockStore) HasPrivilegedSandbox(ctx context.Context) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "HasPrivilegedSandbox", ctx)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// HasPrivilegedSandbox indicates an expected call of HasPrivilegedSandbox.
-func (mr *MockStoreMockRecorder) HasPrivilegedSandbox(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasPrivilegedSandbox", reflect.TypeOf((*MockStore)(nil).HasPrivilegedSandbox), ctx)
-}
-
 // IncrementGlobalTaskNumber mocks base method.
 func (m *MockStore) IncrementGlobalTaskNumber(ctx context.Context) (int, error) {
 	m.ctrl.T.Helper()
@@ -3454,6 +3513,21 @@ func (m *MockStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.Ap
 func (mr *MockStoreMockRecorder) ListApps(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListApps", reflect.TypeOf((*MockStore)(nil).ListApps), ctx, q)
+}
+
+// ListClaudeSubscriptions mocks base method.
+func (m *MockStore) ListClaudeSubscriptions(ctx context.Context, ownerID string) ([]*types.ClaudeSubscription, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListClaudeSubscriptions", ctx, ownerID)
+	ret0, _ := ret[0].([]*types.ClaudeSubscription)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListClaudeSubscriptions indicates an expected call of ListClaudeSubscriptions.
+func (mr *MockStoreMockRecorder) ListClaudeSubscriptions(ctx, ownerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListClaudeSubscriptions", reflect.TypeOf((*MockStore)(nil).ListClaudeSubscriptions), ctx, ownerID)
 }
 
 // ListCloneGroupsForTask mocks base method.
@@ -4300,6 +4374,21 @@ func (mr *MockStoreMockRecorder) ListUsers(ctx, query any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUsers", reflect.TypeOf((*MockStore)(nil).ListUsers), ctx, query)
 }
 
+// ListWallets mocks base method.
+func (m *MockStore) ListWallets(ctx context.Context, q *ListWalletsQuery) ([]*types.Wallet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWallets", ctx, q)
+	ret0, _ := ret[0].([]*types.Wallet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWallets indicates an expected call of ListWallets.
+func (mr *MockStoreMockRecorder) ListWallets(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWallets", reflect.TypeOf((*MockStore)(nil).ListWallets), ctx, q)
+}
+
 // ListWorkSessionsBySpecTask mocks base method.
 func (m *MockStore) ListWorkSessionsBySpecTask(ctx context.Context, specTaskID string, phase *types.SpecTaskPhase) ([]*types.SpecTaskWorkSession, error) {
 	m.ctrl.T.Helper()
@@ -4647,6 +4736,21 @@ func (m *MockStore) UpdateApp(ctx context.Context, tool *types.App) (*types.App,
 func (mr *MockStoreMockRecorder) UpdateApp(ctx, tool any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateApp", reflect.TypeOf((*MockStore)(nil).UpdateApp), ctx, tool)
+}
+
+// UpdateClaudeSubscription mocks base method.
+func (m *MockStore) UpdateClaudeSubscription(ctx context.Context, sub *types.ClaudeSubscription) (*types.ClaudeSubscription, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateClaudeSubscription", ctx, sub)
+	ret0, _ := ret[0].(*types.ClaudeSubscription)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateClaudeSubscription indicates an expected call of UpdateClaudeSubscription.
+func (mr *MockStoreMockRecorder) UpdateClaudeSubscription(ctx, sub any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateClaudeSubscription", reflect.TypeOf((*MockStore)(nil).UpdateClaudeSubscription), ctx, sub)
 }
 
 // UpdateCommentAgentResponse mocks base method.

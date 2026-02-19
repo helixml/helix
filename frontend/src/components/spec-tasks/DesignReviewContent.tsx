@@ -112,6 +112,15 @@ export default function DesignReviewContent({
   const { data: task } = useSpecTask(specTaskId, {
     enabled: !!specTaskId,
   })
+  const unfinishedDependencies = useMemo(() => {
+    const dependencies = task?.depends_on || []
+    return dependencies.filter((dependency) => {
+      const dependencyStatus = dependency.status || ''
+      const isCompleted = dependencyStatus === 'done' || dependencyStatus === 'completed'
+      return !dependency.archived && !isCompleted
+    })
+  }, [task?.depends_on])
+  const blockingDependency = unfinishedDependencies[0]
 
   // First fetch comments to know if we should poll for review updates
   const { data: commentsData, isLoading: commentsLoading } = useDesignReviewComments(specTaskId, reviewId, {
@@ -125,7 +134,7 @@ export default function DesignReviewContent({
 
   // Fetch review data
   const { data: reviewData, isLoading: reviewLoading } = useDesignReview(specTaskId, reviewId, {
-    refetchInterval: hasAwaitingComments ? 3000 : undefined,
+    refetchInterval: hasAwaitingComments ? 3000 : 5000,
   })
 
   const submitReviewMutation = useSubmitReview(specTaskId, reviewId)
@@ -1014,6 +1023,12 @@ export default function DesignReviewContent({
             task?.status === TypesSpecTaskStatus.TaskStatusImplementationQueued ||
             task?.status === TypesSpecTaskStatus.TaskStatusImplementationReview ||
             task?.status === TypesSpecTaskStatus.TaskStatusPullRequest
+          }
+          isBlockedByDependencies={unfinishedDependencies.length > 0}
+          blockedReason={
+            blockingDependency
+              ? `Depends on: #${blockingDependency.task_number ? String(blockingDependency.task_number).padStart(6, '0') : blockingDependency.id?.slice(0, 8)}`
+              : ''
           }
           onApprove={() => {
             setSubmitDecision('approve')

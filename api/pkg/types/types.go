@@ -823,16 +823,17 @@ type InferenceRequestFilter struct {
 }
 
 type ApiKey struct { //nolint:revive
-	Created    time.Time       `json:"created"`
-	Owner      string          `json:"owner"`
-	OwnerType  OwnerType       `json:"owner_type"`
-	Key        string          `json:"key" gorm:"primaryKey"`
-	Name       string          `json:"name"`
-	Type       APIKeyType      `json:"type" gorm:"default:api"`
-	AppID      *sql.NullString `json:"app_id"`
-	ProjectID  string          `json:"project_id"`   // Used for isolation and metrics tracking
-	SpecTaskID string          `json:"spec_task_id"` // Used for isolation and metrics tracking
-	SessionID  string          `json:"session_id"`   // Session this key is scoped to (ephemeral keys)
+	Created        time.Time       `json:"created"`
+	Owner          string          `json:"owner"`
+	OwnerType      OwnerType       `json:"owner_type"`
+	Key            string          `json:"key" gorm:"primaryKey"`
+	Name           string          `json:"name"`
+	Type           APIKeyType      `json:"type" gorm:"default:api"`
+	AppID          *sql.NullString `json:"app_id"`
+	OrganizationID string          `json:"organization_id"` // Used for isolation and metrics tracking
+	ProjectID      string          `json:"project_id"`      // Used for isolation and metrics tracking
+	SpecTaskID     string          `json:"spec_task_id"`    // Used for isolation and metrics tracking
+	SessionID      string          `json:"session_id"`      // Session this key is scoped to (ephemeral keys)
 }
 
 type OwnerContext struct {
@@ -1019,6 +1020,8 @@ type ServerConfigForFrontend struct {
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
 	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
 	MaxConcurrentDesktops                  int                  `json:"max_concurrent_desktops"`
+	ActiveConcurrentDesktops               int                  `json:"active_concurrent_desktops"`
+	Edition                                string               `json:"edition,omitempty"` // "mac-desktop", "server", "cloud", etc.
 }
 
 // a short version of a session that we keep for the dashboard
@@ -1939,10 +1942,6 @@ type DesktopAgent struct {
 	ZoomLevel    int    `json:"zoom_level,omitempty"`    // GNOME zoom percentage (100 default, 200 for 4k/5k)
 	DisplayScale int    `json:"display_scale,omitempty"` // KDE/Qt display scale factor (1=100%, 2=200%)
 
-	// Privileged mode - use host Docker socket instead of isolated dockerd
-	// Only works when HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox
-	UseHostDocker bool `json:"use_host_docker,omitempty"`
-
 	// Hydra executor settings
 	SandboxID      string `json:"sandbox_id,omitempty"`       // Target sandbox for container (default: "default")
 	UseHydraDocker bool   `json:"use_hydra_docker,omitempty"` // Use Hydra's isolated dockerd for dev containers
@@ -2278,14 +2277,15 @@ type ZedSettingsOverride struct {
 
 // ZedConfigResponse is returned from /api/v1/sessions/{id}/zed-config
 type ZedConfigResponse struct {
-	ContextServers  map[string]interface{} `json:"context_servers"`
-	LanguageModels  map[string]interface{} `json:"language_models,omitempty"`
-	Assistant       map[string]interface{} `json:"assistant,omitempty"`
-	ExternalSync    map[string]interface{} `json:"external_sync,omitempty"`
-	Agent           map[string]interface{} `json:"agent,omitempty"`
-	Theme           string                 `json:"theme,omitempty"`
-	Version         int64                  `json:"version"`                     // Unix timestamp of app config update
-	CodeAgentConfig *CodeAgentConfig       `json:"code_agent_config,omitempty"` // Code agent configuration for Zed agentic coding
+	ContextServers              map[string]interface{} `json:"context_servers"`
+	LanguageModels              map[string]interface{} `json:"language_models,omitempty"`
+	Assistant                   map[string]interface{} `json:"assistant,omitempty"`
+	ExternalSync                map[string]interface{} `json:"external_sync,omitempty"`
+	Agent                       map[string]interface{} `json:"agent,omitempty"`
+	Theme                       string                 `json:"theme,omitempty"`
+	Version                     int64                  `json:"version"`                                 // Unix timestamp of app config update
+	CodeAgentConfig             *CodeAgentConfig       `json:"code_agent_config,omitempty"`             // Code agent configuration for Zed agentic coding
+	ClaudeSubscriptionAvailable bool                   `json:"claude_subscription_available,omitempty"` // True if user has an active Claude subscription for credential sync
 }
 
 // CodeAgentConfig contains configuration for Zed's code agent (agentic coding).
@@ -3064,7 +3064,7 @@ type SandboxInstance struct {
 
 	// Desktop image versions available on this sandbox
 	// Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
-	DesktopVersions datatypes.JSON `json:"desktop_versions,omitempty" gorm:"type:jsonb"`
+	DesktopVersions datatypes.JSON `json:"desktop_versions,omitempty" gorm:"type:jsonb" swaggertype:"object,string"`
 
 	// GPU configuration
 	GPUVendor  string `json:"gpu_vendor,omitempty" gorm:"type:varchar(50)"`  // "nvidia", "amd", "intel", "none"

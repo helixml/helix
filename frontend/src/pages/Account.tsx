@@ -25,6 +25,7 @@ import RefreshIcon from '@mui/icons-material/Refresh'
 import DarkDialog from '../components/dialog/DarkDialog'
 import CloseIcon from '@mui/icons-material/Close'
 
+import ClaudeSubscription from '../components/account/ClaudeSubscription'
 import useSnackbar from '../hooks/useSnackbar'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
@@ -316,6 +317,9 @@ export HELIX_API_KEY=${apiKey}
                   </Grid></>
               </Grid>
             )}
+
+            {/* Claude Code Subscription */}
+            <ClaudeSubscription />
 
             {/* Full Name Update */}
             <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>

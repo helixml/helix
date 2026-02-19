@@ -37,9 +37,10 @@ type PingService struct {
 	done          chan bool
 	envLicenseKey string // renamed from licenseKey to be more explicit
 	latestVersion string
+	edition       string // e.g. "mac-desktop", "server", ""
 }
 
-func NewPingService(db *store.PostgresStore, envLicenseKey string, launchpadURL string) *PingService {
+func NewPingService(db *store.PostgresStore, envLicenseKey string, launchpadURL string, edition string) *PingService {
 	return &PingService{
 		db:            db,
 		launchpadURL:  launchpadURL,
@@ -47,6 +48,7 @@ func NewPingService(db *store.PostgresStore, envLicenseKey string, launchpadURL 
 		done:          make(chan bool),
 		envLicenseKey: envLicenseKey,
 		latestVersion: "",
+		edition:       edition,
 	}
 }
 
@@ -100,6 +102,9 @@ func (s *PingService) SendPing(ctx context.Context) {
 		"apps_count":    appCount,
 		"users_count":   userCount,
 		"deployment_id": s.GetDeploymentID(),
+	}
+	if s.edition != "" {
+		pingData["edition"] = s.edition
 	}
 
 	// Send ping to launchpad

@@ -610,6 +610,18 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 		return fmt.Errorf("failed to get available providers: %w", err)
 	}
 
+	// When creating org apps, also include the user's personal providers
+	if app.OrganizationID != "" {
+		userProviders, err := s.providerManager.ListProviders(ctx, user.ID)
+		if err == nil {
+			for _, p := range userProviders {
+				if !slices.Contains(providers, p) {
+					providers = append(providers, p)
+				}
+			}
+		}
+	}
+
 	log.Info().
 		Str("user_id", user.ID).
 		Interface("available_providers", providers).
@@ -652,12 +664,23 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 		log.Debug().
 			Str("user_id", user.ID).
 			Int("assistant_index", i).
+			Str("code_agent_runtime", string(assistant.CodeAgentRuntime)).
 			Str("assistant_name", assistant.Name).
 			Str("provider", assistant.Provider).
 			Str("model", assistant.Model).
 			Str("agent_type", string(assistant.GetAgentType())).
 			Bool("agent_mode", assistant.IsAgentMode()).
 			Msg("Validating individual assistant")
+
+		if assistant.CodeAgentRuntime != "" {
+			// Both provider and model are required
+			if assistant.Provider == "" {
+				return fmt.Errorf("code agent runtime '%s' requires a provider", assistant.CodeAgentRuntime)
+			}
+			if assistant.Model == "" {
+				return fmt.Errorf("code agent runtime '%s' requires a model", assistant.CodeAgentRuntime)
+			}
+		}
 
 		// Validate main provider/model
 		err := validateProviderModel("provider/model", assistant.Provider, assistant.Model, assistant.Name, assistant.IsAgentMode())

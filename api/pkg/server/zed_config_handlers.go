@@ -255,18 +255,28 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		}
 	}
 
+	// Check if user has an active Claude subscription (for credential sync in containers)
+	var claudeSubAvailable bool
+	if codeAgentConfig != nil && codeAgentConfig.Runtime == types.CodeAgentRuntimeClaudeCode {
+		sub, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, session.Owner, session.OrganizationID)
+		if err == nil && sub.Status == "active" {
+			claudeSubAvailable = true
+		}
+	}
+
 	// Note: Zed keybindings for system clipboard (Ctrl+C/V → editor::Copy/Paste)
 	// are configured in keymap.json created by start-zed-helix.sh startup script
 
 	response := &types.ZedConfigResponse{
-		ContextServers:  contextServers,
-		LanguageModels:  languageModels,
-		Assistant:       assistant,
-		ExternalSync:    externalSync,
-		Agent:           agentConfig,
-		Theme:           zedConfig.Theme,
-		Version:         version,
-		CodeAgentConfig: codeAgentConfig,
+		ContextServers:              contextServers,
+		LanguageModels:              languageModels,
+		Assistant:                   assistant,
+		ExternalSync:                externalSync,
+		Agent:                       agentConfig,
+		Theme:                       zedConfig.Theme,
+		Version:                     version,
+		CodeAgentConfig:             codeAgentConfig,
+		ClaudeSubscriptionAvailable: claudeSubAvailable,
 	}
 
 	return response, nil
@@ -514,7 +524,8 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	}
 
 	// If still no provider/model, return nil (can't configure code agent without these)
-	if providerName == "" || modelName == "" {
+	// Exception: claude_code in subscription mode doesn't require provider/model
+	if (providerName == "" || modelName == "") && runtime != types.CodeAgentRuntimeClaudeCode {
 		return nil
 	}
 
@@ -530,6 +541,28 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		apiType = "openai"
 		agentName = "qwen"
 		model = fmt.Sprintf("%s/%s", providerName, modelName)
+
+	case types.CodeAgentRuntimeClaudeCode:
+		// Claude Code: Uses the claude command as a custom agent_server.
+		// Two modes:
+		// 1. API key mode (provider set): Claude Code uses Helix API proxy with ANTHROPIC_API_KEY
+		// 2. Subscription mode (no provider): Claude Code uses OAuth credentials directly
+		agentName = "claude"
+		if provider != "" && providerName != "" {
+			// API key mode: route through Helix proxy.
+			// IMPORTANT: Use helixURL without "/v1" suffix because the Anthropic SDK
+			// (used by Claude Code) appends "/v1/messages" to ANTHROPIC_BASE_URL.
+			// Helix serves the Anthropic proxy at /v1/messages (registered in server.go).
+			baseURL = helixURL
+			apiType = "anthropic"
+			model = modelName
+		} else {
+			// Subscription mode: Claude Code talks directly to Anthropic
+			// using OAuth credentials from ~/.claude/.credentials.json
+			baseURL = ""
+			apiType = ""
+			model = ""
+		}
 
 	default: // CodeAgentRuntimeZedAgent
 		// Zed Agent: Uses Zed's built-in agent panel with env vars
@@ -632,8 +665,9 @@ func (apiServer *HelixAPIServer) getAPIKeyForSession(ctx context.Context, sessio
 	}
 
 	apiKey, err := apiServer.specDrivenTaskService.GetOrCreateSessionAPIKey(ctx, &services.SessionAPIKeyRequest{
-		UserID:    session.Owner,
-		SessionID: session.ID,
+		UserID:         session.Owner,
+		SessionID:      session.ID,
+		OrganizationID: session.OrganizationID,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to get session API key for session %s: %w", session.ID, err)

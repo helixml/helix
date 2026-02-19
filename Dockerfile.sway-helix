@@ -57,30 +57,28 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 # Copy Go source AFTER dependencies are downloaded for better caching
 COPY api ./api
-COPY desktop/docker-shim ./desktop/docker-shim
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     echo "Building Go binaries..." && \
     CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w" -o /desktop-bridge ./cmd/desktop-bridge && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
-    cd /app/desktop/docker-shim && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /docker-shim .
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon
 
 # ====================================================================
 # Rust build stage for GStreamer zero-copy plugin
 # ====================================================================
 # This plugin enables GPU-accelerated video streaming:
-# - NVIDIA: DMA-BUF -> EGL -> CUDA -> NVENC
-# - AMD/Intel: DMA-BUF -> VA-API
+# - amd64: DMA-BUF -> EGL -> CUDA -> NVENC (NVIDIA x86_64 GPUs)
+# - arm64: DMA-BUF -> CUDA -> NVENC (NVIDIA Grace Hopper / Spark ARM64 GPUs)
+# On macOS ARM64 VMs: CUDA not used, encoding happens on host via VideoToolbox
 # Enable with HELIX_VIDEO_MODE=zerocopy
-#
-# Using Ubuntu 25.10 because Debian Bookworm has GStreamer 1.22, but we need 1.24+
 FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env
 WORKDIR /build
 
-# Install Rust and GStreamer dev packages
+ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Rust and GStreamer dev packages
 RUN apt-get update && apt-get install -y \
     curl \
     build-essential \
@@ -100,8 +98,14 @@ RUN apt-get update && apt-get install -y \
     libudev-dev \
     libgbm-dev \
     libgstreamer-plugins-bad1.0-0 \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so
+    && rm -rf /var/lib/apt/lists/*
+
+# Create CUDA symlink for GStreamer CUDA plugin
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so; \
+    elif [ "$TARGETARCH" = "arm64" ]; then \
+        ln -sf /usr/lib/aarch64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/aarch64-linux-gnu/libgstcuda-1.0.so 2>/dev/null || true; \
+    fi
 
 # Install Rust 1.85 via rustup
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0
@@ -112,19 +116,13 @@ COPY desktop/wayland-display-core ./wayland-display-core/
 COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
 
 # Build the plugin (creates libgstpipewirezerocopy.so)
-# Note: Not caching target directory to ensure fresh rebuild when dependencies change
+# Builds with CUDA support on both amd64 and arm64 platforms
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cd gst-pipewire-zerocopy && \
     cargo build --release && \
     cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
 
-# ====================================================================
-# CUDA libraries stage - extract libnvrtc for GStreamer cudascale
-# ====================================================================
-# cudascale element requires CUDA runtime compilation library (libnvrtc)
-# We copy just this library from NVIDIA's CUDA image to keep the image small
-FROM nvidia/cuda:12.6.3-runtime-ubuntu24.04 AS cuda-libs
-# libnvrtc is in /usr/local/cuda/lib64/
+# (CUDA libraries are downloaded directly in main stage when needed)
 
 # ====================================================================
 # wlroots 0.19.0 build stage (from source)
@@ -171,14 +169,16 @@ RUN git clone --depth 1 --branch 0.19.0 https://gitlab.freedesktop.org/wlroots/w
 # Apply our keyboard layout fix patch
 COPY desktop/wlroots-patches/0001-wayland-backend-ignore-parent-layout-group.patch /build/
 RUN cd wlroots && \
-    git apply /build/0001-wayland-backend-ignore-parent-layout-group.patch || \
-    echo "Patch may not apply cleanly to 0.19.0, continuing anyway"
+    git apply /build/0001-wayland-backend-ignore-parent-layout-group.patch
 
 # Build wlroots 0.19 (includes ext-image-copy-capture-v1 by default)
+# Use architecture-appropriate lib directory
+ARG TARGETARCH
 RUN cd wlroots && \
+    if [ "${TARGETARCH}" = "arm64" ]; then LIB_TRIPLE="aarch64-linux-gnu"; else LIB_TRIPLE="x86_64-linux-gnu"; fi && \
     meson setup build \
         --prefix=/usr \
-        --libdir=/usr/lib/x86_64-linux-gnu \
+        --libdir=/usr/lib/${LIB_TRIPLE} \
         -Dexamples=false \
         -Dxwayland=enabled && \
     ninja -C build && \
@@ -227,19 +227,23 @@ RUN apt-get update && apt-get install -y \
 # Copy wlroots from previous build stage
 COPY --from=wlroots-build /wlroots-install /
 
-# Update library cache for wlroots
+# Update library cache for wlroots (arch-aware paths)
+ARG TARGETARCH
 RUN ldconfig && \
     echo "=== Verifying wlroots installation ===" && \
-    ls -la /usr/lib/x86_64-linux-gnu/libwlroots*.so* && \
-    ls -la /usr/lib/x86_64-linux-gnu/pkgconfig/wlroots*.pc && \
-    cat /usr/lib/x86_64-linux-gnu/pkgconfig/wlroots-0.19.pc
+    if [ "${TARGETARCH}" = "arm64" ]; then LIB_TRIPLE="aarch64-linux-gnu"; else LIB_TRIPLE="x86_64-linux-gnu"; fi && \
+    ls -la /usr/lib/${LIB_TRIPLE}/libwlroots*.so* && \
+    ls -la /usr/lib/${LIB_TRIPLE}/pkgconfig/wlroots*.pc && \
+    cat /usr/lib/${LIB_TRIPLE}/pkgconfig/wlroots-0.19.pc
 
 # Clone Sway 1.11 (stable release tag)
 RUN git clone --depth 1 --branch 1.11 https://github.com/swaywm/sway.git
 
-# Build Sway with explicit PKG_CONFIG_PATH
+# Build Sway with explicit PKG_CONFIG_PATH (arch-aware)
 # ENV doesn't expand correctly, so we set it inline
-RUN export PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:${PKG_CONFIG_PATH:-} && \
+ARG TARGETARCH
+RUN if [ "${TARGETARCH}" = "arm64" ]; then LIB_TRIPLE="aarch64-linux-gnu"; else LIB_TRIPLE="x86_64-linux-gnu"; fi && \
+    export PKG_CONFIG_PATH=/usr/lib/${LIB_TRIPLE}/pkgconfig:${PKG_CONFIG_PATH:-} && \
     echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH" && \
     echo "=== Debug pkg-config ===" && \
     pkg-config --variable pc_path pkg-config || true && \
@@ -248,7 +252,7 @@ RUN export PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:${PKG_CONFIG_PATH
     cd sway && \
     meson setup build \
         --prefix=/usr \
-        --libdir=/usr/lib/x86_64-linux-gnu \
+        --libdir=/usr/lib/${LIB_TRIPLE} \
         -Dsd-bus-provider=libsystemd \
         -Dtray=disabled && \
     ninja -C build && \
@@ -395,8 +399,8 @@ _INSTALL_BASE
 # This makes Go available for agents running inside the container (Helix-in-Helix)
 COPY go.mod /tmp/go.mod
 RUN GO_VERSION=$(grep -E "^go [0-9]" /tmp/go.mod | awk '{print $2}') && \
-    echo "Installing Go ${GO_VERSION}..." && \
-    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz && \
+    echo "Installing Go ${GO_VERSION} for ${TARGETARCH}..." && \
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /usr/local -xz && \
     rm /tmp/go.mod && \
     /usr/local/go/bin/go version
 ENV PATH="/usr/local/go/bin:${PATH}"
@@ -527,29 +531,30 @@ RUN echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     echo "retro ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-# Docker CLI
+# Docker Engine (dockerd + CLI + containerd + runc) for docker-in-desktop mode
+# In docker-in-desktop mode, each desktop container runs its own dockerd with a
+# volume-backed /var/lib/docker. This eliminates the need for per-session sibling
+# dockerds and all the bridge/veth/DNS infrastructure that connected them.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gnupg ca-certificates curl lsb-release \
+    && apt-get install -y --no-install-recommends gnupg ca-certificates curl lsb-release iptables \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
     && chmod a+r /etc/apt/keyrings/docker.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
-    && apt-get install -y docker-ce-cli docker-compose-plugin \
+    && apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
-# Docker shim for Hydra compatibility and shared BuildKit cache
-# The Go-based docker-shim replaces the bash wrappers with:
-# - Path translation for Hydra bind mounts
-# - BuildKit cache injection for shared caching across sessions
-# - Docker Compose project isolation per session
-COPY --from=go-build-env /docker-shim /usr/local/bin/docker-shim
-RUN mv /usr/bin/docker /usr/bin/docker.real \
-    && ln -s /usr/local/bin/docker-shim /usr/bin/docker \
-    && chmod 755 /usr/bin/docker.real /usr/local/bin/docker-shim \
-    && mv /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real \
-    && ln -s /usr/local/bin/docker-shim /usr/libexec/docker/cli-plugins/docker-compose \
-    && chmod 755 /usr/libexec/docker/cli-plugins/docker-compose.real
+# Kind (Kubernetes in Docker) + kubectl
+# Enables creating local Kubernetes clusters inside the desktop container
+RUN curl -Lo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64 \
+    && chmod +x /usr/local/bin/kind \
+    && curl -Lo /usr/local/bin/kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+    && chmod +x /usr/local/bin/kubectl
+
+# NOTE: docker-shim removed - shared BuildKit builder is now set up in
+# 17-start-dockerd.sh init script after dockerd starts. This is simpler
+# and the builder is set as the default, so no command interception needed.
 
 # Utilities and dev tools (Sway-specific + common)
 RUN apt-get update && apt-get install -y \
@@ -589,13 +594,25 @@ RUN apt-get update && apt-get install -y \
     # ffmpeg for audio format conversion (voice input WebM → WAV)
     ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
-    # Create symlink for libgstcuda - required for nvcodec plugin to find CUDA runtime
-    && ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so 2>/dev/null || true
+    # Create symlink for libgstcuda - required for nvcodec plugin to find CUDA runtime (amd64 only)
+    && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
+         ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so 2>/dev/null || true; \
+       fi
 
-# Install Ghostty terminal
-RUN wget -q -O /tmp/ghostty.deb "https://github.com/mkasberg/ghostty-ubuntu/releases/download/1.1.3-0-ppa2/ghostty_1.1.3-0.ppa2_amd64_25.04.deb" \
-    && dpkg -i /tmp/ghostty.deb || apt-get install -f -y \
-    && rm /tmp/ghostty.deb
+# Install Ghostty terminal (amd64 only - use kitty on arm64)
+RUN <<_INSTALL_GHOSTTY
+set -e
+if [ "$(dpkg --print-architecture)" = "amd64" ]; then
+    echo "=== Installing Ghostty terminal for amd64 ==="
+    wget -q -O /tmp/ghostty.deb "https://github.com/mkasberg/ghostty-ubuntu/releases/download/1.1.3-0-ppa2/ghostty_1.1.3-0.ppa2_amd64_25.04.deb"
+    dpkg -i /tmp/ghostty.deb || apt-get install -f -y
+    rm /tmp/ghostty.deb
+else
+    echo "=== Ghostty not available for arm64, using kitty ==="
+    # kitty is already installed in the utilities section
+    ln -sf /usr/bin/kitty /usr/bin/ghostty || true
+fi
+_INSTALL_GHOSTTY
 
 # Helix background
 RUN mkdir -p /usr/share/backgrounds && \
@@ -618,7 +635,11 @@ RUN apt-get update && \
 # Placed BEFORE frequently-changing code (Qwen, Go, Rust, Zed) for layer caching.
 # See: https://developer.chrome.com/blog/chrome-devtools-mcp
 
-RUN apt-get update && apt-get install -y \
+# Chrome installation - use Google Chrome on amd64, Chromium on arm64
+RUN <<_INSTALL_CHROME
+set -e
+apt-get update
+apt-get install -y \
     fonts-liberation \
     libasound2t64 \
     libatk-bridge2.0-0 \
@@ -636,38 +657,52 @@ RUN apt-get update && apt-get install -y \
     libxfixes3 \
     libxkbcommon0 \
     libxrandr2 \
-    xdg-utils \
-    && wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-    && dpkg -i /tmp/google-chrome.deb || apt-get install -f -y \
-    && rm /tmp/google-chrome.deb \
-    && rm -rf /var/lib/apt/lists/* \
-    # Configure Chrome enterprise policies (suppress all first-run dialogs)
-    && mkdir -p /etc/opt/chrome/policies/managed \
-    && echo '{ \
-      "DefaultBrowserSettingEnabled": false, \
-      "MetricsReportingEnabled": false, \
-      "BrowserSignin": 0, \
-      "PromotionalTabsEnabled": false, \
-      "ShowFirstRunBubble": false, \
-      "WelcomePageOnOSUpgradeEnabled": false, \
-      "SyncDisabled": true, \
-      "ImportBookmarks": false, \
-      "ImportHistory": false, \
-      "ImportSavedPasswords": false, \
-      "ImportSearchEngine": false, \
-      "RestoreOnStartup": 5, \
-      "PasswordManagerEnabled": true, \
-      "PrivacySandboxPromptEnabled": false, \
-      "PrivacySandboxAdTopicsEnabled": false, \
-      "PrivacySandboxSiteEnabledAdsEnabled": false, \
-      "PrivacySandboxAdMeasurementEnabled": false \
-    }' > /etc/opt/chrome/policies/managed/helix.json \
-    # Patch Chrome desktop file to bypass keyring (prevents password prompt in containers)
-    && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop \
-    # Create wrapper script with VA-API for hardware video decoding
-    && mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable.real \
-    && echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic --disable-dev-shm-usage --enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL --disable-features=UseChromeOSDirectVideoDecoder "$@"' > /usr/bin/google-chrome-stable \
-    && chmod +x /usr/bin/google-chrome-stable
+    xdg-utils
+
+if [ "$(dpkg --print-architecture)" = "arm64" ]; then
+    echo "=== Installing Chromium for arm64 ==="
+    apt-get install -y chromium-browser
+    # Create compatibility symlinks
+    ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome-stable
+    ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome
+    # Configure Chromium policies
+    mkdir -p /etc/chromium/policies/managed
+    echo '{"DefaultBrowserSettingEnabled":false,"MetricsReportingEnabled":false,"BrowserSignin":0,"SyncDisabled":true}' > /etc/chromium/policies/managed/helix.json
+else
+    echo "=== Installing Google Chrome for amd64 ==="
+    wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+    dpkg -i /tmp/google-chrome.deb || apt-get install -f -y
+    rm /tmp/google-chrome.deb
+    # Configure Chrome enterprise policies
+    mkdir -p /etc/opt/chrome/policies/managed
+    echo '{
+      "DefaultBrowserSettingEnabled": false,
+      "MetricsReportingEnabled": false,
+      "BrowserSignin": 0,
+      "PromotionalTabsEnabled": false,
+      "ShowFirstRunBubble": false,
+      "WelcomePageOnOSUpgradeEnabled": false,
+      "SyncDisabled": true,
+      "ImportBookmarks": false,
+      "ImportHistory": false,
+      "ImportSavedPasswords": false,
+      "ImportSearchEngine": false,
+      "RestoreOnStartup": 5,
+      "PasswordManagerEnabled": true,
+      "PrivacySandboxPromptEnabled": false,
+      "PrivacySandboxAdTopicsEnabled": false,
+      "PrivacySandboxSiteEnabledAdsEnabled": false,
+      "PrivacySandboxAdMeasurementEnabled": false
+    }' > /etc/opt/chrome/policies/managed/helix.json
+    # Patch Chrome desktop file
+    sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop
+    # Create wrapper script with VA-API
+    mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable.real
+    printf '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic --disable-dev-shm-usage --enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL --disable-features=UseChromeOSDirectVideoDecoder "$@"' > /usr/bin/google-chrome-stable
+    chmod +x /usr/bin/google-chrome-stable
+fi
+rm -rf /var/lib/apt/lists/*
+_INSTALL_CHROME
 
 # Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
 RUN mkdir -p /etc/skel/.config/google-chrome && \
@@ -693,24 +728,87 @@ ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
 ADD desktop/sway-config/15-setup-gpu-permissions.sh /etc/cont-init.d/15-setup-gpu-permissions.sh
 RUN chmod 755 /etc/cont-init.d/15-setup-gpu-permissions.sh
 
-# Docker group init script
-ADD desktop/sway-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
-RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
+# Start dockerd inside desktop container if /var/lib/docker is volume-mounted
+ADD desktop/shared/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
+RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh
 
 # Workspace README
 RUN mkdir -p /opt/helix
 ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 
-# GStreamer zero-copy plugin (for HELIX_VIDEO_MODE=zerocopy)
-COPY --from=rust-build-env /libgstpipewirezerocopy.so /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
-RUN chmod 644 /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
+# ====================================================================
+# GStreamer zero-copy plugin and CUDA libs (amd64 only)
+# ====================================================================
+# Install zerocopy plugin and CUDA libs
+# ====================================================================
+COPY --from=rust-build-env /libgstpipewirezerocopy.so /tmp/zerocopy.so
 
-# CUDA runtime compilation library (libnvrtc) for GStreamer cudascale element
-# cudascale enables GPU-accelerated video scaling in the zero-copy pipeline
-COPY --from=cuda-libs /usr/local/cuda/lib64/libnvrtc.so.12 /usr/lib/x86_64-linux-gnu/libnvrtc.so.12
-COPY --from=cuda-libs /usr/local/cuda/lib64/libnvrtc-builtins.so.12.6 /usr/lib/x86_64-linux-gnu/libnvrtc-builtins.so.12.6
-RUN ln -sf libnvrtc.so.12 /usr/lib/x86_64-linux-gnu/libnvrtc.so && \
-    ldconfig
+ARG TARGETARCH
+RUN <<_INSTALL_ZEROCOPY
+set -e
+
+# Set architecture-specific variables
+if [ "${TARGETARCH}" = "amd64" ]; then
+    LIB_DIR="/usr/lib/x86_64-linux-gnu"
+    CUDA_REPO="ubuntu2404/x86_64"
+elif [ "${TARGETARCH}" = "arm64" ]; then
+    LIB_DIR="/usr/lib/aarch64-linux-gnu"
+    # ARM64 server GPUs (Grace Hopper) use sbsa repository
+    CUDA_REPO="ubuntu2404/sbsa"
+fi
+
+echo "=== Installing zerocopy plugin for ${TARGETARCH} ==="
+
+# Install zerocopy plugin
+cp /tmp/zerocopy.so ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+chmod 644 ${LIB_DIR}/gstreamer-1.0/libgstpipewirezerocopy.so
+
+# Download and install CUDA runtime libs (for NVIDIA GPUs)
+# On ARM64: Uses sbsa (Server Base System Architecture) repository for Grace Hopper
+echo "Attempting to download CUDA runtime libraries from ${CUDA_REPO}..."
+apt-get update && apt-get install -y --no-install-recommends wget ca-certificates
+
+# Download CUDA keyring and try to get nvrtc package
+wget -q https://developer.download.nvidia.com/compute/cuda/repos/${CUDA_REPO}/cuda-keyring_1.1-1_all.deb || true
+if [ -f cuda-keyring_1.1-1_all.deb ]; then
+    dpkg -i cuda-keyring_1.1-1_all.deb
+    apt-get update
+
+    # Try to download cuda-nvrtc package (may not exist for all architectures)
+    if apt-get download cuda-nvrtc-12-6 2>/dev/null; then
+        # Extract the .deb package
+        dpkg-deb -x cuda-nvrtc-*.deb /tmp/cuda-extract
+
+        # Find and copy the actual versioned files
+        NVRTC_SO=$(find /tmp/cuda-extract -name "libnvrtc.so.12.6.*" -o -name "libnvrtc.so.12.*" | head -1)
+        NVRTC_BUILTINS=$(find /tmp/cuda-extract -name "libnvrtc-builtins.so.12.6.*" -o -name "libnvrtc-builtins.so.12.*" | head -1)
+
+        if [ -n "$NVRTC_SO" ] && [ -n "$NVRTC_BUILTINS" ]; then
+            cp "$NVRTC_SO" ${LIB_DIR}/libnvrtc.so.12
+            cp "$NVRTC_BUILTINS" ${LIB_DIR}/libnvrtc-builtins.so.12.6
+            ln -sf libnvrtc.so.12 ${LIB_DIR}/libnvrtc.so
+            ldconfig
+            echo "CUDA libs installed: $(basename $NVRTC_SO) and $(basename $NVRTC_BUILTINS)"
+        else
+            echo "CUDA nvrtc files not found in package, skipping CUDA support"
+        fi
+        rm -rf /tmp/cuda-extract cuda-nvrtc-*.deb
+    else
+        echo "CUDA nvrtc package not available for ${TARGETARCH}, zerocopy will work without CUDA"
+    fi
+    rm -f cuda-keyring_*.deb
+else
+    echo "CUDA repository not available for ${CUDA_REPO}, skipping CUDA libs"
+fi
+
+# Cleanup
+rm -f /tmp/zerocopy.so
+apt-get remove -y wget ca-certificates
+apt-get autoremove -y
+rm -rf /var/lib/apt/lists/*
+
+echo "Zerocopy plugin installed for ${TARGETARCH}"
+_INSTALL_ZEROCOPY
 
 # Grim with JPEG support (from build stage)
 COPY --from=grim-build /grim-bin /usr/bin/grim
@@ -720,24 +818,29 @@ COPY --from=grim-build /grim-bin /usr/bin/grim
 # ====================================================================
 # Enables AI agents to open and edit Word, Excel, and PowerPoint documents.
 # Supports: .docx, .doc, .odt, .xlsx, .xls, .ods, .pptx, .ppt, .odp, .pdf
+# NOTE: OnlyOffice is only available for amd64, use LibreOffice on arm64
 RUN <<_INSTALL_ONLYOFFICE
 set -e
-echo "=== Installing OnlyOffice Desktop Editors ==="
-
-# Download OnlyOffice deb package
-cd /tmp
-wget --progress=dot:giga https://download.onlyoffice.com/install/desktop/editors/linux/onlyoffice-desktopeditors_amd64.deb
-
-# Install with dependency resolution
-apt-get update
-dpkg -i onlyoffice-desktopeditors_amd64.deb || apt-get install -f -y
-
-# Cleanup
-rm onlyoffice-desktopeditors_amd64.deb
-apt-get clean
-rm -rf /var/lib/apt/lists/*
-
-echo "=== OnlyOffice Desktop Editors installed ==="
+ARCH=$(dpkg --print-architecture)
+if [ "$ARCH" = "arm64" ]; then
+    echo "=== OnlyOffice not available for arm64, installing LibreOffice ==="
+    apt-get update
+    apt-get install -y --no-install-recommends libreoffice-writer libreoffice-calc libreoffice-impress
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+    echo "=== LibreOffice installed as OnlyOffice alternative ==="
+else
+    echo "=== Installing OnlyOffice Desktop Editors ==="
+    apt-get update
+    apt-get install -y --no-install-recommends wget
+    cd /tmp
+    wget --progress=dot:giga https://download.onlyoffice.com/install/desktop/editors/linux/onlyoffice-desktopeditors_amd64.deb
+    dpkg -i onlyoffice-desktopeditors_amd64.deb || apt-get install -f -y
+    rm onlyoffice-desktopeditors_amd64.deb
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+    echo "=== OnlyOffice Desktop Editors installed ==="
+fi
 _INSTALL_ONLYOFFICE
 
 # AI agent privacy configs
@@ -747,8 +850,8 @@ RUN mkdir -p /home/retro/.qwen && \
 RUN mkdir -p /home/retro/.gemini && \
     echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.gemini/settings.json
 
-RUN mkdir -p /home/retro/.claude && \
-    echo '{"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}' > /home/retro/.claude/settings.json
+# Claude Code settings (bypassPermissions etc.) are written at runtime by
+# helix-workspace-setup.sh after symlinking ~/.claude to persistent storage.
 
 RUN mkdir -p /home/retro/.config/zed && \
     echo '{"telemetry":{"diagnostics":false,"metrics":false}}' > /home/retro/.config/zed/settings.json
@@ -776,7 +879,6 @@ KITTY_CONFIG
 
 RUN chown -R 1000:1000 /home/retro/.qwen \
                         /home/retro/.gemini \
-                        /home/retro/.claude \
                         /home/retro/.config/zed
 
 # Hardware video decoding configuration for Firefox/Chrome

@@ -28,12 +28,13 @@ export interface IAppsQuery {
 }
 
 // Code agent runtime options for zed_external agents
-export type CodeAgentRuntime = 'zed_agent' | 'qwen_code'
+export type CodeAgentRuntime = 'zed_agent' | 'qwen_code' | 'claude_code'
 
 // Display names for code agent runtimes (maintainable for future additions)
 export const CODE_AGENT_RUNTIME_DISPLAY_NAMES: Record<CodeAgentRuntime, string> = {
   'zed_agent': 'Zed Agent',
   'qwen_code': 'Qwen Code',
+  'claude_code': 'Claude Code',
 }
 
 // Generate a nice display name from a model ID
@@ -41,9 +42,12 @@ export function getModelDisplayName(modelId: string): string {
   // Known model patterns with nice names (case-insensitive)
   const modelPatterns: [RegExp, string][] = [
     // Anthropic Claude models
-    [/claude-opus-4-5/i, 'Opus 4.5'],
-    [/claude-sonnet-4-5/i, 'Sonnet 4.5'],
-    [/claude-haiku-4-5/i, 'Haiku 4.5'],
+    [/claude-opus-4[-.]6/i, 'Opus 4.6'],
+    [/claude-sonnet-4[-.]6/i, 'Sonnet 4.6'],
+    [/claude-haiku-4[-.]6/i, 'Haiku 4.6'],
+    [/claude-opus-4[-.]5/i, 'Opus 4.5'],
+    [/claude-sonnet-4[-.]5/i, 'Sonnet 4.5'],
+    [/claude-haiku-4[-.]5/i, 'Haiku 4.5'],
     [/claude-opus-4/i, 'Opus 4'],
     [/claude-sonnet-4/i, 'Sonnet 4'],
     [/claude-haiku-4/i, 'Haiku 4'],
@@ -98,6 +102,8 @@ export function getModelDisplayName(modelId: string): string {
 
 // Generate an agent name from model and runtime
 export function generateAgentName(modelId: string, runtime: CodeAgentRuntime): string {
+  // Claude Code manages its own model selection
+  if (runtime === 'claude_code') return 'Claude Code'
   if (!modelId) return '-'  // Show dash when model not yet selected
   const modelName = getModelDisplayName(modelId)
   const runtimeName = CODE_AGENT_RUNTIME_DISPLAY_NAMES[runtime]
@@ -117,6 +123,7 @@ export interface ICreateAgentParams {
   codeAgentRuntime?: CodeAgentRuntime;
 
   model?: string;
+  provider?: string;
 
   organizationId?: string;
 
@@ -228,6 +235,7 @@ export const useAppsContext = (): IAppsContext => {
               small_generation_model: params.smallGenerationModel,
               avatar: '',
               image: '',
+              provider: params.provider || '',
               model: effectiveModel,
               type: SESSION_TYPE_TEXT,
               system_prompt: params.systemPrompt || '',

@@ -571,6 +571,34 @@ export interface ServerAppCreateResponse {
   user?: TypesUser;
 }
 
+export interface ServerBatchTaskProgressResponse {
+  project_id?: string;
+  /** keyed by task_id */
+  tasks?: Record<string, ServerTaskProgressResponse>;
+}
+
+export interface ServerBatchTaskUsageResponse {
+  project_id?: string;
+  /** keyed by task_id */
+  tasks?: Record<string, TypesAggregatedUsageMetric[]>;
+}
+
+export interface ServerClaudeLoginSessionResponse {
+  session_id?: string;
+}
+
+export interface ServerClaudeModel {
+  description?: string;
+  id?: string;
+  name?: string;
+}
+
+export interface ServerClaudePollLoginResponse {
+  /** Raw credentials JSON */
+  credentials?: string;
+  found?: boolean;
+}
+
 export interface ServerClientBufferStats {
   buffer_pct?: number;
   buffer_size?: number;
@@ -917,8 +945,6 @@ export interface ServerSimpleSampleProject {
   skills?: TypesAssistantSkills;
   task_prompts?: ServerSampleTaskPrompt[];
   technologies?: string[];
-  /** Enable host Docker access (for Helix-in-Helix dev) */
-  use_host_docker?: boolean;
 }
 
 export interface ServerSlotLogSummary {
@@ -1162,6 +1188,8 @@ export interface TypesApiKey {
   created?: string;
   key?: string;
   name?: string;
+  /** Used for isolation and metrics tracking */
+  organization_id?: string;
   owner?: string;
   owner_type?: TypesOwnerType;
   /** Used for isolation and metrics tracking */
@@ -1632,6 +1660,36 @@ export interface TypesChoice {
   text?: string;
 }
 
+export interface TypesClaudeOAuthCredentials {
+  accessToken?: string;
+  /** Unix milliseconds */
+  expiresAt?: number;
+  rateLimitTier?: string;
+  refreshToken?: string;
+  scopes?: string[];
+  subscriptionType?: string;
+}
+
+export interface TypesClaudeSubscription {
+  access_token_expires_at?: string;
+  created?: string;
+  created_by?: string;
+  id?: string;
+  last_error?: string;
+  last_refreshed_at?: string;
+  name?: string;
+  owner_id?: string;
+  /** "user" or "org" */
+  owner_type?: TypesOwnerType;
+  rate_limit_tier?: string;
+  scopes?: string[];
+  /** "active", "expired", "error" */
+  status?: string;
+  /** "max", "pro" */
+  subscription_type?: string;
+  updated?: string;
+}
+
 export interface TypesClipboardData {
   /** text content or base64-encoded image */
   data?: string;
@@ -1829,6 +1887,17 @@ export interface TypesCreateBranchResponse {
   repository_id?: string;
 }
 
+export interface TypesCreateClaudeSubscriptionRequest {
+  credentials?: {
+    claudeAiOauth?: TypesClaudeOAuthCredentials;
+  };
+  name?: string;
+  /** Required for org-level, auto-set for user */
+  owner_id?: string;
+  /** "user" or "org" */
+  owner_type?: TypesOwnerType;
+}
+
 export interface TypesCreatePullRequestRequest {
   description?: string;
   source_branch?: string;
@@ -1868,14 +1937,14 @@ export interface TypesCreateTaskRequest {
   branch_mode?: TypesBranchMode;
   /** For new mode: user-specified prefix (task# appended) */
   branch_prefix?: string;
+  /** Optional: IDs of tasks this task depends on */
+  depends_on?: string[];
   /** Optional: Skip spec planning, go straight to implementation */
   just_do_it_mode?: boolean;
   priority?: TypesSpecTaskPriority;
   project_id?: string;
   prompt?: string;
   type?: string;
-  /** Optional: Use host Docker socket (requires privileged sandbox) */
-  use_host_docker?: boolean;
   /** Optional: User email for audit trail */
   user_email?: string;
   user_id?: string;
@@ -3021,6 +3090,13 @@ export interface TypesOpenAIUsage {
   total_tokens?: number;
 }
 
+export interface TypesOrgDetails {
+  members?: TypesUser[];
+  organization?: TypesOrganization;
+  projects?: TypesProject[];
+  wallet?: TypesWallet;
+}
+
 export interface TypesOrganization {
   /**
    * AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members
@@ -3187,8 +3263,6 @@ export interface TypesProject {
   status?: string;
   technologies?: string[];
   updated_at?: string;
-  /** Sandbox settings */
-  use_host_docker?: boolean;
   user_id?: string;
 }
 
@@ -3733,7 +3807,7 @@ export interface TypesSandboxInstance {
    * Desktop image versions available on this sandbox
    * Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
    */
-  desktop_versions?: number[];
+  desktop_versions?: Record<string, string>;
   /** GPU configuration */
   gpu_vendor?: string;
   /** Hostname for DNS resolution */
@@ -3812,12 +3886,15 @@ export interface TypesSecret {
 }
 
 export interface TypesServerConfigForFrontend {
+  active_concurrent_desktops?: number;
   apps_enabled?: boolean;
   auth_provider?: TypesAuthProvider;
   /** Charging for usage */
   billing_enabled?: boolean;
   deployment_id?: string;
   disable_llm_call_logging?: boolean;
+  /** "mac-desktop", "server", "cloud", etc. */
+  edition?: string;
   eval_user_id?: string;
   filestore_prefix?: string;
   google_analytics_frontend?: string;
@@ -4249,6 +4326,7 @@ export interface TypesSpecTask {
   created_at?: string;
   /** Metadata */
   created_by?: string;
+  depends_on?: TypesSpecTask[];
   description?: string;
   design_doc_path?: string;
   /** When design docs were pushed to helix-specs branch */
@@ -4332,8 +4410,6 @@ export interface TypesSpecTask {
   /** "feature", "bug", "refactor" */
   type?: string;
   updated_at?: string;
-  /** Use host Docker socket (requires privileged sandbox) */
-  use_host_docker?: boolean;
   /** Owner user ID for search */
   user_id?: string;
   /** User override */
@@ -4498,6 +4574,8 @@ export enum TypesSpecTaskStatus {
 }
 
 export interface TypesSpecTaskUpdateRequest {
+  /** IDs of tasks this task depends on */
+  depends_on?: string[];
   description?: string;
   /** Agent to use for this task */
   helix_app_id?: string;
@@ -4535,6 +4613,7 @@ export interface TypesSpecTaskWithProject {
   created_at?: string;
   /** Metadata */
   created_by?: string;
+  depends_on?: TypesSpecTask[];
   description?: string;
   design_doc_path?: string;
   /** When design docs were pushed to helix-specs branch */
@@ -4619,8 +4698,6 @@ export interface TypesSpecTaskWithProject {
   /** "feature", "bug", "refactor" */
   type?: string;
   updated_at?: string;
-  /** Use host Docker socket (requires privileged sandbox) */
-  use_host_docker?: boolean;
   /** Owner user ID for search */
   user_id?: string;
   /** User override */
@@ -5148,6 +5225,8 @@ export interface TypesUser {
   must_change_password?: boolean;
   onboarding_completed?: boolean;
   onboarding_completed_at?: string;
+  /** Organization this API key is scoped to (ephemeral keys) */
+  organization_id?: string;
   /** bcrypt hash of the password */
   password_hash?: number[];
   /** When running in Helix Code sandbox */
@@ -5262,6 +5341,8 @@ export interface TypesWorkloadSummary {
 export interface TypesZedConfigResponse {
   agent?: Record<string, any>;
   assistant?: Record<string, any>;
+  /** True if user has an active Claude subscription for credential sync */
+  claude_subscription_available?: boolean;
   /** Code agent configuration for Zed agentic coding */
   code_agent_config?: TypesCodeAgentConfig;
   context_servers?: Record<string, any>;
@@ -5491,6 +5572,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1AdminOrganizationDomainsList: (params: RequestParams = {}) =>
       this.request<ServerOrganizationDomainInfo[], any>({
         path: `/api/v1/admin/organization-domains`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List all organizations
+     *
+     * @tags organizations
+     * @name V1AdminOrgsList
+     * @summary List organizations with wallets (admin only)
+     * @request GET:/api/v1/admin/orgs
+     * @secure
+     */
+    v1AdminOrgsList: (params: RequestParams = {}) =>
+      this.request<TypesOrgDetails[], any>({
+        path: `/api/v1/admin/orgs`,
         method: "GET",
         secure: true,
         ...params,
@@ -6307,6 +6405,133 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         query: query,
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List Claude subscriptions for the current user and their org
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsList
+     * @summary List Claude subscriptions
+     * @request GET:/api/v1/claude-subscriptions
+     * @secure
+     */
+    v1ClaudeSubscriptionsList: (params: RequestParams = {}) =>
+      this.request<TypesClaudeSubscription[], SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Connect a Claude subscription by providing OAuth credentials
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsCreate
+     * @summary Create a Claude subscription
+     * @request POST:/api/v1/claude-subscriptions
+     * @secure
+     */
+    v1ClaudeSubscriptionsCreate: (body: TypesCreateClaudeSubscriptionRequest, params: RequestParams = {}) =>
+      this.request<TypesClaudeSubscription, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Disconnect a Claude subscription
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsDelete
+     * @summary Delete a Claude subscription
+     * @request DELETE:/api/v1/claude-subscriptions/{id}
+     * @secure
+     */
+    v1ClaudeSubscriptionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get details of a specific Claude subscription (no secrets)
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsDetail
+     * @summary Get a Claude subscription
+     * @request GET:/api/v1/claude-subscriptions/{id}
+     * @secure
+     */
+    v1ClaudeSubscriptionsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesClaudeSubscription, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List Claude models available through Claude Code subscriptions
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsModelsList
+     * @summary List available Claude models
+     * @request GET:/api/v1/claude-subscriptions/models
+     * @secure
+     */
+    v1ClaudeSubscriptionsModelsList: (params: RequestParams = {}) =>
+      this.request<ServerClaudeModel[], any>({
+        path: `/api/v1/claude-subscriptions/models`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Check if Claude credentials file has been written inside the desktop container
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsPollLoginDetail
+     * @summary Poll for Claude login credentials
+     * @request GET:/api/v1/claude-subscriptions/poll-login/{sessionId}
+     * @secure
+     */
+    v1ClaudeSubscriptionsPollLoginDetail: (sessionId: string, params: RequestParams = {}) =>
+      this.request<ServerClaudePollLoginResponse, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/poll-login/${sessionId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Launch a temporary desktop session for interactive Claude OAuth login
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsStartLoginCreate
+     * @summary Start a Claude login session
+     * @request POST:/api/v1/claude-subscriptions/start-login
+     * @secure
+     */
+    v1ClaudeSubscriptionsStartLoginCreate: (params: RequestParams = {}) =>
+      this.request<ServerClaudeLoginSessionResponse, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/start-login`,
+        method: "POST",
+        secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -8881,6 +9106,49 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get progress information for all spec-driven tasks in a project in a single request. This is more efficient than calling the individual progress endpoint for each task.
+     *
+     * @tags spec-driven-tasks
+     * @name V1ProjectsTasksProgressDetail
+     * @summary Get progress for all tasks in a project
+     * @request GET:/api/v1/projects/{id}/tasks-progress
+     */
+    v1ProjectsTasksProgressDetail: (
+      id: string,
+      query?: {
+        /**
+         * Include checklist progress (slower, parses git files)
+         * @default false
+         */
+        include_checklist?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerBatchTaskProgressResponse, TypesAPIError>({
+        path: `/api/v1/projects/${id}/tasks-progress`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get usage metrics for all spec-driven tasks in a project in a single request. This is more efficient than calling the individual usage endpoint for each task.
+     *
+     * @tags spec-driven-tasks
+     * @name V1ProjectsTasksUsageDetail
+     * @summary Get usage for all tasks in a project
+     * @request GET:/api/v1/projects/{id}/tasks-usage
+     */
+    v1ProjectsTasksUsageDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerBatchTaskUsageResponse, TypesAPIError>({
+        path: `/api/v1/projects/${id}/tasks-usage`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get token usage metrics for a project (combined across all tasks)
      *
      * @tags Projects
@@ -10122,6 +10390,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get decrypted Claude credentials for use inside a desktop container. Only accepts runner/session-scoped tokens.
+     *
+     * @tags Claude
+     * @name V1SessionsClaudeCredentialsDetail
+     * @summary Get Claude credentials for a session
+     * @request GET:/api/v1/sessions/{id}/claude-credentials
+     * @secure
+     */
+    v1SessionsClaudeCredentialsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesClaudeOAuthCredentials, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/claude-credentials`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Push refreshed Claude OAuth credentials back to the API (e.g. after Claude Code refreshes its token). Only accepts runner/session-scoped tokens.
+     *
+     * @tags Claude
+     * @name V1SessionsClaudeCredentialsUpdate
+     * @summary Update Claude credentials for a session
+     * @request PUT:/api/v1/sessions/{id}/claude-credentials
+     * @secure
+     */
+    v1SessionsClaudeCredentialsUpdate: (id: string, body: TypesClaudeOAuthCredentials, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/claude-credentials`,
+        method: "PUT",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Returns all ports currently exposed from the session's dev container
      *
      * @tags sessions
@@ -10589,6 +10895,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
          * @default false
          */
         include_archived?: boolean;
+        /**
+         * Include depends on tasks
+         * @default false
+         */
+        with_depends_on?: boolean;
         /**
          * Limit number of results
          * @default 50

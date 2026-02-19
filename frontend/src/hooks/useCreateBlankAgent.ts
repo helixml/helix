@@ -3,6 +3,9 @@ import useApps from './useApps'
 import useAccount from './useAccount'
 import useSnackbar from './useSnackbar'
 
+const DEFAULT_NEW_AGENT_MODEL = 'claude-opus-4-6'
+const DEFAULT_NEW_AGENT_PROVIDER = 'anthropic'
+
 /**
  * Hook that provides a function to create a blank agent and navigate to its settings page.
  * Used by both Home.tsx and Apps.tsx to avoid code duplication.
@@ -22,11 +25,13 @@ export const useCreateBlankAgent = () => {
       const newAgent = await apps.createAgent({
         name: 'New Agent',
         systemPrompt: '',
+        model: DEFAULT_NEW_AGENT_MODEL,
+        provider: DEFAULT_NEW_AGENT_PROVIDER,
         reasoningModelProvider: '',
         reasoningModel: '',
         reasoningModelEffort: '',
         generationModelProvider: '',
-        generationModel: '',
+        generationModel: DEFAULT_NEW_AGENT_MODEL,
         smallReasoningModelProvider: '',
         smallReasoningModel: '',
         smallReasoningModelEffort: '',

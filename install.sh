@@ -1600,6 +1600,40 @@ block_ip = []
 pass_ip = []
 EOF
 
+    # merge_env_files OLD_ENV NEW_ENV OUTPUT
+    # Start with NEW_ENV (correct structure/comments from installer),
+    # then append any keys from OLD_ENV that NEW_ENV doesn't set.
+    merge_env_files() {
+        local old_env="$1"
+        local new_env="$2"
+        local output="$3"
+
+        # Collect keys that the new env sets
+        local new_keys_file
+        new_keys_file=$(mktemp)
+        grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$new_env" | sed 's/=.*//' | sort -u > "$new_keys_file"
+
+        # Start with the new env file (has correct structure/comments)
+        cp "$new_env" "$output"
+
+        # Append user-only keys from old env (keys not in new env)
+        local user_keys_found=false
+        while IFS= read -r line; do
+            case "$line" in '#'*|'') continue ;; esac
+            key=$(echo "$line" | sed 's/=.*//')
+            if ! grep -qx "$key" "$new_keys_file"; then
+                if [ "$user_keys_found" = false ]; then
+                    echo "" >> "$output"
+                    echo "# User customizations (preserved from previous install)" >> "$output"
+                    user_keys_found=true
+                fi
+                echo "$line" >> "$output"
+            fi
+        done < "$old_env"
+
+        rm -f "$new_keys_file"
+    }
+
     # Create .env file
     ENV_FILE="$INSTALL_DIR/.env"
     echo -e "\nCreating/updating .env file..."
@@ -1615,11 +1649,12 @@ EOF
 
         # Make a backup copy of the .env file
         DATE=$(date +%Y%m%d%H%M%S)
-        cp "$ENV_FILE" "$ENV_FILE-$DATE"
-        echo "Backup of .env file created: $ENV_FILE-$DATE"
+        ENV_FILE_BACKUP="$ENV_FILE-$DATE"
+        cp "$ENV_FILE" "$ENV_FILE_BACKUP"
+        echo "Backup of .env file created: $ENV_FILE_BACKUP"
         echo
         echo "To see what changed, run:"
-        echo "diff $ENV_FILE $ENV_FILE-$DATE"
+        echo "diff $ENV_FILE_BACKUP $ENV_FILE"
         echo
 
         KEYCLOAK_ADMIN_PASSWORD=$(grep '^KEYCLOAK_ADMIN_PASSWORD=' "$ENV_FILE" | sed 's/^KEYCLOAK_ADMIN_PASSWORD=//' || generate_password)
@@ -1635,11 +1670,19 @@ EOF
 
     else
         echo ".env file does not exist. Generating new passwords."
+        ENV_FILE_BACKUP=""
         KEYCLOAK_ADMIN_PASSWORD=$(generate_password)
         POSTGRES_ADMIN_PASSWORD=$(generate_password)
         RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
         PGVECTOR_PASSWORD=$(generate_password)
         HELIX_ENCRYPTION_KEY=$(generate_encryption_key)
+    fi
+
+    # On upgrades, write to a temp file so we can merge user customizations
+    if [ -n "$ENV_FILE_BACKUP" ]; then
+        ENV_TARGET=$(mktemp)
+    else
+        ENV_TARGET="$ENV_FILE"
     fi
 
     # Build comma-separated list of Docker Compose profiles
@@ -1657,7 +1700,7 @@ EOF
     fi
 
     # Generate .env content
-    cat << EOF > "$ENV_FILE"
+    cat << EOF > "$ENV_TARGET"
 # Set passwords
 KEYCLOAK_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD
 POSTGRES_ADMIN_PASSWORD=$POSTGRES_ADMIN_PASSWORD
@@ -1706,10 +1749,10 @@ EOF
         if check_ollama; then
             echo "Ollama (or another OpenAI compatible API) detected on localhost:11434. Configuring Helix to use it."
             echo
-            echo "OPENAI_API_KEY=ollama" >> "$ENV_FILE"
-            echo "OPENAI_BASE_URL=http://host.docker.internal:11434/v1" >> "$ENV_FILE"
-            echo "INFERENCE_PROVIDER=openai" >> "$ENV_FILE"
-            echo "FINETUNING_PROVIDER=openai" >> "$ENV_FILE"
+            echo "OPENAI_API_KEY=ollama" >> "$ENV_TARGET"
+            echo "OPENAI_BASE_URL=http://host.docker.internal:11434/v1" >> "$ENV_TARGET"
+            echo "INFERENCE_PROVIDER=openai" >> "$ENV_TARGET"
+            echo "FINETUNING_PROVIDER=openai" >> "$ENV_TARGET"
             AUTODETECTED_LLM=true
         else
             # Only warn the user if there's also no GPU
@@ -1744,7 +1787,7 @@ EOF
 
     # Add TogetherAI configuration if token is provided
     if [ -n "$TOGETHER_API_KEY" ]; then
-        cat << EOF >> "$ENV_FILE"
+        cat << EOF >> "$ENV_TARGET"
 INFERENCE_PROVIDER=togetherai
 FINETUNING_PROVIDER=togetherai
 TOGETHER_API_KEY=$TOGETHER_API_KEY
@@ -1753,7 +1796,7 @@ EOF
 
     # Add OpenAI configuration if key and base URL are provided
     if [ -n "$OPENAI_API_KEY" ]; then
-        cat << EOF >> "$ENV_FILE"
+        cat << EOF >> "$ENV_TARGET"
 INFERENCE_PROVIDER=openai
 FINETUNING_PROVIDER=openai
 OPENAI_API_KEY=$OPENAI_API_KEY
@@ -1761,37 +1804,37 @@ EOF
     fi
 
     if [ -n "$OPENAI_BASE_URL" ]; then
-        cat << EOF >> "$ENV_FILE"
+        cat << EOF >> "$ENV_TARGET"
 OPENAI_BASE_URL=$OPENAI_BASE_URL
 EOF
     fi
 
     # Add Anthropic configuration if API key is provided
     if [ -n "$ANTHROPIC_API_KEY" ]; then
-        cat << EOF >> "$ENV_FILE"
+        cat << EOF >> "$ENV_TARGET"
 ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
 EOF
     fi
 
     # Add Hugging Face token configuration if provided
     if [ -n "$HF_TOKEN" ]; then
-        cat << EOF >> "$ENV_FILE"
+        cat << EOF >> "$ENV_TARGET"
 HF_TOKEN=$HF_TOKEN
 EOF
     fi
     # Add embeddings provider configuration
-    cat << EOF >> "$ENV_FILE"
+    cat << EOF >> "$ENV_TARGET"
 RAG_PGVECTOR_PROVIDER=$EMBEDDINGS_PROVIDER
 EOF
 
     # Add providers management configuration
-    cat << EOF >> "$ENV_FILE"
+    cat << EOF >> "$ENV_TARGET"
 PROVIDERS_MANAGEMENT_ENABLED=$PROVIDERS_MANAGEMENT_ENABLED
 EOF
 
     # Set default FINETUNING_PROVIDER to helix if neither OpenAI nor TogetherAI are specified
     if [ -z "$OPENAI_API_KEY" ] && [ -z "$TOGETHER_API_KEY" ] && [ "$AUTODETECTED_LLM" = false ]; then
-        cat << EOF >> "$ENV_FILE"
+        cat << EOF >> "$ENV_TARGET"
 FINETUNING_PROVIDER=helix
 INFERENCE_PROVIDER=helix
 EOF
@@ -1807,7 +1850,7 @@ EOF
         # render node matches GPU_VENDOR (handles multi-GPU systems like Lambda Labs
         # where renderD128 is virtio-gpu and actual GPU is renderD129).
 
-        cat << EOF >> "$ENV_FILE"
+        cat << EOF >> "$ENV_TARGET"
 
 ## Helix Code Configuration (External Agents / PDEs)
 # Sandbox streaming configuration
@@ -1824,7 +1867,7 @@ EOF
     fi
 
     # Continue with the rest of the .env file
-    cat << EOF >> "$ENV_FILE"
+    cat << EOF >> "$ENV_TARGET"
 
 ## Analytics
 # GOOGLE_ANALYTICS_FRONTEND=
@@ -1840,6 +1883,18 @@ EOF
 # EMAIL_MAILGUN_DOMAIN=REPLACE_ME
 # EMAIL_MAILGUN_API_KEY=REPLACE_ME
 EOF
+
+    # Merge user customizations from old .env on upgrades
+    if [ -n "$ENV_FILE_BACKUP" ]; then
+        merge_env_files "$ENV_FILE_BACKUP" "$ENV_TARGET" "$ENV_FILE"
+        rm -f "$ENV_TARGET"
+        echo ""
+        echo "✅ .env updated. User customizations preserved."
+        echo "   Backup: $ENV_FILE_BACKUP"
+        echo "   To review changes: diff $ENV_FILE_BACKUP $ENV_FILE"
+    elif [ "$ENV_TARGET" != "$ENV_FILE" ]; then
+        mv "$ENV_TARGET" "$ENV_FILE"
+    fi
 
     CADDY=false
     # Install Caddy if API_HOST is an HTTPS URL and system is Ubuntu
@@ -2349,11 +2404,17 @@ if [ "$SANDBOX" = true ]; then
     cat << 'EOF' > $INSTALL_DIR/sandbox.sh
 #!/bin/bash
 
+# Source .env for runtime overrides (SANDBOX_DOCKER_VOLUME, HELIX_FRAME_EXPORT_PORT, etc.)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    set -a; source "$SCRIPT_DIR/.env"; set +a
+fi
+
 # Configuration variables (set by install.sh)
 SANDBOX_TAG="${SANDBOX_TAG}"
 HELIX_API_URL="${HELIX_API_URL}"
 SANDBOX_INSTANCE_ID="${SANDBOX_INSTANCE_ID}"
-RUNNER_TOKEN="${RUNNER_TOKEN}"
+RUNNER_TOKEN="${RUNNER_TOKEN:-__DEFAULT_RUNNER_TOKEN__}"
 GPU_VENDOR="${GPU_VENDOR}"
 MAX_SANDBOXES="${MAX_SANDBOXES}"
 HELIX_HOSTNAME="${HELIX_HOSTNAME}"
@@ -2417,6 +2478,7 @@ if docker ps -a --format '{{.Names}}' | grep -q "^helix-sandbox$"; then
 fi
 
 # Build GPU-specific flags
+VIRTIO_FLAGS=""
 if [ "$GPU_VENDOR" = "nvidia" ]; then
     GPU_FLAGS="--gpus all --runtime nvidia --device /dev/dri"
     GPU_ENV_FLAGS="-e NVIDIA_DRIVER_CAPABILITIES=all -e NVIDIA_VISIBLE_DEVICES=all -e GPU_VENDOR=nvidia"
@@ -2427,6 +2489,12 @@ elif [ "$GPU_VENDOR" = "amd" ]; then
 elif [ "$GPU_VENDOR" = "intel" ]; then
     GPU_FLAGS="--device /dev/dri"
     GPU_ENV_FLAGS="-e GPU_VENDOR=intel"
+elif [ "$GPU_VENDOR" = "virtio" ]; then
+    # macOS ARM with virtio-gpu (QEMU VideoToolbox H.264 via scanout)
+    GPU_FLAGS="--device /dev/dri"
+    GPU_ENV_FLAGS="-e GPU_VENDOR=virtio -e CONTAINER_DOCKER_PATH=${CONTAINER_DOCKER_PATH:-}"
+    # DRM socket for lease manager, container-docker ZFS mount
+    VIRTIO_FLAGS="-v /run/helix-drm:/run/helix-drm:rw -v ${CONTAINER_DOCKER_PATH:-/helix/container-docker}:/container-docker"
 elif [ "$GPU_VENDOR" = "none" ]; then
     # Software rendering - no GPU device mounts needed
     GPU_FLAGS=""
@@ -2454,12 +2522,21 @@ else
     PRIVILEGED_DOCKER_FLAGS=""
 fi
 
+# Select Docker volume based on GPU vendor
+if [ "$GPU_VENDOR" = "virtio" ]; then
+    # macOS virtio: use bind mount (survives ZFS mount over /var/lib/docker/volumes/)
+    DOCKER_VOLUME="${SANDBOX_DOCKER_VOLUME:-/var/lib/helix-sandbox-docker}"
+else
+    DOCKER_VOLUME="${SANDBOX_DOCKER_VOLUME:-sandbox-storage}"
+fi
+
 # Run the sandbox container
 # Note: Don't use 'eval' here - it breaks quoting for --device-cgroup-rule
-# GPU_FLAGS contains --device /dev/dri for GPU modes (nvidia, amd, intel)
+# GPU_FLAGS contains --device /dev/dri for GPU modes (nvidia, amd, intel, virtio)
 # GPU_ENV_FLAGS contains GPU_VENDOR and software rendering env vars for none mode
+# VIRTIO_FLAGS contains DRM socket mount and cgroup rules for macOS virtio-gpu
 # shellcheck disable=SC2086
-docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS \
+docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS $VIRTIO_FLAGS \
     --privileged \
     --restart=always -d \
     --name helix-sandbox \
@@ -2468,19 +2545,21 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS \
     -e SANDBOX_INSTANCE_ID="$SANDBOX_INSTANCE_ID" \
     -e RUNNER_TOKEN="$RUNNER_TOKEN" \
     -e MAX_SANDBOXES="$MAX_SANDBOXES" \
-    -e ZED_IMAGE=helix-sway:latest \
     -e HELIX_HOSTNAME="$HELIX_HOSTNAME" \
     -e HYDRA_ENABLED=true \
     -e HYDRA_PRIVILEGED_MODE_ENABLED="${PRIVILEGED_DOCKER:-false}" \
     -e SANDBOX_DATA_PATH=/data \
     -e XDG_RUNTIME_DIR=/tmp/sockets \
-    -v sandbox-storage:/var/lib/docker \
+    -e HELIX_FRAME_EXPORT_PORT="${HELIX_FRAME_EXPORT_PORT:-15937}" \
+    -v ${DOCKER_VOLUME}:/var/lib/docker \
     -v sandbox-data:/data \
     -v hydra-storage:/hydra-data \
     -v /run/udev:/run/udev:rw \
+    -v /var/run/sandbox:/var/run/sandbox:rw \
     --device /dev/uinput \
     --device /dev/uhid \
     --device-cgroup-rule='c 13:* rmw' \
+    --device-cgroup-rule='c 226:* rmw' \
     registry.helixml.tech/helix/helix-sandbox:${SANDBOX_TAG}
 
 if [ $? -eq 0 ]; then
@@ -2549,7 +2628,7 @@ EOF
         sed -i "s|\${HELIX_API_URL}|${API_HOST}|g" $INSTALL_DIR/sandbox.sh
     fi
     sed -i "s|\${SANDBOX_INSTANCE_ID}|${SANDBOX_ID}|g" $INSTALL_DIR/sandbox.sh
-    sed -i "s|\${RUNNER_TOKEN}|${RUNNER_TOKEN}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|__DEFAULT_RUNNER_TOKEN__|${RUNNER_TOKEN}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${GPU_VENDOR}|${GPU_VENDOR}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${MAX_SANDBOXES}|10|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${HELIX_HOSTNAME}|${HELIX_HOSTNAME}|g" $INSTALL_DIR/sandbox.sh

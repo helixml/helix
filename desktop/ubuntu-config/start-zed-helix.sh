@@ -22,6 +22,7 @@ launch_terminal() {
     # Remaining args are the command
     # Ghostty options: --title, --working-directory, -e for command
     # CRITICAL: --gtk-single-instance=false prevents D-Bus activation which loses our -e args
+    # Software rendering for virtio-gpu is handled by the ghostty wrapper (Dockerfile.ubuntu-helix).
     ghostty --gtk-single-instance=false --title="$title" --working-directory="$working_dir" -e "$@" &
 }
 
