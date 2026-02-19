@@ -2351,6 +2351,51 @@ func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) 
 	return branches, nil
 }
 
+// IsBranchMerged checks if a branch has been merged into the target branch.
+// Returns true if the branch's HEAD commit is an ancestor of the target branch.
+// This is used to detect when PRs have been merged externally.
+func (s *GitRepositoryService) IsBranchMerged(ctx context.Context, repoID, branchName, targetBranch string) (bool, error) {
+	repo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return false, fmt.Errorf("repository not found: %w", err)
+	}
+
+	if repo.LocalPath == "" {
+		return false, fmt.Errorf("repository has no local path")
+	}
+
+	gitRepo, err := OpenGitRepo(repo.LocalPath)
+	if err != nil {
+		return false, fmt.Errorf("failed to open git repository: %w", err)
+	}
+	defer gitRepo.Close()
+
+	return gitRepo.IsBranchMergedInto(branchName, targetBranch)
+}
+
+// IsCommitInBranch checks if a commit SHA exists in the history of the target branch.
+// This is useful for detecting merges when the source branch has been deleted.
+func (s *GitRepositoryService) IsCommitInBranch(ctx context.Context, repoID, commitSHA, targetBranch string) (bool, error) {
+	repo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return false, fmt.Errorf("repository not found: %w", err)
+	}
+
+	if repo.LocalPath == "" {
+		return false, fmt.Errorf("repository has no local path")
+	}
+
+	// Use git merge-base --is-ancestor to check if commit is in branch history
+	_, _, err = gitcmd.NewCommand("merge-base", "--is-ancestor").
+		AddDynamicArguments(commitSHA, targetBranch).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repo.LocalPath})
+	if err != nil {
+		// Exit code 1 means not an ancestor
+		return false, nil
+	}
+	return true, nil
+}
+
 // PushPullRequest syncs with external repository using a temporary working copy.
 // Since Helix uses bare repositories (to accept remote pushes from agents),
 // this creates a temp clone from the external repo, pulls latest changes,
