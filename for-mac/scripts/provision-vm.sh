@@ -6,7 +6,7 @@ set -euo pipefail
 # =============================================================================
 #
 # Creates a fully configured Ubuntu 25.10 ARM64 VM for Helix Desktop streaming.
-# Runs on macOS with Homebrew QEMU for initial setup, then creates UTM bundle.
+# Runs on macOS with Homebrew QEMU for headless provisioning.
 #
 # What this script does:
 #   1. Downloads Ubuntu 25.10 cloud image
@@ -17,12 +17,10 @@ set -euo pipefail
 #   6. Clones helix repo, builds desktop Docker image
 #   7. Sets up docker-compose for Helix control plane
 #   8. Primes the stack (pull/build/start/verify/stop)
-#   9. Creates UTM .utm bundle ready to launch
-#  10. Optionally compresses + uploads disk image to R2 CDN
+#   9. Optionally compresses + uploads disk image to R2 CDN
 #
 # Prerequisites:
-#   brew install qemu mtools  (for initial provisioning)
-#   Custom QEMU in UTM.app (for production with scanout pipeline)
+#   brew install qemu mtools
 #
 # Usage:
 #   ./provision-vm.sh [--disk-size 256G] [--cpus 8] [--memory 16384]
@@ -130,7 +128,7 @@ boot_provisioning_vm() {
         -smp "$CPUS"
         -m "$MEMORY_MB"
         -drive if=pflash,format=raw,file="$EFI_CODE",readonly=on
-        -drive if=pflash,format=raw,file="${VM_DIR}/efi_vars.fd"
+        -drive if=pflash,format=raw,snapshot=on,file="$EFI_VARS_TEMPLATE"
         -drive file="${VM_DIR}/disk.qcow2",format=qcow2,if=virtio
         -device virtio-net-pci,netdev=net0
         -netdev user,id=net0,hostfwd=tcp::${SSH_PORT}-:22
@@ -449,9 +447,6 @@ if ! step_done "disk"; then
 
     # ZFS data disk is no longer created during provisioning.
     # It's created on first boot by the desktop app (vm.go createEmptyQcow2).
-
-    # Copy EFI vars template
-    cp "$EFI_VARS_TEMPLATE" "${VM_DIR}/efi_vars.fd"
 
     mark_step "disk"
 fi
@@ -1038,205 +1033,7 @@ if ! step_done "shutdown"; then
 fi
 
 # =============================================================================
-# Step 8: Create UTM bundle
-# =============================================================================
-
-if ! step_done "utm_bundle"; then
-    log "Creating UTM bundle..."
-
-    UTM_DIR="${VM_DIR}/${VM_NAME}.utm"
-    UTM_DOCS="${HOME}/Library/Containers/com.utmapp.UTM/Data/Documents"
-
-    mkdir -p "${UTM_DIR}/Data"
-
-    # Link disk images into UTM bundle (hardlink to avoid doubling disk usage)
-    DISK_UUID=$(uuidgen)
-    ln -f "${VM_DIR}/disk.qcow2" "${UTM_DIR}/Data/${DISK_UUID}.qcow2" 2>/dev/null \
-        || cp "${VM_DIR}/disk.qcow2" "${UTM_DIR}/Data/${DISK_UUID}.qcow2"
-    cp "${VM_DIR}/efi_vars.fd" "${UTM_DIR}/Data/efi_vars.fd"
-
-    # Generate VM UUID
-    VM_UUID=$(uuidgen)
-
-    # Create UTM config.plist
-    cat > "${UTM_DIR}/config.plist" << PLISTEOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Backend</key>
-    <string>QEMU</string>
-    <key>ConfigurationVersion</key>
-    <integer>4</integer>
-    <key>Display</key>
-    <array>
-        <dict>
-            <key>DownscalingFilter</key>
-            <string>Linear</string>
-            <key>DynamicResolution</key>
-            <true/>
-            <key>Hardware</key>
-            <string>virtio-gpu-gl-pci</string>
-            <key>NativeResolution</key>
-            <false/>
-            <key>UpscalingFilter</key>
-            <string>Nearest</string>
-        </dict>
-    </array>
-    <key>Drive</key>
-    <array>
-        <dict>
-            <key>Identifier</key>
-            <string>${DISK_UUID}</string>
-            <key>ImageName</key>
-            <string>${DISK_UUID}.qcow2</string>
-            <key>ImageType</key>
-            <string>Disk</string>
-            <key>Interface</key>
-            <string>VirtIO</string>
-            <key>InterfaceVersion</key>
-            <integer>1</integer>
-            <key>ReadOnly</key>
-            <false/>
-        </dict>
-    </array>
-    <key>Information</key>
-    <dict>
-        <key>Icon</key>
-        <string>linux</string>
-        <key>IconCustom</key>
-        <false/>
-        <key>Name</key>
-        <string>Helix Desktop</string>
-        <key>UUID</key>
-        <string>${VM_UUID}</string>
-    </dict>
-    <key>Input</key>
-    <dict>
-        <key>MaximumUsbShare</key>
-        <integer>3</integer>
-        <key>UsbBusSupport</key>
-        <string>3.0</string>
-        <key>UsbSharing</key>
-        <false/>
-    </dict>
-    <key>Network</key>
-    <array>
-        <dict>
-            <key>Hardware</key>
-            <string>virtio-net-pci</string>
-            <key>IsolateFromHost</key>
-            <false/>
-            <key>Mode</key>
-            <string>Emulated</string>
-            <key>PortForward</key>
-            <array>
-                <dict>
-                    <key>GuestAddress</key>
-                    <string>10.0.2.15</string>
-                    <key>GuestPort</key>
-                    <integer>22</integer>
-                    <key>HostAddress</key>
-                    <string>127.0.0.1</string>
-                    <key>HostPort</key>
-                    <integer>2222</integer>
-                    <key>Protocol</key>
-                    <string>TCP</string>
-                </dict>
-                <dict>
-                    <key>GuestAddress</key>
-                    <string>10.0.2.15</string>
-                    <key>GuestPort</key>
-                    <integer>8080</integer>
-                    <key>HostAddress</key>
-                    <string>127.0.0.1</string>
-                    <key>HostPort</key>
-                    <integer>8080</integer>
-                    <key>Protocol</key>
-                    <string>TCP</string>
-                </dict>
-            </array>
-        </dict>
-    </array>
-    <key>QEMU</key>
-    <dict>
-        <key>AdditionalArguments</key>
-        <array/>
-        <key>BalloonDevice</key>
-        <false/>
-        <key>DebugLog</key>
-        <false/>
-        <key>Hypervisor</key>
-        <true/>
-        <key>PS2Controller</key>
-        <false/>
-        <key>RNGDevice</key>
-        <true/>
-        <key>RTCLocalTime</key>
-        <false/>
-        <key>TPMDevice</key>
-        <false/>
-        <key>TSO</key>
-        <false/>
-        <key>UEFIBoot</key>
-        <true/>
-    </dict>
-    <key>Serial</key>
-    <array/>
-    <key>Sharing</key>
-    <dict>
-        <key>ClipboardSharing</key>
-        <true/>
-        <key>DirectoryShareMode</key>
-        <string>None</string>
-        <key>DirectoryShareReadOnly</key>
-        <false/>
-    </dict>
-    <key>Sound</key>
-    <array>
-        <dict>
-            <key>Hardware</key>
-            <string>intel-hda</string>
-        </dict>
-    </array>
-    <key>System</key>
-    <dict>
-        <key>Architecture</key>
-        <string>aarch64</string>
-        <key>CPU</key>
-        <string>default</string>
-        <key>CPUCount</key>
-        <integer>${CPUS}</integer>
-        <key>CPUFlagsAdd</key>
-        <array/>
-        <key>CPUFlagsRemove</key>
-        <array/>
-        <key>ForceMulticore</key>
-        <false/>
-        <key>JITCacheSize</key>
-        <integer>0</integer>
-        <key>MemorySize</key>
-        <integer>${MEMORY_MB}</integer>
-        <key>Target</key>
-        <string>virt</string>
-    </dict>
-</dict>
-</plist>
-PLISTEOF
-
-    # Symlink into UTM documents directory
-    if [ -d "$UTM_DOCS" ]; then
-        ln -sf "${UTM_DIR}" "${UTM_DOCS}/${VM_NAME}.utm"
-        log "UTM bundle linked at: ${UTM_DOCS}/${VM_NAME}.utm"
-    else
-        log "UTM documents directory not found. Manually import: ${UTM_DIR}"
-    fi
-
-    mark_step "utm_bundle"
-fi
-
-# =============================================================================
-# Step 9: Upload to R2 CDN
+# Step 8: Upload to R2 CDN
 # =============================================================================
 
 if [ "$UPLOAD" = true ]; then

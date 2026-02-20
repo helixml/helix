@@ -352,10 +352,6 @@ if [ "$UPLOAD" = true ]; then
         log "  WARNING: zfs-data.qcow2 not found at ${VM_DIR}, skipping"
     fi
 
-    if [ -f "${VM_DIR}/efi_vars.fd" ]; then
-        upload_file "${VM_DIR}/efi_vars.fd" "vm/${VERSION}/efi_vars.fd"
-    fi
-
     # 3. Upload manifest from app bundle
     MANIFEST="${APP_BUNDLE}/Contents/Resources/vm/vm-manifest.json"
     if [ -f "$MANIFEST" ]; then

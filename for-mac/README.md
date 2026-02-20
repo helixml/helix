@@ -103,7 +103,7 @@ That's it. Here's what each step does:
 
 **`--upload`** pushes the DMG and VM images to Cloudflare R2:
 - `s3://helix-releases/desktop/{version}/Helix-for-Mac.dmg`
-- `s3://helix-releases/vm/{version}/disk.qcow2`, `zfs-data.qcow2`, `efi_vars.fd`
+- `s3://helix-releases/vm/{version}/disk.qcow2`, `zfs-data.qcow2`
 - `s3://helix-releases/vm/{version}/manifest.json`
 - `s3://helix-releases/desktop/latest.json`
 
@@ -205,9 +205,8 @@ helix-for-mac.app/
         edk2-arm-vars.fd
       vulkan/icd.d/                         # Vulkan driver config
         kosmickrisp_mesa_icd.json
-      vm/                                   # VM manifest + EFI vars
+      vm/                                   # VM manifest
         vm-manifest.json                    # CDN download manifest (SHA256, sizes, URLs)
-        efi_vars.fd                         # EFI variables (64MB)
       NOTICES.md                            # Open-source license notices
 ```
 
@@ -246,7 +245,6 @@ go run virgl_probe.go        # Probe virglrenderer availability
 | `download.go` | VM image CDN downloader with HTTP Range resume + SHA256 |
 | `license.go` | 24h trial + ECDSA license validation (offline) |
 | `settings.go` | Persistent settings (~/Library/Application Support/Helix/settings.json) |
-| `utm.go` | UTM integration (dev mode fallback) |
 | `encoder.go` | Software video encoder |
 | `vsock.go` | Virtio-vsock for host-guest frame transfer |
 | `scripts/build-helix-app.sh` | Build .app with embedded QEMU + VM manifest |
