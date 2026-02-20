@@ -96,7 +96,7 @@ if [ "$REBUILD_TEMPLATE" = true ]; then
         -format UDRW -size 50m /tmp/dmg-template-rw.dmg
     rm -rf "$TMPL_TEMP"
 
-    MOUNT_DIR=$(hdiutil attach /tmp/dmg-template-rw.dmg -readwrite -noverify -noautoopen | \
+    MOUNT_DIR=$(hdiutil attach /tmp/dmg-template-rw.dmg -readwrite -noverify -noautoopen -nobrowse | \
         grep "/Volumes/" | awk -F'\t' '{print $NF}' | head -1)
     VOLUME_NAME=$(basename "$MOUNT_DIR")
     log "  Mounted at: $MOUNT_DIR"
@@ -211,9 +211,9 @@ APP_SIZE_KB=$(du -sk "$APP_BUNDLE" | awk '{print $1}')
 DMG_SIZE_MB=$(( (APP_SIZE_KB / 1024) + 20 ))
 hdiutil resize -size "${DMG_SIZE_MB}m" "$DMG_RW" 2>/dev/null || true
 
-# Mount
+# Mount (use -nobrowse to prevent volume appearing in Finder sidebar)
 log "Mounting DMG..."
-MOUNT_DIR=$(hdiutil attach "$DMG_RW" -readwrite -noverify -noautoopen | \
+MOUNT_DIR=$(hdiutil attach "$DMG_RW" -readwrite -noverify -noautoopen -nobrowse | \
     grep "/Volumes/" | awk -F'\t' '{print $NF}' | head -1)
 if [ -z "$MOUNT_DIR" ] || [ ! -d "$MOUNT_DIR" ]; then
     echo "ERROR: Failed to mount DMG."
@@ -227,11 +227,16 @@ cp -R "$APP_BUNDLE" "$MOUNT_DIR/"
 
 # Apply Finder styling (background, icon positions, window size)
 # The .DS_Store from the template is often ignored by Finder, so we
-# re-apply styling via AppleScript on every build. This requires a GUI
-# session (logged-in user) but works on macOS exec CI runners.
+# re-apply styling via AppleScript on every build. The script hides
+# Finder first and closes all windows after to avoid disrupting CI
+# runners that also serve as dev machines.
 VOLUME_NAME=$(basename "$MOUNT_DIR")
 log "Applying Finder styling..."
 osascript <<APPLESCRIPT || log "WARNING: Finder styling failed (no GUI session?) — DMG will work but lack background"
+    tell application "System Events"
+        set finderWasVisible to visible of process "Finder"
+        set visible of process "Finder" to false
+    end tell
     tell application "Finder"
         tell disk "$VOLUME_NAME"
             open
@@ -250,6 +255,10 @@ osascript <<APPLESCRIPT || log "WARNING: Finder styling failed (no GUI session?)
             delay 2
             close
         end tell
+        close every window
+    end tell
+    tell application "System Events"
+        set visible of process "Finder" to finderWasVisible
     end tell
 APPLESCRIPT
 
