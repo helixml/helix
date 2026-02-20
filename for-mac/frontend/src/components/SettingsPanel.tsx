@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { main } from '../../wailsjs/go/models';
-import { SaveSettings, GetSettings, ResizeDataDisk, GetAutoLoginURL, FactoryReset as FactoryResetGo, GetLANAddress, ValidateLicenseKey, GetLicenseStatus, CheckForUpdate, ApplyAppUpdate, ApplyVMUpdate, RedownloadVMImage, DownloadVMUpdate, StartCombinedUpdate, ApplyCombinedUpdate } from '../../wailsjs/go/main/App';
+import { SaveSettings, GetSettings, ResizeDataDisk, GetAutoLoginURL, FactoryReset as FactoryResetGo, GetLANAddress, ValidateLicenseKey, GetLicenseStatus, CheckForUpdate, ApplyAppUpdate, ApplyVMUpdate, RedownloadVMImage, DownloadVMUpdate, StartCombinedUpdate, ApplyCombinedUpdate, CancelUpdate } from '../../wailsjs/go/main/App';
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { formatBytes } from '../lib/helpers';
 
@@ -235,6 +235,9 @@ export function SettingsPanel({
                     setAppUpdating(true);
                     try {
                       await StartCombinedUpdate();
+                      // StartCombinedUpdate returns immediately (fires goroutine).
+                      // Progress events will show the pill; reset button state here.
+                      setAppUpdating(false);
                     } catch (err) {
                       showToast('Update failed: ' + err);
                       setAppUpdating(false);
@@ -249,8 +252,17 @@ export function SettingsPanel({
             {/* Combined update progress */}
             {combinedUpdateProgress && (
               <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                  {combinedUpdateProgress.step_label || 'Downloading update...'}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                    {combinedUpdateProgress.step_label || 'Downloading update...'}
+                  </span>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    style={{ fontSize: 10, padding: '2px 8px' }}
+                    onClick={() => CancelUpdate()}
+                  >
+                    Cancel
+                  </button>
                 </div>
                 <div className="progress-bar">
                   <div

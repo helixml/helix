@@ -21,6 +21,7 @@ import {
   DownloadVMUpdate,
   StartCombinedUpdate,
   ApplyCombinedUpdate,
+  CancelUpdate,
 } from "../wailsjs/go/main/App";
 import {
   EventsOn,
@@ -240,6 +241,7 @@ export function App() {
     EventsOn("update:combined-progress", (progress: any) => {
       if (progress?.error) {
         setCombinedUpdateProgress(null);
+        showToast('Update failed: ' + progress.error);
       } else {
         setCombinedUpdateProgress(progress);
       }
@@ -548,6 +550,16 @@ export function App() {
             <span className="update-progress-label">
               {Math.round(combinedUpdateProgress.overall_pct || 0)}%
             </span>
+            <button
+              className="update-cancel-btn"
+              onClick={() => {
+                CancelUpdate();
+                setCombinedUpdateProgress(null);
+              }}
+              title="Cancel update"
+            >
+              &times;
+            </button>
           </div>
         )}
 

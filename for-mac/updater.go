@@ -143,7 +143,6 @@ type Updater struct {
 	appCtx          context.Context    // Wails app context for event emission
 	vmDownloading      bool               // true while DownloadVMUpdate is running
 	combinedRunning    bool               // true while StartCombinedUpdate is running
-	dmgCachePath       string             // path to pre-downloaded DMG from combined flow
 	vmProgressOverride func(UpdateProgress) // optional override for VM progress emission (used by combined flow)
 }
 
@@ -374,13 +373,11 @@ func (u *Updater) StartCombinedUpdate(settings *SettingsManager, downloader *VMD
 		return fmt.Errorf("DMG download failed: %w", err)
 	}
 
-	// Both downloads succeeded — write sentinel and cache DMG path
+	// Both downloads succeeded — write sentinel so the new app auto-applies the VM
 	sentinelPath := combinedUpdateSentinelPath()
-	os.WriteFile(sentinelPath, []byte(info.LatestVersion), 0644)
-
-	u.mu.Lock()
-	u.dmgCachePath = dmgPath
-	u.mu.Unlock()
+	if err := os.WriteFile(sentinelPath, []byte(info.LatestVersion), 0644); err != nil {
+		return fmt.Errorf("failed to write combined update sentinel: %w", err)
+	}
 
 	log.Printf("Combined update staged: VM + DMG for v%s", info.LatestVersion)
 
@@ -419,21 +416,14 @@ func (u *Updater) ApplyAppUpdate(appCtx context.Context) error {
 
 	dmgPath := filepath.Join(updatesDir, "Helix-for-Mac.dmg")
 
-	// Check if we already have a cached DMG from the combined flow
-	u.mu.Lock()
-	cachedDMG := u.dmgCachePath
-	u.mu.Unlock()
-
-	if cachedDMG != "" {
-		if _, err := os.Stat(cachedDMG); err == nil {
-			dmgPath = cachedDMG
-			log.Printf("Using cached DMG from combined update: %s", dmgPath)
-		} else {
-			cachedDMG = "" // file doesn't exist, fall through to download
-		}
+	// Check if DMG already exists on disk (from combined flow, survives force-quit)
+	dmgExists := false
+	if _, err := os.Stat(dmgPath); err == nil {
+		log.Printf("Using existing DMG: %s", dmgPath)
+		dmgExists = true
 	}
 
-	if cachedDMG == "" {
+	if !dmgExists {
 		// Download DMG
 		u.emitAppProgress(UpdateProgress{Phase: "downloading_app", Percent: 0})
 
@@ -496,15 +486,12 @@ func (u *Updater) ApplyAppUpdate(appCtx context.Context) error {
 		return fmt.Errorf("failed to install update: %w", err)
 	}
 
-	// Clean up backup, DMG, and combined update sentinel
+	// Clean up backup and DMG
 	os.RemoveAll(backupPath)
 	os.Remove(dmgPath)
-	os.Remove(combinedUpdateSentinelPath())
-
-	// Clear cached DMG path
-	u.mu.Lock()
-	u.dmgCachePath = ""
-	u.mu.Unlock()
+	// NOTE: do NOT delete the combined-update sentinel here — it must survive
+	// the restart so the NEW app finds it and auto-applies the staged VM update.
+	// The sentinel is cleaned up by checkVMVersionOnStartup after successful VM apply.
 
 	u.emitAppProgress(UpdateProgress{Phase: "installing_app", Percent: 100})
 

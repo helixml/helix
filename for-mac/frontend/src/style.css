@@ -1402,6 +1402,20 @@ body {
     font-variant-numeric: tabular-nums;
 }
 
+.update-cancel-btn {
+    background: none;
+    border: none;
+    color: var(--text-faded);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+    margin-left: 2px;
+}
+.update-cancel-btn:hover {
+    color: var(--text-primary);
+}
+
 /* ---- Update Ready Badge (titlebar) ---- */
 
 .update-ready-badge {

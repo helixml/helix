@@ -111,6 +111,13 @@ func (a *App) startup(ctx context.Context) {
 	// Set up updater with app context
 	a.updater.SetAppContext(ctx)
 
+	// Check for combined update sentinel synchronously BEFORE auto-starting
+	// the VM. If a combined update was staged, auto-apply the VM disk swap
+	// before the VM boots — avoids racing with StartVM.
+	if !isDevMode() {
+		a.checkVMVersionOnStartup()
+	}
+
 	// Start periodic update check (prod builds only)
 	if !isDevMode() {
 		go a.startUpdateChecker()
@@ -831,7 +838,7 @@ func (a *App) StartCombinedUpdate() error {
 		if err := a.updater.StartCombinedUpdate(a.settings, a.downloader); err != nil {
 			log.Printf("Combined update failed: %v", err)
 			wailsRuntime.EventsEmit(a.ctx, "update:combined-progress", CombinedUpdateProgress{
-				Phase: "downloading_vm",
+				Phase: "error",
 				Error: err.Error(),
 			})
 		}
@@ -891,10 +898,9 @@ func (a *App) IsVMUpdateStagedCheck() bool {
 }
 
 // startUpdateChecker runs periodic update checks.
+// NOTE: checkVMVersionOnStartup is called synchronously in startup() before
+// auto-start VM, so it is NOT called here to avoid racing.
 func (a *App) startUpdateChecker() {
-	// Check bundled VM version on startup (handles post-app-update and manual .app replacement)
-	a.checkVMVersionOnStartup()
-
 	// Initial CDN check after 10 seconds
 	time.Sleep(10 * time.Second)
 	a.performUpdateCheck()
