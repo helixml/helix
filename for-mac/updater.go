@@ -551,6 +551,19 @@ func (u *Updater) ApplyVMUpdate(vm *VMManager, settings *SettingsManager) error 
 		os.Remove(stagedEFI)
 	}
 
+	// Delete efi_vars.fd so the VM boots with fresh UEFI vars from the
+	// clean template (edk2-arm-vars.fd). Old EFI vars may contain boot
+	// entries referencing partitions/GUIDs from the previous disk image
+	// that don't match the new one, causing UEFI to drop to a shell or
+	// boot the wrong stub (e.g. systemd-boot without a command line).
+	// The fallback in vm.go copies a clean template and UEFI auto-discovers
+	// EFI/BOOT/BOOTAA64.EFI on the new disk.
+	efiVars := filepath.Join(vmDir, "efi_vars.fd")
+	if _, err := os.Stat(efiVars); err == nil {
+		log.Printf("Removing stale efi_vars.fd (will regenerate from clean template on next boot)")
+		os.Remove(efiVars)
+	}
+
 	// Update installed version in settings
 	s := settings.Get()
 	s.InstalledVMVersion = stagedVersion
