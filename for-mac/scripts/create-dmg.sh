@@ -248,8 +248,8 @@ osascript <<APPLESCRIPT || log "WARNING: Finder styling failed (no GUI session?)
             set arrangement of viewOptions to not arranged
             set icon size of viewOptions to 128
             set background picture of viewOptions to file ".background:background.png"
-            set position of item "${APP_BUNDLE_NAME}.app" of container window to {490, 175}
-            set position of item "Applications" of container window to {170, 175}
+            set position of item "${APP_BUNDLE_NAME}.app" of container window to {170, 175}
+            set position of item "Applications" of container window to {490, 175}
             close
             open
             delay 2
