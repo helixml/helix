@@ -55,7 +55,7 @@ require (
 	github.com/mendableai/firecrawl-go v0.0.0-20240815202540-ebd79458547a
 	github.com/microsoft/azure-devops-go-api/azuredevops/v7 v7.1.0
 	github.com/nats-io/nats-server/v2 v2.10.14
-	github.com/nats-io/nats.go v1.38.0
+	github.com/nats-io/nats.go v1.48.0
 	github.com/nikoksr/notify v0.41.0
 	github.com/oapi-codegen/oapi-codegen/v2 v2.5.1
 	github.com/oklog/ulid/v2 v2.1.0
@@ -264,7 +264,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826 // indirect
 	github.com/nats-io/jwt/v2 v2.5.5 // indirect
-	github.com/nats-io/nkeys v0.4.9 // indirect
+	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/nikolalohinski/gonja v1.5.3 // indirect
 	github.com/oapi-codegen/runtime v1.1.2 // indirect
@@ -308,7 +308,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
+	golang.org/x/sys v0.40.0
 	golang.org/x/text v0.33.0
 	golang.org/x/time v0.12.0 // indirect
 	golang.org/x/tools v0.40.0 // indirect
