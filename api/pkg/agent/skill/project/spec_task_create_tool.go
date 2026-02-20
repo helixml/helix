@@ -74,6 +74,13 @@ var createSpecTaskParameters = jsonschema.Definition{
 			Type:        jsonschema.Boolean,
 			Description: "Skip planning and go straight to implementation. Useful when the task is clear and well defined.",
 		},
+		"depends_on": {
+			Type:        jsonschema.Array,
+			Description: "Optional list of task IDs that this task depends on",
+			Items: &jsonschema.Definition{
+				Type: jsonschema.String,
+			},
+		},
 	},
 	Required: []string{"name", "description"},
 }
@@ -187,6 +194,15 @@ func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 		originalPrompt = op
 	}
 
+	var dependsOn []types.SpecTask
+	if rawDependsOn, hasDependsOn := args["depends_on"]; hasDependsOn {
+		parsedDependsOn, err := parseSpecTaskDependsOnArg(rawDependsOn)
+		if err != nil {
+			return "", err
+		}
+		dependsOn = parsedDependsOn
+	}
+
 	// Get project to determine organization ID
 	project, err := t.store.GetProject(ctx, projectID)
 	if err != nil {
@@ -205,6 +221,7 @@ func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 		Priority:       priority,
 		Status:         types.TaskStatusBacklog,
 		OriginalPrompt: originalPrompt,
+		DependsOn:      dependsOn,
 		JustDoItMode:   skipPlanning,
 		CreatedBy:      meta.UserID,
 		CreatedAt:      time.Now(),
@@ -243,4 +260,43 @@ func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 	}
 
 	return result.ToString(), nil
+}
+
+func parseSpecTaskDependsOnArg(raw interface{}) ([]types.SpecTask, error) {
+	if raw == nil {
+		return []types.SpecTask{}, nil
+	}
+
+	var dependencyIDs []string
+	switch typed := raw.(type) {
+	case []string:
+		dependencyIDs = typed
+	case []interface{}:
+		dependencyIDs = make([]string, 0, len(typed))
+		for _, item := range typed {
+			dependencyID, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("depends_on must contain only task IDs (strings)")
+			}
+			dependencyIDs = append(dependencyIDs, dependencyID)
+		}
+	default:
+		return nil, fmt.Errorf("depends_on must be an array of task IDs")
+	}
+
+	seen := make(map[string]struct{}, len(dependencyIDs))
+	dependsOn := make([]types.SpecTask, 0, len(dependencyIDs))
+	for _, dependencyID := range dependencyIDs {
+		dependencyID = strings.TrimSpace(dependencyID)
+		if dependencyID == "" {
+			return nil, fmt.Errorf("depends_on cannot contain empty task IDs")
+		}
+		if _, exists := seen[dependencyID]; exists {
+			continue
+		}
+		seen[dependencyID] = struct{}{}
+		dependsOn = append(dependsOn, types.SpecTask{ID: dependencyID})
+	}
+
+	return dependsOn, nil
 }
