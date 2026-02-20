@@ -19,12 +19,18 @@ var (
 	ErrProviderNotReady = errors.New("OIDC provider not ready")
 )
 
+// OIDCEventHandler receives lifecycle events from the OIDC client
+type OIDCEventHandler interface {
+	OnNewUser(user *types.User)
+}
+
 type OIDCClient struct {
 	cfg          OIDCConfig
 	provider     *oidc.Provider
 	oauth2Config *oauth2.Config
 	adminConfig  *AdminConfig
 	store        store.Store
+	eventHandler OIDCEventHandler
 }
 
 var _ OIDC = &OIDCClient{}
@@ -53,6 +59,8 @@ type OIDCConfig struct {
 	OfflineAccess bool
 	// Waitlist makes all new users waitlisted until they are approved by an admin
 	Waitlist bool
+	// EventHandler receives lifecycle events (e.g., new user created). Optional.
+	EventHandler OIDCEventHandler
 }
 
 func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
@@ -75,7 +83,8 @@ func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
 		adminConfig: &AdminConfig{
 			AdminUserIDs: cfg.AdminUserIDs,
 		},
-		store: cfg.Store,
+		store:        cfg.Store,
+		eventHandler: cfg.EventHandler,
 	}
 
 	// Start a go routine to periodically check if the provider is available
@@ -347,6 +356,10 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create user: %w", err)
+		}
+
+		if user.Waitlisted && c.eventHandler != nil {
+			c.eventHandler.OnNewUser(user)
 		}
 	}
 
