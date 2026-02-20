@@ -130,6 +130,8 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 		log.Error().Err(err).Msg("failed to run event loop")
 	}
 
+	//
+
 	// Wait for the context to be cancelled
 	<-s.ctx.Done()
 
