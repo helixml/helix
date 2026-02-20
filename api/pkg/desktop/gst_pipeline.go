@@ -103,6 +103,14 @@ func NewGstPipelineWithOptions(pipelineStr string, opts GstPipelineOptions) (*Gs
 	// Parse the pipeline string
 	pipeline, err := gst.NewPipelineFromString(pipelineStr)
 	if err != nil {
+		// GStreamer gives misleading errors when GPU encoder plugins fail to load.
+		// For example, if CUDA context creation fails (BAR1 memory exhaustion from
+		// too many GPU processes), nvh264enc can't be instantiated and GStreamer
+		// reports "no property X in element Y" instead of the actual CUDA error.
+		// Detect this and provide an actionable error message.
+		if diagErr := diagnoseGPUEncoderFailure(pipelineStr, err); diagErr != nil {
+			return nil, diagErr
+		}
 		return nil, fmt.Errorf("failed to parse pipeline: %w", err)
 	}
 
@@ -430,4 +438,37 @@ func CheckGstElement(element string) bool {
 	InitGStreamer()
 	factory := gst.Find(element)
 	return factory != nil
+}
+
+// gpuEncoderElements lists GStreamer elements that require a CUDA/GPU context to load.
+var gpuEncoderElements = []string{
+	"nvh264enc", "nvh265enc", "nvav1enc",
+	"nvautogpuh264enc", "nvautogpuh265enc", "nvautogpuav1enc",
+}
+
+// diagnoseGPUEncoderFailure checks whether a pipeline parse failure is actually caused
+// by a GPU encoder element failing to load (e.g., CUDA context creation failure from
+// BAR1 memory exhaustion). Returns a user-friendly error if so, nil otherwise.
+func diagnoseGPUEncoderFailure(pipelineStr string, parseErr error) error {
+	for _, elemName := range gpuEncoderElements {
+		if !strings.Contains(pipelineStr, elemName) {
+			continue
+		}
+		// Pipeline references a GPU encoder — try to instantiate it directly.
+		// gst_element_factory_make triggers CUDA context init; if that fails
+		// (OOM, BAR1 exhaustion, driver issue), the element returns nil.
+		testElem, err := gst.NewElement(elemName)
+		if err != nil {
+			return fmt.Errorf("GPU encoder %q is unavailable — CUDA context creation failed. "+
+				"This usually means GPU BAR1 memory is exhausted from too many concurrent "+
+				"desktop sessions (each session's compositor and apps consume BAR1 slots). "+
+				"Stop unused sessions to free GPU resources. "+
+				"(GStreamer error: %v)", elemName, parseErr)
+		}
+		// Element created fine — issue is something else (e.g., genuinely bad property name).
+		// Clean up the test element.
+		testElem.SetState(gst.StateNull)
+		return nil
+	}
+	return nil
 }

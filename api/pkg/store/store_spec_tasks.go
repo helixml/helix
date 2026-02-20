@@ -337,6 +337,10 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	if filters.BranchName != "" {
 		db = db.Where("branch_name = ?", filters.BranchName)
 	}
+	// PlanningSessionID filter - reverse lookup from session to spec task
+	if filters.PlanningSessionID != "" {
+		db = db.Where("planning_session_id = ?", filters.PlanningSessionID)
+	}
 
 	if filters.Limit > 0 {
 		db = db.Limit(filters.Limit)
