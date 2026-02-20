@@ -172,12 +172,21 @@ func NewServer(
 
 	// Create OIDC client if using OIDC auth provider
 	helixRedirectURL := fmt.Sprintf("%s/api/v1/auth/callback", cfg.WebServer.URL)
+	// Initialize AdminAlerter early so it can be passed to the OIDC client
+	adminAlerter, err := notification.NewAdminAlerter(&cfg.Notifications, store)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to initialize admin alerter - admin email alerts will be disabled")
+	} else if janitor != nil {
+		adminAlerter.SetSlackSender(janitor)
+	}
+
 	var oidcClient auth.OIDC
 	if cfg.Auth.Provider == types.AuthProviderOIDC {
 		if cfg.Auth.OIDC.Audience == "" {
 			return nil, fmt.Errorf("oidc audience is required")
 		}
-		client, err := auth.NewOIDCClient(controller.Ctx, auth.OIDCConfig{
+
+		oidcCfg := auth.OIDCConfig{
 			ProviderURL:    cfg.Auth.OIDC.URL,
 			ClientID:       cfg.Auth.OIDC.ClientID,
 			ClientSecret:   cfg.Auth.OIDC.ClientSecret,
@@ -190,7 +199,12 @@ func NewServer(
 			TokenURL:       cfg.Auth.OIDC.TokenURL,
 			OfflineAccess:  cfg.Auth.OIDC.OfflineAccess,
 			Waitlist:       cfg.Auth.Waitlist,
-		})
+		}
+		if adminAlerter != nil {
+			oidcCfg.EventHandler = &oidcSignupNotifier{alerter: adminAlerter}
+		}
+
+		client, err := auth.NewOIDCClient(controller.Ctx, oidcCfg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create oidc client: %w", err)
 		}
@@ -404,16 +418,22 @@ func NewServer(
 		}
 	}()
 
-	// Initialize AdminAlerter for sending alerts to admin users
-	adminAlerter, err := notification.NewAdminAlerter(&cfg.Notifications, store)
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to initialize admin alerter - admin email alerts will be disabled")
-	} else {
+	// Assign admin alerter to server (initialized earlier for OIDC wiring)
+	if adminAlerter != nil {
 		apiServer.adminAlerter = adminAlerter
-		log.Info().Msg("Initialized admin alerter for email notifications")
 	}
 
 	return apiServer, nil
+}
+
+// oidcSignupNotifier implements auth.OIDCEventHandler to send Slack
+// notifications when a new waitlisted user signs up via OIDC.
+type oidcSignupNotifier struct {
+	alerter *notification.AdminAlerter
+}
+
+func (n *oidcSignupNotifier) OnNewUser(user *types.User) {
+	n.alerter.SendWaitlistSignupAlert(user)
 }
 
 func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.CleanupManager) error {

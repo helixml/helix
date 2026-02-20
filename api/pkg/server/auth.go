@@ -213,6 +213,11 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Notify admins about new waitlisted signup
+	if createdUser.Waitlisted && s.adminAlerter != nil {
+		s.adminAlerter.SendWaitlistSignupAlert(createdUser)
+	}
+
 	token, err := s.authenticator.GenerateUserToken(ctx, createdUser)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate user token")

@@ -9,6 +9,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -17,11 +18,17 @@ var diskSpaceAlertTemplate string
 
 var diskSpaceAlertTmpl = template.Must(template.New("diskSpaceAlert").Parse(diskSpaceAlertTemplate))
 
+// SlackSender is an interface for sending Slack messages (implemented by janitor.Janitor)
+type SlackSender interface {
+	SendMessage(userEmail string, message string) error
+}
+
 // AdminAlerter handles sending alerts to admin users
 type AdminAlerter struct {
 	cfg   *config.Notifications
 	store store.Store
 	email *Email
+	slack SlackSender
 }
 
 // NewAdminAlerter creates a new admin alerter
@@ -36,6 +43,11 @@ func NewAdminAlerter(cfg *config.Notifications, store store.Store) (*AdminAlerte
 		store: store,
 		email: email,
 	}, nil
+}
+
+// SetSlackSender sets the Slack sender (typically the Janitor)
+func (a *AdminAlerter) SetSlackSender(slack SlackSender) {
+	a.slack = slack
 }
 
 // DiskSpaceAlertData holds data for disk space alert emails
@@ -122,4 +134,29 @@ func (a *AdminAlerter) SendDiskSpaceAlert(ctx context.Context, data *DiskSpaceAl
 		Msg("Disk space alerts sent to admins")
 
 	return nil
+}
+
+// SendWaitlistSignupAlert fires a Slack notification (in a background goroutine)
+// when a new user signs up and is waitlisted. Safe to call from any goroutine.
+func (a *AdminAlerter) SendWaitlistSignupAlert(user *types.User) {
+	go a.sendWaitlistSignupAlert(user)
+}
+
+func (a *AdminAlerter) sendWaitlistSignupAlert(user *types.User) {
+	if a.slack == nil {
+		log.Debug().Msg("Slack not configured, skipping waitlist signup notification")
+		return
+	}
+
+	msg := fmt.Sprintf("New beta signup: %s", user.Email)
+	if user.FullName != "" {
+		msg = fmt.Sprintf("New beta signup: %s (%s)", user.Email, user.FullName)
+	}
+	msg += " — waiting for approval"
+
+	if err := a.slack.SendMessage("", msg); err != nil {
+		log.Error().Err(err).Str("email", user.Email).Msg("Failed to send waitlist signup Slack notification")
+	} else {
+		log.Info().Str("email", user.Email).Msg("Waitlist signup Slack notification sent")
+	}
 }
