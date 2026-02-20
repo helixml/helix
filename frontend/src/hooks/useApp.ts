@@ -54,7 +54,7 @@ export const useApp = (appId: string) => {
   // Get org if orgName is set  
   const { data: org, isLoading: isLoadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
   
-  const { data: providers, isLoading: isLoadingProviders } = useListProviders({
+  const { data: providers, isLoading: isLoadingProviders, isSuccess: isProvidersSuccess } = useListProviders({
     loadModels: true,
     orgId: org?.id,
     enabled: !isLoadingOrg,
@@ -389,6 +389,10 @@ export const useApp = (appId: string) => {
 
     if (updates.code_agent_runtime !== undefined) {
       assistants[0].code_agent_runtime = updates.code_agent_runtime
+    }
+
+    if (updates.code_agent_credential_type !== undefined) {
+      assistants[0].code_agent_credential_type = updates.code_agent_credential_type
     }
 
     if (updates.context_limit !== undefined) {
@@ -924,30 +928,24 @@ export const useApp = (appId: string) => {
 
   // Add effect to enable safe saving once all data is loaded
   useEffect(() => {
-    // Check if providers data is loaded
-    const allProvidersLoaded = providers && providers.length > 0
-    // Check if models are loaded
-    // const allModelsLoaded = account.models && account.models.length > 0
     // Check if the app is loaded
     const appLoaded = !!app
-    
+
     // Get the app's current provider
     const appProvider = app?.config.helix.assistants?.[0]?.provider
     currentAppProviderRef.current = appProvider
-    
-    // Check if the specific provider's models for this app have been loaded
-    // const appProviderLoaded = appProvider ? providersLoaded[appProvider] : true
-    
-    // Only enable saving when all data is loaded including the specific provider's models
-    const allDataLoaded = allProvidersLoaded && appLoaded
-    
-    if (allDataLoaded && !isLoadingProviders) {
+
+    // Only enable saving when the app is loaded and providers query succeeded.
+    // An empty providers list is valid (e.g. Claude Code subscription mode
+    // where no traditional providers/model selection exists), but we don't
+    // unblock on error to avoid saving with stale/missing provider data.
+    if (appLoaded && isProvidersSuccess) {
       // Delay setting to ensure any pending state changes are complete
       setTimeout(() => {
         setIsSafeToSave(true)
       }, 1000)
     }
-  }, [providers, account.models, app, isLoadingProviders])
+  }, [app, isProvidersSuccess])
 
   // Callback for ModelPicker to report when it has loaded models for a provider
   // const onProviderModelsLoaded = useCallback((provider: string) => {

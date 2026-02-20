@@ -17,6 +17,7 @@ import {
   GetUpdateInfo,
   CheckForUpdate,
   StartVM,
+  SetCursor,
   DownloadVMUpdate,
 } from "../wailsjs/go/main/App";
 import {
@@ -241,6 +242,12 @@ export function App() {
       // which accesses NSPasteboard directly.
       if (event.data?.type === 'helix-clipboard-write' && typeof event.data.text === 'string') {
         ClipboardSetText(event.data.text);
+      }
+      // Cursor bridge: WKWebView doesn't render CSS resize cursors from
+      // cross-origin iframes. The iframe detects cursor changes and we
+      // forward them to Go, which sets native NSCursor.
+      if (event.data?.type === 'helix:cursor' && typeof event.data.cursor === 'string') {
+        SetCursor(event.data.cursor);
       }
       if (event.data?.type === 'helix-clipboard-read' && event.data.id) {
         ClipboardGetText().then(text => {

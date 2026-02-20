@@ -121,10 +121,10 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
       return null
     }
 
-    const modelToUse = value.selectedModel || (isClaudeCodeSubscription ? (recommendedModels[0] || '') : '')
-    const providerToUse = value.selectedProvider || (isClaudeCodeSubscription ? DEFAULT_CLAUDE_AGENT_PROVIDER : '')
+    const modelToUse = isClaudeCodeSubscription ? '' : (value.selectedModel || '')
+    const providerToUse = isClaudeCodeSubscription ? '' : (value.selectedProvider || '')
 
-    if (!modelToUse || !providerToUse) {
+    if (!isClaudeCodeSubscription && (!modelToUse || !providerToUse)) {
       setCreateError('Please select both provider and model')
       return null
     }
@@ -139,6 +139,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
         description: createAgentDescription,
         agentType: AGENT_TYPE_ZED_EXTERNAL,
         codeAgentRuntime: value.codeAgentRuntime,
+        codeAgentCredentialType: value.claudeCodeMode === 'subscription' ? 'subscription' : 'api_key',
         provider: providerToUse,
         model: modelToUse,
         organizationId: createAgentOrganizationId,

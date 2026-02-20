@@ -157,6 +157,24 @@ const (
 	CodeAgentRuntimeCodexCLI CodeAgentRuntime = "codex_cli"
 )
 
+// CodeAgentCredentialType specifies how the code agent authenticates with the LLM provider.
+type CodeAgentCredentialType string
+
+const (
+	// CodeAgentCredentialTypeAPIKey means the agent uses an API key routed through the Helix proxy.
+	// This is the default when the field is empty.
+	CodeAgentCredentialTypeAPIKey CodeAgentCredentialType = "api_key"
+
+	// CodeAgentCredentialTypeSubscription means the agent uses OAuth credentials directly
+	// (e.g., a Claude subscription). No API key or proxy is needed.
+	CodeAgentCredentialTypeSubscription CodeAgentCredentialType = "subscription"
+)
+
+// IsSubscription returns true if the credential type is subscription-based (OAuth).
+func (c CodeAgentCredentialType) IsSubscription() bool {
+	return c == CodeAgentCredentialTypeSubscription
+}
+
 // ZedAgentName returns the agent name used in Zed for this runtime.
 // This is used when sending open_thread commands to tell Zed which agent to use.
 // For zed_agent (built-in), returns empty string (uses NativeAgent).

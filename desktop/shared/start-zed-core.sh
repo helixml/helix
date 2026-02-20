@@ -230,7 +230,24 @@ start_zed_helix() {
     # - Stays open as bash shell for debugging
     echo "Launching setup terminal..."
     launch_terminal "Helix Setup" "$WORK_DIR" bash "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
-    echo "Setup terminal launched"
+    TERMINAL_PID=$!
+    # Verify the terminal process actually started (ghostty can crash silently
+    # if the Wayland compositor isn't ready, which hangs wait_for_setup_complete)
+    sleep 1
+    if ! kill -0 "$TERMINAL_PID" 2>/dev/null; then
+        echo "ERROR: Setup terminal (PID $TERMINAL_PID) died immediately after launch."
+        echo "This usually means the Wayland compositor was not ready."
+        echo "Retrying in 3 seconds..."
+        sleep 3
+        launch_terminal "Helix Setup" "$WORK_DIR" bash "$SHARED_SCRIPT_DIR/helix-workspace-setup.sh"
+        TERMINAL_PID=$!
+        sleep 1
+        if ! kill -0 "$TERMINAL_PID" 2>/dev/null; then
+            echo "FATAL: Setup terminal failed to start after retry."
+            exit 1
+        fi
+    fi
+    echo "Setup terminal launched (PID $TERMINAL_PID)"
 
     wait_for_setup_complete
 

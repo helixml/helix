@@ -54,6 +54,9 @@ import {
   useGetStartupScriptHistory,
 } from '../services';
 import { useListSessions, useGetSession } from '../services/sessionService';
+import { useClaudeSubscriptions } from '../components/account/ClaudeSubscriptionConnect';
+import ClaudeSubscriptionConnect from '../components/account/ClaudeSubscriptionConnect';
+import { getTokenExpiryStatus } from '../components/account/claudeSubscriptionUtils';
 import {
   useListProjectAccessGrants,
   useCreateProjectAccessGrant,
@@ -279,6 +282,18 @@ const SpecTasksPage: FC = () => {
       fps: config.display_refresh_rate || 60,
     }
   }, [project?.default_helix_app_id, apps.apps])
+
+  // Check if the project's default app uses Claude Code with subscription credentials
+  const { data: claudeSubscriptions } = useClaudeSubscriptions()
+  const claudeTokenExpiry = useMemo(() => {
+    if (!project?.default_helix_app_id || !apps.apps) return null
+    const defaultApp = apps.apps.find(a => a.id === project.default_helix_app_id)
+    const assistant = defaultApp?.config?.helix?.assistants?.[0]
+    if (assistant?.code_agent_runtime !== 'claude_code' || assistant?.code_agent_credential_type !== 'subscription') return null
+    const sub = claudeSubscriptions?.[0]
+    if (!sub) return null
+    return getTokenExpiryStatus(sub.access_token_expires_at)
+  }, [project?.default_helix_app_id, apps.apps, claudeSubscriptions])
 
   // Load tasks and apps on mount
   useEffect(() => {
@@ -850,6 +865,25 @@ const SpecTasksPage: FC = () => {
               }
             >
               Set up a startup script to install dependencies and start your dev server.
+            </Alert>
+          )}
+
+          {/* Claude subscription token expiry warning */}
+          {claudeTokenExpiry && (claudeTokenExpiry.isExpired || claudeTokenExpiry.isExpiringSoon) && (
+            <Alert
+              severity="warning"
+              sx={{ mb: 2 }}
+              action={
+                <ClaudeSubscriptionConnect
+                  variant="button"
+                  orgId={project?.organization_id}
+                />
+              }
+            >
+              {claudeTokenExpiry.isExpired
+                ? `Claude subscription token has expired (${claudeTokenExpiry.label}). It will automatically refresh the next time a session uses Claude Code, or you can re-authenticate now.`
+                : `Claude subscription token is expiring soon (${claudeTokenExpiry.label}). It will automatically refresh the next time a session uses Claude Code, or you can re-authenticate now.`
+              }
             </Alert>
           )}
 

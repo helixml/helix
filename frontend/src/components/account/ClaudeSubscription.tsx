@@ -556,7 +556,7 @@ const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
       maxWidth="lg"
       fullWidth
       PaperProps={{
-        sx: { height: '80vh', maxHeight: '80vh' },
+        sx: { height: '95vh', maxHeight: '95vh' },
       }}
     >
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -576,6 +576,11 @@ const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
         )}
       </DialogTitle>
       <DialogContent sx={{ p: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {isRunning && loginCommandSent && (
+          <Alert severity="info" sx={{ mx: 2, mt: 1, flexShrink: 0 }}>
+            Enter your email address in the browser below. Claude will email you a link — click it to get a code, then paste the code back here to authenticate.
+          </Alert>
+        )}
         {!isRunning ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 2 }}>
             <CircularProgress />

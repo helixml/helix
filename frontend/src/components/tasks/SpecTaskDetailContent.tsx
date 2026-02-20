@@ -92,6 +92,9 @@ import {
   Separator as PanelResizeHandle,
 } from "react-resizable-panels";
 import useIsBigScreen from "../../hooks/useIsBigScreen";
+import { useClaudeSubscriptions } from "../account/ClaudeSubscriptionConnect";
+import ClaudeSubscriptionConnect from "../account/ClaudeSubscriptionConnect";
+import { getTokenExpiryStatus } from "../account/claudeSubscriptionUtils";
 import {
   SlidersHorizontal,
   GitCompare,
@@ -228,6 +231,22 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       fps: config.display_refresh_rate || 60,
     };
   }, [task?.helix_app_id, apps.apps]);
+
+  // Check if the task's app uses Claude Code with subscription credentials
+  const { data: claudeSubscriptions } = useClaudeSubscriptions();
+  const claudeTokenExpiry = useMemo(() => {
+    if (!task?.helix_app_id || !apps.apps) return null;
+    const taskApp = apps.apps.find((a) => a.id === task.helix_app_id);
+    const assistant = taskApp?.config?.helix?.assistants?.[0];
+    if (
+      assistant?.code_agent_runtime !== "claude_code" ||
+      assistant?.code_agent_credential_type !== "subscription"
+    )
+      return null;
+    const sub = claudeSubscriptions?.[0];
+    if (!sub) return null;
+    return getTokenExpiryStatus(sub.access_token_expires_at);
+  }, [task?.helix_app_id, apps.apps, claudeSubscriptions]);
 
   // Sync selected agent when task changes
   useEffect(() => {
@@ -1439,6 +1458,25 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         style={{ display: "none" }}
         multiple
       />
+
+      {/* Claude subscription token expiry warning */}
+      {claudeTokenExpiry &&
+        (claudeTokenExpiry.isExpired || claudeTokenExpiry.isExpiringSoon) && (
+          <Alert
+            severity="warning"
+            sx={{ mx: 1, mt: 1, flexShrink: 0 }}
+            action={
+              <ClaudeSubscriptionConnect
+                variant="button"
+                orgId={project?.organization_id}
+              />
+            }
+          >
+            {claudeTokenExpiry.isExpired
+              ? `Claude token expired (${claudeTokenExpiry.label}). It will auto-refresh next time a session uses Claude Code, or re-authenticate now.`
+              : `Claude token expiring soon (${claudeTokenExpiry.label}). It will auto-refresh next time a session uses Claude Code, or re-authenticate now.`}
+          </Alert>
+        )}
 
       {/* Tab Content */}
       <Box

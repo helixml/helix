@@ -672,13 +672,16 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 			Bool("agent_mode", assistant.IsAgentMode()).
 			Msg("Validating individual assistant")
 
-		if assistant.CodeAgentRuntime != "" {
-			// Both provider and model are required
+		if assistant.CodeAgentRuntime != "" && assistant.CodeAgentCredentialType == types.CodeAgentCredentialTypeAPIKey {
+			// Provider and model are only required in explicit API key mode,
+			// where the agent routes through the Helix proxy.
+			// Subscription mode and empty credential type (legacy apps or
+			// Claude Code with a direct subscription) don't need them.
 			if assistant.Provider == "" {
-				return fmt.Errorf("code agent runtime '%s' requires a provider", assistant.CodeAgentRuntime)
+				return fmt.Errorf("code agent runtime '%s' in api_key mode requires a provider", assistant.CodeAgentRuntime)
 			}
 			if assistant.Model == "" {
-				return fmt.Errorf("code agent runtime '%s' requires a model", assistant.CodeAgentRuntime)
+				return fmt.Errorf("code agent runtime '%s' in api_key mode requires a model", assistant.CodeAgentRuntime)
 			}
 		}
 

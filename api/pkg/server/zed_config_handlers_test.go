@@ -132,6 +132,64 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			},
 			want: nil,
 		},
+		{
+			name: "claude_code subscription mode - explicit credential type",
+			assistant: &types.AssistantConfig{
+				CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+			},
+			want: &types.CodeAgentConfig{
+				AgentName: "claude",
+				Runtime:   types.CodeAgentRuntimeClaudeCode,
+			},
+		},
+		{
+			name: "claude_code subscription mode - ignores legacy Provider/Model fields",
+			assistant: &types.AssistantConfig{
+				Provider:                "anthropic",
+				Model:                   "claude-sonnet-4-20250514",
+				CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+			},
+			want: &types.CodeAgentConfig{
+				AgentName: "claude",
+				Runtime:   types.CodeAgentRuntimeClaudeCode,
+			},
+		},
+		{
+			name: "claude_code api_key mode - explicit credential type",
+			assistant: &types.AssistantConfig{
+				GenerationModelProvider: "anthropic",
+				GenerationModel:         "claude-sonnet-4-20250514",
+				CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+			},
+			want: &types.CodeAgentConfig{
+				Provider:  "anthropic",
+				Model:     "claude-sonnet-4-20250514",
+				AgentName: "claude",
+				BaseURL:   "http://localhost:8080",
+				APIType:   "anthropic",
+				Runtime:   types.CodeAgentRuntimeClaudeCode,
+			},
+		},
+		{
+			name: "claude_code api_key mode - default when credential type empty",
+			assistant: &types.AssistantConfig{
+				GenerationModelProvider: "anthropic",
+				GenerationModel:         "claude-sonnet-4-20250514",
+				CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+				// No CodeAgentCredentialType set = defaults to api_key
+			},
+			want: &types.CodeAgentConfig{
+				Provider:  "anthropic",
+				Model:     "claude-sonnet-4-20250514",
+				AgentName: "claude",
+				BaseURL:   "http://localhost:8080",
+				APIType:   "anthropic",
+				Runtime:   types.CodeAgentRuntimeClaudeCode,
+			},
+		},
 	}
 
 	for _, tt := range tests {

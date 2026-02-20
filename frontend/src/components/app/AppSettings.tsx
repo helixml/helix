@@ -265,8 +265,10 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [small_generation_model_provider, setSmallGenerationModelProvider] = useState(app.small_generation_model_provider || '')
 
   // Claude Code mode: 'subscription' (OAuth) or 'api_key' (Anthropic provider)
-  // Derive initial mode from whether generation_model_provider is set
   const [claudeCodeMode, setClaudeCodeMode] = useState<'subscription' | 'api_key'>(
+    app.code_agent_credential_type === 'subscription' ? 'subscription' :
+    app.code_agent_credential_type === 'api_key' ? 'api_key' :
+    // Legacy: infer from generation_model_provider for apps created before this field existed
     app.generation_model_provider ? 'api_key' : 'subscription'
   )
 
@@ -344,6 +346,11 @@ const AppSettings: FC<AppSettingsProps> = ({
       setGenerationModel(app.generation_model || '')
       setGenerationModelProvider(app.generation_model_provider || '')
       setCodeAgentRuntime(app.code_agent_runtime || 'zed_agent')
+      setClaudeCodeMode(
+        app.code_agent_credential_type === 'subscription' ? 'subscription' :
+        app.code_agent_credential_type === 'api_key' ? 'api_key' :
+        app.generation_model_provider ? 'api_key' : 'subscription'
+      )
       // External agent display settings
       setResolution(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
       setDesktopType(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
@@ -749,10 +756,11 @@ const AppSettings: FC<AppSettingsProps> = ({
                         const mode = e.target.value as 'subscription' | 'api_key'
                         setClaudeCodeMode(mode)
                         if (mode === 'subscription') {
-                          // Clear provider/model for subscription mode
                           setGenerationModel('')
                           setGenerationModelProvider('')
-                          onUpdate({ ...app, generation_model: '', generation_model_provider: '' })
+                          onUpdate({ ...app, code_agent_credential_type: 'subscription', generation_model: '', generation_model_provider: '' })
+                        } else {
+                          onUpdate({ ...app, code_agent_credential_type: 'api_key' })
                         }
                       }}
                     >
