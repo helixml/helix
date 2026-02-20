@@ -508,10 +508,10 @@ type SubscriptionQuotas struct {
 			MaxSpecTasks          int `envconfig:"PROJECTS_FREE_MAX_SPEC_TASKS" default:"500"` // Non-archived/done
 		}
 		Pro struct {
-			MaxConcurrentDesktops int `envconfig:"PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS" default:"5"`
-			MaxProjects           int `envconfig:"PROJECTS_PRO_MAX_PROJECTS" default:"20"`
-			MaxRepositories       int `envconfig:"PROJECTS_PRO_MAX_REPOSITORIES" default:"20"`
-			MaxSpecTasks          int `envconfig:"PROJECTS_PRO_MAX_SPEC_TASKS" default:"10000"` // Non-archived/done
+			MaxConcurrentDesktops int `envconfig:"PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS" default:"30"`
+			MaxProjects           int `envconfig:"PROJECTS_PRO_MAX_PROJECTS" default:"50"`
+			MaxRepositories       int `envconfig:"PROJECTS_PRO_MAX_REPOSITORIES" default:"100"`
+			MaxSpecTasks          int `envconfig:"PROJECTS_PRO_MAX_SPEC_TASKS" default:"50000"` // Non-archived/done
 		}
 	}
 }

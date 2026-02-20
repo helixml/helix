@@ -112,6 +112,7 @@ interface ExternalAgentDesktopViewerProps {
   projectId?: string; // For prompt history sync
   apiClient?: Api<unknown>["api"]; // For prompt history sync
   defaultPanelOpen?: boolean; // Default state of the session panel (default: false)
+  startupErrorMessage?: string;
 }
 
 const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
@@ -128,6 +129,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   projectId,
   apiClient,
   defaultPanelOpen = false,
+  startupErrorMessage,
 }) => {
   const api = useApi();
   const snackbar = useSnackbar();
@@ -144,6 +146,10 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     string | undefined
   >();
   const uploadCountRef = useRef(0);
+  const desktopLimitError =
+    startupErrorMessage && startupErrorMessage.toLowerCase().startsWith('desktop limit reached')
+      ? startupErrorMessage
+      : undefined;
 
   // NOTE: WebSocket subscription is handled by parent components (SpecTaskDetailContent, etc.)
   // based on whether the chat panel is visible. This component no longer subscribes directly
@@ -278,13 +284,18 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             gap: 2,
           }}
         >
-          <CircularProgress size={32} sx={{ color: "primary.main" }} />
-          <Typography
-            variant="body2"
-            sx={{ color: "rgba(255,255,255,0.7)", fontWeight: 500 }}
-          >
-            Starting Desktop...
-          </Typography>
+          {desktopLimitError ? (
+            <Typography variant="body2" sx={{ color: 'error.main', fontWeight: 500, textAlign: 'center', px: 2 }}>
+              {desktopLimitError}
+            </Typography>
+          ) : (
+            <>
+              <CircularProgress size={32} sx={{ color: 'primary.main' }} />
+              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+                Starting Desktop...
+              </Typography>
+            </>
+          )}
         </Box>
       );
     }
@@ -402,13 +413,18 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           gap: 2,
         }}
       >
-        <CircularProgress size={32} sx={{ color: "primary.main" }} />
-        <Typography
-          variant="body2"
-          sx={{ color: "rgba(255,255,255,0.7)", fontWeight: 500 }}
-        >
-          Starting Desktop...
-        </Typography>
+        {desktopLimitError ? (
+          <Typography variant="body2" sx={{ color: 'error.main', fontWeight: 500, textAlign: 'center', px: 2 }}>
+            {desktopLimitError}
+          </Typography>
+        ) : (
+          <>
+            <CircularProgress size={32} sx={{ color: 'primary.main' }} />
+            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+              Starting Desktop...
+            </Typography>
+          </>
+        )}
       </Box>
     );
   }

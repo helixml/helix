@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { main } from '../../wailsjs/go/models';
-import { SaveSettings, GetSettings, ResizeDataDisk, GetAutoLoginURL, FactoryReset as FactoryResetGo, GetLANAddress, ValidateLicenseKey, GetLicenseStatus, CheckForUpdate, ApplyAppUpdate, ApplyVMUpdate } from '../../wailsjs/go/main/App';
+import { SaveSettings, GetSettings, ResizeDataDisk, GetAutoLoginURL, FactoryReset as FactoryResetGo, GetLANAddress, ValidateLicenseKey, GetLicenseStatus, CheckForUpdate, ApplyAppUpdate, ApplyVMUpdate, RedownloadVMImage, DownloadVMUpdate } from '../../wailsjs/go/main/App';
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { formatBytes } from '../lib/helpers';
 
@@ -24,6 +24,7 @@ interface SettingsPanelProps {
     error?: string;
   } | null;
   vmUpdateReady: boolean;
+  vmUpdateAvailable: string | null;
 }
 
 // Eye-open SVG icon
@@ -73,6 +74,7 @@ export function SettingsPanel({
   updateInfo,
   vmUpdateProgress,
   vmUpdateReady,
+  vmUpdateAvailable,
 }: SettingsPanelProps) {
   const [cpus, setCpus] = useState(String(s.vm_cpus || 4));
   const [memoryGB, setMemoryGB] = useState(String(Math.round((s.vm_memory_mb || 8192) / 1024)));
@@ -96,6 +98,7 @@ export function SettingsPanel({
   const [checking, setChecking] = useState(false);
   const [appUpdating, setAppUpdating] = useState(false);
   const [vmApplying, setVmApplying] = useState(false);
+  const [redownloading, setRedownloading] = useState(false);
 
   useEffect(() => {
     // Re-fetch settings in case license key was added outside the panel
@@ -227,10 +230,35 @@ export function SettingsPanel({
               </div>
             )}
 
+            {vmUpdateAvailable && !vmUpdateProgress && !vmUpdateReady && (
+              <div className="update-available-card">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                  <span style={{ fontSize: 14 }}>&#x1F4E6;</span>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>
+                    System update available
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                  A new version of Helix is ready to download.
+                  Your data and settings will be preserved.
+                </div>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => {
+                    DownloadVMUpdate().catch((err) => {
+                      showToast('Download failed: ' + err);
+                    });
+                  }}
+                >
+                  Download Update
+                </button>
+              </div>
+            )}
+
             {vmUpdateProgress && (
               <div style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                  Downloading VM update...
+                  Downloading system update...
                 </div>
                 <div className="progress-bar">
                   <div
@@ -251,11 +279,11 @@ export function SettingsPanel({
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                   <span style={{ fontSize: 14 }}>&#x2705;</span>
                   <span style={{ fontWeight: 600, fontSize: 13 }}>
-                    VM update ready
+                    Update ready to install
                   </span>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
-                  The new VM image has been downloaded. Restart the VM to apply the update.
+                  The update has been downloaded. Restart to apply it.
                   Your data and settings will be preserved.
                 </div>
                 <button
@@ -278,26 +306,44 @@ export function SettingsPanel({
               </div>
             )}
 
-            <button
-              className="btn btn-secondary btn-sm"
-              disabled={checking}
-              onClick={async () => {
-                setChecking(true);
-                try {
-                  const info = await CheckForUpdate();
-                  if (!info.available) {
-                    showToast('No updates available');
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                disabled={checking}
+                onClick={async () => {
+                  setChecking(true);
+                  try {
+                    const info = await CheckForUpdate();
+                    if (!info.available) {
+                      showToast('No updates available');
+                    }
+                  } catch (err) {
+                    showToast('Update check failed: ' + err);
+                  } finally {
+                    setChecking(false);
                   }
-                } catch (err) {
-                  showToast('Update check failed: ' + err);
-                } finally {
-                  setChecking(false);
-                }
-              }}
-              style={{ marginTop: 4 }}
-            >
-              {checking ? 'Checking...' : 'Check for Updates'}
-            </button>
+                }}
+              >
+                {checking ? 'Checking...' : 'Check for Updates'}
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                disabled={redownloading || !!vmUpdateProgress}
+                onClick={async () => {
+                  setRedownloading(true);
+                  try {
+                    await RedownloadVMImage();
+                    showToast('VM image download started');
+                  } catch (err) {
+                    showToast('Re-download failed: ' + err);
+                  } finally {
+                    setRedownloading(false);
+                  }
+                }}
+              >
+                {redownloading ? 'Starting...' : 'Re-download VM Image'}
+              </button>
+            </div>
           </div>
 
           {/* Resources */}

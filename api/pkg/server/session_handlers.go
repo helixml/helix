@@ -1799,10 +1799,6 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		// WorkDir left empty - sandbox uses its own storage
 	}
 
-	// Load project context for both SpecTask AND exploratory sessions
-	// This ensures startup scripts run on resume for all project-scoped sessions
-	var projectID string
-
 	if specTaskID != "" {
 		// SpecTask session - get project from task
 		specTask, err := s.Controller.Options.Store.GetSpecTask(ctx, specTaskID)
@@ -1812,43 +1808,41 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 				Str("spec_task_id", specTaskID).
 				Msg("Failed to load spec task for resume, continuing without repository info")
 		} else if specTask.ProjectID != "" {
-			projectID = specTask.ProjectID
+			agent.ProjectID = specTask.ProjectID
+			agent.OrganizationID = specTask.OrganizationID
 		}
 	} else if session.Metadata.ProjectID != "" {
 		// Exploratory session - get project from session metadata
-		projectID = session.Metadata.ProjectID
+		agent.ProjectID = session.Metadata.ProjectID
+		agent.OrganizationID = session.OrganizationID
 		log.Info().
 			Str("session_id", id).
-			Str("project_id", projectID).
+			Str("project_id", agent.ProjectID).
 			Msg("Loading project context for exploratory session resume")
 	}
 
+	_, err = s.Controller.Options.Store.GetProject(ctx, agent.ProjectID)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("failed to get project '%s': %s", agent.ProjectID, err.Error()), http.StatusInternalServerError)
+		return
+	}
 	// If we have a project, load repositories and startup script
-	if projectID != "" {
-		agent.ProjectID = projectID
-		agent.OrganizationID = session.OrganizationID
 
-		projectRepos, err := s.Controller.Options.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-			ProjectID: projectID,
-		})
-		if err == nil && len(projectRepos) > 0 {
-			agent.RepositoryIDs = make([]string, 0, len(projectRepos))
-			for _, repo := range projectRepos {
-				if repo.ID != "" {
-					agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
-				}
+	projectRepos, err := s.Controller.Options.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: agent.ProjectID,
+	})
+	if err == nil && len(projectRepos) > 0 {
+		agent.RepositoryIDs = make([]string, 0, len(projectRepos))
+		for _, repo := range projectRepos {
+			if repo.ID != "" {
+				agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
 			}
+		}
 
-			// Set primary repository from project (repos are now managed at project level)
-			project, err := s.Controller.Options.Store.GetProject(ctx, projectID)
-			if err == nil {
-				if project.DefaultRepoID != "" {
-					agent.PrimaryRepositoryID = project.DefaultRepoID
-				}
-			} else if len(projectRepos) > 0 {
-				// Use first repo as fallback if no default set
-				agent.PrimaryRepositoryID = projectRepos[0].ID
-			}
+		// Set primary repository from project (repos are now managed at project level)
+		if len(projectRepos) > 0 {
+			// Use first repo as fallback if no default set
+			agent.PrimaryRepositoryID = projectRepos[0].ID
 		}
 	}
 

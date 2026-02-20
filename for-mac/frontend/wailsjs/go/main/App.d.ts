@@ -66,6 +66,8 @@ export function OpenHelixUI():Promise<void>;
 
 export function OpenSession(arg1:string):Promise<void>;
 
+export function RedownloadVMImage():Promise<void>;
+
 export function ResizeConsole(arg1:number,arg2:number):Promise<void>;
 
 export function ResizeDataDisk(arg1:number):Promise<void>;

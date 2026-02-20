@@ -436,7 +436,7 @@ describe('Onboarding', () => {
         expect(mockV1UsersMeOnboardingCreate).toHaveBeenCalled()
       })
 
-      expect(mockNavigateReplace).toHaveBeenCalledWith('org_projects', { org_id: 'acme' })
+      expect(mockNavigateReplace).toHaveBeenCalledWith('org_project-specs', { org_id: 'acme', id: 'proj-nav' })
 
       vi.useRealTimers()
     })

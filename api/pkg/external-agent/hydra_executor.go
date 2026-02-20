@@ -19,14 +19,19 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type QuotaManager interface {
+	LimitReached(ctx context.Context, req *types.QuotaLimitReachedRequest) (*types.QuotaLimitReachedResponse, error)
+}
+
 // HydraExecutor implements the Executor interface using Hydra for dev container management.
 //
 // Architecture: Helix API -> Hydra -> Docker -> Dev Container
 // Video streaming: WebSocket streaming (ws_stream.go)
 type HydraExecutor struct {
-	store    store.Store
-	sessions map[string]*ZedSession
-	mutex    sync.RWMutex
+	store        store.Store
+	quotaManager QuotaManager
+	sessions     map[string]*ZedSession
+	mutex        sync.RWMutex
 
 	// Configuration
 	helixAPIURL   string
@@ -55,6 +60,7 @@ type connmanInterface interface {
 // HydraExecutorConfig holds configuration for creating a HydraExecutor
 type HydraExecutorConfig struct {
 	Store                         store.Store
+	QuotaManager                  QuotaManager
 	HelixAPIURL                   string
 	HelixAPIToken                 string
 	WorkspaceBasePathForContainer string
@@ -67,6 +73,7 @@ type HydraExecutorConfig struct {
 func NewHydraExecutor(cfg HydraExecutorConfig) *HydraExecutor {
 	return &HydraExecutor{
 		store:                         cfg.Store,
+		quotaManager:                  cfg.QuotaManager,
 		sessions:                      make(map[string]*ZedSession),
 		helixAPIURL:                   cfg.HelixAPIURL,
 		helixAPIToken:                 cfg.HelixAPIToken,
@@ -76,6 +83,10 @@ func NewHydraExecutor(cfg HydraExecutorConfig) *HydraExecutor {
 		creationLocks:                 make(map[string]*sync.Mutex),
 		gpuVendor:                     cfg.GPUVendor,
 	}
+}
+
+func (h *HydraExecutor) SetQuotaManager(quotaManager QuotaManager) {
+	h.quotaManager = quotaManager
 }
 
 // StartDesktop starts a dev container using Hydra
@@ -94,6 +105,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	defer sessionLock.Unlock()
 
 	log.Info().
+		Str("organization_id", agent.OrganizationID).
 		Str("session_id", agent.SessionID).
 		Str("user_id", agent.UserID).
 		Str("project_path", agent.ProjectPath).
@@ -114,6 +126,15 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 			StreamURL:     fmt.Sprintf("/api/v1/sessions/%s/stream", agent.SessionID),
 			Status:        "running",
 		}, nil
+	}
+
+	// Check limits for the user/org
+	limitReached, err := h.checkLimits(ctx, agent)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check limits: %w", err)
+	}
+	if limitReached != nil && limitReached.LimitReached {
+		return nil, fmt.Errorf("desktop limit reached (%d). Stop some of the existing sessions or upgrade your plan", limitReached.Limit)
 	}
 
 	// Get Hydra client via RevDial
@@ -532,36 +553,6 @@ func (h *HydraExecutor) ListSessions() []*ZedSession {
 	return sessions
 }
 
-// StartZedInstance starts a Zed instance (alias for StartDesktop for multi-session support)
-func (h *HydraExecutor) StartZedInstance(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
-	return h.StartDesktop(ctx, agent)
-}
-
-// CreateZedThread creates a new thread in an existing Zed instance
-func (h *HydraExecutor) CreateZedThread(ctx context.Context, instanceID, threadID string, config map[string]interface{}) error {
-	// Thread management is handled by the agent inside the container
-	// This is a placeholder for future multi-thread support
-	log.Info().
-		Str("instance_id", instanceID).
-		Str("thread_id", threadID).
-		Msg("CreateZedThread called (no-op in Hydra executor)")
-	return nil
-}
-
-// DeleteZedThread deletes a thread from a Zed instance
-func (h *HydraExecutor) DeleteZedThread(ctx context.Context, instanceID, threadID string) error {
-	log.Info().
-		Str("instance_id", instanceID).
-		Str("thread_id", threadID).
-		Msg("DeleteZedThread called (no-op in Hydra executor)")
-	return nil
-}
-
-// StopZedInstance stops a Zed instance (alias for StopDesktop)
-func (h *HydraExecutor) StopZedInstance(ctx context.Context, instanceID string) error {
-	return h.StopDesktop(ctx, instanceID)
-}
-
 // GetInstanceStatus returns the status of a Zed instance
 func (h *HydraExecutor) GetInstanceStatus(instanceID string) (*ZedInstanceStatus, error) {
 	h.mutex.RLock()
@@ -578,20 +569,6 @@ func (h *HydraExecutor) GetInstanceStatus(instanceID string) (*ZedInstanceStatus
 		ThreadCount: 1,
 		ProjectPath: session.ProjectPath,
 	}, nil
-}
-
-// ListInstanceThreads returns threads for an instance
-func (h *HydraExecutor) ListInstanceThreads(instanceID string) ([]*ZedThreadInfo, error) {
-	h.mutex.RLock()
-	defer h.mutex.RUnlock()
-
-	_, exists := h.sessions[instanceID]
-	if !exists {
-		return nil, fmt.Errorf("instance %s not found", instanceID)
-	}
-
-	// Hydra executor doesn't support multi-threading yet
-	return []*ZedThreadInfo{}, nil
 }
 
 // FindContainerBySessionID finds the container name for a session
@@ -1177,4 +1154,29 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 	}
 
 	return nil
+}
+
+// checkLimits checks desktop limits for the user/org
+func (h *HydraExecutor) checkLimits(ctx context.Context, agent *types.DesktopAgent) (*types.QuotaLimitReachedResponse, error) {
+	// Get system settings
+	systemSettings, err := h.store.GetSystemSettings(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get system settings: %w", err)
+	}
+
+	// Check if limits are disabled
+	if !systemSettings.EnforceQuotas {
+		return &types.QuotaLimitReachedResponse{LimitReached: false}, nil
+	}
+
+	limitReached, err := h.quotaManager.LimitReached(ctx, &types.QuotaLimitReachedRequest{
+		UserID:         agent.UserID,
+		OrganizationID: agent.OrganizationID,
+		Resource:       types.ResourceDesktop,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to check limits: %w", err)
+	}
+
+	return limitReached, nil
 }
