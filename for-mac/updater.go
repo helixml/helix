@@ -122,6 +122,18 @@ func IsNewer(current, latest string) bool {
 	return false
 }
 
+// CombinedUpdateProgress reports combined (VM + DMG) download status.
+type CombinedUpdateProgress struct {
+	Phase        string  `json:"phase"`          // "downloading_vm", "downloading_app", "ready"
+	OverallPct   float64 `json:"overall_pct"`    // 0-100 across both downloads
+	StepLabel    string  `json:"step_label"`     // human-readable, e.g. "Downloading system update (1/2)..."
+	BytesDone    int64   `json:"bytes_done"`     // current step bytes
+	BytesTotal   int64   `json:"bytes_total"`    // current step total
+	Speed        string  `json:"speed,omitempty"`
+	ETA          string  `json:"eta,omitempty"`
+	Error        string  `json:"error,omitempty"`
+}
+
 // Updater handles checking for and applying updates.
 type Updater struct {
 	mu              sync.Mutex
@@ -129,7 +141,10 @@ type Updater struct {
 	appCancelFunc   context.CancelFunc // cancel for app update download
 	vmCancelFunc    context.CancelFunc // cancel for VM update download
 	appCtx          context.Context    // Wails app context for event emission
-	vmDownloading   bool               // true while DownloadVMUpdate is running
+	vmDownloading      bool               // true while DownloadVMUpdate is running
+	combinedRunning    bool               // true while StartCombinedUpdate is running
+	dmgCachePath       string             // path to pre-downloaded DMG from combined flow
+	vmProgressOverride func(UpdateProgress) // optional override for VM progress emission (used by combined flow)
 }
 
 // NewUpdater creates an Updater.
@@ -234,10 +249,156 @@ func (u *Updater) emitAppProgress(p UpdateProgress) {
 func (u *Updater) emitVMProgress(p UpdateProgress) {
 	u.mu.Lock()
 	ctx := u.appCtx
+	override := u.vmProgressOverride
 	u.mu.Unlock()
+	if override != nil {
+		override(p)
+		return
+	}
 	if ctx != nil {
 		wailsRuntime.EventsEmit(ctx, "update:vm-progress", p)
 	}
+}
+
+// IsCombinedUpdateRunning returns true if a combined update download is in progress.
+func (u *Updater) IsCombinedUpdateRunning() bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.combinedRunning
+}
+
+func (u *Updater) emitCombinedProgress(p CombinedUpdateProgress) {
+	u.mu.Lock()
+	ctx := u.appCtx
+	u.mu.Unlock()
+	if ctx != nil {
+		wailsRuntime.EventsEmit(ctx, "update:combined-progress", p)
+	}
+}
+
+// combinedUpdateSentinelPath returns the path to the sentinel file that
+// indicates a combined update is staged and the VM should be auto-applied
+// on next restart.
+func combinedUpdateSentinelPath() string {
+	return filepath.Join(getHelixDataDir(), "vm", "helix-desktop", ".combined-update-pending")
+}
+
+// StartCombinedUpdate downloads the VM update first (0-90% of overall progress),
+// then downloads the DMG (90-100%), writes a sentinel file, and emits a ready event.
+// The old app+VM keep running throughout.
+func (u *Updater) StartCombinedUpdate(settings *SettingsManager, downloader *VMDownloader) error {
+	u.mu.Lock()
+	if u.combinedRunning {
+		u.mu.Unlock()
+		return fmt.Errorf("combined update already in progress")
+	}
+	u.combinedRunning = true
+	info := u.info
+	u.mu.Unlock()
+	defer func() {
+		u.mu.Lock()
+		u.combinedRunning = false
+		u.mu.Unlock()
+	}()
+
+	if !info.Available || info.DMGURL == "" {
+		return fmt.Errorf("no update available")
+	}
+
+	// Phase 1: Download VM (0-90% of overall)
+	u.emitCombinedProgress(CombinedUpdateProgress{
+		Phase:     "downloading_vm",
+		StepLabel: "Downloading system update (1/2)...",
+	})
+
+	// Set VM progress override to scale into 0-90% of overall
+	u.mu.Lock()
+	u.vmProgressOverride = func(p UpdateProgress) {
+		overallPct := p.Percent * 0.9
+		u.emitCombinedProgress(CombinedUpdateProgress{
+			Phase:      "downloading_vm",
+			OverallPct: overallPct,
+			StepLabel:  "Downloading system update (1/2)...",
+			BytesDone:  p.BytesDone,
+			BytesTotal: p.BytesTotal,
+			Speed:      p.Speed,
+			ETA:        p.ETA,
+		})
+	}
+	u.mu.Unlock()
+
+	vmErr := u.DownloadVMUpdate(settings, downloader, false)
+
+	// Clear override
+	u.mu.Lock()
+	u.vmProgressOverride = nil
+	u.mu.Unlock()
+
+	if vmErr != nil {
+		return fmt.Errorf("VM download failed: %w", vmErr)
+	}
+
+	// Phase 2: Download DMG (90-100% of overall)
+	u.emitCombinedProgress(CombinedUpdateProgress{
+		Phase:      "downloading_app",
+		OverallPct: 90,
+		StepLabel:  "Downloading app update (2/2)...",
+	})
+
+	updatesDir := filepath.Join(getHelixDataDir(), "updates")
+	if err := os.MkdirAll(updatesDir, 0755); err != nil {
+		return fmt.Errorf("failed to create updates directory: %w", err)
+	}
+	dmgPath := filepath.Join(updatesDir, "Helix-for-Mac.dmg")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	u.mu.Lock()
+	u.appCancelFunc = cancel
+	u.mu.Unlock()
+	defer cancel()
+
+	// Download DMG with progress scaled to 90-100%
+	if err := u.downloadFile(ctx, info.DMGURL, dmgPath, "downloading_app", func(p UpdateProgress) {
+		u.emitAppProgress(p)
+		overallPct := 90.0 + p.Percent*0.1
+		u.emitCombinedProgress(CombinedUpdateProgress{
+			Phase:      "downloading_app",
+			OverallPct: overallPct,
+			StepLabel:  "Downloading app update (2/2)...",
+			BytesDone:  p.BytesDone,
+			BytesTotal: p.BytesTotal,
+			Speed:      p.Speed,
+			ETA:        p.ETA,
+		})
+	}); err != nil {
+		return fmt.Errorf("DMG download failed: %w", err)
+	}
+
+	// Both downloads succeeded — write sentinel and cache DMG path
+	sentinelPath := combinedUpdateSentinelPath()
+	os.WriteFile(sentinelPath, []byte(info.LatestVersion), 0644)
+
+	u.mu.Lock()
+	u.dmgCachePath = dmgPath
+	u.mu.Unlock()
+
+	log.Printf("Combined update staged: VM + DMG for v%s", info.LatestVersion)
+
+	u.emitCombinedProgress(CombinedUpdateProgress{
+		Phase:      "ready",
+		OverallPct: 100,
+		StepLabel:  "Update ready — restart to apply",
+	})
+
+	// Emit combined-ready event
+	u.mu.Lock()
+	ctx2 := u.appCtx
+	u.mu.Unlock()
+	if ctx2 != nil {
+		wailsRuntime.EventsEmit(ctx2, "update:combined-ready")
+	}
+
+	return nil
 }
 
 // ApplyAppUpdate downloads the new DMG, mounts it, copies the .app over the
@@ -258,17 +419,33 @@ func (u *Updater) ApplyAppUpdate(appCtx context.Context) error {
 
 	dmgPath := filepath.Join(updatesDir, "Helix-for-Mac.dmg")
 
-	// Download DMG
-	u.emitAppProgress(UpdateProgress{Phase: "downloading_app", Percent: 0})
-
-	ctx, cancel := context.WithCancel(context.Background())
+	// Check if we already have a cached DMG from the combined flow
 	u.mu.Lock()
-	u.appCancelFunc = cancel
+	cachedDMG := u.dmgCachePath
 	u.mu.Unlock()
-	defer cancel()
 
-	if err := u.downloadFile(ctx, info.DMGURL, dmgPath, "downloading_app", u.emitAppProgress); err != nil {
-		return fmt.Errorf("failed to download update: %w", err)
+	if cachedDMG != "" {
+		if _, err := os.Stat(cachedDMG); err == nil {
+			dmgPath = cachedDMG
+			log.Printf("Using cached DMG from combined update: %s", dmgPath)
+		} else {
+			cachedDMG = "" // file doesn't exist, fall through to download
+		}
+	}
+
+	if cachedDMG == "" {
+		// Download DMG
+		u.emitAppProgress(UpdateProgress{Phase: "downloading_app", Percent: 0})
+
+		ctx, cancel := context.WithCancel(context.Background())
+		u.mu.Lock()
+		u.appCancelFunc = cancel
+		u.mu.Unlock()
+		defer cancel()
+
+		if err := u.downloadFile(ctx, info.DMGURL, dmgPath, "downloading_app", u.emitAppProgress); err != nil {
+			return fmt.Errorf("failed to download update: %w", err)
+		}
 	}
 
 	// Mount DMG
@@ -319,9 +496,15 @@ func (u *Updater) ApplyAppUpdate(appCtx context.Context) error {
 		return fmt.Errorf("failed to install update: %w", err)
 	}
 
-	// Clean up backup and DMG
+	// Clean up backup, DMG, and combined update sentinel
 	os.RemoveAll(backupPath)
 	os.Remove(dmgPath)
+	os.Remove(combinedUpdateSentinelPath())
+
+	// Clear cached DMG path
+	u.mu.Lock()
+	u.dmgCachePath = ""
+	u.mu.Unlock()
 
 	u.emitAppProgress(UpdateProgress{Phase: "installing_app", Percent: 100})
 

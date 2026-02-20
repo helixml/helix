@@ -12,6 +12,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -824,6 +825,29 @@ func (a *App) ApplyVMUpdate() error {
 	return a.StartVM()
 }
 
+// StartCombinedUpdate downloads VM + DMG together, emitting combined progress events.
+func (a *App) StartCombinedUpdate() error {
+	go func() {
+		if err := a.updater.StartCombinedUpdate(a.settings, a.downloader); err != nil {
+			log.Printf("Combined update failed: %v", err)
+			wailsRuntime.EventsEmit(a.ctx, "update:combined-progress", CombinedUpdateProgress{
+				Phase: "downloading_vm",
+				Error: err.Error(),
+			})
+		}
+	}()
+	return nil
+}
+
+// ApplyCombinedUpdate applies both the staged VM and cached DMG.
+// Refuses to proceed if the VM is not staged (safety check).
+func (a *App) ApplyCombinedUpdate() error {
+	if !IsVMUpdateStaged() {
+		return fmt.Errorf("VM update not staged — cannot apply combined update")
+	}
+	return a.updater.ApplyAppUpdate(a.ctx)
+}
+
 // CancelUpdate cancels any in-progress update download.
 func (a *App) CancelUpdate() {
 	a.updater.Cancel()
@@ -889,6 +913,38 @@ func (a *App) startUpdateChecker() {
 // - App auto-update restart: new app has newer bundled manifest
 // - Manual .app replacement: user downloads new .app from website
 func (a *App) checkVMVersionOnStartup() {
+	// Check for combined update sentinel — means the app was just updated
+	// via the combined flow and the VM should be auto-applied.
+	sentinelPath := combinedUpdateSentinelPath()
+	if sentinelData, err := os.ReadFile(sentinelPath); err == nil {
+		sentinelVersion := strings.TrimSpace(string(sentinelData))
+		log.Printf("Startup: combined update sentinel found (v%s)", sentinelVersion)
+
+		if IsVMUpdateStaged() {
+			stagedVersion := GetStagedVMVersion()
+			m, _ := a.downloader.LoadManifest()
+			bundledVersion := ""
+			if m != nil {
+				bundledVersion = m.Version
+			}
+
+			// Auto-apply if staged version matches either sentinel or bundled manifest
+			if stagedVersion == sentinelVersion || stagedVersion == bundledVersion {
+				log.Printf("Startup: auto-applying combined update (staged=%s)", stagedVersion)
+				if err := a.updater.ApplyVMUpdate(a.vm, a.settings); err != nil {
+					log.Printf("Startup: auto-apply VM update failed: %v — falling back to manual", err)
+					// Fall through — the staged update badge will appear
+				} else {
+					log.Printf("Startup: VM update auto-applied successfully")
+					os.Remove(sentinelPath)
+					return
+				}
+			}
+		}
+		// Sentinel exists but auto-apply didn't work — clean up and fall through
+		os.Remove(sentinelPath)
+	}
+
 	m, err := a.downloader.LoadManifest()
 	if err != nil || m == nil {
 		log.Printf("Startup VM check: no bundled manifest found: %v", err)
@@ -934,7 +990,13 @@ func (a *App) performUpdateCheck() {
 		wailsRuntime.EventsEmit(a.ctx, "update:available", info)
 	}
 
-	// Check for stale VM images — independent of app update availability.
+	// When an app update is available, the combined flow handles both app + VM.
+	// Don't emit standalone VM events — it would confuse the UI.
+	if info.Available {
+		return
+	}
+
+	// No app update — check for stale VM images independently.
 	// This catches: post-app-update, manual .app replacement, and CDN-only VM updates.
 	// Skip if a download is already in progress (avoids re-showing the badge).
 	if IsVMUpdateStaged() {
@@ -942,8 +1004,6 @@ func (a *App) performUpdateCheck() {
 		wailsRuntime.EventsEmit(a.ctx, "update:vm-ready")
 	} else if !a.updater.IsVMDownloading() && a.isVMStale() {
 		log.Println("VM images stale, notifying user...")
-		// Use the actual target version: prefer bundled manifest version,
-		// fall back to CDN version, then "new" as last resort.
 		targetVersion := info.LatestVersion
 		if m, err := a.downloader.LoadManifest(); err == nil && m != nil {
 			targetVersion = m.Version
