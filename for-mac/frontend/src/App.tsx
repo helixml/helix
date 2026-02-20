@@ -19,6 +19,9 @@ import {
   StartVM,
   SetCursor,
   DownloadVMUpdate,
+  StartCombinedUpdate,
+  ApplyCombinedUpdate,
+  CancelUpdate,
 } from "../wailsjs/go/main/App";
 import {
   EventsOn,
@@ -112,6 +115,17 @@ export function App() {
   } | null>(null);
   const [vmUpdateReady, setVmUpdateReady] = useState(false);
   const [vmUpdateAvailable, setVmUpdateAvailable] = useState<string | null>(null);
+  const [combinedUpdateProgress, setCombinedUpdateProgress] = useState<{
+    phase: string;
+    overall_pct: number;
+    step_label: string;
+    bytes_done: number;
+    bytes_total: number;
+    speed?: string;
+    eta?: string;
+    error?: string;
+  } | null>(null);
+  const [combinedUpdateReady, setCombinedUpdateReady] = useState(false);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -224,6 +238,20 @@ export function App() {
       setVmUpdateReady(true);
     });
 
+    EventsOn("update:combined-progress", (progress: any) => {
+      if (progress?.error) {
+        setCombinedUpdateProgress(null);
+        showToast('Update failed: ' + progress.error);
+      } else {
+        setCombinedUpdateProgress(progress);
+      }
+    });
+
+    EventsOn("update:combined-ready", () => {
+      setCombinedUpdateProgress(null);
+      setCombinedUpdateReady(true);
+    });
+
     // Auth proxy ready — fetch and set the auto-login URL immediately
     EventsOn("auth:ready", async () => {
       const loginURL = await GetAutoLoginURL();
@@ -272,6 +300,8 @@ export function App() {
       EventsOff("update:vm-progress");
       EventsOff("update:vm-available");
       EventsOff("update:vm-ready");
+      EventsOff("update:combined-progress");
+      EventsOff("update:combined-ready");
       window.removeEventListener('message', handleMessage);
     };
   }, []);
@@ -470,18 +500,24 @@ export function App() {
         )}
 
         {/* Update badges */}
-        {updateInfo?.available && !vmUpdateReady && !vmUpdateProgress && (
+        {/* App update available — starts combined (VM+DMG) download */}
+        {updateInfo?.available && !combinedUpdateProgress && !combinedUpdateReady && !vmUpdateReady && !vmUpdateProgress && (
           <button
             className="update-badge"
             onDoubleClick={(e) => e.stopPropagation()}
-            onClick={() => setSettingsOpen(true)}
+            onClick={() => {
+              StartCombinedUpdate().catch((err) => {
+                showToast('Update failed: ' + err);
+              });
+            }}
             title={`Update available: v${updateInfo.latest_version}`}
           >
             Update v{updateInfo.latest_version}
           </button>
         )}
 
-        {vmUpdateAvailable && !vmUpdateProgress && !vmUpdateReady && (
+        {/* Standalone VM update — only when no app update is available */}
+        {vmUpdateAvailable && !updateInfo?.available && !vmUpdateProgress && !vmUpdateReady && !combinedUpdateProgress && !combinedUpdateReady && (
           <button
             className="update-badge"
             onDoubleClick={(e) => e.stopPropagation()}
@@ -498,7 +534,37 @@ export function App() {
           </button>
         )}
 
-        {vmUpdateProgress && (
+        {/* Combined update progress pill */}
+        {combinedUpdateProgress && (
+          <div
+            className="update-progress-pill"
+            onDoubleClick={(e) => e.stopPropagation()}
+            title={combinedUpdateProgress.step_label || `Update: ${Math.round(combinedUpdateProgress.overall_pct || 0)}%`}
+          >
+            <div className="update-progress-bar">
+              <div
+                className="update-progress-fill"
+                style={{ width: `${combinedUpdateProgress.overall_pct || 0}%` }}
+              />
+            </div>
+            <span className="update-progress-label">
+              {Math.round(combinedUpdateProgress.overall_pct || 0)}%
+            </span>
+            <button
+              className="update-cancel-btn"
+              onClick={() => {
+                CancelUpdate();
+                setCombinedUpdateProgress(null);
+              }}
+              title="Cancel update"
+            >
+              &times;
+            </button>
+          </div>
+        )}
+
+        {/* Standalone VM update progress pill (when no combined flow) */}
+        {vmUpdateProgress && !combinedUpdateProgress && (
           <div
             className="update-progress-pill"
             onDoubleClick={(e) => e.stopPropagation()}
@@ -516,7 +582,20 @@ export function App() {
           </div>
         )}
 
-        {vmUpdateReady && (
+        {/* Combined update ready — restart applies both VM + app */}
+        {combinedUpdateReady && (
+          <button
+            className="update-ready-badge"
+            onDoubleClick={(e) => e.stopPropagation()}
+            onClick={() => setSettingsOpen(true)}
+            title="Update downloaded — restart to apply"
+          >
+            Restart to update
+          </button>
+        )}
+
+        {/* Standalone VM update ready (no combined flow) */}
+        {vmUpdateReady && !combinedUpdateReady && (
           <button
             className="update-ready-badge"
             onDoubleClick={(e) => e.stopPropagation()}
@@ -674,6 +753,8 @@ export function App() {
           vmUpdateProgress={vmUpdateProgress}
           vmUpdateReady={vmUpdateReady}
           vmUpdateAvailable={vmUpdateAvailable}
+          combinedUpdateProgress={combinedUpdateProgress}
+          combinedUpdateReady={combinedUpdateReady}
         />
       )}
 

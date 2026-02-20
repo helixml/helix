@@ -6,6 +6,10 @@ export function ApplyAppUpdate() {
   return window['go']['main']['App']['ApplyAppUpdate']();
 }
 
+export function ApplyCombinedUpdate() {
+  return window['go']['main']['App']['ApplyCombinedUpdate']();
+}
+
 export function ApplyVMUpdate() {
   return window['go']['main']['App']['ApplyVMUpdate']();
 }
@@ -156,6 +160,10 @@ export function SetCursor(arg1) {
 
 export function SetVMConfig(arg1) {
   return window['go']['main']['App']['SetVMConfig'](arg1);
+}
+
+export function StartCombinedUpdate() {
+  return window['go']['main']['App']['StartCombinedUpdate']();
 }
 
 export function StartTrial() {
