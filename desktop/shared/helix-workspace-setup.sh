@@ -468,6 +468,13 @@ echo "========================================="
 CLAUDE_STATE_DIR=$WORK_DIR/.claude-state
 if command -v claude &> /dev/null; then
     mkdir -p $CLAUDE_STATE_DIR
+    # Preserve any files the settings-sync-daemon already wrote to ~/.claude
+    # (e.g., .credentials.json) before replacing with the symlink.
+    # Without this, credentials get deleted and Zed startup blocks for ~20s
+    # waiting for the daemon's next 30s poll to re-write them.
+    if [ -d ~/.claude ] && [ ! -L ~/.claude ]; then
+        cp -a ~/.claude/. $CLAUDE_STATE_DIR/ 2>/dev/null || true
+    fi
     # Symlink ~/.claude to persistent storage so credentials and state
     # survive container restarts.
     rm -rf ~/.claude
