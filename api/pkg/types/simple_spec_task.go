@@ -216,8 +216,9 @@ type SpecTaskFilters struct {
 	WithDependsOn   bool           `json:"with_depends_on,omitempty"`
 	IncludeArchived bool           `json:"include_archived,omitempty"` // If true, include both archived and non-archived
 	ArchivedOnly    bool           `json:"archived_only,omitempty"`    // If true, show only archived tasks
-	DesignDocPath   string         `json:"design_doc_path,omitempty"`  // Filter by exact DesignDocPath (for git push detection)
-	BranchName      string         `json:"branch_name,omitempty"`      // Filter by exact BranchName (for uniqueness check)
+	DesignDocPath     string         `json:"design_doc_path,omitempty"`     // Filter by exact DesignDocPath (for git push detection)
+	BranchName        string         `json:"branch_name,omitempty"`        // Filter by exact BranchName (for uniqueness check)
+	PlanningSessionID string         `json:"planning_session_id,omitempty"` // Filter by PlanningSessionID (reverse lookup)
 }
 
 // SpecTaskUpdateRequest represents a request to update a SpecTask

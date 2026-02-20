@@ -77,6 +77,13 @@ interface DevContainerWithClients {
   sandbox_id: string
   clients?: ClientInfo[]
   video_stats?: VideoStreamingStats
+  session_name?: string
+  session_age?: string
+  owner_name?: string
+  task_number?: number
+  task_name?: string
+  task_prompt?: string
+  task_id?: string
 }
 
 interface SandboxInstanceInfo {
@@ -234,24 +241,68 @@ const DevContainerCard: FC<DevContainerCardProps> = ({ container, onStop, isStop
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
           <DesktopWindowsIcon color="primary" sx={{ flexShrink: 0 }} />
           <Box sx={{ minWidth: 0 }}>
+            <Typography
+              variant="subtitle1"
+              fontWeight="bold"
+              sx={{
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {container.task_number
+                ? `#${container.task_number} ${container.task_name || container.session_name || ''}`
+                : container.session_name || 'Unnamed session'
+              }
+            </Typography>
+            {container.task_prompt && (
+              <Tooltip title={container.task_prompt} arrow>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    display: 'block',
+                    fontStyle: 'italic',
+                  }}
+                >
+                  {container.task_prompt}
+                </Typography>
+              </Tooltip>
+            )}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="caption" color="text.secondary">
+                {getContainerTypeLabel(container.container_type)}
+              </Typography>
+              {container.session_age && (
+                <Typography variant="caption" color="text.secondary">
+                  &middot; {container.session_age}
+                </Typography>
+              )}
+              {container.owner_name && (
+                <Typography variant="caption" color="text.secondary">
+                  &middot; {container.owner_name}
+                </Typography>
+              )}
+            </Box>
             <Tooltip title={container.session_id} arrow>
               <Typography
-                variant="subtitle1"
-                fontWeight="bold"
+                variant="caption"
                 sx={{
                   fontFamily: 'monospace',
-                  fontSize: '0.85rem',
+                  fontSize: '0.7rem',
+                  color: 'text.disabled',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
+                  display: 'block',
                 }}
               >
                 {container.session_id}
               </Typography>
             </Tooltip>
-            <Typography variant="caption" color="text.secondary">
-              {getContainerTypeLabel(container.container_type)}
-            </Typography>
           </Box>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
