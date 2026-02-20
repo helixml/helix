@@ -1473,8 +1473,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             }
           >
             {claudeTokenExpiry.isExpired
-              ? `Claude token expired (${claudeTokenExpiry.label}).`
-              : `Claude token expiring soon (${claudeTokenExpiry.label}).`}
+              ? `Claude token expired (${claudeTokenExpiry.label}). It will auto-refresh next time a session uses Claude Code, or re-authenticate now.`
+              : `Claude token expiring soon (${claudeTokenExpiry.label}). It will auto-refresh next time a session uses Claude Code, or re-authenticate now.`}
           </Alert>
         )}
 

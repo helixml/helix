@@ -881,8 +881,8 @@ const SpecTasksPage: FC = () => {
               }
             >
               {claudeTokenExpiry.isExpired
-                ? `Claude subscription token has expired (${claudeTokenExpiry.label}). New sessions won't be able to use Claude Code until you re-authenticate.`
-                : `Claude subscription token is expiring soon (${claudeTokenExpiry.label}). Re-authenticate to avoid interruptions.`
+                ? `Claude subscription token has expired (${claudeTokenExpiry.label}). It will automatically refresh the next time a session uses Claude Code, or you can re-authenticate now.`
+                : `Claude subscription token is expiring soon (${claudeTokenExpiry.label}). It will automatically refresh the next time a session uses Claude Code, or you can re-authenticate now.`
               }
             </Alert>
           )}
