@@ -625,7 +625,7 @@ func (apiServer *HelixAPIServer) searchCodeAcrossRepositories(ctx context.Contex
 		}
 
 		// Search snippets in this repository
-		snippets, err := apiServer.koditService.SearchSnippets(ctx, koditRepoID, query, limit, "")
+		snippets, err := apiServer.koditService.SearchSnippets(ctx, koditRepoID, query, limit)
 		if err != nil {
 			log.Debug().Err(err).
 				Str("repo_id", repo.ID).
@@ -636,23 +636,17 @@ func (apiServer *HelixAPIServer) searchCodeAcrossRepositories(ctx context.Contex
 
 		// Convert snippets to unified search results
 		for _, snippet := range snippets {
-			title := snippet.FilePath
-			if title == "" {
-				title = truncateString(snippet.Content, 60)
-			}
-
 			results = append(results, types.UnifiedSearchResult{
 				Type:        "code",
-				ID:          snippet.ID,
-				Title:       title,
-				Description: truncateString(snippet.Content, 150),
+				ID:          strconv.FormatInt(snippet.ID(), 10),
+				Title:       truncateString(snippet.Content(), 60),
+				Description: truncateString(snippet.Content(), 150),
 				URL:         "/repositories/" + repo.ID,
 				Icon:        "code",
 				Metadata: map[string]string{
 					"repoId":   repo.ID,
 					"repoName": repo.Name,
-					"filePath": snippet.FilePath,
-					"language": snippet.Language,
+					"language": snippet.Language(),
 				},
 			})
 		}
