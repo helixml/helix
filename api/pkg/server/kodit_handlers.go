@@ -51,8 +51,21 @@ type KoditSearchResultDTO struct {
 	Content  string `json:"content"`
 }
 
-// KoditIndexingStatusDTO is the JSON representation of indexing status.
+// KoditIndexingStatusDTO wraps status in a JSON:API envelope to match the
+// frontend's expected shape: data.data.attributes.{status,message,updated_at}.
 type KoditIndexingStatusDTO struct {
+	Data KoditIndexingStatusData `json:"data"`
+}
+
+// KoditIndexingStatusData is the JSON:API data object for indexing status.
+type KoditIndexingStatusData struct {
+	Type       string                        `json:"type"`
+	ID         string                        `json:"id"`
+	Attributes KoditIndexingStatusAttributes `json:"attributes"`
+}
+
+// KoditIndexingStatusAttributes holds the indexing status fields.
+type KoditIndexingStatusAttributes struct {
 	Status    string    `json:"status"`
 	Message   string    `json:"message"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -122,9 +135,14 @@ func searchResultsToDTO(enrichments []enrichment.Enrichment) []KoditSearchResult
 
 func indexingStatusToDTO(summary tracking.RepositoryStatusSummary) KoditIndexingStatusDTO {
 	return KoditIndexingStatusDTO{
-		Status:    string(summary.Status()),
-		Message:   summary.Message(),
-		UpdatedAt: summary.UpdatedAt(),
+		Data: KoditIndexingStatusData{
+			Type: "repository_status_summary",
+			Attributes: KoditIndexingStatusAttributes{
+				Status:    string(summary.Status()),
+				Message:   summary.Message(),
+				UpdatedAt: summary.UpdatedAt(),
+			},
+		},
 	}
 }
 
@@ -132,7 +150,7 @@ func commitsToDTO(commits []repository.Commit) []KoditCommitDTO {
 	result := make([]KoditCommitDTO, 0, len(commits))
 	for _, c := range commits {
 		result = append(result, KoditCommitDTO{
-			ID:   strconv.FormatInt(c.ID(), 10),
+			ID:   c.SHA(), // Frontend uses commit.id as the SHA
 			Type: "commit",
 			Attributes: KoditCommitAttributes{
 				SHA:         c.SHA(),
