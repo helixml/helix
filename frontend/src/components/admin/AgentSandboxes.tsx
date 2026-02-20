@@ -25,6 +25,7 @@ import PersonIcon from '@mui/icons-material/Person'
 import ThermostatIcon from '@mui/icons-material/Thermostat'
 import VideocamIcon from '@mui/icons-material/Videocam'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import useRouter from '../../hooks/useRouter'
 import useApi from '../../hooks/useApi'
 
 // Types matching the backend response
@@ -80,6 +81,10 @@ interface DevContainerWithClients {
   session_name?: string
   session_age?: string
   owner_name?: string
+  organization_name?: string
+  project_name?: string
+  project_id?: string
+  organization_id?: string
   task_number?: number
   task_name?: string
   task_prompt?: string
@@ -227,6 +232,28 @@ interface DevContainerCardProps {
 
 const DevContainerCard: FC<DevContainerCardProps> = ({ container, onStop, isStopping }) => {
   const clients = container.clients || []
+  const router = useRouter()
+
+  const handleTaskClick = () => {
+    if (container.task_id && container.project_id) {
+      if (container.organization_id) {
+        router.navigate('org_project-task-detail', {
+          params: {
+            org_id: container.organization_id,
+            id: container.project_id,
+            taskId: container.task_id,
+          },
+        })
+      } else {
+        router.navigate('project-task-detail', {
+          params: {
+            id: container.project_id,
+            taskId: container.task_id,
+          },
+        })
+      }
+    }
+  }
 
   return (
     <Paper
@@ -237,95 +264,103 @@ const DevContainerCard: FC<DevContainerCardProps> = ({ container, onStop, isStop
         borderColor: container.status === 'running' ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)',
       }}
     >
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, gap: 1 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
-          <DesktopWindowsIcon color="primary" sx={{ flexShrink: 0 }} />
-          <Box sx={{ minWidth: 0 }}>
-            <Typography
-              variant="subtitle1"
-              fontWeight="bold"
-              sx={{
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {container.task_number
-                ? `#${container.task_number} ${container.task_name || container.session_name || ''}`
-                : container.session_name || 'Unnamed session'
-              }
-            </Typography>
-            {container.task_prompt && (
-              <Tooltip title={container.task_prompt} arrow>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    display: 'block',
-                    fontStyle: 'italic',
-                  }}
-                >
-                  {container.task_prompt}
-                </Typography>
-              </Tooltip>
-            )}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="caption" color="text.secondary">
-                {getContainerTypeLabel(container.container_type)}
-              </Typography>
-              {container.session_age && (
-                <Typography variant="caption" color="text.secondary">
-                  &middot; {container.session_age}
-                </Typography>
-              )}
-              {container.owner_name && (
-                <Typography variant="caption" color="text.secondary">
-                  &middot; {container.owner_name}
-                </Typography>
-              )}
-            </Box>
-            <Tooltip title={container.session_id} arrow>
-              <Typography
-                variant="caption"
-                sx={{
-                  fontFamily: 'monospace',
-                  fontSize: '0.7rem',
-                  color: 'text.disabled',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  display: 'block',
-                }}
-              >
-                {container.session_id}
-              </Typography>
-            </Tooltip>
-          </Box>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-          <Chip
-            label={container.status}
+      {/* Header: status chip + stop button */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+        <Chip
+          label={container.status}
+          size="small"
+          color={getStatusColor(container.status)}
+        />
+        <Tooltip title="Stop container" arrow>
+          <IconButton
             size="small"
-            color={getStatusColor(container.status)}
-          />
-          <Tooltip title="Stop container" arrow>
-            <IconButton
-              size="small"
-              onClick={() => onStop(container.session_id)}
-              disabled={isStopping}
-              sx={{
-                color: 'error.main',
-                '&:hover': { backgroundColor: 'rgba(244, 67, 54, 0.1)' },
-              }}
-            >
-              {isStopping ? <CircularProgress size={16} /> : <CloseIcon fontSize="small" />}
-            </IconButton>
-          </Tooltip>
-        </Box>
+            onClick={() => onStop(container.session_id)}
+            disabled={isStopping}
+            sx={{
+              color: 'error.main',
+              '&:hover': { backgroundColor: 'rgba(244, 67, 54, 0.1)' },
+            }}
+          >
+            {isStopping ? <CircularProgress size={16} /> : <CloseIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
       </Box>
+
+      {/* Task/session title */}
+      <Typography
+        variant="subtitle1"
+        fontWeight="bold"
+        sx={{
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          cursor: container.task_id ? 'pointer' : 'default',
+          '&:hover': container.task_id ? { textDecoration: 'underline' } : {},
+        }}
+        onClick={container.task_id ? handleTaskClick : undefined}
+      >
+        {container.task_number
+          ? `#${container.task_number} ${container.task_name || container.session_name || ''}`
+          : container.session_name || 'Unnamed session'
+        }
+      </Typography>
+
+      {/* Task prompt excerpt */}
+      {container.task_prompt && (
+        <Tooltip title={container.task_prompt} arrow>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              display: 'block',
+              fontStyle: 'italic',
+              mb: 0.5,
+            }}
+          >
+            {container.task_prompt}
+          </Typography>
+        </Tooltip>
+      )}
+
+      {/* Metadata rows */}
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1, mb: 1 }}>
+        <Chip label={getContainerTypeLabel(container.container_type)} size="small" variant="outlined" />
+        {container.session_age && (
+          <Chip label={container.session_age} size="small" variant="outlined" />
+        )}
+        {container.owner_name && (
+          <Chip icon={<PersonIcon />} label={container.owner_name} size="small" variant="outlined" />
+        )}
+      </Box>
+
+      {/* Org / Project breadcrumb */}
+      {(container.organization_name || container.project_name) && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+          {container.organization_name || 'Personal'}
+          {container.project_name && ` / ${container.project_name}`}
+        </Typography>
+      )}
+
+      {/* Session ID */}
+      <Tooltip title={container.session_id} arrow>
+        <Typography
+          variant="caption"
+          sx={{
+            fontFamily: 'monospace',
+            fontSize: '0.7rem',
+            color: 'text.disabled',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            display: 'block',
+          }}
+        >
+          {container.session_id}
+        </Typography>
+      </Tooltip>
 
       <Grid container spacing={2}>
         <Grid item xs={6}>
