@@ -128,8 +128,6 @@ static void setCursorByName(const char* name) {
 	dispatch_async(dispatch_get_main_queue(), ^{
 		NSCursor *cursor = cursorForName(n);
 
-		NSLog(@"[Cursor] setCursorByName: '%@' → %@", n, cursor ? [cursor description] : @"nil (WKWebView default)");
-
 		if (cursor) {
 			_desiredCursor = cursor;
 			[cursor set];
