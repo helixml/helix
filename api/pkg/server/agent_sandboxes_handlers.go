@@ -32,16 +32,20 @@ type SandboxInstanceInfo struct {
 // DevContainerWithClients extends DevContainerResponse with connected clients and video stats
 type DevContainerWithClients struct {
 	hydra.DevContainerResponse
-	SandboxID   string               `json:"sandbox_id"`
-	Clients     []ClientInfo         `json:"clients,omitempty"`
-	VideoStats  *VideoStreamingStats `json:"video_stats,omitempty"`
-	SessionName string               `json:"session_name,omitempty"`
-	SessionAge  string               `json:"session_age,omitempty"`
-	OwnerName   string               `json:"owner_name,omitempty"`
-	TaskNumber  int                  `json:"task_number,omitempty"`
-	TaskName    string               `json:"task_name,omitempty"`
-	TaskPrompt  string               `json:"task_prompt,omitempty"` // First ~80 chars of original prompt
-	TaskID      string               `json:"task_id,omitempty"`
+	SandboxID        string               `json:"sandbox_id"`
+	Clients          []ClientInfo         `json:"clients,omitempty"`
+	VideoStats       *VideoStreamingStats `json:"video_stats,omitempty"`
+	SessionName      string               `json:"session_name,omitempty"`
+	SessionAge       string               `json:"session_age,omitempty"`
+	OwnerName        string               `json:"owner_name,omitempty"`
+	OrganizationName string               `json:"organization_name,omitempty"`
+	ProjectName      string               `json:"project_name,omitempty"`
+	ProjectID        string               `json:"project_id,omitempty"`
+	OrganizationID   string               `json:"organization_id,omitempty"`
+	TaskNumber       int                  `json:"task_number,omitempty"`
+	TaskName         string               `json:"task_name,omitempty"`
+	TaskPrompt       string               `json:"task_prompt,omitempty"` // First ~80 chars of original prompt
+	TaskID           string               `json:"task_id,omitempty"`
 }
 
 // VideoStreamingStats contains video streaming buffer statistics
@@ -181,6 +185,26 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 				} else {
 					dc.OwnerName = user.Username
 				}
+			}
+		}
+
+		// Look up org and project names
+		if session.OrganizationID != "" {
+			dc.OrganizationID = session.OrganizationID
+			org, err := apiServer.Store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: session.OrganizationID})
+			if err == nil && org != nil {
+				if org.DisplayName != "" {
+					dc.OrganizationName = org.DisplayName
+				} else {
+					dc.OrganizationName = org.Name
+				}
+			}
+		}
+		if session.ProjectID != "" {
+			dc.ProjectID = session.ProjectID
+			project, err := apiServer.Store.GetProject(ctx, session.ProjectID)
+			if err == nil && project != nil {
+				dc.ProjectName = project.Name
 			}
 		}
 
