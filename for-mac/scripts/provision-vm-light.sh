@@ -838,6 +838,9 @@ if ! step_done "cleanup"; then
     run_ssh "sudo rm -rf /tmp/* /var/tmp/*" || true
     # Cloud-init logs and seed data
     run_ssh "sudo rm -rf /var/lib/cloud/instances /var/log/cloud-init*" || true
+    # Ensure UEFI fallback bootloader exists — clean EFI vars have no boot
+    # entries, so UEFI auto-discovers \EFI\BOOT\BOOTAA64.EFI on first boot.
+    run_ssh "sudo mkdir -p /boot/efi/EFI/BOOT && sudo cp /boot/efi/EFI/ubuntu/shimaa64.efi /boot/efi/EFI/BOOT/BOOTAA64.EFI" || true
     mark_step "cleanup"
 fi
 

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -297,11 +298,13 @@ func (vm *VMManager) ensureSSHKeypair() (string, string, error) {
 	return privKey, pubKey, nil
 }
 
-// ensureCloudInitSeed creates a cloud-init NoCloud seed ISO at <vmDir>/seed.iso
-// containing the SSH public key. Uses hdiutil (macOS native) to create a hybrid
-// ISO with the CIDATA volume label. Recreates the ISO if the public key changes.
+// ensureCloudInitSeed creates a cloud-init NoCloud seed disk at <vmDir>/seed.iso
+// containing the SSH public key. Uses a FAT12 filesystem image with the volume
+// label "CIDATA" — ISO9660 doesn't work on UEFI because EDK II lacks an ISO
+// filesystem driver, so cloud-init never sees the NoCloud datasource.
+// Recreates the disk if the public key changes.
 func (vm *VMManager) ensureCloudInitSeed(vmDir, pubKeyPath string) error {
-	seedISO := filepath.Join(vmDir, "seed.iso")
+	seedDisk := filepath.Join(vmDir, "seed.iso") // keep filename for compat
 
 	pubKeyData, err := os.ReadFile(pubKeyPath)
 	if err != nil {
@@ -309,29 +312,19 @@ func (vm *VMManager) ensureCloudInitSeed(vmDir, pubKeyPath string) error {
 	}
 	pubKeyStr := strings.TrimSpace(string(pubKeyData))
 
-	// Check if seed ISO already exists with the correct key
+	// Check if seed disk already exists with the correct key
 	markerFile := filepath.Join(vmDir, ".seed-pubkey")
-	if _, err := os.Stat(seedISO); err == nil {
+	if _, err := os.Stat(seedDisk); err == nil {
 		if existing, err := os.ReadFile(markerFile); err == nil {
 			if strings.TrimSpace(string(existing)) == pubKeyStr {
-				return nil // ISO already up to date
+				return nil // disk already up to date
 			}
 		}
 	}
 
-	log.Printf("Creating cloud-init seed ISO at %s", seedISO)
+	log.Printf("Creating cloud-init seed disk at %s", seedDisk)
 
-	// Create temporary staging directory
-	stagingDir, err := os.MkdirTemp("", "helix-cloudinit-")
-	if err != nil {
-		return fmt.Errorf("failed to create staging dir: %w", err)
-	}
-	defer os.RemoveAll(stagingDir)
-
-	// Write user-data — inject our key and remove any keys baked in during
-	// image provisioning (e.g. the build machine's personal key).
-	// ssh_authorized_keys appends, so we use runcmd to overwrite the file
-	// with only the helix-desktop key.
+	// Build cloud-init config
 	userData := fmt.Sprintf(`#cloud-config
 ssh_authorized_keys:
   - %s
@@ -341,34 +334,204 @@ runcmd:
     chmod 600 /home/ubuntu/.ssh/authorized_keys
     chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys
 `, pubKeyStr, pubKeyStr)
-	if err := os.WriteFile(filepath.Join(stagingDir, "user-data"), []byte(userData), 0644); err != nil {
-		return fmt.Errorf("failed to write user-data: %w", err)
-	}
 
-	// Write meta-data with a unique instance-id so cloud-init runs on each new key
 	metaData := fmt.Sprintf("instance-id: helix-%d\nlocal-hostname: helix-vm\n", time.Now().UnixNano())
-	if err := os.WriteFile(filepath.Join(stagingDir, "meta-data"), []byte(metaData), 0644); err != nil {
-		return fmt.Errorf("failed to write meta-data: %w", err)
+
+	// Create FAT12 disk image with CIDATA volume label (pure Go, no external deps)
+	os.Remove(seedDisk)
+	if err := createFAT12Seed(seedDisk, "CIDATA", map[string][]byte{
+		"user-data": []byte(userData),
+		"meta-data": []byte(metaData),
+	}); err != nil {
+		return fmt.Errorf("failed to create cloud-init seed disk: %w", err)
 	}
 
-	// Create ISO using hdiutil (macOS native, no external dependencies)
-	os.Remove(seedISO) // remove old ISO if it exists
-	cmd := exec.Command("hdiutil", "makehybrid",
-		"-iso", "-joliet",
-		"-default-volume-name", "cidata",
-		"-o", seedISO,
-		stagingDir)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("hdiutil makehybrid failed: %w", err)
-	}
-
-	// Save marker so we know which key the ISO contains
+	// Save marker so we know which key the disk contains
 	os.WriteFile(markerFile, []byte(pubKeyStr), 0644)
 
-	log.Printf("Cloud-init seed ISO created")
+	log.Printf("Cloud-init seed disk created")
 	return nil
+}
+
+// createFAT12Seed creates a minimal FAT12 filesystem image with the given
+// volume label and files. Supports VFAT long filenames (required because
+// cloud-init expects "user-data" and "meta-data" which exceed the 8.3 limit).
+// The image is 1 MB (2048 sectors × 512 bytes).
+//
+// Layout: BPB/boot sector → FAT1 → FAT2 → root directory → data clusters.
+// Cloud-init's NoCloud datasource looks for a filesystem labeled "cidata"
+// (case-insensitive) containing user-data and meta-data files.
+func createFAT12Seed(path, volumeLabel string, files map[string][]byte) error {
+	const (
+		sectorSize        = 512
+		totalSectors      = 2048 // 1 MB
+		sectorsPerFAT     = 2
+		numFATs           = 2
+		rootEntries       = 64
+		reservedSecs      = 1
+		sectorsPerCluster = 1
+	)
+
+	img := make([]byte, totalSectors*sectorSize)
+
+	// --- Boot sector / BPB ---
+	img[0], img[1], img[2] = 0xEB, 0x3C, 0x90
+	copy(img[3:11], []byte("HELIX   "))
+	binary.LittleEndian.PutUint16(img[11:13], sectorSize)
+	img[13] = sectorsPerCluster
+	binary.LittleEndian.PutUint16(img[14:16], reservedSecs)
+	img[16] = numFATs
+	binary.LittleEndian.PutUint16(img[17:19], rootEntries)
+	binary.LittleEndian.PutUint16(img[19:21], totalSectors)
+	img[21] = 0xF8
+	binary.LittleEndian.PutUint16(img[22:24], sectorsPerFAT)
+	binary.LittleEndian.PutUint16(img[24:26], 32)
+	binary.LittleEndian.PutUint16(img[26:28], 64)
+	img[38] = 0x29
+	binary.LittleEndian.PutUint32(img[39:43], 0x48454C58) // "HELX"
+	label := fmt.Sprintf("%-11s", volumeLabel)
+	if len(label) > 11 {
+		label = label[:11]
+	}
+	copy(img[43:54], []byte(label))
+	copy(img[54:62], []byte("FAT12   "))
+	img[510], img[511] = 0x55, 0xAA
+
+	// --- FAT tables ---
+	fat1Start := reservedSecs * sectorSize
+	fat2Start := fat1Start + sectorsPerFAT*sectorSize
+	img[fat1Start+0] = 0xF8
+	img[fat1Start+1] = 0xFF
+	img[fat1Start+2] = 0xFF
+
+	// --- Root directory ---
+	rootDirStart := (reservedSecs + numFATs*sectorsPerFAT) * sectorSize
+	rootDirSectors := (rootEntries*32 + sectorSize - 1) / sectorSize
+	dataStart := rootDirStart + rootDirSectors*sectorSize
+
+	// Volume label entry
+	copy(img[rootDirStart:rootDirStart+11], []byte(label))
+	img[rootDirStart+11] = 0x08 // volume label attribute
+
+	entryOffset := rootDirStart + 32
+	nextCluster := 2
+	sfnIndex := 1 // counter for generating unique 8.3 short names
+
+	for longName, data := range files {
+		// Generate a unique 8.3 short name (e.g. "USERDA~1   ")
+		// The short name is just for FAT compatibility; Linux reads the LFN.
+		baseName := strings.ToUpper(strings.ReplaceAll(longName, "-", ""))
+		if len(baseName) > 6 {
+			baseName = baseName[:6]
+		}
+		shortName := fmt.Sprintf("%-6s~%d", baseName, sfnIndex)
+		if len(shortName) > 8 {
+			shortName = shortName[:8]
+		}
+		shortName = fmt.Sprintf("%-8s", shortName)
+		sfnIndex++
+
+		// 8.3 directory entry (11 bytes: 8 name + 3 ext)
+		var sfn [11]byte
+		copy(sfn[:8], []byte(shortName))
+		copy(sfn[8:], []byte("   "))
+
+		// Compute 8.3 checksum for LFN entries
+		cksum := sfnChecksum(sfn)
+
+		// Build VFAT LFN entries (each stores up to 13 UTF-16LE chars)
+		lfnRunes := []uint16{}
+		for _, r := range longName {
+			lfnRunes = append(lfnRunes, uint16(r))
+		}
+		// Pad with 0x0000 terminator + 0xFFFF fill
+		lfnRunes = append(lfnRunes, 0x0000)
+		for len(lfnRunes)%13 != 0 {
+			lfnRunes = append(lfnRunes, 0xFFFF)
+		}
+		numLFN := len(lfnRunes) / 13
+
+		// LFN entries are stored in reverse order before the 8.3 entry
+		for i := numLFN; i >= 1; i-- {
+			seq := byte(i)
+			if i == numLFN {
+				seq |= 0x40 // last LFN entry marker
+			}
+			chunk := lfnRunes[(i-1)*13 : i*13]
+
+			img[entryOffset+0] = seq
+			// Chars 1-5 at offset 1 (5 × uint16)
+			for j := 0; j < 5; j++ {
+				binary.LittleEndian.PutUint16(img[entryOffset+1+j*2:], chunk[j])
+			}
+			img[entryOffset+11] = 0x0F // LFN attribute
+			img[entryOffset+12] = 0x00 // type
+			img[entryOffset+13] = cksum
+			// Chars 6-11 at offset 14 (6 × uint16)
+			for j := 0; j < 6; j++ {
+				binary.LittleEndian.PutUint16(img[entryOffset+14+j*2:], chunk[5+j])
+			}
+			// First cluster (always 0 for LFN)
+			binary.LittleEndian.PutUint16(img[entryOffset+26:], 0)
+			// Chars 12-13 at offset 28 (2 × uint16)
+			for j := 0; j < 2; j++ {
+				binary.LittleEndian.PutUint16(img[entryOffset+28+j*2:], chunk[11+j])
+			}
+			entryOffset += 32
+		}
+
+		// 8.3 directory entry
+		copy(img[entryOffset:entryOffset+11], sfn[:])
+		img[entryOffset+11] = 0x20 // archive attribute
+		binary.LittleEndian.PutUint16(img[entryOffset+26:], uint16(nextCluster))
+		binary.LittleEndian.PutUint32(img[entryOffset+28:], uint32(len(data)))
+
+		// Write file data
+		clusterBytes := sectorSize * sectorsPerCluster
+		clustersNeeded := (len(data) + clusterBytes - 1) / clusterBytes
+		fileOffset := dataStart + (nextCluster-2)*clusterBytes
+		copy(img[fileOffset:], data)
+
+		// FAT chain
+		for i := 0; i < clustersNeeded; i++ {
+			cluster := nextCluster + i
+			nextVal := 0xFFF // end of chain
+			if i < clustersNeeded-1 {
+				nextVal = cluster + 1
+			}
+			setFAT12Entry(img[fat1Start:], cluster, nextVal)
+		}
+
+		nextCluster += clustersNeeded
+		entryOffset += 32
+	}
+
+	// Copy FAT1 → FAT2
+	copy(img[fat2Start:fat2Start+sectorsPerFAT*sectorSize],
+		img[fat1Start:fat1Start+sectorsPerFAT*sectorSize])
+
+	return os.WriteFile(path, img, 0644)
+}
+
+// sfnChecksum computes the VFAT LFN checksum over an 8.3 short filename.
+func sfnChecksum(sfn [11]byte) byte {
+	var sum byte
+	for i := 0; i < 11; i++ {
+		sum = ((sum & 1) << 7) + (sum >> 1) + sfn[i]
+	}
+	return sum
+}
+
+// setFAT12Entry writes a 12-bit value into a FAT12 table at the given cluster index.
+func setFAT12Entry(fat []byte, cluster, value int) {
+	offset := cluster * 3 / 2
+	if cluster%2 == 0 {
+		fat[offset] = byte(value & 0xFF)
+		fat[offset+1] = (fat[offset+1] & 0xF0) | byte((value>>8)&0x0F)
+	} else {
+		fat[offset] = (fat[offset] & 0x0F) | byte((value&0x0F)<<4)
+		fat[offset+1] = byte((value >> 4) & 0xFF)
+	}
 }
 
 // ensureVMExtracted checks if VM disk images exist in the writable location.
@@ -390,21 +553,11 @@ func (vm *VMManager) ensureVMExtracted() error {
 	if _, err := os.Stat(rootDisk); err != nil {
 		log.Printf("VM root disk not found at %s — download required", vmDir)
 
-		// Copy EFI vars from bundle if available (they're small, ~64MB, and still bundled)
-		bundlePath := vm.getAppBundlePath()
-		if bundlePath != "" {
-			bundledEFI := filepath.Join(bundlePath, "Contents", "Resources", "vm", "efi_vars.fd")
-			efiVars := filepath.Join(vmDir, "efi_vars.fd")
-			if _, err := os.Stat(efiVars); os.IsNotExist(err) {
-				if _, err := os.Stat(bundledEFI); err == nil {
-					os.MkdirAll(vmDir, 0755)
-					log.Printf("Copying EFI vars from bundle...")
-					if err := copyFile(bundledEFI, efiVars); err != nil {
-						log.Printf("Warning: failed to copy EFI vars: %v", err)
-					}
-				}
-			}
-		}
+		// NOTE: Do NOT copy efi_vars.fd from the bundle here. The bundled
+		// efi_vars.fd encodes UEFI boot entries with partition GUIDs from the
+		// build machine, which don't match the user's disk image. Instead, the
+		// boot path below copies the clean edk2-arm-vars.fd template, which
+		// lets UEFI auto-discover the bootloader on first boot.
 
 		return ErrVMImagesNotDownloaded
 	}
@@ -455,30 +608,11 @@ func (vm *VMManager) ensureDevImage(goldenPath, vmDir string) error {
 	}
 	log.Printf("Dev mode: golden image copied successfully")
 
-	// Copy EFI vars from golden image's directory, fall back to app bundle
-	goldenDir := filepath.Dir(absGolden)
-	efiSrc := filepath.Join(goldenDir, "efi_vars.fd")
-	efiDst := filepath.Join(vmDir, "efi_vars.fd")
-	if _, err := os.Stat(efiDst); os.IsNotExist(err) {
-		if _, err := os.Stat(efiSrc); err == nil {
-			log.Printf("Dev mode: copying EFI vars from %s", efiSrc)
-			if err := copyFile(efiSrc, efiDst); err != nil {
-				log.Printf("Warning: failed to copy EFI vars: %v", err)
-			}
-		} else {
-			// Fall back to app bundle EFI vars
-			bundlePath := vm.getAppBundlePath()
-			if bundlePath != "" {
-				bundledEFI := filepath.Join(bundlePath, "Contents", "Resources", "vm", "efi_vars.fd")
-				if _, err := os.Stat(bundledEFI); err == nil {
-					log.Printf("Dev mode: copying EFI vars from app bundle")
-					if err := copyFile(bundledEFI, efiDst); err != nil {
-						log.Printf("Warning: failed to copy EFI vars from bundle: %v", err)
-					}
-				}
-			}
-		}
-	}
+	// NOTE: Do NOT copy efi_vars.fd from golden image or bundle here.
+	// Provisioned efi_vars.fd files encode partition GUIDs from the build
+	// machine. The boot path copies the clean edk2-arm-vars.fd template
+	// when efi_vars.fd doesn't exist, letting UEFI auto-discover the
+	// bootloader.
 
 	return nil
 }
