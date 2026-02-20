@@ -125,7 +125,7 @@ boot_provisioning_vm() {
         -smp "$CPUS"
         -m "$MEMORY_MB"
         -drive if=pflash,format=raw,file="$EFI_CODE",readonly=on
-        -drive if=pflash,format=raw,file="${VM_DIR}/efi_vars.fd"
+        -drive if=pflash,format=raw,snapshot=on,file="$EFI_VARS_TEMPLATE"
         -drive file="${VM_DIR}/disk.qcow2",format=qcow2,if=virtio
         -device virtio-net-pci,netdev=net0
         -netdev user,id=net0,hostfwd=tcp::${SSH_PORT}-:22
@@ -188,9 +188,6 @@ if ! step_done "disk"; then
     cp "${VM_DIR}/${UBUNTU_IMG}" "${VM_DIR}/disk.qcow2.tmp"
     qemu-img resize "${VM_DIR}/disk.qcow2.tmp" "$DISK_SIZE"
     mv "${VM_DIR}/disk.qcow2.tmp" "${VM_DIR}/disk.qcow2"
-
-    # Copy EFI vars template
-    cp "$EFI_VARS_TEMPLATE" "${VM_DIR}/efi_vars.fd"
 
     mark_step "disk"
 fi

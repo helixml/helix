@@ -408,13 +408,6 @@ func (u *Updater) DownloadVMUpdate(settings *SettingsManager, downloader *VMDown
 
 	// Download each file in the manifest to a .staged path
 	for _, f := range manifest.Files {
-		// Skip efi_vars.fd — use the clean template from the app bundle instead.
-		// Downloaded EFI vars encode partition GUIDs from the build machine which
-		// may not match the disk image, causing UEFI boot failure.
-		if f.Name == "efi_vars.fd" {
-			continue
-		}
-
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("VM update download cancelled")
@@ -542,26 +535,14 @@ func (u *Updater) ApplyVMUpdate(vm *VMManager, settings *SettingsManager) error 
 		return fmt.Errorf("failed to swap disk: %w", err)
 	}
 
-	// Remove any stale efi_vars.fd.staged — we no longer download efi_vars.fd
-	// (build-machine GUIDs cause UEFI boot failure), but old partial downloads
-	// may have left one behind. Don't swap it in.
-	stagedEFI := filepath.Join(vmDir, "efi_vars.fd.staged")
-	if _, err := os.Stat(stagedEFI); err == nil {
-		log.Printf("Removing stale efi_vars.fd.staged (not used in updates)")
-		os.Remove(stagedEFI)
-	}
-
-	// Delete efi_vars.fd so the VM boots with fresh UEFI vars from the
-	// clean template (edk2-arm-vars.fd). Old EFI vars may contain boot
-	// entries referencing partitions/GUIDs from the previous disk image
-	// that don't match the new one, causing UEFI to drop to a shell or
-	// boot the wrong stub (e.g. systemd-boot without a command line).
-	// The fallback in vm.go copies a clean template and UEFI auto-discovers
-	// EFI/BOOT/BOOTAA64.EFI on the new disk.
-	efiVars := filepath.Join(vmDir, "efi_vars.fd")
-	if _, err := os.Stat(efiVars); err == nil {
-		log.Printf("Removing stale efi_vars.fd (will regenerate from clean template on next boot)")
-		os.Remove(efiVars)
+	// Clean up any leftover efi_vars files from older versions.
+	// EFI vars are now ephemeral (snapshot=on in QEMU), so these are unused.
+	for _, stale := range []string{"efi_vars.fd", "efi_vars.fd.staged"} {
+		p := filepath.Join(vmDir, stale)
+		if _, err := os.Stat(p); err == nil {
+			log.Printf("Removing unused %s (EFI vars are now ephemeral)", stale)
+			os.Remove(p)
+		}
 	}
 
 	// Update installed version in settings

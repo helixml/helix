@@ -298,11 +298,6 @@ else
 MANIFEST_EOF
 fi
 
-# NOTE: Do NOT bundle efi_vars.fd from provisioning. It encodes partition
-# GUIDs from the build machine that don't match user disk images, causing
-# UEFI to fail to find the bootloader. The app copies the clean
-# edk2-arm-vars.fd template at boot time instead.
-
 # =============================================================================
 # Step 6: Fix dylib paths (install_name_tool)
 # =============================================================================

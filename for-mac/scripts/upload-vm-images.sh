@@ -5,9 +5,8 @@ set -euo pipefail
 # Upload VM disk images to Cloudflare R2 for CDN distribution
 # =============================================================================
 #
-# Compresses disk.qcow2 with qcow2 internal compression, then uploads
-# disk.qcow2 and efi_vars.fd to R2, organized by version (git short hash).
-# The app downloads these on first launch.
+# Compresses disk.qcow2 with zstd, then uploads to R2 organized by
+# version (git short hash). The app downloads these on first launch.
 #
 # Prerequisites:
 #   - AWS CLI: brew install awscli
@@ -82,10 +81,8 @@ if [ ! -f "${VM_DIR}/disk.qcow2" ]; then
     exit 1
 fi
 
-if [ ! -f "${VM_DIR}/efi_vars.fd" ]; then
-    echo "ERROR: Missing EFI vars: ${VM_DIR}/efi_vars.fd"
-    exit 1
-fi
+
+
 
 # =============================================================================
 # Step 1: Compress disk image with zstd
@@ -140,7 +137,6 @@ log "CDN URL:  https://dl.helix.ml/vm/${VM_VERSION}/"
 log ""
 
 DISK_SIZE=$(stat -f%z "$DISK_PATH" 2>/dev/null || stat -c%s "$DISK_PATH" 2>/dev/null)
-EFI_SIZE=$(stat -f%z "${VM_DIR}/efi_vars.fd" 2>/dev/null || stat -c%s "${VM_DIR}/efi_vars.fd" 2>/dev/null)
 
 # Determine the upload filename
 if [ "$USE_ZSTD" = true ]; then
@@ -150,17 +146,10 @@ else
 fi
 
 log "  ${DISK_UPLOAD_NAME}:  $(echo "$DISK_SIZE" | awk '{printf "%.1f GB", $1/1073741824}')"
-log "  efi_vars.fd: $(echo "$EFI_SIZE" | awk '{printf "%.0f MB", $1/1048576}')"
 log ""
 
 log "Uploading ${DISK_UPLOAD_NAME}..."
 aws s3 cp "$DISK_PATH" "s3://${R2_BUCKET}/vm/${VM_VERSION}/${DISK_UPLOAD_NAME}" \
-    --endpoint-url "$R2_ENDPOINT" \
-    --no-progress 2>&1
-log "  Done."
-
-log "Uploading efi_vars.fd..."
-aws s3 cp "${VM_DIR}/efi_vars.fd" "s3://${R2_BUCKET}/vm/${VM_VERSION}/efi_vars.fd" \
     --endpoint-url "$R2_ENDPOINT" \
     --no-progress 2>&1
 log "  Done."
@@ -175,9 +164,9 @@ aws s3 ls "s3://${R2_BUCKET}/vm/${VM_VERSION}/" \
     --endpoint-url "$R2_ENDPOINT"
 
 # Quick download test
-HTTP_CODE=$(curl -sI -o /dev/null -w "%{http_code}" "https://dl.helix.ml/vm/${VM_VERSION}/efi_vars.fd")
+HTTP_CODE=$(curl -sI -o /dev/null -w "%{http_code}" "https://dl.helix.ml/vm/${VM_VERSION}/${DISK_UPLOAD_NAME}")
 if [ "$HTTP_CODE" = "200" ]; then
-    log "CDN check: https://dl.helix.ml/vm/${VM_VERSION}/efi_vars.fd → 200 OK"
+    log "CDN check: https://dl.helix.ml/vm/${VM_VERSION}/${DISK_UPLOAD_NAME} → 200 OK"
 else
     log "WARNING: CDN check returned HTTP ${HTTP_CODE} (may need DNS propagation)"
 fi
@@ -190,7 +179,6 @@ log ""
 log "Generating vm-manifest.json..."
 
 DISK_SHA256=$(shasum -a 256 "$DISK_PATH" | awk '{print $1}')
-EFI_SHA256=$(shasum -a 256 "${VM_DIR}/efi_vars.fd" | awk '{print $1}')
 
 MANIFEST_PATH="${FOR_MAC_DIR}/vm-manifest.json"
 
@@ -208,8 +196,7 @@ if [ "$USE_ZSTD" = true ]; then
       "compression": "zstd",
       "decompressed_name": "disk.qcow2",
       "decompressed_size": ${DECOMPRESSED_SIZE}
-    },
-    {"name": "efi_vars.fd", "size": ${EFI_SIZE}, "sha256": "${EFI_SHA256}"}
+    }
   ]
 }
 MANIFEST_EOF
@@ -219,8 +206,7 @@ else
   "version": "${VM_VERSION}",
   "base_url": "https://dl.helix.ml/vm",
   "files": [
-    {"name": "disk.qcow2", "size": ${DISK_SIZE}, "sha256": "${DISK_SHA256}"},
-    {"name": "efi_vars.fd", "size": ${EFI_SIZE}, "sha256": "${EFI_SHA256}"}
+    {"name": "disk.qcow2", "size": ${DISK_SIZE}, "sha256": "${DISK_SHA256}"}
   ]
 }
 MANIFEST_EOF
