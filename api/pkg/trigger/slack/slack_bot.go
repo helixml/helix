@@ -120,7 +120,14 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 	socketmodeHandler.HandleEvents(slackevents.Message, s.middlewareMessageEvent)
 
 	// TODO: this is to listen to everything
-	// socketmodeHandler.Handle(socketmode.EventTypeEventsAPI, s.middlewareEventsAPI)
+	// socketmodeHandler.Handle(socketmode.EventTypeEventsAPI, s.middlewareEventsAPI
+
+	go func() {
+		err := s.postProjectUpdates(s.ctx, s.app)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to post project updates")
+		}
+	}()
 
 	log.Info().Str("app_id", s.app.ID).Msg("running event loop")
 	defer log.Info().Str("app_id", s.app.ID).Msg("event loop stopped")
@@ -129,8 +136,6 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 	if err != nil {
 		log.Error().Err(err).Msg("failed to run event loop")
 	}
-
-	//
 
 	// Wait for the context to be cancelled
 	<-s.ctx.Done()
