@@ -1791,6 +1791,9 @@ type SlackTrigger struct {
 	AppToken string   `json:"app_token" yaml:"app_token"`
 	BotToken string   `json:"bot_token" yaml:"bot_token"`
 	Channels []string `json:"channels" yaml:"channels"`
+
+	ProjectUpdates bool   `json:"project_updates,omitempty" yaml:"project_updates,omitempty"` // Send project updates (spec task creation, completion, etc)
+	ProjectChannel string `json:"project_channel,omitempty" yaml:"project_channel,omitempty"` // Send project updates to this channel
 }
 
 // TeamsTrigger - Microsoft Teams bot integration
