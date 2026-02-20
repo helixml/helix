@@ -6,12 +6,148 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/kodit"
+	"github.com/helixml/kodit/domain/enrichment"
+	"github.com/helixml/kodit/domain/repository"
+	"github.com/helixml/kodit/domain/tracking"
 	"github.com/rs/zerolog/log"
 )
+
+// =============================================================================
+// JSON DTOs — presentation-layer types for HTTP responses
+// =============================================================================
+
+// KoditEnrichmentListResponse is the JSON envelope for a list of enrichments.
+type KoditEnrichmentListResponse struct {
+	Data []KoditEnrichmentDTO `json:"data"`
+}
+
+// KoditEnrichmentDTO is the JSON representation of a single enrichment.
+type KoditEnrichmentDTO struct {
+	Type       string                    `json:"type"`
+	ID         string                    `json:"id"`
+	Attributes KoditEnrichmentAttributes `json:"attributes"`
+	CommitSHA  string                    `json:"commit_sha,omitempty"`
+}
+
+// KoditEnrichmentAttributes holds the enrichment payload fields.
+type KoditEnrichmentAttributes struct {
+	Type      string    `json:"type"`
+	Subtype   string    `json:"subtype,omitempty"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// KoditSearchResultDTO is the JSON representation of a search result.
+type KoditSearchResultDTO struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Language string `json:"language"`
+	Content  string `json:"content"`
+}
+
+// KoditIndexingStatusDTO is the JSON representation of indexing status.
+type KoditIndexingStatusDTO struct {
+	Status    string    `json:"status"`
+	Message   string    `json:"message"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// KoditCommitDTO is the JSON representation of a commit.
+type KoditCommitDTO struct {
+	ID         string                `json:"id"`
+	Type       string                `json:"type"`
+	Attributes KoditCommitAttributes `json:"attributes"`
+}
+
+// KoditCommitAttributes holds the commit payload fields.
+type KoditCommitAttributes struct {
+	SHA         string    `json:"sha"`
+	Message     string    `json:"message"`
+	AuthoredAt  time.Time `json:"authored_at"`
+	CommittedAt time.Time `json:"committed_at"`
+}
+
+// =============================================================================
+// Domain → DTO conversion
+// =============================================================================
+
+const enrichmentListMaxContentLength = 500
+
+func enrichmentToDTO(e enrichment.Enrichment) KoditEnrichmentDTO {
+	return KoditEnrichmentDTO{
+		Type: string(e.Type()),
+		ID:   strconv.FormatInt(e.ID(), 10),
+		Attributes: KoditEnrichmentAttributes{
+			Type:      string(e.Type()),
+			Subtype:   string(e.Subtype()),
+			Content:   e.Content(),
+			CreatedAt: e.CreatedAt(),
+			UpdatedAt: e.UpdatedAt(),
+		},
+	}
+}
+
+func enrichmentListToDTO(enrichments []enrichment.Enrichment, commitSHA string) KoditEnrichmentListResponse {
+	data := make([]KoditEnrichmentDTO, 0, len(enrichments))
+	for _, e := range enrichments {
+		dto := enrichmentToDTO(e)
+		dto.CommitSHA = commitSHA
+		// Truncate content in list view
+		if len(dto.Attributes.Content) > enrichmentListMaxContentLength {
+			dto.Attributes.Content = dto.Attributes.Content[:enrichmentListMaxContentLength] + "..."
+		}
+		data = append(data, dto)
+	}
+	return KoditEnrichmentListResponse{Data: data}
+}
+
+func searchResultsToDTO(enrichments []enrichment.Enrichment) []KoditSearchResultDTO {
+	results := make([]KoditSearchResultDTO, 0, len(enrichments))
+	for _, e := range enrichments {
+		results = append(results, KoditSearchResultDTO{
+			ID:       strconv.FormatInt(e.ID(), 10),
+			Type:     string(e.Type()),
+			Language: e.Language(),
+			Content:  e.Content(),
+		})
+	}
+	return results
+}
+
+func indexingStatusToDTO(summary tracking.RepositoryStatusSummary) KoditIndexingStatusDTO {
+	return KoditIndexingStatusDTO{
+		Status:    string(summary.Status()),
+		Message:   summary.Message(),
+		UpdatedAt: summary.UpdatedAt(),
+	}
+}
+
+func commitsToDTO(commits []repository.Commit) []KoditCommitDTO {
+	result := make([]KoditCommitDTO, 0, len(commits))
+	for _, c := range commits {
+		result = append(result, KoditCommitDTO{
+			ID:   strconv.FormatInt(c.ID(), 10),
+			Type: "commit",
+			Attributes: KoditCommitAttributes{
+				SHA:         c.SHA(),
+				Message:     c.Message(),
+				AuthoredAt:  c.AuthoredAt(),
+				CommittedAt: c.CommittedAt(),
+			},
+		})
+	}
+	return result
+}
+
+// =============================================================================
+// Handler helpers
+// =============================================================================
 
 // ensureKoditRepoID checks if kodit_repo_id is set in the repository metadata.
 // If missing, it attempts to re-register the repository with Kodit and update the metadata.
@@ -133,6 +269,10 @@ func handleKoditError(w http.ResponseWriter, err error, context string) {
 	http.Error(w, fmt.Sprintf("%s: %s", context, err.Error()), http.StatusInternalServerError)
 }
 
+// =============================================================================
+// HTTP handlers
+// =============================================================================
+
 // getRepositoryEnrichments fetches code intelligence enrichments from Kodit
 // @Summary Get repository enrichments
 // @Description Get code intelligence enrichments for a repository from Kodit
@@ -141,7 +281,7 @@ func handleKoditError(w http.ResponseWriter, err error, context string) {
 // @Param id path string true "Repository ID"
 // @Param enrichment_type query string false "Filter by enrichment type (usage, developer, living_documentation)"
 // @Param commit_sha query string false "Filter by commit SHA"
-// @Success 200 {object} services.KoditEnrichmentListResponse
+// @Success 200 {object} KoditEnrichmentListResponse
 // @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
 // @Failure 500 {object} types.APIError
@@ -171,7 +311,7 @@ func (apiServer *HelixAPIServer) getRepositoryEnrichments(w http.ResponseWriter,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(enrichments)
+	json.NewEncoder(w).Encode(enrichmentListToDTO(enrichments, commitSHA))
 }
 
 // getEnrichment fetches a specific enrichment by ID from Kodit
@@ -181,7 +321,7 @@ func (apiServer *HelixAPIServer) getRepositoryEnrichments(w http.ResponseWriter,
 // @Produce json
 // @Param id path string true "Repository ID"
 // @Param enrichmentId path string true "Enrichment ID"
-// @Success 200 {object} services.KoditEnrichmentData
+// @Success 200 {object} KoditEnrichmentDTO
 // @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
 // @Failure 500 {object} types.APIError
@@ -202,7 +342,7 @@ func (apiServer *HelixAPIServer) getEnrichment(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	enrichment, err := apiServer.koditService.GetEnrichment(r.Context(), enrichmentID)
+	e, err := apiServer.koditService.GetEnrichment(r.Context(), enrichmentID)
 	if err != nil {
 		log.Error().Err(err).Str("enrichment_id", enrichmentID).Msg("Failed to fetch enrichment from Kodit")
 		handleKoditError(w, err, "Failed to fetch enrichment")
@@ -210,7 +350,7 @@ func (apiServer *HelixAPIServer) getEnrichment(w http.ResponseWriter, r *http.Re
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(enrichment)
+	json.NewEncoder(w).Encode(enrichmentToDTO(e))
 }
 
 // getRepositoryKoditCommits fetches commits from Kodit
@@ -220,7 +360,7 @@ func (apiServer *HelixAPIServer) getEnrichment(w http.ResponseWriter, r *http.Re
 // @Produce json
 // @Param id path string true "Repository ID"
 // @Param limit query int false "Limit number of commits (default 100)"
-// @Success 200 {array} map[string]interface{}
+// @Success 200 {array} KoditCommitDTO
 // @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
 // @Failure 500 {object} types.APIError
@@ -254,7 +394,7 @@ func (apiServer *HelixAPIServer) getRepositoryKoditCommits(w http.ResponseWriter
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(commits)
+	json.NewEncoder(w).Encode(commitsToDTO(commits))
 }
 
 // searchRepositorySnippets searches for code snippets in a repository from Kodit
@@ -265,8 +405,7 @@ func (apiServer *HelixAPIServer) getRepositoryKoditCommits(w http.ResponseWriter
 // @Param id path string true "Repository ID"
 // @Param query query string true "Search query"
 // @Param limit query int false "Limit number of results (default 20)"
-// @Param commit_sha query string false "Filter by commit SHA"
-// @Success 200 {array} services.KoditSearchResult
+// @Success 200 {array} KoditSearchResultDTO
 // @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
 // @Failure 500 {object} types.APIError
@@ -286,8 +425,6 @@ func (apiServer *HelixAPIServer) searchRepositorySnippets(w http.ResponseWriter,
 		return
 	}
 
-	commitSHA := r.URL.Query().Get("commit_sha")
-
 	limit := 20
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
 		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
@@ -300,17 +437,17 @@ func (apiServer *HelixAPIServer) searchRepositorySnippets(w http.ResponseWriter,
 		return
 	}
 
-	log.Debug().Str("query", query).Int("limit", limit).Str("commit_sha", commitSHA).Int64("kodit_repo_id", koditRepoID).Msg("Searching snippets in Kodit")
+	log.Debug().Str("query", query).Int("limit", limit).Int64("kodit_repo_id", koditRepoID).Msg("Searching snippets in Kodit")
 
-	snippets, err := apiServer.koditService.SearchSnippets(r.Context(), koditRepoID, query, limit, commitSHA)
+	enrichments, err := apiServer.koditService.SearchSnippets(r.Context(), koditRepoID, query, limit)
 	if err != nil {
-		log.Error().Err(err).Int64("kodit_repo_id", koditRepoID).Str("query", query).Str("commit_sha", commitSHA).Msg("Failed to search snippets from Kodit")
+		log.Error().Err(err).Int64("kodit_repo_id", koditRepoID).Str("query", query).Msg("Failed to search snippets from Kodit")
 		handleKoditError(w, err, "Failed to search snippets")
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(snippets)
+	json.NewEncoder(w).Encode(searchResultsToDTO(enrichments))
 }
 
 // getRepositoryIndexingStatus fetches indexing status from Kodit
@@ -319,7 +456,7 @@ func (apiServer *HelixAPIServer) searchRepositorySnippets(w http.ResponseWriter,
 // @Tags git-repositories
 // @Produce json
 // @Param id path string true "Repository ID"
-// @Success 200 {object} services.KoditIndexingStatus
+// @Success 200 {object} KoditIndexingStatusDTO
 // @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
 // @Failure 500 {object} types.APIError
@@ -338,7 +475,7 @@ func (apiServer *HelixAPIServer) getRepositoryIndexingStatus(w http.ResponseWrit
 		return
 	}
 
-	status, err := apiServer.koditService.GetRepositoryStatus(r.Context(), koditRepoID)
+	summary, err := apiServer.koditService.GetRepositoryStatus(r.Context(), koditRepoID)
 	if err != nil {
 		log.Error().Err(err).Int64("kodit_repo_id", koditRepoID).Msg("Failed to fetch status from Kodit")
 		handleKoditError(w, err, "Failed to fetch indexing status")
@@ -346,7 +483,7 @@ func (apiServer *HelixAPIServer) getRepositoryIndexingStatus(w http.ResponseWrit
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	json.NewEncoder(w).Encode(indexingStatusToDTO(summary))
 }
 
 // rescanRepository triggers a rescan of a specific commit in Kodit

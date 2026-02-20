@@ -31,7 +31,7 @@ func TestKoditService_SearchSnippetsEmptyQuery(t *testing.T) {
 	service := NewKoditService(nil)
 	service.enabled = true // Enable but with nil client to test early returns
 
-	results, err := service.SearchSnippets(t.Context(), 1, "", 20, "")
+	results, err := service.SearchSnippets(t.Context(), 1, "", 20)
 	if err != nil {
 		t.Fatalf("Expected no error for empty query, got: %v", err)
 	}

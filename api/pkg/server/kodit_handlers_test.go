@@ -144,7 +144,7 @@ func (suite *KoditHandlersSuite) TestGetRepositoryEnrichments_Success() {
 	suite.apiServer.getRepositoryEnrichments(rec, req)
 	suite.Equal(200, rec.Code)
 
-	var response services.KoditEnrichmentListResponse
+	var response KoditEnrichmentListResponse
 	suite.NoError(json.NewDecoder(rec.Body).Decode(&response))
 	suite.NotNil(response.Data)
 }
