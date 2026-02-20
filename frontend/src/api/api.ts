@@ -646,11 +646,23 @@ export interface ServerDevContainerWithClients {
   gpu_vendor?: string;
   /** Network info for RevDial/screenshot-server connections */
   ip_address?: string;
+  organization_id?: string;
+  organization_name?: string;
+  owner_name?: string;
+  project_id?: string;
+  project_name?: string;
   /** /dev/dri/renderD128 or SOFTWARE */
   render_node?: string;
   sandbox_id?: string;
+  session_age?: string;
   session_id?: string;
+  session_name?: string;
   status?: HydraDevContainerStatus;
+  task_id?: string;
+  task_name?: string;
+  task_number?: number;
+  /** First ~80 chars of original prompt */
+  task_prompt?: string;
   video_stats?: ServerVideoStreamingStats;
 }
 
@@ -1298,6 +1310,12 @@ export interface TypesAssistantConfig {
   browser?: TypesAssistantBrowser;
   calculator?: TypesAssistantCalculator;
   /**
+   * CodeAgentCredentialType specifies how the code agent authenticates with the LLM provider.
+   * "api_key" (default/empty): uses an API key routed through the Helix proxy.
+   * "subscription": uses OAuth credentials directly (e.g., Claude subscription).
+   */
+  code_agent_credential_type?: TypesCodeAgentCredentialType;
+  /**
    * CodeAgentRuntime specifies which code agent runtime to use inside Zed (for zed_external agent type).
    * Options: "zed_agent" (Zed's built-in agent) or "qwen_code" (qwen command as custom agent).
    * If empty, defaults to "zed_agent".
@@ -1814,6 +1832,11 @@ export interface TypesCodeAgentConfig {
   provider?: string;
   /** Runtime specifies which code agent runtime to use: "zed_agent" or "qwen_code" */
   runtime?: TypesCodeAgentRuntime;
+}
+
+export enum TypesCodeAgentCredentialType {
+  CodeAgentCredentialTypeAPIKey = "api_key",
+  CodeAgentCredentialTypeSubscription = "subscription",
 }
 
 export enum TypesCodeAgentRuntime {
@@ -4291,6 +4314,10 @@ export interface TypesSlackTrigger {
   bot_token?: string;
   channels?: string[];
   enabled?: boolean;
+  /** Send project updates to this channel */
+  project_channel?: string;
+  /** Send project updates (spec task creation, completion, etc) */
+  project_updates?: boolean;
 }
 
 export interface TypesSpecApprovalResponse {
