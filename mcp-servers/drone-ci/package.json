@@ -15,7 +15,7 @@
     "dev": "tsc -w"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.10.2",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "axios": "^1.8.4",
     "zod": "^3.24.1"
   },
