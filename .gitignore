@@ -1,3 +1,4 @@
+kodit-models/
 api/pkg/skills/test_results/
 .hydra-resolved*.yaml
 .env

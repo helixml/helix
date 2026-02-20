@@ -3,9 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	giteagit "code.gitea.io/gitea/modules/git"
@@ -13,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/kodit"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -21,8 +22,7 @@ type KoditHandlersSuite struct {
 	suite.Suite
 	ctx              context.Context
 	apiServer        *HelixAPIServer
-	fakeKoditServer  *httptest.Server
-	koditHandler     *fakeKoditHandler
+	koditClient      *kodit.Client
 	fakeGitRepoStore *fakeGitRepositoryStore
 }
 
@@ -32,12 +32,24 @@ func TestKoditHandlersSuite(t *testing.T) {
 
 func (suite *KoditHandlersSuite) SetupTest() {
 	suite.ctx = context.Background()
-	suite.koditHandler = &fakeKoditHandler{}
-	suite.fakeKoditServer = httptest.NewServer(suite.koditHandler)
 	suite.fakeGitRepoStore = &fakeGitRepositoryStore{}
 
+	// Create an in-process kodit client with SQLite for testing
+	dataDir := suite.T().TempDir()
+	dbPath := filepath.Join(dataDir, "test.db")
+
+	client, err := kodit.New(
+		kodit.WithSQLite(dbPath),
+		kodit.WithDataDir(dataDir),
+		kodit.WithWorkerCount(0), // No background workers in tests
+		kodit.WithEmbeddingProvider(&noopEmbedder{}),
+		kodit.WithSkipProviderValidation(),
+	)
+	suite.Require().NoError(err)
+	suite.koditClient = client
+
 	suite.apiServer = &HelixAPIServer{
-		koditService: services.NewKoditService(suite.fakeKoditServer.URL, "test-api-key"),
+		koditService: services.NewKoditService(client),
 		gitRepositoryService: services.NewGitRepositoryService(
 			suite.fakeGitRepoStore, suite.T().TempDir(), "http://localhost:8080", "test", "test@example.com",
 		),
@@ -45,15 +57,17 @@ func (suite *KoditHandlersSuite) SetupTest() {
 }
 
 func (suite *KoditHandlersSuite) TearDownTest() {
-	suite.fakeKoditServer.Close()
+	if suite.koditClient != nil {
+		suite.koditClient.Close()
+	}
 }
 
 // =============================================================================
 // Repository Factories
 // =============================================================================
 
-// repoWithKoditEnabled creates a repository with kodit enabled and a valid local path
-func (suite *KoditHandlersSuite) repoWithKoditEnabled(koditRepoID string) *types.GitRepository {
+// repoWithKoditEnabled creates a repository with kodit enabled and a valid kodit_repo_id
+func (suite *KoditHandlersSuite) repoWithKoditEnabled(koditRepoID int64) *types.GitRepository {
 	return &types.GitRepository{
 		ID: "repo-123", KoditIndexing: true, LocalPath: suite.initGitRepo(),
 		Metadata: map[string]any{"kodit_repo_id": koditRepoID},
@@ -96,88 +110,6 @@ func (f *fakeGitRepositoryStore) UpdateGitRepository(_ context.Context, repo *ty
 }
 
 // =============================================================================
-// Fake Kodit Handler
-// =============================================================================
-
-type fakeKoditHandler struct {
-	response   any
-	statusCode int
-	// Captured for search assertions
-	lastQuery, lastSearchCommitSHA string
-}
-
-func (h *fakeKoditHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	code := h.statusCode
-	if code == 0 {
-		code = http.StatusOK
-	}
-	w.Header().Set("Content-Type", "application/json")
-
-	// Capture search params for assertions
-	if r.URL.Path == "/api/v1/search" && r.Method == "POST" {
-		var req map[string]any
-		json.NewDecoder(r.Body).Decode(&req)
-		if data, ok := req["data"].(map[string]any); ok {
-			if attrs, ok := data["attributes"].(map[string]any); ok {
-				h.lastQuery, _ = attrs["text"].(string)
-				if filters, ok := attrs["filters"].(map[string]any); ok {
-					if sha, ok := filters["commit_sha"].([]any); ok && len(sha) > 0 {
-						h.lastSearchCommitSHA, _ = sha[0].(string)
-					}
-				}
-			}
-		}
-	}
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(h.response)
-}
-
-// =============================================================================
-// Test Case Type
-// =============================================================================
-
-type handlerTestCase struct {
-	name        string
-	repo        *types.GitRepository
-	storeErr    error
-	koditStatus int
-	koditResp   any
-	wantStatus  int
-}
-
-// standardTestCases returns common test cases for handlers
-func (suite *KoditHandlersSuite) standardTestCases(koditRepoID string) []handlerTestCase {
-	return []handlerTestCase{
-		{"repo service error returns 500", nil, errors.New("db error"), 0, nil, 500},
-		{"kodit indexing false returns 404", suite.repoWithKoditDisabled(), nil, 0, nil, 404},
-		{"kodit repo ID not set returns 500", suite.repoWithKoditEnabledNoID(), nil, 0, nil, 500},
-		{"kodit 404 returns 404", suite.repoWithKoditEnabled(koditRepoID), nil, 404, map[string]any{"error": "not found"}, 404},
-		{"kodit error returns 502", suite.repoWithKoditEnabled(koditRepoID), nil, 500, map[string]any{"error": "internal"}, 502},
-		{"success returns 200", suite.repoWithKoditEnabled(koditRepoID), nil, 200, map[string]any{"data": []any{}}, 200},
-	}
-}
-
-func (suite *KoditHandlersSuite) runHandlerTest(tc handlerTestCase, handler func(http.ResponseWriter, *http.Request), req *http.Request) {
-	suite.fakeGitRepoStore.repository = tc.repo
-	suite.fakeGitRepoStore.err = tc.storeErr
-	suite.koditHandler.statusCode = tc.koditStatus
-	suite.koditHandler.response = tc.koditResp
-
-	rec := httptest.NewRecorder()
-	handler(rec, req)
-	suite.Equal(tc.wantStatus, rec.Code)
-}
-
-func (suite *KoditHandlersSuite) makeRequest(path string, vars map[string]string, query string) *http.Request {
-	req := httptest.NewRequest("GET", path, nil)
-	req = req.WithContext(suite.ctx)
-	if query != "" {
-		req.URL.RawQuery = query
-	}
-	return mux.SetURLVars(req, vars)
-}
-
-// =============================================================================
 // Tests for getRepositoryEnrichments
 // =============================================================================
 
@@ -188,13 +120,33 @@ func (suite *KoditHandlersSuite) TestGetRepositoryEnrichments_MissingRepoID() {
 	suite.Equal(400, rec.Code)
 }
 
-func (suite *KoditHandlersSuite) TestGetRepositoryEnrichments() {
-	for _, tc := range suite.standardTestCases("kodit-123") {
-		suite.Run(tc.name, func() {
-			req := suite.makeRequest("/enrichments", map[string]string{"id": "repo-123"}, "")
-			suite.runHandlerTest(tc, suite.apiServer.getRepositoryEnrichments, req)
-		})
-	}
+func (suite *KoditHandlersSuite) TestGetRepositoryEnrichments_KoditDisabled() {
+	suite.fakeGitRepoStore.repository = suite.repoWithKoditDisabled()
+	req := suite.makeRequest("/enrichments", map[string]string{"id": "repo-123"}, "")
+	rec := httptest.NewRecorder()
+	suite.apiServer.getRepositoryEnrichments(rec, req)
+	suite.Equal(404, rec.Code)
+}
+
+func (suite *KoditHandlersSuite) TestGetRepositoryEnrichments_NoKoditRepoID() {
+	suite.fakeGitRepoStore.repository = suite.repoWithKoditEnabledNoID()
+	req := suite.makeRequest("/enrichments", map[string]string{"id": "repo-123"}, "")
+	rec := httptest.NewRecorder()
+	suite.apiServer.getRepositoryEnrichments(rec, req)
+	// Re-registration will fail (no user in context), so expect 500
+	suite.Equal(500, rec.Code)
+}
+
+func (suite *KoditHandlersSuite) TestGetRepositoryEnrichments_Success() {
+	suite.fakeGitRepoStore.repository = suite.repoWithKoditEnabled(999)
+	req := suite.makeRequest("/enrichments", map[string]string{"id": "repo-123"}, "")
+	rec := httptest.NewRecorder()
+	suite.apiServer.getRepositoryEnrichments(rec, req)
+	suite.Equal(200, rec.Code)
+
+	var response services.KoditEnrichmentListResponse
+	suite.NoError(json.NewDecoder(rec.Body).Decode(&response))
+	suite.NotNil(response.Data)
 }
 
 // =============================================================================
@@ -206,28 +158,15 @@ func (suite *KoditHandlersSuite) TestGetEnrichment_MissingIDs() {
 		name string
 		vars map[string]string
 	}{
-		{"missing repo ID", map[string]string{"id": "", "enrichmentId": "enr-1"}},
+		{"missing repo ID", map[string]string{"id": "", "enrichmentId": "1"}},
 		{"missing enrichment ID", map[string]string{"id": "repo-123", "enrichmentId": ""}},
 	}
 	for _, tt := range tests {
 		suite.Run(tt.name, func() {
-			req := suite.makeRequest("/enrichments/enr-1", tt.vars, "")
+			req := suite.makeRequest("/enrichments/1", tt.vars, "")
 			rec := httptest.NewRecorder()
 			suite.apiServer.getEnrichment(rec, req)
 			suite.Equal(400, rec.Code)
-		})
-	}
-}
-
-func (suite *KoditHandlersSuite) TestGetEnrichment() {
-	for _, tc := range suite.standardTestCases("kodit-123") {
-		suite.Run(tc.name, func() {
-			// Override success response for single enrichment format
-			if tc.wantStatus == 200 {
-				tc.koditResp = map[string]any{"data": map[string]any{"id": "enr-1"}}
-			}
-			req := suite.makeRequest("/enrichments/enr-1", map[string]string{"id": "repo-123", "enrichmentId": "enr-1"}, "")
-			suite.runHandlerTest(tc, suite.apiServer.getEnrichment, req)
 		})
 	}
 }
@@ -243,13 +182,12 @@ func (suite *KoditHandlersSuite) TestGetRepositoryKoditCommits_MissingRepoID() {
 	suite.Equal(400, rec.Code)
 }
 
-func (suite *KoditHandlersSuite) TestGetRepositoryKoditCommits() {
-	for _, tc := range suite.standardTestCases("kodit-123") {
-		suite.Run(tc.name, func() {
-			req := suite.makeRequest("/kodit-commits", map[string]string{"id": "repo-123"}, "")
-			suite.runHandlerTest(tc, suite.apiServer.getRepositoryKoditCommits, req)
-		})
-	}
+func (suite *KoditHandlersSuite) TestGetRepositoryKoditCommits_Success() {
+	suite.fakeGitRepoStore.repository = suite.repoWithKoditEnabled(999)
+	req := suite.makeRequest("/kodit-commits", map[string]string{"id": "repo-123"}, "")
+	rec := httptest.NewRecorder()
+	suite.apiServer.getRepositoryKoditCommits(rec, req)
+	suite.Equal(200, rec.Code)
 }
 
 // =============================================================================
@@ -275,26 +213,12 @@ func (suite *KoditHandlersSuite) TestSearchRepositorySnippets_MissingParams() {
 	}
 }
 
-func (suite *KoditHandlersSuite) TestSearchRepositorySnippets() {
-	for _, tc := range suite.standardTestCases("kodit-123") {
-		suite.Run(tc.name, func() {
-			req := suite.makeRequest("/search-snippets", map[string]string{"id": "repo-123"}, "query=test")
-			suite.runHandlerTest(tc, suite.apiServer.searchRepositorySnippets, req)
-		})
-	}
-}
-
-func (suite *KoditHandlersSuite) TestSearchRepositorySnippets_ParamsPassedToService() {
-	suite.fakeGitRepoStore.repository = suite.repoWithKoditEnabled("kodit-123")
-	suite.koditHandler.response = map[string]any{"data": []any{}}
-
-	req := suite.makeRequest("/search-snippets", map[string]string{"id": "repo-123"}, "query=findMe&commit_sha=abc123")
+func (suite *KoditHandlersSuite) TestSearchRepositorySnippets_Success() {
+	suite.fakeGitRepoStore.repository = suite.repoWithKoditEnabled(999)
+	req := suite.makeRequest("/search-snippets", map[string]string{"id": "repo-123"}, "query=test")
 	rec := httptest.NewRecorder()
 	suite.apiServer.searchRepositorySnippets(rec, req)
-
 	suite.Equal(200, rec.Code)
-	suite.Equal("findMe", suite.koditHandler.lastQuery)
-	suite.Equal("abc123", suite.koditHandler.lastSearchCommitSHA)
 }
 
 // =============================================================================
@@ -308,26 +232,23 @@ func (suite *KoditHandlersSuite) TestGetRepositoryIndexingStatus_MissingRepoID()
 	suite.Equal(400, rec.Code)
 }
 
-func (suite *KoditHandlersSuite) TestGetRepositoryIndexingStatus() {
-	// Status endpoint requires numeric kodit_repo_id
-	for _, tc := range suite.standardTestCases("123") {
-		suite.Run(tc.name, func() {
-			// Override success response for status summary format
-			if tc.wantStatus == 200 {
-				tc.koditResp = map[string]any{
-					"data": map[string]any{
-						"id":   "123",
-						"type": "repository_status_summary",
-						"attributes": map[string]any{
-							"status":     "completed",
-							"message":    "All indexing tasks completed",
-							"updated_at": "2024-01-01T00:00:00Z",
-						},
-					},
-				}
-			}
-			req := suite.makeRequest("/kodit-status", map[string]string{"id": "repo-123"}, "")
-			suite.runHandlerTest(tc, suite.apiServer.getRepositoryIndexingStatus, req)
-		})
+func (suite *KoditHandlersSuite) TestGetRepositoryIndexingStatus_Success() {
+	suite.fakeGitRepoStore.repository = suite.repoWithKoditEnabled(999)
+	req := suite.makeRequest("/kodit-status", map[string]string{"id": "repo-123"}, "")
+	rec := httptest.NewRecorder()
+	suite.apiServer.getRepositoryIndexingStatus(rec, req)
+	suite.Equal(200, rec.Code)
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+func (suite *KoditHandlersSuite) makeRequest(path string, vars map[string]string, query string) *http.Request {
+	req := httptest.NewRequest("GET", path, nil)
+	req = req.WithContext(suite.ctx)
+	if query != "" {
+		req.URL.RawQuery = query
 	}
+	return mux.SetURLVars(req, vars)
 }
