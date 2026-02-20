@@ -1,13 +1,32 @@
 ### API Base ###
 #---------------
-FROM golang:1.25-alpine AS api-base
+# Debian is required for CGo (hugot tokenizers link against glibc)
+FROM golang:1.25-bookworm AS api-base
 WORKDIR /app
-# Install git for development and build environments
-RUN apk add --no-cache git
+# Install build dependencies for CGo (hugot/tokenizers)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential git \
+    && rm -rf /var/lib/apt/lists/*
 COPY go.mod go.sum ./
 # Cache Go modules for offline builds
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
+
+### Embedding model stage ###
+#----------------------------
+# Downloads and converts the st-codesearch-distilroberta-base model to ONNX format.
+# Uses uv+Python because the model conversion requires torch/optimum.
+FROM ghcr.io/astral-sh/uv:debian-slim@sha256:b852203fd7831954c58bfa1fec1166295adcfcfa50f4de7fdd0e684c8bd784eb AS embedding-model
+WORKDIR /build
+COPY api/pkg/koditutil/tools/convert-model.py ./tools/convert-model.py
+RUN uv run --script tools/convert-model.py
+
+### Tokenizers library ###
+#-------------------------
+# Downloads the libtokenizers.a static library needed for CGo builds
+FROM api-base AS tokenizers-lib
+COPY api/pkg/koditutil/tools/download-tokenizers.go ./tools/download-tokenizers.go
+RUN go run ./tools/download-tokenizers.go
 
 ### API Development ###
 #----------------------
@@ -15,17 +34,21 @@ FROM api-base AS api-dev-env
 # - Air provides hot reload for Go
 RUN go install github.com/air-verse/air@v1.52.3
 # - Install curl for Wolf API debugging, bash for git operations, and git-daemon for git-http-backend
-RUN apk add --no-cache curl bash git-daemon
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl bash git-daemon-sysvinit \
+    && rm -rf /var/lib/apt/lists/*
+# - Copy tokenizers library for CGo
+COPY --from=tokenizers-lib /app/lib/libtokenizers.a /usr/lib/
 # - Copy the files and run a build to make startup faster
 COPY api /app/api
 WORKDIR /app/api
-# - Run a build to make the intial air build faster
+# - Run a build to make the initial air build faster
 # Cache Go modules and build artifacts for offline builds
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
+    CGO_ENABLED=1 go build -ldflags "-s -w" -o /helix
 # - Entrypoint is the air command
-ENTRYPOINT ["air", "--build.bin", "/helix", "--build.cmd", "CGO_ENABLED=0 go build -ldflags \"-s -w\" -o /helix", "--build.stop_on_error", "true", "--"]
+ENTRYPOINT ["air", "--build.bin", "/helix", "--build.cmd", "CGO_ENABLED=1 go build -ldflags \"-s -w\" -o /helix", "--build.stop_on_error", "true", "--"]
 CMD ["serve"]
 
 
@@ -33,8 +56,9 @@ CMD ["serve"]
 #-----------------------
 FROM api-base AS api-build-env
 # Following git lines required for buildvcs to work
-RUN apk add --no-cache git
 COPY .git /app/.git
+# Copy tokenizers library for CGo
+COPY --from=tokenizers-lib /app/lib/libtokenizers.a /usr/lib/
 COPY api /app/api
 WORKDIR /app/api
 # - main.version is a variable required by Sentry and is set in .drone.yaml
@@ -42,7 +66,7 @@ ARG APP_VERSION="v0.0.0+unknown"
 # Cache Go modules and build artifacts for offline builds
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -buildvcs=true -ldflags "-s -w -X main.version=$APP_VERSION -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix
+    CGO_ENABLED=1 go build -buildvcs=true -ldflags "-s -w -X main.version=$APP_VERSION -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix
 
 ### Frontend Base ###
 #--------------------
@@ -74,11 +98,15 @@ RUN yarn build
 
 ### Production Image ###
 #-----------------------
-FROM alpine:3.21
-RUN apk --update add --no-cache ca-certificates git git-daemon
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates git git-daemon-sysvinit \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=api-build-env /helix /helix
 COPY --from=ui-build-env /app/dist /www
+# Embedding model files for kodit code intelligence
+COPY --from=embedding-model /build/models/ /kodit-models/
 
 ENV FRONTEND_URL=/www
 

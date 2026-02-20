@@ -619,13 +619,8 @@ func (apiServer *HelixAPIServer) searchCodeAcrossRepositories(ctx context.Contex
 		}
 
 		// Get kodit_repo_id from metadata
-		var koditRepoID string
-		if repo.Metadata != nil {
-			if id, ok := repo.Metadata["kodit_repo_id"].(string); ok {
-				koditRepoID = id
-			}
-		}
-		if koditRepoID == "" {
+		koditRepoID := extractKoditRepoID(repo.Metadata)
+		if koditRepoID == 0 {
 			continue
 		}
 
@@ -634,7 +629,7 @@ func (apiServer *HelixAPIServer) searchCodeAcrossRepositories(ctx context.Contex
 		if err != nil {
 			log.Debug().Err(err).
 				Str("repo_id", repo.ID).
-				Str("kodit_repo_id", koditRepoID).
+				Int64("kodit_repo_id", koditRepoID).
 				Msg("Failed to search snippets in repository")
 			continue
 		}
