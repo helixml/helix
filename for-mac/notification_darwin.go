@@ -1,7 +1,7 @@
 package main
 
 /*
-#cgo CFLAGS: -x objective-c
+#cgo CFLAGS: -x objective-c -mmacosx-version-min=10.14
 #cgo LDFLAGS: -framework Cocoa -framework UserNotifications
 
 #import <UserNotifications/UserNotifications.h>
