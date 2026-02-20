@@ -81,7 +81,7 @@
     "three": "^0.172.0",
     "three-orbitcontrols": "^2.110.3",
     "uuid": "^11.0.5",
-    "yaml": "^2.5.0",
+    "yaml": "^2.8.2",
     "yup": "^1.1.1"
   },
   "devDependencies": {
