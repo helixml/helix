@@ -390,21 +390,11 @@ func (vm *VMManager) ensureVMExtracted() error {
 	if _, err := os.Stat(rootDisk); err != nil {
 		log.Printf("VM root disk not found at %s — download required", vmDir)
 
-		// Copy EFI vars from bundle if available (they're small, ~64MB, and still bundled)
-		bundlePath := vm.getAppBundlePath()
-		if bundlePath != "" {
-			bundledEFI := filepath.Join(bundlePath, "Contents", "Resources", "vm", "efi_vars.fd")
-			efiVars := filepath.Join(vmDir, "efi_vars.fd")
-			if _, err := os.Stat(efiVars); os.IsNotExist(err) {
-				if _, err := os.Stat(bundledEFI); err == nil {
-					os.MkdirAll(vmDir, 0755)
-					log.Printf("Copying EFI vars from bundle...")
-					if err := copyFile(bundledEFI, efiVars); err != nil {
-						log.Printf("Warning: failed to copy EFI vars: %v", err)
-					}
-				}
-			}
-		}
+		// NOTE: Do NOT copy efi_vars.fd from the bundle here. The bundled
+		// efi_vars.fd encodes UEFI boot entries with partition GUIDs from the
+		// build machine, which don't match the user's disk image. Instead, the
+		// boot path below copies the clean edk2-arm-vars.fd template, which
+		// lets UEFI auto-discover the bootloader on first boot.
 
 		return ErrVMImagesNotDownloaded
 	}
@@ -455,30 +445,11 @@ func (vm *VMManager) ensureDevImage(goldenPath, vmDir string) error {
 	}
 	log.Printf("Dev mode: golden image copied successfully")
 
-	// Copy EFI vars from golden image's directory, fall back to app bundle
-	goldenDir := filepath.Dir(absGolden)
-	efiSrc := filepath.Join(goldenDir, "efi_vars.fd")
-	efiDst := filepath.Join(vmDir, "efi_vars.fd")
-	if _, err := os.Stat(efiDst); os.IsNotExist(err) {
-		if _, err := os.Stat(efiSrc); err == nil {
-			log.Printf("Dev mode: copying EFI vars from %s", efiSrc)
-			if err := copyFile(efiSrc, efiDst); err != nil {
-				log.Printf("Warning: failed to copy EFI vars: %v", err)
-			}
-		} else {
-			// Fall back to app bundle EFI vars
-			bundlePath := vm.getAppBundlePath()
-			if bundlePath != "" {
-				bundledEFI := filepath.Join(bundlePath, "Contents", "Resources", "vm", "efi_vars.fd")
-				if _, err := os.Stat(bundledEFI); err == nil {
-					log.Printf("Dev mode: copying EFI vars from app bundle")
-					if err := copyFile(bundledEFI, efiDst); err != nil {
-						log.Printf("Warning: failed to copy EFI vars from bundle: %v", err)
-					}
-				}
-			}
-		}
-	}
+	// NOTE: Do NOT copy efi_vars.fd from golden image or bundle here.
+	// Provisioned efi_vars.fd files encode partition GUIDs from the build
+	// machine. The boot path copies the clean edk2-arm-vars.fd template
+	// when efi_vars.fd doesn't exist, letting UEFI auto-discover the
+	// bootloader.
 
 	return nil
 }
