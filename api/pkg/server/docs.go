@@ -15735,6 +15735,21 @@ const docTemplate = `{
                     "description": "Network info for RevDial/screenshot-server connections",
                     "type": "string"
                 },
+                "organization_id": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "type": "string"
+                },
+                "owner_name": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
                 "render_node": {
                     "description": "/dev/dri/renderD128 or SOFTWARE",
                     "type": "string"
@@ -15742,11 +15757,30 @@ const docTemplate = `{
                 "sandbox_id": {
                     "type": "string"
                 },
+                "session_age": {
+                    "type": "string"
+                },
                 "session_id": {
+                    "type": "string"
+                },
+                "session_name": {
                     "type": "string"
                 },
                 "status": {
                     "$ref": "#/definitions/hydra.DevContainerStatus"
+                },
+                "task_id": {
+                    "type": "string"
+                },
+                "task_name": {
+                    "type": "string"
+                },
+                "task_number": {
+                    "type": "integer"
+                },
+                "task_prompt": {
+                    "description": "First ~80 chars of original prompt",
+                    "type": "string"
                 },
                 "video_stats": {
                     "$ref": "#/definitions/server.VideoStreamingStats"
@@ -17337,6 +17371,14 @@ const docTemplate = `{
                 "calculator": {
                     "$ref": "#/definitions/types.AssistantCalculator"
                 },
+                "code_agent_credential_type": {
+                    "description": "CodeAgentCredentialType specifies how the code agent authenticates with the LLM provider.\n\"api_key\" (default/empty): uses an API key routed through the Helix proxy.\n\"subscription\": uses OAuth credentials directly (e.g., Claude subscription).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentCredentialType"
+                        }
+                    ]
+                },
                 "code_agent_runtime": {
                     "description": "CodeAgentRuntime specifies which code agent runtime to use inside Zed (for zed_external agent type).\nOptions: \"zed_agent\" (Zed's built-in agent) or \"qwen_code\" (qwen command as custom agent).\nIf empty, defaults to \"zed_agent\".",
                     "allOf": [
@@ -18490,6 +18532,17 @@ const docTemplate = `{
                     ]
                 }
             }
+        },
+        "types.CodeAgentCredentialType": {
+            "type": "string",
+            "enum": [
+                "api_key",
+                "subscription"
+            ],
+            "x-enum-varnames": [
+                "CodeAgentCredentialTypeAPIKey",
+                "CodeAgentCredentialTypeSubscription"
+            ]
         },
         "types.CodeAgentRuntime": {
             "type": "string",
@@ -24387,6 +24440,14 @@ const docTemplate = `{
                     }
                 },
                 "enabled": {
+                    "type": "boolean"
+                },
+                "project_channel": {
+                    "description": "Send project updates to this channel",
+                    "type": "string"
+                },
+                "project_updates": {
+                    "description": "Send project updates (spec task creation, completion, etc)",
                     "type": "boolean"
                 }
             }

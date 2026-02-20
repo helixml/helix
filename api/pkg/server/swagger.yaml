@@ -993,15 +993,38 @@ definitions:
       ip_address:
         description: Network info for RevDial/screenshot-server connections
         type: string
+      organization_id:
+        type: string
+      organization_name:
+        type: string
+      owner_name:
+        type: string
+      project_id:
+        type: string
+      project_name:
+        type: string
       render_node:
         description: /dev/dri/renderD128 or SOFTWARE
         type: string
       sandbox_id:
         type: string
+      session_age:
+        type: string
       session_id:
+        type: string
+      session_name:
         type: string
       status:
         $ref: '#/definitions/hydra.DevContainerStatus'
+      task_id:
+        type: string
+      task_name:
+        type: string
+      task_number:
+        type: integer
+      task_prompt:
+        description: First ~80 chars of original prompt
+        type: string
       video_stats:
         $ref: '#/definitions/server.VideoStreamingStats'
     type: object
@@ -2088,6 +2111,13 @@ definitions:
         $ref: '#/definitions/types.AssistantBrowser'
       calculator:
         $ref: '#/definitions/types.AssistantCalculator'
+      code_agent_credential_type:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentCredentialType'
+        description: |-
+          CodeAgentCredentialType specifies how the code agent authenticates with the LLM provider.
+          "api_key" (default/empty): uses an API key routed through the Helix proxy.
+          "subscription": uses OAuth credentials directly (e.g., Claude subscription).
       code_agent_runtime:
         allOf:
         - $ref: '#/definitions/types.CodeAgentRuntime'
@@ -2938,6 +2968,14 @@ definitions:
         description: 'Runtime specifies which code agent runtime to use: "zed_agent"
           or "qwen_code"'
     type: object
+  types.CodeAgentCredentialType:
+    enum:
+    - api_key
+    - subscription
+    type: string
+    x-enum-varnames:
+    - CodeAgentCredentialTypeAPIKey
+    - CodeAgentCredentialTypeSubscription
   types.CodeAgentRuntime:
     enum:
     - zed_agent
@@ -7084,6 +7122,12 @@ definitions:
           type: string
         type: array
       enabled:
+        type: boolean
+      project_channel:
+        description: Send project updates to this channel
+        type: string
+      project_updates:
+        description: Send project updates (spec task creation, completion, etc)
         type: boolean
     type: object
   types.SpecApprovalResponse:
