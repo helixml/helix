@@ -25,7 +25,7 @@ import PersonIcon from '@mui/icons-material/Person'
 import ThermostatIcon from '@mui/icons-material/Thermostat'
 import VideocamIcon from '@mui/icons-material/Videocam'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import useRouter from '../../hooks/useRouter'
+import { useAccount } from '../../contexts/account'
 import useApi from '../../hooks/useApi'
 
 // Types matching the backend response
@@ -232,27 +232,17 @@ interface DevContainerCardProps {
 
 const DevContainerCard: FC<DevContainerCardProps> = ({ container, onStop, isStopping }) => {
   const clients = container.clients || []
-  const router = useRouter()
+  const account = useAccount()
+
+  const hasTaskLink = !!(container.task_id && container.project_id)
 
   const handleTaskClick = () => {
-    if (container.task_id && container.project_id) {
-      if (container.organization_id) {
-        router.navigate('org_project-task-detail', {
-          params: {
-            org_id: container.organization_id,
-            id: container.project_id,
-            taskId: container.task_id,
-          },
-        })
-      } else {
-        router.navigate('project-task-detail', {
-          params: {
-            id: container.project_id,
-            taskId: container.task_id,
-          },
-        })
-      }
-    }
+    if (!hasTaskLink) return
+    account.orgNavigate('project-task-detail', {
+      id: container.project_id!,
+      taskId: container.task_id!,
+      ...(container.organization_id ? { org_id: container.organization_id } : {}),
+    })
   }
 
   return (
@@ -294,10 +284,10 @@ const DevContainerCard: FC<DevContainerCardProps> = ({ container, onStop, isStop
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
-          cursor: container.task_id ? 'pointer' : 'default',
-          '&:hover': container.task_id ? { textDecoration: 'underline' } : {},
+          cursor: hasTaskLink ? 'pointer' : 'default',
+          '&:hover': hasTaskLink ? { textDecoration: 'underline' } : {},
         }}
-        onClick={container.task_id ? handleTaskClick : undefined}
+        onClick={hasTaskLink ? handleTaskClick : undefined}
       >
         {container.task_number
           ? `#${container.task_number} ${container.task_name || container.session_name || ''}`
