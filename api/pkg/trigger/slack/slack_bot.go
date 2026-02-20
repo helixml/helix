@@ -22,20 +22,22 @@ import (
 
 func NewSlackBot(cfg *config.ServerConfig, store store.Store, controller *controller.Controller, app *types.App, trigger *types.SlackTrigger) *SlackBot {
 	return &SlackBot{
-		cfg:        cfg,
-		store:      store,
-		controller: controller,
-		app:        app,
-		trigger:    trigger,
-		botUserID:  "", // Initialize botUserID
+		cfg:         cfg,
+		store:       store,
+		controller:  controller,
+		app:         app,
+		trigger:     trigger,
+		botUserID:   "", // Initialize botUserID
+		postMessage: nil,
 	}
 }
 
 // SlackBot - agent instance that connects to the Slack API
 type SlackBot struct { //nolint:revive
-	cfg        *config.ServerConfig
-	store      store.Store
-	controller *controller.Controller
+	cfg         *config.ServerConfig
+	store       store.Store
+	controller  *controller.Controller
+	postMessage func(channelID string, options ...slack.MsgOption) (string, string, error)
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
@@ -99,6 +101,7 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 		return fmt.Errorf("failed to get auth test: %w", err)
 	}
 	s.botUserID = authTest.UserID
+	s.postMessage = api.PostMessage
 	log.Info().Str("app_id", s.app.ID).Str("bot_user_id", s.botUserID).Msg("bot user ID retrieved")
 
 	client := socketmode.New(
@@ -371,6 +374,8 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 			Msg("failed to get user")
 		return "", nil, fmt.Errorf("failed to get user: %w", err)
 	}
+	user.SpecTaskID = session.Metadata.SpecTaskID
+	user.ProjectID = session.Metadata.ProjectID
 
 	resp, err := s.controller.RunBlockingSession(ctx, &controller.RunSessionRequest{
 		OrganizationID: app.OrganizationID,

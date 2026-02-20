@@ -1,9 +1,16 @@
 package slack
 
 import (
+	"context"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/slack-go/slack"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestConvertMarkdownToSlackFormat(t *testing.T) {
@@ -148,4 +155,86 @@ func TestCreateNewThread_ExternalAgent(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBuildProjectUpdateBlocks(t *testing.T) {
+	task := &types.SpecTask{
+		ID:          "task_123",
+		ProjectID:   "proj_123",
+		Name:        "Implement light mode",
+		Description: "Adds full light mode support to the app",
+		Type:        "feature",
+		Priority:    types.SpecTaskPriorityHigh,
+		Status:      types.TaskStatusImplementation,
+	}
+
+	blocks := buildProjectUpdateBlocks(task)
+	require.Len(t, blocks, 3)
+
+	header, ok := blocks[0].(*slack.HeaderBlock)
+	require.True(t, ok)
+	assert.Contains(t, header.Text.Text, "Project Update")
+	assert.Contains(t, header.Text.Text, "🚧")
+
+	section, ok := blocks[1].(*slack.SectionBlock)
+	require.True(t, ok)
+	require.NotNil(t, section.Text)
+	assert.Contains(t, section.Text.Text, "Implement light mode")
+	assert.Len(t, section.Fields, 4)
+	assert.Contains(t, section.Fields[0].Text, "Implementation")
+}
+
+func TestPostProjectUpdateCreatesSessionAndSlackThread(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	bot := &SlackBot{
+		cfg:   &config.ServerConfig{},
+		store: mockStore,
+		app: &types.App{
+			ID:             "app_123",
+			Owner:          "user_123",
+			OrganizationID: "org_123",
+			Config:         types.AppConfig{},
+		},
+		trigger: &types.SlackTrigger{
+			ProjectUpdates: true,
+			ProjectChannel: "C123",
+		},
+		postMessage: func(_ string, _ ...slack.MsgOption) (string, string, error) {
+			return "C123", "173.42", nil
+		},
+	}
+
+	task := &types.SpecTask{
+		ID:          "task_123",
+		ProjectID:   "proj_123",
+		Name:        "Implement light mode",
+		Description: "Adds full light mode support to the app",
+		Type:        "feature",
+		Priority:    types.SpecTaskPriorityHigh,
+		Status:      types.TaskStatusImplementation,
+	}
+
+	mockStore.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, session types.Session) (*types.Session, error) {
+			assert.Equal(t, "task_123", session.Metadata.SpecTaskID)
+			assert.Equal(t, "proj_123", session.Metadata.ProjectID)
+			return &session, nil
+		},
+	)
+
+	mockStore.EXPECT().GetSlackThread(gomock.Any(), "app_123", "C123", "173.42").Return(nil, store.ErrNotFound)
+	mockStore.EXPECT().CreateSlackThread(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, thread *types.SlackThread) (*types.SlackThread, error) {
+			assert.Equal(t, "app_123", thread.AppID)
+			assert.Equal(t, "C123", thread.Channel)
+			assert.Equal(t, "173.42", thread.ThreadKey)
+			return thread, nil
+		},
+	)
+
+	err := bot.postProjectUpdate(context.Background(), task)
+	require.NoError(t, err)
 }
