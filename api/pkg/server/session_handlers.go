@@ -877,7 +877,7 @@ func (s *HelixAPIServer) handleBlockingSession(
 			Str("agent_type", session.Metadata.AgentType).
 			Msg("Routing non-streaming session to external agent")
 
-		return s.handleExternalAgentStreaming(ctx, user, session, interaction, chatCompletionRequest, rw, start)
+		return s.handleExternalAgentStreaming(ctx, session, chatCompletionRequest, rw, start)
 	}
 
 	// Call the LLM
@@ -984,7 +984,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 			Str("agent_type", session.Metadata.AgentType).
 			Msg("Routing session to external agent")
 
-		return s.handleExternalAgentStreaming(ctx, user, session, interaction, chatCompletionRequest, rw, start)
+		return s.handleExternalAgentStreaming(ctx, session, chatCompletionRequest, rw, start)
 	}
 
 	// Instruct the agent to send thoughts about tools and decisions
@@ -1152,7 +1152,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 }
 
 // handleExternalAgentStreaming routes chat messages to external Zed agent via WebSocket
-func (s *HelixAPIServer) handleExternalAgentStreaming(ctx context.Context, user *types.User, session *types.Session, interaction *types.Interaction, chatCompletionRequest openai.ChatCompletionRequest, rw http.ResponseWriter, start time.Time) error {
+func (s *HelixAPIServer) handleExternalAgentStreaming(ctx context.Context, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, rw http.ResponseWriter, start time.Time) error {
 	// Check if external agent executor is available
 	if s.externalAgentExecutor == nil {
 		log.Error().Str("session_id", session.ID).Msg("External agent executor not available")
@@ -1204,11 +1204,11 @@ func (s *HelixAPIServer) handleExternalAgentStreaming(ctx context.Context, user 
 		Msg("Sending message to external Zed agent")
 
 	// Send message to external agent via WebSocket and stream response back
-	return s.streamFromExternalAgent(ctx, session, userMessage, chatCompletionRequest, rw)
+	return s.streamFromExternalAgent(ctx, session, userMessage, chatCompletionRequest.Model, rw)
 }
 
 // streamFromExternalAgent sends a message to the external agent and streams the response
-func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *types.Session, userMessage string, chatCompletionRequest openai.ChatCompletionRequest, rw http.ResponseWriter) error {
+func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *types.Session, userMessage, modelName string, rw http.ResponseWriter) error {
 	// Get the last interaction to update with the response
 	if len(session.Interactions) == 0 {
 		log.Error().Str("session_id", session.ID).Msg("No interactions found in session")
@@ -1346,7 +1346,7 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 			response := &openai.ChatCompletionStreamResponse{
 				Object: "chat.completion.chunk",
 				ID:     session.ID,
-				Model:  chatCompletionRequest.Model,
+				Model:  modelName,
 				Choices: []openai.ChatCompletionStreamChoice{
 					{
 						Index: 0,
@@ -1413,7 +1413,7 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 			response := &openai.ChatCompletionStreamResponse{
 				Object: "chat.completion.chunk",
 				ID:     session.ID,
-				Model:  chatCompletionRequest.Model,
+				Model:  modelName,
 				Choices: []openai.ChatCompletionStreamChoice{
 					{
 						Index:        0,
