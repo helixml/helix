@@ -40,7 +40,6 @@ import (
 	"github.com/helixml/helix/api/pkg/revdial"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server/spa"
-	"github.com/helixml/helix/api/pkg/koditutil"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/kodit"
 	"github.com/helixml/kodit/infrastructure/provider"
@@ -376,7 +375,7 @@ func NewServer(
 		if modelDir == "" {
 			modelDir = filepath.Join(dataDir, "models")
 		}
-		embedder := koditutil.NewDiskEmbedder(modelDir)
+		embedder := provider.NewHugotEmbedding(modelDir)
 		koditOpts = append(koditOpts, kodit.WithEmbeddingProvider(embedder))
 
 		// LLM text provider for enrichments (separate from embedding).

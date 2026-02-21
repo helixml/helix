@@ -43,12 +43,13 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/hashicorp/go-retryablehttp v0.7.8
-	github.com/helixml/kodit v0.0.0-20260219223453-1a7b3bda46e1
+	github.com/helixml/kodit v0.0.0-20260220184326-67ad35fe5b6b
 	github.com/infracloudio/msbotbuilder-go v0.2.5
 	github.com/inhies/go-bytesize v0.0.0-20220417184213-4913239db9cf
 	github.com/jfrog/froggit-go v1.20.1
 	github.com/joho/godotenv v1.5.1
 	github.com/kelseyhightower/envconfig v1.4.0
+	github.com/knights-analytics/hugot v0.6.2
 	github.com/lib/pq v1.10.9
 	github.com/mark3labs/mcp-go v0.44.0
 	github.com/matoous/go-nanoid/v2 v2.1.0
@@ -165,7 +166,6 @@ require (
 	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
-	github.com/knights-analytics/hugot v0.6.2 // indirect
 	github.com/knights-analytics/ortgenai v0.0.3 // indirect
 	github.com/ktrysmt/go-bitbucket v0.9.80 // indirect
 	github.com/lestrrat-go/backoff/v2 v2.0.7 // indirect
