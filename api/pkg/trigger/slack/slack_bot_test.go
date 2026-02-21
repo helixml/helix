@@ -157,7 +157,7 @@ func TestCreateNewThread_ExternalAgent(t *testing.T) {
 	}
 }
 
-func TestBuildProjectUpdateBlocks(t *testing.T) {
+func TestBuildProjectUpdateAttachment(t *testing.T) {
 	task := &types.SpecTask{
 		ID:          "task_123",
 		ProjectID:   "proj_123",
@@ -168,23 +168,66 @@ func TestBuildProjectUpdateBlocks(t *testing.T) {
 		Status:      types.TaskStatusImplementation,
 	}
 
-	blocks := buildProjectUpdateBlocks(task)
-	require.Len(t, blocks, 3)
+	attachment := buildProjectUpdateAttachment(task, "https://app.helix.ml")
 
-	header, ok := blocks[0].(*slack.HeaderBlock)
-	require.True(t, ok)
-	assert.Contains(t, header.Text.Text, "Project Update")
-	assert.Contains(t, header.Text.Text, "🚧")
-
-	section, ok := blocks[1].(*slack.SectionBlock)
-	require.True(t, ok)
-	require.NotNil(t, section.Text)
-	assert.Contains(t, section.Text.Text, "Implement light mode")
-	assert.Len(t, section.Fields, 4)
-	assert.Contains(t, section.Fields[0].Text, "Implementation")
+	// Should have green color for implementation status
+	assert.Equal(t, "#36a64f", attachment.Color)
+	assert.Contains(t, attachment.Title, "Project Update")
+	assert.Contains(t, attachment.Title, "🚧")
+	assert.Contains(t, attachment.Text, "Implement light mode")
+	assert.Len(t, attachment.Fields, 3)
+	assert.Equal(t, "Status", attachment.Fields[0].Title)
+	assert.Contains(t, attachment.Fields[0].Value, "Implementation")
+	// Task ID should be a clickable link
+	assert.Contains(t, attachment.Fields[2].Value, "https://app.helix.ml/projects/proj_123/tasks/task_123?view=details")
 }
 
-func TestPostProjectUpdateCreatesSessionAndSlackThread(t *testing.T) {
+func TestBuildProjectUpdateReplyAttachment(t *testing.T) {
+	task := &types.SpecTask{
+		ID:          "task_123",
+		ProjectID:   "proj_123",
+		Name:        "Implement light mode",
+		Description: "Adds full light mode support to the app",
+		Type:        "feature",
+		Priority:    types.SpecTaskPriorityHigh,
+		Status:      types.TaskStatusPullRequest,
+	}
+
+	attachment := buildProjectUpdateReplyAttachment(task, "https://app.helix.ml")
+
+	// Should have purple color for pull request status
+	assert.Equal(t, "#9C27B0", attachment.Color)
+	assert.Contains(t, attachment.Text, "🔀")
+	assert.Contains(t, attachment.Text, "Implement light mode")
+	assert.Contains(t, attachment.Text, "Pull Request")
+	assert.Contains(t, attachment.Text, "https://app.helix.ml/projects/proj_123/tasks/task_123?view=details")
+}
+
+func TestSpecTaskStatusColor(t *testing.T) {
+	tests := []struct {
+		status   types.SpecTaskStatus
+		expected string
+	}{
+		{types.TaskStatusBacklog, "#808080"},           // Grey
+		{types.TaskStatusSpecGeneration, "#FF8C00"},    // Orange
+		{types.TaskStatusSpecRevision, "#FF8C00"},      // Orange
+		{types.TaskStatusImplementation, "#36a64f"},    // Green
+		{types.TaskStatusSpecReview, "#2196F3"},        // Blue
+		{types.TaskStatusImplementationReview, "#2196F3"}, // Blue
+		{types.TaskStatusPullRequest, "#9C27B0"},       // Purple
+		{types.TaskStatusDone, "#36a64f"},              // Green
+		{types.TaskStatusSpecFailed, "#E53935"},        // Red
+		{types.TaskStatusImplementationFailed, "#E53935"}, // Red
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.status), func(t *testing.T) {
+			assert.Equal(t, tt.expected, specTaskStatusColor(tt.status))
+		})
+	}
+}
+
+func TestPostProjectUpdateNewCreatesThreadWithSpecTaskID(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -214,8 +257,11 @@ func TestPostProjectUpdateCreatesSessionAndSlackThread(t *testing.T) {
 		Description: "Adds full light mode support to the app",
 		Type:        "feature",
 		Priority:    types.SpecTaskPriorityHigh,
-		Status:      types.TaskStatusImplementation,
+		Status:      types.TaskStatusBacklog,
 	}
+
+	// First call: look up existing thread by spec task ID — not found
+	mockStore.EXPECT().GetSlackThreadBySpecTaskID(gomock.Any(), "app_123", "C123", "task_123").Return(nil, store.ErrNotFound)
 
 	mockStore.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, session types.Session) (*types.Session, error) {
@@ -225,16 +271,70 @@ func TestPostProjectUpdateCreatesSessionAndSlackThread(t *testing.T) {
 		},
 	)
 
-	mockStore.EXPECT().GetSlackThread(gomock.Any(), "app_123", "C123", "173.42").Return(nil, store.ErrNotFound)
 	mockStore.EXPECT().CreateSlackThread(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, thread *types.SlackThread) (*types.SlackThread, error) {
 			assert.Equal(t, "app_123", thread.AppID)
 			assert.Equal(t, "C123", thread.Channel)
 			assert.Equal(t, "173.42", thread.ThreadKey)
+			assert.Equal(t, "task_123", thread.SpecTaskID)
 			return thread, nil
 		},
 	)
 
 	err := bot.postProjectUpdate(context.Background(), task)
 	require.NoError(t, err)
+}
+
+func TestPostProjectUpdateReplyWhenThreadExists(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+
+	var postedInThread string
+	bot := &SlackBot{
+		cfg:   &config.ServerConfig{},
+		store: mockStore,
+		app: &types.App{
+			ID:             "app_123",
+			Owner:          "user_123",
+			OrganizationID: "org_123",
+			Config:         types.AppConfig{},
+		},
+		trigger: &types.SlackTrigger{
+			ProjectUpdates: true,
+			ProjectChannel: "C123",
+		},
+		postMessage: func(channelID string, options ...slack.MsgOption) (string, string, error) {
+			// Capture thread_ts to verify it's a reply
+			postedInThread = channelID
+			return channelID, "174.00", nil
+		},
+	}
+
+	task := &types.SpecTask{
+		ID:          "task_123",
+		ProjectID:   "proj_123",
+		Name:        "Implement light mode",
+		Description: "Status changed to implementation",
+		Type:        "feature",
+		Priority:    types.SpecTaskPriorityHigh,
+		Status:      types.TaskStatusImplementation,
+	}
+
+	existingThread := &types.SlackThread{
+		ThreadKey:  "173.42",
+		AppID:      "app_123",
+		Channel:    "C123",
+		SessionID:  "session_123",
+		SpecTaskID: "task_123",
+	}
+
+	// Should find existing thread
+	mockStore.EXPECT().GetSlackThreadBySpecTaskID(gomock.Any(), "app_123", "C123", "task_123").Return(existingThread, nil)
+
+	// Should NOT create a new session or thread — just post a reply
+	err := bot.postProjectUpdate(context.Background(), task)
+	require.NoError(t, err)
+	assert.Equal(t, "C123", postedInThread)
 }

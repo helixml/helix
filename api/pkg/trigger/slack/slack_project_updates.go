@@ -14,7 +14,7 @@ import (
 	"github.com/slack-go/slack"
 )
 
-// postProjectUpdate - subscribes to project updates and posts them to the Slack channel
+// postProjectUpdates - subscribes to project updates and posts them to the Slack channel
 func (s *SlackBot) postProjectUpdates(ctx context.Context, app *types.App) error {
 	if !s.trigger.ProjectUpdates {
 		return nil
@@ -26,12 +26,11 @@ func (s *SlackBot) postProjectUpdates(ctx context.Context, app *types.App) error
 		return fmt.Errorf("no assistants found")
 	}
 	var projectID string
-
-	// Check if Skill is turned on as well
-	assistant := app.Config.Helix.Assistants[0]
-
-	if assistant.ProjectManager.Enabled {
-		projectID = assistant.ProjectManager.ProjectID
+	for _, assistant := range app.Config.Helix.Assistants {
+		if assistant.ProjectManager.Enabled && assistant.ProjectManager.ProjectID != "" {
+			projectID = assistant.ProjectManager.ProjectID
+			break
+		}
 	}
 
 	if projectID == "" {
@@ -69,6 +68,23 @@ func (s *SlackBot) postProjectUpdate(ctx context.Context, task *types.SpecTask) 
 		s.postMessage = api.PostMessage
 	}
 
+	// Check if we already have a thread for this spec task
+	existingThread, err := s.store.GetSlackThreadBySpecTaskID(ctx, s.app.ID, s.trigger.ProjectChannel, task.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("failed to look up existing thread for spec task: %w", err)
+	}
+
+	if existingThread != nil {
+		// Post update as a thread reply
+		return s.postProjectUpdateReply(ctx, existingThread, task)
+	}
+
+	// First update for this task: post as top-level message
+	return s.postProjectUpdateNew(ctx, task)
+}
+
+// postProjectUpdateNew posts the first message for a spec task and creates a thread record
+func (s *SlackBot) postProjectUpdateNew(ctx context.Context, task *types.SpecTask) error {
 	session := shared.NewTriggerSession(ctx, types.TriggerTypeSlack.String(), s.app).Session
 	session.Name = fmt.Sprintf("project update: %s", task.Name)
 	session.Metadata.SpecTaskID = task.ID
@@ -78,25 +94,27 @@ func (s *SlackBot) postProjectUpdate(ctx context.Context, task *types.SpecTask) 
 		return fmt.Errorf("failed to create session for project update: %w", err)
 	}
 
+	attachment := s.buildProjectUpdateAttachment(ctx, task, s.cfg.Notifications.AppURL)
 	fallback := fmt.Sprintf("Project update: %s (%s)", task.Name, humanizeSpecTaskStatus(task.Status))
+
 	_, threadKey, err := s.postMessage(
 		s.trigger.ProjectChannel,
-		slack.MsgOptionBlocks(buildProjectUpdateBlocks(task)...),
+		slack.MsgOptionAttachments(attachment),
 		slack.MsgOptionText(fallback, false),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to post project update to Slack: %w", err)
 	}
 
-	existingThread, err := s.store.GetSlackThread(ctx, s.app.ID, s.trigger.ProjectChannel, threadKey)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return fmt.Errorf("failed to check existing slack thread: %w", err)
-	}
-	if existingThread == nil {
-		_, err = s.createNewThread(ctx, s.trigger.ProjectChannel, threadKey, createdSession.ID)
-		if err != nil {
-			return fmt.Errorf("failed to create slack thread for project update: %w", err)
-		}
+	_, err = s.store.CreateSlackThread(ctx, &types.SlackThread{
+		ThreadKey:  threadKey,
+		AppID:      s.app.ID,
+		Channel:    s.trigger.ProjectChannel,
+		SessionID:  createdSession.ID,
+		SpecTaskID: task.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create slack thread for project update: %w", err)
 	}
 
 	log.Info().
@@ -105,18 +123,40 @@ func (s *SlackBot) postProjectUpdate(ctx context.Context, task *types.SpecTask) 
 		Str("spec_task_id", task.ID).
 		Str("channel", s.trigger.ProjectChannel).
 		Str("thread_key", threadKey).
-		Msg("posted project update to Slack")
+		Msg("posted new project update to Slack")
 	return nil
 }
 
-func buildProjectUpdateBlocks(task *types.SpecTask) []slack.Block {
-	statusEmoji := specTaskStatusEmoji(task.Status)
-	headerText := slack.NewTextBlockObject(slack.PlainTextType, fmt.Sprintf("%s Project Update", statusEmoji), false, false)
+// postProjectUpdateReply posts a status update as a thread reply to an existing project update message
+func (s *SlackBot) postProjectUpdateReply(ctx context.Context, thread *types.SlackThread, task *types.SpecTask) error {
+	attachment := buildProjectUpdateReplyAttachment(task, s.cfg.Notifications.AppURL)
+	fallback := fmt.Sprintf("Status update: %s → %s", task.Name, humanizeSpecTaskStatus(task.Status))
 
-	statusField := slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*Status*\n`%s`", humanizeSpecTaskStatus(task.Status)), false, false)
-	priorityField := slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*Priority*\n`%s`", strings.ToUpper(string(task.Priority))), false, false)
-	typeField := slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*Type*\n`%s`", task.Type), false, false)
-	taskIDField := slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*Task ID*\n`%s`", task.ID), false, false)
+	_, _, err := s.postMessage(
+		thread.Channel,
+		slack.MsgOptionAttachments(attachment),
+		slack.MsgOptionText(fallback, false),
+		slack.MsgOptionTS(thread.ThreadKey), // Reply in thread
+	)
+	if err != nil {
+		return fmt.Errorf("failed to post project update reply to Slack: %w", err)
+	}
+
+	log.Info().
+		Str("app_id", s.app.ID).
+		Str("project_id", task.ProjectID).
+		Str("spec_task_id", task.ID).
+		Str("channel", thread.Channel).
+		Str("thread_key", thread.ThreadKey).
+		Str("status", string(task.Status)).
+		Msg("posted project update reply to Slack thread")
+	return nil
+}
+
+// buildProjectUpdateAttachment creates a colored Slack attachment for the initial project update
+func (s *SlackBot) buildProjectUpdateAttachment(ctx context.Context, task *types.SpecTask, appURL string) slack.Attachment {
+	statusEmoji := specTaskStatusEmoji(task.Status)
+	color := specTaskStatusColor(task.Status)
 
 	title := task.Name
 	if title == "" {
@@ -126,21 +166,85 @@ func buildProjectUpdateBlocks(task *types.SpecTask) []slack.Block {
 		title = "Untitled task"
 	}
 
-	summaryText := slack.NewTextBlockObject(slack.MarkdownType, fmt.Sprintf("*%s*\n%s", title, truncateForSlack(task.Description, 500)), false, false)
-	metadataText := slack.NewTextBlockObject(
-		slack.MarkdownType,
-		fmt.Sprintf("Project `%s` • Updated %s", task.ProjectID, task.UpdatedAt.UTC().Format(time.RFC822)),
-		false,
-		false,
-	)
+	taskLink := fmt.Sprintf("<%s/projects/%s/tasks/%s?view=details|%s>", strings.TrimRight(appURL, "/"), task.ProjectID, task.ID, task.ID)
 
-	blocks := []slack.Block{
-		slack.NewHeaderBlock(headerText),
-		slack.NewSectionBlock(summaryText, []*slack.TextBlockObject{statusField, priorityField, typeField, taskIDField}, nil),
-		slack.NewContextBlock("project_update_metadata", metadataText),
+	createdByUserName := ""
+
+	createdByUser, err := s.store.GetUser(ctx, &store.GetUserQuery{
+		ID: task.CreatedBy,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("user_id", task.CreatedBy).Msg("failed to get created by user")
+	} else {
+		createdByUserName = createdByUser.FullName
 	}
 
-	return blocks
+	fields := []slack.AttachmentField{
+		{Title: "Status", Value: fmt.Sprintf("`%s`", humanizeSpecTaskStatus(task.Status)), Short: true},
+		{Title: "Priority", Value: fmt.Sprintf("`%s`", strings.ToUpper(string(task.Priority))), Short: true},
+		{Title: "Task ID", Value: taskLink, Short: true},
+		{Title: "User", Value: createdByUserName, Short: true},
+	}
+
+	return slack.Attachment{
+		Color:      color,
+		Title:      fmt.Sprintf("%s Project Update", statusEmoji),
+		Text:       fmt.Sprintf("*%s*\n%s", title, truncateForSlack(task.Description, 500)),
+		Fields:     fields,
+		Footer:     fmt.Sprintf("Project %s • Updated %s", task.ProjectID, task.UpdatedAt.UTC().Format(time.RFC822)),
+		MarkdownIn: []string{"text", "fields"},
+	}
+}
+
+// buildProjectUpdateReplyAttachment creates a compact colored attachment for thread replies
+func buildProjectUpdateReplyAttachment(task *types.SpecTask, appURL string) slack.Attachment {
+	statusEmoji := specTaskStatusEmoji(task.Status)
+	color := specTaskStatusColor(task.Status)
+
+	title := task.Name
+	if title == "" {
+		title = task.ShortTitle
+	}
+	if title == "" {
+		title = "Untitled task"
+	}
+
+	taskLink := fmt.Sprintf("<%s/projects/%s/tasks/%s?view=details|View task>", strings.TrimRight(appURL, "/"), task.ProjectID, task.ID)
+	text := fmt.Sprintf("%s *%s* → *%s*\n%s", statusEmoji, title, humanizeSpecTaskStatus(task.Status), taskLink)
+
+	if task.Description != "" {
+		text += "\n" + truncateForSlack(task.Description, 300)
+	}
+
+	return slack.Attachment{
+		Color:      color,
+		Text:       text,
+		MarkdownIn: []string{"text"},
+	}
+}
+
+// specTaskStatusColor returns the hex color for the colored sidebar based on status
+func specTaskStatusColor(status types.SpecTaskStatus) string {
+	switch status {
+	case types.TaskStatusBacklog:
+		return "#808080" // Grey
+	case types.TaskStatusSpecGeneration, types.TaskStatusSpecRevision,
+		types.TaskStatusQueuedSpecGeneration, types.TaskStatusSpecApproved:
+		return "#FF8C00" // Orange - planning phase
+	case types.TaskStatusImplementation, types.TaskStatusImplementationQueued,
+		types.TaskStatusQueuedImplementation:
+		return "#36a64f" // Green - implementation
+	case types.TaskStatusSpecReview, types.TaskStatusImplementationReview:
+		return "#2196F3" // Blue - review
+	case types.TaskStatusPullRequest:
+		return "#9C27B0" // Purple - pull request
+	case types.TaskStatusDone:
+		return "#36a64f" // Green - done
+	case types.TaskStatusSpecFailed, types.TaskStatusImplementationFailed:
+		return "#E53935" // Red - failed
+	default:
+		return "#808080" // Grey - default
+	}
 }
 
 func specTaskStatusEmoji(status types.SpecTaskStatus) string {
