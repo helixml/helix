@@ -18,8 +18,12 @@ export COMPOSE_PROFILES=${COMPOSE_PROFILES:=""}
 # the default buildx builder and always uses the local daemon's built-in
 # BuildKit. Only 'docker buildx build' routes through the configured builder.
 #
-# Adds --load when a remote builder is active so images are available locally
-# for 'docker compose up', 'docker run', etc.
+# For remote builders: uses smart --load that skips the expensive image export
+# when the image hasn't changed. The export (--load) transfers the entire image
+# as a tarball from the remote builder to the local daemon — ~655s for a 7.7GB
+# image even when fully cached. By building without --load first (~5s) and
+# comparing the image digest with the local daemon's copy, we skip the export
+# when nothing changed.
 function docker_build_load() {
   local args=("$@")
 
@@ -33,30 +37,98 @@ function docker_build_load() {
     driver=$(docker buildx inspect 2>/dev/null | grep -m1 "^Driver:" | awk '{print $2}')
   fi
 
-  if [ "${driver:-}" = "remote" ]; then
-    # Remote builder: add --load so the image is loaded into the local daemon
-    local has_tag=false
-    local has_output=false
-    for arg in "${args[@]}"; do
-      case "$arg" in
-        -t) has_tag=true ;;
-        --output|--output=*|--load|--push) has_output=true ;;
-      esac
-    done
-    if $has_tag && ! $has_output; then
-      args+=("--load")
-    fi
+  if [ "${driver:-}" != "remote" ]; then
+    # Non-remote builder: buildx build directly (no --load needed)
+    docker buildx build "${args[@]}"
+    return $?
   fi
 
-  # Use 'docker buildx build' to honor the default builder
-  docker buildx build "${args[@]}"
+  # Remote builder: extract tags and check for explicit output flags
+  local has_tag=false
+  local has_output=false
+  local tags=()
+  local next_is_tag=false
+  for arg in "${args[@]}"; do
+    if $next_is_tag; then
+      tags+=("$arg")
+      next_is_tag=false
+      continue
+    fi
+    case "$arg" in
+      -t|--tag) has_tag=true; next_is_tag=true ;;
+      --output|--output=*|--load|--push) has_output=true ;;
+    esac
+  done
+
+  # If user specified explicit output or no tag, pass through
+  if $has_output || ! $has_tag; then
+    docker buildx build "${args[@]}"
+    return $?
+  fi
+
+  # Check if all tagged images exist in local daemon
+  local all_local=true
+  for tag in "${tags[@]}"; do
+    if [ -z "$(docker images -q "$tag" 2>/dev/null)" ]; then
+      all_local=false
+      break
+    fi
+  done
+
+  if ! $all_local; then
+    # Image not in local daemon — must build with --load
+    docker buildx build "${args[@]}" --load
+    return $?
+  fi
+
+  # Image exists locally. Quick build WITHOUT --load to check if anything changed.
+  # This runs the full build in BuildKit (all cached = ~5s) and writes the image
+  # digest to iidfile WITHOUT the expensive export step.
+  local iid_file
+  iid_file=$(mktemp /tmp/buildx-iid-XXXXXX)
+  docker buildx build "${args[@]}" --iidfile "$iid_file"
+  local rc=$?
+  if [ $rc -ne 0 ]; then
+    rm -f "$iid_file"
+    return $rc
+  fi
+
+  local new_id=""
+  [ -f "$iid_file" ] && new_id=$(cat "$iid_file")
+  rm -f "$iid_file"
+
+  if [ -z "$new_id" ]; then
+    # Couldn't determine digest — fall back to --load
+    docker buildx build "${args[@]}" --load
+    return $?
+  fi
+
+  # Compare buildx digest with local daemon's image ID
+  local need_load=false
+  for tag in "${tags[@]}"; do
+    local local_id
+    local_id=$(docker images --no-trunc -q "$tag" 2>/dev/null | head -1)
+    if [ "$new_id" != "$local_id" ]; then
+      need_load=true
+      break
+    fi
+  done
+
+  if $need_load; then
+    echo "[build] Image changed (new: ${new_id:0:19}), loading into daemon..."
+    docker buildx build "${args[@]}" --load
+    return $?
+  fi
+
+  echo "[build] Image unchanged (${new_id:0:19}), skipping load"
+  return 0
 }
 
 # Desktop categories for build-sandbox
 # Production desktops are always built; experimental require opt-in via EXPERIMENTAL_DESKTOPS
 # Note: Using arrays because IFS is set to '\n\t' (no space splitting)
-PRODUCTION_DESKTOPS=(sway ubuntu)
-AVAILABLE_EXPERIMENTAL_DESKTOPS=(zorin xfce kde)
+PRODUCTION_DESKTOPS=(ubuntu)
+AVAILABLE_EXPERIMENTAL_DESKTOPS=(sway zorin xfce kde)
 # EXPERIMENTAL_DESKTOPS can be set as space-separated string, converted to array below
 
 # Configure host networking for Docker-in-Docker support
