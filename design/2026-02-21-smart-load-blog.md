@@ -106,15 +106,34 @@ The images DO need to exist in the local daemon (for `docker run` / `docker comp
 
 ### What about single-layer changes?
 
-When only one layer changes in a 7.7GB image, `--load` still transfers the **entire image** as a tarball. The tarball format doesn't support layer-level deduplication — it's all or nothing.
+When only one layer changes in a 7.7GB image, `--load` still transfers the **entire image** as a tarball (~10s). The tarball format doesn't support layer-level deduplication — it's all or nothing.
 
-For the desktop image transfer path (sandbox → registry → desktop container), we use a Docker registry which DOES support layer-level dedup. Only changed layers are pushed/pulled. But for `--load` from BuildKit to a local daemon, the full tarball is the only option in Docker's current architecture.
+We solved this with a **shared Docker registry** running alongside BuildKit. When the wrapper detects an image has changed, it pushes to the registry (which only transfers changed layers) and pulls locally. The Docker pull protocol does layer-level dedup — it checks which layers the local daemon already has and only downloads the new ones.
 
-This is why smart --load is valuable: it avoids the transfer entirely when nothing changed, which is the common case for shared cache hits.
+Benchmarked on a 7.73GB image with a 1-line change in the top layer:
+
+| Approach | Time | vs tarball |
+|----------|------|-----------|
+| Tarball `--load` (old) | **9,973ms** | 1x baseline |
+| Registry push/pull (new) | **871ms** | 11.5x faster |
+| Unchanged image (smart skip) | **314ms** | 31.7x faster |
+
+The registry push shows `pushing layers 0.1s done` (one tiny layer). The pull shows 95 layers as "Already exists" and downloads only the single changed layer. Layer-level dedup turns a 10-second full-image transfer into a sub-second delta.
+
+The three paths compose naturally:
+1. **Image unchanged** → skip load entirely (314ms)
+2. **Image changed, registry available** → push/pull via registry (871ms)
+3. **Image changed, no registry** → fall back to tarball `--load` (10s)
 
 ## Implementation
 
-The entire solution is a single 120-line bash script (`desktop/shared/docker-buildx-wrapper.sh`) installed at `/usr/local/bin/docker` in each desktop container, plus infrastructure to run a shared BuildKit instance at the sandbox level.
+The solution has three components:
+
+1. **Docker wrapper** (`desktop/shared/docker-buildx-wrapper.sh`) — installed at `/usr/local/bin/docker` in each desktop container. Intercepts `docker build` and `docker buildx build`, routes through shared BuildKit, applies smart --load with registry acceleration.
+
+2. **Shared BuildKit + Registry** (`api/pkg/hydra/manager.go`) — the Hydra manager starts a `helix-buildkit` container (shared cache) and a `helix-registry` container (layer-level transfer) at the sandbox level. Both are on the same Docker network as desktop containers.
+
+3. **Init script** (`desktop/shared/17-start-dockerd.sh`) — configures the desktop container's dockerd to trust the insecure registry and exports `HELIX_REGISTRY` globally so the wrapper knows where to push/pull.
 
 The wrapper is generic — it works for any `docker build` workload, not just Helix. It auto-detects whether the active builder is remote, and only applies smart --load when it is. On a standard local Docker setup, it's a transparent passthrough.
 
