@@ -184,18 +184,18 @@ To ensure good build caching across spectask sessions:
 
 ## Results
 
-### With Smart `--load` (PR #1711) — Estimated
+### With Smart `--load` (PR #1712) — Measured
 
-| Phase | Cold Cache | Hot Cache (old) | Hot Cache (smart --load) |
-|-------|-----------|-----------------|--------------------------|
-| `./stack build` (compose) | ~3 min | ~3 min* | ~3 min* |
-| `./stack build-zed release` | ~11 min | ~5 min | ~5s** |
-| `./stack build-sandbox` | ~29 min | ~20 min | ~2 min*** |
-| **Total startup** | **~43 min** | **~28 min** | **~5 min** |
+Measured inside spectask `ubuntu-external-01khzm570xsv3ac2yr51vvhfrq` with all caches hot:
 
-\* `docker compose build` uses shared BuildKit but compose handles --load internally. Smart --load applies to `docker_build_load()` calls.
-\** Zed binary check + quick buildx (no layers changed = no --load).
-\*** Ubuntu build (~5s check, skip --load) + sandbox Dockerfile (~5s) + sandbox restart (~15s) + registry push/pull (skipped if image unchanged).
+| Phase | Cold Cache | Hot Cache (old) | Hot Cache (smart --load) | Improvement |
+|-------|-----------|-----------------|--------------------------|-------------|
+| `./stack build` (compose) | ~3 min | ~200s | **8s** | 25x |
+| `./stack build-zed release` | ~11 min | ~459s | **1s** | 459x |
+| `./stack build-sandbox` | ~29 min | ~2075s | **13s** | 160x |
+| **Total startup** | **~43 min** | **~2734s (45 min)** | **22s** | **124x** |
+
+Key: `./stack build` (compose) also benefits because shared BuildKit cache is hot — compose only needs to --load tiny changed layers.
 
 ### Previous Results (Before Smart `--load`)
 
