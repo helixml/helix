@@ -1,45 +1,48 @@
 #!/bin/bash
-# Docker wrapper that transparently routes 'docker build' through buildx
-# and uses smart --load for remote builders (skips export when image unchanged).
+# Docker wrapper that transparently routes builds through buildx and uses
+# smart --load for remote builders (skips image export when unchanged).
 #
 # Problem: Docker 29.x's 'docker build' ignores the default buildx builder
 # and always uses the local daemon's built-in BuildKit. When a shared remote
-# BuildKit is configured as the default builder, 'docker build' bypasses it
-# entirely — defeating cross-session cache sharing.
+# BuildKit is configured, 'docker build' bypasses it — defeating cache sharing.
 #
-# Solution: This wrapper rewrites 'docker build' to 'docker buildx build'
-# (which honors the default builder) and uses smart --load for remote builders:
-# builds with --output type=image first (~5s) to check if the image changed,
-# then only does the expensive --load (~655s for 7.7GB images) when something
-# actually changed. This makes cached rebuilds near-instant.
+# Solution: This wrapper intercepts both 'docker build' and 'docker buildx build',
+# routes them through the configured buildx builder, and for remote builders
+# applies smart --load: probes the image digest first (~0.5s), then only does
+# the expensive --load (tarball export) when the image actually changed.
 #
 # Installed at /usr/local/bin/docker (ahead of /usr/bin/docker in PATH).
 
 REAL_DOCKER=/usr/bin/docker
 
-# Fast path: only intercept 'build' subcommand
-if [ "${1:-}" != "build" ]; then
+# Detect which form: 'docker build ...' or 'docker buildx build ...'
+if [ "${1:-}" = "build" ]; then
+    # 'docker build ...' → rewrite to 'docker buildx build ...'
+    shift
+elif [ "${1:-}" = "buildx" ] && [ "${2:-}" = "build" ]; then
+    # 'docker buildx build ...' → intercept and apply smart --load
+    shift 2
+else
+    # Not a build command — pass through unchanged
     exec "$REAL_DOCKER" "$@"
 fi
 
+# At this point, "$@" contains the build args (everything after 'build')
+
 # Determine the active builder's driver (remote vs docker)
-# Check explicit BUILDX_BUILDER first, then fall back to default builder
+# Cache the result to avoid repeated 'buildx inspect' calls
 if [ -z "${_DOCKER_WRAPPER_DRIVER:-}" ]; then
     if [ -n "${BUILDX_BUILDER:-}" ]; then
         _DOCKER_WRAPPER_DRIVER=$("$REAL_DOCKER" buildx inspect "$BUILDX_BUILDER" 2>/dev/null | grep -m1 "^Driver:" | awk '{print $2}')
     else
-        # Inspect the default builder (marked with * in buildx ls)
         _DOCKER_WRAPPER_DRIVER=$("$REAL_DOCKER" buildx inspect 2>/dev/null | grep -m1 "^Driver:" | awk '{print $2}')
     fi
     _DOCKER_WRAPPER_DRIVER="${_DOCKER_WRAPPER_DRIVER:-docker}"
     export _DOCKER_WRAPPER_DRIVER
 fi
 
-# Remove 'build' from args — we'll use 'buildx build' instead
-shift
-
 if [ "$_DOCKER_WRAPPER_DRIVER" != "remote" ]; then
-    # Non-remote builder: just use buildx build directly
+    # Non-remote builder: just use buildx build directly (no --load needed)
     exec "$REAL_DOCKER" buildx build "$@"
 fi
 
@@ -79,11 +82,11 @@ if ! $all_local; then
     exec "$REAL_DOCKER" buildx build "$@" --load
 fi
 
-# Image exists locally. Quick build with --output type=image to check if anything
-# changed. This exports the manifest to BuildKit's internal store (fast, no tarball
-# transfer) and writes the config digest to iidfile. --provenance=false ensures
-# the iidfile contains the config digest (not a manifest list), matching what
-# 'docker images --no-trunc -q' returns for loaded images.
+# Image exists locally. Quick build with --output type=image to check if
+# anything changed. This exports the manifest to BuildKit's internal store
+# (fast, no tarball transfer) and writes the config digest to iidfile.
+# --provenance=false ensures the iidfile contains the config digest (not a
+# manifest list), matching what 'docker images --no-trunc -q' returns.
 iid_file=$(mktemp /tmp/buildx-iid-XXXXXX)
 "$REAL_DOCKER" buildx build "$@" --output type=image --provenance=false --iidfile "$iid_file"
 rc=$?

@@ -13,118 +13,15 @@ export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
 export WIPE_SLOTS=${WIPE_SLOTS:="0"}
 export COMPOSE_PROFILES=${COMPOSE_PROFILES:=""}
 
-# Uses 'docker buildx build' instead of plain 'docker build' to ensure
-# the default buildx builder is honored. Docker 29.x's 'docker build' ignores
-# the default buildx builder and always uses the local daemon's built-in
-# BuildKit. Only 'docker buildx build' routes through the configured builder.
+# Smart --load logic has been consolidated into the docker wrapper
+# (desktop/shared/docker-buildx-wrapper.sh), which intercepts both
+# 'docker build' and 'docker buildx build' and applies smart --load
+# for remote builders. The stack script just calls 'docker buildx build'
+# directly — the wrapper handles the rest. See the design doc at
+# design/2026-02-21-shared-buildkit-cache.md for details.
 #
-# For remote builders: uses smart --load that skips the expensive image export
-# when the image hasn't changed. The export (--load) transfers the entire image
-# as a tarball from the remote builder to the local daemon — ~655s for a 7.7GB
-# image even when fully cached. By building without --load first (~5s) and
-# comparing the image digest with the local daemon's copy, we skip the export
-# when nothing changed.
-function docker_build_load() {
-  local args=("$@")
-
-  # Check if the active builder (explicit or default) uses the remote driver
-  local builder="${BUILDX_BUILDER:-}"
-  local driver
-  if [ -n "$builder" ]; then
-    driver=$(docker buildx inspect "$builder" 2>/dev/null | grep -m1 "^Driver:" | awk '{print $2}')
-  else
-    # No explicit builder — check the default builder (marked with * in buildx ls)
-    driver=$(docker buildx inspect 2>/dev/null | grep -m1 "^Driver:" | awk '{print $2}')
-  fi
-
-  if [ "${driver:-}" != "remote" ]; then
-    # Non-remote builder: buildx build directly (no --load needed)
-    docker buildx build "${args[@]}"
-    return $?
-  fi
-
-  # Remote builder: extract tags and check for explicit output flags
-  local has_tag=false
-  local has_output=false
-  local tags=()
-  local next_is_tag=false
-  for arg in "${args[@]}"; do
-    if $next_is_tag; then
-      tags+=("$arg")
-      next_is_tag=false
-      continue
-    fi
-    case "$arg" in
-      -t|--tag) has_tag=true; next_is_tag=true ;;
-      --output|--output=*|--load|--push) has_output=true ;;
-    esac
-  done
-
-  # If user specified explicit output or no tag, pass through
-  if $has_output || ! $has_tag; then
-    docker buildx build "${args[@]}"
-    return $?
-  fi
-
-  # Check if all tagged images exist in local daemon
-  local all_local=true
-  for tag in "${tags[@]}"; do
-    if [ -z "$(docker images -q "$tag" 2>/dev/null)" ]; then
-      all_local=false
-      break
-    fi
-  done
-
-  if ! $all_local; then
-    # Image not in local daemon — must build with --load
-    docker buildx build "${args[@]}" --load
-    return $?
-  fi
-
-  # Image exists locally. Quick build with --output type=image to check if anything
-  # changed. This exports the manifest to BuildKit's internal store (fast, no tarball
-  # transfer) and writes the config digest to iidfile. --provenance=false ensures
-  # the iidfile contains the config digest (not a manifest list), matching what
-  # 'docker images --no-trunc -q' returns for loaded images.
-  local iid_file
-  iid_file=$(mktemp /tmp/buildx-iid-XXXXXX)
-  docker buildx build "${args[@]}" --output type=image --provenance=false --iidfile "$iid_file"
-  local rc=$?
-  if [ $rc -ne 0 ]; then
-    rm -f "$iid_file"
-    return $rc
-  fi
-
-  local new_id=""
-  [ -f "$iid_file" ] && new_id=$(cat "$iid_file")
-  rm -f "$iid_file"
-
-  if [ -z "$new_id" ]; then
-    # Couldn't determine digest — fall back to --load
-    docker buildx build "${args[@]}" --load
-    return $?
-  fi
-
-  # Compare buildx digest with local daemon's image ID
-  local need_load=false
-  for tag in "${tags[@]}"; do
-    local local_id
-    local_id=$(docker images --no-trunc -q "$tag" 2>/dev/null | head -1)
-    if [ "$new_id" != "$local_id" ]; then
-      need_load=true
-      break
-    fi
-  done
-
-  if $need_load; then
-    echo "[build] Image changed (new: ${new_id:0:19}), loading into daemon..."
-    docker buildx build "${args[@]}" --load
-    return $?
-  fi
-
-  echo "[build] Image unchanged (${new_id:0:19}), skipping load"
-  return 0
-}
+# On the host (without the wrapper), 'docker buildx build' uses the local
+# BuildKit directly — which is fine since there's no remote builder overhead.
 
 # Desktop categories for build-sandbox
 # Production desktops are always built; experimental require opt-in via EXPERIMENTAL_DESKTOPS
@@ -403,7 +300,7 @@ function build-runner-image() {
   echo "  Note: ROCm vLLM build takes ~10 minutes"
   echo ""
 
-  docker_build_load \
+  docker buildx build \
     -f Dockerfile.runner \
     --build-arg TAG="$BASE_TAG" \
     --build-arg APP_VERSION="$APP_VERSION" \
@@ -487,7 +384,7 @@ EIGNORE
   # --output extracts just the binary from the scratch final stage
   # --build-arg passes the build type (dev or release)
   # BuildKit cache mounts in the Dockerfile handle cargo/rustup/target caching
-  docker_build_load \
+  docker buildx build \
     --provenance=false \
     -f "$DIR/Dockerfile.zed-build" \
     --build-arg "BUILD_TYPE=$BUILD_TYPE" \
@@ -878,7 +775,7 @@ function build-zed-agent() {
     return 1
   fi
 
-  docker_build_load -t helix-sway:latest -f Dockerfile.sway-helix .
+  docker buildx build -t helix-sway:latest -f Dockerfile.sway-helix .
 
   if [ $? -eq 0 ]; then
     echo "✅ Zed agent Docker image built successfully"
@@ -1002,7 +899,7 @@ function build-qwen-code() {
   # Build the builder image if needed
   if ! docker image inspect qwen-code-builder:node20 &> /dev/null; then
     echo "📦 Building qwen-code-builder:node20 image (first time only)..."
-    docker_build_load -t qwen-code-builder:node20 -f Dockerfile.qwen-code-build .
+    docker buildx build -t qwen-code-builder:node20 -f Dockerfile.qwen-code-build .
     if [ $? -ne 0 ]; then
       echo "❌ Failed to build qwen-code-builder:node20 image"
       return 1
@@ -1076,7 +973,7 @@ function build-xfce() {
 
   # Build the custom XFCE image
   echo "🔨 Building helix-xfce:latest container..."
-  if docker_build_load -f Dockerfile.xfce-helix -t helix-xfce:latest .; then
+  if docker buildx build -f Dockerfile.xfce-helix -t helix-xfce:latest .; then
     echo "✅ XFCE container built successfully"
     echo "🖥️  Custom XFCE image ready: helix-xfce:latest"
     echo ""
@@ -1141,7 +1038,7 @@ function build-desktop() {
   # Docker automatically detects Go code changes via COPY layers
   _dt_elapsed "🔨 Building ${IMAGE_NAME}:latest..."
 
-  docker_build_load --provenance=false -f "$DOCKERFILE" \
+  docker buildx build --provenance=false -f "$DOCKERFILE" \
     -t "${IMAGE_NAME}:latest" \
     .
 
@@ -1534,7 +1431,7 @@ function build-sandbox() {
   _bs_elapsed "📦 Building helix-sandbox container..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  docker_build_load -f Dockerfile.sandbox -t helix-sandbox:latest .
+  docker buildx build -f Dockerfile.sandbox -t helix-sandbox:latest .
 
   if [ $? -ne 0 ]; then
     echo "❌ Failed to build helix-sandbox container"
