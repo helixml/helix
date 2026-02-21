@@ -13,7 +13,7 @@ import (
 const (
 	defaultExternalAgentModel        = "gpt-4"
 	defaultExternalAgentReadyTimeout = 300 * time.Second
-	defaultExternalAgentWaitTimeout  = 90 * time.Second
+	defaultExternalAgentWaitTimeout  = 180 * time.Second
 )
 
 type ExternalAgentMode string
@@ -40,7 +40,6 @@ type RunExternalAgentRequest struct {
 	Start                 time.Time
 	ReadyTimeout          time.Duration
 	ResponseTimeout       time.Duration
-	Hooks                 ExternalAgentHooks
 }
 
 type ExternalAgentStream struct {
@@ -80,12 +79,14 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 		req.ResponseTimeout = defaultExternalAgentWaitTimeout
 	}
 
-	if req.Hooks.WaitForExternalAgentReady == nil ||
-		req.Hooks.SendCommand == nil ||
-		req.Hooks.StoreResponseChannel == nil ||
-		req.Hooks.CleanupResponseChannel == nil ||
-		req.Hooks.SetWaitingInteraction == nil ||
-		req.Hooks.SetRequestSessionMapping == nil {
+	hooks := c.GetExternalAgentHooks()
+
+	if hooks.WaitForExternalAgentReady == nil ||
+		hooks.SendCommand == nil ||
+		hooks.StoreResponseChannel == nil ||
+		hooks.CleanupResponseChannel == nil ||
+		hooks.SetWaitingInteraction == nil ||
+		hooks.SetRequestSessionMapping == nil {
 		return nil, fmt.Errorf("external agent hooks are incomplete")
 	}
 
@@ -112,15 +113,15 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 		Str("mode", string(req.Mode)).
 		Msg("sending message to external agent")
 
-	if err := req.Hooks.WaitForExternalAgentReady(ctx, req.Session.ID, req.ReadyTimeout); err != nil {
+	if err := hooks.WaitForExternalAgentReady(ctx, req.Session.ID, req.ReadyTimeout); err != nil {
 		c.markExternalAgentInteractionError(req.Session, interaction, req.Start, fmt.Sprintf("External agent not ready: %s", err.Error()))
 		return nil, fmt.Errorf("external agent not ready: %w", err)
 	}
 
 	requestID := fmt.Sprintf("req_%d", time.Now().UnixNano())
 	agentName := "zed-agent"
-	if req.Hooks.GetAgentNameForSession != nil {
-		agentName = req.Hooks.GetAgentNameForSession(ctx, req.Session)
+	if hooks.GetAgentNameForSession != nil {
+		agentName = hooks.GetAgentNameForSession(ctx, req.Session)
 	}
 
 	command := types.ExternalAgentCommand{
@@ -137,18 +138,18 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 	doneChan := make(chan bool, 1)
 	errorChan := make(chan error, 1)
 
-	req.Hooks.StoreResponseChannel(req.Session.ID, requestID, responseChan, doneChan, errorChan)
-	req.Hooks.SetWaitingInteraction(req.Session.ID, interaction.ID)
-	req.Hooks.SetRequestSessionMapping(requestID, req.Session.ID)
+	hooks.StoreResponseChannel(req.Session.ID, requestID, responseChan, doneChan, errorChan)
+	hooks.SetWaitingInteraction(req.Session.ID, interaction.ID)
+	hooks.SetRequestSessionMapping(requestID, req.Session.ID)
 
-	if err := req.Hooks.SendCommand(req.Session.ID, command); err != nil {
-		req.Hooks.CleanupResponseChannel(req.Session.ID, requestID)
+	if err := hooks.SendCommand(req.Session.ID, command); err != nil {
+		hooks.CleanupResponseChannel(req.Session.ID, requestID)
 		c.markExternalAgentInteractionError(req.Session, interaction, req.Start, err.Error())
 		return nil, fmt.Errorf("failed to send command to external agent: %w", err)
 	}
 
 	if req.Mode == ExternalAgentModeStreaming {
-		stream := c.startExternalAgentStreamWorker(ctx, req, requestID, interaction, responseChan, doneChan, errorChan)
+		stream := c.startExternalAgentStreamWorker(ctx, req, hooks, requestID, interaction, responseChan, doneChan, errorChan)
 		return &RunExternalAgentResponse{
 			RequestID: requestID,
 			Model:     req.ChatCompletionRequest.Model,
@@ -157,7 +158,7 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 	}
 
 	fullResponse, err := c.waitForExternalAgentResponse(ctx, req, requestID, interaction, responseChan, doneChan, errorChan, nil)
-	req.Hooks.CleanupResponseChannel(req.Session.ID, requestID)
+	hooks.CleanupResponseChannel(req.Session.ID, requestID)
 	if err != nil {
 		return nil, err
 	}
@@ -172,6 +173,7 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 func (c *Controller) startExternalAgentStreamWorker(
 	ctx context.Context,
 	req RunExternalAgentRequest,
+	hooks ExternalAgentHooks,
 	requestID string,
 	interaction *types.Interaction,
 	responseChan chan string,
@@ -186,7 +188,7 @@ func (c *Controller) startExternalAgentStreamWorker(
 		defer close(chunksOut)
 		defer close(doneOut)
 		defer close(errorsOut)
-		defer req.Hooks.CleanupResponseChannel(req.Session.ID, requestID)
+		defer hooks.CleanupResponseChannel(req.Session.ID, requestID)
 
 		_, err := c.waitForExternalAgentResponse(ctx, req, requestID, interaction, responseChan, doneChan, errorChan, func(chunk string) error {
 			select {
@@ -209,6 +211,19 @@ func (c *Controller) startExternalAgentStreamWorker(
 		Done:   doneOut,
 		Errors: errorsOut,
 	}
+}
+
+func (c *Controller) SetExternalAgentHooks(hooks ExternalAgentHooks) {
+	c.externalAgentHooksMu.Lock()
+	c.externalAgentHooks = hooks
+	c.externalAgentHooksMu.Unlock()
+}
+
+func (c *Controller) GetExternalAgentHooks() ExternalAgentHooks {
+	c.externalAgentHooksMu.RLock()
+	hooks := c.externalAgentHooks
+	c.externalAgentHooksMu.RUnlock()
+	return hooks
 }
 
 func (c *Controller) waitForExternalAgentResponse(

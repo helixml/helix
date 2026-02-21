@@ -75,6 +75,47 @@ func TestRunExternalAgentBlocking(t *testing.T) {
 	var mappedRequestID string
 	var mappedSessionID string
 
+	c.SetExternalAgentHooks(ExternalAgentHooks{
+		WaitForExternalAgentReady: func(_ context.Context, _ string, _ time.Duration) error {
+			return nil
+		},
+		GetAgentNameForSession: func(_ context.Context, _ *types.Session) string {
+			return "zed-agent"
+		},
+		SendCommand: func(_ string, command types.ExternalAgentCommand) error {
+			requestID, ok := command.Data["request_id"].(string)
+			require.True(t, ok)
+			mu.Lock()
+			requestChannels := channelsByRequestID[requestID]
+			mu.Unlock()
+			go func() {
+				requestChannels.response <- "stream chunk"
+				requestChannels.done <- true
+			}()
+			return nil
+		},
+		StoreResponseChannel: func(_ string, requestID string, responseChan chan string, doneChan chan bool, errorChan chan error) {
+			mu.Lock()
+			channelsByRequestID[requestID] = testExternalAgentChannels{
+				response: responseChan,
+				done:     doneChan,
+				err:      errorChan,
+			}
+			mu.Unlock()
+		},
+		CleanupResponseChannel: func(_ string, _ string) {
+			cleanupCalled = true
+		},
+		SetWaitingInteraction: func(sessionID, interactionID string) {
+			waitingSessionID = sessionID
+			waitingInteractionID = interactionID
+		},
+		SetRequestSessionMapping: func(requestID, sessionID string) {
+			mappedRequestID = requestID
+			mappedSessionID = sessionID
+		},
+	})
+
 	result, err := c.RunExternalAgent(context.Background(), RunExternalAgentRequest{
 		Session: session,
 		ChatCompletionRequest: openai.ChatCompletionRequest{
@@ -87,46 +128,6 @@ func TestRunExternalAgentBlocking(t *testing.T) {
 		},
 		Mode:  ExternalAgentModeBlocking,
 		Start: time.Now(),
-		Hooks: ExternalAgentHooks{
-			WaitForExternalAgentReady: func(_ context.Context, _ string, _ time.Duration) error {
-				return nil
-			},
-			GetAgentNameForSession: func(_ context.Context, _ *types.Session) string {
-				return "zed-agent"
-			},
-			SendCommand: func(_ string, command types.ExternalAgentCommand) error {
-				requestID, ok := command.Data["request_id"].(string)
-				require.True(t, ok)
-				mu.Lock()
-				requestChannels := channelsByRequestID[requestID]
-				mu.Unlock()
-				go func() {
-					requestChannels.response <- "stream chunk"
-					requestChannels.done <- true
-				}()
-				return nil
-			},
-			StoreResponseChannel: func(_ string, requestID string, responseChan chan string, doneChan chan bool, errorChan chan error) {
-				mu.Lock()
-				channelsByRequestID[requestID] = testExternalAgentChannels{
-					response: responseChan,
-					done:     doneChan,
-					err:      errorChan,
-				}
-				mu.Unlock()
-			},
-			CleanupResponseChannel: func(_ string, _ string) {
-				cleanupCalled = true
-			},
-			SetWaitingInteraction: func(sessionID, interactionID string) {
-				waitingSessionID = sessionID
-				waitingInteractionID = interactionID
-			},
-			SetRequestSessionMapping: func(requestID, sessionID string) {
-				mappedRequestID = requestID
-				mappedSessionID = sessionID
-			},
-		},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -186,6 +187,39 @@ func TestRunExternalAgentStreaming(t *testing.T) {
 	mu := &sync.Mutex{}
 	channelsByRequestID := map[string]testExternalAgentChannels{}
 
+	c.SetExternalAgentHooks(ExternalAgentHooks{
+		WaitForExternalAgentReady: func(_ context.Context, _ string, _ time.Duration) error {
+			return nil
+		},
+		GetAgentNameForSession: func(_ context.Context, _ *types.Session) string {
+			return "qwen"
+		},
+		SendCommand: func(_ string, command types.ExternalAgentCommand) error {
+			requestID, ok := command.Data["request_id"].(string)
+			require.True(t, ok)
+			mu.Lock()
+			requestChannels := channelsByRequestID[requestID]
+			mu.Unlock()
+			go func() {
+				requestChannels.response <- "chunk-1"
+				requestChannels.done <- true
+			}()
+			return nil
+		},
+		StoreResponseChannel: func(_ string, requestID string, responseChan chan string, doneChan chan bool, errorChan chan error) {
+			mu.Lock()
+			channelsByRequestID[requestID] = testExternalAgentChannels{
+				response: responseChan,
+				done:     doneChan,
+				err:      errorChan,
+			}
+			mu.Unlock()
+		},
+		CleanupResponseChannel:   func(_ string, _ string) {},
+		SetWaitingInteraction:    func(_, _ string) {},
+		SetRequestSessionMapping: func(_, _ string) {},
+	})
+
 	result, err := c.RunExternalAgent(context.Background(), RunExternalAgentRequest{
 		Session: session,
 		ChatCompletionRequest: openai.ChatCompletionRequest{
@@ -201,39 +235,6 @@ func TestRunExternalAgentStreaming(t *testing.T) {
 		},
 		Mode:  ExternalAgentModeStreaming,
 		Start: time.Now(),
-		Hooks: ExternalAgentHooks{
-			WaitForExternalAgentReady: func(_ context.Context, _ string, _ time.Duration) error {
-				return nil
-			},
-			GetAgentNameForSession: func(_ context.Context, _ *types.Session) string {
-				return "qwen"
-			},
-			SendCommand: func(_ string, command types.ExternalAgentCommand) error {
-				requestID, ok := command.Data["request_id"].(string)
-				require.True(t, ok)
-				mu.Lock()
-				requestChannels := channelsByRequestID[requestID]
-				mu.Unlock()
-				go func() {
-					requestChannels.response <- "chunk-1"
-					requestChannels.done <- true
-				}()
-				return nil
-			},
-			StoreResponseChannel: func(_ string, requestID string, responseChan chan string, doneChan chan bool, errorChan chan error) {
-				mu.Lock()
-				channelsByRequestID[requestID] = testExternalAgentChannels{
-					response: responseChan,
-					done:     doneChan,
-					err:      errorChan,
-				}
-				mu.Unlock()
-			},
-			CleanupResponseChannel: func(_ string, _ string) {},
-			SetWaitingInteraction:  func(_, _ string) {},
-			SetRequestSessionMapping: func(_, _ string) {
-			},
-		},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -282,20 +283,21 @@ func TestRunExternalAgentErrorPaths(t *testing.T) {
 			GetSession("session-3").
 			Return(&external_agent.ZedSession{SessionID: "session-3", Status: "ready"}, nil)
 
+		c.SetExternalAgentHooks(ExternalAgentHooks{
+			WaitForExternalAgentReady: func(_ context.Context, _ string, _ time.Duration) error { return nil },
+			SendCommand:               func(_ string, _ types.ExternalAgentCommand) error { return nil },
+			StoreResponseChannel:      func(_ string, _ string, _ chan string, _ chan bool, _ chan error) {},
+			CleanupResponseChannel:    func(_ string, _ string) {},
+			SetWaitingInteraction:     func(_, _ string) {},
+			SetRequestSessionMapping:  func(_, _ string) {},
+		})
+
 		_, err := c.RunExternalAgent(context.Background(), RunExternalAgentRequest{
 			Session: session,
 			ChatCompletionRequest: openai.ChatCompletionRequest{
 				Messages: []openai.ChatCompletionMessage{
 					{Role: openai.ChatMessageRoleAssistant, Content: "not a user prompt"},
 				},
-			},
-			Hooks: ExternalAgentHooks{
-				WaitForExternalAgentReady: func(_ context.Context, _ string, _ time.Duration) error { return nil },
-				SendCommand:               func(_ string, _ types.ExternalAgentCommand) error { return nil },
-				StoreResponseChannel:      func(_ string, _ string, _ chan string, _ chan bool, _ chan error) {},
-				CleanupResponseChannel:    func(_ string, _ string) {},
-				SetWaitingInteraction:     func(_, _ string) {},
-				SetRequestSessionMapping:  func(_, _ string) {},
 			},
 		})
 		require.Error(t, err)
@@ -331,25 +333,26 @@ func TestRunExternalAgentErrorPaths(t *testing.T) {
 				return interaction, nil
 			})
 
+		c.SetExternalAgentHooks(ExternalAgentHooks{
+			WaitForExternalAgentReady: func(_ context.Context, _ string, _ time.Duration) error {
+				return nil
+			},
+			SendCommand: func(_ string, _ types.ExternalAgentCommand) error {
+				return fmt.Errorf("send failed")
+			},
+			StoreResponseChannel:   func(_ string, _ string, _ chan string, _ chan bool, _ chan error) {},
+			CleanupResponseChannel: func(_ string, _ string) {},
+			SetWaitingInteraction:  func(_, _ string) {},
+			SetRequestSessionMapping: func(_, _ string) {
+			},
+		})
+
 		_, err := c.RunExternalAgent(context.Background(), RunExternalAgentRequest{
 			Session: session,
 			ChatCompletionRequest: openai.ChatCompletionRequest{
 				Messages: []openai.ChatCompletionMessage{
 					{Role: openai.ChatMessageRoleUser, Content: "hi"},
 				},
-			},
-			Hooks: ExternalAgentHooks{
-				WaitForExternalAgentReady: func(_ context.Context, _ string, _ time.Duration) error {
-					return nil
-				},
-				SendCommand: func(_ string, _ types.ExternalAgentCommand) error {
-					return fmt.Errorf("send failed")
-				},
-				StoreResponseChannel: func(_ string, _ string, _ chan string, _ chan bool, _ chan error) {},
-				CleanupResponseChannel: func(_ string, _ string) {
-				},
-				SetWaitingInteraction:    func(_, _ string) {},
-				SetRequestSessionMapping: func(_, _ string) {},
 			},
 		})
 		require.Error(t, err)
