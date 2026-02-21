@@ -15,6 +15,19 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// KoditServicer is the interface for Kodit code intelligence operations.
+// Used by handlers and other services; allows faking in tests.
+type KoditServicer interface {
+	IsEnabled() bool
+	RegisterRepository(ctx context.Context, cloneURL string) (int64, bool, error)
+	GetRepositoryEnrichments(ctx context.Context, koditRepoID int64, enrichmentType, commitSHA string) ([]enrichment.Enrichment, error)
+	GetEnrichment(ctx context.Context, enrichmentID string) (enrichment.Enrichment, error)
+	GetRepositoryCommits(ctx context.Context, koditRepoID int64, limit int) ([]repository.Commit, error)
+	SearchSnippets(ctx context.Context, koditRepoID int64, query string, limit int) ([]enrichment.Enrichment, error)
+	GetRepositoryStatus(ctx context.Context, koditRepoID int64) (tracking.RepositoryStatusSummary, error)
+	RescanCommit(ctx context.Context, koditRepoID int64, commitSHA string) error
+}
+
 // KoditService handles communication with Kodit code intelligence library
 type KoditService struct {
 	enabled bool
@@ -33,14 +46,6 @@ func NewKoditService(client *kodit.Client) *KoditService {
 // IsEnabled returns whether the Kodit service is enabled
 func (s *KoditService) IsEnabled() bool {
 	return s != nil && s.enabled
-}
-
-// Client returns the underlying kodit.Client for direct access (e.g. MCP handler)
-func (s *KoditService) Client() *kodit.Client {
-	if s == nil {
-		return nil
-	}
-	return s.client
 }
 
 // RegisterRepository registers a repository with Kodit for indexing.
@@ -69,7 +74,9 @@ func (s *KoditService) GetRepositoryEnrichments(ctx context.Context, koditRepoID
 		return nil, fmt.Errorf("kodit service not enabled")
 	}
 
-	params := &service.EnrichmentListParams{}
+	params := &service.EnrichmentListParams{
+		Limit: 500, // Cap results to prevent unbounded queries
+	}
 
 	if enrichmentType != "" {
 		t := enrichment.Type(enrichmentType)
@@ -79,18 +86,21 @@ func (s *KoditService) GetRepositoryEnrichments(ctx context.Context, koditRepoID
 	if commitSHA != "" {
 		params.CommitSHA = commitSHA
 	} else {
-		// If no commit SHA provided, get enrichments for latest commits of this repo
+		// If no commit SHA provided, get enrichments for latest commits of this repo.
+		// We MUST scope by commit SHAs because EnrichmentListParams has no repo ID
+		// field — without commit scoping the query returns enrichments from all repos.
 		commits, err := s.client.Commits.Find(ctx, repository.WithRepoID(koditRepoID), repository.WithLimit(50))
 		if err != nil {
 			return nil, fmt.Errorf("failed to list commits for repo: %w", err)
 		}
-		if len(commits) > 0 {
-			shas := make([]string, len(commits))
-			for i, c := range commits {
-				shas[i] = c.SHA()
-			}
-			params.CommitSHAs = shas
+		if len(commits) == 0 {
+			return nil, nil
 		}
+		shas := make([]string, len(commits))
+		for i, c := range commits {
+			shas[i] = c.SHA()
+		}
+		params.CommitSHAs = shas
 	}
 
 	enrichments, err := s.client.Enrichments.List(ctx, params)

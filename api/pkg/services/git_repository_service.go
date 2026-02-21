@@ -62,7 +62,7 @@ type GitRepositoryService struct {
 	gitUserEmail    string        // Default git user email
 	enableGitServer bool          // Whether to enable git server functionality
 	testMode        bool          // Test mode for unit tests
-	koditService    *KoditService // Optional Kodit service for code intelligence
+	koditService    KoditServicer // Optional Kodit service for code intelligence
 
 	// Per-repository locks to serialize git operations and prevent race conditions.
 	// All compound operations (read+sync, write+push, receive-pack+push) must hold
@@ -130,7 +130,7 @@ func (s *GitRepositoryService) SetTestMode(enabled bool) {
 }
 
 // SetKoditService sets the Kodit service for code intelligence
-func (s *GitRepositoryService) SetKoditService(koditService *KoditService) {
+func (s *GitRepositoryService) SetKoditService(koditService KoditServicer) {
 	s.koditService = koditService
 }
 
