@@ -1110,7 +1110,7 @@ function build-desktop() {
   fi
 
   local DESKTOP_BUILD_START=$SECONDS
-  _dt_elapsed() { local msg="[⏱️  desktop-${DESKTOP_NAME} +$((SECONDS - DESKTOP_BUILD_START))s] $*"; echo "$msg"; [ -n "${BUILD_SANDBOX_TIMING_LOG:-}" ] && echo "$msg" >> "$BUILD_SANDBOX_TIMING_LOG"; }
+  _dt_elapsed() { local msg="[⏱️  desktop-${DESKTOP_NAME} +$((SECONDS - DESKTOP_BUILD_START))s] $*"; echo "$msg"; [ -n "${BUILD_SANDBOX_TIMING_LOG:-}" ] && echo "$msg" >> "$BUILD_SANDBOX_TIMING_LOG" || true; }
   _dt_elapsed "Starting build..."
 
   # Build Zed if binary doesn't exist
@@ -1262,7 +1262,7 @@ function transfer-desktop-to-sandbox() {
 
   # Use local registry for efficient layer-based transfer
   local TRANSFER_START=$SECONDS
-  _tx_elapsed() { local msg="[⏱️  transfer-${DESKTOP_NAME} +$((SECONDS - TRANSFER_START))s] $*"; echo "$msg"; [ -n "${BUILD_SANDBOX_TIMING_LOG:-}" ] && echo "$msg" >> "$BUILD_SANDBOX_TIMING_LOG"; }
+  _tx_elapsed() { local msg="[⏱️  transfer-${DESKTOP_NAME} +$((SECONDS - TRANSFER_START))s] $*"; echo "$msg"; [ -n "${BUILD_SANDBOX_TIMING_LOG:-}" ] && echo "$msg" >> "$BUILD_SANDBOX_TIMING_LOG" || true; }
   local REGISTRY_TAG="localhost:5000/${IMAGE_NAME}:${IMAGE_TAG}"
   local SANDBOX_REGISTRY_TAG="registry:5000/${IMAGE_NAME}:${IMAGE_TAG}"
 
