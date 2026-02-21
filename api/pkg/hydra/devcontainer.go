@@ -888,6 +888,17 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 		log.Warn().Err(err).Str("container_id", dc.ContainerID).Msg("Failed to remove container")
 	}
 
+	// Remove the per-session docker-data volume that was mounted at /var/lib/docker.
+	// This volume is created by hydra_executor.go when the container starts and
+	// accumulates docker images/layers from in-desktop Docker usage. Without cleanup
+	// these orphaned volumes leak tens of GB each and fill the disk over time.
+	dockerDataVolume := fmt.Sprintf("docker-data-%s", sessionID)
+	if err := dockerClient.VolumeRemove(ctx, dockerDataVolume, true); err != nil {
+		log.Warn().Err(err).Str("volume", dockerDataVolume).Msg("Failed to remove session docker-data volume")
+	} else {
+		log.Info().Str("volume", dockerDataVolume).Str("session_id", sessionID).Msg("Removed session docker-data volume")
+	}
+
 	// Update status
 	dm.mu.Lock()
 	dc.Status = DevContainerStatusStopped
