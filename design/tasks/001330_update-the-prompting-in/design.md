@@ -102,3 +102,18 @@ You have tools to test UI changes visually:
 
 Screenshots are optional but valuable for UI work - they prove the change works.
 ```
+
+## Implementation Notes
+
+**Files modified:**
+- `api/pkg/services/spec_task_prompts.go` - Added visual testing section after "Kodit MCP Server" section
+- `api/pkg/services/agent_instruction_service.go` - Added screenshot workflow section after "Kodit MCP Server" section
+
+**Key implementation details:**
+- Both prompts use Go template syntax with backtick escaping for inline code
+- The `{{.TaskDirName}}` template variable is already available in both prompts
+- Window focus is REQUIRED before screenshots - desktop-bridge captures actual screen pixels
+
+**Gotcha:** Go templates use backticks for raw strings, so inline backticks in the prompt text need to be concatenated: `` ` + "`code`" + ` ``
+
+**Build verification:** `cd api && go build ./pkg/services/` - passed
