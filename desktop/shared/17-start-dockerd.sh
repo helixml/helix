@@ -167,6 +167,15 @@ export BUILDX_BUILDER=helix-shared
 PROFILE_EOF
     echo "[dockerd] Set BUILDX_BUILDER=helix-shared globally (via /etc/environment and /etc/profile.d/)"
 
+    # Install docker wrapper that transparently adds --load for remote builders.
+    # This makes user 'docker build -t foo .' work seamlessly — the image builds
+    # on the shared BuildKit and automatically loads into the local daemon.
+    if [ -f /opt/helix/docker-buildx-wrapper.sh ]; then
+        cp /opt/helix/docker-buildx-wrapper.sh /usr/local/bin/docker
+        chmod +x /usr/local/bin/docker
+        echo "[dockerd] Installed docker wrapper at /usr/local/bin/docker (auto --load for remote builders)"
+    fi
+
     # Fix ownership of .docker directory for retro user
     # (buildx commands above run as root and create ~/.docker owned by root)
     if id -u retro >/dev/null 2>&1; then
