@@ -18,7 +18,7 @@ No architectural changes needed. This is a text/UI addition to an existing compo
 
 1. **Update GitHub text:** Change "source code is available in our GitHub repo" to friendlier wording like "you can download it from our GitHub repo" - this sounds less intimidating than suggesting users need to compile from source.
 
-2. **Add Discord invitation:** Add a new `Typography` block after the existing "We're gradually rolling out access..." paragraph containing the Discord invitation message with a clickable link.
+2. **Add Discord invitation:** Add a Discord call-to-action with a primary button that links to the Discord server.
 
 ## Key Decisions
 
@@ -28,11 +28,11 @@ No architectural changes needed. This is a text/UI addition to an existing compo
 
 This removes the "source code" phrasing which implies compiling from source, making it sound more accessible.
 
-**Discord styling:** Match the existing link style used for the GitHub repo link (inline `<a>` tag with `target="_blank"` and `rel="noopener noreferrer"`).
+**Discord styling:** Use a primary MUI `Button` component with `variant="contained"` to make it a strong call-to-action. Style it with the accent color (`#00e891`) to match the page's visual theme. The button should link to Discord and open in a new tab.
 
-**Discord placement:** Add as a separate paragraph between the "We're gradually rolling out access..." text and the email display. This gives the Discord CTA visual prominence while keeping the page flow logical.
+**Discord placement:** Add after the "We're gradually rolling out access..." text and before the email display. The button gives the Discord CTA visual prominence.
 
-**Discord text:** "Join our Discord, introduce yourself, and get faster access." - Direct and actionable.
+**Discord text:** Button text: "Join our Discord" with supporting text above it: "Introduce yourself and get faster access"
 
 ## Links
 
