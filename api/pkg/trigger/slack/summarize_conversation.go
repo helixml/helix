@@ -46,7 +46,7 @@ func (s *SlackBot) summarizeConversation(ctx context.Context, user *types.User, 
 		model    string
 	)
 
-	if s.app.Config.Helix.Assistants[0].AgentMode && s.app.Config.Helix.Assistants[0].SmallGenerationModel != "" {
+	if s.app.Config.Helix.Assistants[0].AgentType == types.AgentTypeHelixAgent && s.app.Config.Helix.Assistants[0].SmallGenerationModel != "" {
 		model = s.app.Config.Helix.Assistants[0].SmallGenerationModel
 		provider = s.app.Config.Helix.Assistants[0].SmallGenerationModelProvider
 	} else {

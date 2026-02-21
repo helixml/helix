@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
@@ -366,31 +367,67 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 		Msg("handleMessage called")
 
 	var (
-		session  *types.Session
-		specTask *types.SpecTask
-		err      error
+		session         *types.Session
+		specTask        *types.SpecTask
+		shouldSummarize bool
+		err             error
 	)
 
-	if isMention {
+	if existingThread != nil && existingThread.SpecTaskID != "" {
+		specTask, err = s.store.GetSpecTask(ctx, existingThread.SpecTaskID)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to get spec task '%s': %w", existingThread.SpecTaskID, err)
+		}
+	}
+
+	switch {
+	case isMention:
+		fmt.Println("XXX MENTION")
 		session, err = s.handleAppMentionThread(ctx, app, channel, messageTimestamp, threadTimestamp)
 		if err != nil {
 			return "", nil, err
 		}
-	} else {
-		// This is a continuation of an existing conversation
-		session, specTask, err = s.resolveSessionForIncomingMessage(ctx, existingThread)
+
+	case existingThread != nil && existingThread.SpecTaskID == "":
+		fmt.Println("XXX NO SPEC TASK")
+		// Regular bot reply, not talking with Helix Project spec tasks
+		session, err = s.store.GetSession(ctx, existingThread.SessionID)
 		if err != nil {
-			log.Error().Err(err).Msg("failed to get session")
-			return "", nil, fmt.Errorf("failed to get session, error: %w", err)
+			return "", nil, fmt.Errorf("failed to get session '%s': %w", existingThread.SessionID, err)
 		}
 
-		log.Info().
+	case existingThread != nil && specTask != nil && isSpecTaskActive(specTask.Status):
+		fmt.Println("XXX ACTIVE TASK")
+		// Spec task thread, handle spec task thread - using planning session ID
+		planningSession, err := s.store.GetSession(ctx, specTask.PlanningSessionID)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to get planning session '%s': %w", specTask.PlanningSessionID, err)
+		}
+
+		// Replace the session with planning session, this one speaks directly with the zed agent
+		session = planningSession
+
+	case existingThread != nil && specTask != nil && !isSpecTaskActive(specTask.Status):
+		fmt.Println("XXX INACTIVE TASK")
+		// Inactive spec task (backlog or merged/done) - using normal app route
+		shouldSummarize = true
+
+		session, err = s.store.GetSession(ctx, existingThread.SessionID)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to get session '%s': %w", existingThread.SessionID, err)
+		}
+
+		spew.Dump(session)
+
+	default:
+		// Log
+		log.Error().
 			Str("app_id", app.ID).
 			Str("channel", channel).
-			Str("thread_id", existingThread.ThreadKey).
-			Str("message_ts", messageTimestamp).
-			Str("session_id", session.ID).
-			Msg("continuing existing Slack session")
+			Str("message_timestamp", messageTimestamp).
+			Str("thread_timestamp", threadTimestamp).
+			Msg("handleMessage not a mention and not a thread either")
+		return "", nil, fmt.Errorf("unknown thread type")
 	}
 
 	// Get user for the request
@@ -414,7 +451,6 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 	interactionID := system.GenerateInteractionID()
 	promptMessage := messageText
 	historyLimit := 0
-	shouldSummarize := shouldSummarizeSlackThreadConversation(specTask)
 
 	if threadTimestamp != "" && shouldSummarize {
 		threadMessages, err := s.getSlackThreadMessages(channel, threadTimestamp)
@@ -440,6 +476,8 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 			Str("session_id", session.ID).
 			Msg("running spec task thread message through planning session without Slack summarization")
 	}
+
+	spew.Dump(app)
 
 	resp, err := s.controller.RunBlockingSession(ctx, &controller.RunSessionRequest{
 		OrganizationID: app.OrganizationID,
@@ -505,77 +543,7 @@ func (s *SlackBot) handleAppMentionThread(ctx context.Context, app *types.App, c
 	return session, nil
 }
 
-// handleSpecTaskThread - handles a spec task thread where the task can be in a backlog or running. If it has a running desktop with
-// an agent then we will be using the planning session ID to talk to the external agent.
-// If the task is not running, a normal Optimus agent (current app) will be used
-func (s *SlackBot) handleSpecTaskThread() {
-
-}
-
-func (s *SlackBot) resolveSessionForIncomingMessage(ctx context.Context, existingThread *types.SlackThread) (*types.Session, *types.SpecTask, error) {
-	session, err := s.store.GetSession(ctx, existingThread.SessionID)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	specTaskID := existingThread.SpecTaskID
-	if specTaskID == "" {
-		return session, nil, nil
-	}
-
-	task, err := s.store.GetSpecTask(ctx, specTaskID)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			log.Warn().
-				Str("app_id", s.app.ID).
-				Str("spec_task_id", specTaskID).
-				Msg("spec task not found for Slack thread, falling back to thread session")
-			return session, nil, nil
-		}
-		return nil, nil, fmt.Errorf("failed to get spec task '%s': %w", specTaskID, err)
-	}
-
-	if !shouldUsePlanningSessionForSlackThread(task.Status) {
-		return session, task, nil
-	}
-
-	if task.PlanningSessionID == "" {
-		log.Warn().
-			Str("app_id", s.app.ID).
-			Str("spec_task_id", task.ID).
-			Str("status", task.Status.String()).
-			Msg("spec task is active but has no planning session ID, falling back to thread session")
-		return session, task, nil
-	}
-
-	if task.PlanningSessionID == session.ID {
-		return session, task, nil
-	}
-
-	planningSession, err := s.store.GetSession(ctx, task.PlanningSessionID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get planning session '%s' for spec task '%s': %w", task.PlanningSessionID, task.ID, err)
-	}
-
-	log.Info().
-		Str("app_id", s.app.ID).
-		Str("spec_task_id", task.ID).
-		Str("status", task.Status.String()).
-		Str("thread_session_id", session.ID).
-		Str("planning_session_id", planningSession.ID).
-		Msg("using planning session for Slack thread message")
-
-	return planningSession, task, nil
-}
-
-func shouldSummarizeSlackThreadConversation(specTask *types.SpecTask) bool {
-	if specTask == nil {
-		return true
-	}
-	return !shouldUsePlanningSessionForSlackThread(specTask.Status)
-}
-
-func shouldUsePlanningSessionForSlackThread(status types.SpecTaskStatus) bool {
+func isSpecTaskActive(status types.SpecTaskStatus) bool {
 	switch status {
 	case types.TaskStatusQueuedSpecGeneration,
 		types.TaskStatusSpecGeneration,
@@ -583,7 +551,6 @@ func shouldUsePlanningSessionForSlackThread(status types.SpecTaskStatus) bool {
 		types.TaskStatusSpecRevision,
 		types.TaskStatusSpecApproved,
 		types.TaskStatusQueuedImplementation,
-		types.TaskStatusImplementationQueued,
 		types.TaskStatusImplementation,
 		types.TaskStatusImplementationReview,
 		types.TaskStatusPullRequest:
