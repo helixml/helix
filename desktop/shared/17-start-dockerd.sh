@@ -156,9 +156,26 @@ EOF
     docker buildx rm default 2>/dev/null || true
     echo "[dockerd] Set helix-shared as default builder (removed local default)"
 
+    # CRITICAL: Set BUILDX_BUILDER globally so ALL docker build commands
+    # (including plain 'docker build' and 'docker compose build') route
+    # through the shared BuildKit. Without this, 'docker build' falls back
+    # to the local Docker daemon's built-in BuildKit, which is per-container
+    # and NOT shared across spectask sessions.
+    echo "BUILDX_BUILDER=helix-shared" >> /etc/environment
+    cat > /etc/profile.d/helix-buildkit.sh << 'PROFILE_EOF'
+export BUILDX_BUILDER=helix-shared
+PROFILE_EOF
+    echo "[dockerd] Set BUILDX_BUILDER=helix-shared globally (via /etc/environment and /etc/profile.d/)"
+
     # Fix ownership of .docker directory for retro user
     # (buildx commands above run as root and create ~/.docker owned by root)
-    if id -u retro >/dev/null 2>&1 && [ -d /home/retro/.docker ]; then
-        chown -R retro:retro /home/retro/.docker
-        echo "[dockerd] Fixed /home/retro/.docker ownership"
+    if id -u retro >/dev/null 2>&1; then
+        if [ -d /home/retro/.docker ]; then
+            chown -R retro:retro /home/retro/.docker
+        fi
+        # Also add to retro's .bashrc so interactive shells pick it up immediately
+        if ! grep -q 'BUILDX_BUILDER' /home/retro/.bashrc 2>/dev/null; then
+            echo 'export BUILDX_BUILDER=helix-shared' >> /home/retro/.bashrc
+        fi
+        echo "[dockerd] Fixed /home/retro/.docker ownership and shell config"
     fi

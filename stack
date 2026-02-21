@@ -13,6 +13,35 @@ export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
 export WIPE_SLOTS=${WIPE_SLOTS:="0"}
 export COMPOSE_PROFILES=${COMPOSE_PROFILES:=""}
 
+# When BUILDX_BUILDER is set to a remote builder (e.g., helix-shared), plain
+# 'docker build -t' doesn't load images into the local daemon automatically.
+# This helper detects a remote builder and adds --load so images are available
+# locally for 'docker compose up', 'docker run', etc.
+function docker_build_load() {
+  local args=("$@")
+  if [ -n "${BUILDX_BUILDER:-}" ]; then
+    # Check if the builder uses the remote driver (needs --load for local images)
+    local driver
+    driver=$(docker buildx inspect "$BUILDX_BUILDER" 2>/dev/null | grep -m1 "^Driver:" | awk '{print $2}')
+    if [ "$driver" = "remote" ]; then
+      # Only add --load if the command uses -t (tags an image) and doesn't
+      # already have --output or --load or --push
+      local has_tag=false
+      local has_output=false
+      for arg in "${args[@]}"; do
+        case "$arg" in
+          -t) has_tag=true ;;
+          --output|--output=*|--load|--push) has_output=true ;;
+        esac
+      done
+      if $has_tag && ! $has_output; then
+        args+=("--load")
+      fi
+    fi
+  fi
+  docker build "${args[@]}"
+}
+
 # Desktop categories for build-sandbox
 # Production desktops are always built; experimental require opt-in via EXPERIMENTAL_DESKTOPS
 # Note: Using arrays because IFS is set to '\n\t' (no space splitting)
@@ -290,7 +319,7 @@ function build-runner-image() {
   echo "  Note: ROCm vLLM build takes ~10 minutes"
   echo ""
 
-  docker build \
+  docker_build_load \
     -f Dockerfile.runner \
     --build-arg TAG="$BASE_TAG" \
     --build-arg APP_VERSION="$APP_VERSION" \
@@ -374,7 +403,7 @@ EIGNORE
   # --output extracts just the binary from the scratch final stage
   # --build-arg passes the build type (dev or release)
   # BuildKit cache mounts in the Dockerfile handle cargo/rustup/target caching
-  docker build \
+  docker_build_load \
     --provenance=false \
     -f "$DIR/Dockerfile.zed-build" \
     --build-arg "BUILD_TYPE=$BUILD_TYPE" \
@@ -765,7 +794,7 @@ function build-zed-agent() {
     return 1
   fi
 
-  docker build -t helix-sway:latest -f Dockerfile.sway-helix .
+  docker_build_load -t helix-sway:latest -f Dockerfile.sway-helix .
 
   if [ $? -eq 0 ]; then
     echo "✅ Zed agent Docker image built successfully"
@@ -889,7 +918,7 @@ function build-qwen-code() {
   # Build the builder image if needed
   if ! docker image inspect qwen-code-builder:node20 &> /dev/null; then
     echo "📦 Building qwen-code-builder:node20 image (first time only)..."
-    docker build -t qwen-code-builder:node20 -f Dockerfile.qwen-code-build .
+    docker_build_load -t qwen-code-builder:node20 -f Dockerfile.qwen-code-build .
     if [ $? -ne 0 ]; then
       echo "❌ Failed to build qwen-code-builder:node20 image"
       return 1
@@ -963,7 +992,7 @@ function build-xfce() {
 
   # Build the custom XFCE image
   echo "🔨 Building helix-xfce:latest container..."
-  if docker build -f Dockerfile.xfce-helix -t helix-xfce:latest .; then
+  if docker_build_load -f Dockerfile.xfce-helix -t helix-xfce:latest .; then
     echo "✅ XFCE container built successfully"
     echo "🖥️  Custom XFCE image ready: helix-xfce:latest"
     echo ""
@@ -1025,7 +1054,7 @@ function build-desktop() {
   # Docker automatically detects Go code changes via COPY layers
   echo "🔨 Building ${IMAGE_NAME}:latest..."
 
-  docker build --provenance=false -f "$DOCKERFILE" \
+  docker_build_load --provenance=false -f "$DOCKERFILE" \
     -t "${IMAGE_NAME}:latest" \
     .
 
@@ -1411,7 +1440,7 @@ function build-sandbox() {
   echo "📦 Building helix-sandbox container..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  docker build -f Dockerfile.sandbox -t helix-sandbox:latest .
+  docker_build_load -f Dockerfile.sandbox -t helix-sandbox:latest .
 
   if [ $? -ne 0 ]; then
     echo "❌ Failed to build helix-sandbox container"
