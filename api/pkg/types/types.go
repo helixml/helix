@@ -2728,6 +2728,9 @@ type SlackThread struct {
 
 	SessionID string `json:"session_id"`
 
+	// Project update threads: links thread to a specific spec task
+	SpecTaskID string `json:"spec_task_id,omitempty" gorm:"index"`
+
 	// Progress updates for external agent sessions
 	PostProgressUpdates bool `json:"post_progress_updates"` // Post turn summaries to thread
 	IncludeScreenshots  bool `json:"include_screenshots"`   // Include desktop screenshots in updates
