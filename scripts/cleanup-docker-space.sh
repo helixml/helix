@@ -69,23 +69,17 @@ log "Current /var/lib/docker usage: $USAGE used, $AVAIL available"
 ###############################################################################
 log "--- Phase 1: Session volumes for deleted sessions inside sandbox ---"
 
-# Get active session IDs from the Helix API
+# Get active (non-deleted) session IDs directly from Postgres.
+# This is the source of truth — the API list endpoint doesn't reliably
+# return all sessions (pagination/filtering issues with 1000+ sessions).
 ACTIVE_SESSIONS=""
-if [ -n "${HELIX_API_KEY:-}" ]; then
-    ACTIVE_SESSIONS=$(curl -sf -H "Authorization: Bearer $HELIX_API_KEY" \
-        "$HELIX_URL/api/v1/sessions" 2>/dev/null \
-        | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-sessions = data.get('sessions', data) if isinstance(data, dict) else data
-for s in sessions:
-    print(s.get('id', ''))
-" 2>/dev/null || true)
-    log "Found $(echo "$ACTIVE_SESSIONS" | grep -c . || echo 0) active sessions in API"
+if docker exec helix-postgres-1 psql -U postgres -d postgres -t -c "SELECT 1" >/dev/null 2>&1; then
+    ACTIVE_SESSIONS=$(docker exec helix-postgres-1 psql -U postgres -d postgres -t -c \
+        "SELECT id FROM sessions WHERE deleted_at IS NULL" 2>/dev/null | tr -d ' ' | grep .)
+    log "Found $(echo "$ACTIVE_SESSIONS" | wc -l) active sessions in database"
 else
-    log "WARNING: No HELIX_API_KEY set, falling back to container-based detection"
-    log "  Set HELIX_API_KEY in .env.usercreds for accurate session lifecycle detection"
-    # Fall back to running containers (less accurate but still useful)
+    log "WARNING: Cannot reach Postgres, falling back to container-based detection"
+    log "  This is less accurate — stopped containers with active sessions will keep volumes"
     ACTIVE_SESSIONS=$($SANDBOX_EXEC sh -c '
         docker ps --format "{{.Names}}" 2>/dev/null | grep "ubuntu-external-" | sed "s/ubuntu-external-//"
     ' 2>/dev/null || true)
@@ -98,7 +92,8 @@ ORPHANED_COUNT=0
 ORPHANED_VOLUMES=""
 while IFS= read -r vol; do
     [ -z "$vol" ] && continue
-    SESSION_ID=$(echo "$vol" | sed 's/^docker-data-ses_//')
+    # Volume: docker-data-ses_01xxx → session ID: ses_01xxx (API format)
+    SESSION_ID=$(echo "$vol" | sed 's/^docker-data-//')
     if ! echo "$ACTIVE_SESSIONS" | grep -qF "$SESSION_ID"; then
         ORPHANED_VOLUMES="$ORPHANED_VOLUMES $vol"
         ORPHANED_COUNT=$((ORPHANED_COUNT + 1))
