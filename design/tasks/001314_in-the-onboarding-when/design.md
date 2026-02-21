@@ -76,3 +76,19 @@ if (agentMode === 'create' && agentId) {
 - `ExternalAgentConfig` type defined in `api/pkg/types/types.go` with `resolution` and `zoom_level` fields
 - `apps.updateApp()` available via `useApps()` hook for post-creation config updates
 - Onboarding uses dropdowns for secondary selections (e.g., Claude org picker, agent selector)
+
+## Implementation Notes
+
+### Actual Implementation
+- Added `desktopResolution` state at line 224 of `Onboarding.tsx`
+- Resolution dropdown placed inside the `agentMode === 'create'` branch, after `CodingAgentForm`
+- Used `apiClient.v1AppsUpdate()` instead of `apps.updateApp()` since we already have the apiClient in scope
+- The update spreads the created agent's config to preserve all existing fields while adding resolution settings
+
+### Key Code Location
+- State: `frontend/src/pages/Onboarding.tsx` line ~224
+- Dropdown UI: lines ~1711-1770 (inside Step 3 renderStepContent)
+- Config update: lines ~616-638 (in handleCreateProject after agent creation)
+
+### Gotcha
+- Must add `desktopResolution` to the `useCallback` dependency array for `handleCreateProject`
