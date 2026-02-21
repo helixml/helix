@@ -158,6 +158,13 @@ func TestCreateNewThread_ExternalAgent(t *testing.T) {
 }
 
 func TestBuildProjectUpdateAttachment(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+	bot := &SlackBot{
+		store: mockStore,
+	}
+
 	task := &types.SpecTask{
 		ID:          "task_123",
 		ProjectID:   "proj_123",
@@ -168,14 +175,14 @@ func TestBuildProjectUpdateAttachment(t *testing.T) {
 		Status:      types.TaskStatusImplementation,
 	}
 
-	attachment := buildProjectUpdateAttachment(task, "https://app.helix.ml")
+	attachment := bot.buildProjectUpdateAttachment(context.Background(), task, "https://app.helix.ml")
 
 	// Should have green color for implementation status
 	assert.Equal(t, "#36a64f", attachment.Color)
 	assert.Contains(t, attachment.Title, "Project Update")
 	assert.Contains(t, attachment.Title, "🚧")
-	assert.Contains(t, attachment.Text, "Implement light mode")
-	assert.Len(t, attachment.Fields, 3)
+	assert.Contains(t, attachment.Text, "Adds full light mode support to the app")
+	assert.Len(t, attachment.Fields, 4)
 	assert.Equal(t, "Status", attachment.Fields[0].Title)
 	assert.Contains(t, attachment.Fields[0].Value, "Implementation")
 	// Task ID should be a clickable link
@@ -208,15 +215,15 @@ func TestSpecTaskStatusColor(t *testing.T) {
 		status   types.SpecTaskStatus
 		expected string
 	}{
-		{types.TaskStatusBacklog, "#808080"},           // Grey
-		{types.TaskStatusSpecGeneration, "#FF8C00"},    // Orange
-		{types.TaskStatusSpecRevision, "#FF8C00"},      // Orange
-		{types.TaskStatusImplementation, "#36a64f"},    // Green
-		{types.TaskStatusSpecReview, "#2196F3"},        // Blue
+		{types.TaskStatusBacklog, "#808080"},              // Grey
+		{types.TaskStatusSpecGeneration, "#FF8C00"},       // Orange
+		{types.TaskStatusSpecRevision, "#FF8C00"},         // Orange
+		{types.TaskStatusImplementation, "#36a64f"},       // Green
+		{types.TaskStatusSpecReview, "#2196F3"},           // Blue
 		{types.TaskStatusImplementationReview, "#2196F3"}, // Blue
-		{types.TaskStatusPullRequest, "#9C27B0"},       // Purple
-		{types.TaskStatusDone, "#36a64f"},              // Green
-		{types.TaskStatusSpecFailed, "#E53935"},        // Red
+		{types.TaskStatusPullRequest, "#9C27B0"},          // Purple
+		{types.TaskStatusDone, "#36a64f"},                 // Green
+		{types.TaskStatusSpecFailed, "#E53935"},           // Red
 		{types.TaskStatusImplementationFailed, "#E53935"}, // Red
 	}
 
@@ -248,6 +255,9 @@ func TestPostProjectUpdateNewCreatesThreadWithSpecTaskID(t *testing.T) {
 		postMessage: func(_ string, _ ...slack.MsgOption) (string, string, error) {
 			return "C123", "173.42", nil
 		},
+		updateMessage: func(channelID, timestamp string, _ ...slack.MsgOption) (string, string, string, error) {
+			return channelID, timestamp, "", nil
+		},
 	}
 
 	task := &types.SpecTask{
@@ -262,7 +272,6 @@ func TestPostProjectUpdateNewCreatesThreadWithSpecTaskID(t *testing.T) {
 
 	// First call: look up existing thread by spec task ID — not found
 	mockStore.EXPECT().GetSlackThreadBySpecTaskID(gomock.Any(), "app_123", "C123", "task_123").Return(nil, store.ErrNotFound)
-
 	mockStore.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, session types.Session) (*types.Session, error) {
 			assert.Equal(t, "task_123", session.Metadata.SpecTaskID)
@@ -292,6 +301,9 @@ func TestPostProjectUpdateReplyWhenThreadExists(t *testing.T) {
 	mockStore := store.NewMockStore(ctrl)
 
 	var postedInThread string
+	postCalls := 0
+	updateCalls := 0
+	var updatedThreadTS string
 	bot := &SlackBot{
 		cfg:   &config.ServerConfig{},
 		store: mockStore,
@@ -308,7 +320,13 @@ func TestPostProjectUpdateReplyWhenThreadExists(t *testing.T) {
 		postMessage: func(channelID string, options ...slack.MsgOption) (string, string, error) {
 			// Capture thread_ts to verify it's a reply
 			postedInThread = channelID
+			postCalls++
 			return channelID, "174.00", nil
+		},
+		updateMessage: func(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error) {
+			updateCalls++
+			updatedThreadTS = timestamp
+			return channelID, timestamp, "", nil
 		},
 	}
 
@@ -332,9 +350,11 @@ func TestPostProjectUpdateReplyWhenThreadExists(t *testing.T) {
 
 	// Should find existing thread
 	mockStore.EXPECT().GetSlackThreadBySpecTaskID(gomock.Any(), "app_123", "C123", "task_123").Return(existingThread, nil)
-
 	// Should NOT create a new session or thread — just post a reply
 	err := bot.postProjectUpdate(context.Background(), task)
 	require.NoError(t, err)
 	assert.Equal(t, "C123", postedInThread)
+	assert.Equal(t, 1, postCalls)
+	assert.Equal(t, 1, updateCalls)
+	assert.Equal(t, "173.42", updatedThreadTS)
 }

@@ -60,12 +60,13 @@ func (s *SlackBot) postProjectUpdate(ctx context.Context, task *types.SpecTask) 
 		return fmt.Errorf("project channel is required")
 	}
 
-	if s.postMessage == nil {
+	if s.postMessage == nil || s.updateMessage == nil {
 		api := slack.New(
 			s.trigger.BotToken,
 			slack.OptionDebug(false),
 		)
 		s.postMessage = api.PostMessage
+		s.updateMessage = api.UpdateMessage
 	}
 
 	// Check if we already have a thread for this spec task
@@ -142,6 +143,10 @@ func (s *SlackBot) postProjectUpdateReply(ctx context.Context, thread *types.Sla
 		return fmt.Errorf("failed to post project update reply to Slack: %w", err)
 	}
 
+	if err := s.updateProjectUpdateFirstMessage(ctx, thread, task); err != nil {
+		return fmt.Errorf("failed to update first project update message in Slack: %w", err)
+	}
+
 	log.Info().
 		Str("app_id", s.app.ID).
 		Str("project_id", task.ProjectID).
@@ -150,6 +155,23 @@ func (s *SlackBot) postProjectUpdateReply(ctx context.Context, thread *types.Sla
 		Str("thread_key", thread.ThreadKey).
 		Str("status", string(task.Status)).
 		Msg("posted project update reply to Slack thread")
+	return nil
+}
+
+func (s *SlackBot) updateProjectUpdateFirstMessage(ctx context.Context, thread *types.SlackThread, task *types.SpecTask) error {
+	attachment := s.buildProjectUpdateAttachment(ctx, task, s.cfg.Notifications.AppURL)
+	fallback := fmt.Sprintf("Project update: %s (%s)", task.Name, humanizeSpecTaskStatus(task.Status))
+
+	_, _, _, err := s.updateMessage(
+		thread.Channel,
+		thread.ThreadKey,
+		slack.MsgOptionAttachments(attachment),
+		slack.MsgOptionText(fallback, false),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update project update message in Slack: %w", err)
+	}
+
 	return nil
 }
 
@@ -170,13 +192,15 @@ func (s *SlackBot) buildProjectUpdateAttachment(ctx context.Context, task *types
 
 	createdByUserName := ""
 
-	createdByUser, err := s.store.GetUser(ctx, &store.GetUserQuery{
-		ID: task.CreatedBy,
-	})
-	if err != nil {
-		log.Error().Err(err).Str("user_id", task.CreatedBy).Msg("failed to get created by user")
-	} else {
-		createdByUserName = createdByUser.FullName
+	if task.CreatedBy != "" {
+		createdByUser, err := s.store.GetUser(ctx, &store.GetUserQuery{
+			ID: task.CreatedBy,
+		})
+		if err != nil {
+			log.Error().Err(err).Str("user_id", task.CreatedBy).Msg("failed to get created by user")
+		} else {
+			createdByUserName = createdByUser.FullName
+		}
 	}
 
 	fields := []slack.AttachmentField{
@@ -189,7 +213,7 @@ func (s *SlackBot) buildProjectUpdateAttachment(ctx context.Context, task *types
 	return slack.Attachment{
 		Color:      color,
 		Title:      fmt.Sprintf("%s Project Update", statusEmoji),
-		Text:       fmt.Sprintf("*%s*\n%s", title, truncateForSlack(task.Description, 500)),
+		Text:       truncateForSlack(task.Description, 500),
 		Fields:     fields,
 		Footer:     fmt.Sprintf("Project %s • Updated %s", task.ProjectID, task.UpdatedAt.UTC().Format(time.RFC822)),
 		MarkdownIn: []string{"text", "fields"},

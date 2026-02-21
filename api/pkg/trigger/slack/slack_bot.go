@@ -13,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/trigger/shared"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -39,6 +40,7 @@ type SlackBot struct { //nolint:revive
 	store                  store.Store
 	controller             *controller.Controller
 	postMessage            func(channelID string, options ...slack.MsgOption) (string, string, error)
+	updateMessage          func(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error)
 	getConversationReplies func(params *slack.GetConversationRepliesParameters) (msgs []slack.Message, hasMore bool, nextCursor string, err error)
 
 	ctx       context.Context
@@ -106,6 +108,7 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 	s.botUserID = authTest.UserID
 	s.botID = authTest.BotID
 	s.postMessage = api.PostMessage
+	s.updateMessage = api.UpdateMessage
 	s.getConversationReplies = api.GetConversationReplies
 	log.Info().Str("app_id", s.app.ID).Str("bot_user_id", s.botUserID).Msg("bot user ID retrieved")
 
@@ -255,6 +258,19 @@ func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketm
 		Str("thread_key", threadKey).
 		Msg("Checking for active thread")
 
+	ownedByBot := s.isBotOwnedThread(s.ctx, ev.Channel, threadKey)
+	if !ownedByBot && s.trigger.ProjectChannel != "" && s.trigger.ProjectChannel != ev.Channel {
+		ownedByBot = s.isBotOwnedThread(s.ctx, s.trigger.ProjectChannel, threadKey)
+	}
+	if !ownedByBot {
+		log.Debug().
+			Str("app_id", s.app.ID).
+			Str("channel", ev.Channel).
+			Str("thread_key", threadKey).
+			Msg("Thread is not owned by this bot, ignoring message")
+		return
+	}
+
 	thread, hasActiveThread := s.getActiveThread(s.ctx, ev.Channel, threadKey)
 	if !hasActiveThread && s.trigger.ProjectChannel != "" && s.trigger.ProjectChannel != ev.Channel {
 		log.Debug().
@@ -395,12 +411,35 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 	user.SpecTaskID = session.Metadata.SpecTaskID
 	user.ProjectID = session.Metadata.ProjectID
 
+	interactionID := system.GenerateInteractionID()
+	promptMessage := messageText
+	historyLimit := 0
+
+	if threadTimestamp != "" {
+		threadMessages, err := s.getSlackThreadMessages(channel, threadTimestamp)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to get thread messages: %w", err)
+		}
+
+		if len(threadMessages) > 0 {
+			summary, err := s.summarizeConversation(ctx, user, session, interactionID, threadMessages)
+			if err != nil {
+				return "", nil, fmt.Errorf("failed to summarize thread conversation: %w", err)
+			}
+
+			promptMessage = fmt.Sprintf("Here's a summary of the conversation so far: %s\n\nUser message:%s", summary, messageText)
+			historyLimit = -1
+		}
+	}
+
 	resp, err := s.controller.RunBlockingSession(ctx, &controller.RunSessionRequest{
 		OrganizationID: app.OrganizationID,
 		App:            app,
 		Session:        session,
 		User:           user,
-		PromptMessage:  types.MessageContent{Parts: []any{messageText}},
+		InteractionID:  interactionID,
+		PromptMessage:  types.MessageContent{Parts: []any{promptMessage}},
+		HistoryLimit:   historyLimit,
 	})
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to get response from inference API: %w", err)
@@ -414,6 +453,36 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 	}
 
 	return resp.ResponseMessage, updatedSession.Metadata.DocumentIDs, nil
+}
+
+func (s *SlackBot) getSlackThreadMessages(channel, threadTimestamp string) ([]slack.Message, error) {
+	if s.getConversationReplies == nil {
+		return nil, fmt.Errorf("slack client is not initialized")
+	}
+
+	params := &slack.GetConversationRepliesParameters{
+		ChannelID: channel,
+		Timestamp: threadTimestamp,
+		Inclusive: true,
+		Limit:     200,
+	}
+
+	var all []slack.Message
+	for {
+		replies, hasMore, nextCursor, err := s.getConversationReplies(params)
+		if err != nil {
+			return nil, err
+		}
+
+		all = append(all, replies...)
+
+		if !hasMore || nextCursor == "" {
+			break
+		}
+		params.Cursor = nextCursor
+	}
+
+	return all, nil
 }
 
 func (s *SlackBot) middlewareConnecting(_ *socketmode.Event, _ *socketmode.Client) {
@@ -486,34 +555,7 @@ func (s *SlackBot) createNewThread(ctx context.Context, channel, threadKey, sess
 }
 
 func (s *SlackBot) reconcileMissingThread(ctx context.Context, channel, threadKey string) (*types.SlackThread, bool) {
-	if s.getConversationReplies == nil {
-		return nil, false
-	}
-
-	replies, _, _, err := s.getConversationReplies(&slack.GetConversationRepliesParameters{
-		ChannelID: channel,
-		Timestamp: threadKey,
-		Inclusive: true,
-		Oldest:    threadKey,
-		Latest:    threadKey,
-		Limit:     1,
-	})
-	if err != nil {
-		log.Debug().
-			Err(err).
-			Str("app_id", s.app.ID).
-			Str("channel", channel).
-			Str("thread_key", threadKey).
-			Msg("failed to load thread from Slack for reconciliation")
-		return nil, false
-	}
-	if len(replies) == 0 {
-		return nil, false
-	}
-
-	root := replies[0]
-	authoredByBot := root.User == s.botUserID || (s.botID != "" && root.BotID == s.botID)
-	if !authoredByBot {
+	if !s.isBotOwnedThread(ctx, channel, threadKey) {
 		return nil, false
 	}
 
@@ -551,6 +593,44 @@ func (s *SlackBot) reconcileMissingThread(ctx context.Context, channel, threadKe
 		Str("thread_key", threadKey).
 		Msg("failed to persist reconciled Slack thread mapping")
 	return nil, false
+}
+
+func (s *SlackBot) isBotOwnedThread(ctx context.Context, channel, threadKey string) bool {
+	root, ok := s.getSlackThreadRoot(ctx, channel, threadKey)
+	if !ok {
+		return false
+	}
+
+	return root.User == s.botUserID || (s.botID != "" && root.BotID == s.botID)
+}
+
+func (s *SlackBot) getSlackThreadRoot(_ context.Context, channel, threadKey string) (*slack.Message, bool) {
+	if s.getConversationReplies == nil {
+		return nil, false
+	}
+
+	replies, _, _, err := s.getConversationReplies(&slack.GetConversationRepliesParameters{
+		ChannelID: channel,
+		Timestamp: threadKey,
+		Inclusive: true,
+		Oldest:    threadKey,
+		Latest:    threadKey,
+		Limit:     1,
+	})
+	if err != nil {
+		log.Debug().
+			Err(err).
+			Str("app_id", s.app.ID).
+			Str("channel", channel).
+			Str("thread_key", threadKey).
+			Msg("failed to load thread root from Slack")
+		return nil, false
+	}
+	if len(replies) == 0 {
+		return nil, false
+	}
+
+	return &replies[0], true
 }
 
 func convertMarkdownToSlackFormat(markdown string) string {
