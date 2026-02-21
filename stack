@@ -13,33 +13,43 @@ export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
 export WIPE_SLOTS=${WIPE_SLOTS:="0"}
 export COMPOSE_PROFILES=${COMPOSE_PROFILES:=""}
 
-# When BUILDX_BUILDER is set to a remote builder (e.g., helix-shared), plain
-# 'docker build -t' doesn't load images into the local daemon automatically.
-# This helper detects a remote builder and adds --load so images are available
-# locally for 'docker compose up', 'docker run', etc.
+# Uses 'docker buildx build' instead of plain 'docker build' to ensure
+# the default buildx builder is honored. Docker 29.x's 'docker build' ignores
+# the default buildx builder and always uses the local daemon's built-in
+# BuildKit. Only 'docker buildx build' routes through the configured builder.
+#
+# Adds --load when a remote builder is active so images are available locally
+# for 'docker compose up', 'docker run', etc.
 function docker_build_load() {
   local args=("$@")
-  if [ -n "${BUILDX_BUILDER:-}" ]; then
-    # Check if the builder uses the remote driver (needs --load for local images)
-    local driver
-    driver=$(docker buildx inspect "$BUILDX_BUILDER" 2>/dev/null | grep -m1 "^Driver:" | awk '{print $2}')
-    if [ "$driver" = "remote" ]; then
-      # Only add --load if the command uses -t (tags an image) and doesn't
-      # already have --output or --load or --push
-      local has_tag=false
-      local has_output=false
-      for arg in "${args[@]}"; do
-        case "$arg" in
-          -t) has_tag=true ;;
-          --output|--output=*|--load|--push) has_output=true ;;
-        esac
-      done
-      if $has_tag && ! $has_output; then
-        args+=("--load")
-      fi
+
+  # Check if the active builder (explicit or default) uses the remote driver
+  local builder="${BUILDX_BUILDER:-}"
+  local driver
+  if [ -n "$builder" ]; then
+    driver=$(docker buildx inspect "$builder" 2>/dev/null | grep -m1 "^Driver:" | awk '{print $2}')
+  else
+    # No explicit builder — check the default builder (marked with * in buildx ls)
+    driver=$(docker buildx inspect 2>/dev/null | grep -m1 "^Driver:" | awk '{print $2}')
+  fi
+
+  if [ "${driver:-}" = "remote" ]; then
+    # Remote builder: add --load so the image is loaded into the local daemon
+    local has_tag=false
+    local has_output=false
+    for arg in "${args[@]}"; do
+      case "$arg" in
+        -t) has_tag=true ;;
+        --output|--output=*|--load|--push) has_output=true ;;
+      esac
+    done
+    if $has_tag && ! $has_output; then
+      args+=("--load")
     fi
   fi
-  docker build "${args[@]}"
+
+  # Use 'docker buildx build' to honor the default builder
+  docker buildx build "${args[@]}"
 }
 
 # Desktop categories for build-sandbox
