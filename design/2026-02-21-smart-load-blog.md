@@ -110,27 +110,55 @@ The three paths compose naturally:
 
 ## Results
 
-With shared BuildKit + smart `--load` + registry acceleration, the full build sequence for Helix-in-Helix:
+There are two cases that matter: cold start (first agent to build a project) and warm start (subsequent agents building the same source).
 
-| Phase | Before | After | Speedup |
-|-------|--------|-------|---------|
+### Cold start: ~10 minutes (down from 45 minutes)
+
+A fresh agent session starts with an empty Docker daemon — no images, no layers. Even though every build is a cache hit in shared BuildKit (the compilation is instant), the images still need to be transferred into the local daemon. For Helix-in-Helix, this is a deeply nested pipeline:
+
+| Phase | Before | After (cold) | Notes |
+|-------|--------|-------------|-------|
+| API + frontend (compose) | 200s | **~60s** | Tarball --load (compose bypasses wrapper) |
+| Zed IDE + desktop image | 459s | **~132s** | 7.24GB image load into local daemon |
+| Inner sandbox setup | 2,075s | **~380s** | Push/pull desktop image through inner registry |
+| **Total** | **45 min** | **~10 min** | **4.5x** |
+
+The cold start is dominated by **image transfer, not compilation**. BuildKit resolves all layers instantly (cached), but loading 7+ GB images into each nesting level takes time. The bottleneck is the `--load` tarball path: it serializes the entire image regardless of what the receiving daemon already has.
+
+The nesting makes this worse: Helix-in-Helix has the desktop container (L2) building an inner sandbox (L3), which needs the same 7.24GB desktop image transferred again to a fresh daemon one level deeper.
+
+### Warm start: 23 seconds (124x faster)
+
+Once images exist in the local daemon, subsequent builds are near-instant:
+
+| Phase | Before | After (warm) | Speedup |
+|-------|--------|-------------|---------|
 | API + frontend (compose) | 200s | **9.6s** | 21x |
 | Zed IDE (Rust, release) | 459s | **1.2s** | 383x |
 | Sandbox + desktop images | 2,075s | **12s** | 173x |
 | **Total** | **45 min** | **23s** | **124x** |
 
-The first agent to build a project pays the full cold build cost. Every subsequent agent (building the same source) gets a **23-second startup** — just enough time for Docker to verify the cache hits and confirm the images haven't changed.
+Smart --load checks the image digest against the local daemon (~0.3s) and skips the transfer when nothing changed. This is the common case: agents working on the same codebase where the base images haven't been modified.
 
-When code actually changes, the build is still fast: BuildKit only recompiles changed layers (incremental), and the registry-based load only transfers changed layers. A one-line Go change might rebuild only the final compilation layer (~30s) and transfer only that layer via the registry (~1s) instead of the entire 43-minute pipeline.
+### Incremental changes: ~1 second per image
 
-### What the 23 seconds actually does
+When code actually changes, the registry-accelerated load transfers only the changed layers:
 
-The 23 seconds breaks down as:
-- **9.6s** — `docker compose build` resolves all 4 service images (API, frontend, haystack, typesense) against the shared BuildKit cache. Compose still does `--load` internally, but for fully-cached images the tarballs are small delta transfers.
-- **1.2s** — `./stack build-zed release` checks the Zed builder image via smart --load. Image unchanged → skip the 300MB binary export.
-- **12s** — `./stack build-sandbox` builds the sandbox Dockerfile (~4s), restarts the inner sandbox, and verifies desktop images via smart --load. No registry push/pull needed when images match.
+| Scenario | Time |
+|----------|------|
+| Unchanged image (smart skip) | **314ms** |
+| 1-layer change via registry | **871ms** |
+| 1-layer change via tarball (fallback) | **9,973ms** |
 
-The images DO need to exist in the local daemon (for `docker run` / `docker compose up`). The first time, the registry-based load transfers them layer by layer. After that, smart --load skips the transfer as long as the source hasn't changed.
+A one-line Go change rebuilds only the final compilation layer (~30s) and transfers only that layer via the registry (~1s) instead of the entire 43-minute pipeline.
+
+### Remaining bottleneck: cold-start image transfer
+
+The cold start is the main remaining problem. The 10-minute first build is 4.5x better than 45 minutes, but it's still 10 minutes of an agent waiting. The bottleneck is transferring large images (~7 GB) as tarballs through nested Docker daemons.
+
+Two things would help:
+1. **Make `docker compose build` use the registry path** — compose currently bypasses the wrapper and always uses tarball `--load`. Intercepting compose (or switching to buildx bake with registry output) would cut the compose build from ~60s to ~10s on cold start.
+2. **Pre-warm the inner daemon** — if the desktop container's Docker data directory were a persistent volume (instead of ephemeral), images would survive across sessions. The first session pays the transfer cost; subsequent sessions start warm.
 
 ## Implementation
 
