@@ -1,3 +1,5 @@
+//go:build !cli_only
+
 package helix
 
 import (
