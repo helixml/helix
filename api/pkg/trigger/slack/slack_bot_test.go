@@ -359,6 +359,132 @@ func TestPostProjectUpdateReplyWhenThreadExists(t *testing.T) {
 	assert.Equal(t, "173.42", updatedThreadTS)
 }
 
+func TestPostProjectUpdateReplySkipsDuplicateStatusMessage(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+
+	postCalls := 0
+	updateCalls := 0
+	bot := &SlackBot{
+		cfg:   &config.ServerConfig{},
+		store: mockStore,
+		app: &types.App{
+			ID:             "app_123",
+			Owner:          "user_123",
+			OrganizationID: "org_123",
+			Config:         types.AppConfig{},
+		},
+		trigger: &types.SlackTrigger{
+			ProjectUpdates: true,
+			ProjectChannel: "C123",
+		},
+		postMessage: func(channelID string, options ...slack.MsgOption) (string, string, error) {
+			postCalls++
+			return channelID, "174.00", nil
+		},
+		updateMessage: func(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error) {
+			updateCalls++
+			return channelID, timestamp, "", nil
+		},
+		getConversationReplies: func(params *slack.GetConversationRepliesParameters) ([]slack.Message, bool, string, error) {
+			return []slack.Message{
+				{Msg: slack.Msg{Timestamp: params.Timestamp, Text: "Project update root"}},
+				{Msg: slack.Msg{Timestamp: "173.90", Text: "Status update: Fix scroll to the header/paragraph functionality in docs/... → Pull Request"}},
+			}, false, "", nil
+		},
+	}
+
+	task := &types.SpecTask{
+		ID:          "task_123",
+		ProjectID:   "proj_123",
+		Name:        "Fix scroll to the header/paragraph functionality in docs/...",
+		Description: "No status change, just another update",
+		Type:        "feature",
+		Priority:    types.SpecTaskPriorityHigh,
+		Status:      types.TaskStatusPullRequest,
+	}
+
+	existingThread := &types.SlackThread{
+		ThreadKey:  "173.42",
+		AppID:      "app_123",
+		Channel:    "C123",
+		SessionID:  "session_123",
+		SpecTaskID: "task_123",
+	}
+
+	mockStore.EXPECT().GetSlackThreadBySpecTaskID(gomock.Any(), "app_123", "C123", "task_123").Return(existingThread, nil)
+
+	err := bot.postProjectUpdate(context.Background(), task)
+	require.NoError(t, err)
+	assert.Equal(t, 0, postCalls)
+	assert.Equal(t, 1, updateCalls)
+}
+
+func TestPostProjectUpdateReplyPostsWhenNoDuplicateStatusMessage(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+
+	postCalls := 0
+	updateCalls := 0
+	bot := &SlackBot{
+		cfg:   &config.ServerConfig{},
+		store: mockStore,
+		app: &types.App{
+			ID:             "app_123",
+			Owner:          "user_123",
+			OrganizationID: "org_123",
+			Config:         types.AppConfig{},
+		},
+		trigger: &types.SlackTrigger{
+			ProjectUpdates: true,
+			ProjectChannel: "C123",
+		},
+		postMessage: func(channelID string, options ...slack.MsgOption) (string, string, error) {
+			postCalls++
+			return channelID, "174.00", nil
+		},
+		updateMessage: func(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error) {
+			updateCalls++
+			return channelID, timestamp, "", nil
+		},
+		getConversationReplies: func(params *slack.GetConversationRepliesParameters) ([]slack.Message, bool, string, error) {
+			return []slack.Message{
+				{Msg: slack.Msg{Timestamp: params.Timestamp, Text: "Project update root"}},
+				{Msg: slack.Msg{Timestamp: "173.90", Text: "Status update: Fix scroll to the header/paragraph functionality in docs/... → Implementation"}},
+			}, false, "", nil
+		},
+	}
+
+	task := &types.SpecTask{
+		ID:          "task_123",
+		ProjectID:   "proj_123",
+		Name:        "Fix scroll to the header/paragraph functionality in docs/...",
+		Description: "Status moved to pull request",
+		Type:        "feature",
+		Priority:    types.SpecTaskPriorityHigh,
+		Status:      types.TaskStatusPullRequest,
+	}
+
+	existingThread := &types.SlackThread{
+		ThreadKey:  "173.42",
+		AppID:      "app_123",
+		Channel:    "C123",
+		SessionID:  "session_123",
+		SpecTaskID: "task_123",
+	}
+
+	mockStore.EXPECT().GetSlackThreadBySpecTaskID(gomock.Any(), "app_123", "C123", "task_123").Return(existingThread, nil)
+
+	err := bot.postProjectUpdate(context.Background(), task)
+	require.NoError(t, err)
+	assert.Equal(t, 1, postCalls)
+	assert.Equal(t, 1, updateCalls)
+}
+
 func TestShouldUsePlanningSessionForSlackThread(t *testing.T) {
 	assert.True(t, shouldUsePlanningSessionForSlackThread(types.TaskStatusSpecGeneration))
 	assert.True(t, shouldUsePlanningSessionForSlackThread(types.TaskStatusImplementation))
@@ -373,6 +499,42 @@ func TestShouldSummarizeSlackThreadConversation(t *testing.T) {
 	assert.True(t, shouldSummarizeSlackThreadConversation(&types.SpecTask{Status: types.TaskStatusDone}))
 	assert.False(t, shouldSummarizeSlackThreadConversation(&types.SpecTask{Status: types.TaskStatusImplementation}))
 	assert.False(t, shouldSummarizeSlackThreadConversation(&types.SpecTask{Status: types.TaskStatusPullRequest}))
+}
+
+func TestIsBotOwnedThread_WhenRootMentionsBot(t *testing.T) {
+	bot := &SlackBot{
+		botUserID: "U_BOT",
+		getConversationReplies: func(_ *slack.GetConversationRepliesParameters) ([]slack.Message, bool, string, error) {
+			return []slack.Message{
+				{
+					Msg: slack.Msg{
+						User: "U_USER",
+						Text: "<@U_BOT> can you help with this?",
+					},
+				},
+			}, false, "", nil
+		},
+	}
+
+	assert.True(t, bot.isBotOwnedThread(context.Background(), "C123", "1771675557.541279"))
+}
+
+func TestIsBotOwnedThread_WhenRootDoesNotMentionBot(t *testing.T) {
+	bot := &SlackBot{
+		botUserID: "U_BOT",
+		getConversationReplies: func(_ *slack.GetConversationRepliesParameters) ([]slack.Message, bool, string, error) {
+			return []slack.Message{
+				{
+					Msg: slack.Msg{
+						User: "U_USER",
+						Text: "random thread",
+					},
+				},
+			}, false, "", nil
+		},
+	}
+
+	assert.False(t, bot.isBotOwnedThread(context.Background(), "C123", "1771675557.541279"))
 }
 
 func TestResolveSessionForIncomingMessageUsesPlanningSession(t *testing.T) {
@@ -460,6 +622,35 @@ func TestResolveSessionForIncomingMessageMissingSpecTaskFallsBack(t *testing.T) 
 
 	mockStore.EXPECT().GetSession(gomock.Any(), "thread_session_1").Return(threadSession, nil)
 	mockStore.EXPECT().GetSpecTask(gomock.Any(), "task_1").Return(nil, store.ErrNotFound)
+
+	resolvedSession, resolvedTask, err := bot.resolveSessionForIncomingMessage(context.Background(), thread)
+	require.NoError(t, err)
+	assert.Nil(t, resolvedTask)
+	assert.Equal(t, "thread_session_1", resolvedSession.ID)
+}
+
+func TestResolveSessionForIncomingMessageWithoutThreadSpecTaskIgnoresSessionMetadataSpecTask(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	bot := &SlackBot{
+		store: mockStore,
+		app:   &types.App{ID: "app_123"},
+	}
+
+	thread := &types.SlackThread{
+		SessionID: "thread_session_1",
+	}
+
+	threadSession := &types.Session{
+		ID: "thread_session_1",
+		Metadata: types.SessionMetadata{
+			SpecTaskID: "task_from_session_metadata",
+		},
+	}
+
+	mockStore.EXPECT().GetSession(gomock.Any(), "thread_session_1").Return(threadSession, nil)
 
 	resolvedSession, resolvedTask, err := bot.resolveSessionForIncomingMessage(context.Background(), thread)
 	require.NoError(t, err)

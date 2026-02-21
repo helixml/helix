@@ -67,6 +67,7 @@ func (s *SlackBot) postProjectUpdate(ctx context.Context, task *types.SpecTask) 
 		)
 		s.postMessage = api.PostMessage
 		s.updateMessage = api.UpdateMessage
+		s.getConversationReplies = api.GetConversationReplies
 	}
 
 	// Check if we already have a thread for this spec task
@@ -133,14 +134,30 @@ func (s *SlackBot) postProjectUpdateReply(ctx context.Context, thread *types.Sla
 	attachment := buildProjectUpdateReplyAttachment(task, s.cfg.Notifications.AppURL)
 	fallback := fmt.Sprintf("Status update: %s → %s", task.Name, humanizeSpecTaskStatus(task.Status))
 
-	_, _, err := s.postMessage(
-		thread.Channel,
-		slack.MsgOptionAttachments(attachment),
-		slack.MsgOptionText(fallback, false),
-		slack.MsgOptionTS(thread.ThreadKey), // Reply in thread
-	)
+	alreadyPosted, err := s.hasProjectUpdateReply(ctx, thread, fallback)
 	if err != nil {
-		return fmt.Errorf("failed to post project update reply to Slack: %w", err)
+		return fmt.Errorf("failed to check existing project update replies in Slack: %w", err)
+	}
+
+	if !alreadyPosted {
+		_, _, err = s.postMessage(
+			thread.Channel,
+			slack.MsgOptionAttachments(attachment),
+			slack.MsgOptionText(fallback, false),
+			slack.MsgOptionTS(thread.ThreadKey), // Reply in thread
+		)
+		if err != nil {
+			return fmt.Errorf("failed to post project update reply to Slack: %w", err)
+		}
+	} else {
+		log.Info().
+			Str("app_id", s.app.ID).
+			Str("project_id", task.ProjectID).
+			Str("spec_task_id", task.ID).
+			Str("channel", thread.Channel).
+			Str("thread_key", thread.ThreadKey).
+			Str("status", string(task.Status)).
+			Msg("skipping duplicate project update reply in Slack thread")
 	}
 
 	if err := s.updateProjectUpdateFirstMessage(ctx, thread, task); err != nil {
@@ -156,6 +173,28 @@ func (s *SlackBot) postProjectUpdateReply(ctx context.Context, thread *types.Sla
 		Str("status", string(task.Status)).
 		Msg("posted project update reply to Slack thread")
 	return nil
+}
+
+func (s *SlackBot) hasProjectUpdateReply(ctx context.Context, thread *types.SlackThread, fallback string) (bool, error) {
+	if s.getConversationReplies == nil {
+		return false, nil
+	}
+
+	replies, err := s.getSlackThreadMessages(thread.Channel, thread.ThreadKey)
+	if err != nil {
+		return false, err
+	}
+
+	for _, reply := range replies {
+		if reply.Timestamp == thread.ThreadKey {
+			continue
+		}
+		if reply.Text == fallback {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 func (s *SlackBot) updateProjectUpdateFirstMessage(ctx context.Context, thread *types.SlackThread, task *types.SpecTask) error {
