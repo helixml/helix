@@ -16,9 +16,22 @@
 #
 set -euo pipefail
 
-COMPOSE_FILE="/prod/home/luke/pm/helix/docker-compose.dev.yaml"
+HELIX_DIR="/prod/home/luke/pm/helix"
+COMPOSE_FILE="$HELIX_DIR/docker-compose.dev.yaml"
 LOG_PREFIX="[helix-docker-cleanup]"
 DRY_RUN="${DRY_RUN:-false}"
+
+# Source API credentials for session status queries
+if [ -f "$HELIX_DIR/.env.usercreds" ]; then
+    set -a
+    . "$HELIX_DIR/.env.usercreds"
+    set +a
+fi
+# Fall back to .env for HELIX_URL if not set
+if [ -z "${HELIX_URL:-}" ] && [ -f "$HELIX_DIR/.env" ]; then
+    HELIX_URL=$(grep '^API_HOST=' "$HELIX_DIR/.env" | cut -d= -f2- | sed 's|^|http://|')
+fi
+HELIX_URL="${HELIX_URL:-http://localhost:8080}"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $LOG_PREFIX $*"; }
 
@@ -46,14 +59,37 @@ AVAIL=$(df -h /var/lib/docker | awk 'NR==2{print $4}')
 log "Current /var/lib/docker usage: $USAGE used, $AVAIL available"
 
 ###############################################################################
-# 1. BIGGEST WIN: Remove orphaned docker-data-ses_* volumes inside sandbox
+# 1. BIGGEST WIN: Remove docker-data-ses_* volumes for deleted sessions
+#
+# Sessions have a lifecycle: active → soft-deleted (stopped via API).
+# We query the Helix API for all active (non-deleted) session IDs, then
+# only remove volumes whose sessions are no longer in that list.
+# This is safe even after sandbox restart — stopped containers whose
+# sessions are still active in the DB will keep their volumes.
 ###############################################################################
-log "--- Phase 1: Orphaned session volumes inside sandbox ---"
+log "--- Phase 1: Session volumes for deleted sessions inside sandbox ---"
 
-# Get running container session IDs
-RUNNING_SESSIONS=$($SANDBOX_EXEC sh -c '
-    docker ps --format "{{.Names}}" 2>/dev/null | grep "ubuntu-external-" | sed "s/ubuntu-external-//"
-' 2>/dev/null || true)
+# Get active session IDs from the Helix API
+ACTIVE_SESSIONS=""
+if [ -n "${HELIX_API_KEY:-}" ]; then
+    ACTIVE_SESSIONS=$(curl -sf -H "Authorization: Bearer $HELIX_API_KEY" \
+        "$HELIX_URL/api/v1/sessions" 2>/dev/null \
+        | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+sessions = data.get('sessions', data) if isinstance(data, dict) else data
+for s in sessions:
+    print(s.get('id', ''))
+" 2>/dev/null || true)
+    log "Found $(echo "$ACTIVE_SESSIONS" | grep -c . || echo 0) active sessions in API"
+else
+    log "WARNING: No HELIX_API_KEY set, falling back to container-based detection"
+    log "  Set HELIX_API_KEY in .env.usercreds for accurate session lifecycle detection"
+    # Fall back to running containers (less accurate but still useful)
+    ACTIVE_SESSIONS=$($SANDBOX_EXEC sh -c '
+        docker ps --format "{{.Names}}" 2>/dev/null | grep "ubuntu-external-" | sed "s/ubuntu-external-//"
+    ' 2>/dev/null || true)
+fi
 
 # Get all docker-data-ses volumes
 ALL_SES_VOLUMES=$($SANDBOX_EXEC sh -c 'docker volume ls -q 2>/dev/null | grep "^docker-data-ses_"' 2>/dev/null || true)
@@ -63,20 +99,20 @@ ORPHANED_VOLUMES=""
 while IFS= read -r vol; do
     [ -z "$vol" ] && continue
     SESSION_ID=$(echo "$vol" | sed 's/^docker-data-ses_//')
-    if ! echo "$RUNNING_SESSIONS" | grep -qF "$SESSION_ID"; then
+    if ! echo "$ACTIVE_SESSIONS" | grep -qF "$SESSION_ID"; then
         ORPHANED_VOLUMES="$ORPHANED_VOLUMES $vol"
         ORPHANED_COUNT=$((ORPHANED_COUNT + 1))
     fi
 done <<< "$ALL_SES_VOLUMES"
 
 if [ "$ORPHANED_COUNT" -gt 0 ]; then
-    log "Found $ORPHANED_COUNT orphaned session volumes to remove"
+    log "Found $ORPHANED_COUNT volumes for deleted sessions to remove"
     for vol in $ORPHANED_VOLUMES; do
         log "  Removing: $vol"
         run_or_dry $SANDBOX_EXEC docker volume rm "$vol" 2>/dev/null || log "  WARN: failed to remove $vol (may be in use)"
     done
 else
-    log "No orphaned session volumes found"
+    log "No deleted session volumes found"
 fi
 
 ###############################################################################
