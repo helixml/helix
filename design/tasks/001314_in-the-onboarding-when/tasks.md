@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Add `desktopResolution` state to `Onboarding.tsx` (default: `'1080p'`)
+- [~] Add `desktopResolution` state to `Onboarding.tsx` (default: `'1080p'`)
 - [ ] Add resolution dropdown (Select) in Step 3 after `CodingAgentForm` (only visible when `agentMode === 'create'`)
 - [ ] Style dropdown to match existing onboarding Select components (use same `sx` props as other selects in the file)
 - [ ] MenuItem text: "1080p" with caption "Run more agents in parallel", "4K (2x scaling)" with caption "Sharper display quality"
