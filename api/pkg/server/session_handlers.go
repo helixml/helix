@@ -164,7 +164,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			}
 
 			// Set model for session name generation based on agent type
-			if assistant.IsAgentMode() {
+			if assistant.AgentType == types.AgentTypeHelixAgent {
 				// For agent mode, use small generation model
 				generateSessionNameProvider = assistant.SmallGenerationModelProvider
 				generateSessionNameModel = assistant.SmallGenerationModel

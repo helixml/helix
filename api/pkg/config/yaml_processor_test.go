@@ -3,6 +3,7 @@ package config
 import (
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,8 +17,8 @@ metadata:
 spec:
   assistants:
     - name: Test Assistant
-      agent_mode: true
       max_iterations: 15
+      agent_type: helix_agent
       reasoning_model_provider: openai
       reasoning_model: o3-mini
       reasoning_model_effort: medium
@@ -41,7 +42,7 @@ spec:
 
 	assistant := config.Assistants[0]
 	assert.Equal(t, "Test Assistant", assistant.Name)
-	assert.True(t, assistant.AgentMode, "agent_mode should be true")
+	assert.Equal(t, types.AgentTypeHelixAgent, assistant.AgentType)
 	assert.Equal(t, 15, assistant.MaxIterations)
 	assert.Equal(t, "openai", assistant.ReasoningModelProvider)
 	assert.Equal(t, "o3-mini", assistant.ReasoningModel)
@@ -56,67 +57,6 @@ spec:
 	assert.Equal(t, "You are a test assistant", assistant.SystemPrompt)
 }
 
-func TestProcessYAMLConfig_AgentModeFalse(t *testing.T) {
-	yamlContent := `
-apiVersion: app.aispec.org/v1alpha1
-kind: AIApp
-metadata:
-  name: Test Agent
-spec:
-  assistants:
-    - name: Test Assistant
-      agent_mode: false
-      model: gpt-4o
-      provider: openai
-      system_prompt: "You are a test assistant"
-`
-
-	config, err := ProcessYAMLConfig([]byte(yamlContent))
-	require.NoError(t, err)
-	require.NotNil(t, config)
-
-	// Verify the config was parsed correctly
-	assert.Equal(t, "Test Agent", config.Name)
-	require.Len(t, config.Assistants, 1)
-
-	assistant := config.Assistants[0]
-	assert.Equal(t, "Test Assistant", assistant.Name)
-	assert.False(t, assistant.AgentMode, "agent_mode should be false")
-	assert.Equal(t, "gpt-4o", assistant.Model)
-	assert.Equal(t, "openai", assistant.Provider)
-	assert.Equal(t, "You are a test assistant", assistant.SystemPrompt)
-}
-
-func TestProcessYAMLConfig_AgentModeDefault(t *testing.T) {
-	yamlContent := `
-apiVersion: app.aispec.org/v1alpha1
-kind: AIApp
-metadata:
-  name: Test Agent
-spec:
-  assistants:
-    - name: Test Assistant
-      model: gpt-4o
-      provider: openai
-      system_prompt: "You are a test assistant"
-`
-
-	config, err := ProcessYAMLConfig([]byte(yamlContent))
-	require.NoError(t, err)
-	require.NotNil(t, config)
-
-	// Verify the config was parsed correctly
-	assert.Equal(t, "Test Agent", config.Name)
-	require.Len(t, config.Assistants, 1)
-
-	assistant := config.Assistants[0]
-	assert.Equal(t, "Test Assistant", assistant.Name)
-	assert.False(t, assistant.AgentMode, "agent_mode should default to false")
-	assert.Equal(t, "gpt-4o", assistant.Model)
-	assert.Equal(t, "openai", assistant.Provider)
-	assert.Equal(t, "You are a test assistant", assistant.SystemPrompt)
-}
-
 func TestProcessYAMLConfig_AllFields(t *testing.T) {
 	yamlContent := `
 apiVersion: app.aispec.org/v1alpha1
@@ -126,7 +66,7 @@ metadata:
 spec:
   assistants:
     - name: Test Assistant
-      agent_mode: true
+      agent_type: helix_agent
       max_iterations: 10
       reasoning_model_provider: openai
       reasoning_model: o3-mini
@@ -161,7 +101,7 @@ spec:
 	assistant := config.Assistants[0]
 
 	// Check agent mode fields
-	assert.True(t, assistant.AgentMode)
+	assert.Equal(t, types.AgentTypeHelixAgent, assistant.AgentType)
 	assert.Equal(t, 10, assistant.MaxIterations)
 	assert.Equal(t, "openai", assistant.ReasoningModelProvider)
 	assert.Equal(t, "o3-mini", assistant.ReasoningModel)

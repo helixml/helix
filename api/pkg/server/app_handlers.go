@@ -100,7 +100,6 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 			Str("original_provider", assistant.Provider).
 			Str("original_model", assistant.Model).
 			Str("agent_type", string(assistant.GetAgentType())).
-			Bool("agent_mode", assistant.IsAgentMode()).
 			Msg("Processing assistant for model substitution")
 
 		// Helper function to apply substitution for a provider/model pair
@@ -669,7 +668,6 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 			Str("provider", assistant.Provider).
 			Str("model", assistant.Model).
 			Str("agent_type", string(assistant.GetAgentType())).
-			Bool("agent_mode", assistant.IsAgentMode()).
 			Msg("Validating individual assistant")
 
 		if assistant.CodeAgentRuntime != "" && assistant.CodeAgentCredentialType == types.CodeAgentCredentialTypeAPIKey {
