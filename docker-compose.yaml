@@ -48,7 +48,11 @@ services:
       - HELIX_HOST_HOME=${HELIX_HOST_HOME:-}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
-      - KODIT_API_KEY=${KODIT_API_KEY:-default-kodit-api-key}
+      # Kodit code intelligence (in-process library)
+      - KODIT_DB_URL=postgresql://postgres:${PGVECTOR_PASSWORD-postgres}@vectorchord-kodit:5432/kodit
+      - KODIT_MODEL_DIR=/kodit-models
+      - KODIT_LLM_BASE_URL=http://localhost:8080/v1
+      - KODIT_LLM_API_KEY=${RUNNER_TOKEN-oh-hallo-insecure-token}
     volumes:
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
       - helix-socket:/socket
@@ -160,51 +164,6 @@ services:
       - pgvector
     extra_hosts:
       - "host.docker.internal:host-gateway"
-  kodit:
-    image: registry.helixml.tech/helix/kodit:1.0.0
-    ports:
-      - 8632:8632
-    command: ["serve"]
-    restart: always
-    depends_on:
-      - vectorchord-kodit # Wait for VectorChord to start before Kodit
-      - api
-    environment:
-      - PORT=8632
-      - DATA_DIR=/data
-      - DB_URL=postgresql://postgres:${PGVECTOR_PASSWORD-pgvector}@vectorchord-kodit:5432/kodit
-      - DEFAULT_SEARCH_PROVIDER=vectorchord
-
-      # External embedding provider
-      # - EMBEDDING_ENDPOINT_TYPE=openai
-      # - EMBEDDING_ENDPOINT_SOCKET_PATH=/socket/embeddings.sock
-      # - EMBEDDING_ENDPOINT_BASE_URL=http://api:8080/v1
-      # - EMBEDDING_ENDPOINT_MODEL=MrLight/dse-qwen2-2b-mrl-v1
-      # - EMBEDDING_ENDPOINT_NUM_PARALLEL_TASKS=1
-      # - EMBEDDING_ENDPOINT_TIMEOUT=120
-
-      # External enrichment provider - uses Helix as proxy with runner token auth
-      - ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1
-      - ENRICHMENT_ENDPOINT_MODEL=kodit-model
-      - ENRICHMENT_ENDPOINT_API_KEY=${RUNNER_TOKEN-oh-hallo-insecure-token}
-      - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=1
-      - ENRICHMENT_ENDPOINT_TIMEOUT=120
-      - EMBEDDING_ENDPOINT_NUM_PARALLEL_TASKS=1
-
-      # Sync configuration
-      - SYNC_PERIODIC_ENABLED=true
-      - SYNC_PERIODIC_INTERVAL_SECONDS=1800 # 30 minutes
-      - SYNC_PERIODIC_RETRY_ATTEMPTS=3
-
-      - LOG_LEVEL=INFO # INFO or DEBUG
-      - LOG_FORMAT=json
-
-      # API Key Configuration
-      - API_KEYS=${KODIT_API_KEYS:-default-kodit-api-key}
-
-    volumes:
-      - ${KODIT_DATA:-helix-kodit}:/data
-      - helix-socket:/socket
 
   vectorchord-kodit:
     image: tensorchord/vchord-suite:pg17-20250601
@@ -235,7 +194,6 @@ volumes:
   helix-filestore:
   helix-typesense-db:
   helix-socket:
-  helix-kodit:
   helix-vectorchord-kodit:
   sandbox-docker-storage: # Sandbox isolated dockerd storage (sandboxes + devcontainers)
 
