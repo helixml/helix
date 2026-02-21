@@ -32,6 +32,16 @@ const (
 
 	// SharedBuildxBuilderName is the name of the shared buildx builder
 	SharedBuildxBuilderName = "helix-shared"
+
+	// SharedRegistryContainerName is the name of the shared registry container
+	// Used for efficient layer-level image transfer (push/pull) instead of tarball --load
+	SharedRegistryContainerName = "helix-registry"
+
+	// SharedRegistryImage is the registry image to use
+	SharedRegistryImage = "registry:2"
+
+	// SharedRegistryPort is the port the registry listens on
+	SharedRegistryPort = "5000"
 )
 
 // Manager manages the Hydra runtime (dev containers, shared BuildKit).
@@ -107,6 +117,12 @@ func (m *Manager) setupSharedBuildKit(ctx context.Context) error {
 	output, err := checkCmd.Output()
 	if err == nil && strings.TrimSpace(string(output)) == "true" {
 		log.Debug().Str("container", SharedBuildKitContainerName).Msg("Shared BuildKit container already running")
+		// Still ensure registry and config are up-to-date (IPs may have changed)
+		if err := m.setupSharedRegistry(ctx); err != nil {
+			log.Warn().Err(err).Msg("Failed to set up shared registry")
+		} else if err := m.configureBuildKitRegistry(ctx); err != nil {
+			log.Warn().Err(err).Msg("Failed to configure BuildKit registry access")
+		}
 		return m.ensureBuildxBuilder(ctx)
 	}
 
@@ -150,7 +166,104 @@ func (m *Manager) setupSharedBuildKit(ctx context.Context) error {
 	// Wait for container to be running
 	time.Sleep(2 * time.Second)
 
+	if err := m.setupSharedRegistry(ctx); err != nil {
+		log.Warn().Err(err).Msg("Failed to set up shared registry (layer-level --load will be unavailable)")
+	} else {
+		// Configure BuildKit to trust the insecure registry
+		if err := m.configureBuildKitRegistry(ctx); err != nil {
+			log.Warn().Err(err).Msg("Failed to configure BuildKit registry access")
+		}
+	}
+
 	return m.ensureBuildxBuilder(ctx)
+}
+
+// setupSharedRegistry ensures a Docker registry is running on the sandbox network.
+// This registry enables layer-level image transfer: the docker wrapper can push images
+// to this registry and pull them locally, instead of using --load (which transfers the
+// entire image as a tarball with no layer dedup). For a 7.7GB image with one changed
+// layer, this means transferring ~100MB instead of 7.7GB.
+func (m *Manager) setupSharedRegistry(ctx context.Context) error {
+	// Check if registry container already exists and is running
+	checkCmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.Running}}", SharedRegistryContainerName)
+	output, err := checkCmd.Output()
+	if err == nil && strings.TrimSpace(string(output)) == "true" {
+		log.Debug().Str("container", SharedRegistryContainerName).Msg("Shared registry container already running")
+		return nil
+	}
+
+	// Remove old container if exists (might be stopped)
+	_ = exec.CommandContext(ctx, "docker", "rm", "-f", SharedRegistryContainerName).Run()
+
+	log.Info().
+		Str("container", SharedRegistryContainerName).
+		Msg("Creating shared registry container for layer-level image transfer")
+
+	// Use a named volume for registry storage so cached layers persist across restarts
+	createCmd := exec.CommandContext(ctx, "docker", "run", "-d",
+		"--name", SharedRegistryContainerName,
+		"-v", "registry_data:/var/lib/registry",
+		"--restart", "unless-stopped",
+		SharedRegistryImage,
+	)
+
+	if output, err := createCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create registry container: %w, output: %s", err, string(output))
+	}
+
+	log.Info().Str("container", SharedRegistryContainerName).Msg("Shared registry container started")
+	return nil
+}
+
+// configureBuildKitRegistry configures the BuildKit container to trust the insecure
+// shared registry, so BuildKit can push images to it for layer-level transfer.
+func (m *Manager) configureBuildKitRegistry(ctx context.Context) error {
+	// Get registry container IP
+	ipCmd := exec.CommandContext(ctx, "docker", "inspect", "-f",
+		"{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+		SharedRegistryContainerName)
+	ipOutput, err := ipCmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get registry container IP: %w", err)
+	}
+	registryIP := strings.TrimSpace(string(ipOutput))
+	if registryIP == "" {
+		return fmt.Errorf("registry container has no IP address")
+	}
+
+	registryAddr := registryIP + ":" + SharedRegistryPort
+
+	// Check if config is already correct (avoid unnecessary BuildKit restart)
+	checkCmd := exec.CommandContext(ctx, "docker", "exec", SharedBuildKitContainerName,
+		"cat", "/etc/buildkit/buildkitd.toml")
+	if existingConfig, err := checkCmd.Output(); err == nil {
+		if strings.Contains(string(existingConfig), registryAddr) {
+			log.Debug().Str("registry", registryAddr).Msg("BuildKit already configured for registry")
+			return nil
+		}
+	}
+
+	// Write buildkitd.toml to trust the insecure registry
+	tomlContent := fmt.Sprintf("[registry.\"%s\"]\n  http = true\n  insecure = true\n", registryAddr)
+	writeCmd := exec.CommandContext(ctx, "docker", "exec", SharedBuildKitContainerName,
+		"sh", "-c", fmt.Sprintf("mkdir -p /etc/buildkit && cat > /etc/buildkit/buildkitd.toml << 'EOF'\n%sEOF", tomlContent))
+	if output, err := writeCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to write buildkitd.toml: %w, output: %s", err, string(output))
+	}
+
+	// Restart BuildKit to pick up the new config
+	restartCmd := exec.CommandContext(ctx, "docker", "restart", SharedBuildKitContainerName)
+	if output, err := restartCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to restart BuildKit: %w, output: %s", err, string(output))
+	}
+
+	// Wait for BuildKit to be ready
+	time.Sleep(3 * time.Second)
+
+	log.Info().
+		Str("registry", registryAddr).
+		Msg("Configured BuildKit to trust insecure registry")
+	return nil
 }
 
 // ensureBuildxBuilder creates or updates the buildx builder pointing to the shared BuildKit container

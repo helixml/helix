@@ -11,6 +11,9 @@
 # applies smart --load: probes the image digest first (~0.5s), then only does
 # the expensive --load (tarball export) when the image actually changed.
 #
+# When HELIX_REGISTRY is set, uses push/pull instead of tarball --load for
+# layer-level deduplication (~0.6s vs ~9.5s for a 1-layer change in 7.73GB image).
+#
 # Installed at /usr/local/bin/docker (ahead of /usr/bin/docker in PATH).
 
 REAL_DOCKER=/usr/bin/docker
@@ -68,6 +71,44 @@ if $has_output || ! $has_tag; then
     exec "$REAL_DOCKER" buildx build "$@"
 fi
 
+# load_via_registry: push image to shared registry, pull into local daemon.
+# Only transfers changed layers (~0.6s for a 1-layer change in 7.73GB image)
+# vs tarball --load which transfers the entire image (~9.5s).
+load_via_registry() {
+    local reg_tag="${HELIX_REGISTRY}/buildcache/${tags[0]}"
+    # Strip -t/--tag flags from args (they conflict with --output name=)
+    local build_args=()
+    local skip_next=false
+    for arg in "$@"; do
+        if $skip_next; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            -t|--tag) skip_next=true ;;
+            *) build_args+=("$arg") ;;
+        esac
+    done
+    # Build and push to registry with the registry-prefixed tag
+    "$REAL_DOCKER" buildx build "${build_args[@]}" \
+        --output "type=image,name=$reg_tag,push=true" --provenance=false
+    local rc=$?
+    if [ $rc -ne 0 ]; then
+        echo "[docker-wrapper] Registry push failed, falling back to tarball --load"
+        exec "$REAL_DOCKER" buildx build "$@" --load
+    fi
+    # Pull from registry (layer-level dedup — only downloads changed layers)
+    "$REAL_DOCKER" pull "$reg_tag" || {
+        echo "[docker-wrapper] Registry pull failed, falling back to tarball --load"
+        exec "$REAL_DOCKER" buildx build "$@" --load
+    }
+    # Re-tag to the original tag names
+    for tag in "${tags[@]}"; do
+        "$REAL_DOCKER" tag "$reg_tag" "$tag"
+    done
+    echo "[docker-wrapper] Loaded via registry (layer-level dedup)"
+}
+
 # Check if all tagged images exist in local daemon
 all_local=true
 for tag in "${tags[@]}"; do
@@ -78,7 +119,11 @@ for tag in "${tags[@]}"; do
 done
 
 if ! $all_local; then
-    # Image not in local daemon — must build with --load
+    # Image not in local daemon — must load it
+    if [ -n "${HELIX_REGISTRY:-}" ]; then
+        load_via_registry "$@"
+        exit $?
+    fi
     exec "$REAL_DOCKER" buildx build "$@" --load
 fi
 
@@ -100,7 +145,11 @@ new_id=""
 rm -f "$iid_file"
 
 if [ -z "$new_id" ]; then
-    # Couldn't determine digest — fall back to --load
+    # Couldn't determine digest — fall back to loading
+    if [ -n "${HELIX_REGISTRY:-}" ]; then
+        load_via_registry "$@"
+        exit $?
+    fi
     exec "$REAL_DOCKER" buildx build "$@" --load
 fi
 
@@ -116,6 +165,10 @@ done
 
 if $need_load; then
     echo "[docker-wrapper] Image changed (new: ${new_id:0:19}), loading into daemon..."
+    if [ -n "${HELIX_REGISTRY:-}" ]; then
+        load_via_registry "$@"
+        exit $?
+    fi
     exec "$REAL_DOCKER" buildx build "$@" --load
 fi
 

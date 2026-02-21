@@ -522,6 +522,14 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 		log.Debug().Str("buildkit_host", buildkitHost).Msg("Added BUILDKIT_HOST to dev container env")
 	}
 
+	// Add HELIX_REGISTRY for registry-based image loading (push/pull instead of tarball --load).
+	// When a build changes only one layer in a 7.73GB image, --load transfers the entire tarball
+	// (~9.5s). Registry push/pull transfers only changed layers (~0.6s) — a 16x improvement.
+	if registryHost := GetRegistryHost(); registryHost != "" {
+		env = append(env, fmt.Sprintf("HELIX_REGISTRY=%s", registryHost))
+		log.Debug().Str("registry_host", registryHost).Msg("Added HELIX_REGISTRY to dev container env")
+	}
+
 	// Override API URLs with sandbox's own HELIX_API_URL
 	// The API server sends localhost URLs, but desktop containers inside DinD
 	// need to reach the API via the sandbox's configured URL (set during install)
@@ -1184,4 +1192,26 @@ func GetBuildKitHost() string {
 
 	// BuildKit listens on TCP port 1234 (configured in setupSharedBuildKit)
 	return fmt.Sprintf("tcp://%s:1234", ip)
+}
+
+// GetRegistryHost returns the shared registry address (e.g., "10.213.0.5:5000")
+// by querying the helix-registry container's IP address on the sandbox's main dockerd.
+// Returns empty string if the registry is not available.
+func GetRegistryHost() string {
+	cmd := exec.Command("docker", "-H", "unix:///var/run/docker.sock",
+		"inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+		SharedRegistryContainerName)
+	output, err := cmd.Output()
+	if err != nil {
+		log.Debug().Err(err).Msg("Registry container not found or not running")
+		return ""
+	}
+
+	ip := strings.TrimSpace(string(output))
+	if ip == "" {
+		log.Debug().Msg("Registry container has no IP address")
+		return ""
+	}
+
+	return fmt.Sprintf("%s:%s", ip, SharedRegistryPort)
 }
