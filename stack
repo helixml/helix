@@ -81,12 +81,14 @@ function docker_build_load() {
     return $?
   fi
 
-  # Image exists locally. Quick build WITHOUT --load to check if anything changed.
-  # This runs the full build in BuildKit (all cached = ~5s) and writes the image
-  # digest to iidfile WITHOUT the expensive export step.
+  # Image exists locally. Quick build with --output type=image to check if anything
+  # changed. This exports the manifest to BuildKit's internal store (fast, no tarball
+  # transfer) and writes the config digest to iidfile. --provenance=false ensures
+  # the iidfile contains the config digest (not a manifest list), matching what
+  # 'docker images --no-trunc -q' returns for loaded images.
   local iid_file
   iid_file=$(mktemp /tmp/buildx-iid-XXXXXX)
-  docker buildx build "${args[@]}" --iidfile "$iid_file"
+  docker buildx build "${args[@]}" --output type=image --provenance=false --iidfile "$iid_file"
   local rc=$?
   if [ $rc -ne 0 ]; then
     rm -f "$iid_file"
