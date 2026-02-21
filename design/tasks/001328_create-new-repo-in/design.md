@@ -4,12 +4,22 @@
 
 Modify `helix-workspace-setup.sh` to detect empty repositories after cloning and automatically initialize them with an initial commit before attempting branch operations.
 
+## Git Proxy Layer Context
+
+Helix proxies all git operations through its API server. The relevant code paths:
+
+- **`api/pkg/services/git_external_sync.go`**: `WithExternalRepoRead` / `WithExternalRepoWrite` - wrappers that sync with upstream before operations
+- **`api/pkg/services/git_repository_service.go`**: `updateRepositoryFromGit` uses `giteagit.Clone` with `Mirror: true`
+- **`api/pkg/services/git_integration_test.go`**: `TestSyncAllBranches_EmptyRepo` - explicit test coverage for empty repos
+
+**The git proxy already handles empty repos correctly.** The clone via `giteagit.Clone(Mirror: true)` succeeds for empty repos. The problem is downstream in the desktop shell script that runs inside the container after the clone completes.
+
 ## Current Architecture
 
 ```
-Clone repo → Fetch branches → Find base branch → Checkout/Create working branch
-                                    ↓
-                              FAILS HERE (empty repo has no branches)
+API git proxy (Clone with Mirror:true) → Desktop container receives repo → helix-workspace-setup.sh
+                                                                                    ↓
+                                                                           Fetch branches → Find base branch → FAILS
 ```
 
 ## Proposed Solution

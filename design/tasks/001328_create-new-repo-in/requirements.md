@@ -6,10 +6,20 @@ When a user creates a new repository in GitHub and points Helix at it, the sessi
 
 ### Current Error Flow
 1. User creates new repo on GitHub (empty, no README)
-2. Helix clones it successfully (but with warning: "remote HEAD refers to nonexistent ref")
-3. Script enters "new branch" mode and tries to find base branch
-4. Fails with: "FATAL: Base branch not found on remote: main"
-5. Zed never starts - user must manually initialize the repo from terminal
+2. Helix clones it via git proxy (`WithExternalRepoRead`, `giteagit.Clone` with `Mirror: true`) - **this succeeds** (git proxy handles empty repos correctly)
+3. Desktop container receives the cloned repo (warning: "remote HEAD refers to nonexistent ref")
+4. `helix-workspace-setup.sh` enters "new branch" mode and tries to find base branch
+5. Fails with: "FATAL: Base branch not found on remote: main"
+6. Zed never starts - user must manually initialize the repo from terminal
+
+### Git Proxy Verification
+
+The Helix git proxy layer (`api/pkg/services/git_external_sync.go`, `git_repository_service.go`) already handles empty repos correctly:
+- `SyncAllBranches` has explicit test coverage for empty repos (`TestSyncAllBranches_EmptyRepo`)
+- `giteagit.Clone` with `Mirror: true` succeeds on empty repos
+- `WithExternalRepoRead` / `WithExternalRepoWrite` work with empty repos
+
+**The issue is in the desktop shell script**, not the git proxy.
 
 ## User Stories
 
