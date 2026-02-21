@@ -101,8 +101,9 @@ if [ "$REBUILD_TEMPLATE" = true ]; then
     VOLUME_NAME=$(basename "$MOUNT_DIR")
     log "  Mounted at: $MOUNT_DIR"
 
-    # Create Finder alias (carries proper /Applications icon)
-    osascript -e "tell application \"Finder\" to make new alias file at (POSIX file \"$MOUNT_DIR\" as alias) to (POSIX file \"/Applications\" as alias) with properties {name:\"Applications\"}"
+    # Create symlink to /Applications (symlinks resolve by path — no stale
+    # bookmark data that breaks the icon on other machines like Finder aliases do)
+    ln -s /Applications "$MOUNT_DIR/Applications"
 
     # Copy background
     mkdir -p "$MOUNT_DIR/.background"
@@ -179,7 +180,7 @@ rm -rf "$DMG_TEMP"
 # =============================================================================
 #
 # Uses a pre-built template DMG (assets/dmg-template.dmg) that contains:
-#   - Finder alias to /Applications (with proper icon — requires GUI to create)
+#   - Symlink to /Applications for drag-and-drop install
 #   - Background image with arrow
 #   - .DS_Store with Finder layout (icon positions, window size, icon view)
 #
