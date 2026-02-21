@@ -135,7 +135,7 @@ docker build -t foo:bar .     ← user/script runs this
   └── wrapper/docker_build_load()
       1. Is builder remote?  → NO: just run docker buildx build (no --load needed)
       2. Does local daemon have foo:bar? → NO: run with --load (first build)
-      3. Quick build WITHOUT --load, WITH --iidfile  (~5s for cached)
+      3. Quick build with --output type=image --provenance=false --iidfile  (~0.5s for cached)
       4. Compare iidfile digest with local image ID:
          - MATCH: skip --load ("Image unchanged, skipping load")
          - DIFFER: run with --load ("Image changed, loading into daemon...")
@@ -143,15 +143,16 @@ docker build -t foo:bar .     ← user/script runs this
 
 ### Why This Works
 
-- `--iidfile` writes the image config digest (sha256) regardless of `--load`
+- With remote BuildKit, `--iidfile` is EMPTY without an output mode — the builder doesn't compute the image digest unless it exports something
+- `--output type=image` exports the manifest to BuildKit's internal image store (fast, ~0s, no tarball transfer to client)
+- `--provenance=false` prevents BuildKit from wrapping the manifest in a manifest list — so `--iidfile` returns the **config digest** (sha256 of image config), not a manifest list digest
 - `docker images --no-trunc -q` returns the same config digest for loaded images
 - These digests are deterministic for identical build inputs (layers + config)
-- Provenance (`--provenance=true/false`) does NOT affect the iidfile digest
-- Verified empirically: with/without --load, with/without --provenance, digest is identical
+- Verified empirically: `--output type=image --provenance=false --iidfile` matches `docker images --no-trunc -q` for the same image
 
 ### Overhead
 
-- **Image unchanged (common case)**: ~5s instead of ~655s. Savings: **~650s per 7.7GB image**.
+- **Image unchanged (common case)**: ~0.5s instead of ~655s. Savings: **~654s per 7.7GB image**.
 - **Image changed**: ~5s extra for the check build, then full --load. Context is sent twice (~6MB for helix, negligible).
 - **First build ever**: no overhead (directly uses --load since no local image exists).
 

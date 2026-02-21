@@ -9,9 +9,9 @@
 #
 # Solution: This wrapper rewrites 'docker build' to 'docker buildx build'
 # (which honors the default builder) and uses smart --load for remote builders:
-# builds without --load first (~5s) to check if the image changed, then only
-# does the expensive --load (~655s for 7.7GB images) when something actually
-# changed. This makes cached rebuilds near-instant.
+# builds with --output type=image first (~5s) to check if the image changed,
+# then only does the expensive --load (~655s for 7.7GB images) when something
+# actually changed. This makes cached rebuilds near-instant.
 #
 # Installed at /usr/local/bin/docker (ahead of /usr/bin/docker in PATH).
 
@@ -79,11 +79,13 @@ if ! $all_local; then
     exec "$REAL_DOCKER" buildx build "$@" --load
 fi
 
-# Image exists locally. Quick build WITHOUT --load to check if anything changed.
-# BuildKit runs the full build (all cached = ~5s) and writes the image digest
-# to iidfile WITHOUT the expensive export step (~655s for large images).
+# Image exists locally. Quick build with --output type=image to check if anything
+# changed. This exports the manifest to BuildKit's internal store (fast, no tarball
+# transfer) and writes the config digest to iidfile. --provenance=false ensures
+# the iidfile contains the config digest (not a manifest list), matching what
+# 'docker images --no-trunc -q' returns for loaded images.
 iid_file=$(mktemp /tmp/buildx-iid-XXXXXX)
-"$REAL_DOCKER" buildx build "$@" --iidfile "$iid_file"
+"$REAL_DOCKER" buildx build "$@" --output type=image --provenance=false --iidfile "$iid_file"
 rc=$?
 if [ $rc -ne 0 ]; then
     rm -f "$iid_file"
