@@ -101,8 +101,18 @@ if [ "$REBUILD_TEMPLATE" = true ]; then
     VOLUME_NAME=$(basename "$MOUNT_DIR")
     log "  Mounted at: $MOUNT_DIR"
 
-    # Create Finder alias (carries proper /Applications icon)
+    # Create Finder alias to /Applications, then bake in a custom icon so
+    # Finder never needs to resolve the alias just to display the icon.
+    # Without the custom icon, the alias bookmark is stale on any machine
+    # other than the one that built the template, and since the DMG is
+    # read-only Finder can't rewrite it — causing a blank/flickering icon.
     osascript -e "tell application \"Finder\" to make new alias file at (POSIX file \"$MOUNT_DIR\" as alias) to (POSIX file \"/Applications\" as alias) with properties {name:\"Applications\"}"
+    swift -e '
+        import AppKit
+        let ws = NSWorkspace.shared
+        let icon = ws.icon(forFile: "/Applications")
+        ws.setIcon(icon, forFile: "'"$MOUNT_DIR"'/Applications", options: [])
+    '
 
     # Copy background
     mkdir -p "$MOUNT_DIR/.background"
@@ -179,7 +189,7 @@ rm -rf "$DMG_TEMP"
 # =============================================================================
 #
 # Uses a pre-built template DMG (assets/dmg-template.dmg) that contains:
-#   - Finder alias to /Applications (with proper icon — requires GUI to create)
+#   - Finder alias to /Applications (with icon baked in via NSWorkspace.setIcon)
 #   - Background image with arrow
 #   - .DS_Store with Finder layout (icon positions, window size, icon view)
 #
