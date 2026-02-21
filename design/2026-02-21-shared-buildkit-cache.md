@@ -184,18 +184,26 @@ To ensure good build caching across spectask sessions:
 
 ## Results
 
-### With Smart `--load` (PR #1712) — Measured
+### With Smart `--load` (PRs #1712, #1713) — Measured
 
-Measured inside spectask `ubuntu-external-01khzm570xsv3ac2yr51vvhfrq` with all caches hot:
+Measured inside spectask containers with all caches hot:
 
 | Phase | Cold Cache | Hot Cache (old) | Hot Cache (smart --load) | Improvement |
 |-------|-----------|-----------------|--------------------------|-------------|
 | `./stack build` (compose) | ~3 min | ~200s | **8s** | 25x |
-| `./stack build-zed release` | ~11 min | ~459s | **1s** | 459x |
-| `./stack build-sandbox` | ~29 min | ~2075s | **13s** | 160x |
-| **Total startup** | **~43 min** | **~2734s (45 min)** | **22s** | **124x** |
+| `./stack build-zed release` | ~11 min | ~459s | **2s** | 230x |
+| `./stack build-sandbox` | ~29 min | ~2075s | **12s** | 173x |
+| **Total startup** | **~43 min** | **~2734s (45 min)** | **~22s** | **~124x** |
 
-Key: `./stack build` (compose) also benefits because shared BuildKit cache is hot — compose only needs to --load tiny changed layers.
+Key: smart --load uses `--output type=image --provenance=false --iidfile` to get the image config
+digest without transferring a tarball (~0s export), then compares with the local daemon's image ID.
+`--provenance=false` is critical: without it, BuildKit wraps the manifest in a manifest list, changing
+the iidfile digest and preventing comparison with the local image ID.
+
+Tested in spectask `ubuntu-external-01kj01bpbn6gsgkv2mg4cdpqqr`:
+- Third build-sandbox run (fully cached): **12s** total. Smart --load fired for both ubuntu and sandbox images: "Image unchanged, skipping load".
+- Compose build (fully cached): **8s** total in spectask `ubuntu-external-01kj0b6xmqzjcj5gh4spkd0mfs`.
+- Host build-sandbox (fully cached): **7s** total.
 
 ### Previous Results (Before Smart `--load`)
 
@@ -265,15 +273,16 @@ The `--load` export was the clear bottleneck:
 
 ### Optimizations Applied
 
-1. **Smart `--load`** (PR #1711): Skip --load when image unchanged. Saves ~650s per 7.7GB image.
-2. **Sway moved to experimental** (PR #1711): `PRODUCTION_DESKTOPS=(ubuntu)` instead of `(sway ubuntu)`. Saves building+transferring the 5.2GB sway image. Spectasks only use ubuntu.
+1. **Smart `--load`** (PRs #1712, #1713): Skip --load when image unchanged. Uses `--output type=image --provenance=false --iidfile` to get config digest without tarball transfer, compares with local daemon. Saves ~650s per 7.7GB image.
+2. **Sway moved to experimental** (PR #1712): `PRODUCTION_DESKTOPS=(ubuntu)` instead of `(sway ubuntu)`. Saves building+transferring the 5.2GB sway image. Spectasks only use ubuntu.
 3. **Shared BuildKit cache** (PRs #1705-#1709): All builds use the shared BuildKit at sandbox level. Cache persists across sessions.
+4. **Docker wrapper** (PRs #1709, #1713): `/usr/local/bin/docker` rewrites `docker build` → `docker buildx build` (honors shared builder) and applies smart --load for remote builders.
 
 ### Remaining Bottlenecks
 
-1. **`docker compose build` (./stack build)**: Compose handles --load internally and doesn't support smart --load. Still takes ~200s in spectask even when fully cached. Potential fix: compose might support `--iidfile` or we could wrap compose too.
-2. **Registry push/pull for desktop transfer**: When image DOES change, push/pull of 7.7GB image takes ~100s on localhost. Not optimizable without smaller images.
-3. **Build-zed --load**: Zed binary image is small (~85MB) so --load is fast. With smart --load, this should be ~5s.
+1. **`docker compose build` (./stack build)**: Compose handles --load internally. With shared BuildKit cache hot, compose build takes ~8s — cached layers are tiny. No further optimization needed.
+2. **Registry push/pull for desktop transfer**: When image DOES change, push/pull of 7.7GB image takes ~100-300s. Not optimizable without smaller images. Smart --load eliminates this for unchanged images.
+3. **Cold Zed build**: First-time Zed compilation from source takes ~11 min. Cached by BuildKit for subsequent builds with same source.
 
 ## Files Changed
 
