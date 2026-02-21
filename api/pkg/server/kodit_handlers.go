@@ -111,9 +111,10 @@ func enrichmentListToDTO(enrichments []enrichment.Enrichment, commitSHA string) 
 	for _, e := range enrichments {
 		dto := enrichmentToDTO(e)
 		dto.CommitSHA = commitSHA
-		// Truncate content in list view
-		if len(dto.Attributes.Content) > enrichmentListMaxContentLength {
-			dto.Attributes.Content = dto.Attributes.Content[:enrichmentListMaxContentLength] + "..."
+		// Truncate content in list view (use runes to avoid splitting multi-byte UTF-8)
+		runes := []rune(dto.Attributes.Content)
+		if len(runes) > enrichmentListMaxContentLength {
+			dto.Attributes.Content = string(runes[:enrichmentListMaxContentLength]) + "..."
 		}
 		data = append(data, dto)
 	}
@@ -332,7 +333,10 @@ func (apiServer *HelixAPIServer) getRepositoryEnrichments(w http.ResponseWriter,
 	json.NewEncoder(w).Encode(enrichmentListToDTO(enrichments, commitSHA))
 }
 
-// getEnrichment fetches a specific enrichment by ID from Kodit
+// getEnrichment fetches a specific enrichment by ID from Kodit.
+// TODO: enrichment is fetched by global ID without verifying it belongs to this
+// repo's commits. A user with access to any repo can read any enrichment by ID.
+// Fix requires kodit library to expose commit/repo relationship on enrichments.
 // @Summary Get enrichment by ID
 // @Description Get a specific code intelligence enrichment by ID from Kodit
 // @Tags git-repositories
@@ -398,6 +402,9 @@ func (apiServer *HelixAPIServer) getRepositoryKoditCommits(w http.ResponseWriter
 			limit = parsedLimit
 		}
 	}
+	if limit > 500 {
+		limit = 500
+	}
 
 	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
 	if !ok {
@@ -448,6 +455,9 @@ func (apiServer *HelixAPIServer) searchRepositorySnippets(w http.ResponseWriter,
 		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
 			limit = parsedLimit
 		}
+	}
+	if limit > 100 {
+		limit = 100
 	}
 
 	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)

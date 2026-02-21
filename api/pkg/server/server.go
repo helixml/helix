@@ -120,7 +120,7 @@ type HelixAPIServer struct {
 	specDrivenTaskService     *services.SpecDrivenTaskService
 	sampleProjectCodeService  *services.SampleProjectCodeService
 	gitRepositoryService      *services.GitRepositoryService
-	koditService              *services.KoditService
+	koditService              services.KoditServicer
 	koditClient               *kodit.Client
 	mcpGateway                *MCPGateway
 	gitHTTPServer             *services.GitHTTPServer
