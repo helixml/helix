@@ -1164,29 +1164,6 @@ func (s *HelixAPIServer) handleExternalAgentStreaming(ctx context.Context, sessi
 		ChatCompletionRequest: chatCompletionRequest,
 		Mode:                  mode,
 		Start:                 start,
-		Hooks: controller.ExternalAgentHooks{
-			WaitForExternalAgentReady: s.waitForExternalAgentReady,
-			GetAgentNameForSession:    s.getAgentNameForSession,
-			SendCommand:               s.sendCommandToExternalAgent,
-			StoreResponseChannel:      s.storeResponseChannel,
-			CleanupResponseChannel:    s.cleanupResponseChannel,
-			SetWaitingInteraction: func(sessionID, interactionID string) {
-				s.contextMappingsMutex.Lock()
-				if s.sessionToWaitingInteraction == nil {
-					s.sessionToWaitingInteraction = make(map[string]string)
-				}
-				s.sessionToWaitingInteraction[sessionID] = interactionID
-				s.contextMappingsMutex.Unlock()
-			},
-			SetRequestSessionMapping: func(requestID, sessionID string) {
-				s.contextMappingsMutex.Lock()
-				if s.requestToSessionMapping == nil {
-					s.requestToSessionMapping = make(map[string]string)
-				}
-				s.requestToSessionMapping[requestID] = sessionID
-				s.contextMappingsMutex.Unlock()
-			},
-		},
 	})
 	if err != nil {
 		log.Error().Err(err).Str("session_id", session.ID).Msg("external agent request failed")
