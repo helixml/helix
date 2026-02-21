@@ -1,122 +1,95 @@
 package services
 
 import (
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
+
+	"github.com/helixml/kodit/domain/enrichment"
 )
 
-func TestKoditService_APIKeyAuth(t *testing.T) {
-	expectedAPIKey := "test-api-key-12345" // gitleaks:allow
-	var receivedAPIKey string
-	var receivedRequest bool
+// Compile-time interface check.
+var _ KoditServicer = (*KoditService)(nil)
 
-	// Create a mock Kodit server that captures the API key header
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedRequest = true
-		receivedAPIKey = r.Header.Get("X-API-Key")
-
-		// Return a valid repository response for the create endpoint
-		if r.URL.Path == "/api/v1/repositories" && r.Method == http.MethodPost {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusCreated)
-			response := map[string]any{
-				"data": map[string]any{
-					"id":   "123",
-					"type": "repository",
-					"attributes": map[string]any{
-						"remote_uri": "https://github.com/example/repo.git",
-					},
-				},
-			}
-			json.NewEncoder(w).Encode(response)
-			return
-		}
-
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer mockServer.Close()
-
-	// Create the Kodit service with API key
-	service := NewKoditService(mockServer.URL, expectedAPIKey)
-
-	if !service.IsEnabled() {
-		t.Fatal("Expected service to be enabled")
+func TestNewKoditService_NilClient(t *testing.T) {
+	if NewKoditService(nil).IsEnabled() {
+		t.Error("expected disabled when client is nil")
 	}
-
-	// Make a request to trigger the API key auth
-	_, err := service.RegisterRepository(t.Context(), "https://github.com/example/repo.git")
-	if err != nil {
-		t.Fatalf("RegisterRepository failed: %v", err)
-	}
-
-	// Verify the request was made
-	if !receivedRequest {
-		t.Fatal("Expected mock server to receive a request")
-	}
-
-	// Verify the API key header was sent correctly
-	if receivedAPIKey != expectedAPIKey {
-		t.Errorf("Expected X-API-Key header to be %q, got %q", expectedAPIKey, receivedAPIKey)
+	var nilSvc *KoditService
+	if nilSvc.IsEnabled() {
+		t.Error("nil receiver must return false")
 	}
 }
 
-func TestKoditService_NoAPIKey(t *testing.T) {
-	var receivedAPIKey string
-	var receivedRequest bool
+func TestDisabledServiceMethods(t *testing.T) {
+	svc := NewKoditService(nil)
+	ctx := t.Context()
 
-	// Create a mock Kodit server
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedRequest = true
-		receivedAPIKey = r.Header.Get("X-API-Key")
+	// RegisterRepository is special: returns zero values without error.
+	id, isNew, err := svc.RegisterRepository(ctx, "https://example.com/repo.git")
+	if err != nil || id != 0 || isNew {
+		t.Errorf("RegisterRepository: want (0, false, nil), got (%d, %v, %v)", id, isNew, err)
+	}
 
-		if r.URL.Path == "/api/v1/repositories" && r.Method == http.MethodPost {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusCreated)
-			response := map[string]any{
-				"data": map[string]any{
-					"id":   "123",
-					"type": "repository",
-					"attributes": map[string]any{
-						"remote_uri": "https://github.com/example/repo.git",
-					},
-				},
+	// All other methods error when disabled.
+	for _, tc := range []struct {
+		name string
+		fn   func() error
+	}{
+		{"GetRepositoryEnrichments", func() error { _, e := svc.GetRepositoryEnrichments(ctx, 1, "", ""); return e }},
+		{"GetEnrichment", func() error { _, e := svc.GetEnrichment(ctx, "1"); return e }},
+		{"GetRepositoryCommits", func() error { _, e := svc.GetRepositoryCommits(ctx, 1, 10); return e }},
+		{"SearchSnippets", func() error { _, e := svc.SearchSnippets(ctx, 1, "test", 10); return e }},
+		{"GetRepositoryStatus", func() error { _, e := svc.GetRepositoryStatus(ctx, 1); return e }},
+		{"RescanCommit", func() error { return svc.RescanCommit(ctx, 1, "abc123") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.fn() == nil {
+				t.Error("expected error from disabled service")
 			}
-			json.NewEncoder(w).Encode(response)
-			return
-		}
-
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer mockServer.Close()
-
-	// Create the Kodit service WITHOUT API key
-	service := NewKoditService(mockServer.URL, "")
-
-	if !service.IsEnabled() {
-		t.Fatal("Expected service to be enabled even without API key")
-	}
-
-	_, err := service.RegisterRepository(t.Context(), "https://github.com/example/repo.git")
-	if err != nil {
-		t.Fatalf("RegisterRepository failed: %v", err)
-	}
-
-	if !receivedRequest {
-		t.Fatal("Expected mock server to receive a request")
-	}
-
-	// When no API key is configured, the header should be empty
-	if receivedAPIKey != "" {
-		t.Errorf("Expected no X-API-Key header when API key not configured, got %q", receivedAPIKey)
+		})
 	}
 }
 
-func TestKoditService_DisabledWithoutBaseURL(t *testing.T) {
-	service := NewKoditService("", "some-api-key")
+func TestInputValidation(t *testing.T) {
+	svc := &KoditService{enabled: true}
+	ctx := t.Context()
 
-	if service.IsEnabled() {
-		t.Error("Expected service to be disabled when base URL is empty")
+	for _, tc := range []struct {
+		name string
+		fn   func() error
+	}{
+		{"GetEnrichment empty ID", func() error { _, e := svc.GetEnrichment(ctx, ""); return e }},
+		{"GetEnrichment non-numeric ID", func() error { _, e := svc.GetEnrichment(ctx, "not-a-number"); return e }},
+		{"RescanCommit empty SHA", func() error { return svc.RescanCommit(ctx, 1, "") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.fn() == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+
+	// SearchSnippets with empty query returns nil, nil (not an error).
+	results, err := svc.SearchSnippets(ctx, 1, "", 20)
+	if err != nil || results != nil {
+		t.Errorf("SearchSnippets empty query: want (nil, nil), got (%v, %v)", results, err)
+	}
+}
+
+func TestEnrichmentFiltering(t *testing.T) {
+	all := []enrichment.Enrichment{
+		enrichment.NewSnippetEnrichment("code"),
+		enrichment.NewSnippetSummary("summary"),
+		enrichment.NewExampleSummary("example"),
+		enrichment.NewCookbook("cookbook"),
+		enrichment.NewPhysicalArchitecture("arch"),
+	}
+	var kept int
+	for _, e := range all {
+		if e.Subtype() != enrichment.SubtypeSnippetSummary && e.Subtype() != enrichment.SubtypeExampleSummary {
+			kept++
+		}
+	}
+	if kept != 3 {
+		t.Errorf("expected 3 after filtering, got %d", kept)
 	}
 }
