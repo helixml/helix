@@ -72,14 +72,17 @@ WORKDIR /zed
 #   - /root/.cargo/registry: crate index + source archives
 #   - /root/.cargo/git: git dependency checkouts
 #   - /root/.rustup: toolchain + rustup data (entire dir cached so rename() works)
-#   - /zed/target-ubuntu25-v2: build artifacts (incremental compilation)
+#   - /zed/target-ubuntu25-v3: build artifacts (incremental compilation)
 #
 # On first run, the rustup cache mount is empty so we bootstrap from the layer.
 # The cargo binary is in /root/.cargo/bin which is NOT cache-mounted (just registry/git).
+#
+# NOTE: Bump the target dir version (v3, v4, ...) if incremental compilation
+# produces stale artifacts after struct/field changes. The old mount gets GC'd.
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/root/.rustup \
-    --mount=type=cache,target=/zed/target-ubuntu25-v2 \
+    --mount=type=cache,target=/zed/target-ubuntu25-v3 \
     if [ ! -f /root/.rustup/settings.toml ]; then \
         echo "Bootstrapping rustup in cache mount..." && \
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none; \
@@ -89,12 +92,12 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
         echo "Try: docker builder prune --filter type=regular (preserves cache mounts)" && \
         exit 1; \
     fi && \
-    CARGO_TARGET_DIR=target-ubuntu25-v2 \
+    CARGO_TARGET_DIR=target-ubuntu25-v3 \
     RUSTFLAGS='-C link-arg=-s' \
     cargo build \
         $(if [ "$BUILD_TYPE" = "release" ]; then echo "--release"; else echo ""; fi) \
         --features external_websocket_sync \
-    && cp target-ubuntu25-v2/${BUILD_TYPE}/zed /zed-binary
+    && cp target-ubuntu25-v3/${BUILD_TYPE}/zed /zed-binary
 
 # Output stage — just the binary, nothing else
 FROM scratch

@@ -477,7 +477,7 @@ function build-zed() {
   fi
   cat > "$DOCKERIGNORE" << 'EIGNORE'
 target/
-target-ubuntu25/
+target-ubuntu25*/
 .git/
 EIGNORE
 
