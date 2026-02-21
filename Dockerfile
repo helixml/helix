@@ -15,18 +15,20 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 ### Embedding model stage ###
 #----------------------------
 # Downloads and converts the st-codesearch-distilroberta-base model to ONNX format.
-# Uses uv+Python because the model conversion requires torch/optimum.
-FROM ghcr.io/astral-sh/uv:debian-slim@sha256:b852203fd7831954c58bfa1fec1166295adcfcfa50f4de7fdd0e684c8bd784eb AS embedding-model
-WORKDIR /build
-COPY api/pkg/koditutil/tools/convert-model.py ./tools/convert-model.py
-RUN uv run --script tools/convert-model.py
+# Uses kodit's download-model tool (Go binary that embeds the Python conversion script).
+FROM api-base AS embedding-model
+COPY --from=ghcr.io/astral-sh/uv:debian-slim@sha256:b852203fd7831954c58bfa1fec1166295adcfcfa50f4de7fdd0e684c8bd784eb /usr/local/bin/uv /usr/local/bin/uv
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go run github.com/helixml/kodit/cmd/download-model /build/models/flax-sentence-embeddings_st-codesearch-distilroberta-base
 
 ### Tokenizers library ###
 #-------------------------
-# Downloads the libtokenizers.a static library needed for CGo builds
+# Downloads libtokenizers.a via kodit's download-ort tool
 FROM api-base AS tokenizers-lib
-COPY api/pkg/koditutil/tools/download-tokenizers.go ./tools/download-tokenizers.go
-RUN go run ./tools/download-tokenizers.go
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    ORT_VERSION=1.24.1 go run github.com/helixml/kodit/tools/download-ort
 
 ### API Development ###
 #----------------------
