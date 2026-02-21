@@ -1,7 +1,7 @@
 # Shared BuildKit Cache Across Spectask Sessions
 
 **Date**: 2026-02-21
-**PRs**: #1705 (env var fix), #1706 (wrapper script), #1708 (timing instrumentation), #1709 (core buildx fix), #1711 (smart --load + sway→experimental)
+**PRs**: #1705 (env var fix), #1706 (wrapper script), #1708 (timing instrumentation), #1709 (core buildx fix), #1712 (smart --load + sway→experimental), #1713 (--output type=image fix), #1714 (design doc), #1715 (timing helpers errexit fix)
 
 ## Architecture: Docker Nesting in Helix-in-Helix
 
@@ -278,9 +278,26 @@ The `--load` export was the clear bottleneck:
 3. **Shared BuildKit cache** (PRs #1705-#1709): All builds use the shared BuildKit at sandbox level. Cache persists across sessions.
 4. **Docker wrapper** (PRs #1709, #1713): `/usr/local/bin/docker` rewrites `docker build` → `docker buildx build` (honors shared builder) and applies smart --load for remote builders.
 
+### E2E Validation (Fresh Spectask)
+
+Validated in spectask `spt_01kj0c6v15kkr7fqw25y0yq6vd` (container `ubuntu-external-01kj0c6v1jdadnf863yekgawff`) — a fresh spectask in the Helix project with all 4 repos (helix, zed, qwen-code, docs) cloned:
+
+| Phase | Time | Notes |
+|-------|------|-------|
+| `./stack build` | **9.6s** | All 4 images (api, frontend, haystack, typesense) fully cached via shared BuildKit |
+| `./stack build-zed release` | **2.3s** | All layers cached, failed at cargo compilation (pre-existing code error) |
+| `./stack build-sandbox` | **2.4s** | Same zed compilation error |
+
+Confirmed working:
+- `BUILDX_BUILDER=helix-shared` set globally in container
+- Docker wrapper at `/usr/local/bin/docker` routing builds through shared BuildKit
+- `docker buildx ls` shows `helix-shared*` as default builder
+- `docker compose build` using shared BuildKit via `BUILDX_BUILDER` env var
+- Zed build failure is a pre-existing code issue (missing `suggest_dev_container` field), not a caching problem
+
 ### Remaining Bottlenecks
 
-1. **`docker compose build` (./stack build)**: Compose handles --load internally. With shared BuildKit cache hot, compose build takes ~8s — cached layers are tiny. No further optimization needed.
+1. **`docker compose build` (./stack build)**: Compose handles --load internally. With shared BuildKit cache hot, compose build takes ~9.6s — cached layers are tiny. No further optimization needed.
 2. **Registry push/pull for desktop transfer**: When image DOES change, push/pull of 7.7GB image takes ~100-300s. Not optimizable without smaller images. Smart --load eliminates this for unchanged images.
 3. **Cold Zed build**: First-time Zed compilation from source takes ~11 min. Cached by BuildKit for subsequent builds with same source.
 
