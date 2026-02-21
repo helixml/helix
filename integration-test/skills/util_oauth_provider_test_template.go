@@ -169,7 +169,7 @@ func (template *OAuthProviderTestTemplate) TestCreateTestApp(t *testing.T) {
 					{
 						Name:         template.skillConfig.DisplayName + " Assistant",
 						Description:  fmt.Sprintf("Assistant configured with %s OAuth skills", template.skillConfig.DisplayName),
-						AgentMode:    true,
+						AgentType:    types.AgentTypeHelixAgent,
 						SystemPrompt: template.skillConfig.SystemPrompt,
 						// Configure LLM model (use anthropic if available, fallback to helix)
 						Provider: "anthropic",

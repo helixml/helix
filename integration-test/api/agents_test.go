@@ -83,7 +83,7 @@ func (suite *AgentTestSuite) TestAgent_NoSkills() {
 					{
 						Name:                         name,
 						Description:                  description,
-						AgentMode:                    true,
+						AgentType:                    types.AgentTypeHelixAgent,
 						ReasoningModelProvider:       suite.agentConfig.ReasoningModelProvider,
 						ReasoningModel:               suite.agentConfig.ReasoningModel,
 						ReasoningModelEffort:         suite.agentConfig.ReasoningModelEffort,
@@ -133,7 +133,7 @@ func (suite *AgentTestSuite) TestAgent_CurrencyExchange() {
 					{
 						Name:                         name,
 						Description:                  description,
-						AgentMode:                    true,
+						AgentType:                    types.AgentTypeHelixAgent,
 						SystemPrompt:                 `Use getExchangeRates tool when asked about converting currencies, do not try to guess the rate`,
 						ReasoningModelProvider:       suite.agentConfig.ReasoningModelProvider,
 						ReasoningModel:               suite.agentConfig.ReasoningModel,
@@ -230,7 +230,7 @@ func (suite *AgentTestSuite) TestAgent_BasicKnowledge() {
 					{
 						Name:                         name,
 						Description:                  description,
-						AgentMode:                    true,
+						AgentType:                    types.AgentTypeHelixAgent,
 						SystemPrompt:                 `Provide answers to users based on the knowledge provided to you.`,
 						ReasoningModelProvider:       suite.agentConfig.ReasoningModelProvider,
 						ReasoningModel:               suite.agentConfig.ReasoningModel,

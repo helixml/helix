@@ -1583,8 +1583,6 @@ type AssistantConfig struct {
 	// when a new session is about to be launched. Use this to showcase the capabilities of the assistant.
 	ConversationStarters []string `json:"conversation_starters,omitempty" yaml:"conversation_starters,omitempty"`
 
-	// AgentMode triggers the use of the agent loop (deprecated - use AgentType instead)
-	AgentMode bool `json:"agent_mode" yaml:"agent_mode"`
 	// AgentType specifies the type of agent to use
 	AgentType     AgentType `json:"agent_type,omitempty" yaml:"agent_type,omitempty"`
 	MaxIterations int       `json:"max_iterations" yaml:"max_iterations"`
