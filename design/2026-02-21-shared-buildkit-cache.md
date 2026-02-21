@@ -1,7 +1,7 @@
 # Shared BuildKit Cache Across Spectask Sessions
 
 **Date**: 2026-02-21
-**PRs**: #1705 (env var fix), #1706 (wrapper script), #1708 (timing instrumentation), #1709 (core buildx fix)
+**PRs**: #1705 (env var fix), #1706 (wrapper script), #1708 (timing instrumentation), #1709 (core buildx fix), #1711 (smart --load + sway→experimental)
 
 ## Architecture: Docker Nesting in Helix-in-Helix
 
@@ -104,13 +104,62 @@ $ docker build -t test -f /tmp/test-dockerfile /tmp/
 
 ## Fix
 
-Three-part solution:
+Four-part solution:
 
 1. **`BUILDX_BUILDER=helix-shared` set globally** in `/etc/environment`, `/etc/profile.d/`, and `~/.bashrc` for interactive sessions. (PR #1705, `17-start-dockerd.sh`)
 
 2. **`docker_build_load()` uses `docker buildx build`** instead of `docker build`. `docker buildx build` honors the default builder (set via `docker buildx use --default`), while `docker build` does not. Also auto-detects the builder driver via `docker buildx inspect` without requiring `BUILDX_BUILDER`. (PR #1709, `stack`)
 
 3. **Docker wrapper rewrites `docker build` → `docker buildx build`** and adds `--load` for remote builders. No longer requires `BUILDX_BUILDER` — auto-detects the default builder. (PR #1709, `docker-buildx-wrapper.sh`)
+
+4. **Smart `--load`: skip image export when unchanged** (PR #1711). Both `docker_build_load()` and the wrapper now build WITHOUT `--load` first to get the image digest via `--iidfile`, then compare with the local daemon's image ID. If they match, the image hasn't changed and `--load` is skipped entirely. See [Smart --load Optimization](#smart---load-optimization) below.
+
+## Smart `--load` Optimization
+
+### The `--load` Bottleneck
+
+With remote BuildKit builders, `docker buildx build --load` exports the built image as a tarball from the remote builder, streams it to the local daemon, and imports it. This happens even when ALL build steps are cached and the image hasn't changed.
+
+Measured inside a spectask (helix-in-helix):
+
+| Image | Size | `--load` time (cached) | Without `--load` (cached) |
+|-------|------|----------------------|--------------------------|
+| helix-ubuntu | 7.24 GB | ~655s (11 min) | ~5s |
+| helix-api | 619 MB | ~40s | ~3s |
+| helix-frontend | 1.67 GB | ~120s | ~4s |
+
+### How Smart `--load` Works
+
+```
+docker build -t foo:bar .     ← user/script runs this
+  └── wrapper/docker_build_load()
+      1. Is builder remote?  → NO: just run docker buildx build (no --load needed)
+      2. Does local daemon have foo:bar? → NO: run with --load (first build)
+      3. Quick build WITHOUT --load, WITH --iidfile  (~5s for cached)
+      4. Compare iidfile digest with local image ID:
+         - MATCH: skip --load ("Image unchanged, skipping load")
+         - DIFFER: run with --load ("Image changed, loading into daemon...")
+```
+
+### Why This Works
+
+- `--iidfile` writes the image config digest (sha256) regardless of `--load`
+- `docker images --no-trunc -q` returns the same config digest for loaded images
+- These digests are deterministic for identical build inputs (layers + config)
+- Provenance (`--provenance=true/false`) does NOT affect the iidfile digest
+- Verified empirically: with/without --load, with/without --provenance, digest is identical
+
+### Overhead
+
+- **Image unchanged (common case)**: ~5s instead of ~655s. Savings: **~650s per 7.7GB image**.
+- **Image changed**: ~5s extra for the check build, then full --load. Context is sent twice (~6MB for helix, negligible).
+- **First build ever**: no overhead (directly uses --load since no local image exists).
+
+### Correctness
+
+- If `--iidfile` fails or is empty: falls back to --load (no optimization, but no regression)
+- If digest comparison fails (different formats): `!=` is true, falls back to --load (no regression)
+- Works for all users' docker usage — no helix-specific behavior in the wrapper
 
 ## Guidance for Users / Agent Authors
 
@@ -130,7 +179,24 @@ To ensure good build caching across spectask sessions:
 
 7. **Be aware of nesting levels**: The shared BuildKit runs at the sandbox level (Level 1). All desktop containers (Level 2) share this cache. If you start a helix-in-helix stack inside a desktop container, that inner stack's builds also go through the same shared BuildKit.
 
+8. **`docker compose build`** natively reads `BUILDX_BUILDER` and also honors the default buildx builder. It does NOT go through the wrapper (wrapper intercepts `docker build`, not `docker compose build`). Both `BUILDX_BUILDER=helix-shared` and `docker buildx use helix-shared --default` make compose builds use the shared cache.
+
 ## Results
+
+### With Smart `--load` (PR #1711) — Estimated
+
+| Phase | Cold Cache | Hot Cache (old) | Hot Cache (smart --load) |
+|-------|-----------|-----------------|--------------------------|
+| `./stack build` (compose) | ~3 min | ~3 min* | ~3 min* |
+| `./stack build-zed release` | ~11 min | ~5 min | ~5s** |
+| `./stack build-sandbox` | ~29 min | ~20 min | ~2 min*** |
+| **Total startup** | **~43 min** | **~28 min** | **~5 min** |
+
+\* `docker compose build` uses shared BuildKit but compose handles --load internally. Smart --load applies to `docker_build_load()` calls.
+\** Zed binary check + quick buildx (no layers changed = no --load).
+\*** Ubuntu build (~5s check, skip --load) + sandbox Dockerfile (~5s) + sandbox restart (~15s) + registry push/pull (skipped if image unchanged).
+
+### Previous Results (Before Smart `--load`)
 
 | Phase | Cold Cache | Hot Cache | Speedup |
 |-------|-----------|-----------|---------|
@@ -139,7 +205,7 @@ To ensure good build caching across spectask sessions:
 | `./stack build-sandbox` | ~29 min | ~20 min* | ~1.5x |
 | **Total startup** | **~43 min** | **~21 min** | **~2x** |
 
-*`build-sandbox` is mostly limited by Docker image layer push/pull, not compilation.
+*`build-sandbox` was limited by `--load` exporting full images even when cached.
 
 ## Investigation: build-sandbox Bottlenecks
 
@@ -168,21 +234,49 @@ Key findings:
 - Push/pull of two ~7.7GB images = 173s (~3 min) even on localhost
 - Sequential transfers: sway finishes entirely before ubuntu starts
 
-### In-Spectask Timing
+### In-Spectask Timing (before smart --load)
 
-TODO: Re-run timing after PR #1709 fix (builds should now use shared BuildKit).
-The BuildKit state volume (`buildkit_state`) has 21.3GB of cache (0B reclaimable).
+Measured inside spectask `ubuntu-external-01khzm570xsv3ac2yr51vvhfrq` with shared BuildKit hot cache:
 
-### Potential Optimizations
+| Phase | Duration | Notes |
+|-------|----------|-------|
+| `./stack build` (compose) | 200s | All cached but compose still does --load internally |
+| `./stack build-zed release` | 459s | Cached build + --load export of Zed binary image |
+| `./stack build-sandbox` | ~2075s | Desktop builds + --load + registry transfers |
+| **Total** | **~2734s (45 min)** | Dominated by --load exports |
 
-1. **Parallel desktop builds** — sway and ubuntu currently build sequentially
-2. **Parallel registry push/pull** — both images could transfer simultaneously
-3. **Skip sway in spectasks** — spectasks only use ubuntu; sway build is wasted
-4. **Pre-built desktop images** — if the startup script doesn't need to rebuild
+The `--load` export was the clear bottleneck:
+- `docker buildx build --load` for cached helix-ubuntu: **655s** (175s exporting + 68s loading + overhead)
+- `docker buildx build` (no --load) for same cached image: **5s**
+- Savings from smart --load when image unchanged: **~650s per build**
+
+### Image sizes (inside spectask)
+
+| Image | Size |
+|-------|------|
+| helix-ubuntu | 7.24 GB |
+| helix-sway | 5.2 GB |
+| helix-haystack | 5.14 GB |
+| helix-frontend | 1.67 GB |
+| helix-typesense | 996 MB |
+| helix-api | 619 MB |
+| helix-sandbox | 616 MB |
+
+### Optimizations Applied
+
+1. **Smart `--load`** (PR #1711): Skip --load when image unchanged. Saves ~650s per 7.7GB image.
+2. **Sway moved to experimental** (PR #1711): `PRODUCTION_DESKTOPS=(ubuntu)` instead of `(sway ubuntu)`. Saves building+transferring the 5.2GB sway image. Spectasks only use ubuntu.
+3. **Shared BuildKit cache** (PRs #1705-#1709): All builds use the shared BuildKit at sandbox level. Cache persists across sessions.
+
+### Remaining Bottlenecks
+
+1. **`docker compose build` (./stack build)**: Compose handles --load internally and doesn't support smart --load. Still takes ~200s in spectask even when fully cached. Potential fix: compose might support `--iidfile` or we could wrap compose too.
+2. **Registry push/pull for desktop transfer**: When image DOES change, push/pull of 7.7GB image takes ~100s on localhost. Not optimizable without smaller images.
+3. **Build-zed --load**: Zed binary image is small (~85MB) so --load is fast. With smart --load, this should be ~5s.
 
 ## Files Changed
 
-- `stack` — `docker_build_load()` uses `docker buildx build`, auto-detects builder driver
+- `stack` — `docker_build_load()` with smart --load (build without --load, compare iidfile digest with local image ID, skip --load if unchanged). `PRODUCTION_DESKTOPS=(ubuntu)` (sway moved to experimental).
 - `desktop/shared/17-start-dockerd.sh` — sets `BUILDX_BUILDER` globally, installs wrapper
-- `desktop/shared/docker-buildx-wrapper.sh` — rewrites `docker build` → `docker buildx build`, auto-detects builder
+- `desktop/shared/docker-buildx-wrapper.sh` — rewrites `docker build` → `docker buildx build`, smart --load for remote builders
 - `Dockerfile.ubuntu-helix`, `Dockerfile.sway-helix` — bundle the wrapper script
