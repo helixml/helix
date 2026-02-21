@@ -38,3 +38,13 @@ This removes the "source code" phrasing which implies compiling from source, mak
 
 - Discord: https://discord.gg/VJftd844GE
 - GitHub: https://github.com/helixml/helix (existing)
+
+## Implementation Notes
+
+- File modified: `frontend/src/pages/Waitlist.tsx`
+- Changed GitHub text from "source code is available in our GitHub repo" to "you can download and deploy Helix yourself from our GitHub repo"
+- Added Discord CTA as a primary button using MUI `Button` with `variant="contained"`
+- Button styled with existing `ACCENT` color (#00e891) and dark text for contrast
+- Added supporting text above button: "Introduce yourself and get faster access"
+- Button opens Discord link in new tab using `href`, `target="_blank"`, and `rel="noopener noreferrer"`
+- Verified with `yarn build` - compiles successfully
