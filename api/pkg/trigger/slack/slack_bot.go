@@ -336,8 +336,9 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 		Msg("handleMessage called")
 
 	var (
-		session *types.Session
-		err     error
+		session  *types.Session
+		specTask *types.SpecTask
+		err      error
 	)
 
 	if isMention {
@@ -381,7 +382,7 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 		}
 	} else {
 		// This is a continuation of an existing conversation
-		session, err = s.store.GetSession(ctx, existingThread.SessionID)
+		session, specTask, err = s.resolveSessionForIncomingMessage(ctx, existingThread)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to get session")
 			return "", nil, fmt.Errorf("failed to get session, error: %w", err)
@@ -409,13 +410,17 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 		return "", nil, fmt.Errorf("failed to get user: %w", err)
 	}
 	user.SpecTaskID = session.Metadata.SpecTaskID
+	if specTask != nil {
+		user.SpecTaskID = specTask.ID
+	}
 	user.ProjectID = session.Metadata.ProjectID
 
 	interactionID := system.GenerateInteractionID()
 	promptMessage := messageText
 	historyLimit := 0
+	shouldSummarize := shouldSummarizeSlackThreadConversation(specTask)
 
-	if threadTimestamp != "" {
+	if threadTimestamp != "" && shouldSummarize {
 		threadMessages, err := s.getSlackThreadMessages(channel, threadTimestamp)
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to get thread messages: %w", err)
@@ -430,6 +435,14 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 			promptMessage = fmt.Sprintf("Here's a summary of the conversation so far: %s\n\nUser message:%s", summary, messageText)
 			historyLimit = -1
 		}
+	}
+	if !shouldSummarize && specTask != nil {
+		log.Info().
+			Str("app_id", app.ID).
+			Str("spec_task_id", specTask.ID).
+			Str("status", specTask.Status.String()).
+			Str("session_id", session.ID).
+			Msg("running spec task thread message through planning session without Slack summarization")
 	}
 
 	resp, err := s.controller.RunBlockingSession(ctx, &controller.RunSessionRequest{
@@ -453,6 +466,90 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 	}
 
 	return resp.ResponseMessage, updatedSession.Metadata.DocumentIDs, nil
+}
+
+func (s *SlackBot) resolveSessionForIncomingMessage(ctx context.Context, existingThread *types.SlackThread) (*types.Session, *types.SpecTask, error) {
+	session, err := s.store.GetSession(ctx, existingThread.SessionID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	specTaskID := existingThread.SpecTaskID
+	if specTaskID == "" {
+		specTaskID = session.Metadata.SpecTaskID
+	}
+	if specTaskID == "" {
+		return session, nil, nil
+	}
+
+	task, err := s.store.GetSpecTask(ctx, specTaskID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			log.Warn().
+				Str("app_id", s.app.ID).
+				Str("spec_task_id", specTaskID).
+				Msg("spec task not found for Slack thread, falling back to thread session")
+			return session, nil, nil
+		}
+		return nil, nil, fmt.Errorf("failed to get spec task '%s': %w", specTaskID, err)
+	}
+
+	if !shouldUsePlanningSessionForSlackThread(task.Status) {
+		return session, task, nil
+	}
+
+	if task.PlanningSessionID == "" {
+		log.Warn().
+			Str("app_id", s.app.ID).
+			Str("spec_task_id", task.ID).
+			Str("status", task.Status.String()).
+			Msg("spec task is active but has no planning session ID, falling back to thread session")
+		return session, task, nil
+	}
+
+	if task.PlanningSessionID == session.ID {
+		return session, task, nil
+	}
+
+	planningSession, err := s.store.GetSession(ctx, task.PlanningSessionID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get planning session '%s' for spec task '%s': %w", task.PlanningSessionID, task.ID, err)
+	}
+
+	log.Info().
+		Str("app_id", s.app.ID).
+		Str("spec_task_id", task.ID).
+		Str("status", task.Status.String()).
+		Str("thread_session_id", session.ID).
+		Str("planning_session_id", planningSession.ID).
+		Msg("using planning session for Slack thread message")
+
+	return planningSession, task, nil
+}
+
+func shouldSummarizeSlackThreadConversation(specTask *types.SpecTask) bool {
+	if specTask == nil {
+		return true
+	}
+	return !shouldUsePlanningSessionForSlackThread(specTask.Status)
+}
+
+func shouldUsePlanningSessionForSlackThread(status types.SpecTaskStatus) bool {
+	switch status {
+	case types.TaskStatusQueuedSpecGeneration,
+		types.TaskStatusSpecGeneration,
+		types.TaskStatusSpecReview,
+		types.TaskStatusSpecRevision,
+		types.TaskStatusSpecApproved,
+		types.TaskStatusQueuedImplementation,
+		types.TaskStatusImplementationQueued,
+		types.TaskStatusImplementation,
+		types.TaskStatusImplementationReview,
+		types.TaskStatusPullRequest:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *SlackBot) getSlackThreadMessages(channel, threadTimestamp string) ([]slack.Message, error) {

@@ -358,3 +358,111 @@ func TestPostProjectUpdateReplyWhenThreadExists(t *testing.T) {
 	assert.Equal(t, 1, updateCalls)
 	assert.Equal(t, "173.42", updatedThreadTS)
 }
+
+func TestShouldUsePlanningSessionForSlackThread(t *testing.T) {
+	assert.True(t, shouldUsePlanningSessionForSlackThread(types.TaskStatusSpecGeneration))
+	assert.True(t, shouldUsePlanningSessionForSlackThread(types.TaskStatusImplementation))
+	assert.True(t, shouldUsePlanningSessionForSlackThread(types.TaskStatusPullRequest))
+	assert.False(t, shouldUsePlanningSessionForSlackThread(types.TaskStatusBacklog))
+	assert.False(t, shouldUsePlanningSessionForSlackThread(types.TaskStatusDone))
+}
+
+func TestShouldSummarizeSlackThreadConversation(t *testing.T) {
+	assert.True(t, shouldSummarizeSlackThreadConversation(nil))
+	assert.True(t, shouldSummarizeSlackThreadConversation(&types.SpecTask{Status: types.TaskStatusBacklog}))
+	assert.True(t, shouldSummarizeSlackThreadConversation(&types.SpecTask{Status: types.TaskStatusDone}))
+	assert.False(t, shouldSummarizeSlackThreadConversation(&types.SpecTask{Status: types.TaskStatusImplementation}))
+	assert.False(t, shouldSummarizeSlackThreadConversation(&types.SpecTask{Status: types.TaskStatusPullRequest}))
+}
+
+func TestResolveSessionForIncomingMessageUsesPlanningSession(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	bot := &SlackBot{
+		store: mockStore,
+		app:   &types.App{ID: "app_123"},
+	}
+
+	thread := &types.SlackThread{
+		SessionID:  "thread_session_1",
+		SpecTaskID: "task_1",
+	}
+
+	threadSession := &types.Session{ID: "thread_session_1"}
+	planningSession := &types.Session{ID: "planning_session_1"}
+	task := &types.SpecTask{
+		ID:                "task_1",
+		Status:            types.TaskStatusImplementation,
+		PlanningSessionID: "planning_session_1",
+	}
+
+	mockStore.EXPECT().GetSession(gomock.Any(), "thread_session_1").Return(threadSession, nil)
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "task_1").Return(task, nil)
+	mockStore.EXPECT().GetSession(gomock.Any(), "planning_session_1").Return(planningSession, nil)
+
+	resolvedSession, resolvedTask, err := bot.resolveSessionForIncomingMessage(context.Background(), thread)
+	require.NoError(t, err)
+	require.NotNil(t, resolvedTask)
+	assert.Equal(t, "planning_session_1", resolvedSession.ID)
+	assert.Equal(t, "task_1", resolvedTask.ID)
+}
+
+func TestResolveSessionForIncomingMessageBacklogUsesThreadSession(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	bot := &SlackBot{
+		store: mockStore,
+		app:   &types.App{ID: "app_123"},
+	}
+
+	thread := &types.SlackThread{
+		SessionID:  "thread_session_1",
+		SpecTaskID: "task_1",
+	}
+
+	threadSession := &types.Session{ID: "thread_session_1"}
+	task := &types.SpecTask{
+		ID:                "task_1",
+		Status:            types.TaskStatusBacklog,
+		PlanningSessionID: "planning_session_1",
+	}
+
+	mockStore.EXPECT().GetSession(gomock.Any(), "thread_session_1").Return(threadSession, nil)
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "task_1").Return(task, nil)
+
+	resolvedSession, resolvedTask, err := bot.resolveSessionForIncomingMessage(context.Background(), thread)
+	require.NoError(t, err)
+	require.NotNil(t, resolvedTask)
+	assert.Equal(t, "thread_session_1", resolvedSession.ID)
+	assert.Equal(t, "task_1", resolvedTask.ID)
+}
+
+func TestResolveSessionForIncomingMessageMissingSpecTaskFallsBack(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	bot := &SlackBot{
+		store: mockStore,
+		app:   &types.App{ID: "app_123"},
+	}
+
+	thread := &types.SlackThread{
+		SessionID:  "thread_session_1",
+		SpecTaskID: "task_1",
+	}
+
+	threadSession := &types.Session{ID: "thread_session_1"}
+
+	mockStore.EXPECT().GetSession(gomock.Any(), "thread_session_1").Return(threadSession, nil)
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "task_1").Return(nil, store.ErrNotFound)
+
+	resolvedSession, resolvedTask, err := bot.resolveSessionForIncomingMessage(context.Background(), thread)
+	require.NoError(t, err)
+	assert.Nil(t, resolvedTask)
+	assert.Equal(t, "thread_session_1", resolvedSession.ID)
+}
