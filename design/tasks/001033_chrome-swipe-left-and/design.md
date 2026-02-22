@@ -87,3 +87,21 @@ Rationale:
 3. Safari iPad: No UI sliding/bouncing when scrolling or interacting
 4. Safari iPad: Stream viewer touch controls work
 5. Mobile Chrome: Same as desktop Chrome tests
+
+## Implementation Notes
+
+### Discovery (2025-01-XX)
+
+**Current state found:**
+- `touchAction: 'none'` is ALREADY present on canvas element (line 3985 in DesktopStreamViewer.tsx)
+- `overscroll-behavior: none` is ALREADY set globally in index.html (line 25)
+- All touch handlers (handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel) call `event.preventDefault()` unconditionally
+
+**Root cause identified:**
+The issue is NOT missing `touchAction: 'none'`. The problem is that `event.preventDefault()` in the touch handlers blocks Chrome's swipe navigation gesture from working, even though the gesture starts outside the canvas.
+
+**Solution:**
+Remove `event.preventDefault()` calls from touch handlers. The CSS `touchAction: 'none'` property should be sufficient to prevent browser-default touch handling on the canvas while allowing Chrome's navigation gestures to work elsewhere.
+
+**If preventDefault removal breaks stream controls:**
+Implement scoped prevention - only call `preventDefault()` when the touch actually starts within the canvas bounds by checking `event.target`.
