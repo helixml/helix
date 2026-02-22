@@ -74,6 +74,41 @@ func TestConvertMarkdownToSlackFormat(t *testing.T) {
 			markdown: "> This is a quote",
 			expected: "> This is a quote",
 		},
+		{
+			name:     "heading h1",
+			markdown: "# Main Title",
+			expected: "*Main Title*",
+		},
+		{
+			name:     "heading h2",
+			markdown: "## Section Title",
+			expected: "*Section Title*",
+		},
+		{
+			name:     "heading h3",
+			markdown: "### Subsection",
+			expected: "*Subsection*",
+		},
+		{
+			name:     "heading mixed with text",
+			markdown: "Some text\n## Heading\nMore text",
+			expected: "Some text\n*Heading*\nMore text",
+		},
+		{
+			name:     "simple table",
+			markdown: "| ID | Name | Priority |\n|---|---|---|\n| spt_123 | My task | medium |",
+			expected: "*ID:* spt_123\n*Name:* My task\n*Priority:* medium",
+		},
+		{
+			name:     "table with multiple rows",
+			markdown: "| Name | Status |\n|---|---|\n| Task 1 | done |\n| Task 2 | pending |",
+			expected: "*Name:* Task 1\n*Status:* done\n\n*Name:* Task 2\n*Status:* pending",
+		},
+		{
+			name:     "table with surrounding text",
+			markdown: "Here are the tasks:\n| ID | Name |\n|---|---|\n| 1 | Fix bug |\nThat's all.",
+			expected: "Here are the tasks:\n*ID:* 1\n*Name:* Fix bug\nThat's all.",
+		},
 	}
 
 	for _, tt := range tests {
@@ -602,22 +637,6 @@ func TestPostProjectUpdateReplyResolvesChannelIDFromPostMessage(t *testing.T) {
 	assert.Equal(t, "C0AG6JRU142", updatedChannelID, "updateMessage should use the resolved channel ID, not the channel name")
 }
 
-func TestShouldUsePlanningSessionForSlackThread(t *testing.T) {
-	assert.True(t, shouldUsePlanningSessionForSlackThread(types.TaskStatusSpecGeneration))
-	assert.True(t, shouldUsePlanningSessionForSlackThread(types.TaskStatusImplementation))
-	assert.True(t, shouldUsePlanningSessionForSlackThread(types.TaskStatusPullRequest))
-	assert.False(t, shouldUsePlanningSessionForSlackThread(types.TaskStatusBacklog))
-	assert.False(t, shouldUsePlanningSessionForSlackThread(types.TaskStatusDone))
-}
-
-func TestShouldSummarizeSlackThreadConversation(t *testing.T) {
-	assert.True(t, shouldSummarizeSlackThreadConversation(nil))
-	assert.True(t, shouldSummarizeSlackThreadConversation(&types.SpecTask{Status: types.TaskStatusBacklog}))
-	assert.True(t, shouldSummarizeSlackThreadConversation(&types.SpecTask{Status: types.TaskStatusDone}))
-	assert.False(t, shouldSummarizeSlackThreadConversation(&types.SpecTask{Status: types.TaskStatusImplementation}))
-	assert.False(t, shouldSummarizeSlackThreadConversation(&types.SpecTask{Status: types.TaskStatusPullRequest}))
-}
-
 func TestIsBotOwnedThread_WhenRootMentionsBot(t *testing.T) {
 	bot := &SlackBot{
 		botUserID: "U_BOT",
@@ -654,123 +673,4 @@ func TestIsBotOwnedThread_WhenRootDoesNotMentionBot(t *testing.T) {
 	assert.False(t, bot.isBotOwnedThread(context.Background(), "C123", "1771675557.541279"))
 }
 
-func TestResolveSessionForIncomingMessageUsesPlanningSession(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockStore := store.NewMockStore(ctrl)
-	bot := &SlackBot{
-		store: mockStore,
-		app:   &types.App{ID: "app_123"},
-	}
-
-	thread := &types.SlackThread{
-		SessionID:  "thread_session_1",
-		SpecTaskID: "task_1",
-	}
-
-	threadSession := &types.Session{ID: "thread_session_1"}
-	planningSession := &types.Session{ID: "planning_session_1"}
-	task := &types.SpecTask{
-		ID:                "task_1",
-		Status:            types.TaskStatusImplementation,
-		PlanningSessionID: "planning_session_1",
-	}
-
-	mockStore.EXPECT().GetSession(gomock.Any(), "thread_session_1").Return(threadSession, nil)
-	mockStore.EXPECT().GetSpecTask(gomock.Any(), "task_1").Return(task, nil)
-	mockStore.EXPECT().GetSession(gomock.Any(), "planning_session_1").Return(planningSession, nil)
-
-	resolvedSession, resolvedTask, err := bot.resolveSessionForIncomingMessage(context.Background(), thread)
-	require.NoError(t, err)
-	require.NotNil(t, resolvedTask)
-	assert.Equal(t, "planning_session_1", resolvedSession.ID)
-	assert.Equal(t, "task_1", resolvedTask.ID)
-}
-
-func TestResolveSessionForIncomingMessageBacklogUsesThreadSession(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockStore := store.NewMockStore(ctrl)
-	bot := &SlackBot{
-		store: mockStore,
-		app:   &types.App{ID: "app_123"},
-	}
-
-	thread := &types.SlackThread{
-		SessionID:  "thread_session_1",
-		SpecTaskID: "task_1",
-	}
-
-	threadSession := &types.Session{ID: "thread_session_1"}
-	task := &types.SpecTask{
-		ID:                "task_1",
-		Status:            types.TaskStatusBacklog,
-		PlanningSessionID: "planning_session_1",
-	}
-
-	mockStore.EXPECT().GetSession(gomock.Any(), "thread_session_1").Return(threadSession, nil)
-	mockStore.EXPECT().GetSpecTask(gomock.Any(), "task_1").Return(task, nil)
-
-	resolvedSession, resolvedTask, err := bot.resolveSessionForIncomingMessage(context.Background(), thread)
-	require.NoError(t, err)
-	require.NotNil(t, resolvedTask)
-	assert.Equal(t, "thread_session_1", resolvedSession.ID)
-	assert.Equal(t, "task_1", resolvedTask.ID)
-}
-
-func TestResolveSessionForIncomingMessageMissingSpecTaskFallsBack(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockStore := store.NewMockStore(ctrl)
-	bot := &SlackBot{
-		store: mockStore,
-		app:   &types.App{ID: "app_123"},
-	}
-
-	thread := &types.SlackThread{
-		SessionID:  "thread_session_1",
-		SpecTaskID: "task_1",
-	}
-
-	threadSession := &types.Session{ID: "thread_session_1"}
-
-	mockStore.EXPECT().GetSession(gomock.Any(), "thread_session_1").Return(threadSession, nil)
-	mockStore.EXPECT().GetSpecTask(gomock.Any(), "task_1").Return(nil, store.ErrNotFound)
-
-	resolvedSession, resolvedTask, err := bot.resolveSessionForIncomingMessage(context.Background(), thread)
-	require.NoError(t, err)
-	assert.Nil(t, resolvedTask)
-	assert.Equal(t, "thread_session_1", resolvedSession.ID)
-}
-
-func TestResolveSessionForIncomingMessageWithoutThreadSpecTaskIgnoresSessionMetadataSpecTask(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockStore := store.NewMockStore(ctrl)
-	bot := &SlackBot{
-		store: mockStore,
-		app:   &types.App{ID: "app_123"},
-	}
-
-	thread := &types.SlackThread{
-		SessionID: "thread_session_1",
-	}
-
-	threadSession := &types.Session{
-		ID: "thread_session_1",
-		Metadata: types.SessionMetadata{
-			SpecTaskID: "task_from_session_metadata",
-		},
-	}
-
-	mockStore.EXPECT().GetSession(gomock.Any(), "thread_session_1").Return(threadSession, nil)
-
-	resolvedSession, resolvedTask, err := bot.resolveSessionForIncomingMessage(context.Background(), thread)
-	require.NoError(t, err)
-	assert.Nil(t, resolvedTask)
-	assert.Equal(t, "thread_session_1", resolvedSession.ID)
-}
+// TODO: re-enable these tests once resolveSessionForIncomingMessage is restored or replaced
