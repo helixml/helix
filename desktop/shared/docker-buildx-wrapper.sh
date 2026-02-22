@@ -18,6 +18,119 @@
 
 REAL_DOCKER=/usr/bin/docker
 
+# --- Compose build interception ---
+# docker compose calls buildx bake internally (Go API, not CLI), bypassing
+# the smart --load logic below. Intercept 'docker compose ... build' and
+# decompose into individual 'docker buildx build' commands that go through
+# smart --load. Non-build compose commands pass through unchanged.
+if [ "${1:-}" = "compose" ]; then
+    # Scan for "build" subcommand
+    _has_build=false
+    for _a in "$@"; do
+        [ "$_a" = "build" ] && _has_build=true && break
+    done
+
+    if $_has_build; then
+        # Check builder driver (same logic as below, cached across calls)
+        if [ -z "${_DOCKER_WRAPPER_DRIVER:-}" ]; then
+            if [ -n "${BUILDX_BUILDER:-}" ]; then
+                _DOCKER_WRAPPER_DRIVER=$("$REAL_DOCKER" buildx inspect "$BUILDX_BUILDER" 2>/dev/null | grep -m1 "^Driver:" | awk '{print $2}')
+            else
+                _DOCKER_WRAPPER_DRIVER=$("$REAL_DOCKER" buildx inspect 2>/dev/null | grep -m1 "^Driver:" | awk '{print $2}')
+            fi
+            _DOCKER_WRAPPER_DRIVER="${_DOCKER_WRAPPER_DRIVER:-docker}"
+            export _DOCKER_WRAPPER_DRIVER
+        fi
+
+        if [ "$_DOCKER_WRAPPER_DRIVER" = "remote" ]; then
+            # Parse: compose_flags (before "build"), build_flags & services (after "build")
+            _compose_flags=()
+            _build_flags=()
+            _services=()
+            _phase="compose"
+            _skip=false
+            shift  # skip "compose"
+            for _a in "$@"; do
+                if $_skip; then
+                    [ "$_phase" = "compose" ] && _compose_flags+=("$_a") || _build_flags+=("$_a")
+                    _skip=false
+                    continue
+                fi
+                if [ "$_phase" = "compose" ]; then
+                    if [ "$_a" = "build" ]; then
+                        _phase="build"
+                        continue
+                    fi
+                    _compose_flags+=("$_a")
+                    case "$_a" in -f|--file|-p|--project-name|--project-directory|--env-file) _skip=true ;; esac
+                else
+                    case "$_a" in
+                        --no-cache|--pull|--quiet|-q) _build_flags+=("$_a") ;;
+                        --progress=*) _build_flags+=("$_a") ;;
+                        --progress) _build_flags+=("$_a"); _skip=true ;;
+                        -*) ;;  # ignore other compose build flags
+                        *) _services+=("$_a") ;;
+                    esac
+                fi
+            done
+
+            # Get compose config as JSON
+            _cfg=$("$REAL_DOCKER" compose "${_compose_flags[@]}" config --format json 2>/dev/null)
+            if [ $? -ne 0 ] || [ -z "$_cfg" ]; then
+                echo "[docker-wrapper] Failed to parse compose config, falling back"
+                exec "$REAL_DOCKER" compose "${_compose_flags[@]}" build "${_build_flags[@]}" "${_services[@]}"
+            fi
+
+            _proj=$(echo "$_cfg" | jq -r '.name // empty')
+
+            # Get services with build sections, optionally filtered
+            if [ ${#_services[@]} -gt 0 ]; then
+                _filter=$(printf '"%s",' "${_services[@]}")
+                _filter="[${_filter%,}]"
+                mapfile -t _svc_list < <(echo "$_cfg" | jq -r --argjson f "$_filter" \
+                    '.services | to_entries[] | select(.value.build != null) | select(.key as $k | $f | index($k)) | .key')
+            else
+                mapfile -t _svc_list < <(echo "$_cfg" | jq -r \
+                    '.services | to_entries[] | select(.value.build != null) | .key')
+            fi
+
+            if [ ${#_svc_list[@]} -eq 0 ]; then
+                echo "[docker-wrapper] No services with build sections"
+                exit 0
+            fi
+
+            echo "[docker-wrapper] compose build: ${#_svc_list[@]} service(s) via smart --load"
+            for _svc in "${_svc_list[@]}"; do
+                _sj=$(echo "$_cfg" | jq --arg n "$_svc" '.services[$n]')
+                _ctx=$(echo "$_sj" | jq -r '.build.context // "."')
+                _df=$(echo "$_sj" | jq -r '.build.dockerfile // "Dockerfile"')
+                _tgt=$(echo "$_sj" | jq -r '.build.target // empty')
+                _img=$(echo "$_sj" | jq -r '.image // empty')
+                [ -z "$_img" ] && _img="${_proj}-${_svc}"
+
+                _args=(-t "$_img" -f "$_ctx/$_df")
+                [ -n "$_tgt" ] && _args+=(--target "$_tgt")
+                while IFS= read -r _ba; do
+                    [ -n "$_ba" ] && _args+=(--build-arg "$_ba")
+                done < <(echo "$_sj" | jq -r '.build.args // {} | to_entries[] | "\(.key)=\(.value)"')
+                _args+=("${_build_flags[@]}" "$_ctx")
+
+                echo "[docker-wrapper]   $_svc → $_img"
+                "$0" buildx build "${_args[@]}"
+                _rc=$?
+                if [ $_rc -ne 0 ]; then
+                    echo "[docker-wrapper] Failed: $_svc (exit $_rc)"
+                    exit 1
+                fi
+            done
+            exit 0
+        fi
+    fi
+
+    # Not a compose build or not remote builder — pass through
+    exec "$REAL_DOCKER" "$@"
+fi
+
 # Detect which form: 'docker build ...' or 'docker buildx build ...'
 if [ "${1:-}" = "build" ]; then
     # 'docker build ...' → rewrite to 'docker buildx build ...'
