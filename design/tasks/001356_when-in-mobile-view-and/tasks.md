@@ -1,7 +1,7 @@
 # Implementation Tasks
 
-- [ ] Add edge-pan constants near existing zoom constants (~L232): `EDGE_PAN_ZONE_PX = 20`, `EDGE_PAN_SPEED = 8`
-- [ ] Add `edgePanAnimationRef = useRef<number | null>(null)` for tracking animation frame
+- [~] Add edge-pan constants near existing zoom constants (~L232): `EDGE_PAN_ZONE_PX = 20`, `EDGE_PAN_SPEED = 8`
+- [~] Add `edgePanAnimationRef = useRef<number | null>(null)` for tracking animation frame
 - [ ] Create `calculateVisibleViewportBounds()` helper function that returns edge positions based on container size, zoomLevel, and panOffset
 - [ ] Create `startEdgePan(direction)` function that uses requestAnimationFrame to smoothly update panOffset
 - [ ] In `handleTouchMove` trackpad mode section (~L2678): after cursor position update, check if zoomLevel > 1 and cursor is within EDGE_PAN_ZONE_PX of visible viewport edge
