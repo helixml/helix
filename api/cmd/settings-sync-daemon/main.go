@@ -91,10 +91,10 @@ type helixConfigResponse struct {
 // Returns nil for runtimes that use Zed's built-in agent.
 //
 // There are two code agent runtimes:
-// 1. zed_agent - Zed's built-in agent panel. No agent_servers needed. Zed reads
-//    env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) from the container environment.
-// 2. qwen_code - Qwen code agent as a custom agent_server. Requires agent_servers
-//    with qwen command and env vars (OPENAI_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL).
+//  1. zed_agent - Zed's built-in agent panel. No agent_servers needed. Zed reads
+//     env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) from the container environment.
+//  2. qwen_code - Qwen code agent as a custom agent_server. Requires agent_servers
+//     with qwen command and env vars (OPENAI_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL).
 func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 	if d.codeAgentConfig == nil {
 		// No code agent configured - return nil (no agent_servers will be set)
@@ -126,7 +126,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 
 		return map[string]interface{}{
 			"qwen": map[string]interface{}{
-				"name":    "qwen", // Required: Zed expects a name field for agent_servers
+				"name":    "qwen",   // Required: Zed expects a name field for agent_servers
 				"type":    "custom", // Required: Zed deserializes agent_servers using tagged enum
 				"command": "qwen",
 				"args": []string{
@@ -363,8 +363,8 @@ func (d *SettingsDaemon) injectKoditAuth() {
 }
 
 const (
-	ClaudeCredentialsPath          = "/home/retro/.claude/.credentials.json"
-	ClaudeSubscriptionMarkerPath   = "/tmp/helix-claude-subscription-mode"
+	ClaudeCredentialsPath        = "/home/retro/.claude/.credentials.json"
+	ClaudeSubscriptionMarkerPath = "/tmp/helix-claude-subscription-mode"
 )
 
 // syncClaudeCredentials fetches Claude OAuth credentials from the Helix API
@@ -717,6 +717,10 @@ func (d *SettingsDaemon) syncFromHelix() error {
 
 	d.helixSettings = map[string]interface{}{
 		"context_servers": config.ContextServers,
+		// Disable dev container suggestions - Helix runs Zed inside its own containers
+		"remote": map[string]interface{}{
+			"suggest_dev_container": false,
+		},
 	}
 
 	// Inject API keys and custom models before writing settings
@@ -781,8 +785,8 @@ func (d *SettingsDaemon) syncFromHelix() error {
 var SECURITY_PROTECTED_FIELDS = map[string]bool{
 	"telemetry":     true,
 	"agent_servers": true,
-	"default_agent": true,  // Deprecated: Zed doesn't have this setting; remove from old configs
-	"external_sync": true,  // Deprecated: Zed reads this from env vars, not settings.json
+	"default_agent": true, // Deprecated: Zed doesn't have this setting; remove from old configs
+	"external_sync": true, // Deprecated: Zed reads this from env vars, not settings.json
 }
 
 // mergeSettings combines Helix settings with user overrides, then injects code agent config
@@ -1164,4 +1168,3 @@ func deepEqual(a, b interface{}) bool {
 	bJSON, _ := json.Marshal(b)
 	return string(aJSON) == string(bJSON)
 }
-
