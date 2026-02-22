@@ -51,6 +51,9 @@ func buildKey(projectID, sandboxID string) string {
 
 // updateSandboxCacheStatus updates the per-sandbox DockerCacheState in project metadata.
 func (g *GoldenBuildService) updateSandboxCacheStatus(ctx context.Context, projectID, sandboxID string, update func(*types.SandboxCacheState)) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 	project, err := g.store.GetProject(ctx, projectID)
 	if err != nil {
 		log.Warn().Err(err).Str("project_id", projectID).Msg("Golden build: failed to get project for status update")
