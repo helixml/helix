@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -39,9 +40,13 @@ type ScanoutCollector struct {
 
 // NewScanoutCollector creates a new scanout stats collector
 func NewScanoutCollector(sshPort int) *ScanoutCollector {
+	keyPath := filepath.Join(getHelixDataDir(), "ssh", "helix_ed25519")
+	if _, err := os.Stat(keyPath); err != nil {
+		keyPath = "" // Dev mode: use default SSH agent keys
+	}
 	return &ScanoutCollector{
 		sshPort:    sshPort,
-		sshKeyPath: filepath.Join(getHelixDataDir(), "ssh", "helix_ed25519"),
+		sshKeyPath: keyPath,
 		stopCh:     make(chan struct{}),
 		stats: ScanoutStats{
 			MaxScanouts: 15,

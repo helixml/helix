@@ -512,8 +512,11 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		runtime = types.CodeAgentRuntimeZedAgent
 	}
 
+	// Check if this agent uses subscription-based credentials (e.g., Claude OAuth)
+	isSubscription := assistant.CodeAgentCredentialType.IsSubscription()
+
 	// For zed_external agents, use generation model fields (that's where the UI sets the model)
-	// Fall back to primary provider/model only if generation fields are empty
+	// Fall back to primary provider/model only if generation fields are empty.
 	providerName := assistant.GenerationModelProvider
 	if providerName == "" {
 		providerName = assistant.Provider
@@ -523,9 +526,9 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		modelName = assistant.Model
 	}
 
-	// If still no provider/model, return nil (can't configure code agent without these)
-	// Exception: claude_code in subscription mode doesn't require provider/model
-	if (providerName == "" || modelName == "") && runtime != types.CodeAgentRuntimeClaudeCode {
+	// Subscription agents don't need provider/model (they use OAuth credentials).
+	// API key agents require both.
+	if !isSubscription && (providerName == "" || modelName == "") {
 		return nil
 	}
 
@@ -543,12 +546,15 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		model = fmt.Sprintf("%s/%s", providerName, modelName)
 
 	case types.CodeAgentRuntimeClaudeCode:
-		// Claude Code: Uses the claude command as a custom agent_server.
-		// Two modes:
-		// 1. API key mode (provider set): Claude Code uses Helix API proxy with ANTHROPIC_API_KEY
-		// 2. Subscription mode (no provider): Claude Code uses OAuth credentials directly
 		agentName = "claude"
-		if provider != "" && providerName != "" {
+		if isSubscription {
+			// Subscription mode: Claude Code talks directly to Anthropic
+			// using OAuth credentials from ~/.claude/.credentials.json
+			providerName = ""
+			baseURL = ""
+			apiType = ""
+			model = ""
+		} else {
 			// API key mode: route through Helix proxy.
 			// IMPORTANT: Use helixURL without "/v1" suffix because the Anthropic SDK
 			// (used by Claude Code) appends "/v1/messages" to ANTHROPIC_BASE_URL.
@@ -556,12 +562,6 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 			baseURL = helixURL
 			apiType = "anthropic"
 			model = modelName
-		} else {
-			// Subscription mode: Claude Code talks directly to Anthropic
-			// using OAuth credentials from ~/.claude/.credentials.json
-			baseURL = ""
-			apiType = ""
-			model = ""
 		}
 
 	default: // CodeAgentRuntimeZedAgent

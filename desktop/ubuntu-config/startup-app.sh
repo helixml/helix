@@ -264,24 +264,36 @@ fi
 # Launch Zed after GNOME Shell is ready - it needs wayland-0
 if [ -x /zed-build/zed ]; then
   (
-    gow_log "[start] Waiting for GNOME Wayland socket before launching Zed..."
-    # Wait for wayland-0 socket instead of pgrep - more reliable
+    gow_log "[start] Waiting for GNOME Shell to be ready before launching Zed..."
+    # Wait for wayland-0 socket AND verify GNOME Shell is accepting D-Bus calls.
+    # The socket is created early in mutter startup, before the compositor is
+    # ready to accept client connections. Launching ghostty too early causes it
+    # to silently crash, which blocks the entire startup sequence.
+    READY=0
     for i in \$(seq 1 60); do
       if [ -S "\${XDG_RUNTIME_DIR}/wayland-0" ]; then
-        # Socket exists, but gnome-shell needs time to fully initialize
-        # The socket is created early in mutter startup, before it's ready to accept connections
-        gow_log "[start] wayland-0 socket detected, waiting for gnome-shell to initialize..."
-        sleep 2
-        gow_log "[start] Launching Zed and setup terminal..."
-        break
-      fi
-      if [ \$((i % 10)) -eq 0 ]; then
-        gow_log "[start] Still waiting for wayland-0... (\${i}s)"
+        # Socket exists — now verify GNOME Shell is actually responding
+        if WAYLAND_DISPLAY=wayland-0 gdbus call --session \
+            --dest org.gnome.Shell \
+            --object-path /org/gnome/Shell \
+            --method org.freedesktop.DBus.Properties.Get \
+            org.gnome.Shell ShellVersion >/dev/null 2>&1; then
+          READY=1
+          gow_log "[start] GNOME Shell ready (D-Bus responding), launching Zed..."
+          break
+        fi
+        if [ \$((i % 5)) -eq 0 ]; then
+          gow_log "[start] wayland-0 exists but GNOME Shell not yet responding (\${i}s)..."
+        fi
+      else
+        if [ \$((i % 10)) -eq 0 ]; then
+          gow_log "[start] Still waiting for wayland-0... (\${i}s)"
+        fi
       fi
       sleep 1
     done
-    if [ ! -S "\${XDG_RUNTIME_DIR}/wayland-0" ]; then
-      gow_log "[start] FATAL: wayland-0 not found after 60s. GNOME Shell failed to start."
+    if [ "\$READY" -ne 1 ]; then
+      gow_log "[start] FATAL: GNOME Shell not ready after 60s."
       exit 1
     fi
     WAYLAND_DISPLAY=wayland-0 /usr/local/bin/start-zed-helix.sh

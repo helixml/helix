@@ -406,6 +406,15 @@ func setAppDefaults(apps ...*types.App) {
 			if assistant.TopP == 0 {
 				assistant.TopP = 1
 			}
+
+			// Infer credential type for claude_code agents missing the field.
+			// If runtime is claude_code and no provider is configured, it must be
+			// subscription mode (API-key mode always requires a provider).
+			if assistant.CodeAgentRuntime == types.CodeAgentRuntimeClaudeCode &&
+				assistant.CodeAgentCredentialType == "" &&
+				assistant.GenerationModelProvider == "" && assistant.Provider == "" {
+				assistant.CodeAgentCredentialType = types.CodeAgentCredentialTypeSubscription
+			}
 		}
 	}
 }

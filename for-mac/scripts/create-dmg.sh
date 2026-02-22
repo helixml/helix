@@ -96,13 +96,23 @@ if [ "$REBUILD_TEMPLATE" = true ]; then
         -format UDRW -size 50m /tmp/dmg-template-rw.dmg
     rm -rf "$TMPL_TEMP"
 
-    MOUNT_DIR=$(hdiutil attach /tmp/dmg-template-rw.dmg -readwrite -noverify -noautoopen | \
+    MOUNT_DIR=$(hdiutil attach /tmp/dmg-template-rw.dmg -readwrite -noverify -noautoopen -nobrowse | \
         grep "/Volumes/" | awk -F'\t' '{print $NF}' | head -1)
     VOLUME_NAME=$(basename "$MOUNT_DIR")
     log "  Mounted at: $MOUNT_DIR"
 
-    # Create Finder alias (carries proper /Applications icon)
+    # Create Finder alias to /Applications, then bake in a custom icon so
+    # Finder never needs to resolve the alias just to display the icon.
+    # Without the custom icon, the alias bookmark is stale on any machine
+    # other than the one that built the template, and since the DMG is
+    # read-only Finder can't rewrite it — causing a blank/flickering icon.
     osascript -e "tell application \"Finder\" to make new alias file at (POSIX file \"$MOUNT_DIR\" as alias) to (POSIX file \"/Applications\" as alias) with properties {name:\"Applications\"}"
+    swift -e '
+        import AppKit
+        let ws = NSWorkspace.shared
+        let icon = ws.icon(forFile: "/Applications")
+        ws.setIcon(icon, forFile: "'"$MOUNT_DIR"'/Applications", options: [])
+    '
 
     # Copy background
     mkdir -p "$MOUNT_DIR/.background"
@@ -179,7 +189,7 @@ rm -rf "$DMG_TEMP"
 # =============================================================================
 #
 # Uses a pre-built template DMG (assets/dmg-template.dmg) that contains:
-#   - Finder alias to /Applications (with proper icon — requires GUI to create)
+#   - Finder alias to /Applications (with icon baked in via NSWorkspace.setIcon)
 #   - Background image with arrow
 #   - .DS_Store with Finder layout (icon positions, window size, icon view)
 #
@@ -211,9 +221,9 @@ APP_SIZE_KB=$(du -sk "$APP_BUNDLE" | awk '{print $1}')
 DMG_SIZE_MB=$(( (APP_SIZE_KB / 1024) + 20 ))
 hdiutil resize -size "${DMG_SIZE_MB}m" "$DMG_RW" 2>/dev/null || true
 
-# Mount
+# Mount (use -nobrowse to prevent volume appearing in Finder sidebar)
 log "Mounting DMG..."
-MOUNT_DIR=$(hdiutil attach "$DMG_RW" -readwrite -noverify -noautoopen | \
+MOUNT_DIR=$(hdiutil attach "$DMG_RW" -readwrite -noverify -noautoopen -nobrowse | \
     grep "/Volumes/" | awk -F'\t' '{print $NF}' | head -1)
 if [ -z "$MOUNT_DIR" ] || [ ! -d "$MOUNT_DIR" ]; then
     echo "ERROR: Failed to mount DMG."
@@ -227,11 +237,16 @@ cp -R "$APP_BUNDLE" "$MOUNT_DIR/"
 
 # Apply Finder styling (background, icon positions, window size)
 # The .DS_Store from the template is often ignored by Finder, so we
-# re-apply styling via AppleScript on every build. This requires a GUI
-# session (logged-in user) but works on macOS exec CI runners.
+# re-apply styling via AppleScript on every build. The script hides
+# Finder first and closes all windows after to avoid disrupting CI
+# runners that also serve as dev machines.
 VOLUME_NAME=$(basename "$MOUNT_DIR")
 log "Applying Finder styling..."
 osascript <<APPLESCRIPT || log "WARNING: Finder styling failed (no GUI session?) — DMG will work but lack background"
+    tell application "System Events"
+        set finderWasVisible to visible of process "Finder"
+        set visible of process "Finder" to false
+    end tell
     tell application "Finder"
         tell disk "$VOLUME_NAME"
             open
@@ -243,13 +258,17 @@ osascript <<APPLESCRIPT || log "WARNING: Finder styling failed (no GUI session?)
             set arrangement of viewOptions to not arranged
             set icon size of viewOptions to 128
             set background picture of viewOptions to file ".background:background.png"
-            set position of item "${APP_BUNDLE_NAME}.app" of container window to {490, 175}
-            set position of item "Applications" of container window to {170, 175}
+            set position of item "${APP_BUNDLE_NAME}.app" of container window to {170, 175}
+            set position of item "Applications" of container window to {490, 175}
             close
             open
             delay 2
             close
         end tell
+        close every window
+    end tell
+    tell application "System Events"
+        set visible of process "Finder" to finderWasVisible
     end tell
 APPLESCRIPT
 
@@ -341,10 +360,6 @@ if [ "$UPLOAD" = true ]; then
         upload_file "${VM_DIR}/zfs-data.qcow2" "vm/${VERSION}/zfs-data.qcow2"
     else
         log "  WARNING: zfs-data.qcow2 not found at ${VM_DIR}, skipping"
-    fi
-
-    if [ -f "${VM_DIR}/efi_vars.fd" ]; then
-        upload_file "${VM_DIR}/efi_vars.fd" "vm/${VERSION}/efi_vars.fd"
     fi
 
     # 3. Upload manifest from app bundle

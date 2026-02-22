@@ -298,12 +298,6 @@ else
 MANIFEST_EOF
 fi
 
-# Bundle EFI vars (64MB — small enough to include in the app)
-if [ -f "${VM_DIR}/efi_vars.fd" ]; then
-    cp "${VM_DIR}/efi_vars.fd" "${VM_BUNDLE_DIR}/efi_vars.fd"
-    log "  Bundled EFI vars ($(du -h "${VM_BUNDLE_DIR}/efi_vars.fd" | awk '{print $1}'))"
-fi
-
 # =============================================================================
 # Step 6: Fix dylib paths (install_name_tool)
 # =============================================================================

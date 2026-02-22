@@ -58,6 +58,16 @@ echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"
     # NOTE: No explicit "dns" setting — Docker inherits DNS from the desktop
     # container's /etc/resolv.conf, which chains through the sandbox's dockerd
     # to the host's DNS. This preserves enterprise DNS resolution.
+    #
+    # insecure-registries: if HELIX_REGISTRY is set, trust it for push/pull
+    # (used by docker wrapper for layer-level --load instead of tarball transfer)
+    INSECURE_REG=""
+    if [ -n "${HELIX_REGISTRY:-}" ]; then
+        INSECURE_REG=",
+    \"insecure-registries\": [\"${HELIX_REGISTRY}\"]"
+        echo "[dockerd] Adding insecure registry: ${HELIX_REGISTRY}"
+    fi
+
     mkdir -p /etc/docker
     cat > /etc/docker/daemon.json <<EOF
 {
@@ -65,7 +75,7 @@ echo "[dockerd] /var/lib/docker is a volume mount - starting dockerd"
     "log-level": "warn",
     "default-address-pools": [
         {"base": "10.${POOL_OCTET}.0.0/16", "size": 24}
-    ]
+    ]${INSECURE_REG}
 }
 EOF
 
@@ -84,7 +94,7 @@ EOF
             "path": "nvidia-container-runtime",
             "runtimeArgs": []
         }
-    }
+    }${INSECURE_REG}
 }
 EOF
     fi
@@ -156,9 +166,45 @@ EOF
     docker buildx rm default 2>/dev/null || true
     echo "[dockerd] Set helix-shared as default builder (removed local default)"
 
+    # CRITICAL: Set BUILDX_BUILDER globally so ALL docker build commands
+    # (including plain 'docker build' and 'docker compose build') route
+    # through the shared BuildKit. Without this, 'docker build' falls back
+    # to the local Docker daemon's built-in BuildKit, which is per-container
+    # and NOT shared across spectask sessions.
+    echo "BUILDX_BUILDER=helix-shared" >> /etc/environment
+    cat > /etc/profile.d/helix-buildkit.sh << 'PROFILE_EOF'
+export BUILDX_BUILDER=helix-shared
+PROFILE_EOF
+    echo "[dockerd] Set BUILDX_BUILDER=helix-shared globally (via /etc/environment and /etc/profile.d/)"
+
+    # Export HELIX_REGISTRY globally so the docker wrapper can use push/pull
+    # instead of tarball --load for layer-level image transfer
+    if [ -n "${HELIX_REGISTRY:-}" ]; then
+        echo "HELIX_REGISTRY=${HELIX_REGISTRY}" >> /etc/environment
+        cat > /etc/profile.d/helix-registry.sh << REGEOF
+export HELIX_REGISTRY=${HELIX_REGISTRY}
+REGEOF
+        echo "[dockerd] Set HELIX_REGISTRY=${HELIX_REGISTRY} globally"
+    fi
+
+    # Install docker wrapper that transparently adds --load for remote builders.
+    # This makes user 'docker build -t foo .' work seamlessly — the image builds
+    # on the shared BuildKit and automatically loads into the local daemon.
+    if [ -f /opt/helix/docker-buildx-wrapper.sh ]; then
+        cp /opt/helix/docker-buildx-wrapper.sh /usr/local/bin/docker
+        chmod +x /usr/local/bin/docker
+        echo "[dockerd] Installed docker wrapper at /usr/local/bin/docker (auto --load for remote builders)"
+    fi
+
     # Fix ownership of .docker directory for retro user
     # (buildx commands above run as root and create ~/.docker owned by root)
-    if id -u retro >/dev/null 2>&1 && [ -d /home/retro/.docker ]; then
-        chown -R retro:retro /home/retro/.docker
-        echo "[dockerd] Fixed /home/retro/.docker ownership"
+    if id -u retro >/dev/null 2>&1; then
+        if [ -d /home/retro/.docker ]; then
+            chown -R retro:retro /home/retro/.docker
+        fi
+        # Also add to retro's .bashrc so interactive shells pick it up immediately
+        if ! grep -q 'BUILDX_BUILDER' /home/retro/.bashrc 2>/dev/null; then
+            echo 'export BUILDX_BUILDER=helix-shared' >> /home/retro/.bashrc
+        fi
+        echo "[dockerd] Fixed /home/retro/.docker ownership and shell config"
     fi

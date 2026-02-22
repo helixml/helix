@@ -416,9 +416,13 @@ func (d *SettingsDaemon) syncClaudeCredentials() {
 	}
 
 	// Before writing, check if the on-disk file has a newer token (Claude Code refreshed it).
-	// If so, skip the write — our watcher will push the refreshed token to the API.
+	// If so, skip the write and push the refreshed token back to the API instead.
+	// We push directly here rather than relying on the fsnotify watcher because:
+	// 1. The watcher may not be running (subscription became available after startup)
+	// 2. The watcher's inode may be stale (workspace setup recreates ~/.claude as a symlink)
 	if fileExpiresAt := readCredentialsExpiresAt(ClaudeCredentialsPath); fileExpiresAt > creds.ExpiresAt {
-		log.Printf("On-disk credentials are newer (file expiresAt=%d > api expiresAt=%d), skipping write", fileExpiresAt, creds.ExpiresAt)
+		log.Printf("On-disk credentials are newer (file expiresAt=%d > api expiresAt=%d), pushing to API", fileExpiresAt, creds.ExpiresAt)
+		d.pushCredentialsToAPI()
 		return
 	}
 

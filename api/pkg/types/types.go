@@ -1608,6 +1608,11 @@ type AssistantConfig struct {
 	// If empty, defaults to "zed_agent".
 	CodeAgentRuntime CodeAgentRuntime `json:"code_agent_runtime,omitempty" yaml:"code_agent_runtime,omitempty"`
 
+	// CodeAgentCredentialType specifies how the code agent authenticates with the LLM provider.
+	// "api_key" (default/empty): uses an API key routed through the Helix proxy.
+	// "subscription": uses OAuth credentials directly (e.g., Claude subscription).
+	CodeAgentCredentialType CodeAgentCredentialType `json:"code_agent_credential_type,omitempty" yaml:"code_agent_credential_type,omitempty"`
+
 	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 
 	RAGSourceID string `json:"rag_source_id,omitempty" yaml:"rag_source_id,omitempty"`

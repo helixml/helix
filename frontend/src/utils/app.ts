@@ -80,6 +80,7 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
       flatState.small_generation_model = assistant.small_generation_model
       flatState.small_generation_model_provider = assistant.small_generation_model_provider
       flatState.code_agent_runtime = assistant.code_agent_runtime
+      flatState.code_agent_credential_type = assistant.code_agent_credential_type
 
       flatState.knowledge = assistant.knowledge || []
       flatState.apiTools = assistant.apis || []

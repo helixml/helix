@@ -13,11 +13,21 @@ export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
 export WIPE_SLOTS=${WIPE_SLOTS:="0"}
 export COMPOSE_PROFILES=${COMPOSE_PROFILES:=""}
 
+# Smart --load logic has been consolidated into the docker wrapper
+# (desktop/shared/docker-buildx-wrapper.sh), which intercepts both
+# 'docker build' and 'docker buildx build' and applies smart --load
+# for remote builders. The stack script just calls 'docker buildx build'
+# directly — the wrapper handles the rest. See the design doc at
+# design/2026-02-21-shared-buildkit-cache.md for details.
+#
+# On the host (without the wrapper), 'docker buildx build' uses the local
+# BuildKit directly — which is fine since there's no remote builder overhead.
+
 # Desktop categories for build-sandbox
 # Production desktops are always built; experimental require opt-in via EXPERIMENTAL_DESKTOPS
 # Note: Using arrays because IFS is set to '\n\t' (no space splitting)
-PRODUCTION_DESKTOPS=(sway ubuntu)
-AVAILABLE_EXPERIMENTAL_DESKTOPS=(zorin xfce kde)
+PRODUCTION_DESKTOPS=(ubuntu)
+AVAILABLE_EXPERIMENTAL_DESKTOPS=(sway zorin xfce kde)
 # EXPERIMENTAL_DESKTOPS can be set as space-separated string, converted to array below
 
 # Configure host networking for Docker-in-Docker support
@@ -290,7 +300,7 @@ function build-runner-image() {
   echo "  Note: ROCm vLLM build takes ~10 minutes"
   echo ""
 
-  docker build \
+  docker buildx build \
     -f Dockerfile.runner \
     --build-arg TAG="$BASE_TAG" \
     --build-arg APP_VERSION="$APP_VERSION" \
@@ -364,7 +374,7 @@ function build-zed() {
   fi
   cat > "$DOCKERIGNORE" << 'EIGNORE'
 target/
-target-ubuntu25/
+target-ubuntu25*/
 .git/
 EIGNORE
 
@@ -374,7 +384,7 @@ EIGNORE
   # --output extracts just the binary from the scratch final stage
   # --build-arg passes the build type (dev or release)
   # BuildKit cache mounts in the Dockerfile handle cargo/rustup/target caching
-  docker build \
+  docker buildx build \
     --provenance=false \
     -f "$DIR/Dockerfile.zed-build" \
     --build-arg "BUILD_TYPE=$BUILD_TYPE" \
@@ -765,7 +775,7 @@ function build-zed-agent() {
     return 1
   fi
 
-  docker build -t helix-sway:latest -f Dockerfile.sway-helix .
+  docker buildx build -t helix-sway:latest -f Dockerfile.sway-helix .
 
   if [ $? -eq 0 ]; then
     echo "✅ Zed agent Docker image built successfully"
@@ -889,7 +899,7 @@ function build-qwen-code() {
   # Build the builder image if needed
   if ! docker image inspect qwen-code-builder:node20 &> /dev/null; then
     echo "📦 Building qwen-code-builder:node20 image (first time only)..."
-    docker build -t qwen-code-builder:node20 -f Dockerfile.qwen-code-build .
+    docker buildx build -t qwen-code-builder:node20 -f Dockerfile.qwen-code-build .
     if [ $? -ne 0 ]; then
       echo "❌ Failed to build qwen-code-builder:node20 image"
       return 1
@@ -963,7 +973,7 @@ function build-xfce() {
 
   # Build the custom XFCE image
   echo "🔨 Building helix-xfce:latest container..."
-  if docker build -f Dockerfile.xfce-helix -t helix-xfce:latest .; then
+  if docker buildx build -f Dockerfile.xfce-helix -t helix-xfce:latest .; then
     echo "✅ XFCE container built successfully"
     echo "🖥️  Custom XFCE image ready: helix-xfce:latest"
     echo ""
@@ -996,7 +1006,9 @@ function build-desktop() {
     exit 1
   fi
 
-  echo "🖥️  Building ${DESKTOP_NAME} desktop container..."
+  local DESKTOP_BUILD_START=$SECONDS
+  _dt_elapsed() { local msg="[⏱️  desktop-${DESKTOP_NAME} +$((SECONDS - DESKTOP_BUILD_START))s] $*"; echo "$msg"; [ -n "${BUILD_SANDBOX_TIMING_LOG:-}" ] && echo "$msg" >> "$BUILD_SANDBOX_TIMING_LOG" || true; }
+  _dt_elapsed "Starting build..."
 
   # Build Zed if binary doesn't exist
   if [ ! -f "./zed-build/zed" ]; then
@@ -1011,6 +1023,7 @@ function build-desktop() {
 
   # Build qwen-code using containerized build (avoids husky/prepare script issues)
   # This is used by ALL desktop images (sway, zorin, ubuntu, xfce)
+  _dt_elapsed "Building qwen-code..."
   if ! build-qwen-code; then
     echo "❌ Failed to build qwen-code"
     exit 1
@@ -1023,9 +1036,9 @@ function build-desktop() {
   # Use --provenance=false to get stable image IDs when layers are cached
   # (BuildKit attestation manifests change each build, causing ID changes)
   # Docker automatically detects Go code changes via COPY layers
-  echo "🔨 Building ${IMAGE_NAME}:latest..."
+  _dt_elapsed "🔨 Building ${IMAGE_NAME}:latest..."
 
-  docker build --provenance=false -f "$DOCKERFILE" \
+  docker buildx build --provenance=false -f "$DOCKERFILE" \
     -t "${IMAGE_NAME}:latest" \
     .
 
@@ -1042,7 +1055,7 @@ function build-desktop() {
   # Use first 6 chars as tag - avoids Docker showing just hash when tag matches image ID
   local IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
 
-  echo "✅ ${DESKTOP_NAME} container built successfully"
+  _dt_elapsed "✅ ${DESKTOP_NAME} container built successfully"
   echo "📦 Image hash: ${IMAGE_HASH_FULL} (tag: ${IMAGE_TAG})"
 
   # Always write version file (even if image unchanged, fixes stale version files)
@@ -1145,6 +1158,8 @@ function transfer-desktop-to-sandbox() {
   fi
 
   # Use local registry for efficient layer-based transfer
+  local TRANSFER_START=$SECONDS
+  _tx_elapsed() { local msg="[⏱️  transfer-${DESKTOP_NAME} +$((SECONDS - TRANSFER_START))s] $*"; echo "$msg"; [ -n "${BUILD_SANDBOX_TIMING_LOG:-}" ] && echo "$msg" >> "$BUILD_SANDBOX_TIMING_LOG" || true; }
   local REGISTRY_TAG="localhost:5000/${IMAGE_NAME}:${IMAGE_TAG}"
   local SANDBOX_REGISTRY_TAG="registry:5000/${IMAGE_NAME}:${IMAGE_TAG}"
 
@@ -1156,14 +1171,14 @@ function transfer-desktop-to-sandbox() {
   echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${REGISTRY_TAG}..."
   docker tag "${IMAGE_NAME}:latest" "$REGISTRY_TAG"
 
-  echo "📤 Pushing to local registry..."
+  _tx_elapsed "📤 Pushing to local registry..."
   if ! docker push "$REGISTRY_TAG" 2>&1 | grep -v "^$"; then
     echo "❌ Failed to push to local registry"
     return 1
   fi
 
   # Pull from registry inside sandbox
-  echo "📥 Sandbox pulling from registry (only changed layers transfer)..."
+  _tx_elapsed "📥 Sandbox pulling from registry..."
   if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$"; then
     echo "❌ Failed to pull from registry inside sandbox"
     return 1
@@ -1177,7 +1192,7 @@ function transfer-desktop-to-sandbox() {
   # (layers are shared, so this just removes the tag, not the data)
   sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker rmi "$SANDBOX_REGISTRY_TAG" 2>/dev/null || true
 
-  echo "✅ ${IMAGE_NAME}:${IMAGE_TAG} transferred via registry"
+  _tx_elapsed "✅ ${IMAGE_NAME}:${IMAGE_TAG} transferred via registry"
 
   # Version files are bind-mounted from host (updated by build-desktop)
   if [ -f "sandbox-images/${IMAGE_NAME}.version" ]; then
@@ -1330,6 +1345,11 @@ function verify-desktop-build() {
 }
 
 function build-sandbox() {
+  local BUILD_START_TIME=$SECONDS
+  export BUILD_SANDBOX_TIMING_LOG="/tmp/build-sandbox-timing-$(date +%s).log"
+  _bs_elapsed() { local msg="[⏱️  +$((SECONDS - BUILD_START_TIME))s] $*"; echo "$msg"; echo "$msg" >> "$BUILD_SANDBOX_TIMING_LOG"; }
+  echo "Timing log: $BUILD_SANDBOX_TIMING_LOG"
+
   echo "📦 Building Helix Sandbox container (DinD + Hydra + RevDial)..."
   echo ""
   echo "This builds a container with:"
@@ -1358,7 +1378,7 @@ function build-sandbox() {
 
   # Step 1: Build Zed if needed (required for helix-sway and helix-zorin)
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [1/6] Checking Zed binary..."
+  _bs_elapsed "📝 [1/6] Checking Zed binary..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   if [ ! -f "./zed-build/zed" ]; then
     echo "Building Zed in release mode..."
@@ -1376,7 +1396,7 @@ function build-sandbox() {
   local STEP_NUM=2
   for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "📦 Building production desktop: helix-${desktop}..."
+    _bs_elapsed "📦 Building production desktop: helix-${desktop}..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     if ! SKIP_DESKTOP_TRANSFER=1 build-desktop "$desktop"; then
       echo "❌ Failed to build helix-${desktop}"
@@ -1408,10 +1428,10 @@ function build-sandbox() {
 
   # Build sandbox container
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📦 Building helix-sandbox container..."
+  _bs_elapsed "📦 Building helix-sandbox container..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  docker build -f Dockerfile.sandbox -t helix-sandbox:latest .
+  docker buildx build -f Dockerfile.sandbox -t helix-sandbox:latest .
 
   if [ $? -ne 0 ]; then
     echo "❌ Failed to build helix-sandbox container"
@@ -1423,7 +1443,7 @@ function build-sandbox() {
 
   # Step 6: Start sandbox and transfer desktop images
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [6/6] Starting sandbox and transferring desktop images..."
+  _bs_elapsed "📝 [6/6] Starting sandbox and transferring desktop images..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   # Load sandbox service name from .env
@@ -1453,11 +1473,11 @@ function build-sandbox() {
 
   # Transfer all production desktop images to sandbox
   echo ""
-  echo "📦 Transferring desktop images to sandbox..."
+  _bs_elapsed "📦 Transferring desktop images to sandbox..."
   for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "📤 Transferring helix-${desktop} to sandbox..."
+    _bs_elapsed "📤 Transferring helix-${desktop} to sandbox..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     if ! transfer-desktop-to-sandbox "$desktop"; then
       echo "⚠️  Failed to transfer helix-${desktop} - continuing anyway"
@@ -1501,7 +1521,10 @@ function build-sandbox() {
   echo "  • 70-start-hydra.sh - starts Hydra daemon"
   echo "  • startup-app.sh - keeps container running"
   echo ""
-  echo "🎉 Sandbox build completed successfully!"
+  _bs_elapsed "🎉 Sandbox build completed successfully! (total: $((SECONDS - BUILD_START_TIME))s)"
+  echo ""
+  echo "📊 Timing log saved to: $BUILD_SANDBOX_TIMING_LOG"
+  cat "$BUILD_SANDBOX_TIMING_LOG"
 }
 
 

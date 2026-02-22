@@ -390,22 +390,6 @@ func (vm *VMManager) ensureVMExtracted() error {
 	if _, err := os.Stat(rootDisk); err != nil {
 		log.Printf("VM root disk not found at %s — download required", vmDir)
 
-		// Copy EFI vars from bundle if available (they're small, ~64MB, and still bundled)
-		bundlePath := vm.getAppBundlePath()
-		if bundlePath != "" {
-			bundledEFI := filepath.Join(bundlePath, "Contents", "Resources", "vm", "efi_vars.fd")
-			efiVars := filepath.Join(vmDir, "efi_vars.fd")
-			if _, err := os.Stat(efiVars); os.IsNotExist(err) {
-				if _, err := os.Stat(bundledEFI); err == nil {
-					os.MkdirAll(vmDir, 0755)
-					log.Printf("Copying EFI vars from bundle...")
-					if err := copyFile(bundledEFI, efiVars); err != nil {
-						log.Printf("Warning: failed to copy EFI vars: %v", err)
-					}
-				}
-			}
-		}
-
 		return ErrVMImagesNotDownloaded
 	}
 
@@ -454,31 +438,6 @@ func (vm *VMManager) ensureDevImage(goldenPath, vmDir string) error {
 		return fmt.Errorf("failed to copy golden image: %w", err)
 	}
 	log.Printf("Dev mode: golden image copied successfully")
-
-	// Copy EFI vars from golden image's directory, fall back to app bundle
-	goldenDir := filepath.Dir(absGolden)
-	efiSrc := filepath.Join(goldenDir, "efi_vars.fd")
-	efiDst := filepath.Join(vmDir, "efi_vars.fd")
-	if _, err := os.Stat(efiDst); os.IsNotExist(err) {
-		if _, err := os.Stat(efiSrc); err == nil {
-			log.Printf("Dev mode: copying EFI vars from %s", efiSrc)
-			if err := copyFile(efiSrc, efiDst); err != nil {
-				log.Printf("Warning: failed to copy EFI vars: %v", err)
-			}
-		} else {
-			// Fall back to app bundle EFI vars
-			bundlePath := vm.getAppBundlePath()
-			if bundlePath != "" {
-				bundledEFI := filepath.Join(bundlePath, "Contents", "Resources", "vm", "efi_vars.fd")
-				if _, err := os.Stat(bundledEFI); err == nil {
-					log.Printf("Dev mode: copying EFI vars from app bundle")
-					if err := copyFile(bundledEFI, efiDst); err != nil {
-						log.Printf("Warning: failed to copy EFI vars from bundle: %v", err)
-					}
-				}
-			}
-		}
-	}
 
 	return nil
 }
@@ -681,24 +640,13 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		return
 	}
 
-	// Use VM-specific EFI vars (extracted from bundle or from provisioning)
-	efiVars := filepath.Join(vmDir, "efi_vars.fd")
-	if _, err := os.Stat(efiVars); os.IsNotExist(err) {
-		// Fall back to template if no VM-specific vars exist
-		efiVarsTemplate := vm.findFirmware("edk2-arm-vars.fd")
-		if efiVarsTemplate != "" {
-			if data, readErr := os.ReadFile(efiVarsTemplate); readErr == nil {
-				os.MkdirAll(vmDir, 0755)
-				os.WriteFile(efiVars, data, 0644)
-			}
-		}
-		// If template copy didn't work, create an empty 64MB file
-		if _, checkErr := os.Stat(efiVars); os.IsNotExist(checkErr) {
-			if f, createErr := os.Create(efiVars); createErr == nil {
-				f.Truncate(64 * 1024 * 1024) // 64MB
-				f.Close()
-			}
-		}
+	// EFI vars template — used with snapshot=on so UEFI gets a clean NVRAM
+	// on every boot. No state persists, so boot entries can't go stale after
+	// disk image upgrades. UEFI auto-discovers EFI/BOOT/BOOTAA64.EFI each time.
+	efiVars := vm.findFirmware("edk2-arm-vars.fd")
+	if efiVars == "" {
+		vm.setError(fmt.Errorf("EFI vars template not found. Install QEMU via 'brew install qemu' or use the bundled app"))
+		return
 	}
 
 	// Build QEMU command
@@ -725,7 +673,7 @@ func (vm *VMManager) runVM(ctx context.Context) {
 
 		// EFI firmware
 		"-drive", fmt.Sprintf("if=pflash,format=raw,readonly=on,file=%s", efiCode),
-		"-drive", fmt.Sprintf("if=pflash,format=raw,file=%s", efiVars),
+		"-drive", fmt.Sprintf("if=pflash,format=raw,snapshot=on,file=%s", efiVars),
 
 		// Storage: root disk (vda) and ZFS data disk (vdb)
 		"-drive", fmt.Sprintf("file=%s,format=qcow2,if=virtio,cache=writeback", imagePath),

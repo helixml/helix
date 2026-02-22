@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { main } from '../../wailsjs/go/models';
-import { SaveSettings, GetSettings, ResizeDataDisk, GetAutoLoginURL, FactoryReset as FactoryResetGo, GetLANAddress, ValidateLicenseKey, GetLicenseStatus, CheckForUpdate, ApplyAppUpdate, ApplyVMUpdate, RedownloadVMImage, DownloadVMUpdate } from '../../wailsjs/go/main/App';
+import { SaveSettings, GetSettings, ResizeDataDisk, GetAutoLoginURL, FactoryReset as FactoryResetGo, GetLANAddress, ValidateLicenseKey, GetLicenseStatus, CheckForUpdate, ApplyAppUpdate, ApplyVMUpdate, RedownloadVMImage, DownloadVMUpdate, StartCombinedUpdate, ApplyCombinedUpdate, CancelUpdate } from '../../wailsjs/go/main/App';
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { formatBytes } from '../lib/helpers';
 
@@ -25,6 +25,17 @@ interface SettingsPanelProps {
   } | null;
   vmUpdateReady: boolean;
   vmUpdateAvailable: string | null;
+  combinedUpdateProgress: {
+    phase: string;
+    overall_pct: number;
+    step_label: string;
+    bytes_done: number;
+    bytes_total: number;
+    speed?: string;
+    eta?: string;
+    error?: string;
+  } | null;
+  combinedUpdateReady: boolean;
 }
 
 // Eye-open SVG icon
@@ -75,6 +86,8 @@ export function SettingsPanel({
   vmUpdateProgress,
   vmUpdateReady,
   vmUpdateAvailable,
+  combinedUpdateProgress,
+  combinedUpdateReady,
 }: SettingsPanelProps) {
   const [cpus, setCpus] = useState(String(s.vm_cpus || 4));
   const [memoryGB, setMemoryGB] = useState(String(Math.round((s.vm_memory_mb || 8192) / 1024)));
@@ -202,7 +215,8 @@ export function SettingsPanel({
               </span>
             </div>
 
-            {updateInfo?.available && (
+            {/* Combined update: app update available, starts VM+DMG download */}
+            {updateInfo?.available && !combinedUpdateProgress && !combinedUpdateReady && (
               <div className="update-available-card">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                   <span style={{ fontSize: 14 }}>&#x2B06;</span>
@@ -210,27 +224,93 @@ export function SettingsPanel({
                     Update available: v{updateInfo.latest_version}
                   </span>
                 </div>
-                {!vmUpdateReady && !vmUpdateProgress && (
-                  <button
-                    className="btn btn-primary btn-sm"
-                    disabled={appUpdating}
-                    onClick={async () => {
-                      setAppUpdating(true);
-                      try {
-                        await ApplyAppUpdate();
-                      } catch (err) {
-                        showToast('Update failed: ' + err);
-                        setAppUpdating(false);
-                      }
-                    }}
-                  >
-                    {appUpdating ? 'Updating...' : 'Update Now'}
-                  </button>
-                )}
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                  Downloads the system image and app together.
+                  Your data and settings will be preserved.
+                </div>
+                <button
+                  className="btn btn-primary btn-sm"
+                  disabled={appUpdating}
+                  onClick={async () => {
+                    setAppUpdating(true);
+                    try {
+                      await StartCombinedUpdate();
+                      // StartCombinedUpdate returns immediately (fires goroutine).
+                      // Progress events will show the pill; reset button state here.
+                      setAppUpdating(false);
+                    } catch (err) {
+                      showToast('Update failed: ' + err);
+                      setAppUpdating(false);
+                    }
+                  }}
+                >
+                  {appUpdating ? 'Starting...' : 'Update Now'}
+                </button>
               </div>
             )}
 
-            {vmUpdateAvailable && !vmUpdateProgress && !vmUpdateReady && (
+            {/* Combined update progress */}
+            {combinedUpdateProgress && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                    {combinedUpdateProgress.step_label || 'Downloading update...'}
+                  </span>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    style={{ fontSize: 10, padding: '2px 8px' }}
+                    onClick={() => CancelUpdate()}
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <div className="progress-bar">
+                  <div
+                    className="progress-fill teal"
+                    style={{ width: `${combinedUpdateProgress.overall_pct || 0}%` }}
+                  />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 11, color: 'var(--text-faded)' }}>
+                  <span>{Math.round(combinedUpdateProgress.overall_pct || 0)}%</span>
+                  {combinedUpdateProgress.speed && <span>{combinedUpdateProgress.speed}</span>}
+                  {combinedUpdateProgress.eta && <span>ETA: {combinedUpdateProgress.eta}</span>}
+                </div>
+              </div>
+            )}
+
+            {/* Combined update ready */}
+            {combinedUpdateReady && (
+              <div className="update-ready-card">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                  <span style={{ fontSize: 14 }}>&#x2705;</span>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>
+                    Update ready to install
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                  The update has been downloaded. Restart to apply it.
+                  Your data and settings will be preserved.
+                </div>
+                <button
+                  className="btn btn-primary btn-sm"
+                  disabled={appUpdating}
+                  onClick={async () => {
+                    setAppUpdating(true);
+                    try {
+                      await ApplyCombinedUpdate();
+                    } catch (err) {
+                      showToast('Update failed: ' + err);
+                      setAppUpdating(false);
+                    }
+                  }}
+                >
+                  {appUpdating ? 'Restarting...' : 'Restart and Update'}
+                </button>
+              </div>
+            )}
+
+            {/* Standalone VM-only update (no app update available) */}
+            {vmUpdateAvailable && !updateInfo?.available && !vmUpdateProgress && !vmUpdateReady && !combinedUpdateProgress && !combinedUpdateReady && (
               <div className="update-available-card">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                   <span style={{ fontSize: 14 }}>&#x1F4E6;</span>
@@ -255,7 +335,8 @@ export function SettingsPanel({
               </div>
             )}
 
-            {vmUpdateProgress && (
+            {/* Standalone VM download progress (no combined flow) */}
+            {vmUpdateProgress && !combinedUpdateProgress && (
               <div style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
                   Downloading system update...
@@ -274,12 +355,13 @@ export function SettingsPanel({
               </div>
             )}
 
-            {vmUpdateReady && (
+            {/* Standalone VM update ready (no combined flow) */}
+            {vmUpdateReady && !combinedUpdateReady && (
               <div className="update-ready-card">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                   <span style={{ fontSize: 14 }}>&#x2705;</span>
                   <span style={{ fontWeight: 600, fontSize: 13 }}>
-                    Update ready to install
+                    System update ready to install
                   </span>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>

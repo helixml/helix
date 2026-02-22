@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function ApplyAppUpdate():Promise<void>;
 
+export function ApplyCombinedUpdate():Promise<void>;
+
 export function ApplyVMUpdate():Promise<void>;
 
 export function CancelDownload():Promise<void>;
@@ -76,7 +78,11 @@ export function SaveSettings(arg1:main.AppSettings):Promise<void>;
 
 export function SendConsoleInput(arg1:string):Promise<void>;
 
+export function SetCursor(arg1:string):Promise<void>;
+
 export function SetVMConfig(arg1:main.VMConfig):Promise<void>;
+
+export function StartCombinedUpdate():Promise<void>;
 
 export function StartTrial():Promise<void>;
 

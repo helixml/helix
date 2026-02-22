@@ -8,6 +8,8 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/hydra"
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // AgentSandboxesDebugResponse combines data from multiple sandbox endpoints
@@ -30,9 +32,20 @@ type SandboxInstanceInfo struct {
 // DevContainerWithClients extends DevContainerResponse with connected clients and video stats
 type DevContainerWithClients struct {
 	hydra.DevContainerResponse
-	SandboxID  string              `json:"sandbox_id"`
-	Clients    []ClientInfo        `json:"clients,omitempty"`
-	VideoStats *VideoStreamingStats `json:"video_stats,omitempty"`
+	SandboxID        string               `json:"sandbox_id"`
+	Clients          []ClientInfo         `json:"clients,omitempty"`
+	VideoStats       *VideoStreamingStats `json:"video_stats,omitempty"`
+	SessionName      string               `json:"session_name,omitempty"`
+	SessionAge       string               `json:"session_age,omitempty"`
+	OwnerName        string               `json:"owner_name,omitempty"`
+	OrganizationName string               `json:"organization_name,omitempty"`
+	ProjectName      string               `json:"project_name,omitempty"`
+	ProjectID        string               `json:"project_id,omitempty"`
+	OrganizationID   string               `json:"organization_id,omitempty"`
+	TaskNumber       int                  `json:"task_number,omitempty"`
+	TaskName         string               `json:"task_name,omitempty"`
+	TaskPrompt       string               `json:"task_prompt,omitempty"` // First ~80 chars of original prompt
+	TaskID           string               `json:"task_id,omitempty"`
 }
 
 // VideoStreamingStats contains video streaming buffer statistics
@@ -151,6 +164,66 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 		}
 	}
 
+	// Enrich containers with session details (name, age, owner) and spec task info
+	for i := range allDevContainers {
+		dc := &allDevContainers[i]
+		if dc.SessionID == "" {
+			continue
+		}
+		session, err := apiServer.Store.GetSession(ctx, dc.SessionID)
+		if err != nil {
+			continue
+		}
+		dc.SessionName = session.Name
+		dc.SessionAge = formatDuration(time.Since(session.Created))
+
+		if session.Owner != "" {
+			user, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: session.Owner})
+			if err == nil && user != nil {
+				if user.FullName != "" {
+					dc.OwnerName = user.FullName
+				} else {
+					dc.OwnerName = user.Username
+				}
+			}
+		}
+
+		// Look up org and project names
+		if session.OrganizationID != "" {
+			dc.OrganizationID = session.OrganizationID
+			org, err := apiServer.Store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: session.OrganizationID})
+			if err == nil && org != nil {
+				if org.DisplayName != "" {
+					dc.OrganizationName = org.DisplayName
+				} else {
+					dc.OrganizationName = org.Name
+				}
+			}
+		}
+		if session.ProjectID != "" {
+			dc.ProjectID = session.ProjectID
+			project, err := apiServer.Store.GetProject(ctx, session.ProjectID)
+			if err == nil && project != nil {
+				dc.ProjectName = project.Name
+			}
+		}
+
+		// Look up spec task: try work session first, then planning session fallback
+		specTask := apiServer.findSpecTaskForSession(ctx, dc.SessionID)
+		if specTask != nil {
+			dc.TaskID = specTask.ID
+			dc.TaskNumber = specTask.TaskNumber
+			dc.TaskName = specTask.Name
+			if specTask.OriginalPrompt != "" {
+				prompt := specTask.OriginalPrompt
+				if len(prompt) > 80 {
+					prompt = prompt[:80] + "..."
+				}
+				dc.TaskPrompt = prompt
+			}
+		}
+	}
+
 	response := &AgentSandboxesDebugResponse{
 		Message:       "Hydra-based sandbox infrastructure",
 		Sandboxes:     sandboxInfos,
@@ -219,6 +292,49 @@ func (apiServer *HelixAPIServer) queryVideoStats(ctx context.Context, hydraClien
 	}
 
 	return stats
+}
+
+// findSpecTaskForSession resolves a helix session ID to its parent SpecTask.
+// Tries the work session path first (implementation sessions), then falls back
+// to checking PlanningSessionID (planning/spec-generation sessions).
+func (apiServer *HelixAPIServer) findSpecTaskForSession(ctx context.Context, sessionID string) *types.SpecTask {
+	// Path 1: session → work session → spec task (covers implementation sessions)
+	workSession, err := apiServer.Store.GetSpecTaskWorkSessionByHelixSession(ctx, sessionID)
+	if err == nil && workSession != nil {
+		specTask, err := apiServer.Store.GetSpecTask(ctx, workSession.SpecTaskID)
+		if err == nil {
+			return specTask
+		}
+	}
+
+	// Path 2: session is the planning session on the spec task itself
+	tasks, err := apiServer.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		PlanningSessionID: sessionID,
+		Limit:             1,
+	})
+	if err == nil && len(tasks) > 0 {
+		return tasks[0]
+	}
+
+	return nil
+}
+
+// formatDuration formats a time.Duration into a human-readable age string like "2h 15m" or "3d 4h".
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	hours := int(d.Hours())
+	if hours < 24 {
+		mins := int(d.Minutes()) % 60
+		return fmt.Sprintf("%dh %dm", hours, mins)
+	}
+	days := hours / 24
+	remainHours := hours % 24
+	return fmt.Sprintf("%dd %dh", days, remainHours)
 }
 
 // @Summary Get sandbox real-time events (SSE)

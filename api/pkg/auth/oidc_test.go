@@ -310,6 +310,126 @@ func (s *OIDCSuite) TestUserOperations() {
 	}
 }
 
+func (s *OIDCSuite) TestValidateUserToken_WaitlistedNewUser_CallsOnNewUser() {
+	// Create a client with waitlist enabled and a mock event handler
+	var capturedUser *types.User
+	handler := &mockEventHandler{
+		onNewUser: func(user *types.User) {
+			capturedUser = user
+		},
+	}
+
+	client, err := NewOIDCClient(s.ctx, OIDCConfig{
+		ProviderURL:  s.mockOIDCServer.URL(),
+		ClientID:     "api",
+		ClientSecret: "REPLACE_ME",
+		RedirectURL:  "http://localhost:8080/callback",
+		Audience:     "test-aud",
+		Store:        s.mockStore,
+		Waitlist:     true,
+		EventHandler: handler,
+	})
+	s.NoError(err)
+
+	// User does not exist — triggers creation
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, u *types.User) (*types.User, error) {
+			s.True(u.Waitlisted)
+			return u, nil
+		})
+	// Auto-join lookup (no matching domain)
+	s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)
+
+	user, err := client.ValidateUserToken(s.ctx, s.testToken)
+	s.NoError(err)
+	s.NotNil(user)
+	s.True(user.Waitlisted)
+	s.NotNil(capturedUser, "OnNewUser should have been called")
+	s.Equal("test@example.com", capturedUser.Email)
+}
+
+func (s *OIDCSuite) TestValidateUserToken_NotWaitlisted_DoesNotCallOnNewUser() {
+	// Waitlist disabled — OnNewUser should NOT be called
+	handler := &mockEventHandler{
+		onNewUser: func(user *types.User) {
+			s.Fail("OnNewUser should not be called when waitlist is disabled")
+		},
+	}
+
+	client, err := NewOIDCClient(s.ctx, OIDCConfig{
+		ProviderURL:  s.mockOIDCServer.URL(),
+		ClientID:     "api",
+		ClientSecret: "REPLACE_ME",
+		RedirectURL:  "http://localhost:8080/callback",
+		Audience:     "test-aud",
+		Store:        s.mockStore,
+		Waitlist:     false,
+		EventHandler: handler,
+	})
+	s.NoError(err)
+
+	// User does not exist — triggers creation
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, u *types.User) (*types.User, error) {
+			s.False(u.Waitlisted)
+			return u, nil
+		})
+	// Auto-join lookup
+	s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)
+
+	user, err := client.ValidateUserToken(s.ctx, s.testToken)
+	s.NoError(err)
+	s.NotNil(user)
+	s.False(user.Waitlisted)
+}
+
+func (s *OIDCSuite) TestValidateUserToken_ExistingUser_DoesNotCallOnNewUser() {
+	// Existing user — OnNewUser should NOT be called even with waitlist enabled
+	handler := &mockEventHandler{
+		onNewUser: func(user *types.User) {
+			s.Fail("OnNewUser should not be called for existing users")
+		},
+	}
+
+	client, err := NewOIDCClient(s.ctx, OIDCConfig{
+		ProviderURL:  s.mockOIDCServer.URL(),
+		ClientID:     "api",
+		ClientSecret: "REPLACE_ME",
+		RedirectURL:  "http://localhost:8080/callback",
+		Audience:     "test-aud",
+		Store:        s.mockStore,
+		Waitlist:     true,
+		EventHandler: handler,
+	})
+	s.NoError(err)
+
+	// User already exists
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{
+		ID:       "test-user-id",
+		Email:    "test@example.com",
+		FullName: "Test User",
+	}, nil)
+	// Auto-join lookup
+	s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)
+
+	user, err := client.ValidateUserToken(s.ctx, s.testToken)
+	s.NoError(err)
+	s.NotNil(user)
+}
+
+// mockEventHandler implements OIDCEventHandler for testing
+type mockEventHandler struct {
+	onNewUser func(user *types.User)
+}
+
+func (m *mockEventHandler) OnNewUser(user *types.User) {
+	if m.onNewUser != nil {
+		m.onNewUser(user)
+	}
+}
+
 func (s *OIDCSuite) TestTokenOperations() {
 	// Test token refresh
 	token, err := s.client.RefreshAccessToken(s.ctx, "test-refresh-token")
