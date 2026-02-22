@@ -1,7 +1,7 @@
 # Implementation Tasks
 
 ## Pre-Implementation
-- [ ] Verify understanding by reading `helix-workspace-setup.sh` clone completion section (lines 230-260)
+- [~] Verify understanding by reading `helix-workspace-setup.sh` clone completion section (lines 230-260)
 - [ ] Review existing empty repo handling in `helix-specs-create.sh` for patterns to reuse
 
 ## Core Implementation
