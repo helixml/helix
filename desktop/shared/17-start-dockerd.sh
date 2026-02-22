@@ -199,10 +199,14 @@ REGEOF
     # Install docker wrapper that transparently adds --load for remote builders.
     # This makes user 'docker build -t foo .' work seamlessly — the image builds
     # on the shared BuildKit and automatically loads into the local daemon.
-    if [ -f /opt/helix/docker-buildx-wrapper.sh ]; then
+    if [ -f /opt/helix/docker-wrapper ]; then
+        cp /opt/helix/docker-wrapper /usr/local/bin/docker
+        chmod +x /usr/local/bin/docker
+        echo "[dockerd] Installed docker wrapper (Go) at /usr/local/bin/docker"
+    elif [ -f /opt/helix/docker-buildx-wrapper.sh ]; then
         cp /opt/helix/docker-buildx-wrapper.sh /usr/local/bin/docker
         chmod +x /usr/local/bin/docker
-        echo "[dockerd] Installed docker wrapper at /usr/local/bin/docker (auto --load for remote builders)"
+        echo "[dockerd] Installed docker wrapper (shell) at /usr/local/bin/docker"
     fi
 
     # Fix ownership of .docker directory for retro user

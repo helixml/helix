@@ -53,7 +53,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w" -o /desktop-bridge ./cmd/desktop-bridge && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /logind-stub ./cmd/logind-stub && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /mutter-lease-launcher ./cmd/mutter-lease-launcher
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /mutter-lease-launcher ./cmd/mutter-lease-launcher && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /docker-wrapper ./cmd/docker-wrapper
 
 # ====================================================================
 # Rust/C build stage for GStreamer plugins (architecture-conditional)
@@ -1141,3 +1142,4 @@ COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
 COPY --from=go-build-env /logind-stub /usr/local/bin/logind-stub
 COPY --from=go-build-env /mutter-lease-launcher /usr/local/bin/mutter-lease-launcher
+COPY --from=go-build-env /docker-wrapper /opt/helix/docker-wrapper
