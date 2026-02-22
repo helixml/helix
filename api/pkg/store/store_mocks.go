@@ -2827,18 +2827,18 @@ func (mr *MockStoreMockRecorder) GetSlackThread(ctx, appID, channel, threadKey a
 }
 
 // GetSlackThreadBySpecTaskID mocks base method.
-func (m *MockStore) GetSlackThreadBySpecTaskID(ctx context.Context, appID, channel, specTaskID string) (*types.SlackThread, error) {
+func (m *MockStore) GetSlackThreadBySpecTaskID(ctx context.Context, appID, specTaskID string) (*types.SlackThread, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetSlackThreadBySpecTaskID", ctx, appID, channel, specTaskID)
+	ret := m.ctrl.Call(m, "GetSlackThreadBySpecTaskID", ctx, appID, specTaskID)
 	ret0, _ := ret[0].(*types.SlackThread)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetSlackThreadBySpecTaskID indicates an expected call of GetSlackThreadBySpecTaskID.
-func (mr *MockStoreMockRecorder) GetSlackThreadBySpecTaskID(ctx, appID, channel, specTaskID any) *gomock.Call {
+func (mr *MockStoreMockRecorder) GetSlackThreadBySpecTaskID(ctx, appID, specTaskID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSlackThreadBySpecTaskID", reflect.TypeOf((*MockStore)(nil).GetSlackThreadBySpecTaskID), ctx, appID, channel, specTaskID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSlackThreadBySpecTaskID", reflect.TypeOf((*MockStore)(nil).GetSlackThreadBySpecTaskID), ctx, appID, specTaskID)
 }
 
 // GetSlot mocks base method.

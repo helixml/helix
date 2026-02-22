@@ -407,7 +407,7 @@ type Store interface {
 
 	CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error)
 	GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error)
-	GetSlackThreadBySpecTaskID(ctx context.Context, appID, channel, specTaskID string) (*types.SlackThread, error)
+	GetSlackThreadBySpecTaskID(ctx context.Context, appID, specTaskID string) (*types.SlackThread, error)
 	DeleteSlackThread(ctx context.Context, olderThan time.Time) error
 
 	CreateCrispThread(ctx context.Context, thread *types.CrispThread) (*types.CrispThread, error)

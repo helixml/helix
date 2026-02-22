@@ -57,14 +57,14 @@ func (s *PostgresStore) GetSlackThread(ctx context.Context, appID, channel, thre
 	return &thread, nil
 }
 
-func (s *PostgresStore) GetSlackThreadBySpecTaskID(ctx context.Context, appID, channel, specTaskID string) (*types.SlackThread, error) {
-	if appID == "" || channel == "" || specTaskID == "" {
+func (s *PostgresStore) GetSlackThreadBySpecTaskID(ctx context.Context, appID, specTaskID string) (*types.SlackThread, error) {
+	if appID == "" || specTaskID == "" {
 		return nil, ErrNotFound
 	}
 
 	var thread types.SlackThread
 	err := s.gdb.WithContext(ctx).
-		Where("app_id = ? AND channel = ? AND spec_task_id = ?", appID, channel, specTaskID).
+		Where("app_id = ? AND spec_task_id = ?", appID, specTaskID).
 		First(&thread).Error
 
 	if err != nil {

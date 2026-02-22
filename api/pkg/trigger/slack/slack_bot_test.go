@@ -271,7 +271,8 @@ func TestPostProjectUpdateNewCreatesThreadWithSpecTaskID(t *testing.T) {
 	}
 
 	// First call: look up existing thread by spec task ID — not found
-	mockStore.EXPECT().GetSlackThreadBySpecTaskID(gomock.Any(), "app_123", "C123", "task_123").Return(nil, store.ErrNotFound)
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "task_123").Return(task, nil)
+	mockStore.EXPECT().GetSlackThreadBySpecTaskID(gomock.Any(), "app_123", "task_123").Return(nil, store.ErrNotFound)
 	mockStore.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, session types.Session) (*types.Session, error) {
 			assert.Equal(t, "task_123", session.Metadata.SpecTaskID)
@@ -349,7 +350,8 @@ func TestPostProjectUpdateReplyWhenThreadExists(t *testing.T) {
 	}
 
 	// Should find existing thread
-	mockStore.EXPECT().GetSlackThreadBySpecTaskID(gomock.Any(), "app_123", "C123", "task_123").Return(existingThread, nil)
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "task_123").Return(task, nil)
+	mockStore.EXPECT().GetSlackThreadBySpecTaskID(gomock.Any(), "app_123", "task_123").Return(existingThread, nil)
 	// Should NOT create a new session or thread — just post a reply
 	err := bot.postProjectUpdate(context.Background(), task)
 	require.NoError(t, err)
@@ -414,7 +416,8 @@ func TestPostProjectUpdateReplySkipsDuplicateStatusMessage(t *testing.T) {
 		SpecTaskID: "task_123",
 	}
 
-	mockStore.EXPECT().GetSlackThreadBySpecTaskID(gomock.Any(), "app_123", "C123", "task_123").Return(existingThread, nil)
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "task_123").Return(task, nil)
+	mockStore.EXPECT().GetSlackThreadBySpecTaskID(gomock.Any(), "app_123", "task_123").Return(existingThread, nil)
 
 	err := bot.postProjectUpdate(context.Background(), task)
 	require.NoError(t, err)
@@ -477,12 +480,126 @@ func TestPostProjectUpdateReplyPostsWhenNoDuplicateStatusMessage(t *testing.T) {
 		SpecTaskID: "task_123",
 	}
 
-	mockStore.EXPECT().GetSlackThreadBySpecTaskID(gomock.Any(), "app_123", "C123", "task_123").Return(existingThread, nil)
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "task_123").Return(task, nil)
+	mockStore.EXPECT().GetSlackThreadBySpecTaskID(gomock.Any(), "app_123", "task_123").Return(existingThread, nil)
 
 	err := bot.postProjectUpdate(context.Background(), task)
 	require.NoError(t, err)
 	assert.Equal(t, 1, postCalls)
 	assert.Equal(t, 1, updateCalls)
+}
+
+func TestPostProjectUpdateReplyContinuesWhenDuplicateCheckFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+
+	postCalls := 0
+	updateCalls := 0
+	bot := &SlackBot{
+		cfg:   &config.ServerConfig{},
+		store: mockStore,
+		app: &types.App{
+			ID:             "app_123",
+			Owner:          "user_123",
+			OrganizationID: "org_123",
+			Config:         types.AppConfig{},
+		},
+		trigger: &types.SlackTrigger{
+			ProjectUpdates: true,
+			ProjectChannel: "C123",
+		},
+		postMessage: func(channelID string, options ...slack.MsgOption) (string, string, error) {
+			postCalls++
+			return channelID, "174.00", nil
+		},
+		updateMessage: func(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error) {
+			updateCalls++
+			return channelID, timestamp, "", nil
+		},
+		getConversationReplies: func(params *slack.GetConversationRepliesParameters) ([]slack.Message, bool, string, error) {
+			return nil, false, "", assert.AnError
+		},
+	}
+
+	task := &types.SpecTask{
+		ID:          "task_123",
+		ProjectID:   "proj_123",
+		Name:        "Fix scroll to the header/paragraph functionality in docs/...",
+		Description: "Status moved to implementation",
+		Type:        "feature",
+		Priority:    types.SpecTaskPriorityHigh,
+		Status:      types.TaskStatusImplementation,
+	}
+
+	existingThread := &types.SlackThread{
+		ThreadKey:  "173.42",
+		AppID:      "app_123",
+		Channel:    "C123",
+		SessionID:  "session_123",
+		SpecTaskID: "task_123",
+	}
+
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "task_123").Return(task, nil)
+	mockStore.EXPECT().GetSlackThreadBySpecTaskID(gomock.Any(), "app_123", "task_123").Return(existingThread, nil)
+
+	err := bot.postProjectUpdate(context.Background(), task)
+	require.NoError(t, err)
+	assert.Equal(t, 1, postCalls)
+	assert.Equal(t, 1, updateCalls)
+}
+
+func TestPostProjectUpdateReplyResolvesChannelIDFromPostMessage(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+
+	var updatedChannelID string
+	bot := &SlackBot{
+		cfg:   &config.ServerConfig{},
+		store: mockStore,
+		app: &types.App{
+			ID:             "app_123",
+			Owner:          "user_123",
+			OrganizationID: "org_123",
+			Config:         types.AppConfig{},
+		},
+		trigger: &types.SlackTrigger{
+			ProjectUpdates: true,
+			ProjectChannel: "helix-optimus-website",
+		},
+		postMessage: func(channelID string, options ...slack.MsgOption) (string, string, error) {
+			return "C0AG6JRU142", "174.00", nil
+		},
+		updateMessage: func(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error) {
+			updatedChannelID = channelID
+			return channelID, timestamp, "", nil
+		},
+	}
+
+	task := &types.SpecTask{
+		ID:        "task_123",
+		ProjectID: "proj_123",
+		Name:      "Test task",
+		Status:    types.TaskStatusImplementation,
+	}
+
+	existingThread := &types.SlackThread{
+		ThreadKey:  "173.42",
+		AppID:      "app_123",
+		Channel:    "helix-optimus-website",
+		SessionID:  "session_123",
+		SpecTaskID: "task_123",
+	}
+
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "task_123").Return(task, nil)
+	mockStore.EXPECT().GetSlackThreadBySpecTaskID(gomock.Any(), "app_123", "task_123").Return(existingThread, nil)
+
+	err := bot.postProjectUpdate(context.Background(), task)
+	require.NoError(t, err)
+	assert.Equal(t, "C0AG6JRU142", updatedChannelID, "updateMessage should use the resolved channel ID, not the channel name")
 }
 
 func TestShouldUsePlanningSessionForSlackThread(t *testing.T) {

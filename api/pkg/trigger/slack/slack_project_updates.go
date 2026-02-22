@@ -59,6 +59,15 @@ func (s *SlackBot) postProjectUpdate(ctx context.Context, task *types.SpecTask) 
 	if s.trigger.ProjectChannel == "" {
 		return fmt.Errorf("project channel is required")
 	}
+	if task.ID == "" {
+		return fmt.Errorf("task ID is required")
+	}
+
+	latestTask, err := s.store.GetSpecTask(ctx, task.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get latest spec task '%s': %w", task.ID, err)
+	}
+	task = latestTask
 
 	if s.postMessage == nil || s.updateMessage == nil {
 		api := slack.New(
@@ -70,8 +79,7 @@ func (s *SlackBot) postProjectUpdate(ctx context.Context, task *types.SpecTask) 
 		s.getConversationReplies = api.GetConversationReplies
 	}
 
-	// Check if we already have a thread for this spec task
-	existingThread, err := s.store.GetSlackThreadBySpecTaskID(ctx, s.app.ID, s.trigger.ProjectChannel, task.ID)
+	existingThread, err := s.store.GetSlackThreadBySpecTaskID(ctx, s.app.ID, task.ID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("failed to look up existing thread for spec task: %w", err)
 	}
@@ -99,7 +107,7 @@ func (s *SlackBot) postProjectUpdateNew(ctx context.Context, task *types.SpecTas
 	attachment := s.buildProjectUpdateAttachment(ctx, task, s.cfg.Notifications.AppURL)
 	fallback := fmt.Sprintf("Project update: %s (%s)", task.Name, humanizeSpecTaskStatus(task.Status))
 
-	_, threadKey, err := s.postMessage(
+	channelID, threadKey, err := s.postMessage(
 		s.trigger.ProjectChannel,
 		slack.MsgOptionAttachments(attachment),
 		slack.MsgOptionText(fallback, false),
@@ -111,7 +119,7 @@ func (s *SlackBot) postProjectUpdateNew(ctx context.Context, task *types.SpecTas
 	_, err = s.store.CreateSlackThread(ctx, &types.SlackThread{
 		ThreadKey:  threadKey,
 		AppID:      s.app.ID,
-		Channel:    s.trigger.ProjectChannel,
+		Channel:    channelID,
 		SessionID:  createdSession.ID,
 		SpecTaskID: task.ID,
 	})
@@ -134,25 +142,39 @@ func (s *SlackBot) postProjectUpdateReply(ctx context.Context, thread *types.Sla
 	attachment := buildProjectUpdateReplyAttachment(task, s.cfg.Notifications.AppURL)
 	fallback := fmt.Sprintf("Status update: %s → %s", task.Name, humanizeSpecTaskStatus(task.Status))
 
+	// postMessage accepts both channel names and IDs and returns the resolved
+	// channel ID. We use that resolved ID for updateMessage which requires a
+	// real channel ID (older thread records may store the channel name).
+	resolvedChannelID := thread.Channel
+
 	alreadyPosted, err := s.hasProjectUpdateReply(ctx, thread, fallback)
 	if err != nil {
-		return fmt.Errorf("failed to check existing project update replies in Slack: %w", err)
+		log.Warn().
+			Err(err).
+			Str("app_id", s.app.ID).
+			Str("spec_task_id", task.ID).
+			Str("channel", thread.Channel).
+			Str("thread_key", thread.ThreadKey).
+			Msg("failed to check existing project update replies in Slack, continuing without duplicate guard")
+		alreadyPosted = false
 	}
 
 	if !alreadyPosted {
-		_, _, err = s.postMessage(
+		channelID, _, postErr := s.postMessage(
 			thread.Channel,
 			slack.MsgOptionAttachments(attachment),
 			slack.MsgOptionText(fallback, false),
-			slack.MsgOptionTS(thread.ThreadKey), // Reply in thread
+			slack.MsgOptionTS(thread.ThreadKey),
 		)
-		if err != nil {
-			return fmt.Errorf("failed to post project update reply to Slack: %w", err)
+		if postErr != nil {
+			return fmt.Errorf("failed to post project update reply to Slack: %w", postErr)
+		}
+		if channelID != "" {
+			resolvedChannelID = channelID
 		}
 	} else {
 		log.Info().
 			Str("app_id", s.app.ID).
-			Str("project_id", task.ProjectID).
 			Str("spec_task_id", task.ID).
 			Str("channel", thread.Channel).
 			Str("thread_key", thread.ThreadKey).
@@ -160,15 +182,21 @@ func (s *SlackBot) postProjectUpdateReply(ctx context.Context, thread *types.Sla
 			Msg("skipping duplicate project update reply in Slack thread")
 	}
 
-	if err := s.updateProjectUpdateFirstMessage(ctx, thread, task); err != nil {
-		return fmt.Errorf("failed to update first project update message in Slack: %w", err)
+	if err := s.updateProjectUpdateFirstMessage(ctx, resolvedChannelID, thread.ThreadKey, task); err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", s.app.ID).
+			Str("spec_task_id", task.ID).
+			Str("channel", resolvedChannelID).
+			Str("thread_key", thread.ThreadKey).
+			Msg("failed to update first project update message in Slack")
 	}
 
 	log.Info().
 		Str("app_id", s.app.ID).
 		Str("project_id", task.ProjectID).
 		Str("spec_task_id", task.ID).
-		Str("channel", thread.Channel).
+		Str("channel", resolvedChannelID).
 		Str("thread_key", thread.ThreadKey).
 		Str("status", string(task.Status)).
 		Msg("posted project update reply to Slack thread")
@@ -197,13 +225,13 @@ func (s *SlackBot) hasProjectUpdateReply(ctx context.Context, thread *types.Slac
 	return false, nil
 }
 
-func (s *SlackBot) updateProjectUpdateFirstMessage(ctx context.Context, thread *types.SlackThread, task *types.SpecTask) error {
+func (s *SlackBot) updateProjectUpdateFirstMessage(ctx context.Context, channelID, threadKey string, task *types.SpecTask) error {
 	attachment := s.buildProjectUpdateAttachment(ctx, task, s.cfg.Notifications.AppURL)
 	fallback := fmt.Sprintf("Project update: %s (%s)", task.Name, humanizeSpecTaskStatus(task.Status))
 
 	_, _, _, err := s.updateMessage(
-		thread.Channel,
-		thread.ThreadKey,
+		channelID,
+		threadKey,
 		slack.MsgOptionAttachments(attachment),
 		slack.MsgOptionText(fallback, false),
 	)

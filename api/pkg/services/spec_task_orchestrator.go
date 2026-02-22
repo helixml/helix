@@ -546,11 +546,6 @@ func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *type
 		return nil
 	}
 
-	log.Debug().
-		Str("task_id", task.ID).
-		Str("pr_id", task.PullRequestID).
-		Msg("Polling external PR status")
-
 	return o.processExternalPullRequestStatus(ctx, task)
 }
 
@@ -643,10 +638,6 @@ func (o *SpecTaskOrchestrator) pollPullRequests(ctx context.Context) {
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list PR tasks for polling")
 		return
-	}
-
-	if len(tasks) > 0 {
-		log.Debug().Int("count", len(tasks)).Msg("Polling external PR status for tasks")
 	}
 
 	for _, task := range tasks {
