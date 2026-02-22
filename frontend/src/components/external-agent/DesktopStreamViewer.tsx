@@ -59,6 +59,53 @@ import CursorRenderer from "./CursorRenderer";
 import InsecureContextWarning from "./InsecureContextWarning";
 
 /**
+ * Clipboard helpers: WKWebView (macOS Wails app) blocks navigator.clipboard
+ * in iframes even with user gestures. When running inside an iframe, use
+ * postMessage to the parent frame which has access to the Wails runtime
+ * clipboard (backed by NSPasteboard). Falls back to navigator.clipboard
+ * for regular browser usage.
+ */
+const isInIframe = typeof window !== "undefined" && window.parent !== window;
+
+async function clipboardWriteText(text: string): Promise<void> {
+  if (isInIframe) {
+    window.parent.postMessage({ type: "helix-clipboard-write", text }, "*");
+    return;
+  }
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(text);
+  }
+}
+
+function clipboardReadText(): Promise<string> {
+  if (isInIframe) {
+    return new Promise((resolve) => {
+      const id = Math.random().toString(36).slice(2);
+      const handler = (event: MessageEvent) => {
+        if (
+          event.data?.type === "helix-clipboard-response" &&
+          event.data.id === id
+        ) {
+          window.removeEventListener("message", handler);
+          resolve(event.data.text || "");
+        }
+      };
+      window.addEventListener("message", handler);
+      window.parent.postMessage({ type: "helix-clipboard-read", id }, "*");
+      // Timeout after 2s to avoid hanging
+      setTimeout(() => {
+        window.removeEventListener("message", handler);
+        resolve("");
+      }, 2000);
+    });
+  }
+  if (navigator.clipboard) {
+    return navigator.clipboard.readText();
+  }
+  return Promise.resolve("");
+}
+
+/**
  * DesktopStreamViewer - Native React component for desktop streaming
  *
  * This component provides video streaming from remote desktop sandboxes.
@@ -229,6 +276,11 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const SCROLL_SENSITIVITY = 2.0; // Multiplier for scroll speed
   const MIN_ZOOM = 1; // Minimum zoom (no zoom out beyond 1:1)
   const MAX_ZOOM = 5; // Maximum zoom level
+
+  // Edge-pan constants for auto-panning when cursor reaches viewport edge while zoomed
+  const EDGE_PAN_ZONE_PX = 20; // Distance from edge to trigger panning
+  const EDGE_PAN_SPEED = 8; // Max pixels per frame to pan
+  const edgePanAnimationRef = useRef<number | null>(null); // Track edge-pan animation frame
 
   // iOS detection for video element fullscreen (iOS Safari doesn't support requestFullscreen on divs)
   const [isIOS, setIsIOS] = useState(false);
@@ -520,18 +572,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // App ID is not used for WebSocket mode - we connect directly to the container
       let actualAppId = appId;
 
-      // Get Helix JWT from account context
-      const helixToken = account.user?.token || "";
-
-      if (!helixToken) {
-        console.error("[DesktopStreamViewer] No token available");
-        throw new Error("Not authenticated - please log in");
-      }
-
-      // API object for WebSocketStream (credentials used for auth)
+      // API object for WebSocketStream
+      // Note: With BFF pattern, auth is handled via HttpOnly session cookies
+      // WebSocket connections automatically include cookies for same-origin requests
       const api = {
         host_url: `/api/v1`,
-        credentials: helixToken,
+        credentials: "", // Not used - auth via cookies
       };
 
       // Get streaming bitrate: user-selected > backend config > resolution-based default
@@ -2595,8 +2641,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return;
       }
 
-      // Skip if clipboard API is not available (e.g., Safari without HTTPS)
-      if (!navigator.clipboard) {
+      // Skip if clipboard API is not available (e.g., Safari without HTTPS) and not in iframe
+      if (!navigator.clipboard && !isInIframe) {
         return;
       }
 
@@ -2617,8 +2663,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           return; // No change, skip update
         }
 
-        if (clipboardData.type === "image") {
-          // Decode base64 image and write to browser clipboard
+        if (clipboardData.type === "image" && navigator.clipboard) {
+          // Image clipboard requires navigator.clipboard.write (no postMessage bridge for images)
           const base64Data = clipboardData.data;
           const byteCharacters = atob(base64Data);
           const byteNumbers = new Array(byteCharacters.length);
@@ -2636,8 +2682,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             `[Clipboard] Auto-synced image from remote (${byteArray.length} bytes)`,
           );
         } else if (clipboardData.type === "text") {
-          // Write text to browser clipboard
-          await navigator.clipboard.writeText(clipboardData.data);
+          // Write text to browser/system clipboard
+          await clipboardWriteText(clipboardData.data);
           console.log(
             `[Clipboard] Auto-synced text from remote (${clipboardData.data.length} chars)`,
           );
@@ -3055,6 +3101,83 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     ],
   );
 
+  // Calculate the visible viewport bounds in container coordinates
+  // When zoomed in, only a portion of the stream is visible
+  const calculateVisibleViewportBounds = useCallback(() => {
+    if (!containerRef.current) return null;
+    const containerRect = containerRef.current.getBoundingClientRect();
+
+    // The visible viewport is the container divided by zoom level, centered
+    // At zoom 2x, we see 50% of the content, centered in the container
+    const visibleWidth = containerRect.width / zoomLevel;
+    const visibleHeight = containerRect.height / zoomLevel;
+
+    // Pan offset shifts what's visible (in screen pixels, divided by zoom for content coords)
+    // The visible area center is at container center minus pan offset (adjusted for zoom)
+    const centerX = containerRect.width / 2;
+    const centerY = containerRect.height / 2;
+
+    // Convert pan offset to the visible region bounds
+    // panOffset is in screen pixels, so we need to account for zoom
+    const left = centerX - visibleWidth / 2 - panOffset.x / zoomLevel;
+    const top = centerY - visibleHeight / 2 - panOffset.y / zoomLevel;
+    const right = left + visibleWidth;
+    const bottom = top + visibleHeight;
+
+    return {
+      left,
+      top,
+      right,
+      bottom,
+      width: visibleWidth,
+      height: visibleHeight,
+    };
+  }, [zoomLevel, panOffset]);
+
+  // Start edge-pan animation in a given direction
+  // Uses requestAnimationFrame for smooth 60fps panning
+  const startEdgePan = useCallback(
+    (direction: { x: number; y: number }, intensity: number) => {
+      // Cancel any existing animation
+      if (edgePanAnimationRef.current !== null) {
+        cancelAnimationFrame(edgePanAnimationRef.current);
+      }
+
+      const animate = () => {
+        if (!containerRef.current) return;
+
+        const containerRect = containerRef.current.getBoundingClientRect();
+        const maxPanX = (containerRect.width * (zoomLevel - 1)) / 2;
+        const maxPanY = (containerRect.height * (zoomLevel - 1)) / 2;
+
+        // Apply quadratic easing - intensity is 0-1, squared for smooth acceleration
+        const easedIntensity = intensity * intensity;
+        const panDx = direction.x * EDGE_PAN_SPEED * easedIntensity;
+        const panDy = direction.y * EDGE_PAN_SPEED * easedIntensity;
+
+        setPanOffset((prev) => {
+          const newX = Math.max(-maxPanX, Math.min(maxPanX, prev.x + panDx));
+          const newY = Math.max(-maxPanY, Math.min(maxPanY, prev.y + panDy));
+          return { x: newX, y: newY };
+        });
+
+        // Continue animation
+        edgePanAnimationRef.current = requestAnimationFrame(animate);
+      };
+
+      edgePanAnimationRef.current = requestAnimationFrame(animate);
+    },
+    [zoomLevel, EDGE_PAN_SPEED],
+  );
+
+  // Stop any active edge-pan animation
+  const stopEdgePan = useCallback(() => {
+    if (edgePanAnimationRef.current !== null) {
+      cancelAnimationFrame(edgePanAnimationRef.current);
+      edgePanAnimationRef.current = null;
+    }
+  }, []);
+
   const handleTouchMove = useCallback(
     (event: React.TouchEvent) => {
       const handler = getInputHandler();
@@ -3135,6 +3258,64 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         handler.sendMousePosition?.(streamX, streamY, width, height);
 
         lastTouchPosRef.current = { x: touch.clientX, y: touch.clientY };
+
+        // Edge-pan: when zoomed in and cursor reaches edge of visible viewport, auto-pan
+        if (zoomLevel > 1) {
+          const viewportBounds = calculateVisibleViewportBounds();
+          if (viewportBounds) {
+            // Check if cursor is in edge zone of the visible viewport
+            const distFromLeft = newX - viewportBounds.left;
+            const distFromRight = viewportBounds.right - newX;
+            const distFromTop = newY - viewportBounds.top;
+            const distFromBottom = viewportBounds.bottom - newY;
+
+            let panDirection = { x: 0, y: 0 };
+            let maxIntensity = 0;
+
+            // Check each edge and calculate pan direction/intensity
+            if (distFromLeft < EDGE_PAN_ZONE_PX && distFromLeft >= 0) {
+              panDirection.x = 1; // Pan right (move view left)
+              maxIntensity = Math.max(
+                maxIntensity,
+                1 - distFromLeft / EDGE_PAN_ZONE_PX,
+              );
+            } else if (distFromRight < EDGE_PAN_ZONE_PX && distFromRight >= 0) {
+              panDirection.x = -1; // Pan left (move view right)
+              maxIntensity = Math.max(
+                maxIntensity,
+                1 - distFromRight / EDGE_PAN_ZONE_PX,
+              );
+            }
+
+            if (distFromTop < EDGE_PAN_ZONE_PX && distFromTop >= 0) {
+              panDirection.y = 1; // Pan down (move view up)
+              maxIntensity = Math.max(
+                maxIntensity,
+                1 - distFromTop / EDGE_PAN_ZONE_PX,
+              );
+            } else if (
+              distFromBottom < EDGE_PAN_ZONE_PX &&
+              distFromBottom >= 0
+            ) {
+              panDirection.y = -1; // Pan up (move view down)
+              maxIntensity = Math.max(
+                maxIntensity,
+                1 - distFromBottom / EDGE_PAN_ZONE_PX,
+              );
+            }
+
+            // Start or stop edge pan based on whether cursor is in edge zone
+            if (panDirection.x !== 0 || panDirection.y !== 0) {
+              startEdgePan(panDirection, maxIntensity);
+            } else {
+              stopEdgePan();
+            }
+          }
+        } else {
+          // Not zoomed - ensure edge pan is stopped
+          stopEdgePan();
+        }
+
         // Don't delegate single-finger trackpad movement to StreamInput - we handle it ourselves
         return;
       }
@@ -3244,6 +3425,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       zoomLevel,
       MIN_ZOOM,
       MAX_ZOOM,
+      calculateVisibleViewportBounds,
+      startEdgePan,
+      stopEdgePan,
+      EDGE_PAN_ZONE_PX,
     ],
   );
 
@@ -3376,6 +3561,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           lastTapTimeRef.current = now;
         }
 
+        // Stop any active edge-pan animation when touch ends
+        stopEdgePan();
+
         // Don't delegate single-finger taps to StreamInput in trackpad mode
         // Clean up and return
         lastTouchPosRef.current = null;
@@ -3404,6 +3592,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       cursorPosition,
       width,
       height,
+      stopEdgePan,
     ],
   );
 
@@ -3425,6 +3614,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         setIsDragging(false);
       }
 
+      // Stop any active edge-pan animation
+      stopEdgePan();
+
       handler.onTouchCancel?.(event.nativeEvent, rect);
 
       // Clean up touch tracking
@@ -3434,7 +3626,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       pinchCenterRef.current = null;
       lastPinchCenterRef.current = null;
     },
-    [getStreamRect, getInputHandler, touchMode, isDragging],
+    [getStreamRect, getInputHandler, touchMode, isDragging, stopEdgePan],
   );
 
   // Reset all input state - clears stuck modifiers and mouse buttons
@@ -3614,13 +3806,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               return;
             }
 
-            // Skip local clipboard sync if API not available (e.g., Safari without HTTPS)
-            if (!navigator.clipboard) {
+            // Skip local clipboard sync if API not available and not in iframe
+            if (!navigator.clipboard && !isInIframe) {
               showClipboardToast("Copied", "success");
               return;
             }
 
-            if (clipboardData.type === "image") {
+            if (clipboardData.type === "image" && navigator.clipboard) {
               const base64Data = clipboardData.data;
               const byteCharacters = atob(base64Data);
               const byteNumbers = new Array(byteCharacters.length);
@@ -3637,7 +3829,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
                 `[Clipboard] Synced image from remote (${byteArray.length} bytes)`,
               );
             } else if (clipboardData.type === "text") {
-              await navigator.clipboard.writeText(clipboardData.data);
+              await clipboardWriteText(clipboardData.data);
               console.log(
                 `[Clipboard] Synced text from remote (${clipboardData.data.length} chars)`,
               );
@@ -3679,80 +3871,95 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           `[Clipboard] Paste keystroke detected (shift=${userPressedShift}), syncing local → remote`,
         );
 
-        // Skip if clipboard API is not available (e.g., Safari without HTTPS)
-        if (!navigator.clipboard) {
+        // Skip if clipboard API is not available and not in iframe
+        if (!navigator.clipboard && !isInIframe) {
           console.warn("[Clipboard] Clipboard API not available");
           showClipboardToast("Clipboard not available", "error");
           return;
         }
 
-        // Handle clipboard sync asynchronously (don't block keystroke processing)
-        navigator.clipboard
-          .read()
-          .then((clipboardItems) => {
-            if (clipboardItems.length === 0) {
-              console.warn("[Clipboard] Empty clipboard, ignoring paste");
+        // When in iframe (macOS app), use postMessage bridge for text.
+        // navigator.clipboard.read() is blocked in WKWebView iframes.
+        if (isInIframe) {
+          clipboardReadText().then((text) => {
+            if (!text) {
+              console.warn(
+                "[Clipboard] Empty clipboard from parent, ignoring paste",
+              );
               showClipboardToast("Clipboard is empty", "error");
               return;
             }
+            syncAndPaste({ type: "text", data: text });
+          });
+        } else {
+          // Handle clipboard sync asynchronously (don't block keystroke processing)
+          navigator.clipboard
+            .read()
+            .then((clipboardItems) => {
+              if (clipboardItems.length === 0) {
+                console.warn("[Clipboard] Empty clipboard, ignoring paste");
+                showClipboardToast("Clipboard is empty", "error");
+                return;
+              }
 
-            const item = clipboardItems[0];
-            let clipboardPayload: TypesClipboardData;
+              const item = clipboardItems[0];
+              let clipboardPayload: TypesClipboardData;
 
-            // Read clipboard data
-            // Note: Browser Clipboard API only supports PNG for images (per W3C spec)
-            console.log(
-              `[Clipboard] Available types: ${item.types.join(", ")}`,
-            );
-            if (item.types.includes("image/png")) {
-              console.log(`[Clipboard] Reading image/png from clipboard`);
-              item
-                .getType("image/png")
-                .then((blob) => {
-                  console.log(
-                    `[Clipboard] Got PNG blob, size: ${blob.size} bytes`,
-                  );
-                  blob.arrayBuffer().then((arrayBuffer) => {
-                    const base64 = btoa(
-                      String.fromCharCode(...new Uint8Array(arrayBuffer)),
-                    );
+              // Read clipboard data
+              // Note: Browser Clipboard API only supports PNG for images (per W3C spec)
+              console.log(
+                `[Clipboard] Available types: ${item.types.join(", ")}`,
+              );
+              if (item.types.includes("image/png")) {
+                console.log(`[Clipboard] Reading image/png from clipboard`);
+                item
+                  .getType("image/png")
+                  .then((blob) => {
                     console.log(
-                      `[Clipboard] Encoded to base64, length: ${base64.length}`,
+                      `[Clipboard] Got PNG blob, size: ${blob.size} bytes`,
                     );
-                    clipboardPayload = { type: "image", data: base64 };
+                    blob.arrayBuffer().then((arrayBuffer) => {
+                      const base64 = btoa(
+                        String.fromCharCode(...new Uint8Array(arrayBuffer)),
+                      );
+                      console.log(
+                        `[Clipboard] Encoded to base64, length: ${base64.length}`,
+                      );
+                      clipboardPayload = { type: "image", data: base64 };
+                      syncAndPaste(clipboardPayload);
+                    });
+                  })
+                  .catch((err) => {
+                    console.error("[Clipboard] Failed to get image/png:", err);
+                    showClipboardToast(
+                      "Failed to read image from clipboard",
+                      "error",
+                    );
+                  });
+              } else if (item.types.includes("text/plain")) {
+                item.getType("text/plain").then((blob) => {
+                  blob.text().then((text) => {
+                    clipboardPayload = { type: "text", data: text };
                     syncAndPaste(clipboardPayload);
                   });
-                })
-                .catch((err) => {
-                  console.error("[Clipboard] Failed to get image/png:", err);
-                  showClipboardToast(
-                    "Failed to read image from clipboard",
-                    "error",
-                  );
                 });
-            } else if (item.types.includes("text/plain")) {
-              item.getType("text/plain").then((blob) => {
-                blob.text().then((text) => {
-                  clipboardPayload = { type: "text", data: text };
-                  syncAndPaste(clipboardPayload);
-                });
-              });
-            } else {
-              console.warn(
-                "[Clipboard] Unsupported clipboard type:",
-                item.types,
-              );
-              showClipboardToast(
-                `Unsupported clipboard type: ${item.types.join(", ")}`,
-                "error",
-              );
-            }
-          })
-          .catch((err) => {
-            console.error("[Clipboard] Failed to read clipboard:", err);
-            const errMsg = err instanceof Error ? err.message : String(err);
-            showClipboardToast(`Paste failed: ${errMsg}`, "error");
-          });
+              } else {
+                console.warn(
+                  "[Clipboard] Unsupported clipboard type:",
+                  item.types,
+                );
+                showClipboardToast(
+                  `Unsupported clipboard type: ${item.types.join(", ")}`,
+                  "error",
+                );
+              }
+            })
+            .catch((err) => {
+              console.error("[Clipboard] Failed to read clipboard:", err);
+              const errMsg = err instanceof Error ? err.message : String(err);
+              showClipboardToast(`Paste failed: ${errMsg}`, "error");
+            });
+        }
 
         // Helper function to sync clipboard and forward keystroke
         const syncAndPaste = (payload: TypesClipboardData) => {
