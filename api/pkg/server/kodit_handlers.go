@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/helixml/kodit"
 	"github.com/helixml/kodit/domain/enrichment"
 	"github.com/helixml/kodit/domain/repository"
 	"github.com/helixml/kodit/domain/tracking"
@@ -280,7 +280,7 @@ func (apiServer *HelixAPIServer) reRegisterWithKodit(r *http.Request, repository
 
 // handleKoditError returns the appropriate HTTP status based on the error type
 func handleKoditError(w http.ResponseWriter, err error, context string) {
-	if errors.Is(err, kodit.ErrNotFound) {
+	if errors.Is(err, services.ErrKoditNotFound) {
 		http.Error(w, fmt.Sprintf("%s: %s", context, err.Error()), http.StatusNotFound)
 		return
 	}

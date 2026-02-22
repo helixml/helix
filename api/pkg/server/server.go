@@ -41,8 +41,6 @@ import (
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/services"
-	"github.com/helixml/kodit"
-	"github.com/helixml/kodit/infrastructure/provider"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
@@ -120,8 +118,8 @@ type HelixAPIServer struct {
 	specDrivenTaskService     *services.SpecDrivenTaskService
 	sampleProjectCodeService  *services.SampleProjectCodeService
 	gitRepositoryService      *services.GitRepositoryService
-	koditService              services.KoditServicer
-	koditClient               *kodit.Client
+	koditService services.KoditServicer
+	kodit        *koditResult
 	mcpGateway                *MCPGateway
 	gitHTTPServer             *services.GitHTTPServer
 	// Rate limiting for streaming connections
@@ -355,60 +353,12 @@ func NewServer(
 	}
 
 	// Initialize Kodit code intelligence library (in-process)
-	if cfg.Kodit.Enabled && apiServer.gitRepositoryService != nil {
-		if cfg.Kodit.DatabaseURL == "" {
-			return nil, fmt.Errorf("KODIT_DB_URL is required when kodit is enabled")
-		}
-
-		var koditOpts []kodit.Option
-		koditOpts = append(koditOpts, kodit.WithPostgresVectorchord(cfg.Kodit.DatabaseURL))
-
-		// Data directory (for cloned repos, model cache, etc.)
-		dataDir := cfg.Kodit.DataDir
-		if dataDir == "" {
-			dataDir = filepath.Join(cfg.FileStore.LocalFSPath, "kodit")
-		}
-		koditOpts = append(koditOpts, kodit.WithDataDir(dataDir))
-
-		// Embedding provider: local ONNX model loaded from disk.
-		modelDir := cfg.Kodit.ModelDir
-		if modelDir == "" {
-			modelDir = filepath.Join(dataDir, "models")
-		}
-		embedder := provider.NewHugotEmbedding(modelDir)
-		koditOpts = append(koditOpts, kodit.WithEmbeddingProvider(embedder))
-
-		// LLM text provider for enrichments (separate from embedding).
-		if cfg.Kodit.LLMBaseURL != "" {
-			p := provider.NewOpenAIProviderFromConfig(provider.OpenAIConfig{
-				APIKey:    cfg.Kodit.LLMAPIKey,
-				BaseURL:   cfg.Kodit.LLMBaseURL,
-				ChatModel: cfg.Kodit.LLMChatModel,
-			})
-			koditOpts = append(koditOpts, kodit.WithTextProvider(p))
-		} else {
-			koditOpts = append(koditOpts, kodit.WithSkipProviderValidation())
-		}
-
-		if cfg.Kodit.WorkerCount > 0 {
-			koditOpts = append(koditOpts, kodit.WithWorkerCount(cfg.Kodit.WorkerCount))
-		}
-
-		koditClient, err := kodit.New(koditOpts...)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize kodit client: %w", err)
-		}
-		apiServer.koditClient = koditClient
-		apiServer.koditService = services.NewKoditService(koditClient)
-		apiServer.gitRepositoryService.SetKoditService(apiServer.koditService)
-		apiServer.gitRepositoryService.SetKoditGitURL(cfg.Kodit.GitURL)
-		log.Info().
-			Str("kodit_git_url", cfg.Kodit.GitURL).
-			Msg("Initialized Kodit code intelligence service (in-process)")
-	} else {
-		apiServer.koditService = services.NewKoditService(nil) // Disabled instance
-		log.Info().Msg("Kodit code intelligence service disabled")
+	kr, err := initKodit(cfg, apiServer.gitRepositoryService)
+	if err != nil {
+		return nil, err
 	}
+	apiServer.kodit = kr
+	apiServer.koditService = kr.service
 
 	// Initialize MCP Gateway for authenticated MCP proxying
 	apiServer.mcpGateway = NewMCPGateway()
@@ -417,7 +367,7 @@ func NewServer(
 	apiServer.initExposedPortManager()
 
 	// Register Kodit MCP backend (code intelligence)
-	apiServer.mcpGateway.RegisterBackend("kodit", NewKoditMCPBackend(apiServer.koditClient, cfg.Kodit.Enabled))
+	apiServer.mcpGateway.RegisterBackend("kodit", kr.mcpBackend)
 
 	// Register Helix native MCP backend (APIs, Knowledge, Zapier)
 	apiServer.mcpGateway.RegisterBackend("helix", NewHelixMCPBackend(store, appController))
@@ -508,9 +458,9 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	defer apiServer.mcpGateway.Stop()
 
 	// Close kodit client on shutdown
-	if apiServer.koditClient != nil {
+	if apiServer.kodit != nil && apiServer.kodit.closer != nil {
 		defer func() {
-			if err := apiServer.koditClient.Close(); err != nil {
+			if err := apiServer.kodit.closer.Close(); err != nil {
 				log.Error().Err(err).Msg("failed to close kodit client")
 			}
 		}()

@@ -1,3 +1,5 @@
+//go:build !nokodit
+
 package services
 
 import (
@@ -14,19 +16,6 @@ import (
 	"github.com/helixml/kodit/domain/tracking"
 	"github.com/rs/zerolog/log"
 )
-
-// KoditServicer is the interface for Kodit code intelligence operations.
-// Used by handlers and other services; allows faking in tests.
-type KoditServicer interface {
-	IsEnabled() bool
-	RegisterRepository(ctx context.Context, cloneURL string) (int64, bool, error)
-	GetRepositoryEnrichments(ctx context.Context, koditRepoID int64, enrichmentType, commitSHA string) ([]enrichment.Enrichment, error)
-	GetEnrichment(ctx context.Context, enrichmentID string) (enrichment.Enrichment, error)
-	GetRepositoryCommits(ctx context.Context, koditRepoID int64, limit int) ([]repository.Commit, error)
-	SearchSnippets(ctx context.Context, koditRepoID int64, query string, limit int) ([]enrichment.Enrichment, error)
-	GetRepositoryStatus(ctx context.Context, koditRepoID int64) (tracking.RepositoryStatusSummary, error)
-	RescanCommit(ctx context.Context, koditRepoID int64, commitSHA string) error
-}
 
 // KoditService handles communication with Kodit code intelligence library
 type KoditService struct {
@@ -46,6 +35,15 @@ func NewKoditService(client *kodit.Client) *KoditService {
 // IsEnabled returns whether the Kodit service is enabled
 func (s *KoditService) IsEnabled() bool {
 	return s != nil && s.enabled
+}
+
+// wrapNotFound converts kodit.ErrNotFound to ErrKoditNotFound so callers
+// outside this package don't need to import the root kodit package.
+func wrapNotFound(err error) error {
+	if errors.Is(err, kodit.ErrNotFound) {
+		return fmt.Errorf("%w: %v", ErrKoditNotFound, err)
+	}
+	return err
 }
 
 // RegisterRepository registers a repository with Kodit for indexing.
@@ -136,10 +134,7 @@ func (s *KoditService) GetEnrichment(ctx context.Context, enrichmentID string) (
 
 	e, err := s.client.Enrichments.Get(ctx, repository.WithID(id))
 	if err != nil {
-		if errors.Is(err, kodit.ErrNotFound) {
-			return enrichment.Enrichment{}, fmt.Errorf("enrichment not found: %w", kodit.ErrNotFound)
-		}
-		return enrichment.Enrichment{}, fmt.Errorf("failed to get enrichment: %w", err)
+		return enrichment.Enrichment{}, wrapNotFound(err)
 	}
 
 	return e, nil
@@ -208,10 +203,7 @@ func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID int6
 
 	summary, err := s.client.Tracking.Summary(ctx, koditRepoID)
 	if err != nil {
-		if errors.Is(err, kodit.ErrNotFound) {
-			return tracking.RepositoryStatusSummary{}, fmt.Errorf("repository not found: %w", kodit.ErrNotFound)
-		}
-		return tracking.RepositoryStatusSummary{}, fmt.Errorf("failed to get repository status: %w", err)
+		return tracking.RepositoryStatusSummary{}, wrapNotFound(err)
 	}
 
 	return summary, nil
