@@ -245,21 +245,57 @@ type ProjectMetadata struct {
 	DockerCacheStatus   *DockerCacheState `json:"docker_cache_status,omitempty"`
 }
 
-// DockerCacheState tracks the current state of the golden Docker cache for a project.
-// Updated by the golden build service when builds start, succeed, or fail.
+// DockerCacheState tracks the current state of the golden Docker cache for a project,
+// per sandbox. Each sandbox has its own cache state since golden caches are local
+// to the sandbox's filesystem.
 type DockerCacheState struct {
-	// Status: "building", "ready", "failed", "none"
-	Status string `json:"status"`
-	// SizeBytes is the golden cache size in bytes (0 if no golden exists)
-	SizeBytes int64 `json:"size_bytes,omitempty"`
-	// LastBuildAt is when the most recent golden build started
-	LastBuildAt *time.Time `json:"last_build_at,omitempty"`
-	// LastReadyAt is when the golden was last successfully promoted
-	LastReadyAt *time.Time `json:"last_ready_at,omitempty"`
-	// BuildSessionID is the session ID of the currently running golden build
-	BuildSessionID string `json:"build_session_id,omitempty"`
-	// Error is the last error message (cleared on success)
-	Error string `json:"error,omitempty"`
+	Sandboxes map[string]*SandboxCacheState `json:"sandboxes,omitempty"`
+}
+
+// OverallStatus returns an aggregate status across all sandboxes:
+// "building" if any sandbox is building, "ready" if all are ready,
+// "failed" if any failed (and none building), "none" otherwise.
+func (d *DockerCacheState) OverallStatus() string {
+	if d == nil || len(d.Sandboxes) == 0 {
+		return "none"
+	}
+	anyBuilding := false
+	anyFailed := false
+	allReady := true
+	for _, s := range d.Sandboxes {
+		switch s.Status {
+		case "building":
+			anyBuilding = true
+			allReady = false
+		case "failed":
+			anyFailed = true
+			allReady = false
+		case "ready":
+			// ok
+		default:
+			allReady = false
+		}
+	}
+	if anyBuilding {
+		return "building"
+	}
+	if allReady && len(d.Sandboxes) > 0 {
+		return "ready"
+	}
+	if anyFailed {
+		return "failed"
+	}
+	return "none"
+}
+
+// SandboxCacheState tracks the golden Docker cache state for a single sandbox.
+type SandboxCacheState struct {
+	Status         string     `json:"status"`
+	SizeBytes      int64      `json:"size_bytes,omitempty"`
+	LastBuildAt    *time.Time `json:"last_build_at,omitempty"`
+	LastReadyAt    *time.Time `json:"last_ready_at,omitempty"`
+	BuildSessionID string     `json:"build_session_id,omitempty"`
+	Error          string     `json:"error,omitempty"`
 }
 
 // BoardSettings represents the Kanban board settings for a project

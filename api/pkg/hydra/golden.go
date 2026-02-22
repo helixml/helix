@@ -186,6 +186,19 @@ func SetGoldenBuildRunning(projectID string, running bool) error {
 	return os.Remove(lockFile)
 }
 
+// DeleteGolden removes a project's golden Docker cache snapshot.
+func DeleteGolden(projectID string) error {
+	projectDir := filepath.Join(goldenBaseDir, projectID)
+	if _, err := os.Stat(projectDir); os.IsNotExist(err) {
+		return nil // nothing to delete
+	}
+	if err := os.RemoveAll(projectDir); err != nil {
+		return fmt.Errorf("failed to remove golden cache at %s: %w", projectDir, err)
+	}
+	log.Info().Str("project_id", projectID).Str("path", projectDir).Msg("Deleted golden Docker cache")
+	return nil
+}
+
 // GetGoldenSize returns the disk usage of a project's golden cache in bytes.
 // Returns 0 if no golden exists.
 func GetGoldenSize(projectID string) int64 {

@@ -164,6 +164,9 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	// Port proxy - forward HTTP requests to a port on the desktop container's network
 	api.PathPrefix("/dev-containers/{session_id}/proxy/{port}").HandlerFunc(s.handleDevContainerProxy)
 
+	// Golden cache management
+	api.HandleFunc("/golden-cache/{project_id}", s.handleDeleteGoldenCache).Methods("DELETE")
+
 	// System stats (GPU info, active sessions)
 	api.HandleFunc("/system/stats", s.handleSystemStats).Methods("GET")
 }
@@ -760,4 +763,22 @@ func execCommand(name string, args ...string) (string, error) {
 	out, err := cmd.Output()
 	_ = ctx
 	return string(out), err
+}
+
+// handleDeleteGoldenCache removes the golden Docker cache for a project.
+func (s *Server) handleDeleteGoldenCache(w http.ResponseWriter, r *http.Request) {
+	projectID := mux.Vars(r)["project_id"]
+	if projectID == "" {
+		http.Error(w, "project_id required", http.StatusBadRequest)
+		return
+	}
+
+	if err := DeleteGolden(projectID); err != nil {
+		log.Error().Err(err).Str("project_id", projectID).Msg("Failed to delete golden cache")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 }

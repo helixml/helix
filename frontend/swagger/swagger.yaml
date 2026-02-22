@@ -993,15 +993,38 @@ definitions:
       ip_address:
         description: Network info for RevDial/screenshot-server connections
         type: string
+      organization_id:
+        type: string
+      organization_name:
+        type: string
+      owner_name:
+        type: string
+      project_id:
+        type: string
+      project_name:
+        type: string
       render_node:
         description: /dev/dri/renderD128 or SOFTWARE
         type: string
       sandbox_id:
         type: string
+      session_age:
+        type: string
       session_id:
+        type: string
+      session_name:
         type: string
       status:
         $ref: '#/definitions/hydra.DevContainerStatus'
+      task_id:
+        type: string
+      task_name:
+        type: string
+      task_number:
+        type: integer
+      task_prompt:
+        description: First ~80 chars of original prompt
+        type: string
       video_stats:
         $ref: '#/definitions/server.VideoStreamingStats'
     type: object
@@ -2088,6 +2111,13 @@ definitions:
         $ref: '#/definitions/types.AssistantBrowser'
       calculator:
         $ref: '#/definitions/types.AssistantCalculator'
+      code_agent_credential_type:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentCredentialType'
+        description: |-
+          CodeAgentCredentialType specifies how the code agent authenticates with the LLM provider.
+          "api_key" (default/empty): uses an API key routed through the Helix proxy.
+          "subscription": uses OAuth credentials directly (e.g., Claude subscription).
       code_agent_runtime:
         allOf:
         - $ref: '#/definitions/types.CodeAgentRuntime'
@@ -2938,6 +2968,14 @@ definitions:
         description: 'Runtime specifies which code agent runtime to use: "zed_agent"
           or "qwen_code"'
     type: object
+  types.CodeAgentCredentialType:
+    enum:
+    - api_key
+    - subscription
+    type: string
+    x-enum-varnames:
+    - CodeAgentCredentialTypeAPIKey
+    - CodeAgentCredentialTypeSubscription
   types.CodeAgentRuntime:
     enum:
     - zed_agent
@@ -3303,6 +3341,13 @@ definitions:
         type: integer
       used_percent:
         type: number
+    type: object
+  types.DockerCacheState:
+    properties:
+      sandboxes:
+        additionalProperties:
+          $ref: '#/definitions/types.SandboxCacheState'
+        type: object
     type: object
   types.DynamicModelInfo:
     properties:
@@ -5418,8 +5463,12 @@ definitions:
     type: object
   types.ProjectMetadata:
     properties:
+      auto_warm_docker_cache:
+        type: boolean
       board_settings:
         $ref: '#/definitions/types.BoardSettings'
+      docker_cache_status:
+        $ref: '#/definitions/types.DockerCacheState'
     type: object
   types.ProjectStats:
     properties:
@@ -6211,6 +6260,21 @@ definitions:
         type: integer
       warm_slots:
         type: integer
+    type: object
+  types.SandboxCacheState:
+    properties:
+      build_session_id:
+        type: string
+      error:
+        type: string
+      last_build_at:
+        type: string
+      last_ready_at:
+        type: string
+      size_bytes:
+        type: integer
+      status:
+        type: string
     type: object
   types.SandboxFileUploadResponse:
     properties:
@@ -13277,6 +13341,80 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: List project audit logs
+      tags:
+      - Projects
+  /api/v1/projects/{id}/docker-cache:
+    delete:
+      description: Remove the golden Docker cache for a project from all sandboxes
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Clear golden Docker cache
+      tags:
+      - Projects
+  /api/v1/projects/{id}/docker-cache/build:
+    post:
+      description: Manually trigger a golden Docker cache build for a project
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Trigger golden Docker cache build
       tags:
       - Projects
   /api/v1/projects/{id}/exploratory-session:

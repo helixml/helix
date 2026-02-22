@@ -9,6 +9,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/agent/optimus"
+	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -118,6 +119,30 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionGet)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	// Prune stale sandbox entries from DockerCacheStatus (lazy cleanup on read).
+	// Remove entries for sandboxes that no longer exist in the database.
+	if project.Metadata.DockerCacheStatus != nil && len(project.Metadata.DockerCacheStatus.Sandboxes) > 0 {
+		sandboxes, sbErr := s.Store.ListSandboxes(r.Context())
+		if sbErr == nil {
+			knownIDs := make(map[string]bool, len(sandboxes))
+			for _, sb := range sandboxes {
+				knownIDs[sb.ID] = true
+			}
+			pruned := false
+			for sbID := range project.Metadata.DockerCacheStatus.Sandboxes {
+				if !knownIDs[sbID] {
+					delete(project.Metadata.DockerCacheStatus.Sandboxes, sbID)
+					pruned = true
+				}
+			}
+			if pruned {
+				if updateErr := s.Store.UpdateProject(r.Context(), project); updateErr != nil {
+					log.Warn().Err(updateErr).Str("project_id", projectID).Msg("Failed to prune stale sandbox cache entries")
+				}
+			}
+		}
 	}
 
 	// Load startup script from helix-specs branch in primary repo.
@@ -2006,4 +2031,107 @@ func (s *HelixAPIServer) getProjectUsage(_ http.ResponseWriter, r *http.Request)
 	}
 
 	return metrics, nil
+}
+
+// triggerGoldenBuild godoc
+// @Summary Trigger golden Docker cache build
+// @Description Manually trigger a golden Docker cache build for a project
+// @Tags Projects
+// @Produce json
+// @Param id path string true "Project ID"
+// @Success 200 {object} map[string]string
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 409 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/docker-cache/build [post]
+func (s *HelixAPIServer) triggerGoldenBuild(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	project, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionUpdate)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	if s.goldenBuildService == nil {
+		return nil, system.NewHTTPError500("golden build service not available")
+	}
+
+	err = s.goldenBuildService.TriggerManualGoldenBuild(r.Context(), project)
+	if err != nil {
+		return nil, &system.HTTPError{StatusCode: 409, Message: err.Error()}
+	}
+
+	return map[string]string{"message": "golden build triggered"}, nil
+}
+
+// deleteDockerCache godoc
+// @Summary Clear golden Docker cache
+// @Description Remove the golden Docker cache for a project from all sandboxes
+// @Tags Projects
+// @Produce json
+// @Param id path string true "Project ID"
+// @Success 200 {object} map[string]string
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/docker-cache [delete]
+func (s *HelixAPIServer) deleteDockerCache(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	project, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionUpdate)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	// Send delete to all online sandboxes
+	sandboxes, err := s.Store.ListSandboxes(r.Context())
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list sandboxes: %v", err))
+	}
+
+	var errors []string
+	deleted := 0
+	for _, sb := range sandboxes {
+		if sb.Status != "online" {
+			continue
+		}
+		hydraClient := hydra.NewRevDialClient(s.connman, fmt.Sprintf("hydra-%s", sb.ID))
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		err := hydraClient.DeleteGoldenCache(ctx, projectID)
+		cancel()
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("sandbox %s: %v", sb.ID, err))
+		} else {
+			deleted++
+		}
+	}
+
+	if len(errors) > 0 && deleted == 0 {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to clear cache: %s", errors[0]))
+	}
+
+	// Reset project docker cache status — empty sandboxes map
+	project.Metadata.DockerCacheStatus = &types.DockerCacheState{
+		Sandboxes: make(map[string]*types.SandboxCacheState),
+	}
+	if err := s.Store.UpdateProject(r.Context(), project); err != nil {
+		log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to reset docker cache status")
+	}
+
+	return map[string]string{"message": fmt.Sprintf("cache cleared on %d sandbox(es)", deleted)}, nil
 }

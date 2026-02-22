@@ -646,11 +646,23 @@ export interface ServerDevContainerWithClients {
   gpu_vendor?: string;
   /** Network info for RevDial/screenshot-server connections */
   ip_address?: string;
+  organization_id?: string;
+  organization_name?: string;
+  owner_name?: string;
+  project_id?: string;
+  project_name?: string;
   /** /dev/dri/renderD128 or SOFTWARE */
   render_node?: string;
   sandbox_id?: string;
+  session_age?: string;
   session_id?: string;
+  session_name?: string;
   status?: HydraDevContainerStatus;
+  task_id?: string;
+  task_name?: string;
+  task_number?: number;
+  /** First ~80 chars of original prompt */
+  task_prompt?: string;
   video_stats?: ServerVideoStreamingStats;
 }
 
@@ -1298,6 +1310,12 @@ export interface TypesAssistantConfig {
   browser?: TypesAssistantBrowser;
   calculator?: TypesAssistantCalculator;
   /**
+   * CodeAgentCredentialType specifies how the code agent authenticates with the LLM provider.
+   * "api_key" (default/empty): uses an API key routed through the Helix proxy.
+   * "subscription": uses OAuth credentials directly (e.g., Claude subscription).
+   */
+  code_agent_credential_type?: TypesCodeAgentCredentialType;
+  /**
    * CodeAgentRuntime specifies which code agent runtime to use inside Zed (for zed_external agent type).
    * Options: "zed_agent" (Zed's built-in agent) or "qwen_code" (qwen command as custom agent).
    * If empty, defaults to "zed_agent".
@@ -1816,6 +1834,11 @@ export interface TypesCodeAgentConfig {
   runtime?: TypesCodeAgentRuntime;
 }
 
+export enum TypesCodeAgentCredentialType {
+  CodeAgentCredentialTypeAPIKey = "api_key",
+  CodeAgentCredentialTypeSubscription = "subscription",
+}
+
 export enum TypesCodeAgentRuntime {
   CodeAgentRuntimeZedAgent = "zed_agent",
   CodeAgentRuntimeQwenCode = "qwen_code",
@@ -2035,6 +2058,10 @@ export interface TypesDiskUsageMetric {
   total_bytes?: number;
   used_bytes?: number;
   used_percent?: number;
+}
+
+export interface TypesDockerCacheState {
+  sandboxes?: Record<string, TypesSandboxCacheState>;
 }
 
 export interface TypesDynamicModelInfo {
@@ -3303,7 +3330,9 @@ export interface TypesProjectCreateRequest {
 }
 
 export interface TypesProjectMetadata {
+  auto_warm_docker_cache?: boolean;
   board_settings?: TypesBoardSettings;
+  docker_cache_status?: TypesDockerCacheState;
 }
 
 export interface TypesProjectStats {
@@ -3769,6 +3798,15 @@ export interface TypesRunnerStateView {
   runner_id?: string;
   total_slots?: number;
   warm_slots?: number;
+}
+
+export interface TypesSandboxCacheState {
+  build_session_id?: string;
+  error?: string;
+  last_build_at?: string;
+  last_ready_at?: string;
+  size_bytes?: number;
+  status?: string;
 }
 
 export interface TypesSandboxFileUploadResponse {
@@ -8859,6 +8897,42 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Remove the golden Docker cache for a project from all sandboxes
+     *
+     * @tags Projects
+     * @name V1ProjectsDockerCacheDelete
+     * @summary Clear golden Docker cache
+     * @request DELETE:/api/v1/projects/{id}/docker-cache
+     * @secure
+     */
+    v1ProjectsDockerCacheDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/docker-cache`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Manually trigger a golden Docker cache build for a project
+     *
+     * @tags Projects
+     * @name V1ProjectsDockerCacheBuildCreate
+     * @summary Trigger golden Docker cache build
+     * @request POST:/api/v1/projects/{id}/docker-cache/build
+     * @secure
+     */
+    v1ProjectsDockerCacheBuildCreate: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/docker-cache/build`,
+        method: "POST",
+        secure: true,
         format: "json",
         ...params,
       }),

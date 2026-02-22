@@ -6891,6 +6891,122 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/docker-cache": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Remove the golden Docker cache for a project from all sandboxes",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Clear golden Docker cache",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/docker-cache/build": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Manually trigger a golden Docker cache build for a project",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Trigger golden Docker cache build",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/exploratory-session": {
             "get": {
                 "security": [
@@ -15735,6 +15851,21 @@ const docTemplate = `{
                     "description": "Network info for RevDial/screenshot-server connections",
                     "type": "string"
                 },
+                "organization_id": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "type": "string"
+                },
+                "owner_name": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
                 "render_node": {
                     "description": "/dev/dri/renderD128 or SOFTWARE",
                     "type": "string"
@@ -15742,11 +15873,30 @@ const docTemplate = `{
                 "sandbox_id": {
                     "type": "string"
                 },
+                "session_age": {
+                    "type": "string"
+                },
                 "session_id": {
+                    "type": "string"
+                },
+                "session_name": {
                     "type": "string"
                 },
                 "status": {
                     "$ref": "#/definitions/hydra.DevContainerStatus"
+                },
+                "task_id": {
+                    "type": "string"
+                },
+                "task_name": {
+                    "type": "string"
+                },
+                "task_number": {
+                    "type": "integer"
+                },
+                "task_prompt": {
+                    "description": "First ~80 chars of original prompt",
+                    "type": "string"
                 },
                 "video_stats": {
                     "$ref": "#/definitions/server.VideoStreamingStats"
@@ -17337,6 +17487,14 @@ const docTemplate = `{
                 "calculator": {
                     "$ref": "#/definitions/types.AssistantCalculator"
                 },
+                "code_agent_credential_type": {
+                    "description": "CodeAgentCredentialType specifies how the code agent authenticates with the LLM provider.\n\"api_key\" (default/empty): uses an API key routed through the Helix proxy.\n\"subscription\": uses OAuth credentials directly (e.g., Claude subscription).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentCredentialType"
+                        }
+                    ]
+                },
                 "code_agent_runtime": {
                     "description": "CodeAgentRuntime specifies which code agent runtime to use inside Zed (for zed_external agent type).\nOptions: \"zed_agent\" (Zed's built-in agent) or \"qwen_code\" (qwen command as custom agent).\nIf empty, defaults to \"zed_agent\".",
                     "allOf": [
@@ -18491,6 +18649,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CodeAgentCredentialType": {
+            "type": "string",
+            "enum": [
+                "api_key",
+                "subscription"
+            ],
+            "x-enum-varnames": [
+                "CodeAgentCredentialTypeAPIKey",
+                "CodeAgentCredentialTypeSubscription"
+            ]
+        },
         "types.CodeAgentRuntime": {
             "type": "string",
             "enum": [
@@ -19037,6 +19206,17 @@ const docTemplate = `{
                 },
                 "used_percent": {
                     "type": "number"
+                }
+            }
+        },
+        "types.DockerCacheState": {
+            "type": "object",
+            "properties": {
+                "sandboxes": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/types.SandboxCacheState"
+                    }
                 }
             }
         },
@@ -22046,8 +22226,14 @@ const docTemplate = `{
         "types.ProjectMetadata": {
             "type": "object",
             "properties": {
+                "auto_warm_docker_cache": {
+                    "type": "boolean"
+                },
                 "board_settings": {
                     "$ref": "#/definitions/types.BoardSettings"
+                },
+                "docker_cache_status": {
+                    "$ref": "#/definitions/types.DockerCacheState"
                 }
             }
         },
@@ -23173,6 +23359,29 @@ const docTemplate = `{
                 },
                 "warm_slots": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.SandboxCacheState": {
+            "type": "object",
+            "properties": {
+                "build_session_id": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "last_build_at": {
+                    "type": "string"
+                },
+                "last_ready_at": {
+                    "type": "string"
+                },
+                "size_bytes": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
                 }
             }
         },

@@ -183,6 +183,8 @@ const ProjectSettings: FC = () => {
   const [pullRequestReviewsEnabled, setPullRequestReviewsEnabled] =
     useState(false);
   const [autoWarmDockerCache, setAutoWarmDockerCache] = useState(false);
+  const [showGoldenBuildViewer, setShowGoldenBuildViewer] = useState(false);
+  const [selectedGoldenSandboxId, setSelectedGoldenSandboxId] = useState("");
   const [showTestSession, setShowTestSession] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
@@ -199,6 +201,47 @@ const ProjectSettings: FC = () => {
     projectId,
     guidelinesHistoryDialogOpen,
   );
+
+  // Per-sandbox golden cache state
+  const sandboxCacheMap = project?.metadata?.docker_cache_status?.sandboxes ?? {};
+  const sandboxEntries = Object.entries(sandboxCacheMap);
+  const anyBuilding = sandboxEntries.some(([, s]) => s.status === "building");
+  const anyReady = sandboxEntries.some(([, s]) => s.status === "ready");
+  const anyFailed = sandboxEntries.some(([, s]) => s.status === "failed");
+
+  // Golden build session - fetch when viewing a running build on a specific sandbox
+  const goldenBuildSessionId = selectedGoldenSandboxId
+    ? sandboxCacheMap[selectedGoldenSandboxId]?.build_session_id
+    : undefined;
+  const { data: goldenBuildSession } = useQuery({
+    queryKey: ["session", goldenBuildSessionId],
+    queryFn: async () => {
+      const response = await api.getApiClient().v1SessionsDetail(goldenBuildSessionId!);
+      return response.data;
+    },
+    enabled: !!goldenBuildSessionId && showGoldenBuildViewer,
+    refetchInterval: 5000,
+  });
+
+  // Poll project status while any golden build is running and viewer is open
+  useEffect(() => {
+    if (!showGoldenBuildViewer || !anyBuilding) return;
+    const interval = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [showGoldenBuildViewer, anyBuilding, projectId]);
+
+  // Auto-close golden build viewer when selected sandbox's build finishes
+  useEffect(() => {
+    if (showGoldenBuildViewer && selectedGoldenSandboxId) {
+      const sbState = sandboxCacheMap[selectedGoldenSandboxId];
+      if (!sbState || sbState.status !== "building") {
+        setShowGoldenBuildViewer(false);
+        setSelectedGoldenSandboxId("");
+      }
+    }
+  }, [showGoldenBuildViewer, selectedGoldenSandboxId, sandboxCacheMap]);
 
   // Move to organization state
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
@@ -270,6 +313,44 @@ const ProjectSettings: FC = () => {
     },
     onError: () => {
       snackbar.error("Failed to delete secret");
+    },
+  });
+
+  const primeCacheMutation = useMutation({
+    mutationFn: async () => {
+      await api
+        .getApiClient()
+        .v1ProjectsDockerCacheBuildCreate(projectId);
+    },
+    onSuccess: () => {
+      snackbar.success("Golden build triggered");
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      // Auto-open the viewer after a short delay for the project to refresh with build_session_id
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+        setShowGoldenBuildViewer(true);
+        setShowTestSession(false);
+      }, 3000);
+    },
+    onError: (error: any) => {
+      const msg =
+        error?.response?.data?.message || "Failed to trigger golden build";
+      snackbar.error(msg);
+    },
+  });
+
+  const clearCacheMutation = useMutation({
+    mutationFn: async () => {
+      await api.getApiClient().v1ProjectsDockerCacheDelete(projectId);
+    },
+    onSuccess: () => {
+      snackbar.success("Docker cache cleared");
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    },
+    onError: (error: any) => {
+      const msg =
+        error?.response?.data?.message || "Failed to clear cache";
+      snackbar.error(msg);
     },
   });
 
@@ -621,6 +702,7 @@ const ProjectSettings: FC = () => {
 
       // 5. Show test session viewer
       setShowTestSession(true);
+      setShowGoldenBuildViewer(false);
     } catch (err: any) {
       const errorMessage =
         err?.response?.data?.error ||
@@ -773,8 +855,8 @@ const ProjectSettings: FC = () => {
       }
     >
       <Container
-        maxWidth={showTestSession ? false : "md"}
-        sx={{ px: showTestSession ? 3 : 3 }}
+        maxWidth={showTestSession || showGoldenBuildViewer ? false : "md"}
+        sx={{ px: showTestSession || showGoldenBuildViewer ? 3 : 3 }}
       >
         <Box
           sx={{
@@ -791,7 +873,7 @@ const ProjectSettings: FC = () => {
               display: "flex",
               flexDirection: "column",
               gap: 3,
-              width: showTestSession ? "600px" : "100%",
+              width: showTestSession || showGoldenBuildViewer ? "600px" : "100%",
               flexShrink: 0,
             }}
           >
@@ -895,25 +977,76 @@ const ProjectSettings: FC = () => {
                     borderRadius: 1,
                   }}
                 >
-                  <Typography variant="caption" color="text.secondary" component="div">
-                    <strong>Status:</strong>{" "}
-                    {!project?.metadata?.docker_cache_status && "Waiting for first merge to main"}
-                    {project?.metadata?.docker_cache_status?.status === "ready" && "Ready"}
-                    {project?.metadata?.docker_cache_status?.status === "building" && "Building..."}
-                    {project?.metadata?.docker_cache_status?.status === "failed" && "Failed"}
-                    {project?.metadata?.docker_cache_status?.status === "none" && "No cache yet"}
-                    {(project?.metadata?.docker_cache_status?.size_bytes ?? 0) > 0 && (
-                      <> &middot; {((project?.metadata?.docker_cache_status?.size_bytes ?? 0) / 1e9).toFixed(1)} GB</>
-                    )}
-                    {project?.metadata?.docker_cache_status?.last_ready_at && (
-                      <> &middot; Last built: {new Date(project.metadata.docker_cache_status.last_ready_at).toLocaleString()}</>
-                    )}
-                  </Typography>
-                  {project?.metadata?.docker_cache_status?.error && (
-                    <Typography variant="caption" color="error" component="div" sx={{ mt: 0.5 }}>
-                      {project.metadata.docker_cache_status.error}
+                  {sandboxEntries.length === 0 ? (
+                    <Typography variant="caption" color="text.secondary" component="div">
+                      Waiting for first merge to main
                     </Typography>
+                  ) : (
+                    sandboxEntries.map(([sbId, sbState]) => (
+                      <Box key={sbId} sx={{ mb: sandboxEntries.length > 1 ? 1 : 0 }}>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                          <Chip
+                            label={sbId}
+                            size="small"
+                            variant="outlined"
+                            sx={{ fontFamily: "monospace", fontSize: "0.7rem" }}
+                          />
+                          <Typography variant="caption" color="text.secondary">
+                            {sbState.status === "ready" && "Ready"}
+                            {sbState.status === "building" && "Building..."}
+                            {sbState.status === "failed" && "Failed"}
+                            {sbState.status === "none" && "No cache"}
+                            {(sbState.size_bytes ?? 0) > 0 && (
+                              <> &middot; {((sbState.size_bytes ?? 0) / 1e9).toFixed(1)} GB</>
+                            )}
+                            {sbState.last_ready_at && (
+                              <> &middot; Last built: {new Date(sbState.last_ready_at).toLocaleString()}</>
+                            )}
+                          </Typography>
+                          {sbState.status === "building" && sbState.build_session_id && (
+                            <Button
+                              size="small"
+                              variant="contained"
+                              sx={{ ml: "auto", minWidth: 0, px: 1, py: 0.25, fontSize: "0.7rem" }}
+                              onClick={() => {
+                                setSelectedGoldenSandboxId(sbId);
+                                setShowGoldenBuildViewer(true);
+                                setShowTestSession(false);
+                              }}
+                            >
+                              Watch
+                            </Button>
+                          )}
+                        </Box>
+                        {sbState.error && (
+                          <Typography variant="caption" color="error" component="div" sx={{ mt: 0.25, ml: 1 }}>
+                            {sbState.error}
+                          </Typography>
+                        )}
+                      </Box>
+                    ))
                   )}
+                  <Box sx={{ mt: 1, display: "flex", gap: 1 }}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      disabled={primeCacheMutation.isPending || anyBuilding}
+                      onClick={() => primeCacheMutation.mutate()}
+                    >
+                      {primeCacheMutation.isPending ? "Triggering..." : "Prime Cache"}
+                    </Button>
+                    {(anyReady || anyFailed) && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="error"
+                        disabled={clearCacheMutation.isPending}
+                        onClick={() => clearCacheMutation.mutate()}
+                      >
+                        {clearCacheMutation.isPending ? "Clearing..." : "Clear Cache"}
+                      </Button>
+                    )}
+                  </Box>
                 </Box>
               )}
             </Paper>
@@ -1583,6 +1716,51 @@ const ProjectSettings: FC = () => {
                       : "Get AI to fix it"}
                   </Button>
                 </Box>
+              </Paper>
+            </Box>
+          )}
+
+          {/* Golden build viewer - fills width, natural height */}
+          {showGoldenBuildViewer && goldenBuildSessionId && (
+            <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
+              <Paper sx={{ p: 4 }}>
+                <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
+                  <Typography variant="h6" sx={{ flex: 1 }}>
+                    Golden Build{selectedGoldenSandboxId ? ` (${selectedGoldenSandboxId})` : ""}
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => {
+                      setShowGoldenBuildViewer(false);
+                      setSelectedGoldenSandboxId("");
+                    }}
+                  >
+                    Hide
+                  </Button>
+                </Box>
+                <Divider sx={{ mb: 3 }} />
+                {goldenBuildSession ? (
+                  <Box
+                    sx={{
+                      aspectRatio: "16 / 9",
+                      backgroundColor: "#000",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <DesktopStreamViewer
+                      sessionId={goldenBuildSessionId}
+                      sandboxId={goldenBuildSession.config?.sandbox_id || ""}
+                    />
+                  </Box>
+                ) : (
+                  <Box sx={{ p: 4, textAlign: "center" }}>
+                    <CircularProgress size={24} />
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      Waiting for session to start...
+                    </Typography>
+                  </Box>
+                )}
               </Paper>
             </Box>
           )}

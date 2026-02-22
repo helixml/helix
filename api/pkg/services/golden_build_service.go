@@ -16,15 +16,18 @@ import (
 // When a merge to main happens and the project has AutoWarmDockerCache enabled,
 // it triggers a golden build session that runs the startup script to populate
 // the Docker cache, then promotes the result to the project's golden snapshot.
+//
+// Builds are fanned out to ALL online sandboxes so every sandbox has a warm cache.
 type GoldenBuildService struct {
 	store             store.Store
 	containerExecutor ContainerExecutor
 	specTaskService   *SpecDrivenTaskService
 
 	// Track running golden builds to prevent duplicates.
-	// Maps project_id -> build start time. Entries older than 30 min are treated as stale.
+	// Key: "projectID/sandboxID" -> build start time.
+	// Entries older than 30 min are treated as stale.
 	mu       sync.Mutex
-	building map[string]time.Time // project_id -> build start time
+	building map[string]time.Time
 }
 
 // NewGoldenBuildService creates a new golden build service.
@@ -41,78 +44,149 @@ func NewGoldenBuildService(
 	}
 }
 
-// updateDockerCacheStatus updates the project's DockerCacheState in metadata.
-func (g *GoldenBuildService) updateDockerCacheStatus(ctx context.Context, projectID string, update func(*types.DockerCacheState)) {
+// buildKey returns the debounce map key for a project+sandbox pair.
+func buildKey(projectID, sandboxID string) string {
+	return projectID + "/" + sandboxID
+}
+
+// updateSandboxCacheStatus updates the per-sandbox DockerCacheState in project metadata.
+func (g *GoldenBuildService) updateSandboxCacheStatus(ctx context.Context, projectID, sandboxID string, update func(*types.SandboxCacheState)) {
 	project, err := g.store.GetProject(ctx, projectID)
 	if err != nil {
 		log.Warn().Err(err).Str("project_id", projectID).Msg("Golden build: failed to get project for status update")
 		return
 	}
 	if project.Metadata.DockerCacheStatus == nil {
-		project.Metadata.DockerCacheStatus = &types.DockerCacheState{}
+		project.Metadata.DockerCacheStatus = &types.DockerCacheState{
+			Sandboxes: make(map[string]*types.SandboxCacheState),
+		}
 	}
-	update(project.Metadata.DockerCacheStatus)
+	if project.Metadata.DockerCacheStatus.Sandboxes == nil {
+		project.Metadata.DockerCacheStatus.Sandboxes = make(map[string]*types.SandboxCacheState)
+	}
+	state, ok := project.Metadata.DockerCacheStatus.Sandboxes[sandboxID]
+	if !ok {
+		state = &types.SandboxCacheState{}
+		project.Metadata.DockerCacheStatus.Sandboxes[sandboxID] = state
+	}
+	update(state)
 	err = g.store.UpdateProject(ctx, project)
 	if err != nil {
-		log.Warn().Err(err).Str("project_id", projectID).Msg("Golden build: failed to update project docker cache status")
+		log.Warn().Err(err).Str("project_id", projectID).Str("sandbox_id", sandboxID).Msg("Golden build: failed to update project docker cache status")
 	}
 }
 
-// TriggerGoldenBuild starts a golden build for a project if the setting is enabled
-// and no build is already running. Called when code is merged to main.
-// This is fire-and-forget: the build runs in the background.
+// TriggerGoldenBuild starts golden builds on all online sandboxes if the setting is enabled
+// and no build is already running on each sandbox. Called when code is merged to main.
 func (g *GoldenBuildService) TriggerGoldenBuild(ctx context.Context, project *types.Project) {
 	if project == nil {
 		return
 	}
 
-	// Check if golden cache warming is enabled for this project
 	if !project.Metadata.AutoWarmDockerCache {
 		return
 	}
 
-	// Debounce: skip if a golden build is already tracked for this project.
-	// The buildingStarted time prevents stale entries from blocking forever —
-	// if a build has been "running" for more than 30 minutes, assume it's dead.
-	g.mu.Lock()
-	if startedAt, ok := g.building[project.ID]; ok {
-		if time.Since(startedAt) < 30*time.Minute {
-			g.mu.Unlock()
-			log.Info().
-				Str("project_id", project.ID).
-				Msg("Golden build already running for project, skipping")
-			return
-		}
-		// Stale entry — build has been "running" too long, proceed with new one
-		log.Warn().
-			Str("project_id", project.ID).
-			Msg("Golden build entry is stale (>30min), starting new build")
-		delete(g.building, project.ID)
-	}
-	g.building[project.ID] = time.Now()
-	g.mu.Unlock()
-
-	log.Info().
-		Str("project_id", project.ID).
-		Str("project_name", project.Name).
-		Msg("Triggering golden Docker cache build")
-
-	go g.runGoldenBuild(ctx, project)
+	g.fanOutBuilds(ctx, project)
 }
 
-// runGoldenBuild runs the golden build in a goroutine.
-// On failure, clears the building entry so a retry can happen immediately.
-// After launching the container, polls for session completion to update
-// the project's docker cache status and clear the building entry.
-func (g *GoldenBuildService) runGoldenBuild(parentCtx context.Context, project *types.Project) {
+// TriggerManualGoldenBuild starts golden builds on all online sandboxes regardless of the
+// AutoWarmDockerCache setting. Used by the "Prime Cache" button in the UI.
+func (g *GoldenBuildService) TriggerManualGoldenBuild(ctx context.Context, project *types.Project) error {
+	if project == nil {
+		return fmt.Errorf("project is nil")
+	}
+
+	sandboxes, err := g.store.ListSandboxes(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list sandboxes: %w", err)
+	}
+
+	started := 0
+	for _, sb := range sandboxes {
+		if sb.Status != "online" {
+			continue
+		}
+		key := buildKey(project.ID, sb.ID)
+		g.mu.Lock()
+		if startedAt, ok := g.building[key]; ok {
+			if time.Since(startedAt) < 30*time.Minute {
+				g.mu.Unlock()
+				log.Info().Str("project_id", project.ID).Str("sandbox_id", sb.ID).
+					Msg("Golden build already running on sandbox, skipping")
+				continue
+			}
+			delete(g.building, key)
+		}
+		g.building[key] = time.Now()
+		g.mu.Unlock()
+
+		log.Info().
+			Str("project_id", project.ID).
+			Str("sandbox_id", sb.ID).
+			Msg("Triggering manual golden build on sandbox")
+
+		go g.runGoldenBuildOnSandbox(ctx, project, sb.ID)
+		started++
+	}
+
+	if started == 0 {
+		return fmt.Errorf("no online sandboxes available for golden build")
+	}
+	return nil
+}
+
+// fanOutBuilds lists online sandboxes and launches a golden build goroutine for each.
+func (g *GoldenBuildService) fanOutBuilds(ctx context.Context, project *types.Project) {
+	sandboxes, err := g.store.ListSandboxes(ctx)
+	if err != nil {
+		log.Error().Err(err).Str("project_id", project.ID).Msg("Golden build: failed to list sandboxes")
+		return
+	}
+
+	for _, sb := range sandboxes {
+		if sb.Status != "online" {
+			continue
+		}
+		key := buildKey(project.ID, sb.ID)
+
+		g.mu.Lock()
+		if startedAt, ok := g.building[key]; ok {
+			if time.Since(startedAt) < 30*time.Minute {
+				g.mu.Unlock()
+				log.Info().Str("project_id", project.ID).Str("sandbox_id", sb.ID).
+					Msg("Golden build already running on sandbox, skipping")
+				continue
+			}
+			log.Warn().Str("project_id", project.ID).Str("sandbox_id", sb.ID).
+				Msg("Golden build entry is stale (>30min), starting new build")
+			delete(g.building, key)
+		}
+		g.building[key] = time.Now()
+		g.mu.Unlock()
+
+		log.Info().
+			Str("project_id", project.ID).
+			Str("project_name", project.Name).
+			Str("sandbox_id", sb.ID).
+			Msg("Triggering golden Docker cache build on sandbox")
+
+		go g.runGoldenBuildOnSandbox(ctx, project, sb.ID)
+	}
+}
+
+// runGoldenBuildOnSandbox runs the golden build on a specific sandbox.
+func (g *GoldenBuildService) runGoldenBuildOnSandbox(parentCtx context.Context, project *types.Project, sandboxID string) {
+	key := buildKey(project.ID, sandboxID)
+
 	clearBuildingEntry := func() {
 		g.mu.Lock()
-		delete(g.building, project.ID)
+		delete(g.building, key)
 		g.mu.Unlock()
 	}
 	setFailed := func(errMsg string) {
 		clearBuildingEntry()
-		g.updateDockerCacheStatus(context.Background(), project.ID, func(s *types.DockerCacheState) {
+		g.updateSandboxCacheStatus(context.Background(), project.ID, sandboxID, func(s *types.SandboxCacheState) {
 			s.Status = "failed"
 			s.Error = errMsg
 			s.BuildSessionID = ""
@@ -127,13 +201,13 @@ func (g *GoldenBuildService) runGoldenBuild(parentCtx context.Context, project *
 		ProjectID: project.ID,
 	})
 	if err != nil {
-		log.Error().Err(err).Str("project_id", project.ID).Msg("Golden build: failed to list project repos")
+		log.Error().Err(err).Str("project_id", project.ID).Str("sandbox_id", sandboxID).Msg("Golden build: failed to list project repos")
 		setFailed(fmt.Sprintf("Failed to list repos: %v", err))
 		return
 	}
 
 	if len(projectRepos) == 0 {
-		log.Warn().Str("project_id", project.ID).Msg("Golden build: project has no repositories")
+		log.Warn().Str("project_id", project.ID).Str("sandbox_id", sandboxID).Msg("Golden build: project has no repositories")
 		setFailed("Project has no repositories")
 		return
 	}
@@ -165,7 +239,7 @@ func (g *GoldenBuildService) runGoldenBuild(parentCtx context.Context, project *
 	sessionID := system.GenerateSessionID()
 	session := &types.Session{
 		ID:             sessionID,
-		Name:           fmt.Sprintf("Docker Cache Warm-up: %s", project.Name),
+		Name:           fmt.Sprintf("Docker Cache Warm-up: %s (%s)", project.Name, sandboxID),
 		Created:        time.Now(),
 		Updated:        time.Now(),
 		Mode:           types.SessionModeInference,
@@ -178,7 +252,7 @@ func (g *GoldenBuildService) runGoldenBuild(parentCtx context.Context, project *
 
 	session, err = g.store.CreateSession(ctx, *session)
 	if err != nil {
-		log.Error().Err(err).Str("project_id", project.ID).Msg("Golden build: failed to create session")
+		log.Error().Err(err).Str("project_id", project.ID).Str("sandbox_id", sandboxID).Msg("Golden build: failed to create session")
 		setFailed(fmt.Sprintf("Failed to create session: %v", err))
 		return
 	}
@@ -186,11 +260,12 @@ func (g *GoldenBuildService) runGoldenBuild(parentCtx context.Context, project *
 	log.Info().
 		Str("project_id", project.ID).
 		Str("session_id", session.ID).
+		Str("sandbox_id", sandboxID).
 		Msg("Golden build: session created")
 
-	// Update project status to "building"
+	// Update sandbox status to "building"
 	now := time.Now()
-	g.updateDockerCacheStatus(ctx, project.ID, func(s *types.DockerCacheState) {
+	g.updateSandboxCacheStatus(ctx, project.ID, sandboxID, func(s *types.SandboxCacheState) {
 		s.Status = "building"
 		s.BuildSessionID = session.ID
 		s.LastBuildAt = &now
@@ -204,7 +279,7 @@ func (g *GoldenBuildService) runGoldenBuild(parentCtx context.Context, project *
 		SessionID:      session.ID,
 	})
 	if err != nil {
-		log.Error().Err(err).Str("project_id", project.ID).Msg("Golden build: failed to create API key")
+		log.Error().Err(err).Str("project_id", project.ID).Str("sandbox_id", sandboxID).Msg("Golden build: failed to create API key")
 		setFailed(fmt.Sprintf("Failed to create API key: %v", err))
 		return
 	}
@@ -213,7 +288,7 @@ func (g *GoldenBuildService) runGoldenBuild(parentCtx context.Context, project *
 	envVars := types.DesktopAgentAPIEnvVars(userAPIKey)
 	envVars = append(envVars, "HELIX_GOLDEN_BUILD=true")
 
-	// Create the desktop agent for the golden build
+	// Create the desktop agent for the golden build, targeting specific sandbox
 	agent := &types.DesktopAgent{
 		OrganizationID:      project.OrganizationID,
 		SessionID:           session.ID,
@@ -231,6 +306,7 @@ func (g *GoldenBuildService) runGoldenBuild(parentCtx context.Context, project *
 		DisplayHeight:      600,
 		DisplayRefreshRate: 30,
 		GoldenBuild:        true,
+		SandboxID:          sandboxID,
 	}
 
 	// Start the desktop container
@@ -239,6 +315,7 @@ func (g *GoldenBuildService) runGoldenBuild(parentCtx context.Context, project *
 		log.Error().Err(err).
 			Str("project_id", project.ID).
 			Str("session_id", session.ID).
+			Str("sandbox_id", sandboxID).
 			Msg("Golden build: failed to start desktop")
 		setFailed(fmt.Sprintf("Failed to start container: %v", err))
 		return
@@ -247,33 +324,31 @@ func (g *GoldenBuildService) runGoldenBuild(parentCtx context.Context, project *
 	log.Info().
 		Str("project_id", project.ID).
 		Str("session_id", session.ID).
+		Str("sandbox_id", sandboxID).
 		Msg("Golden build: container started, polling for completion")
 
-	// Poll for completion. Hydra's monitorGoldenBuild handles container exit,
-	// golden promotion, and cleanup. We poll the container status via the
-	// executor to detect when it's done, then update project status.
-	g.waitForGoldenBuildCompletion(ctx, project.ID, session.ID)
+	g.waitForGoldenBuildCompletion(ctx, project.ID, sandboxID, session.ID)
 }
 
 // waitForGoldenBuildCompletion polls the session until the golden build
-// container exits (detected by session deletion or timeout), then updates
-// the project's docker cache status.
-func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, projectID, sessionID string) {
+// container exits, then updates the per-sandbox docker cache status.
+func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, projectID, sandboxID, sessionID string) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
+	key := buildKey(projectID, sandboxID)
 	defer func() {
 		g.mu.Lock()
-		delete(g.building, projectID)
+		delete(g.building, key)
 		g.mu.Unlock()
 	}()
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Warn().Str("project_id", projectID).Str("session_id", sessionID).
+			log.Warn().Str("project_id", projectID).Str("sandbox_id", sandboxID).Str("session_id", sessionID).
 				Msg("Golden build: timed out waiting for completion")
-			g.updateDockerCacheStatus(context.Background(), projectID, func(s *types.DockerCacheState) {
+			g.updateSandboxCacheStatus(context.Background(), projectID, sandboxID, func(s *types.SandboxCacheState) {
 				s.Status = "failed"
 				s.Error = "Build timed out (30 min)"
 				s.BuildSessionID = ""
@@ -281,16 +356,12 @@ func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, p
 			return
 
 		case <-ticker.C:
-			// Check if the session still exists. When monitorGoldenBuild
-			// finishes, the container is removed and the session becomes
-			// orphaned (no active container). We detect this by checking
-			// if the session's metadata still shows desired_state=running.
 			session, err := g.store.GetSession(ctx, sessionID)
 			if err != nil {
 				// Session deleted or DB error — build is done
-				log.Info().Str("project_id", projectID).Str("session_id", sessionID).
+				log.Info().Str("project_id", projectID).Str("sandbox_id", sandboxID).Str("session_id", sessionID).
 					Msg("Golden build: session no longer found, build complete")
-				g.updateDockerCacheStatus(context.Background(), projectID, func(s *types.DockerCacheState) {
+				g.updateSandboxCacheStatus(context.Background(), projectID, sandboxID, func(s *types.SandboxCacheState) {
 					now := time.Now()
 					s.Status = "ready"
 					s.LastReadyAt = &now
@@ -300,13 +371,10 @@ func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, p
 				return
 			}
 
-			// Check if the session is marked as stopped (container exited).
-			// The session metadata DesiredState transitions to "stopped" when
-			// the external agent disconnects and the session is cleaned up.
 			if session.Metadata.DesiredState == types.DesiredStateStopped {
-				log.Info().Str("project_id", projectID).Str("session_id", sessionID).
+				log.Info().Str("project_id", projectID).Str("sandbox_id", sandboxID).Str("session_id", sessionID).
 					Msg("Golden build: session stopped, build complete")
-				g.updateDockerCacheStatus(context.Background(), projectID, func(s *types.DockerCacheState) {
+				g.updateSandboxCacheStatus(context.Background(), projectID, sandboxID, func(s *types.SandboxCacheState) {
 					now := time.Now()
 					s.Status = "ready"
 					s.LastReadyAt = &now
@@ -316,7 +384,7 @@ func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, p
 				return
 			}
 
-			log.Debug().Str("project_id", projectID).Str("session_id", sessionID).
+			log.Debug().Str("project_id", projectID).Str("sandbox_id", sandboxID).Str("session_id", sessionID).
 				Msg("Golden build: still running, polling again in 15s")
 		}
 	}

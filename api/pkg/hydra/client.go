@@ -203,6 +203,25 @@ func (c *Client) ListDevContainers(ctx context.Context) (*ListDevContainersRespo
 	return &result, nil
 }
 
+// DeleteGoldenCache removes the golden Docker cache for a project via Unix socket
+func (c *Client) DeleteGoldenCache(ctx context.Context, projectID string) error {
+	url := fmt.Sprintf("%s/api/v1/golden-cache/%s", c.baseURL, projectID)
+	httpReq, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("hydra API error (status %d): %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
 // RevDial client methods - these make HTTP requests over RevDial connections
 
 // CreateDevContainer creates a dev container via RevDial
@@ -364,6 +383,13 @@ func (c *RevDialClient) GetDevContainerVideoStats(ctx context.Context, sessionID
 	}
 
 	return &result, nil
+}
+
+// DeleteGoldenCache removes the golden Docker cache for a project via RevDial
+func (c *RevDialClient) DeleteGoldenCache(ctx context.Context, projectID string) error {
+	path := fmt.Sprintf("/api/v1/golden-cache/%s", projectID)
+	_, err := c.doRequest(ctx, "DELETE", path, nil)
+	return err
 }
 
 // doRequest performs an HTTP request over RevDial
