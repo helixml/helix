@@ -105,3 +105,26 @@ Remove `event.preventDefault()` calls from touch handlers. The CSS `touchAction:
 
 **If preventDefault removal breaks stream controls:**
 Implement scoped prevention - only call `preventDefault()` when the touch actually starts within the canvas bounds by checking `event.target`.
+
+## Implementation Summary
+
+**Changes Made:**
+1. Removed `event.preventDefault()` from all four touch event handlers:
+   - `handleTouchStart` (line ~2956)
+   - `handleTouchMove` (line ~3095)
+   - `handleTouchEnd` (line ~3237)
+   - `handleTouchCancel` (line ~3386)
+
+2. CSS `touchAction: 'none'` remains on canvas element (line 4668) - this is the correct way to prevent default touch behavior
+
+3. Code was auto-formatted by Prettier during save (single quotes → double quotes, reformatted imports)
+
+**Verification:**
+- ✅ Frontend tests pass (`yarn test`)
+- ✅ Production build succeeds (`yarn build`)
+- ⏳ Manual testing required (Chrome desktop, Safari iPad, mobile Chrome)
+
+**Key Insight:**
+The issue was that `event.preventDefault()` in JavaScript prevents ALL event propagation, including Chrome's swipe navigation gesture detection. CSS `touchAction: 'none'` only affects the specific element, allowing gestures outside the canvas to work normally.
+
+**Commit:** `b38908070` - "Remove event.preventDefault() from touch handlers"
