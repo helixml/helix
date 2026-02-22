@@ -849,8 +849,13 @@ const ProjectSettings: FC = () => {
                 projectId={projectId}
               />
 
-              <Divider sx={{ my: 3 }} />
+            </Paper>
 
+            {/* Docker Cache */}
+            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+              <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
+                <Typography variant="h6">Docker Cache</Typography>
+              </Box>
               <Box
                 sx={{
                   display: "flex",
