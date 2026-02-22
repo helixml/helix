@@ -3000,7 +3000,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // - Two finger scroll: scroll
   const handleTouchStart = useCallback(
     (event: React.TouchEvent) => {
-      event.preventDefault();
       const handler = getInputHandler();
       const rect = getStreamRect();
       if (!handler) return;
@@ -3181,7 +3180,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   const handleTouchMove = useCallback(
     (event: React.TouchEvent) => {
-      event.preventDefault();
       const handler = getInputHandler();
       const rect = getStreamRect();
       if (!handler) return;
@@ -3436,7 +3434,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   const handleTouchEnd = useCallback(
     (event: React.TouchEvent) => {
-      event.preventDefault();
       const handler = getInputHandler();
       const rect = getStreamRect();
       if (!handler) return;
@@ -3601,7 +3598,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   const handleTouchCancel = useCallback(
     (event: React.TouchEvent) => {
-      event.preventDefault();
       const handler = getInputHandler();
       const rect = getStreamRect();
       if (!handler) return;
