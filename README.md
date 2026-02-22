@@ -268,4 +268,4 @@ If you find Helix useful, please consider giving us a star on GitHub!
 
 ---
 
-Built with ❤️ by [HelixML, Inc.](https://helix.ml)
+Built with ❤️  by [HelixML, Inc.](https://helix.ml)
