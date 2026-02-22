@@ -826,7 +826,6 @@ const SpecTasksPage: FC = () => {
           overflow: 'hidden',
           transition: 'all 0.3s ease-in-out',
           px: { xs: 0, md: 3 },
-          pl: { xs: 2, md: 3 },
         }}>
           {/* No repositories warning */}
           {projectRepositories.length === 0 && (
