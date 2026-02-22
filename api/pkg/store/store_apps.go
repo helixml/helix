@@ -374,9 +374,6 @@ func setAppDefaults(apps ...*types.App) {
 			app.Config.Helix.Assistants = []types.AssistantConfig{}
 		}
 
-		// Migrate agent types for backward compatibility
-		app.Config.Helix.MigrateAgentTypes()
-
 		for idx := range app.Config.Helix.Assistants {
 			assistant := &app.Config.Helix.Assistants[idx]
 			if assistant.ContextLimit == 0 {

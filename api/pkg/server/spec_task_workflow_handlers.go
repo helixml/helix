@@ -356,7 +356,15 @@ func (s *HelixAPIServer) shouldOpenPullRequest(repo *types.GitRepository) bool {
 	case repo.ExternalType == types.ExternalRepositoryTypeGitHub && repo.OAuthConnectionID != "":
 		// Github OAuth connection ID set
 		return true
-	case repo.ExternalType == types.ExternalRepositoryTypeGitHub && repo.GitHub != nil && repo.GitHub.PersonalAccessToken != "":
+	case repo.ExternalType == types.ExternalRepositoryTypeGitHub:
+		if repo.Username != "" && repo.Password != "" {
+			return true
+		}
+
+		if repo.GitHub != nil && repo.GitHub.PersonalAccessToken != "" {
+			return true
+		}
+
 		// Github PRs implemented
 		return true
 	case repo.AzureDevOps != nil:

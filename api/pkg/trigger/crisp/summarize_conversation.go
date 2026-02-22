@@ -51,7 +51,7 @@ func (c *CrispBot) summarizeConversation(user *types.User, session *types.Sessio
 	)
 
 	// Use small generation model if agent mode is enabled
-	if c.app.Config.Helix.Assistants[0].AgentMode && c.app.Config.Helix.Assistants[0].SmallGenerationModel != "" {
+	if c.app.Config.Helix.Assistants[0].AgentType == types.AgentTypeHelixAgent && c.app.Config.Helix.Assistants[0].SmallGenerationModel != "" {
 		model = c.app.Config.Helix.Assistants[0].SmallGenerationModel
 		provider = c.app.Config.Helix.Assistants[0].SmallGenerationModelProvider
 	} else {

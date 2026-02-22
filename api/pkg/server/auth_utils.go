@@ -76,7 +76,6 @@ func getRequestToken(r *http.Request) string {
 	// First try to get from Authorization header
 	token := getBearerToken(r)
 	if token != "" {
-		log.Debug().Str("source", "authorization_header").Str("path", r.URL.Path).Msg("token from Authorization header")
 		return token
 	}
 

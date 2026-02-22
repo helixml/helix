@@ -143,7 +143,7 @@ func NewServer(
 	inferenceServer *openai.InternalHelixServer,
 	authenticator auth.Authenticator,
 	stripe *stripe.Stripe,
-	controller *controller.Controller,
+	appController *controller.Controller,
 	janitor *janitor.Janitor,
 	knowledgeManager knowledge.Manager,
 	scheduler *scheduler.Scheduler,
@@ -204,7 +204,7 @@ func NewServer(
 			oidcCfg.EventHandler = &oidcSignupNotifier{alerter: adminAlerter}
 		}
 
-		client, err := auth.NewOIDCClient(controller.Ctx, oidcCfg)
+		client, err := auth.NewOIDCClient(appController.Ctx, oidcCfg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create oidc client: %w", err)
 		}
@@ -246,6 +246,7 @@ func NewServer(
 		Connman:                       connectionManager,
 		GPUVendor:                     os.Getenv("GPU_VENDOR"), // "nvidia", "amd", "intel", or ""
 	})
+	appController.Options.ExternalAgentExecutor = externalAgentExecutor
 
 	quotaManager := quota.NewDefaultQuotaManager(store, cfg, externalAgentExecutor)
 
@@ -262,7 +263,7 @@ func NewServer(
 		Store:                       store,
 		Stripe:                      stripe,
 		quotaManager:                quotaManager,
-		Controller:                  controller,
+		Controller:                  appController,
 		Janitor:                     janitor,
 		gitRepositoryService:        gitRepositoryService,
 		externalAgentExecutor:       externalAgentExecutor,
@@ -298,7 +299,7 @@ func NewServer(
 		anthropicProxy:    anthropicProxy,
 		specDrivenTaskService: services.NewSpecDrivenTaskService(
 			store,
-			controller.Options.Notifier,
+			appController.Options.Notifier,
 			"helix-spec-agent",         // Default Helix agent for spec generation
 			[]string{"zed-1", "zed-2"}, // Pool of Zed agents for implementation
 			ps,                         // PubSub for Zed integration
@@ -310,6 +311,22 @@ func NewServer(
 		connman:                  connectionManager,
 		auditLogService:          services.NewAuditLogService(store),
 	}
+
+	contextMappings := &controller.ExternalAgentRequestContextMappings{
+		ContextMappingsMutex:        &apiServer.contextMappingsMutex,
+		SessionToWaitingInteraction: &apiServer.sessionToWaitingInteraction,
+		RequestToSessionMapping:     &apiServer.requestToSessionMapping,
+	}
+
+	apiServer.Controller.SetExternalAgentHooks(controller.ExternalAgentHooks{
+		WaitForExternalAgentReady: apiServer.waitForExternalAgentReady,
+		GetAgentNameForSession:    apiServer.getAgentNameForSession,
+		SendCommand:               apiServer.sendCommandToExternalAgent,
+		StoreResponseChannel:      apiServer.storeResponseChannel,
+		CleanupResponseChannel:    apiServer.cleanupResponseChannel,
+		SetWaitingInteraction:     contextMappings.SetWaitingInteraction,
+		SetRequestSessionMapping:  contextMappings.SetRequestSessionMapping,
+	})
 
 	// Initialize auth middleware with session manager for BFF authentication
 	apiServer.authMiddleware = newAuthMiddleware(
@@ -358,7 +375,7 @@ func NewServer(
 	apiServer.mcpGateway.RegisterBackend("kodit", NewKoditMCPBackend(&cfg.Kodit))
 
 	// Register Helix native MCP backend (APIs, Knowledge, Zapier)
-	apiServer.mcpGateway.RegisterBackend("helix", NewHelixMCPBackend(store, controller))
+	apiServer.mcpGateway.RegisterBackend("helix", NewHelixMCPBackend(store, appController))
 
 	// Register Session MCP backend (session navigation and context tools)
 	apiServer.mcpGateway.RegisterBackend("session", NewSessionMCPBackend(store))

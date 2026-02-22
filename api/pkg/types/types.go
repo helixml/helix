@@ -1583,8 +1583,6 @@ type AssistantConfig struct {
 	// when a new session is about to be launched. Use this to showcase the capabilities of the assistant.
 	ConversationStarters []string `json:"conversation_starters,omitempty" yaml:"conversation_starters,omitempty"`
 
-	// AgentMode triggers the use of the agent loop (deprecated - use AgentType instead)
-	AgentMode bool `json:"agent_mode" yaml:"agent_mode"`
 	// AgentType specifies the type of agent to use
 	AgentType     AgentType `json:"agent_type,omitempty" yaml:"agent_type,omitempty"`
 	MaxIterations int       `json:"max_iterations" yaml:"max_iterations"`
@@ -1791,6 +1789,9 @@ type SlackTrigger struct {
 	AppToken string   `json:"app_token" yaml:"app_token"`
 	BotToken string   `json:"bot_token" yaml:"bot_token"`
 	Channels []string `json:"channels" yaml:"channels"`
+
+	ProjectUpdates bool   `json:"project_updates,omitempty" yaml:"project_updates,omitempty"` // Send project updates (spec task creation, completion, etc)
+	ProjectChannel string `json:"project_channel,omitempty" yaml:"project_channel,omitempty"` // Send project updates to this channel
 }
 
 // TeamsTrigger - Microsoft Teams bot integration
@@ -2724,6 +2725,9 @@ type SlackThread struct {
 	Updated   time.Time `json:"updated"`
 
 	SessionID string `json:"session_id"`
+
+	// Project update threads: links thread to a specific spec task
+	SpecTaskID string `json:"spec_task_id,omitempty" gorm:"index"`
 
 	// Progress updates for external agent sessions
 	PostProgressUpdates bool `json:"post_progress_updates"` // Post turn summaries to thread

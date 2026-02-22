@@ -453,15 +453,13 @@ func TestApplyModelSubstitutions(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, substitutions, 0) // No substitutions should have occurred
 
-		// Verify NO provider/model changes occurred
-		// Note: AgentType will be migrated to "helix_basic" by MigrateAgentMode()
 		assistant := app.Config.Helix.Assistants[0]
 		require.Equal(t, originalAssistant.Name, assistant.Name)
 		require.Equal(t, originalAssistant.Provider, assistant.Provider)
 		require.Equal(t, originalAssistant.Model, assistant.Model)
 		require.Equal(t, originalAssistant.Description, assistant.Description)
 		require.Equal(t, originalAssistant.ConversationStarters, assistant.ConversationStarters)
-		require.Equal(t, types.AgentTypeHelixBasic, assistant.AgentType) // AgentType migrated
+		require.Equal(t, originalAssistant.AgentType, assistant.AgentType)
 	})
 
 	t.Run("handles multiple assistants independently", func(t *testing.T) {
@@ -616,7 +614,7 @@ func TestApplyModelSubstitutions_AgentMode(t *testing.T) {
 						Name:      "test-agent",
 						Provider:  "together",
 						Model:     "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-						AgentMode: true,
+						AgentType: types.AgentTypeHelixAgent,
 
 						// Agent mode models using unavailable providers
 						ReasoningModelProvider:       "together",
@@ -711,7 +709,7 @@ func TestApplyModelSubstitutions_AgentModePartialSubstitution(t *testing.T) {
 						Name:      "test-agent",
 						Provider:  "together", // Will be substituted
 						Model:     "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-						AgentMode: true,
+						AgentType: types.AgentTypeHelixAgent,
 
 						// Mix of available and unavailable providers
 						ReasoningModelProvider:       "anthropic", // Available - no substitution
@@ -815,7 +813,7 @@ func TestO3MiniSubstitution(t *testing.T) {
 						Name:                         "test-agent",
 						Provider:                     "helix",
 						Model:                        "llama3.1:8b-instruct-q8_0",
-						AgentMode:                    true,
+						AgentType:                    types.AgentTypeHelixAgent,
 						ReasoningModelProvider:       "openai",
 						ReasoningModel:               "o3-mini",
 						GenerationModelProvider:      "openai",

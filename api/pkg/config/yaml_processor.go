@@ -49,9 +49,6 @@ func ProcessJSONConfig(rawMap map[string]interface{}) (*types.AppHelixConfig, er
 			spec.Name = crd.Metadata.Name
 		}
 
-		// Migrate agent types for backward compatibility
-		spec.MigrateAgentTypes()
-
 		return &spec, nil
 	}
 
@@ -67,9 +64,6 @@ func ProcessJSONConfig(rawMap map[string]interface{}) (*types.AppHelixConfig, er
 	if err := yaml.Unmarshal(rawBytes, &config); err != nil {
 		return nil, fmt.Errorf("error parsing as AppHelixConfig: %w", err)
 	}
-
-	// Migrate agent types for backward compatibility
-	config.MigrateAgentTypes()
 
 	return &config, nil
 }
