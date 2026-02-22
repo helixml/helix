@@ -800,7 +800,7 @@ steps:
       - name: go-mod-cache
         path: /go/pkg/mod
     commands:
-      - cd operator && golangci-lint run
+      - cd operator && golangci-lint run ./...
     when:
       event:
         - push
