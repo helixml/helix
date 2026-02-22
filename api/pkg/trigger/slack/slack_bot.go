@@ -186,25 +186,29 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 	if err != nil {
 		s.addReaction(client, ev.Channel, ev.TimeStamp, "x")
 		log.Error().Err(err).Msg("failed to start chat")
-		// Convert error message to Slack format
 		slackFormattedError := convertMarkdownToSlackFormat(err.Error())
 		_, _, _ = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(slackFormattedError, false), slack.MsgOptionTS(ev.TimeStamp))
 		return
 	}
 
-	// Convert markdown to Slack format with clickable citation links
-	slackFormattedResponse := convertMarkdownToSlackFormatWithLinks(agentResponse, documentIDs)
+	msg := formatResponseForSlack(agentResponse, documentIDs)
 
-	// Write agent response to Slack's thread
-	// Use the message timestamp as the thread timestamp to create a proper thread
 	log.Debug().
 		Str("app_id", s.app.ID).
 		Str("channel", ev.Channel).
 		Str("thread_timestamp", ev.TimeStamp).
-		Str("response_length", fmt.Sprintf("%d", len(slackFormattedResponse))).
+		Str("response_length", fmt.Sprintf("%d", len(msg.text))).
+		Int("blocks", len(msg.blocks)).
 		Msg("Posting bot response in thread")
 
-	_, _, err = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(slackFormattedResponse, false), slack.MsgOptionTS(ev.TimeStamp))
+	opts := []slack.MsgOption{
+		slack.MsgOptionText(msg.text, false),
+		slack.MsgOptionTS(ev.TimeStamp),
+	}
+	if len(msg.blocks) > 0 {
+		opts = append(opts, slack.MsgOptionBlocks(msg.blocks...))
+	}
+	_, _, err = client.Client.PostMessage(ev.Channel, opts...)
 	if err != nil {
 		s.addReaction(client, ev.Channel, ev.TimeStamp, "x")
 		log.Error().Err(err).Msg("failed to post message")
@@ -314,25 +318,29 @@ func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketm
 	if err != nil {
 		s.addReaction(client, ev.Channel, ev.TimeStamp, "x")
 		log.Error().Err(err).Msg("failed to continue chat")
-		// Convert error message to Slack format
 		slackFormattedError := convertMarkdownToSlackFormat(err.Error())
 		_, _, _ = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(slackFormattedError, false), slack.MsgOptionTS(ev.ThreadTimeStamp))
 		return
 	}
 
-	// Convert markdown to Slack format with clickable citation links
-	slackFormattedResponse := convertMarkdownToSlackFormatWithLinks(agentResponse, documentIDs)
+	msg := formatResponseForSlack(agentResponse, documentIDs)
 
-	// Write agent response to Slack's thread
-	// Use the thread timestamp to keep the reply in the same thread
 	log.Debug().
 		Str("app_id", s.app.ID).
 		Str("channel", ev.Channel).
 		Str("thread_timestamp", ev.ThreadTimeStamp).
-		Str("response_length", fmt.Sprintf("%d", len(slackFormattedResponse))).
+		Str("response_length", fmt.Sprintf("%d", len(msg.text))).
+		Int("blocks", len(msg.blocks)).
 		Msg("Posting bot response to thread")
 
-	_, _, err = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(slackFormattedResponse, false), slack.MsgOptionTS(ev.ThreadTimeStamp))
+	opts := []slack.MsgOption{
+		slack.MsgOptionText(msg.text, false),
+		slack.MsgOptionTS(ev.ThreadTimeStamp),
+	}
+	if len(msg.blocks) > 0 {
+		opts = append(opts, slack.MsgOptionBlocks(msg.blocks...))
+	}
+	_, _, err = client.Client.PostMessage(ev.Channel, opts...)
 	if err != nil {
 		s.addReaction(client, ev.Channel, ev.TimeStamp, "x")
 		log.Error().Err(err).Msg("failed to post message")
@@ -748,32 +756,29 @@ func convertMarkdownToSlackFormat(markdown string) string {
 
 // convertMarkdownToSlackFormatWithLinks converts markdown to Slack format with clickable citation links
 func convertMarkdownToSlackFormatWithLinks(markdown string, documentIDs map[string]string) string {
-	// Convert markdown to Slack format
 	slackFormat := markdown
 
-	// Process citations: convert [DOC_ID:xxx] to [1], [2], remove XML excerpt blocks,
-	// and add clickable links in the Sources section
 	slackFormat = shared.ProcessCitationsForChatWithLinks(slackFormat, documentIDs, shared.LinkFormatSlack)
 
-	// First, let's protect code blocks and inline code from other conversions
 	codeBlocks := []string{}
 	inlineCodes := []string{}
 
-	// Extract code blocks
 	codeBlockRegex := regexp.MustCompile("```(\\w*)\\n([\\s\\S]*?)```")
 	slackFormat = codeBlockRegex.ReplaceAllStringFunc(slackFormat, func(match string) string {
 		codeBlocks = append(codeBlocks, match)
 		return fmt.Sprintf("__CODE_BLOCK_%d__", len(codeBlocks)-1)
 	})
 
-	// Extract inline code
 	inlineCodeRegex := regexp.MustCompile("`([^`]+)`")
 	slackFormat = inlineCodeRegex.ReplaceAllStringFunc(slackFormat, func(match string) string {
 		inlineCodes = append(inlineCodes, match)
 		return fmt.Sprintf("__INLINE_CODE_%d__", len(inlineCodes)-1)
 	})
 
-	// Convert lists: - item or * item -> • item
+	slackFormat = convertMarkdownTables(slackFormat)
+
+	slackFormat = convertMarkdownHeadings(slackFormat)
+
 	listItemRegex := regexp.MustCompile(`^[\s]*[-*][\s]+`)
 	lines := strings.Split(slackFormat, "\n")
 	for i, line := range lines {
@@ -783,30 +788,304 @@ func convertMarkdownToSlackFormatWithLinks(markdown string, documentIDs map[stri
 	}
 	slackFormat = strings.Join(lines, "\n")
 
-	// Convert bold and italic using a more sophisticated approach
 	slackFormat = convertBoldAndItalic(slackFormat)
 
-	// Convert links: [text](url) -> <url|text>
 	linkRegex := regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 	slackFormat = linkRegex.ReplaceAllString(slackFormat, "<$2|$1>")
 
-	// Convert strikethrough: ~~text~~ -> ~text~
 	strikethroughRegex := regexp.MustCompile(`~~(.*?)~~`)
 	slackFormat = strikethroughRegex.ReplaceAllString(slackFormat, "~$1~")
 
-	// Restore code blocks
 	for i, codeBlock := range codeBlocks {
 		placeholder := fmt.Sprintf("__CODE_BLOCK_%d__", i)
 		slackFormat = strings.Replace(slackFormat, placeholder, codeBlock, 1)
 	}
 
-	// Restore inline codes
 	for i, inlineCode := range inlineCodes {
 		placeholder := fmt.Sprintf("__INLINE_CODE_%d__", i)
 		slackFormat = strings.Replace(slackFormat, placeholder, inlineCode, 1)
 	}
 
 	return slackFormat
+}
+
+func convertMarkdownHeadings(text string) string {
+	lines := strings.Split(text, "\n")
+	headingRegex := regexp.MustCompile(`^(#{1,6})\s+(.+)$`)
+	for i, line := range lines {
+		if m := headingRegex.FindStringSubmatch(line); m != nil {
+			lines[i] = "**" + strings.TrimSpace(m[2]) + "**"
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func convertMarkdownTables(text string) string {
+	lines := strings.Split(text, "\n")
+	var result []string
+	i := 0
+
+	for i < len(lines) {
+		if !isTableRow(lines[i]) {
+			result = append(result, lines[i])
+			i++
+			continue
+		}
+
+		tableStart := i
+		for i < len(lines) && isTableRow(lines[i]) {
+			i++
+		}
+		tableEnd := i
+
+		tableLines := lines[tableStart:tableEnd]
+		converted := convertTableToKeyValue(tableLines)
+		result = append(result, converted...)
+	}
+
+	return strings.Join(result, "\n")
+}
+
+func isTableRow(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "|") && strings.HasSuffix(trimmed, "|") && strings.Count(trimmed, "|") >= 2
+}
+
+func isTableSeparator(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "|") {
+		return false
+	}
+	cleaned := strings.NewReplacer("|", "", "-", "", ":", "", " ", "").Replace(trimmed)
+	return cleaned == ""
+}
+
+func parseTableCells(line string) []string {
+	trimmed := strings.TrimSpace(line)
+	trimmed = strings.TrimPrefix(trimmed, "|")
+	trimmed = strings.TrimSuffix(trimmed, "|")
+	parts := strings.Split(trimmed, "|")
+	cells := make([]string, len(parts))
+	for i, p := range parts {
+		cells[i] = strings.TrimSpace(p)
+	}
+	return cells
+}
+
+func convertTableToKeyValue(tableLines []string) []string {
+	if len(tableLines) < 2 {
+		return tableLines
+	}
+
+	headers := parseTableCells(tableLines[0])
+
+	dataStart := 1
+	if dataStart < len(tableLines) && isTableSeparator(tableLines[dataStart]) {
+		dataStart = 2
+	}
+
+	if dataStart >= len(tableLines) {
+		return tableLines
+	}
+
+	var out []string
+	for rowIdx := dataStart; rowIdx < len(tableLines); rowIdx++ {
+		cells := parseTableCells(tableLines[rowIdx])
+		for j, cell := range cells {
+			if j < len(headers) && cell != "" {
+				out = append(out, fmt.Sprintf("**%s:** %s", headers[j], cell))
+			}
+		}
+		if rowIdx < len(tableLines)-1 {
+			out = append(out, "")
+		}
+	}
+
+	return out
+}
+
+// slackTableBlock implements slack.Block for Slack's native table block type.
+// slack-go v0.12.2 doesn't have built-in table block support.
+type slackTableBlock struct {
+	Type           slack.MessageBlockType `json:"type"`
+	BlockID        string                 `json:"block_id,omitempty"`
+	Rows           [][]slackTableCell     `json:"rows"`
+	ColumnSettings []slackColumnSetting   `json:"column_settings,omitempty"`
+}
+
+type slackTableCell struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type slackColumnSetting struct {
+	Align     string `json:"align,omitempty"`
+	IsWrapped bool   `json:"is_wrapped,omitempty"`
+}
+
+func (b *slackTableBlock) BlockType() slack.MessageBlockType {
+	return b.Type
+}
+
+type slackFormattedMessage struct {
+	text   string
+	blocks []slack.Block
+}
+
+func formatResponseForSlack(markdown string, documentIDs map[string]string) slackFormattedMessage {
+	text := convertMarkdownToSlackFormatWithLinks(markdown, documentIDs)
+
+	segments := splitMarkdownByTables(markdown)
+	hasTable := false
+	for _, seg := range segments {
+		if seg.isTable {
+			hasTable = true
+			break
+		}
+	}
+	if !hasTable {
+		return slackFormattedMessage{text: text}
+	}
+
+	var blocks []slack.Block
+	tableUsed := false
+
+	for _, seg := range segments {
+		segText := strings.Join(seg.lines, "\n")
+
+		if seg.isTable && !tableUsed {
+			tb := buildTableBlock(seg.lines)
+			if tb != nil {
+				blocks = append(blocks, tb)
+				tableUsed = true
+				continue
+			}
+		}
+
+		if seg.isTable {
+			segText = strings.Join(convertTableToKeyValue(seg.lines), "\n")
+		}
+
+		converted := convertMarkdownToSlackFormatWithLinks(segText, documentIDs)
+		if trimmed := strings.TrimSpace(converted); trimmed != "" {
+			appendSectionBlocks(&blocks, trimmed)
+		}
+	}
+
+	if len(blocks) == 0 {
+		return slackFormattedMessage{text: text}
+	}
+
+	return slackFormattedMessage{text: text, blocks: blocks}
+}
+
+type markdownSegment struct {
+	isTable bool
+	lines   []string
+}
+
+func splitMarkdownByTables(markdown string) []markdownSegment {
+	lines := strings.Split(markdown, "\n")
+	var segments []markdownSegment
+	var currentText []string
+	i := 0
+
+	for i < len(lines) {
+		if isTableRow(lines[i]) {
+			if len(currentText) > 0 {
+				segments = append(segments, markdownSegment{isTable: false, lines: currentText})
+				currentText = nil
+			}
+			var tableLines []string
+			for i < len(lines) && isTableRow(lines[i]) {
+				tableLines = append(tableLines, lines[i])
+				i++
+			}
+			segments = append(segments, markdownSegment{isTable: true, lines: tableLines})
+		} else {
+			currentText = append(currentText, lines[i])
+			i++
+		}
+	}
+
+	if len(currentText) > 0 {
+		segments = append(segments, markdownSegment{isTable: false, lines: currentText})
+	}
+
+	return segments
+}
+
+func buildTableBlock(tableLines []string) *slackTableBlock {
+	if len(tableLines) < 2 {
+		return nil
+	}
+
+	headers := parseTableCells(tableLines[0])
+	if len(headers) == 0 || len(headers) > 20 {
+		return nil
+	}
+
+	dataStart := 1
+	if dataStart < len(tableLines) && isTableSeparator(tableLines[dataStart]) {
+		dataStart = 2
+	}
+	if dataStart >= len(tableLines) {
+		return nil
+	}
+
+	var rows [][]slackTableCell
+
+	headerRow := make([]slackTableCell, len(headers))
+	for i, h := range headers {
+		headerRow[i] = slackTableCell{Type: "raw_text", Text: h}
+	}
+	rows = append(rows, headerRow)
+
+	for i := dataStart; i < len(tableLines) && len(rows) < 100; i++ {
+		cells := parseTableCells(tableLines[i])
+		row := make([]slackTableCell, len(headers))
+		for j := range headers {
+			text := ""
+			if j < len(cells) {
+				text = cells[j]
+			}
+			row[j] = slackTableCell{Type: "raw_text", Text: text}
+		}
+		rows = append(rows, row)
+	}
+
+	settings := make([]slackColumnSetting, len(headers))
+	for i := range settings {
+		settings[i] = slackColumnSetting{IsWrapped: true}
+	}
+
+	return &slackTableBlock{
+		Type:           "table",
+		Rows:           rows,
+		ColumnSettings: settings,
+	}
+}
+
+const slackSectionMaxChars = 3000
+
+func appendSectionBlocks(blocks *[]slack.Block, text string) {
+	for len(text) > 0 {
+		chunk := text
+		if len(chunk) > slackSectionMaxChars {
+			idx := strings.LastIndex(chunk[:slackSectionMaxChars], "\n")
+			if idx > 0 {
+				chunk = chunk[:idx]
+			} else {
+				chunk = chunk[:slackSectionMaxChars]
+			}
+		}
+		*blocks = append(*blocks, slack.NewSectionBlock(
+			slack.NewTextBlockObject(slack.MarkdownType, chunk, false, false),
+			nil, nil,
+		))
+		text = text[len(chunk):]
+		text = strings.TrimLeft(text, "\n")
+	}
 }
 
 // convertBoldAndItalic handles the conversion of bold and italic markers

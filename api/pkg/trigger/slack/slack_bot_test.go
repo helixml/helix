@@ -121,6 +121,98 @@ func TestConvertMarkdownToSlackFormat(t *testing.T) {
 	}
 }
 
+func TestFormatResponseForSlack_NoTable(t *testing.T) {
+	msg := formatResponseForSlack("Hello **world**", nil)
+	assert.Equal(t, "Hello *world*", msg.text)
+	assert.Empty(t, msg.blocks)
+}
+
+func TestFormatResponseForSlack_WithTable(t *testing.T) {
+	markdown := "Here are the tasks:\n| ID | Name | Priority |\n|---|---|---|\n| spt_123 | My task | medium |\nLet me know!"
+	msg := formatResponseForSlack(markdown, nil)
+
+	assert.NotEmpty(t, msg.text)
+	assert.Contains(t, msg.text, "spt_123")
+
+	require.NotEmpty(t, msg.blocks)
+
+	var hasTable, hasSection bool
+	for _, b := range msg.blocks {
+		switch b.BlockType() {
+		case "table":
+			hasTable = true
+			tb, ok := b.(*slackTableBlock)
+			require.True(t, ok)
+			require.Len(t, tb.Rows, 2)
+			assert.Equal(t, "ID", tb.Rows[0][0].Text)
+			assert.Equal(t, "Name", tb.Rows[0][1].Text)
+			assert.Equal(t, "Priority", tb.Rows[0][2].Text)
+			assert.Equal(t, "spt_123", tb.Rows[1][0].Text)
+			assert.Equal(t, "My task", tb.Rows[1][1].Text)
+			assert.Equal(t, "medium", tb.Rows[1][2].Text)
+		case "section":
+			hasSection = true
+		}
+	}
+	assert.True(t, hasTable, "expected a table block")
+	assert.True(t, hasSection, "expected section blocks for surrounding text")
+}
+
+func TestFormatResponseForSlack_MultipleRows(t *testing.T) {
+	markdown := "| Name | Status |\n|---|---|\n| Task 1 | done |\n| Task 2 | pending |"
+	msg := formatResponseForSlack(markdown, nil)
+
+	require.NotEmpty(t, msg.blocks)
+	var tb *slackTableBlock
+	for _, b := range msg.blocks {
+		if b.BlockType() == "table" {
+			tb = b.(*slackTableBlock)
+		}
+	}
+	require.NotNil(t, tb)
+	assert.Len(t, tb.Rows, 3)
+	assert.Equal(t, "Name", tb.Rows[0][0].Text)
+	assert.Equal(t, "Task 1", tb.Rows[1][0].Text)
+	assert.Equal(t, "Task 2", tb.Rows[2][0].Text)
+}
+
+func TestBuildTableBlock(t *testing.T) {
+	lines := []string{
+		"| ID | Name | Priority |",
+		"|---|---|---|",
+		"| 1 | Fix bug | high |",
+		"| 2 | Add feature | low |",
+	}
+	tb := buildTableBlock(lines)
+	require.NotNil(t, tb)
+	assert.Equal(t, slack.MessageBlockType("table"), tb.Type)
+	require.Len(t, tb.Rows, 3)
+	assert.Equal(t, "ID", tb.Rows[0][0].Text)
+	assert.Equal(t, "1", tb.Rows[1][0].Text)
+	assert.Equal(t, "2", tb.Rows[2][0].Text)
+	assert.Len(t, tb.ColumnSettings, 3)
+	for _, cs := range tb.ColumnSettings {
+		assert.True(t, cs.IsWrapped)
+	}
+}
+
+func TestBuildTableBlock_TooFewLines(t *testing.T) {
+	lines := []string{"| ID | Name |"}
+	assert.Nil(t, buildTableBlock(lines))
+}
+
+func TestSplitMarkdownByTables(t *testing.T) {
+	markdown := "Before\n| A | B |\n|---|---|\n| 1 | 2 |\nAfter"
+	segments := splitMarkdownByTables(markdown)
+	require.Len(t, segments, 3)
+	assert.False(t, segments[0].isTable)
+	assert.True(t, segments[1].isTable)
+	assert.False(t, segments[2].isTable)
+	assert.Equal(t, []string{"Before"}, segments[0].lines)
+	assert.Equal(t, []string{"| A | B |", "|---|---|", "| 1 | 2 |"}, segments[1].lines)
+	assert.Equal(t, []string{"After"}, segments[2].lines)
+}
+
 func TestCreateNewThread_ExternalAgent(t *testing.T) {
 	tests := []struct {
 		name                        string
@@ -201,48 +293,67 @@ func TestBuildProjectUpdateAttachment(t *testing.T) {
 	}
 
 	task := &types.SpecTask{
-		ID:          "task_123",
-		ProjectID:   "proj_123",
-		Name:        "Implement light mode",
-		Description: "Adds full light mode support to the app",
-		Type:        "feature",
-		Priority:    types.SpecTaskPriorityHigh,
-		Status:      types.TaskStatusImplementation,
+		ID:             "task_123",
+		ProjectID:      "proj_123",
+		OrganizationID: "org_123",
+		Name:           "Implement light mode",
+		Description:    "Adds full light mode support to the app",
+		Type:           "feature",
+		Priority:       types.SpecTaskPriorityHigh,
+		Status:         types.TaskStatusImplementation,
 	}
+
+	mockStore.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: "org_123"}).Return(&types.Organization{
+		ID:   "org_123",
+		Name: "my-org",
+	}, nil)
 
 	attachment := bot.buildProjectUpdateAttachment(context.Background(), task, "https://app.helix.ml")
 
-	// Should have green color for implementation status
 	assert.Equal(t, "#36a64f", attachment.Color)
 	assert.Contains(t, attachment.Title, "Project Update")
 	assert.Contains(t, attachment.Title, "🚧")
 	assert.Contains(t, attachment.Text, "Adds full light mode support to the app")
-	assert.Len(t, attachment.Fields, 4)
+	assert.Len(t, attachment.Fields, 5)
 	assert.Equal(t, "Status", attachment.Fields[0].Title)
 	assert.Contains(t, attachment.Fields[0].Value, "Implementation")
-	// Task ID should be a clickable link
 	assert.Contains(t, attachment.Fields[2].Value, "https://app.helix.ml/projects/proj_123/tasks/task_123?view=details")
+	assert.Equal(t, "Project", attachment.Fields[4].Title)
+	assert.Contains(t, attachment.Fields[4].Value, "https://app.helix.ml/org/my-org/projects/proj_123/specs")
 }
 
 func TestBuildProjectUpdateReplyAttachment(t *testing.T) {
-	task := &types.SpecTask{
-		ID:          "task_123",
-		ProjectID:   "proj_123",
-		Name:        "Implement light mode",
-		Description: "Adds full light mode support to the app",
-		Type:        "feature",
-		Priority:    types.SpecTaskPriorityHigh,
-		Status:      types.TaskStatusPullRequest,
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+	bot := &SlackBot{
+		store: mockStore,
 	}
 
-	attachment := buildProjectUpdateReplyAttachment(task, "https://app.helix.ml")
+	task := &types.SpecTask{
+		ID:             "task_123",
+		ProjectID:      "proj_123",
+		OrganizationID: "org_123",
+		Name:           "Implement light mode",
+		Description:    "Adds full light mode support to the app",
+		Type:           "feature",
+		Priority:       types.SpecTaskPriorityHigh,
+		Status:         types.TaskStatusPullRequest,
+	}
 
-	// Should have purple color for pull request status
+	mockStore.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: "org_123"}).Return(&types.Organization{
+		ID:   "org_123",
+		Name: "my-org",
+	}, nil)
+
+	attachment := bot.buildProjectUpdateReplyAttachment(context.Background(), task, "https://app.helix.ml")
+
 	assert.Equal(t, "#9C27B0", attachment.Color)
 	assert.Contains(t, attachment.Text, "🔀")
 	assert.Contains(t, attachment.Text, "Implement light mode")
 	assert.Contains(t, attachment.Text, "Pull Request")
 	assert.Contains(t, attachment.Text, "https://app.helix.ml/projects/proj_123/tasks/task_123?view=details")
+	assert.Contains(t, attachment.Text, "https://app.helix.ml/org/my-org/projects/proj_123/specs")
 }
 
 func TestSpecTaskStatusColor(t *testing.T) {

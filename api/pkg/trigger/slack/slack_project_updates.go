@@ -139,7 +139,7 @@ func (s *SlackBot) postProjectUpdateNew(ctx context.Context, task *types.SpecTas
 
 // postProjectUpdateReply posts a status update as a thread reply to an existing project update message
 func (s *SlackBot) postProjectUpdateReply(ctx context.Context, thread *types.SlackThread, task *types.SpecTask) error {
-	attachment := buildProjectUpdateReplyAttachment(task, s.cfg.Notifications.AppURL)
+	attachment := s.buildProjectUpdateReplyAttachment(ctx, task, s.cfg.Notifications.AppURL)
 	fallback := fmt.Sprintf("Status update: %s → %s", task.Name, humanizeSpecTaskStatus(task.Status))
 
 	// postMessage accepts both channel names and IDs and returns the resolved
@@ -255,7 +255,9 @@ func (s *SlackBot) buildProjectUpdateAttachment(ctx context.Context, task *types
 		title = "Untitled task"
 	}
 
-	taskLink := fmt.Sprintf("<%s/projects/%s/tasks/%s?view=details|%s>", strings.TrimRight(appURL, "/"), task.ProjectID, task.ID, task.ID)
+	baseURL := strings.TrimRight(appURL, "/")
+	taskLink := fmt.Sprintf("<%s/projects/%s/tasks/%s?view=details|%s>", baseURL, task.ProjectID, task.ID, task.ID)
+	projectLink := s.buildProjectLink(ctx, task, baseURL)
 
 	createdByUserName := ""
 
@@ -277,6 +279,10 @@ func (s *SlackBot) buildProjectUpdateAttachment(ctx context.Context, task *types
 		{Title: "User", Value: createdByUserName, Short: true},
 	}
 
+	if projectLink != "" {
+		fields = append(fields, slack.AttachmentField{Title: "Project", Value: projectLink, Short: true})
+	}
+
 	return slack.Attachment{
 		Color:      color,
 		Title:      fmt.Sprintf("%s Project Update", statusEmoji),
@@ -288,7 +294,7 @@ func (s *SlackBot) buildProjectUpdateAttachment(ctx context.Context, task *types
 }
 
 // buildProjectUpdateReplyAttachment creates a compact colored attachment for thread replies
-func buildProjectUpdateReplyAttachment(task *types.SpecTask, appURL string) slack.Attachment {
+func (s *SlackBot) buildProjectUpdateReplyAttachment(ctx context.Context, task *types.SpecTask, appURL string) slack.Attachment {
 	statusEmoji := specTaskStatusEmoji(task.Status)
 	color := specTaskStatusColor(task.Status)
 
@@ -300,8 +306,13 @@ func buildProjectUpdateReplyAttachment(task *types.SpecTask, appURL string) slac
 		title = "Untitled task"
 	}
 
-	taskLink := fmt.Sprintf("<%s/projects/%s/tasks/%s?view=details|View task>", strings.TrimRight(appURL, "/"), task.ProjectID, task.ID)
-	text := fmt.Sprintf("%s *%s* → *%s*\n%s", statusEmoji, title, humanizeSpecTaskStatus(task.Status), taskLink)
+	baseURL := strings.TrimRight(appURL, "/")
+	taskLink := fmt.Sprintf("<%s/projects/%s/tasks/%s?view=details|View task>", baseURL, task.ProjectID, task.ID)
+	links := taskLink
+	if projectLink := s.buildProjectLink(ctx, task, baseURL); projectLink != "" {
+		links += " | " + projectLink
+	}
+	text := fmt.Sprintf("%s *%s* → *%s*\n%s", statusEmoji, title, humanizeSpecTaskStatus(task.Status), links)
 
 	if task.Description != "" {
 		text += "\n" + truncateForSlack(task.Description, 300)
@@ -312,6 +323,18 @@ func buildProjectUpdateReplyAttachment(task *types.SpecTask, appURL string) slac
 		Text:       text,
 		MarkdownIn: []string{"text"},
 	}
+}
+
+func (s *SlackBot) buildProjectLink(ctx context.Context, task *types.SpecTask, baseURL string) string {
+	if task.OrganizationID == "" || task.ProjectID == "" {
+		return ""
+	}
+	org, err := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: task.OrganizationID})
+	if err != nil {
+		log.Error().Err(err).Str("organization_id", task.OrganizationID).Msg("failed to get organization for project link")
+		return ""
+	}
+	return fmt.Sprintf("<%s/org/%s/projects/%s/specs|View project>", baseURL, org.Name, task.ProjectID)
 }
 
 // specTaskStatusColor returns the hex color for the colored sidebar based on status
