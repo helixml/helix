@@ -8,7 +8,7 @@ Helix runs AI coding agents inside isolated desktop containers — each agent ge
 
 The problem: **every new agent session started with a cold Docker build cache**. The containers are ephemeral — when a session ends, the container is destroyed along with its Docker state. For a project like Helix itself (which compiles a Rust IDE, Go APIs, Python services, and a Node.js frontend), a cold build takes **43 minutes**. That's 43 minutes of an agent sitting there waiting for builds before it can start working.
 
-This matters because multiple agents regularly clone the exact same source code. Ten agents working on ten different tasks in the same repo all need to build the same base images. Without shared caching, that's 10 * 43 minutes = 7 hours of redundant compilation.
+Multiple agents regularly clone the exact same source code. Ten agents working on ten different tasks in the same repo all need to build the same base images. Without shared caching, that's 10 * 43 minutes = 7 hours of redundant compilation.
 
 ## The Architecture
 
@@ -30,7 +30,7 @@ Host Machine
 
 Each desktop container runs its own Docker daemon (for isolation), but all builds route to a **shared BuildKit instance** at the sandbox level. The BuildKit cache is stored on a persistent Docker volume that survives container restarts.
 
-The key insight: when Agent B builds the same Dockerfile that Agent A already built, BuildKit says "I already have all these layers cached" and the build completes instantly. The cache is content-addressed — identical inputs produce identical cache keys regardless of which container initiated the build.
+When Agent B builds the same Dockerfile that Agent A already built, BuildKit says "I already have all these layers cached" and the build completes instantly. The cache is content-addressed — identical inputs produce identical cache keys regardless of which container initiated the build.
 
 ## The `--load` Bottleneck
 
@@ -103,7 +103,7 @@ Measured E2E inside a real desktop container, 3 runs each:
 | Registry push/pull (after) | **871ms** | **11.5x** |
 | Unchanged image (smart skip) | **314ms** | **31.7x** |
 
-The three paths compose naturally:
+Three paths:
 1. **Image unchanged** → skip load entirely (314ms)
 2. **Image changed, registry available** → push/pull via registry (871ms)
 3. **Image changed, no registry** → fall back to tarball `--load` (10s)
@@ -184,11 +184,9 @@ Not as dramatic as the other optimizations, but 6 seconds saved on every warm bu
 
 Smart `--load`, registry-accelerated transfers, and compose interception transformed warm starts from 45 minutes to 23 seconds. But the cold start — the first agent session for a project — still took **10 minutes**. Every image had to be transferred into an empty Docker daemon, even though BuildKit compiled nothing.
 
-We wanted cold start to feel like warm start. Zero penalty for being the first session.
+The goal: make cold start as fast as warm start.
 
-### The idea
-
-When code merges to main, automatically spin up a desktop container, run the project's startup script (which builds all the Docker images), then snapshot the entire `/var/lib/docker` directory. When a new session starts, copy that snapshot — the "golden cache" — into the session's Docker data directory. The local daemon starts with all images pre-populated. No builds, no transfers, no waiting.
+When code merges to main, automatically spin up a desktop container, run the project's startup script (which builds all the Docker images), then snapshot the entire `/var/lib/docker` directory. When a new session starts, copy that snapshot — the "golden cache" — into the session's Docker data directory. The local daemon starts with all images pre-populated.
 
 ### Why it captures everything
 
@@ -201,7 +199,7 @@ For a project like Helix-in-Helix, the golden cache even includes the inner sand
 
 ### The build is just a startup script run
 
-Golden builds are beautifully simple: they're regular desktop containers with one special environment variable (`HELIX_GOLDEN_BUILD=true`). The container clones the repo, checks out main, runs the startup script, then exits. The workspace setup script detects the golden mode and skips launching the IDE — just runs the startup script in the foreground and exits with its return code.
+Golden builds are just regular desktop containers with one special environment variable (`HELIX_GOLDEN_BUILD=true`). The container clones the repo, checks out main, runs the startup script, then exits. The workspace setup script detects the golden mode and skips launching the IDE — just runs the startup script in the foreground and exits with its return code.
 
 No new build system. No image manifest parsing. No layer-level copying. The startup script already knows how to build the project. We just run it once and keep the result.
 
@@ -222,13 +220,13 @@ Golden builds trigger automatically when code merges to main (via PR merge or in
 
 ### The overlayfs false start
 
-Our first approach was elegant on paper: use overlayfs with the golden as the read-only lower directory and a per-session upper directory for copy-on-write. O(1) mount time, true COW semantics, minimal disk usage.
+We tried overlayfs first: golden as the read-only lower directory, per-session upper directory for copy-on-write. O(1) mount time, true COW semantics, minimal disk usage.
 
 It didn't work. Docker's overlay2 storage driver creates its own overlayfs mounts inside `/var/lib/docker/overlay2/`. Nested overlayfs requires the upper directory to be on a non-overlayfs filesystem — our merged directory was itself overlayfs, so Docker failed with `invalid argument`. This is a kernel-level restriction, not a configuration issue.
 
-### The copy approach that actually works
+### `cp -a`
 
-We switched to `cp -a`: copy the entire golden directory to the session's Docker data directory at session start. Less elegant than overlayfs, but it works reliably and performs well enough:
+We switched to `cp -a`: copy the entire golden directory to the session's Docker data directory at session start.
 
 | Metric | Value |
 |--------|-------|
@@ -239,9 +237,9 @@ We switched to `cp -a`: copy the entire golden directory to the session's Docker
 
 13.8 seconds to go from empty daemon to 8.7 GB of pre-built images. Compare that to 10 minutes of building and transferring through nested daemons.
 
-### Staleness is handled gracefully
+### Staleness
 
-What if code changes after the golden was built? The session starts with slightly stale images, but the smart `--load` optimization handles it transparently. When the startup script runs `docker build`, the wrapper checks the image digest against BuildKit — if it's changed, the registry push/pull transfers only the changed layers (~1 second). The golden provides a warm baseline; the wrapper handles the delta.
+What if code changes after the golden was built? The session starts with slightly stale images. When the startup script runs `docker build`, the wrapper checks the image digest against BuildKit — if it's changed, the registry push/pull transfers only the changed layers (~1 second). The golden provides the base layers; the wrapper handles the delta.
 
 The golden rebuilds on the next merge to main, so staleness is bounded by the development cycle.
 
@@ -288,11 +286,7 @@ The system has four components working together:
 
 The wrapper is generic — it works for any `docker build` workload, not just Helix. It auto-detects whether the active builder is remote, and only applies smart --load when it is. On a standard local Docker setup, it's a transparent passthrough.
 
-## What We Built
-
-We started with a simple problem — Docker builds are slow when every agent starts cold — and ended up building something genuinely interesting: a multi-layered caching system that operates transparently across nested Docker daemons, shared build caches, and per-project golden snapshots.
-
-The numbers tell the story:
+## Summary
 
 | Scenario | Before | After | Improvement |
 |----------|--------|-------|-------------|
@@ -300,10 +294,8 @@ The numbers tell the story:
 | Warm start (subsequent sessions) | 45 min | **23s** | **117x** |
 | Incremental rebuild (1-line change) | 45 min | **~1s** per image | **2,700x** |
 
-An agent can now start working on a project in under 30 seconds, regardless of whether it's the first session or the hundredth. The difference between 45 minutes and 14 seconds isn't incremental — it changes what's practical. Agents can spin up, do focused work, and tear down without the overhead dominating the task. Short-lived sessions become viable. Parallel agents become economical.
+45 minutes to 14 seconds means agents can spin up, do focused work, and tear down without the build overhead dominating the task. None of this required changes to build scripts, Makefiles, or docker-compose files — the wrapper intercepts standard Docker commands and the golden cache is populated by running the same startup script that agents already use.
 
-And the best part: it's all transparent. Build scripts, Makefiles, docker-compose files — none of them changed. The wrapper intercepts standard Docker commands and applies the optimizations automatically. Projects opt into golden cache warming with a single toggle, and the system handles the rest.
-
-Source: [desktop/shared/docker-buildx-wrapper.sh](../desktop/shared/docker-buildx-wrapper.sh)
+Source: [api/cmd/docker-wrapper/main.go](../api/cmd/docker-wrapper/main.go)
 Design doc: [2026-02-22-cold-start-optimization.md](2026-02-22-cold-start-optimization.md)
 Shared BuildKit design: [2026-02-21-shared-buildkit-cache.md](2026-02-21-shared-buildkit-cache.md)

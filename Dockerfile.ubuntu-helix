@@ -839,11 +839,9 @@ ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
 ADD desktop/shared/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
 RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh
 
-# Workspace README and docker wrapper for transparent shared BuildKit
+# Workspace README
 RUN mkdir -p /opt/helix
 ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
-ADD desktop/shared/docker-buildx-wrapper.sh /opt/helix/docker-buildx-wrapper.sh
-RUN chmod 755 /opt/helix/docker-buildx-wrapper.sh
 
 # ====================================================================
 # GStreamer zero-copy plugin and CUDA libs (amd64 only)

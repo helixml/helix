@@ -51,9 +51,9 @@ func passthrough(args []string) {
 }
 
 // run executes a command and returns stdout, exit code, and any error.
+// Stderr is suppressed (matching the shell script's 2>/dev/null pattern).
 func run(name string, args ...string) (string, int, error) {
 	cmd := exec.Command(name, args...)
-	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -266,13 +266,12 @@ func handleCompose(args []string) {
 			buildArgs = append(buildArgs, "--target", b.Target)
 		}
 		for k, v := range b.Args {
-			// Args can be string or null (env-sourced)
-			switch val := v.(type) {
-			case string:
-				buildArgs = append(buildArgs, "--build-arg", k+"="+val)
-			default:
-				// null or other → pass key only (docker resolves from env)
+			if v == nil {
+				// null → pass key only (docker resolves from env)
 				buildArgs = append(buildArgs, "--build-arg", k)
+			} else {
+				// string, number, bool — format as string
+				buildArgs = append(buildArgs, "--build-arg", fmt.Sprintf("%s=%v", k, v))
 			}
 		}
 		buildArgs = append(buildArgs, buildFlags...)
@@ -292,6 +291,16 @@ func handleCompose(args []string) {
 	os.Exit(0)
 }
 
+// buildxArgs prepends "buildx build" and optionally appends extra flags.
+// Always allocates a new slice to avoid aliasing the input.
+func buildxArgs(args []string, extra ...string) []string {
+	out := make([]string, 0, 2+len(args)+len(extra))
+	out = append(out, "buildx", "build")
+	out = append(out, args...)
+	out = append(out, extra...)
+	return out
+}
+
 // --- Build handling ---
 
 func handleBuild(args []string) {
@@ -299,7 +308,7 @@ func handleBuild(args []string) {
 
 	if driver != "remote" {
 		// Non-remote builder: just use buildx build directly
-		passthrough(append([]string{"buildx", "build"}, args...))
+		passthrough(buildxArgs(args))
 		return
 	}
 
@@ -319,6 +328,9 @@ func handleBuild(args []string) {
 		case arg == "-t" || arg == "--tag":
 			hasTag = true
 			nextIsTag = true
+		case strings.HasPrefix(arg, "--tag="):
+			hasTag = true
+			tags = append(tags, strings.TrimPrefix(arg, "--tag="))
 		case arg == "--output" || strings.HasPrefix(arg, "--output=") || arg == "--load" || arg == "--push":
 			hasOutput = true
 		}
@@ -326,7 +338,7 @@ func handleBuild(args []string) {
 
 	// If user specified explicit output or no tag, pass through
 	if hasOutput || !hasTag {
-		passthrough(append([]string{"buildx", "build"}, args...))
+		passthrough(buildxArgs(args))
 		return
 	}
 
@@ -346,7 +358,7 @@ func handleBuild(args []string) {
 			loadViaRegistry(tags, args)
 			return
 		}
-		passthrough(append([]string{"buildx", "build"}, append(args, "--load")...))
+		passthrough(buildxArgs(args, "--load"))
 		return
 	}
 
@@ -354,15 +366,14 @@ func handleBuild(args []string) {
 	iidFile, err := os.CreateTemp("", "buildx-iid-")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[docker-wrapper] Failed to create temp file: %v\n", err)
-		passthrough(append([]string{"buildx", "build"}, append(args, "--load")...))
+		passthrough(buildxArgs(args, "--load"))
 		return
 	}
 	iidPath := iidFile.Name()
 	iidFile.Close()
 	defer os.Remove(iidPath)
 
-	probeArgs := append([]string{"buildx", "build"}, args...)
-	probeArgs = append(probeArgs, "--output", "type=image", "--provenance=false", "--iidfile", iidPath)
+	probeArgs := buildxArgs(args, "--output", "type=image", "--provenance=false", "--iidfile", iidPath)
 	rc := runPassthrough(realDocker, probeArgs...)
 	if rc != 0 {
 		os.Exit(rc)
@@ -379,7 +390,7 @@ func handleBuild(args []string) {
 			loadViaRegistry(tags, args)
 			return
 		}
-		passthrough(append([]string{"buildx", "build"}, append(args, "--load")...))
+		passthrough(buildxArgs(args, "--load"))
 		return
 	}
 
@@ -404,7 +415,7 @@ func handleBuild(args []string) {
 			loadViaRegistry(tags, args)
 			return
 		}
-		passthrough(append([]string{"buildx", "build"}, append(args, "--load")...))
+		passthrough(buildxArgs(args, "--load"))
 		return
 	}
 
@@ -434,16 +445,18 @@ func loadViaRegistry(tags []string, args []string) {
 			skipNext = true
 			continue
 		}
+		if strings.HasPrefix(arg, "--tag=") {
+			continue
+		}
 		buildArgs = append(buildArgs, arg)
 	}
 
 	// Build and push to registry
-	pushArgs := append([]string{"buildx", "build"}, buildArgs...)
-	pushArgs = append(pushArgs, "--output", fmt.Sprintf("type=image,name=%s,push=true", regTag), "--provenance=false")
+	pushArgs := buildxArgs(buildArgs, "--output", fmt.Sprintf("type=image,name=%s,push=true", regTag), "--provenance=false")
 	rc := runPassthrough(realDocker, pushArgs...)
 	if rc != 0 {
 		fmt.Fprintln(os.Stderr, "[docker-wrapper] Registry push failed, falling back to tarball --load")
-		passthrough(append([]string{"buildx", "build"}, append(args, "--load")...))
+		passthrough(buildxArgs(args, "--load"))
 		return
 	}
 
@@ -451,7 +464,7 @@ func loadViaRegistry(tags []string, args []string) {
 	rc = runPassthrough(realDocker, "pull", regTag)
 	if rc != 0 {
 		fmt.Fprintln(os.Stderr, "[docker-wrapper] Registry pull failed, falling back to tarball --load")
-		passthrough(append([]string{"buildx", "build"}, append(args, "--load")...))
+		passthrough(buildxArgs(args, "--load"))
 		return
 	}
 
