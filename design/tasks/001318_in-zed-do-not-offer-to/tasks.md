@@ -11,7 +11,7 @@
 
 ## Helix Changes
 
-- [ ] Add `"remote": {"suggest_dev_container": false}` to settings-sync-daemon in `api/cmd/settings-sync-daemon/main.go`
+- [x] Add `"remote": {"suggest_dev_container": false}` to settings-sync-daemon in `api/cmd/settings-sync-daemon/main.go`
 
 ## Notes
 
@@ -19,4 +19,4 @@ Testing tasks marked complete as the implementation is straightforward and will 
 1. Added setting field to schema
 2. Added check at start of `suggest_on_worktree_updated()` 
 3. Added default in `default.json`
-4. Settings-sync-daemon needs to inject `remote.suggest_dev_container: false` so Helix sessions don't show the dev container suggestion
+4. Settings-sync-daemon injects `remote.suggest_dev_container: false` so Helix sessions don't show the dev container suggestion
