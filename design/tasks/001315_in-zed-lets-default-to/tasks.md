@@ -4,10 +4,6 @@
 
 - [x] In `crates/agent_ui/src/acp/thread_view/active_thread.rs`, change `should_be_following: false` to `should_be_following: true` in `AcpThreadView::new` (around line 375)
 
-## Helix repo update
-
-- [x] Update `sandbox-versions.txt` to point to new ZED_COMMIT (23e7e46be779589793040143852ab6031d93c4e8)
-
 ## Testing
 
 - [ ] Manual test: Start new agent thread, verify editor auto-follows agent activity
