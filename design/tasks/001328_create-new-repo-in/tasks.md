@@ -5,7 +5,7 @@
 - [x] Review existing empty repo handling in `helix-specs-create.sh` for patterns to reuse
 
 ## Core Implementation
-- [~] Add empty repo detection and initialization section after clone completion loop (after line ~256)
+- [x] Add empty repo detection and initialization section after clone completion loop (after line ~256)
   - Loop through `CLONE_DIRS` array
   - Check each for empty state using `git rev-parse HEAD`
   - Create README.md with repo name
@@ -15,7 +15,7 @@
   - Print success message with ✅
 
 ## Error Handling
-- [ ] Handle push failure gracefully (show clear error, don't mask the issue)
+- [x] Handle push failure gracefully (show clear error, don't mask the issue)
 
 ## Testing
 - [ ] Manual test: Create empty GitHub repo → Start Helix session → Verify Zed opens
