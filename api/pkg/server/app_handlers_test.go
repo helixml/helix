@@ -616,7 +616,7 @@ func TestApplyModelSubstitutions_AgentMode(t *testing.T) {
 						Name:      "test-agent",
 						Provider:  "together",
 						Model:     "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-						AgentMode: true,
+						AgentType: types.AgentTypeHelixAgent,
 
 						// Agent mode models using unavailable providers
 						ReasoningModelProvider:       "together",
@@ -711,7 +711,7 @@ func TestApplyModelSubstitutions_AgentModePartialSubstitution(t *testing.T) {
 						Name:      "test-agent",
 						Provider:  "together", // Will be substituted
 						Model:     "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-						AgentMode: true,
+						AgentType: types.AgentTypeHelixAgent,
 
 						// Mix of available and unavailable providers
 						ReasoningModelProvider:       "anthropic", // Available - no substitution
@@ -815,7 +815,7 @@ func TestO3MiniSubstitution(t *testing.T) {
 						Name:                         "test-agent",
 						Provider:                     "helix",
 						Model:                        "llama3.1:8b-instruct-q8_0",
-						AgentMode:                    true,
+						AgentType:                    types.AgentTypeHelixAgent,
 						ReasoningModelProvider:       "openai",
 						ReasoningModel:               "o3-mini",
 						GenerationModelProvider:      "openai",
