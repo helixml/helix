@@ -1,7 +1,7 @@
 # Implementation Tasks
 
-- [~] Investigate current state: `touchAction: 'none'` already exists on canvas (line 3985), global `overscroll-behavior: none` present in index.html
-- [ ] Remove `event.preventDefault()` from touch handlers (handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel)
+- [x] Investigate current state: `touchAction: 'none'` already exists on canvas (line 3985), global `overscroll-behavior: none` present in index.html
+- [x] Remove `event.preventDefault()` from touch handlers (handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel)
 - [ ] Test Chrome desktop: verify two-finger swipe back/forward works on non-stream pages (project list, settings)
 - [ ] Test Chrome desktop: verify stream viewer touch/trackpad controls still work (cursor movement, tap-to-click, pinch-to-zoom)
 - [ ] Test Safari iPad: verify no UI sliding/bouncing when scrolling or interacting with the app
