@@ -119,3 +119,28 @@ Manual test:
 1. Create empty repo on GitHub
 2. Start Helix session pointing to it
 3. Verify: No error, Zed opens, repo has initial commit
+
+## Implementation Notes
+
+### What was actually implemented
+
+The clone in `helix-workspace-setup.sh` is a regular working directory clone (not bare, not mirror), so the implementation is simpler than originally designed:
+
+1. Loop through `CLONE_DIRS` array after clone completion
+2. Check for empty repos with `git rev-parse HEAD`
+3. Create README.md directly in the working directory
+4. Checkout `main` branch, commit, and push
+
+### Key differences from design
+
+- **No temp directory needed**: The cloned repo is a working directory, not bare
+- **Used `git checkout -b main`**: Creates the main branch explicitly before committing
+- **Single branch attempt**: Only try `main` (not fallback to `master`) since we're creating fresh
+
+### Files modified
+
+- `desktop/shared/helix-workspace-setup.sh`: Added empty repo initialization section at lines 255-293
+
+### Git user config
+
+Git user.name and user.email are already configured globally earlier in the script (lines 139-154), so no additional config needed.
