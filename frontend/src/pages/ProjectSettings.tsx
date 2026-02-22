@@ -848,6 +848,69 @@ const ProjectSettings: FC = () => {
                 }
                 projectId={projectId}
               />
+
+              <Divider sx={{ my: 3 }} />
+
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <Box sx={{ flex: 1, mr: 2 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    Pre-warm Docker cache
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Build a golden Docker cache on merge to main. New sessions
+                    start with pre-built images instead of building from
+                    scratch.
+                  </Typography>
+                </Box>
+                <Switch
+                  checked={autoWarmDockerCache}
+                  onChange={(e) => {
+                    const newValue = e.target.checked;
+                    setAutoWarmDockerCache(newValue);
+                    updateProjectMutation.mutate({
+                      metadata: {
+                        auto_warm_docker_cache: newValue,
+                      },
+                    });
+                  }}
+                />
+              </Box>
+              {autoWarmDockerCache && (
+                <Box
+                  sx={{
+                    mt: 1,
+                    p: 1.5,
+                    bgcolor: "action.hover",
+                    borderRadius: 1,
+                  }}
+                >
+                  <Typography variant="caption" color="text.secondary" component="div">
+                    <strong>Status:</strong>{" "}
+                    {!project?.metadata?.docker_cache_status && "Waiting for first merge to main"}
+                    {project?.metadata?.docker_cache_status?.status === "ready" && "Ready"}
+                    {project?.metadata?.docker_cache_status?.status === "building" && "Building..."}
+                    {project?.metadata?.docker_cache_status?.status === "failed" && "Failed"}
+                    {project?.metadata?.docker_cache_status?.status === "none" && "No cache yet"}
+                    {(project?.metadata?.docker_cache_status?.size_bytes ?? 0) > 0 && (
+                      <> &middot; {((project?.metadata?.docker_cache_status?.size_bytes ?? 0) / 1e9).toFixed(1)} GB</>
+                    )}
+                    {project?.metadata?.docker_cache_status?.last_ready_at && (
+                      <> &middot; Last built: {new Date(project.metadata.docker_cache_status.last_ready_at).toLocaleString()}</>
+                    )}
+                  </Typography>
+                  {project?.metadata?.docker_cache_status?.error && (
+                    <Typography variant="caption" color="error" component="div" sx={{ mt: 0.5 }}>
+                      {project.metadata.docker_cache_status.error}
+                    </Typography>
+                  )}
+                </Box>
+              )}
             </Paper>
 
             {/* Repositories */}
@@ -1181,65 +1244,6 @@ const ProjectSettings: FC = () => {
                     Pull request reviews require an external repository (GitHub,
                     GitLab, etc.) as the primary repository.
                   </Typography>
-                )}
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <Box sx={{ flex: 1, mr: 2 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                      Pre-warm Docker cache
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Build a golden Docker cache on merge to main. New sessions
-                      start with pre-built images instead of building from
-                      scratch.
-                    </Typography>
-                  </Box>
-                  <Switch
-                    checked={autoWarmDockerCache}
-                    onChange={(e) => {
-                      const newValue = e.target.checked;
-                      setAutoWarmDockerCache(newValue);
-                      updateProjectMutation.mutate({
-                        metadata: {
-                          auto_warm_docker_cache: newValue,
-                        },
-                      });
-                    }}
-                  />
-                </Box>
-                {autoWarmDockerCache && project?.metadata?.docker_cache_status && (
-                  <Box
-                    sx={{
-                      mt: 1,
-                      p: 1.5,
-                      bgcolor: "action.hover",
-                      borderRadius: 1,
-                    }}
-                  >
-                    <Typography variant="caption" color="text.secondary" component="div">
-                      <strong>Status:</strong>{" "}
-                      {project.metadata.docker_cache_status.status === "ready" && "Ready"}
-                      {project.metadata.docker_cache_status.status === "building" && "Building..."}
-                      {project.metadata.docker_cache_status.status === "failed" && "Failed"}
-                      {project.metadata.docker_cache_status.status === "none" && "No cache yet"}
-                      {project.metadata.docker_cache_status.size_bytes > 0 && (
-                        <> &middot; {(project.metadata.docker_cache_status.size_bytes / 1e9).toFixed(1)} GB</>
-                      )}
-                      {project.metadata.docker_cache_status.last_ready_at && (
-                        <> &middot; Last built: {new Date(project.metadata.docker_cache_status.last_ready_at).toLocaleString()}</>
-                      )}
-                    </Typography>
-                    {project.metadata.docker_cache_status.error && (
-                      <Typography variant="caption" color="error" component="div" sx={{ mt: 0.5 }}>
-                        {project.metadata.docker_cache_status.error}
-                      </Typography>
-                    )}
-                  </Box>
                 )}
               </Box>
             </Paper>
