@@ -131,7 +131,7 @@ func TestValidateOperationIDs(t *testing.T) {
 		},
 	}
 
-	err := ValidateTool("test-user-id", &types.AssistantConfig{}, tool, nil, c, &mcp.DefaultClientGetter{}, false)
+	err := ValidateTool("test-user-id", &types.AssistantConfig{AgentType: types.AgentTypeHelixBasic}, tool, nil, c, &mcp.DefaultClientGetter{}, false)
 	require.NoError(t, err)
 
 	// Check api actions
