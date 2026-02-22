@@ -1,4 +1,4 @@
-# How We Made Docker Builds 193x Faster: From 45 Minutes to 14 Seconds
+# How We Made Docker Builds for Our Agent Swarm 193 Times Faster
 
 **Date**: 2026-02-22 (updated from 2026-02-21)
 
@@ -110,11 +110,11 @@ Three paths:
 
 ## Results
 
-There are two cases that matter: cold start (first agent to build a project) and warm start (subsequent agents building the same source).
+There are two cases that matter: cold start (every new agent session starts with an empty Docker daemon) and warm start (subsequent builds within the same session, where images are already loaded).
 
 ### Cold start: ~10 minutes (down from 45 minutes)
 
-A fresh agent session starts with an empty Docker daemon — no images, no layers. Even though every build is a cache hit in shared BuildKit (the compilation is instant), the images still need to be transferred into the local daemon. For Helix-in-Helix, this is a deeply nested pipeline:
+Every new agent session starts with an empty Docker daemon — no images, no layers. Even though every build is a cache hit in shared BuildKit (the compilation is instant), the images still need to be transferred into the local daemon. For Helix-in-Helix, this is a deeply nested pipeline:
 
 | Phase | Before | After (cold) | Notes |
 |-------|--------|-------------|-------|
@@ -127,18 +127,17 @@ The cold start is dominated by **image transfer, not compilation**. BuildKit res
 
 The nesting makes this worse: Helix-in-Helix has the desktop container (L2) building an inner sandbox (L3), which needs the same 7.24GB desktop image transferred again to a fresh daemon one level deeper.
 
-### Warm start: 23 seconds (124x faster)
+### Warm start: 3–5 seconds
 
-Once images exist in the local daemon, subsequent builds are near-instant:
+Once images exist in the local daemon, subsequent builds are near-instant. Smart --load checks each image digest against the local daemon (~0.5s per service) and skips the transfer when nothing changed. For `./stack build` with 4 services (api, frontend, haystack, typesense — 8.4GB total):
 
-| Phase | Before | After (warm) | Speedup |
-|-------|--------|-------------|---------|
-| API + frontend (compose) | 200s | **9.6s** | 21x |
-| Zed IDE (Rust, release) | 459s | **1.2s** | 383x |
-| Sandbox + desktop images | 2,075s | **12s** | 173x |
-| **Total** | **45 min** | **23s** | **124x** |
+| Run | Time | Result |
+|-----|------|--------|
+| 1 | 5.1s | All 4 images: "Image unchanged, skipping load" |
+| 2 | 3.2s | All 4 images: "Image unchanged, skipping load" |
+| 3 | 3.0s | All 4 images: "Image unchanged, skipping load" |
 
-Smart --load checks the image digest against the local daemon (~0.3s) and skips the transfer when nothing changed. This is the common case: agents working on the same codebase where the base images haven't been modified.
+This is the common case: agents working on the same codebase where the base images haven't been modified.
 
 ### Incremental changes: ~1 second per image
 
@@ -182,7 +181,7 @@ Not as dramatic as the other optimizations, but 6 seconds saved on every warm bu
 
 ## The Golden Docker Cache: Eliminating Cold Start Entirely
 
-Smart `--load`, registry-accelerated transfers, and compose interception transformed warm starts from 45 minutes to 23 seconds. But the cold start — the first agent session for a project — still took **10 minutes**. Every image had to be transferred into an empty Docker daemon, even though BuildKit compiled nothing.
+Smart `--load`, registry-accelerated transfers, and compose interception transformed warm starts from 45 minutes to 23 seconds. But the cold start — **every** new agent session — still took **10 minutes**. Every image had to be transferred into an empty Docker daemon, even though BuildKit compiled nothing.
 
 The goal: make cold start as fast as warm start.
 
@@ -237,6 +236,8 @@ We switched to `cp -a`: copy the entire golden directory to the session's Docker
 
 13.8 seconds to go from empty daemon to 8.7 GB of pre-built images. Compare that to 10 minutes of building and transferring through nested daemons.
 
+On disk, the cost is near zero. We run ZFS with dedup enabled, so the `cp -a` writes reference the same underlying blocks as the golden source. Ten sessions sharing the same golden cache consume roughly 1x the storage, not 10x.
+
 ### Staleness
 
 What if code changes after the golden was built? The session starts with slightly stale images. When the startup script runs `docker build`, the wrapper checks the image digest against BuildKit — if it's changed, the registry push/pull transfers only the changed layers (~1 second). The golden provides the base layers; the wrapper handles the delta.
@@ -258,9 +259,9 @@ Here's where we ended up, starting from 45 minutes:
 | **Total** | **45 min** | **10 min** | **14s** |
 | **Speedup** | baseline | 4.5x | **193x** |
 
-### Warm start: 23 seconds (unchanged)
+### Warm start: 3–5 seconds
 
-The warm start didn't change — it was already fast from smart `--load`. The golden cache's value is making cold start match warm start.
+Once images are in the local daemon (from golden copy or a previous build), subsequent builds are near-instant. `./stack build` checks all 4 service images against BuildKit (~0.5s each), confirms they're unchanged, and skips every load. The golden cache's value is making cold start match warm start — and the compose interception + smart `--load` make warm start genuinely fast.
 
 ### Incremental golden builds: 30s–2 min
 
@@ -290,9 +291,9 @@ The wrapper is generic — it works for any `docker build` workload, not just He
 
 | Scenario | Before | After | Improvement |
 |----------|--------|-------|-------------|
-| Cold start (first session) | 45 min | **14s** | **193x** |
-| Warm start (subsequent sessions) | 45 min | **23s** | **117x** |
-| Incremental rebuild (1-line change) | 45 min | **~1s** per image | **2,700x** |
+| Cold start (every new session) | 45 min | **14s** | **193x** |
+| Warm start (rebuild, nothing changed) | 45 min | **3–5s** | **540–900x** |
+| Incremental rebuild (1-line change) | 45 min | **3.5s** | **770x** |
 
 45 minutes to 14 seconds means agents can spin up, do focused work, and tear down without the build overhead dominating the task. None of this required changes to build scripts, Makefiles, or docker-compose files — the wrapper intercepts standard Docker commands and the golden cache is populated by running the same startup script that agents already use.
 
