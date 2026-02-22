@@ -22,6 +22,7 @@ type SpecTaskOrchestrator struct {
 	gitService            *GitRepositoryService
 	specTaskService       *SpecDrivenTaskService
 	containerExecutor     ContainerExecutor // Executor for external agent containers
+	goldenBuildService    *GoldenBuildService
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
 	backlogProjectLocks   sync.Map // map[project_id]*sync.Mutex
@@ -57,6 +58,11 @@ func NewSpecTaskOrchestrator(
 // SetTestMode enables/disables test mode
 func (o *SpecTaskOrchestrator) SetTestMode(enabled bool) {
 	o.testMode = enabled
+}
+
+// SetGoldenBuildService sets the golden build service for triggering cache warm-ups on merge.
+func (o *SpecTaskOrchestrator) SetGoldenBuildService(svc *GoldenBuildService) {
+	o.goldenBuildService = svc
 }
 
 // Start begins the orchestration loop
@@ -584,6 +590,15 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 			Str("task_id", task.ID).
 			Str("pr_id", task.PullRequestID).
 			Msg("PR merged! Moving task to done")
+
+		// Trigger golden Docker cache build if enabled for this project
+		if o.goldenBuildService != nil && task.ProjectID != "" {
+			project, err := o.store.GetProject(ctx, task.ProjectID)
+			if err == nil && project != nil {
+				o.goldenBuildService.TriggerGoldenBuild(ctx, project)
+			}
+		}
+
 		return o.store.UpdateSpecTask(ctx, task)
 	case types.PullRequestStateClosed:
 		// PR abandoned - archive the task

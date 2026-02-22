@@ -107,14 +107,23 @@ EOF
     fi
 
     # Start dockerd in background with auto-restart
+    # The loop checks /tmp/.dockerd-stop to allow clean shutdown (e.g. golden builds)
     (
         while true; do
+            if [ -f /tmp/.dockerd-stop ]; then
+                echo "[$(date -Iseconds)] dockerd stop requested, exiting restart loop"
+                break
+            fi
             # Clean up stale PID files before each restart attempt
             rm -f /var/run/docker.pid /run/docker/containerd/containerd.pid 2>/dev/null || true
             echo "[$(date -Iseconds)] Starting dockerd..."
             dockerd --config-file /etc/docker/daemon.json \
                 --host=unix:///var/run/docker.sock 2>&1
             EXIT_CODE=$?
+            if [ -f /tmp/.dockerd-stop ]; then
+                echo "[$(date -Iseconds)] dockerd exited (stop requested), not restarting"
+                break
+            fi
             echo "[$(date -Iseconds)] dockerd exited with code $EXIT_CODE, restarting in 2s..."
             sleep 2
         done

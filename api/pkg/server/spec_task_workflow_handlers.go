@@ -285,6 +285,11 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		Str("branch_name", specTask.BranchName).
 		Msg("Implementation approved - branch merged server-side, task complete")
 
+	// Trigger golden Docker cache build if enabled for this project
+	if s.goldenBuildService != nil {
+		s.goldenBuildService.TriggerGoldenBuild(ctx, project)
+	}
+
 	// Return updated task
 	writeResponse(w, specTask, http.StatusOK)
 }

@@ -1956,6 +1956,9 @@ type DesktopAgent struct {
 
 	// Video capture/encoding mode for streaming
 	VideoMode string `json:"video_mode,omitempty"` // "shm" (default), "native", or "zerocopy"
+
+	// Golden build mode: session builds a golden Docker cache snapshot
+	GoldenBuild bool `json:"golden_build,omitempty"`
 }
 
 // GetEffectiveResolution returns the display dimensions based on Resolution preset

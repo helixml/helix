@@ -316,6 +316,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		UserID:        agent.UserID,
 		Network:       "bridge",
 		Privileged:    true, // Required for inner dockerd (docker-in-desktop mode)
+		ProjectID:     agent.ProjectID,
+		GoldenBuild:   agent.GoldenBuild,
 	}
 
 	// Create dev container via Hydra

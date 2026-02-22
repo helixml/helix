@@ -240,7 +240,26 @@ type SampleProjectTask struct {
 
 // ProjectMetadata represents the metadata stored in Project.Metadata field
 type ProjectMetadata struct {
-	BoardSettings *BoardSettings `json:"board_settings,omitempty"`
+	BoardSettings       *BoardSettings    `json:"board_settings,omitempty"`
+	AutoWarmDockerCache bool              `json:"auto_warm_docker_cache,omitempty"`
+	DockerCacheStatus   *DockerCacheState `json:"docker_cache_status,omitempty"`
+}
+
+// DockerCacheState tracks the current state of the golden Docker cache for a project.
+// Updated by the golden build service when builds start, succeed, or fail.
+type DockerCacheState struct {
+	// Status: "building", "ready", "failed", "none"
+	Status string `json:"status"`
+	// SizeBytes is the golden cache size in bytes (0 if no golden exists)
+	SizeBytes int64 `json:"size_bytes,omitempty"`
+	// LastBuildAt is when the most recent golden build started
+	LastBuildAt *time.Time `json:"last_build_at,omitempty"`
+	// LastReadyAt is when the golden was last successfully promoted
+	LastReadyAt *time.Time `json:"last_ready_at,omitempty"`
+	// BuildSessionID is the session ID of the currently running golden build
+	BuildSessionID string `json:"build_session_id,omitempty"`
+	// Error is the last error message (cleared on success)
+	Error string `json:"error,omitempty"`
 }
 
 // BoardSettings represents the Kanban board settings for a project

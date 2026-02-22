@@ -148,20 +148,57 @@ If specific services are passed (`docker compose build api frontend`), only buil
 
 ---
 
-## Step 3: Golden Docker Cache (if needed after Step 1)
+## Step 2 Results (2026-02-22)
 
-Only pursue this if Step 1 + re-benchmarking shows cold start is still unacceptably slow.
+Compose build interception implemented and tested live in session:
+
+| Scenario | Before | After |
+|----------|--------|-------|
+| Warm compose build (4 services, unchanged) | 9.6s | **3.2s** |
+| Single service warm check | ~2.4s | **0.7s** |
+
+**Note**: The bash wrapper is getting complex (290 lines, jq pipelines, array parsing, recursive `$0`). If we keep this optimization, rewrite in Go for maintainability. Do that last, after golden cache results confirm we need it.
+
+---
+
+## Step 3: Golden Docker Cache
 
 ### Goal
 
-Make cold start match warm start (~23s) by pre-populating session Docker data from a "golden" directory. The golden is built generically by running the project's startup script — no app-specific knowledge of which images to build.
+Eliminate cold-start image transfer by pre-populating session Docker data from a project-specific "golden" snapshot. The golden is built generically by running the project's startup script — no app-specific knowledge of which images to build.
+
+### Why the registry comes for free
+
+Docker volumes live under `/var/lib/docker/volumes/`. By overlaying the entire `/var/lib/docker`, the golden captures everything:
+- **Image layers** (`overlay2/`) — all built images
+- **Docker volumes** (`volumes/`) — includes inner registry data, BuildKit state, sandbox Docker storage
+- **Container metadata** — not useful (containers don't survive restart)
+
+For Helix-in-Helix, the inner sandbox's Docker data is in a Docker volume within the session's daemon. The golden overlay provides this volume pre-populated, so the inner sandbox starts with images AND the inner registry already has layers. The `transfer-desktop-to-sandbox` function checks `IMAGE_HASH_BEFORE = IMAGE_HASH_AFTER` → skips the 362s transfer.
+
+### Per-project golden directories
+
+Each project has its own startup script building different images. Goldens are scoped per-project:
+
+```
+/container-docker/
+├── golden/
+│   ├── {projectID}/docker/    ← project A's golden (read-only lowerdir)
+│   └── {projectID2}/docker/   ← project B's golden
+└── sessions/
+    └── docker-data-{sessionID}/
+        ├── upper/              ← per-session COW writes
+        ├── work/               ← overlayfs workdir
+        └── merged/             ← overlayfs mount → bind-mounted as /var/lib/docker
+```
+
+**Disk pressure**: Each golden can be 15-20GB (Helix project with all images + volumes). For prototype, no eviction — single-tenant deployments won't have many projects. Production: add LRU eviction by last-used timestamp.
 
 ### Project Setting (generic, off by default)
 
 Add `AutoWarmDockerCache bool` to `ProjectMetadata` (JSONB field, no migration):
 
 ```go
-// api/pkg/types/project.go line 242
 type ProjectMetadata struct {
     BoardSettings       *BoardSettings `json:"board_settings,omitempty"`
     AutoWarmDockerCache bool           `json:"auto_warm_docker_cache,omitempty"`
@@ -172,10 +209,10 @@ type ProjectMetadata struct {
 
 Two code paths detect merges to main:
 
-**A. PR merged (external repos)** — `spec_task_orchestrator.go:575-587`
+**A. PR merged (external repos)** — `spec_task_orchestrator.go`
 - When `PullRequestStateMerged` detected → trigger golden build if setting enabled
 
-**B. Internal merge (approve implementation)** — `spec_task_workflow_handlers.go:263-289`
+**B. Internal merge (approve implementation)** — `spec_task_workflow_handlers.go`
 - After fast-forward merge succeeds → trigger golden build if setting enabled
 
 Both call `goldenBuildService.TriggerGoldenBuild(ctx, project)` which:
@@ -202,44 +239,40 @@ A real desktop container whose only job is running the startup script:
 
 When golden build container exits with code 0:
 1. Docker data is at `/container-docker/sessions/docker-data-{sessionID}/docker/`
-2. Atomic rename to `/container-docker/golden/docker/`
+2. Atomic rename to `/container-docker/golden/{projectID}/docker/`
 3. Clean up session record (Docker data preserved as golden)
 
-### Overlayfs COW Mount for New Sessions
+### Golden Copy for New Sessions (revised from overlayfs)
 
-When a new session starts and golden exists:
+**Overlayfs didn't work**: Docker's overlay2 storage driver tries to create overlayfs mounts inside our overlayfs merged dir. Nested overlayfs fails with `invalid argument` because the upper dir can't be on an overlayfs filesystem, even on kernel 6.17.
+
+**Approach**: `cp -a` the golden to each session's Docker data directory. The copy is fast enough (13.8s for 8.7 GB on SSD) and avoids the nested overlayfs issue entirely.
 
 ```
 /container-docker/
-├── golden/docker/           ← populated by golden build session (read-only lowerdir)
-└── sessions/
-    └── docker-data-{sessionID}/
-        ├── upper/           ← per-session COW writes
-        ├── work/            ← overlayfs workdir
-        └── merged/          ← overlayfs mount → bind-mounted as /var/lib/docker
+├── golden/{projectID}/docker/   ← read-only reference (never mounted)
+└── sessions/docker-data-{sessionID}/docker/  ← copied from golden, bind-mounted as /var/lib/docker
 ```
 
-**`devcontainer.go:buildMounts()` (line ~635)**:
-- If `/container-docker/golden/docker/` exists: create overlayfs mount
-- If not: fall back to empty directory (current behavior)
-
-Properties: O(1) mount, true COW, kernel 6.17 nested overlayfs support.
+**`devcontainer.go:buildMounts()`**:
+- Check `/container-docker/golden/{projectID}/docker/` exists
+- If yes: `cp -a golden sessions/docker-data-{sessionID}/docker` (~14s)
+- If not: create empty directory (current behavior)
 
 ### Session Cleanup
 
-`devcontainer.go:StopDevContainer()` (line ~899):
-- `syscall.Unmount(merged, MNT_DETACH)`
+`devcontainer.go:DeleteDevContainer()`:
 - `os.RemoveAll(sessions/docker-data-{sessionID}/)`
-- Fix existing bug: bind mount dirs never cleaned up
+- For golden builds: skip cleanup (monitorGoldenBuild handles promotion)
 
 ### Staleness Handling
 
-Stale golden (images rebuilt after golden created):
+Stale golden (code changed since golden was built):
 - Session starts with old images from golden overlay
-- Smart `--load` detects digest mismatch, updates via registry (~1s per image)
-- Golden rebuilt on next main branch change
+- Smart `--load` detects digest mismatch on next build, updates via registry (~1s per image)
+- Golden rebuilt automatically on next merge to main
 
-### Files to Modify (Step 3)
+### Files to Modify
 
 | File | Change |
 |------|--------|
@@ -251,26 +284,272 @@ Stale golden (images rebuilt after golden created):
 | `api/pkg/server/spec_task_workflow_handlers.go` | Trigger golden build on internal merge |
 | `desktop/shared/helix-workspace-setup.sh` | Handle `HELIX_GOLDEN_BUILD=true` mode |
 
-### Risks (Step 3)
+### Risks
 
-1. **Nested overlayfs**: Docker overlay2 on our overlay mount. Supported on kernel 6.17 but needs testing.
-2. **Golden update race**: Renaming golden while sessions use it as lowerdir. Accept for prototype; versioned goldens for production.
-3. **Session as golden builder**: Runs normal dockerd, no conflict with sandbox's dockerd.
+1. ~~**Nested overlayfs**: Docker overlay2 on our overlay mount.~~ **RESOLVED**: Switched to copy approach. Docker overlay2 works fine on the copied (ext4) directory.
+2. **Golden update race**: `cp -a` reads golden while another process renames it during promotion. Low risk since promotion is atomic rename.
+3. **Disk pressure**: 8-20 GB per project golden + copy per session. No eviction for prototype.
+4. **Copy time scales with golden size**: 13.8s for 8.7 GB. Larger goldens (20+ GB) could take 30s+. Still far better than 10 min cold build.
 
-### Verification (Step 3)
+### Verification
 
 1. Enable `auto_warm_docker_cache` on Helix project
 2. Merge a PR → verify golden build session triggers
 3. Golden build completes → startup script runs, images built, golden promoted
-4. New cold-start session → uses golden overlay, matches warm start timing
-5. Multiple concurrent sessions → independent overlay mounts
-6. Session cleanup → overlay unmounted, dir removed
-7. No golden → falls back to empty dir
+4. New cold-start session → uses golden copy, images pre-populated
+5. Inner dockerd starts successfully with copied data
+6. Multiple concurrent sessions → independent copies (no shared state)
+7. Session cleanup → session dir removed, golden untouched
+8. No golden → falls back to empty dir (current behavior)
+
+---
+
+## Step 3 Test Results (2026-02-22)
+
+### Overlayfs approach (FAILED)
+
+Docker's overlay2 storage driver cannot run on an overlayfs mount:
+```
+failed to mount overlay: invalid argument
+driver not supported: overlay2
+```
+
+Root cause: nested overlayfs requires that the upperdir is NOT on overlayfs. Our merged dir IS overlayfs, so Docker's overlay2 (which creates mounts inside `/var/lib/docker/overlay2/`) fails.
+
+### Copy approach (WORKING)
+
+Switched to `cp -a` of golden to session directory. Results:
+
+| Metric | Value |
+|--------|-------|
+| Golden cache size | 8.7 GB (4 Docker images) |
+| Golden copy time | **13.8 seconds** |
+| Dockerd startup | First attempt, no errors |
+| Pre-populated images | helix-haystack:dev (5.14GB), helix-api (619MB), helix-frontend (1.67GB), helix-typesense (996MB) |
+| Session cleanup | Clean — session dir removed, golden intact |
+| Cold build without golden | ~10 minutes |
+| **Improvement** | **~43x faster cold start** |
+
+### Bugs found and fixed during testing
+
+1. **`ProjectID` not passed to `DesktopAgent`** — `spec_driven_task_service.go` created `DesktopAgent` without `ProjectID`, so Hydra always got empty project ID and `GoldenExists("")` returned false. Fixed in both `StartSpecGeneration` and `StartJustDoItMode`.
+
+2. **Nested overlayfs fails** — Changed from overlayfs COW mount (`SetupGoldenOverlay`) to filesystem copy (`SetupGoldenCopy`). Renamed `CleanupGoldenOverlay` → `CleanupGoldenSession`. Removed `syscall` import.
+
+3. **Golden builds started from scratch** — `!req.GoldenBuild` condition excluded golden builds from getting the golden copy, forcing a full cold build every time. Fixed: golden builds now start from the previous golden for incremental rebuilds (copy ~14s + only rebuild changed images).
+
+4. **`DeleteDevContainer` destroyed golden build data** — Unconditionally called `CleanupSessionDockerDir` even for golden builds, deleting Docker data before `monitorGoldenBuild` could promote it. Fixed: skip cleanup for golden builds.
+
+5. **`monitorGoldenBuild` had no timeout** — Used `context.Background()` indefinitely. Fixed: 30-minute `context.WithTimeout`.
+
+### Incremental Golden Builds
+
+Golden builds now use the previous golden as a starting point:
+
+| Build | Duration | Notes |
+|-------|----------|-------|
+| First (no golden) | ~10 min | Full cold build + image transfer |
+| Subsequent (from golden) | ~30s-2min | Copy previous golden (14s), only rebuild changed images |
+| Normal session (from golden) | ~14s | Copy only, no build needed |
+
+### Golden Build Status Tracking
+
+`DockerCacheState` added to `ProjectMetadata` (JSONB, no migration):
+
+```go
+type DockerCacheState struct {
+    Status         string     // "building", "ready", "failed", "none"
+    SizeBytes      int64      // Golden cache size
+    LastBuildAt    *time.Time // When current/last build started
+    LastReadyAt    *time.Time // When golden was last promoted
+    BuildSessionID string     // Session ID of running build (for debugging)
+    Error          string     // Last error message
+}
+```
+
+API-side goroutine polls session status every 15s to detect completion, then updates project metadata. This gives the frontend full visibility into golden build state.
+
+---
+
+## Staff Review: Architecture Gaps (2026-02-22)
+
+### Critical: `DeleteDevContainer` destroys golden build data (Finding 1+2)
+
+`devcontainer.go:963` calls `CleanupSessionDockerDir` unconditionally for ALL sessions, including golden builds. This deletes the Docker data before `monitorGoldenBuild` can promote it to golden.
+
+**Race scenario**: Session reconciler or user clicks "stop" → `DeleteDevContainer` runs → deletes session Docker data → `monitorGoldenBuild` wakes up → tries to promote deleted data → error.
+
+**Fix**: Skip `CleanupSessionDockerDir` for golden builds in `DeleteDevContainer`. Let `monitorGoldenBuild` handle promotion OR cleanup.
+
+### Medium: `building` map never cleared on success (Finding 3)
+
+`runGoldenBuild` never removes the `building[projectID]` entry after successfully launching the container. The 30-minute staleness check is the only recovery mechanism. If the golden build takes 5 minutes, the project is locked for the remaining 25 minutes — rapid merges silently drop golden builds.
+
+**Fix**: Have `monitorGoldenBuild` call back to the API to clear the entry, or reduce the staleness timeout to match expected build duration.
+
+### Medium: Golden build session visible to user, never cleaned from DB (Finding 6)
+
+The golden build creates a real `Session` record with `Owner: project.UserID`. Users see "Docker Cache Warm-up: ..." in their session list. The session is never deleted after the build completes.
+
+**Fix**: Delete or soft-delete the session in `monitorGoldenBuild` after promotion/cleanup. Or add a `Hidden` flag to sessions.
+
+### Medium: Sandbox restart loses golden build state (Finding 9)
+
+`RecoverDevContainersFromDocker` doesn't restore `IsGoldenBuild` or `ProjectID` on recovered containers. If sandbox restarts during a golden build, the monitoring goroutine is never re-launched, the lock file persists forever, and the Docker data leaks.
+
+**Fix**: Store golden build metadata in container labels so it survives Docker-level recovery.
+
+### Medium: No timeout on `monitorGoldenBuild` (Finding 7)
+
+Uses `context.Background()` with no deadline. If the container hangs, the goroutine blocks forever.
+
+**Fix**: Use `context.WithTimeout(ctx, 30*time.Minute)`.
+
+### Low: `GoldenBuildRunning()` is dead code (Finding 4)
+
+The file-based lock mechanism (`GoldenBuildRunning`/`SetGoldenBuildRunning`) is written to/cleared but never checked. The actual debouncing uses the in-memory `building` map in `GoldenBuildService` on the API side.
+
+**Fix**: Either use the lock file for cross-process coordination (Hydra checks it) or remove it entirely.
+
+### Low: Old golden `.old` dirs can leak (Finding 11)
+
+`PromoteSessionToGolden` renames old golden to `.old` and deletes in a background goroutine. If deletion fails, `.old` dirs accumulate.
+
+**Fix**: Check for and clean up `.old` dirs on Hydra startup.
+
+---
+
+## UI Design
+
+### Where the setting lives
+
+The setting belongs in the **Startup Script** section of Project Settings, NOT in Automations. Rationale:
+
+1. Docker cache warming is directly tied to the startup script — the golden build runs the startup script to populate the cache
+2. It only makes sense if the startup script uses Docker (builds images, runs compose, etc.)
+3. Placing it under the startup script editor makes the relationship obvious
+
+### Proposed UI
+
+In `ProjectSettings.tsx`, below the `StartupScriptEditor` component within the same Paper section:
+
+```
+─────────────────────────────────────────────
+Startup Script
+─────────────────────────────────────────────
+This script runs when an agent starts working
+on this project. Use it to install dependencies,
+start dev servers, etc.
+
+┌─────────────────────────────────────────────┐
+│  #!/bin/bash                                │
+│  ./stack build                              │
+│  ./stack start                              │
+│                                             │
+└─────────────────────────────────────────────┘
+                            [History] [Test]
+
+─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+
+  Pre-warm Docker cache                   [ON]
+  If your startup script builds Docker
+  images, this keeps a warm cache so new
+  sessions start in ~15 seconds instead
+  of rebuilding from scratch. The cache
+  updates automatically when code is
+  merged to main.
+
+  ┌─ Status ─────────────────────────────────┐
+  │ ● Ready · 8.7 GB · Updated 2h ago       │
+  │   Session: ses_01kj2cz8... [View]        │
+  └──────────────────────────────────────────┘
+
+─────────────────────────────────────────────
+```
+
+### Status display states
+
+| `DockerCacheState.Status` | Visual | Details |
+|---------------------------|--------|---------|
+| `"none"` (no golden yet) | Gray dot | "No cache yet — will build on next merge" |
+| `"building"` | Spinning indicator | "Building... Started 3 min ago [View] [Stop]" |
+| `"ready"` | Green dot | "Ready · 8.7 GB · Updated 2h ago [Delete cache]" |
+| `"failed"` | Red dot | "Failed: <error> [View session] [Retry]" |
+
+### Inline session viewer
+
+The **[View]** button opens a `DesktopStreamViewer` inline, identical to how "Test" works for startup scripts. This uses the existing `showTestSession` pattern:
+- A second column appears alongside settings showing a 16:9 stream viewer
+- Header: "Docker Cache Build" (distinct from "Test Session")
+- Same `DesktopStreamViewer` component, using `DockerCacheState.BuildSessionID`
+- User can watch the startup script running inside Ghostty in real time
+
+This reuses the existing exploratory session infrastructure — the golden build IS a real desktop session, just with `HELIX_GOLDEN_BUILD=true`. The stream shows the same Ghostty terminal the user would see in a normal session.
+
+Important: the golden build session is **separate** from the startup script test session. Both can exist simultaneously. The test session uses the exploratory session API; the golden build creates its own session with a different ID.
+
+### Delete cache
+
+A **[Delete cache]** button (shown when status is "ready" or "failed"):
+- Calls `DELETE /api/v1/projects/{id}/docker-cache`
+- API tells sandbox to `rm -rf /container-docker/golden/{projectID}/`
+- Updates `DockerCacheState` to `{ status: "none" }`
+- Useful when a bad dependency or stale artifact gets cached
+
+### Retry
+
+A **[Retry]** button (shown when status is "failed"):
+- Triggers a new golden build immediately
+- Same as toggling off and on, but without changing the setting
+
+### Copy/labels
+
+- **Toggle label**: "Pre-warm Docker cache"
+- **Description**: "If your startup script builds Docker images, this keeps a warm cache so new sessions start in ~15 seconds instead of rebuilding from scratch. The cache updates automatically when code is merged to main."
+
+### Behavior on toggle ON
+
+1. Save `auto_warm_docker_cache: true` to project metadata
+2. **Immediately trigger a golden build** — don't wait for a merge. The user wants the benefit now.
+3. Show a brief toast: "Docker cache build started. This runs your startup script and takes a few minutes."
+4. Status changes from "none" to "Building..."
+
+### Behavior on toggle OFF
+
+1. Save `auto_warm_docker_cache: false` to project metadata
+2. Do NOT delete the existing golden (it's useful until it goes stale)
+3. Stop triggering new golden builds on merge
+4. Status remains showing last known state (e.g. "Ready · 8.7 GB")
+
+### Disabled state
+
+The toggle should be **disabled** if:
+- No startup script is configured (empty `startupScript` state)
+
+With helper text: "Add a startup script first — the Docker cache is built by running it."
+
+### Files to modify
+
+| File | Change |
+|------|--------|
+| `frontend/src/pages/ProjectSettings.tsx` | Add toggle + status + inline viewer in Startup Script section |
+| `frontend/src/api/api.ts` | Regenerated via `./stack update_openapi` |
+| `api/pkg/types/project.go` | Already has `AutoWarmDockerCache` + `DockerCacheState` |
+| `api/pkg/server/project_handlers.go` | Handle update — trigger golden build on enable |
+| `api/pkg/server/project_docker_cache_handlers.go` | **New** — DELETE endpoint for cache deletion |
+| `api/pkg/hydra/golden.go` | Add `DeleteGolden(projectID)` function |
+| `api/pkg/hydra/server.go` | Add Hydra endpoint to delete golden on sandbox |
 
 ---
 
 ## Process
 
 1. Write plan to `design/2026-02-22-cold-start-optimization.md` before starting ✅
-2. All code changes in a prototype branch — no merging until full review and testing
-3. Each step is gated on the previous step's results
+2. Step 1 benchmark: 10 min cold start, compose build is 41s (not dominant) ✅
+3. Step 2 compose interception: implemented, 9.6s → 3.2s warm ✅
+4. Step 3 golden cache: copy approach working, 13.8s for 8.7 GB (43x improvement) ✅
+5. Staff review: 7 issues identified, critical ones fixed ✅
+6. Golden builds now incremental (start from previous golden) ✅
+7. Status tracking via `DockerCacheState` in project metadata ✅
+8. Next: add UI toggle + status display, test golden build trigger end-to-end
+9. All code in prototype branch — no merging until full review and testing

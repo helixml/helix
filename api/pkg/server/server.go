@@ -132,6 +132,7 @@ type HelixAPIServer struct {
 	exposedPortManager         *ExposedPortManager // Tracks exposed ports for session dev containers
 	wg                         sync.WaitGroup      // Control for goroutines to enable tests
 	summaryService             *SummaryService
+	goldenBuildService         *services.GoldenBuildService
 }
 
 func NewServer(
@@ -410,6 +411,14 @@ func NewServer(
 		apiServer.specDrivenTaskService,
 		apiServer.externalAgentExecutor, // Hydra executor for external agent management
 	)
+
+	// Initialize golden build service for Docker cache pre-warming
+	apiServer.goldenBuildService = services.NewGoldenBuildService(
+		store,
+		externalAgentExecutor,
+		apiServer.specDrivenTaskService,
+	)
+	apiServer.specTaskOrchestrator.SetGoldenBuildService(apiServer.goldenBuildService)
 
 	// Start orchestrator
 	go func() {
