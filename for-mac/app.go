@@ -812,7 +812,7 @@ func (a *App) ApplyAppUpdate() error {
 // DownloadVMUpdate downloads the new VM disk image in the background.
 func (a *App) DownloadVMUpdate() error {
 	go func() {
-		if err := a.updater.DownloadVMUpdate(a.settings, a.downloader, false); err != nil {
+		if err := a.updater.DownloadVMUpdate(a.settings, a.downloader, false, false); err != nil {
 			log.Printf("VM update download failed: %v", err)
 			wailsRuntime.EventsEmit(a.ctx, "update:vm-progress", UpdateProgress{
 				Phase: "downloading_vm",
@@ -1030,7 +1030,7 @@ func (a *App) RedownloadVMImage() error {
 	}
 
 	go func() {
-		if err := a.updater.DownloadVMUpdate(a.settings, a.downloader, true); err != nil {
+		if err := a.updater.DownloadVMUpdate(a.settings, a.downloader, true, false); err != nil {
 			log.Printf("Re-download VM image failed: %v", err)
 			wailsRuntime.EventsEmit(a.ctx, "update:vm-progress", UpdateProgress{
 				Phase: "downloading_vm",

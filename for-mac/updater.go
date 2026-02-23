@@ -326,7 +326,7 @@ func (u *Updater) StartCombinedUpdate(settings *SettingsManager, downloader *VMD
 	}
 	u.mu.Unlock()
 
-	vmErr := u.DownloadVMUpdate(settings, downloader, false)
+	vmErr := u.DownloadVMUpdate(settings, downloader, false, true)
 
 	// Clear override
 	u.mu.Lock()
@@ -334,7 +334,14 @@ func (u *Updater) StartCombinedUpdate(settings *SettingsManager, downloader *VMD
 	u.mu.Unlock()
 
 	if vmErr != nil {
-		return fmt.Errorf("VM download failed: %w", vmErr)
+		return fmt.Errorf("update failed: %w", vmErr)
+	}
+
+	// Defense-in-depth: verify the staged disk was actually created before
+	// proceeding to download the DMG and write the sentinel.
+	if !IsVMUpdateStaged() {
+		log.Printf("BUG: DownloadVMUpdate returned nil but disk.qcow2.staged does not exist for v%s", info.LatestVersion)
+		return fmt.Errorf("system update could not be prepared — please try again later")
 	}
 
 	// Phase 2: Download DMG (90-100% of overall)
@@ -511,7 +518,10 @@ func (u *Updater) ApplyAppUpdate(appCtx context.Context) error {
 // It first tries to fetch the manifest from the CDN (for app version mismatch),
 // then falls back to the bundled manifest (for post-app-update or manual install).
 // When force is true, the version check is skipped (used by RedownloadVMImage).
-func (u *Updater) DownloadVMUpdate(settings *SettingsManager, downloader *VMDownloader, force bool) error {
+// When requireCDN is true, the CDN manifest must be available — bundled fallback
+// is not used. This is set during combined updates where we know a newer version
+// exists on the CDN.
+func (u *Updater) DownloadVMUpdate(settings *SettingsManager, downloader *VMDownloader, force, requireCDN bool) error {
 	u.mu.Lock()
 	if u.vmDownloading {
 		u.mu.Unlock()
@@ -529,6 +539,7 @@ func (u *Updater) DownloadVMUpdate(settings *SettingsManager, downloader *VMDown
 	var manifest VMManifest
 
 	// Try CDN manifest first (when an app update reported a newer version)
+	var cdnErr error
 	if info.VMManifestURL != "" || info.LatestVersion != "" {
 		manifestURL := info.VMManifestURL
 		if manifestURL == "" {
@@ -540,19 +551,29 @@ func (u *Updater) DownloadVMUpdate(settings *SettingsManager, downloader *VMDown
 		if err == nil {
 			if resp.StatusCode == http.StatusOK {
 				if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
-					log.Printf("Failed to parse CDN VM manifest: %v, falling back to bundled", err)
+					cdnErr = fmt.Errorf("failed to parse CDN VM manifest: %w", err)
+					log.Printf("%v", cdnErr)
 				}
 			} else {
-				log.Printf("CDN VM manifest returned HTTP %d, falling back to bundled", resp.StatusCode)
+				cdnErr = fmt.Errorf("CDN VM manifest returned HTTP %d for %s", resp.StatusCode, manifestURL)
+				log.Printf("%v", cdnErr)
 			}
 			resp.Body.Close()
 		} else {
-			log.Printf("Failed to fetch CDN VM manifest: %v, falling back to bundled", err)
+			cdnErr = fmt.Errorf("failed to fetch CDN VM manifest at %s: %w", manifestURL, err)
+			log.Printf("%v", cdnErr)
 		}
 	}
 
-	// Fall back to bundled manifest (post-app-update or manual .app replacement)
+	// Fall back to bundled manifest (post-app-update or manual .app replacement).
+	// When requireCDN is true (combined update), we must not fall back — the
+	// bundled manifest belongs to the currently running app and its version will
+	// match InstalledVMVersion, silently skipping the download.
 	if manifest.Version == "" {
+		if requireCDN {
+			log.Printf("CDN manifest required but unavailable: %v", cdnErr)
+			return fmt.Errorf("system update is not yet available for this version — please try again later")
+		}
 		m, err := downloader.LoadManifest()
 		if err != nil || m == nil {
 			return fmt.Errorf("no VM manifest available (CDN and bundled both failed)")
@@ -615,7 +636,9 @@ func (u *Updater) DownloadVMUpdate(settings *SettingsManager, downloader *VMDown
 
 	// Save the target version so we know what we staged
 	stagedVersionPath := filepath.Join(vmDir, ".staged-version")
-	os.WriteFile(stagedVersionPath, []byte(manifest.Version), 0644)
+	if err := os.WriteFile(stagedVersionPath, []byte(manifest.Version), 0644); err != nil {
+		return fmt.Errorf("failed to write staged version file: %w", err)
+	}
 
 	u.emitVMProgress(UpdateProgress{Phase: "ready", Percent: 100})
 
