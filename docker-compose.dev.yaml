@@ -95,6 +95,12 @@ services:
       - HELIX_DEV_MODE=true # Enable dev file bind-mounts for hot-reloading
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
+      # Kodit code intelligence (in-process library)
+      - KODIT_ENABLED=true
+      - KODIT_DB_URL=postgresql://postgres:${PGVECTOR_PASSWORD-postgres}@vectorchord-kodit:5432/kodit
+      - KODIT_MODEL_DIR=/kodit-models
+      - KODIT_LLM_BASE_URL=http://localhost:8080/v1
+      - KODIT_LLM_API_KEY=${RUNNER_TOKEN-oh-hallo-insecure-token}
       # which desktop image to use for code agents
       - HELIX_DESKTOP=${HELIX_DESKTOP:-sway}
     volumes:
@@ -102,6 +108,7 @@ services:
       - ./go.sum:/app/go.sum
       - ./api:/app/api
       - ./WORKDIR_README.md:/opt/helix/WORKDIR_README.md:ro
+      - ./kodit-models:/kodit-models:ro
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
       - helix-socket:/socket
       # Go caches for faster air rebuilds (shared with runner config)
@@ -191,40 +198,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-postgres}
 
-  # Kodit code indexing service
-  kodit:
-    image: registry.helixml.tech/helix/kodit:1.0.0
-    ports:
-      - 8632:8632
-    command: ["serve"]
-    restart: always
-    depends_on:
-      - vectorchord-kodit
-      - api
-    environment:
-      - PORT=8632
-      - DATA_DIR=/data
-      - DB_URL=postgresql://postgres:${PGVECTOR_PASSWORD-postgres}@vectorchord-kodit:5432/kodit
-      - DEFAULT_SEARCH_PROVIDER=vectorchord
-      # External enrichment provider - uses Helix as proxy with runner token auth
-      - ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1
-      - ENRICHMENT_ENDPOINT_MODEL=kodit-model
-      - ENRICHMENT_ENDPOINT_API_KEY=${RUNNER_TOKEN-oh-hallo-insecure-token}
-      - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=1
-      - ENRICHMENT_ENDPOINT_TIMEOUT=120
-      - EMBEDDING_ENDPOINT_NUM_PARALLEL_TASKS=1
-      # Sync configuration
-      - SYNC_PERIODIC_ENABLED=true
-      - SYNC_PERIODIC_INTERVAL_SECONDS=1800 # 30 minutes
-      - SYNC_PERIODIC_RETRY_ATTEMPTS=3
-      - LOG_LEVEL=INFO
-      - LOG_FORMAT=json
-      - API_KEYS=${KODIT_API_KEYS:-}
-    volumes:
-      - helix-socket:/socket
-      - ${KODIT_DATA:-helix-kodit-data}:/data
-
-  # Kodit PostgreSQL database with pgvector
+  # Kodit PostgreSQL database with VectorChord (kodit library connects to this directly)
   vectorchord-kodit:
     image: tensorchord/vchord-suite:pg17-20250601
     restart: always
@@ -793,7 +767,6 @@ volumes:
   helix-postgres-db:
   helix-pgvector-db:
   helix-vectorchord-kodit:
-  helix-kodit-data:
   helix-filestore:
   helix-typesense-db:
   helix-socket:

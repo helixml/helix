@@ -92,7 +92,7 @@ steps:
         path: /go/pkg/mod
     commands:
       - apk add --no-cache gcc g++ musl-dev
-      - CGO_ENABLED=0 go build -ldflags "-s -w" -o ./helix-bin ./api
+      - CGO_ENABLED=1 go build -ldflags "-s -w" -o ./helix-bin ./api
     when:
       event:
         - push
@@ -743,16 +743,20 @@ steps:
       GITHUB_TOKEN:
         from_secret: github_token
     commands:
-      - apt-get update && apt-get install -y gcc g++ libc6-dev && rm -rf /var/lib/apt/lists/*
-      - go install github.com/mitchellh/gox@latest
       - |
         if [ -n "$DRONE_TAG" ]; then
           VERSION_FLAG="-X github.com/helixml/helix/api/pkg/data.Version=$DRONE_TAG"
         else
           VERSION_FLAG=""
         fi
-        # Build CLI binary (no CGO dependencies) for all platforms
-        CGO_ENABLED=0 gox -osarch="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64" -ldflags "-w -s $VERSION_FLAG" -output="helix-{{.OS}}-{{.Arch}}"
+        # Build CLI binary (nokodit tag excludes kodit CGO dependencies) for all platforms
+        for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+          os=$(echo "$target" | cut -d/ -f1)
+          arch=$(echo "$target" | cut -d/ -f2)
+          ext=""; [ "$os" = "windows" ] && ext=".exe"
+          echo "Building helix-$os-$arch$ext"
+          CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -tags nokodit -ldflags "-w -s $VERSION_FLAG" -o "helix-$os-$arch$ext" .
+        done
       - ./helix-linux-amd64 version
       - apt-get update && apt-get install -y curl
       - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
@@ -796,7 +800,7 @@ steps:
       - name: go-mod-cache
         path: /go/pkg/mod
     commands:
-      - cd operator && golangci-lint run
+      - cd operator && golangci-lint run ./...
     when:
       event:
         - push

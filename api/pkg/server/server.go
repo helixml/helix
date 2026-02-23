@@ -118,7 +118,8 @@ type HelixAPIServer struct {
 	specDrivenTaskService     *services.SpecDrivenTaskService
 	sampleProjectCodeService  *services.SampleProjectCodeService
 	gitRepositoryService      *services.GitRepositoryService
-	koditService              *services.KoditService
+	koditService services.KoditServicer
+	kodit        *koditResult
 	mcpGateway                *MCPGateway
 	gitHTTPServer             *services.GitHTTPServer
 	// Rate limiting for streaming connections
@@ -352,19 +353,13 @@ func NewServer(
 		}
 	}
 
-	// Initialize Kodit Service for code intelligence
-	if cfg.Kodit.Enabled && apiServer.gitRepositoryService != nil {
-		apiServer.koditService = services.NewKoditService(cfg.Kodit.BaseURL, cfg.Kodit.APIKey)
-		apiServer.gitRepositoryService.SetKoditService(apiServer.koditService)
-		apiServer.gitRepositoryService.SetKoditGitURL(cfg.Kodit.GitURL)
-		log.Info().
-			Str("kodit_base_url", cfg.Kodit.BaseURL).
-			Str("kodit_git_url", cfg.Kodit.GitURL).
-			Msg("Initialized Kodit code intelligence service")
-	} else {
-		apiServer.koditService = services.NewKoditService("", "") // Disabled instance
-		log.Info().Msg("Kodit code intelligence service disabled")
+	// Initialize Kodit code intelligence library (in-process)
+	kr, err := initKodit(cfg, apiServer.gitRepositoryService)
+	if err != nil {
+		return nil, err
 	}
+	apiServer.kodit = kr
+	apiServer.koditService = kr.service
 
 	// Initialize MCP Gateway for authenticated MCP proxying
 	apiServer.mcpGateway = NewMCPGateway()
@@ -373,7 +368,7 @@ func NewServer(
 	apiServer.initExposedPortManager()
 
 	// Register Kodit MCP backend (code intelligence)
-	apiServer.mcpGateway.RegisterBackend("kodit", NewKoditMCPBackend(&cfg.Kodit))
+	apiServer.mcpGateway.RegisterBackend("kodit", kr.mcpBackend)
 
 	// Register Helix native MCP backend (APIs, Knowledge, Zapier)
 	apiServer.mcpGateway.RegisterBackend("helix", NewHelixMCPBackend(store, appController))
@@ -470,6 +465,15 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 
 	// Ensure MCP gateway cleanup on shutdown
 	defer apiServer.mcpGateway.Stop()
+
+	// Close kodit client on shutdown
+	if apiServer.kodit != nil && apiServer.kodit.closer != nil {
+		defer func() {
+			if err := apiServer.kodit.closer.Close(); err != nil {
+				log.Error().Err(err).Msg("failed to close kodit client")
+			}
+		}()
+	}
 
 	// Seed models from environment variables
 	if err := apiServer.Store.SeedModelsFromEnvironment(ctx); err != nil {

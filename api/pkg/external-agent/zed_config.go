@@ -578,8 +578,8 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 		log.Warn().Msg("RUNNER_TOKEN not set, Zed MCP tools may not work")
 	}
 
-	// Check if Kodit is enabled (defaults to true)
-	koditEnabled := os.Getenv("KODIT_ENABLED") != "false"
+	// Check if Kodit is enabled (defaults to false)
+	koditEnabled := os.Getenv("KODIT_ENABLED") == "true"
 
 	// Create OAuth token getter that looks up tokens from the store
 	oauthTokenGetter := func(ctx context.Context, userID, providerName string) (string, error) {
