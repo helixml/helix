@@ -1472,13 +1472,14 @@ func (dm *DevContainerManager) GetContainerBlkioStats(ctx context.Context, sessi
 		return nil, fmt.Errorf("failed to decode container stats: %w", err)
 	}
 
-	// Sum write and read bytes across all block devices
+	// Sum write and read bytes across all block devices.
+	// Op is titlecase ("Write"/"Read") on cgroup v1, lowercase ("write"/"read") on cgroup v2.
 	var writeBytes, readBytes uint64
 	for _, entry := range stats.BlkioStats.IoServiceBytesRecursive {
-		switch entry.Op {
-		case "Write":
+		switch strings.ToLower(entry.Op) {
+		case "write":
 			writeBytes += entry.Value
-		case "Read":
+		case "read":
 			readBytes += entry.Value
 		}
 	}
