@@ -555,11 +555,6 @@ func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *type
 		return nil
 	}
 
-	log.Debug().
-		Str("task_id", task.ID).
-		Str("pr_id", task.PullRequestID).
-		Msg("Polling external PR status")
-
 	return o.processExternalPullRequestStatus(ctx, task)
 }
 
@@ -649,6 +644,7 @@ func (o *SpecTaskOrchestrator) prPollLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			o.pollPullRequests(ctx)
+			o.detectExternalPRActivity(ctx)
 		}
 	}
 }
@@ -661,10 +657,6 @@ func (o *SpecTaskOrchestrator) pollPullRequests(ctx context.Context) {
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list PR tasks for polling")
 		return
-	}
-
-	if len(tasks) > 0 {
-		log.Debug().Int("count", len(tasks)).Msg("Polling external PR status for tasks")
 	}
 
 	for _, task := range tasks {
@@ -684,6 +676,183 @@ func (o *SpecTaskOrchestrator) pollPullRequests(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// detectExternalPRActivity checks tasks in spec_review or implementation status for:
+// 1. Externally-opened PRs that should move the task to pull_request status
+// 2. Branches that have been merged to main, moving the task to done status
+// This handles cases where PRs are created/merged outside the normal Helix workflow.
+func (o *SpecTaskOrchestrator) detectExternalPRActivity(ctx context.Context) {
+	// Get tasks in spec_review or implementation status that have a branch but no PR tracked
+	statuses := []types.SpecTaskStatus{
+		types.TaskStatusSpecReview,
+		types.TaskStatusImplementation,
+	}
+
+	var tasksToCheck []*types.SpecTask
+	for _, status := range statuses {
+		tasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+			Status: status,
+		})
+		if err != nil {
+			log.Error().Err(err).Str("status", string(status)).Msg("Failed to list tasks for external PR detection")
+			continue
+		}
+		tasksToCheck = append(tasksToCheck, tasks...)
+	}
+
+	// Filter to tasks with a branch but no PullRequestID
+	var eligibleTasks []*types.SpecTask
+	for _, task := range tasksToCheck {
+		if task.BranchName != "" && task.PullRequestID == "" {
+			eligibleTasks = append(eligibleTasks, task)
+		}
+	}
+
+	if len(eligibleTasks) == 0 {
+		return
+	}
+
+	// Rate limit: process max 10 tasks per poll cycle
+	maxTasks := 10
+	if len(eligibleTasks) > maxTasks {
+		log.Debug().Int("total", len(eligibleTasks)).Int("processing", maxTasks).Msg("Rate limiting external PR detection")
+		eligibleTasks = eligibleTasks[:maxTasks]
+	}
+
+	log.Debug().Int("count", len(eligibleTasks)).Msg("Checking tasks for external PR activity")
+
+	for _, task := range eligibleTasks {
+		err := o.checkTaskForExternalPRActivity(ctx, task)
+		if err != nil {
+			// Don't spam logs for deleted projects
+			if strings.Contains(err.Error(), "record not found") || strings.Contains(err.Error(), "not found") {
+				log.Trace().
+					Err(err).
+					Str("task_id", task.ID).
+					Msg("Task references deleted project - skipping external PR check")
+			} else {
+				log.Warn().
+					Err(err).
+					Str("task_id", task.ID).
+					Msg("Failed to check task for external PR activity")
+			}
+		}
+	}
+}
+
+// checkTaskForExternalPRActivity checks a single task for external PR activity
+func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Context, task *types.SpecTask) error {
+	project, err := o.store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		return fmt.Errorf("failed to get project: %w", err)
+	}
+
+	if project.DefaultRepoID == "" {
+		return nil // No repo to check
+	}
+
+	repo, err := o.gitService.GetRepository(ctx, project.DefaultRepoID)
+	if err != nil {
+		return fmt.Errorf("failed to get repository: %w", err)
+	}
+
+	// Only check external repos - internal repos use git hooks for merge detection
+	if !repo.IsExternal {
+		return nil
+	}
+
+	// First: check for open PRs on this branch
+	prs, err := o.gitService.ListPullRequests(ctx, project.DefaultRepoID)
+	if err != nil {
+		log.Debug().Err(err).Str("repo_id", project.DefaultRepoID).Msg("Failed to list PRs, skipping")
+		// Don't return error - PR listing might fail for various reasons
+	} else {
+		branchRef := "refs/heads/" + task.BranchName
+		for _, pr := range prs {
+			// Check if PR is open and matches our branch
+			if pr.State == types.PullRequestStateOpen &&
+				(pr.SourceBranch == branchRef || pr.SourceBranch == task.BranchName) {
+				// Found an open PR - link it and transition to pull_request status
+				log.Info().
+					Str("task_id", task.ID).
+					Str("pr_id", pr.ID).
+					Str("pr_title", pr.Title).
+					Str("branch", task.BranchName).
+					Msg("Detected externally-opened PR, moving task to pull_request status")
+
+				task.PullRequestID = pr.ID
+				task.PullRequestURL = pr.URL
+				task.Status = types.TaskStatusPullRequest
+				task.UpdatedAt = time.Now()
+				return o.store.UpdateSpecTask(ctx, task)
+			}
+
+			// Check if PR is already merged
+			if pr.State == types.PullRequestStateMerged &&
+				(pr.SourceBranch == branchRef || pr.SourceBranch == task.BranchName) {
+				// PR was merged - transition to done
+				log.Info().
+					Str("task_id", task.ID).
+					Str("pr_id", pr.ID).
+					Str("branch", task.BranchName).
+					Msg("Detected merged PR, moving task to done status")
+
+				now := time.Now()
+				task.PullRequestID = pr.ID
+				task.PullRequestURL = pr.URL
+				task.Status = types.TaskStatusDone
+				task.MergedToMain = true
+				task.MergedAt = &now
+				task.CompletedAt = &now
+				task.UpdatedAt = now
+				return o.store.UpdateSpecTask(ctx, task)
+			}
+		}
+	}
+
+	// Second: check if branch has been merged to main (handles cases where PR was
+	// squash-merged or branch was deleted after merge)
+	// First try using the branch name
+	merged, err := o.gitService.IsBranchMerged(ctx, project.DefaultRepoID, task.BranchName, repo.DefaultBranch)
+	if err != nil {
+		// Branch might not exist locally - try using LastPushCommitHash if available
+		if task.LastPushCommitHash != "" {
+			merged, err = o.gitService.IsCommitInBranch(ctx, project.DefaultRepoID, task.LastPushCommitHash, repo.DefaultBranch)
+			if err != nil {
+				log.Debug().
+					Err(err).
+					Str("task_id", task.ID).
+					Str("commit", task.LastPushCommitHash).
+					Msg("Failed to check if commit is in main branch")
+				return nil // Don't break polling
+			}
+		} else {
+			log.Debug().
+				Err(err).
+				Str("task_id", task.ID).
+				Str("branch", task.BranchName).
+				Msg("Failed to check if branch is merged and no LastPushCommitHash available")
+			return nil // Don't break polling
+		}
+	}
+
+	if merged {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("branch", task.BranchName).
+			Msg("Detected merged branch (no PR found), moving task to done status")
+
+		now := time.Now()
+		task.Status = types.TaskStatusDone
+		task.MergedToMain = true
+		task.MergedAt = &now
+		task.CompletedAt = &now
+		task.UpdatedAt = now
+		return o.store.UpdateSpecTask(ctx, task)
+	}
+
+	return nil
 }
 
 // buildPlanningPrompt builds the system prompt for planning phase with complete git workflow

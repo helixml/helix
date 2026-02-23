@@ -43,6 +43,13 @@ var updateSpecTaskParameters = jsonschema.Definition{
 			Description: "New priority: low, medium, high, critical (optional)",
 			Enum:        []string{"low", "medium", "high", "critical"},
 		},
+		"depends_on": {
+			Type:        jsonschema.Array,
+			Description: "Optional list of task IDs that this task depends on",
+			Items: &jsonschema.Definition{
+				Type: jsonschema.String,
+			},
+		},
 	},
 	Required: []string{"task_id"},
 }
@@ -166,6 +173,22 @@ func (t *UpdateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 	if priority, ok := args["priority"].(string); ok && priority != "" {
 		task.Priority = types.SpecTaskPriority(priority)
 		updatedFields = append(updatedFields, "priority")
+	}
+
+	if rawDependsOn, hasDependsOn := args["depends_on"]; hasDependsOn {
+		dependsOn, err := parseSpecTaskDependsOnArg(rawDependsOn)
+		if err != nil {
+			return "", err
+		}
+
+		for _, dependencyTask := range dependsOn {
+			if dependencyTask.ID == task.ID {
+				return "", fmt.Errorf("depends_on cannot include the task itself")
+			}
+		}
+
+		task.DependsOn = dependsOn
+		updatedFields = append(updatedFields, "depends_on")
 	}
 
 	if len(updatedFields) == 0 {

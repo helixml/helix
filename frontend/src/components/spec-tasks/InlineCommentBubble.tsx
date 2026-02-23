@@ -1,25 +1,33 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react'
-import { Paper, Box, Chip, IconButton, Typography, CircularProgress, Button } from '@mui/material'
-import CloseIcon from '@mui/icons-material/Close'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import ExpandLessIcon from '@mui/icons-material/ExpandLess'
-import InteractionMarkdown from '../session/Markdown'
-import { DesignReviewComment } from '../../services/designReviewService'
-import { TypesSession } from '../../api/api'
+import React, { useState, useMemo, useRef, useEffect } from "react";
+import {
+  Paper,
+  Box,
+  Chip,
+  IconButton,
+  Typography,
+  CircularProgress,
+  Button,
+} from "@mui/material";
+import CloseIcon from "@mui/icons-material/Close";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import InteractionMarkdown from "../session/Markdown";
+import { DesignReviewComment } from "../../services/designReviewService";
+import { TypesSession } from "../../api/api";
 
 // Empty session object for markdown rendering (no RAG/citation features needed)
-const EMPTY_SESSION: TypesSession = {}
+const EMPTY_SESSION: TypesSession = {};
 
 interface InlineCommentBubbleProps {
-  comment: DesignReviewComment
-  yPos: number
-  onResolve: (commentId: string) => void
-  commentRef?: (el: HTMLDivElement | null) => void
-  streamingResponse?: string // Live streaming response content
+  comment: DesignReviewComment;
+  yPos: number;
+  onResolve: (commentId: string) => void;
+  commentRef?: (el: HTMLDivElement | null) => void;
+  streamingResponse?: string; // Live streaming response content
 }
 
 // Number of lines to show when collapsed
-const COLLAPSED_LINES = 4
+const COLLAPSED_LINES = 4;
 
 export default function InlineCommentBubble({
   comment,
@@ -28,55 +36,62 @@ export default function InlineCommentBubble({
   commentRef,
   streamingResponse,
 }: InlineCommentBubbleProps) {
-  const [isExpanded, setIsExpanded] = useState(false)
-  const contentRef = useRef<HTMLDivElement>(null)
+  const [isExpanded, setIsExpanded] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   // Use streaming response if available, otherwise fall back to persisted response
-  const displayResponse = streamingResponse || comment.agent_response
-  const isStreaming = !!streamingResponse && !comment.agent_response
+  const displayResponse = streamingResponse || comment.agent_response;
+  const isStreaming = !!streamingResponse && !comment.agent_response;
 
   // Get the last N lines for collapsed view
   const { truncatedResponse, isTruncated, lineCount } = useMemo(() => {
-    if (!displayResponse) return { truncatedResponse: '', isTruncated: false, lineCount: 0 }
-    const lines = displayResponse.split('\n')
-    const lineCount = lines.length
+    if (!displayResponse)
+      return { truncatedResponse: "", isTruncated: false, lineCount: 0 };
+    // Trim trailing whitespace to avoid showing empty lines in collapsed view
+    const lines = displayResponse.trimEnd().split("\n");
+    const lineCount = lines.length;
     if (lines.length <= COLLAPSED_LINES) {
-      return { truncatedResponse: displayResponse, isTruncated: false, lineCount }
+      return {
+        truncatedResponse: displayResponse,
+        isTruncated: false,
+        lineCount,
+      };
     }
     // Show the last N lines when collapsed
-    const lastLines = lines.slice(-COLLAPSED_LINES).join('\n')
-    return { truncatedResponse: lastLines, isTruncated: true, lineCount }
-  }, [displayResponse])
+    const lastLines = lines.slice(-COLLAPSED_LINES).join("\n");
+    return { truncatedResponse: lastLines, isTruncated: true, lineCount };
+  }, [displayResponse]);
 
   // Auto-scroll to bottom when content is truncated (showing last N lines)
   useEffect(() => {
     if (contentRef.current && !isExpanded) {
-      contentRef.current.scrollTop = contentRef.current.scrollHeight
+      contentRef.current.scrollTop = contentRef.current.scrollHeight;
     }
-  }, [truncatedResponse, isExpanded])
+  }, [truncatedResponse, isExpanded]);
   return (
     <Paper
       ref={commentRef}
       sx={{
-        position: 'absolute',
-        left: '670px',
+        position: "absolute",
+        left: "670px",
         top: `${yPos}px`,
-        width: '300px',
+        width: "300px",
         p: 2,
-        bgcolor: 'background.paper',
+        bgcolor: "background.paper",
         border: 2,
-        borderColor: 'warning.main',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+        borderColor: "warning.main",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
         zIndex: 10,
-        transition: 'top 0.3s ease-in-out',
+        transition: "top 0.3s ease-in-out",
       }}
     >
-      <Box display="flex" alignItems="flex-start" justifyContent="space-between" mb={1}>
-        <Chip
-          label="Comment"
-          size="small"
-          color="primary"
-        />
+      <Box
+        display="flex"
+        alignItems="flex-start"
+        justifyContent="space-between"
+        mb={1}
+      >
+        <Chip label="Comment" size="small" color="primary" />
         <IconButton size="small" onClick={() => onResolve(comment.id!)}>
           <CloseIcon fontSize="small" />
         </IconButton>
@@ -85,20 +100,24 @@ export default function InlineCommentBubble({
       {comment.quoted_text && (
         <Box
           sx={{
-            bgcolor: 'action.hover',
+            bgcolor: "action.hover",
             p: 1,
-            borderLeft: '3px solid',
-            borderColor: 'primary.main',
+            borderLeft: "3px solid",
+            borderColor: "primary.main",
             mb: 1,
-            fontStyle: 'italic',
-            fontSize: '0.75rem',
+            fontStyle: "italic",
+            fontSize: "0.75rem",
           }}
         >
-          "{comment.quoted_text.length > 100 ? comment.quoted_text.substring(0, 100) + '...' : comment.quoted_text}"
+          "
+          {comment.quoted_text.length > 100
+            ? comment.quoted_text.substring(0, 100) + "..."
+            : comment.quoted_text}
+          "
         </Box>
       )}
 
-      <Typography variant="body2" sx={{ mb: 1, fontSize: '0.875rem' }}>
+      <Typography variant="body2" sx={{ mb: 1, fontSize: "0.875rem" }}>
         {comment.comment_text}
       </Typography>
 
@@ -108,15 +127,19 @@ export default function InlineCommentBubble({
           sx={{
             mt: 2,
             p: 1,
-            bgcolor: 'action.hover',
+            bgcolor: "action.hover",
             borderRadius: 1,
-            display: 'flex',
-            alignItems: 'center',
+            display: "flex",
+            alignItems: "center",
             gap: 1,
           }}
         >
           <CircularProgress size={12} />
-          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontSize: "0.7rem" }}
+          >
             Waiting for agent response...
           </Typography>
         </Box>
@@ -127,21 +150,34 @@ export default function InlineCommentBubble({
           sx={{
             mt: 2,
             p: 1.5,
-            bgcolor: 'action.hover',
-            borderLeft: '3px solid',
-            borderColor: isStreaming ? 'warning.main' : 'success.main',
+            bgcolor: "action.hover",
+            borderLeft: "3px solid",
+            borderColor: isStreaming ? "warning.main" : "success.main",
             borderRadius: 1,
           }}
         >
-          <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
+          <Box
+            display="flex"
+            alignItems="center"
+            justifyContent="space-between"
+            mb={0.5}
+          >
             <Box display="flex" alignItems="center" gap={1}>
-              <Typography variant="caption" color="text.primary" fontWeight="bold">
+              <Typography
+                variant="caption"
+                color="text.primary"
+                fontWeight="bold"
+              >
                 Agent:
               </Typography>
               {isStreaming && (
                 <Box display="flex" alignItems="center" gap={0.5}>
                   <CircularProgress size={10} />
-                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ fontSize: "0.65rem" }}
+                  >
                     typing...
                   </Typography>
                 </Box>
@@ -151,48 +187,68 @@ export default function InlineCommentBubble({
               <Button
                 size="small"
                 onClick={() => setIsExpanded(!isExpanded)}
-                sx={{ minWidth: 0, p: 0.25, fontSize: '0.65rem' }}
-                endIcon={isExpanded ? <ExpandLessIcon sx={{ fontSize: 14 }} /> : <ExpandMoreIcon sx={{ fontSize: 14 }} />}
+                sx={{ minWidth: 0, p: 0.25, fontSize: "0.65rem" }}
+                endIcon={
+                  isExpanded ? (
+                    <ExpandLessIcon sx={{ fontSize: 14 }} />
+                  ) : (
+                    <ExpandMoreIcon sx={{ fontSize: 14 }} />
+                  )
+                }
               >
-                {isExpanded ? 'Less' : `${lineCount} lines`}
+                {isExpanded ? "Less" : `${lineCount} lines`}
               </Button>
             )}
           </Box>
           {isTruncated && !isExpanded && (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontSize: '0.65rem' }}>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: "block", mb: 0.5, fontSize: "0.65rem" }}
+            >
               ...showing last {COLLAPSED_LINES} lines
             </Typography>
           )}
           <Box
             ref={contentRef}
             sx={{
-              maxHeight: isExpanded ? 'none' : '120px',
-              overflow: isExpanded ? 'visible' : 'auto',
+              maxHeight: isExpanded ? "none" : "120px",
+              overflow: isExpanded ? "visible" : "auto",
               // Scale down the InteractionMarkdown styles for compact display
-              '& > div': { fontSize: '0.75rem' },
-              '& pre': { p: 0.5, fontSize: '0.7rem' },
-              '& code': { fontSize: '0.7rem' },
+              "& > div": { fontSize: "0.75rem" },
+              "& pre": { p: 0.5, fontSize: "0.7rem" },
+              "& code": { fontSize: "0.7rem" },
             }}
           >
             <InteractionMarkdown
               text={isExpanded ? displayResponse : truncatedResponse}
               session={EMPTY_SESSION}
-              getFileURL={() => '#'}
+              getFileURL={() => "#"}
               isStreaming={isStreaming}
               showBlinker={isStreaming}
             />
           </Box>
           {comment.agent_response_at && !isStreaming && (
-            <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              display="block"
+              mt={0.5}
+            >
               {new Date(comment.agent_response_at).toLocaleString()}
             </Typography>
           )}
         </Box>
       )}
 
-      <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        display="block"
+        mt={1}
+      >
         {new Date(comment.created_at).toLocaleString()}
       </Typography>
     </Paper>
-  )
+  );
 }

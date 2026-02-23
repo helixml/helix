@@ -164,7 +164,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			}
 
 			// Set model for session name generation based on agent type
-			if assistant.IsAgentMode() {
+			if assistant.AgentType == types.AgentTypeHelixAgent {
 				// For agent mode, use small generation model
 				generateSessionNameProvider = assistant.SmallGenerationModelProvider
 				generateSessionNameModel = assistant.SmallGenerationModel
@@ -877,7 +877,7 @@ func (s *HelixAPIServer) handleBlockingSession(
 			Str("agent_type", session.Metadata.AgentType).
 			Msg("Routing non-streaming session to external agent")
 
-		return s.handleExternalAgentStreaming(ctx, user, session, interaction, chatCompletionRequest, rw, start)
+		return s.handleExternalAgentStreaming(ctx, session, chatCompletionRequest, rw, start)
 	}
 
 	// Call the LLM
@@ -984,7 +984,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 			Str("agent_type", session.Metadata.AgentType).
 			Msg("Routing session to external agent")
 
-		return s.handleExternalAgentStreaming(ctx, user, session, interaction, chatCompletionRequest, rw, start)
+		return s.handleExternalAgentStreaming(ctx, session, chatCompletionRequest, rw, start)
 	}
 
 	// Instruct the agent to send thoughts about tools and decisions
@@ -1151,202 +1151,71 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	return nil
 }
 
-// handleExternalAgentStreaming routes chat messages to external Zed agent via WebSocket
-func (s *HelixAPIServer) handleExternalAgentStreaming(ctx context.Context, user *types.User, session *types.Session, interaction *types.Interaction, chatCompletionRequest openai.ChatCompletionRequest, rw http.ResponseWriter, start time.Time) error {
-	// Check if external agent executor is available
-	if s.externalAgentExecutor == nil {
-		log.Error().Str("session_id", session.ID).Msg("External agent executor not available")
-		return s.writeErrorResponse(rw, "External agent not available")
+// handleExternalAgentStreaming routes chat messages to external Zed agent via WebSocket.
+// For stream=true, it streams chunks to SSE. For stream=false, it returns a full JSON response.
+func (s *HelixAPIServer) handleExternalAgentStreaming(ctx context.Context, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, rw http.ResponseWriter, start time.Time) error {
+	mode := controller.ExternalAgentModeStreaming
+	if !chatCompletionRequest.Stream {
+		mode = controller.ExternalAgentModeBlocking
 	}
 
-	// Get the external agent session
-	agentSession, err := s.externalAgentExecutor.GetSession(session.ID)
+	result, err := s.Controller.RunExternalAgent(ctx, controller.RunExternalAgentRequest{
+		Session:               session,
+		ChatCompletionRequest: chatCompletionRequest,
+		Mode:                  mode,
+		Start:                 start,
+	})
 	if err != nil {
-		log.Error().Err(err).Str("session_id", session.ID).Msg("External agent session not found")
-		return s.writeErrorResponse(rw, "External agent session not found")
-	}
-
-	// Ensure model parameter is set in chatCompletionRequest
-	if chatCompletionRequest.Model == "" {
-		// Use a default model for external agents or get from session metadata
-		chatCompletionRequest.Model = "gpt-4" // Default model for external agents
-		log.Debug().Str("session_id", session.ID).Str("model", chatCompletionRequest.Model).Msg("Set default model for external agent")
-	}
-
-	// Extract the user's message from the chat completion request
-	var userMessage string
-	if len(chatCompletionRequest.Messages) > 0 {
-		lastMessage := chatCompletionRequest.Messages[len(chatCompletionRequest.Messages)-1]
-		if lastMessage.Role == "user" {
-			// Handle both simple content (string) and multi-content (complex structure)
-			if lastMessage.Content != "" {
-				userMessage = lastMessage.Content
-			} else if len(lastMessage.MultiContent) > 0 {
-				// Extract text from multi-content parts
-				for _, part := range lastMessage.MultiContent {
-					if part.Type == openai.ChatMessagePartTypeText {
-						userMessage += part.Text
-					}
-				}
-			}
+		log.Error().Err(err).Str("session_id", session.ID).Msg("external agent request failed")
+		if mode == controller.ExternalAgentModeBlocking {
+			http.Error(rw, fmt.Sprintf("external agent error: %s", err.Error()), http.StatusInternalServerError)
+			return nil
 		}
+		return s.writeErrorResponse(rw, err.Error())
 	}
 
-	if userMessage == "" {
-		log.Error().Str("session_id", session.ID).Msg("No user message found in chat completion request")
-		return s.writeErrorResponse(rw, "No user message found")
+	if mode == controller.ExternalAgentModeBlocking {
+		response := &openai.ChatCompletionResponse{
+			ID:     session.ID,
+			Object: "chat.completion",
+			Model:  result.Model,
+			Choices: []openai.ChatCompletionChoice{
+				{
+					Index: 0,
+					Message: openai.ChatCompletionMessage{
+						Role:    openai.ChatMessageRoleAssistant,
+						Content: result.FullResponse,
+					},
+					FinishReason: openai.FinishReasonStop,
+				},
+			},
+		}
+
+		rw.Header().Set("Content-Type", "application/json")
+		rw.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(rw).Encode(response); err != nil {
+			log.Err(err).Msg("error writing response")
+		}
+		return nil
 	}
 
-	log.Info().
-		Str("session_id", session.ID).
-		Str("user_message", userMessage).
-		Str("agent_session_status", agentSession.Status).
-		Msg("Sending message to external Zed agent")
-
-	// Send message to external agent via WebSocket and stream response back
-	return s.streamFromExternalAgent(ctx, session, userMessage, chatCompletionRequest, rw)
-}
-
-// streamFromExternalAgent sends a message to the external agent and streams the response
-func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *types.Session, userMessage string, chatCompletionRequest openai.ChatCompletionRequest, rw http.ResponseWriter) error {
-	// Get the last interaction to update with the response
-	if len(session.Interactions) == 0 {
-		log.Error().Str("session_id", session.ID).Msg("No interactions found in session")
-		return fmt.Errorf("no interactions found in session")
+	if result.Stream == nil {
+		return s.writeErrorResponse(rw, "external agent stream not available")
 	}
 
-	interaction := session.Interactions[len(session.Interactions)-1]
-	start := time.Now()
-
-	// Wait for external agent to be ready (WebSocket connection established)
-	// Extended timeout to allow time for desktop container to start
-	if err := s.waitForExternalAgentReady(ctx, session.ID, 300*time.Second); err != nil {
-		log.Error().Err(err).Str("session_id", session.ID).Msg("External agent not ready")
-
-		// Update interaction with error
-		interaction.Error = fmt.Sprintf("External agent not ready: %s", err.Error())
-		interaction.State = types.InteractionStateError
-		interaction.Completed = time.Now()
-		interaction.DurationMs = int(time.Since(start).Milliseconds())
-		s.Controller.UpdateInteraction(ctx, session, interaction)
-
-		http.Error(rw, fmt.Sprintf("External agent not ready: %s", err.Error()), http.StatusServiceUnavailable)
-		return err
-	}
-
-	// Generate unique request ID for tracking
-	requestID := fmt.Sprintf("req_%d", time.Now().UnixNano())
-
-	// Determine which agent to use based on the spec task's code agent config
-	agentName := s.getAgentNameForSession(ctx, session)
-
-	// DIAGNOSTIC: Log this code path with distinctive marker
-	log.Warn().
-		Str("session_id", session.ID).
-		Str("interaction_id", interaction.ID).
-		Str("request_id", requestID).
-		Str("zed_thread_id", session.Metadata.ZedThreadID).
-		Msg("🔵 [DIAG] streamFromExternalAgent CALLED - PATH B (NO role field)")
-
-	// Send chat message to external agent
-	// NEW PROTOCOL: Use acp_thread_id instead of zed_context_id
-	command := types.ExternalAgentCommand{
-		Type: "chat_message",
-		Data: map[string]interface{}{
-			"acp_thread_id": session.Metadata.ZedThreadID, // ACP thread ID (null on first message, triggers thread creation)
-			"message":       userMessage,
-			"request_id":    requestID, // For correlation
-			"agent_name":    agentName, // Which agent to use (zed-agent or qwen)
-			// NOTE: helix_session_id is sent via SyncMessage.SessionID, not in Data
-		},
-	}
-
-	// Set up legacy channel handling for external agent communication
-	responseChan := make(chan string, 100)
-	doneChan := make(chan bool, 1)
-	errorChan := make(chan error, 1)
-
-	// Store response channel with request ID (would use proper storage in production)
-	s.storeResponseChannel(session.ID, requestID, responseChan, doneChan, errorChan)
-	defer s.cleanupResponseChannel(session.ID, requestID)
-
-	// CRITICAL: Store session->interaction mapping so message_added can find the right interaction
-	if s.sessionToWaitingInteraction == nil {
-		s.sessionToWaitingInteraction = make(map[string]string)
-	}
-	// DIAGNOSTIC: Check if we're overwriting an existing mapping (potential bug!)
-	s.contextMappingsMutex.Lock()
-	oldInteractionID, wasOverwritten := s.sessionToWaitingInteraction[session.ID]
-	s.sessionToWaitingInteraction[session.ID] = interaction.ID
-	s.contextMappingsMutex.Unlock()
-	if wasOverwritten && oldInteractionID != interaction.ID {
-		log.Warn().
-			Str("session_id", session.ID).
-			Str("old_interaction_id", oldInteractionID).
-			Str("new_interaction_id", interaction.ID).
-			Msg("⚠️ [DIAG] sessionToWaitingInteraction OVERWRITTEN - responses to old interaction may go to wrong place!")
-	}
-	log.Info().
-		Str("session_id", session.ID).
-		Str("interaction_id", interaction.ID).
-		Msg("🔗 [HELIX] Stored session->interaction mapping for streaming request")
-
-	// CRITICAL: Store request_id->session mapping so thread_created can find the right session
-	if s.requestToSessionMapping == nil {
-		s.requestToSessionMapping = make(map[string]string)
-	}
-	s.requestToSessionMapping[requestID] = session.ID
-	log.Info().
-		Str("request_id", requestID).
-		Str("session_id", session.ID).
-		Msg("🔗 [HELIX] Stored request_id->session mapping for thread creation")
-
-	log.Info().
-		Str("session_id", session.ID).
-		Str("request_id", requestID).
-		Interface("command", command).
-		Msg("🔴 [HELIX] SENDING CHAT_MESSAGE COMMAND TO EXTERNAL AGENT")
-
-	log.Info().
-		Str("helix_session_id", session.ID).
-		Str("request_id", requestID).
-		Str("user_message", userMessage).
-		Msg("🗂️  [HELIX] SESSION MAPPING: Chat request details")
-
-	// Send command to external agent
-	if err := s.sendCommandToExternalAgent(session.ID, command); err != nil {
-		log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to send command to external agent")
-		http.Error(rw, fmt.Sprintf("Failed to send command to external agent: %s", err.Error()), http.StatusInternalServerError)
-		return err
-	}
-
-	log.Info().
-		Str("session_id", session.ID).
-		Str("request_id", requestID).
-		Str("message", userMessage).
-		Msg("Sent message to external agent")
-
-	// Accumulate the full response for updating the interaction
-	var fullResponse string
-
-	// Create timeout timer ONCE before loop (not on each iteration)
-	// This prevents multiple timers from being created
-	timeout := time.NewTimer(90 * time.Second)
-	defer timeout.Stop()
-
-	// Stream response chunks as they arrive
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case chunk := <-responseChan:
-			// Accumulate the response
-			fullResponse += chunk
+		case chunk, ok := <-result.Stream.Chunks:
+			if !ok {
+				continue
+			}
 
-			response := &openai.ChatCompletionStreamResponse{
+			streamResponse := &openai.ChatCompletionStreamResponse{
 				Object: "chat.completion.chunk",
 				ID:     session.ID,
-				Model:  chatCompletionRequest.Model,
+				Model:  result.Model,
 				Choices: []openai.ChatCompletionStreamChoice{
 					{
 						Index: 0,
@@ -1356,64 +1225,19 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 					},
 				},
 			}
-
-			bts, err := json.Marshal(response)
-			if err != nil {
-				log.Error().Err(err).Msg("failed to marshal response")
+			bts, marshalErr := json.Marshal(streamResponse)
+			if marshalErr != nil {
+				log.Error().Err(marshalErr).Msg("failed to marshal stream response")
 				continue
 			}
-
-			if err := writeChunk(rw, bts); err != nil {
-				log.Error().Err(err).Msg("failed to write chunk")
-				return err
+			if writeErr := writeChunk(rw, bts); writeErr != nil {
+				return writeErr
 			}
-
-		case <-doneChan:
-			// CRITICAL: Stop the timeout timer to prevent it from firing after completion
-			timeout.Stop()
-			// CRITICAL: For external agent flow, the response was already saved to DB by handleMessageAdded
-			// We need to RELOAD the interaction from DB to get the final response, not use fullResponse
-			// which is only accumulated from responseChan (unused in external agent flow)
-
-			// Reload the interaction from database to get the final response
-			reloadCtx, cancelReload := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancelReload()
-
-			reloadedInteraction, err := s.Controller.Options.Store.GetInteraction(reloadCtx, interaction.ID)
-			if err != nil {
-				log.Error().Err(err).
-					Str("session_id", session.ID).
-					Str("interaction_id", interaction.ID).
-					Msg("Failed to reload interaction from database")
-			} else {
-				// Use the response from database (which was saved by handleMessageAdded)
-				interaction.ResponseMessage = reloadedInteraction.ResponseMessage
-				log.Info().
-					Str("session_id", session.ID).
-					Str("interaction_id", interaction.ID).
-					Int("response_length", len(reloadedInteraction.ResponseMessage)).
-					Msg("🔄 [HELIX] Reloaded interaction response from database for doneChan")
-			}
-
-			// Mark as complete
-			interaction.Completed = time.Now()
-			interaction.State = types.InteractionStateComplete
-			interaction.DurationMs = int(time.Since(start).Milliseconds())
-
-			// Create new context with a timeout for persisting session to the database
-			updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-
-			err = s.Controller.UpdateInteraction(updateCtx, session, interaction)
-			if err != nil {
-				log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to update interaction")
-			}
-
-			// Send completion signal
-			response := &openai.ChatCompletionStreamResponse{
+		case <-result.Stream.Done:
+			doneResponse := &openai.ChatCompletionStreamResponse{
 				Object: "chat.completion.chunk",
 				ID:     session.ID,
-				Model:  chatCompletionRequest.Model,
+				Model:  result.Model,
 				Choices: []openai.ChatCompletionStreamChoice{
 					{
 						Index:        0,
@@ -1423,52 +1247,19 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 				},
 			}
 
-			bts, err := json.Marshal(response)
-			if err == nil {
-				writeChunk(rw, bts)
+			bts, marshalErr := json.Marshal(doneResponse)
+			if marshalErr == nil {
+				_ = writeChunk(rw, bts)
 			}
-
-			// Send [DONE] signal
 			if err := writeChunk(rw, []byte("[DONE]")); err != nil {
 				log.Error().Err(err).Msg("failed to write done signal")
 			}
-
-			log.Info().
-				Str("session_id", session.ID).
-				Str("request_id", requestID).
-				Str("response_message", interaction.ResponseMessage).
-				Int("response_length", len(interaction.ResponseMessage)).
-				Int("duration_ms", interaction.DurationMs).
-				Msg("External agent response completed and interaction updated")
 			return nil
-
-		case err := <-errorChan:
-			// Update interaction with error
-			interaction.Error = err.Error()
-			interaction.State = types.InteractionStateError
-			interaction.Completed = time.Now()
-			interaction.DurationMs = int(time.Since(start).Milliseconds())
-
-			updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			s.Controller.UpdateInteraction(updateCtx, session, interaction)
-
-			log.Error().Err(err).Str("session_id", session.ID).Str("request_id", requestID).Msg("External agent response error")
-			return s.writeErrorResponse(rw, "External agent error: "+err.Error())
-
-		case <-timeout.C:
-			// Update interaction with timeout error
-			interaction.Error = "External agent response timeout"
-			interaction.State = types.InteractionStateError
-			interaction.Completed = time.Now()
-			interaction.DurationMs = int(time.Since(start).Milliseconds())
-
-			updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			s.Controller.UpdateInteraction(updateCtx, session, interaction)
-
-			log.Warn().Str("session_id", session.ID).Str("request_id", requestID).Msg("External agent response timeout")
-			return s.writeErrorResponse(rw, "External agent response timeout")
+		case streamErr, ok := <-result.Stream.Errors:
+			if !ok || streamErr == nil {
+				continue
+			}
+			return s.writeErrorResponse(rw, "External agent error: "+streamErr.Error())
 		}
 	}
 }

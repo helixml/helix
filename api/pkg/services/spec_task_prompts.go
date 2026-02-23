@@ -93,6 +93,29 @@ in other repositories and libraries within the organization:
 This helps you design solutions that are consistent with existing patterns rather than
 reinventing approaches that already exist.
 
+## Visual Testing (Optional - For UI/Frontend Tasks)
+
+You have tools to explore and screenshot the application during planning:
+
+**Browser automation:** ` + "`chrome-devtools`" + ` MCP server
+- Navigate pages, click elements, fill forms
+- Useful for understanding current UI behavior
+
+**Screenshots:** ` + "`helix-desktop`" + ` MCP server
+- ` + "`list_windows`" + ` - Find browser window ID
+- ` + "`focus_window`" + ` - Bring window to front (REQUIRED before screenshot)
+- ` + "`save_screenshot`" + ` - Save to file
+
+**When to use:** Understanding existing UI, documenting current state, exploring edge cases.
+
+**Screenshot workflow:**
+1. Open the app in browser (if applicable)
+2. ` + "`list_windows`" + ` → find browser window ID
+3. ` + "`focus_window`" + ` → bring to front
+4. ` + "`save_screenshot`" + ` with path: ` + "`/home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/screenshots/01-description.png`" + `
+
+Screenshots are optional but valuable for UI tasks - save them in your task's screenshots/ folder.
+
 ## Document Your Learnings
 
 **Your design docs may be cloned to similar projects.** Write down what you discover:

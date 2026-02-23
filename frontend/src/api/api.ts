@@ -4337,6 +4337,10 @@ export interface TypesSlackTrigger {
   bot_token?: string;
   channels?: string[];
   enabled?: boolean;
+  /** Send project updates to this channel */
+  project_channel?: string;
+  /** Send project updates (spec task creation, completion, etc) */
+  project_updates?: boolean;
 }
 
 export interface TypesSpecApprovalResponse {

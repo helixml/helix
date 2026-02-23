@@ -58,6 +58,8 @@ import {
 } from "@mui/icons-material";
 // Removed drag-and-drop imports to prevent infinite loops
 import { useTheme } from "@mui/material/styles";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import MobileColumnSidebar from "./MobileColumnSidebar";
 // Removed date-fns dependency - using native JavaScript instead
 
 import useApi from "../../hooks/useApi";
@@ -254,6 +256,7 @@ const DroppableColumn: React.FC<{
   highlightedTaskIds?: string[] | null;
   onDependencyHoverStart?: (taskIds: string[]) => void;
   onDependencyHoverEnd?: () => void;
+  fullWidth?: boolean;
 }> = ({
   column,
   columns,
@@ -275,6 +278,7 @@ const DroppableColumn: React.FC<{
   highlightedTaskIds,
   onDependencyHoverStart,
   onDependencyHoverEnd,
+  fullWidth,
 }): JSX.Element => {
   // Simplified - no drag and drop, no complex interactions
   const setNodeRef = (node: HTMLElement | null) => {};
@@ -328,7 +332,7 @@ const DroppableColumn: React.FC<{
   const accent = getColumnAccent(column.id);
 
   return (
-    <Box key={column.id} sx={{ width: 300, flexShrink: 0, height: "100%" }}>
+    <Box key={column.id} sx={{ width: fullWidth ? "calc(100% - 24px)" : 300, flexShrink: 0, height: "100%" }}>
       <Box
         sx={{
           height: "100%",
@@ -576,12 +580,15 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   showMerged: showMergedProp = true,
 }) => {
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const api = useApi();
   const account = useAccount();
   const snackbar = useSnackbar();
 
   // Track initial load to avoid showing loading spinner on refreshes
   const hasLoadedOnceRef = React.useRef(false);
+
+  const [mobileColumnIndex, setMobileColumnIndex] = useState(0);
 
   // State
   const [tasks, setTasks] = useState<SpecTaskWithExtras[]>([]);
@@ -799,6 +806,12 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
     return baseColumns;
   }, [tasks, theme, wipLimits, hasExternalRepo, showMergedProp]);
+
+  useEffect(() => {
+    if (mobileColumnIndex >= columns.length && columns.length > 0) {
+      setMobileColumnIndex(columns.length - 1);
+    }
+  }, [columns.length, mobileColumnIndex]);
 
   // Load sample types using generated client
   const { data: sampleTypesData, loading: sampleTypesLoading } =
@@ -1282,11 +1295,12 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         sx={{
           flex: 1,
           display: "flex",
-          gap: 2,
-          overflowX: "auto",
+          gap: isMobile ? 0 : 2,
+          overflowX: isMobile ? "hidden" : "auto",
           overflowY: "hidden",
           minHeight: 0,
           pb: 2,
+          position: "relative",
           "&::-webkit-scrollbar": {
             height: "8px",
           },
@@ -1310,6 +1324,44 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             autoStartBacklogTasks={autoStartBacklogTasks}
             onToggleAutoStart={handleToggleAutoStart}
           />
+        ) : isMobile ? (
+          <>
+            {columns[mobileColumnIndex] && (
+              <DroppableColumn
+                key={columns[mobileColumnIndex].id}
+                column={columns[mobileColumnIndex]}
+                columns={columns}
+                onStartPlanning={handleStartPlanning}
+                onArchiveTask={handleArchiveTask}
+                onTaskClick={onTaskClick}
+                onReviewDocs={handleReviewDocs}
+                projectId={projectId}
+                focusTaskId={focusTaskId}
+                archivingTaskId={archivingTaskId}
+                hasExternalRepo={hasExternalRepo}
+                showMetrics={showMetrics}
+                highlightedTaskIds={highlightedDependencyTaskIds}
+                onDependencyHoverStart={setHighlightedDependencyTaskIds}
+                onDependencyHoverEnd={() => setHighlightedDependencyTaskIds(null)}
+                theme={theme}
+                onHeaderClick={
+                  columns[mobileColumnIndex].id === "backlog"
+                    ? () => setBacklogExpanded(true)
+                    : undefined
+                }
+                batchProgressData={batchProgressData}
+                batchUsageData={batchUsageData}
+                autoStartBacklogTasks={autoStartBacklogTasks}
+                onToggleAutoStart={handleToggleAutoStart}
+                fullWidth
+              />
+            )}
+            <MobileColumnSidebar
+              columns={columns}
+              currentColumnIndex={mobileColumnIndex}
+              onColumnClick={setMobileColumnIndex}
+            />
+          </>
         ) : (
           columns.map((column) => (
             <DroppableColumn

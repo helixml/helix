@@ -156,6 +156,8 @@ func (sm *SessionManager) GetSessionFromRequest(ctx context.Context, r *http.Req
 		switch r.URL.Path {
 		case "/api/v1/sandboxes/local/heartbeat":
 			// Expected to not use cookies
+		case "/api/v1/revdial":
+			// Expected to not use cookies
 		default:
 			log.Debug().Err(err).Str("path", r.URL.Path).Msg("No session cookie found")
 		}

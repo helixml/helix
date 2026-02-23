@@ -80,6 +80,9 @@ type Controller struct {
 	memoryEstimationService *MemoryEstimationService
 
 	browserCache *ristretto.Cache[string, string]
+
+	externalAgentHooks   ExternalAgentHooks
+	externalAgentHooksMu sync.RWMutex
 }
 
 type TriggerStatusKey struct {

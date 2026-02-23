@@ -195,30 +195,15 @@ func (r CodeAgentRuntime) ZedAgentName() string {
 
 // Helper functions for agent type checking with backward compatibility
 
-// MigrateAgentMode converts the old boolean agent_mode to the new AgentType enum
-// This provides backward compatibility for existing configs
-func (a *AssistantConfig) MigrateAgentMode() {
-	// Only migrate if AgentType is not already set
-	if a.AgentType == "" {
-		if a.AgentMode {
-			a.AgentType = AgentTypeHelixAgent
-		} else {
-			a.AgentType = AgentTypeHelixBasic
-		}
-	}
-}
-
 // IsAgentMode checks if an assistant is in any agent mode (backward compatible)
 func (a *AssistantConfig) IsAgentMode() bool {
 	// Ensure migration has happened
-	a.MigrateAgentMode()
 	return a.AgentType != AgentTypeHelixBasic
 }
 
 // GetAgentType returns the agent type, with fallback to boolean AgentMode
 func (a *AssistantConfig) GetAgentType() AgentType {
 	// Ensure migration has happened
-	a.MigrateAgentMode()
 	return a.AgentType
 }
 
@@ -239,18 +224,6 @@ func (a *AppHelixConfig) GetDefaultAgentType() AgentType {
 		}
 	}
 	return AgentTypeHelixBasic
-}
-
-// MigrateAgentTypes migrates all assistants in an app config from boolean to enum
-func (a *AppHelixConfig) MigrateAgentTypes() {
-	for i := range a.Assistants {
-		a.Assistants[i].MigrateAgentMode()
-	}
-
-	// Set default agent type if not already set
-	if a.DefaultAgentType == "" {
-		a.DefaultAgentType = a.GetDefaultAgentType()
-	}
 }
 
 type WorkStatus string

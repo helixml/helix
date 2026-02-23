@@ -57,6 +57,26 @@ func (s *PostgresStore) GetSlackThread(ctx context.Context, appID, channel, thre
 	return &thread, nil
 }
 
+func (s *PostgresStore) GetSlackThreadBySpecTaskID(ctx context.Context, appID, specTaskID string) (*types.SlackThread, error) {
+	if appID == "" || specTaskID == "" {
+		return nil, ErrNotFound
+	}
+
+	var thread types.SlackThread
+	err := s.gdb.WithContext(ctx).
+		Where("app_id = ? AND spec_task_id = ?", appID, specTaskID).
+		First(&thread).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	return &thread, nil
+}
+
 func (s *PostgresStore) DeleteSlackThread(ctx context.Context, olderThan time.Time) error {
 	if olderThan.IsZero() {
 		return nil

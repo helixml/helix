@@ -2,6 +2,7 @@ package slack
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	stdlog "log"
@@ -9,9 +10,11 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/trigger/shared"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -22,20 +25,24 @@ import (
 
 func NewSlackBot(cfg *config.ServerConfig, store store.Store, controller *controller.Controller, app *types.App, trigger *types.SlackTrigger) *SlackBot {
 	return &SlackBot{
-		cfg:        cfg,
-		store:      store,
-		controller: controller,
-		app:        app,
-		trigger:    trigger,
-		botUserID:  "", // Initialize botUserID
+		cfg:         cfg,
+		store:       store,
+		controller:  controller,
+		app:         app,
+		trigger:     trigger,
+		botUserID:   "", // Initialize botUserID
+		postMessage: nil,
 	}
 }
 
 // SlackBot - agent instance that connects to the Slack API
 type SlackBot struct { //nolint:revive
-	cfg        *config.ServerConfig
-	store      store.Store
-	controller *controller.Controller
+	cfg                    *config.ServerConfig
+	store                  store.Store
+	controller             *controller.Controller
+	postMessage            func(channelID string, options ...slack.MsgOption) (string, string, error)
+	updateMessage          func(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error)
+	getConversationReplies func(params *slack.GetConversationRepliesParameters) (msgs []slack.Message, hasMore bool, nextCursor string, err error)
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
@@ -46,6 +53,7 @@ type SlackBot struct { //nolint:revive
 
 	// Bot user ID for filtering bot messages
 	botUserID string
+	botID     string
 }
 
 func (s *SlackBot) Stop() {
@@ -99,6 +107,10 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 		return fmt.Errorf("failed to get auth test: %w", err)
 	}
 	s.botUserID = authTest.UserID
+	s.botID = authTest.BotID
+	s.postMessage = api.PostMessage
+	s.updateMessage = api.UpdateMessage
+	s.getConversationReplies = api.GetConversationReplies
 	log.Info().Str("app_id", s.app.ID).Str("bot_user_id", s.botUserID).Msg("bot user ID retrieved")
 
 	client := socketmode.New(
@@ -120,7 +132,14 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 	socketmodeHandler.HandleEvents(slackevents.Message, s.middlewareMessageEvent)
 
 	// TODO: this is to listen to everything
-	// socketmodeHandler.Handle(socketmode.EventTypeEventsAPI, s.middlewareEventsAPI)
+	// socketmodeHandler.Handle(socketmode.EventTypeEventsAPI, s.middlewareEventsAPI
+
+	go func() {
+		err := s.postProjectUpdates(s.ctx, s.app)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to post project updates")
+		}
+	}()
 
 	log.Info().Str("app_id", s.app.ID).Msg("running event loop")
 	defer log.Info().Str("app_id", s.app.ID).Msg("event loop stopped")
@@ -161,31 +180,42 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 		Str("text", ev.Text).
 		Msg("We have been mentioned")
 
+	s.addReaction(client, ev.Channel, ev.TimeStamp, "eyes")
+
 	agentResponse, documentIDs, err := s.handleMessage(context.Background(), nil, s.app, ev.Text, ev.Channel, ev.TimeStamp, ev.ThreadTimeStamp, true)
 	if err != nil {
+		s.addReaction(client, ev.Channel, ev.TimeStamp, "x")
 		log.Error().Err(err).Msg("failed to start chat")
-		// Convert error message to Slack format
 		slackFormattedError := convertMarkdownToSlackFormat(err.Error())
 		_, _, _ = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(slackFormattedError, false), slack.MsgOptionTS(ev.TimeStamp))
 		return
 	}
 
-	// Convert markdown to Slack format with clickable citation links
-	slackFormattedResponse := convertMarkdownToSlackFormatWithLinks(agentResponse, documentIDs)
+	msg := formatResponseForSlack(agentResponse, documentIDs)
 
-	// Write agent response to Slack's thread
-	// Use the message timestamp as the thread timestamp to create a proper thread
 	log.Debug().
 		Str("app_id", s.app.ID).
 		Str("channel", ev.Channel).
 		Str("thread_timestamp", ev.TimeStamp).
-		Str("response_length", fmt.Sprintf("%d", len(slackFormattedResponse))).
+		Str("response_length", fmt.Sprintf("%d", len(msg.text))).
+		Int("blocks", len(msg.blocks)).
 		Msg("Posting bot response in thread")
 
-	_, _, err = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(slackFormattedResponse, false), slack.MsgOptionTS(ev.TimeStamp))
-	if err != nil {
-		log.Error().Err(err).Msg("failed to post message")
+	opts := []slack.MsgOption{
+		slack.MsgOptionText(msg.text, false),
+		slack.MsgOptionTS(ev.TimeStamp),
 	}
+	if len(msg.blocks) > 0 {
+		opts = append(opts, slack.MsgOptionBlocks(msg.blocks...))
+	}
+	_, _, err = client.Client.PostMessage(ev.Channel, opts...)
+	if err != nil {
+		s.addReaction(client, ev.Channel, ev.TimeStamp, "x")
+		log.Error().Err(err).Msg("failed to post message")
+		return
+	}
+
+	s.addReaction(client, ev.Channel, ev.TimeStamp, "white_check_mark")
 }
 
 // middlewareMessageEvent - processes message events that are part of the thread. This ensures
@@ -240,10 +270,36 @@ func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketm
 		Str("thread_key", threadKey).
 		Msg("Checking for active thread")
 
+	ownedByBot := s.isBotOwnedThread(s.ctx, ev.Channel, threadKey)
+	if !ownedByBot && s.trigger.ProjectChannel != "" && s.trigger.ProjectChannel != ev.Channel {
+		ownedByBot = s.isBotOwnedThread(s.ctx, s.trigger.ProjectChannel, threadKey)
+	}
+	if !ownedByBot {
+		log.Debug().
+			Str("app_id", s.app.ID).
+			Str("channel", ev.Channel).
+			Str("thread_key", threadKey).
+			Msg("Thread is not owned by this bot, ignoring message")
+		return
+	}
+
 	thread, hasActiveThread := s.getActiveThread(s.ctx, ev.Channel, threadKey)
+	if !hasActiveThread && s.trigger.ProjectChannel != "" && s.trigger.ProjectChannel != ev.Channel {
+		log.Debug().
+			Str("app_id", s.app.ID).
+			Str("event_channel", ev.Channel).
+			Str("configured_channel", s.trigger.ProjectChannel).
+			Str("thread_key", threadKey).
+			Msg("Thread not found in event channel, trying configured project channel")
+		thread, hasActiveThread = s.getActiveThread(s.ctx, s.trigger.ProjectChannel, threadKey)
+	}
+	if !hasActiveThread {
+		thread, hasActiveThread = s.reconcileMissingThread(s.ctx, ev.Channel, threadKey)
+	}
 	if !hasActiveThread {
 		log.Debug().
 			Str("app_id", s.app.ID).
+			Str("channel", ev.Channel).
 			Str("thread_key", threadKey).
 			Msg("No active thread found, ignoring message")
 		return
@@ -256,30 +312,57 @@ func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketm
 		Str("user", ev.User).
 		Msg("Received message in active thread")
 
+	s.addReaction(client, ev.Channel, ev.TimeStamp, "eyes")
+
 	agentResponse, documentIDs, err := s.handleMessage(context.Background(), thread, s.app, ev.Text, ev.Channel, ev.TimeStamp, ev.ThreadTimeStamp, false)
 	if err != nil {
+		s.addReaction(client, ev.Channel, ev.TimeStamp, "x")
 		log.Error().Err(err).Msg("failed to continue chat")
-		// Convert error message to Slack format
 		slackFormattedError := convertMarkdownToSlackFormat(err.Error())
 		_, _, _ = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(slackFormattedError, false), slack.MsgOptionTS(ev.ThreadTimeStamp))
 		return
 	}
 
-	// Convert markdown to Slack format with clickable citation links
-	slackFormattedResponse := convertMarkdownToSlackFormatWithLinks(agentResponse, documentIDs)
+	msg := formatResponseForSlack(agentResponse, documentIDs)
 
-	// Write agent response to Slack's thread
-	// Use the thread timestamp to keep the reply in the same thread
 	log.Debug().
 		Str("app_id", s.app.ID).
 		Str("channel", ev.Channel).
 		Str("thread_timestamp", ev.ThreadTimeStamp).
-		Str("response_length", fmt.Sprintf("%d", len(slackFormattedResponse))).
+		Str("response_length", fmt.Sprintf("%d", len(msg.text))).
+		Int("blocks", len(msg.blocks)).
 		Msg("Posting bot response to thread")
 
-	_, _, err = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(slackFormattedResponse, false), slack.MsgOptionTS(ev.ThreadTimeStamp))
+	opts := []slack.MsgOption{
+		slack.MsgOptionText(msg.text, false),
+		slack.MsgOptionTS(ev.ThreadTimeStamp),
+	}
+	if len(msg.blocks) > 0 {
+		opts = append(opts, slack.MsgOptionBlocks(msg.blocks...))
+	}
+	_, _, err = client.Client.PostMessage(ev.Channel, opts...)
 	if err != nil {
+		s.addReaction(client, ev.Channel, ev.TimeStamp, "x")
 		log.Error().Err(err).Msg("failed to post message")
+		return
+	}
+
+	s.addReaction(client, ev.Channel, ev.TimeStamp, "white_check_mark")
+}
+
+func (s *SlackBot) addReaction(client *socketmode.Client, channel, timestamp, reaction string) {
+	if client == nil || channel == "" || timestamp == "" || reaction == "" {
+		return
+	}
+
+	if err := client.Client.AddReaction(reaction, slack.ItemRef{Channel: channel, Timestamp: timestamp}); err != nil {
+		log.Debug().
+			Err(err).
+			Str("app_id", s.app.ID).
+			Str("channel", channel).
+			Str("timestamp", timestamp).
+			Str("reaction", reaction).
+			Msg("failed to add Slack reaction")
 	}
 }
 
@@ -292,64 +375,67 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 		Msg("handleMessage called")
 
 	var (
-		session *types.Session
-		err     error
+		session         *types.Session
+		specTask        *types.SpecTask
+		shouldSummarize bool
+		err             error
 	)
 
-	if isMention {
-		// This is a new conversation (mention), create a new session and a thread
-
-		log.Info().
-			Str("app_id", app.ID).
-			Str("channel", channel).
-			Str("message_ts", messageTimestamp).
-			Msg("starting new Slack session")
-
-		newSession := shared.NewTriggerSession(ctx, types.TriggerTypeSlack.String(), app)
-		session = newSession.Session
-
-		threadKey := threadTimestamp
-		if threadKey == "" {
-			threadKey = messageTimestamp
-		}
-
-		// Create the new thread
-		var err error
-		_, err = s.createNewThread(ctx, channel, threadKey, session.ID)
+	if existingThread != nil && existingThread.SpecTaskID != "" {
+		specTask, err = s.store.GetSpecTask(ctx, existingThread.SpecTaskID)
 		if err != nil {
-			log.Error().Err(err).Msg("failed to create new thread")
-			return "", nil, fmt.Errorf("failed to create new thread: %w", err)
+			return "", nil, fmt.Errorf("failed to get spec task '%s': %w", existingThread.SpecTaskID, err)
 		}
+	}
 
-		log.Debug().
-			Str("app_id", app.ID).
-			Str("thread_key", threadKey).
-			Str("session_id", session.ID).
-			Msg("stored new session for thread")
-
-		err = s.controller.WriteSession(ctx, session)
+	switch {
+	case isMention:
+		fmt.Println("XXX MENTION")
+		session, err = s.handleAppMentionThread(ctx, app, channel, messageTimestamp, threadTimestamp)
 		if err != nil {
-			log.Error().
-				Err(err).
-				Str("app_id", app.ID).
-				Msg("failed to create session")
-			return "", nil, fmt.Errorf("failed to create session: %w", err)
+			return "", nil, err
 		}
-	} else {
-		// This is a continuation of an existing conversation
+
+	case existingThread != nil && existingThread.SpecTaskID == "":
+		fmt.Println("XXX NO SPEC TASK")
+		// Regular bot reply, not talking with Helix Project spec tasks
 		session, err = s.store.GetSession(ctx, existingThread.SessionID)
 		if err != nil {
-			log.Error().Err(err).Msg("failed to get session")
-			return "", nil, fmt.Errorf("failed to get session, error: %w", err)
+			return "", nil, fmt.Errorf("failed to get session '%s': %w", existingThread.SessionID, err)
 		}
 
-		log.Info().
+	case existingThread != nil && specTask != nil && isSpecTaskActive(specTask.Status):
+		fmt.Println("XXX ACTIVE TASK")
+		// Spec task thread, handle spec task thread - using planning session ID
+		planningSession, err := s.store.GetSession(ctx, specTask.PlanningSessionID)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to get planning session '%s': %w", specTask.PlanningSessionID, err)
+		}
+
+		// Replace the session with planning session, this one speaks directly with the zed agent
+		session = planningSession
+
+	case existingThread != nil && specTask != nil && !isSpecTaskActive(specTask.Status):
+		fmt.Println("XXX INACTIVE TASK")
+		// Inactive spec task (backlog or merged/done) - using normal app route
+		shouldSummarize = true
+
+		session, err = s.store.GetSession(ctx, existingThread.SessionID)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to get session '%s': %w", existingThread.SessionID, err)
+		}
+
+		spew.Dump(session)
+
+	default:
+		// Log
+		log.Error().
 			Str("app_id", app.ID).
 			Str("channel", channel).
-			Str("thread_id", existingThread.ThreadKey).
-			Str("message_ts", messageTimestamp).
-			Str("session_id", session.ID).
-			Msg("continuing existing Slack session")
+			Str("message_timestamp", messageTimestamp).
+			Str("thread_timestamp", threadTimestamp).
+			Msg("handleMessage not a mention and not a thread either")
+		return "", nil, fmt.Errorf("unknown thread type")
 	}
 
 	// Get user for the request
@@ -364,13 +450,51 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 			Msg("failed to get user")
 		return "", nil, fmt.Errorf("failed to get user: %w", err)
 	}
+	user.SpecTaskID = session.Metadata.SpecTaskID
+	if specTask != nil {
+		user.SpecTaskID = specTask.ID
+	}
+	user.ProjectID = session.Metadata.ProjectID
+
+	interactionID := system.GenerateInteractionID()
+	promptMessage := messageText
+	historyLimit := 0
+
+	if threadTimestamp != "" && shouldSummarize {
+		threadMessages, err := s.getSlackThreadMessages(channel, threadTimestamp)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to get thread messages: %w", err)
+		}
+
+		if len(threadMessages) > 0 {
+			summary, err := s.summarizeConversation(ctx, user, session, interactionID, threadMessages)
+			if err != nil {
+				return "", nil, fmt.Errorf("failed to summarize thread conversation: %w", err)
+			}
+
+			promptMessage = fmt.Sprintf("Here's a summary of the conversation so far: %s\n\nUser message:%s", summary, messageText)
+			historyLimit = -1
+		}
+	}
+	if !shouldSummarize && specTask != nil {
+		log.Info().
+			Str("app_id", app.ID).
+			Str("spec_task_id", specTask.ID).
+			Str("status", specTask.Status.String()).
+			Str("session_id", session.ID).
+			Msg("running spec task thread message through planning session without Slack summarization")
+	}
+
+	spew.Dump(app)
 
 	resp, err := s.controller.RunBlockingSession(ctx, &controller.RunSessionRequest{
 		OrganizationID: app.OrganizationID,
 		App:            app,
 		Session:        session,
 		User:           user,
-		PromptMessage:  types.MessageContent{Parts: []any{messageText}},
+		InteractionID:  interactionID,
+		PromptMessage:  types.MessageContent{Parts: []any{promptMessage}},
+		HistoryLimit:   historyLimit,
 	})
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to get response from inference API: %w", err)
@@ -384,6 +508,94 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 	}
 
 	return resp.ResponseMessage, updatedSession.Metadata.DocumentIDs, nil
+}
+
+// handleAppTriggerThread - handles a default app/agent path where we use a thread to provide context to the agent.
+// Must use `s.app` for model configuration, etc.
+func (s *SlackBot) handleAppMentionThread(ctx context.Context, app *types.App, channel, messageTimestamp, threadTimestamp string) (*types.Session, error) {
+	log.Info().
+		Str("app_id", app.ID).
+		Str("channel", channel).
+		Str("message_ts", messageTimestamp).
+		Msg("starting new Slack session")
+
+	newSession := shared.NewTriggerSession(ctx, types.TriggerTypeSlack.String(), app)
+	session := newSession.Session
+
+	threadKey := threadTimestamp
+	if threadKey == "" {
+		threadKey = messageTimestamp
+	}
+
+	_, err := s.createNewThread(ctx, channel, threadKey, session.ID)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to create new thread")
+		return nil, fmt.Errorf("failed to create new thread: %w", err)
+	}
+
+	log.Debug().
+		Str("app_id", app.ID).
+		Str("thread_key", threadKey).
+		Str("session_id", session.ID).
+		Msg("stored new session for thread")
+
+	err = s.controller.WriteSession(ctx, session)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", app.ID).
+			Msg("failed to create session")
+		return nil, fmt.Errorf("failed to create session: %w", err)
+	}
+
+	return session, nil
+}
+
+func isSpecTaskActive(status types.SpecTaskStatus) bool {
+	switch status {
+	case types.TaskStatusQueuedSpecGeneration,
+		types.TaskStatusSpecGeneration,
+		types.TaskStatusSpecReview,
+		types.TaskStatusSpecRevision,
+		types.TaskStatusSpecApproved,
+		types.TaskStatusQueuedImplementation,
+		types.TaskStatusImplementation,
+		types.TaskStatusImplementationReview,
+		types.TaskStatusPullRequest:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *SlackBot) getSlackThreadMessages(channel, threadTimestamp string) ([]slack.Message, error) {
+	if s.getConversationReplies == nil {
+		return nil, fmt.Errorf("slack client is not initialized")
+	}
+
+	params := &slack.GetConversationRepliesParameters{
+		ChannelID: channel,
+		Timestamp: threadTimestamp,
+		Inclusive: true,
+		Limit:     200,
+	}
+
+	var all []slack.Message
+	for {
+		replies, hasMore, nextCursor, err := s.getConversationReplies(params)
+		if err != nil {
+			return nil, err
+		}
+
+		all = append(all, replies...)
+
+		if !hasMore || nextCursor == "" {
+			break
+		}
+		params.Cursor = nextCursor
+	}
+
+	return all, nil
 }
 
 func (s *SlackBot) middlewareConnecting(_ *socketmode.Event, _ *socketmode.Client) {
@@ -414,7 +626,13 @@ func (s *SlackBot) middlewareConnected(_ *socketmode.Event, _ *socketmode.Client
 func (s *SlackBot) getActiveThread(ctx context.Context, channel, threadKey string) (*types.SlackThread, bool) {
 	tread, err := s.store.GetSlackThread(ctx, s.app.ID, channel, threadKey)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to get slack thread")
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, false
+		}
+		log.Error().Err(err).
+			Str("channel", channel).
+			Str("thread_key", threadKey).
+			Msg("failed to get slack thread")
 		return nil, false
 	}
 	// Active thread found
@@ -449,38 +667,118 @@ func (s *SlackBot) createNewThread(ctx context.Context, channel, threadKey, sess
 	return s.store.CreateSlackThread(ctx, thread)
 }
 
+func (s *SlackBot) reconcileMissingThread(ctx context.Context, channel, threadKey string) (*types.SlackThread, bool) {
+	if !s.isBotOwnedThread(ctx, channel, threadKey) {
+		return nil, false
+	}
+
+	session := shared.NewTriggerSession(ctx, types.TriggerTypeSlack.String(), s.app).Session
+	if err := s.controller.WriteSession(ctx, session); err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", s.app.ID).
+			Str("channel", channel).
+			Str("thread_key", threadKey).
+			Msg("failed to create session while reconciling Slack thread")
+		return nil, false
+	}
+
+	thread, err := s.createNewThread(ctx, channel, threadKey, session.ID)
+	if err == nil {
+		log.Info().
+			Str("app_id", s.app.ID).
+			Str("channel", channel).
+			Str("thread_key", threadKey).
+			Str("session_id", session.ID).
+			Msg("reconciled missing Slack thread mapping")
+		return thread, true
+	}
+
+	thread, getErr := s.store.GetSlackThread(ctx, s.app.ID, channel, threadKey)
+	if getErr == nil && thread != nil {
+		return thread, true
+	}
+
+	log.Error().
+		Err(err).
+		Str("app_id", s.app.ID).
+		Str("channel", channel).
+		Str("thread_key", threadKey).
+		Msg("failed to persist reconciled Slack thread mapping")
+	return nil, false
+}
+
+func (s *SlackBot) isBotOwnedThread(ctx context.Context, channel, threadKey string) bool {
+	root, ok := s.getSlackThreadRoot(ctx, channel, threadKey)
+	if !ok {
+		return false
+	}
+
+	if root.User == s.botUserID || (s.botID != "" && root.BotID == s.botID) {
+		return true
+	}
+
+	return s.botUserID != "" && strings.Contains(root.Text, "<@"+s.botUserID+">")
+}
+
+func (s *SlackBot) getSlackThreadRoot(_ context.Context, channel, threadKey string) (*slack.Message, bool) {
+	if s.getConversationReplies == nil {
+		return nil, false
+	}
+
+	replies, _, _, err := s.getConversationReplies(&slack.GetConversationRepliesParameters{
+		ChannelID: channel,
+		Timestamp: threadKey,
+		Inclusive: true,
+		Oldest:    threadKey,
+		Latest:    threadKey,
+		Limit:     1,
+	})
+	if err != nil {
+		log.Debug().
+			Err(err).
+			Str("app_id", s.app.ID).
+			Str("channel", channel).
+			Str("thread_key", threadKey).
+			Msg("failed to load thread root from Slack")
+		return nil, false
+	}
+	if len(replies) == 0 {
+		return nil, false
+	}
+
+	return &replies[0], true
+}
+
 func convertMarkdownToSlackFormat(markdown string) string {
 	return convertMarkdownToSlackFormatWithLinks(markdown, nil)
 }
 
 // convertMarkdownToSlackFormatWithLinks converts markdown to Slack format with clickable citation links
 func convertMarkdownToSlackFormatWithLinks(markdown string, documentIDs map[string]string) string {
-	// Convert markdown to Slack format
 	slackFormat := markdown
 
-	// Process citations: convert [DOC_ID:xxx] to [1], [2], remove XML excerpt blocks,
-	// and add clickable links in the Sources section
 	slackFormat = shared.ProcessCitationsForChatWithLinks(slackFormat, documentIDs, shared.LinkFormatSlack)
 
-	// First, let's protect code blocks and inline code from other conversions
 	codeBlocks := []string{}
 	inlineCodes := []string{}
 
-	// Extract code blocks
 	codeBlockRegex := regexp.MustCompile("```(\\w*)\\n([\\s\\S]*?)```")
 	slackFormat = codeBlockRegex.ReplaceAllStringFunc(slackFormat, func(match string) string {
 		codeBlocks = append(codeBlocks, match)
 		return fmt.Sprintf("__CODE_BLOCK_%d__", len(codeBlocks)-1)
 	})
 
-	// Extract inline code
 	inlineCodeRegex := regexp.MustCompile("`([^`]+)`")
 	slackFormat = inlineCodeRegex.ReplaceAllStringFunc(slackFormat, func(match string) string {
 		inlineCodes = append(inlineCodes, match)
 		return fmt.Sprintf("__INLINE_CODE_%d__", len(inlineCodes)-1)
 	})
 
-	// Convert lists: - item or * item -> • item
+	slackFormat = convertMarkdownTables(slackFormat)
+
+	slackFormat = convertMarkdownHeadings(slackFormat)
+
 	listItemRegex := regexp.MustCompile(`^[\s]*[-*][\s]+`)
 	lines := strings.Split(slackFormat, "\n")
 	for i, line := range lines {
@@ -490,30 +788,304 @@ func convertMarkdownToSlackFormatWithLinks(markdown string, documentIDs map[stri
 	}
 	slackFormat = strings.Join(lines, "\n")
 
-	// Convert bold and italic using a more sophisticated approach
 	slackFormat = convertBoldAndItalic(slackFormat)
 
-	// Convert links: [text](url) -> <url|text>
 	linkRegex := regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 	slackFormat = linkRegex.ReplaceAllString(slackFormat, "<$2|$1>")
 
-	// Convert strikethrough: ~~text~~ -> ~text~
 	strikethroughRegex := regexp.MustCompile(`~~(.*?)~~`)
 	slackFormat = strikethroughRegex.ReplaceAllString(slackFormat, "~$1~")
 
-	// Restore code blocks
 	for i, codeBlock := range codeBlocks {
 		placeholder := fmt.Sprintf("__CODE_BLOCK_%d__", i)
 		slackFormat = strings.Replace(slackFormat, placeholder, codeBlock, 1)
 	}
 
-	// Restore inline codes
 	for i, inlineCode := range inlineCodes {
 		placeholder := fmt.Sprintf("__INLINE_CODE_%d__", i)
 		slackFormat = strings.Replace(slackFormat, placeholder, inlineCode, 1)
 	}
 
 	return slackFormat
+}
+
+func convertMarkdownHeadings(text string) string {
+	lines := strings.Split(text, "\n")
+	headingRegex := regexp.MustCompile(`^(#{1,6})\s+(.+)$`)
+	for i, line := range lines {
+		if m := headingRegex.FindStringSubmatch(line); m != nil {
+			lines[i] = "**" + strings.TrimSpace(m[2]) + "**"
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func convertMarkdownTables(text string) string {
+	lines := strings.Split(text, "\n")
+	var result []string
+	i := 0
+
+	for i < len(lines) {
+		if !isTableRow(lines[i]) {
+			result = append(result, lines[i])
+			i++
+			continue
+		}
+
+		tableStart := i
+		for i < len(lines) && isTableRow(lines[i]) {
+			i++
+		}
+		tableEnd := i
+
+		tableLines := lines[tableStart:tableEnd]
+		converted := convertTableToKeyValue(tableLines)
+		result = append(result, converted...)
+	}
+
+	return strings.Join(result, "\n")
+}
+
+func isTableRow(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "|") && strings.HasSuffix(trimmed, "|") && strings.Count(trimmed, "|") >= 2
+}
+
+func isTableSeparator(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "|") {
+		return false
+	}
+	cleaned := strings.NewReplacer("|", "", "-", "", ":", "", " ", "").Replace(trimmed)
+	return cleaned == ""
+}
+
+func parseTableCells(line string) []string {
+	trimmed := strings.TrimSpace(line)
+	trimmed = strings.TrimPrefix(trimmed, "|")
+	trimmed = strings.TrimSuffix(trimmed, "|")
+	parts := strings.Split(trimmed, "|")
+	cells := make([]string, len(parts))
+	for i, p := range parts {
+		cells[i] = strings.TrimSpace(p)
+	}
+	return cells
+}
+
+func convertTableToKeyValue(tableLines []string) []string {
+	if len(tableLines) < 2 {
+		return tableLines
+	}
+
+	headers := parseTableCells(tableLines[0])
+
+	dataStart := 1
+	if dataStart < len(tableLines) && isTableSeparator(tableLines[dataStart]) {
+		dataStart = 2
+	}
+
+	if dataStart >= len(tableLines) {
+		return tableLines
+	}
+
+	var out []string
+	for rowIdx := dataStart; rowIdx < len(tableLines); rowIdx++ {
+		cells := parseTableCells(tableLines[rowIdx])
+		for j, cell := range cells {
+			if j < len(headers) && cell != "" {
+				out = append(out, fmt.Sprintf("**%s:** %s", headers[j], cell))
+			}
+		}
+		if rowIdx < len(tableLines)-1 {
+			out = append(out, "")
+		}
+	}
+
+	return out
+}
+
+// slackTableBlock implements slack.Block for Slack's native table block type.
+// slack-go v0.12.2 doesn't have built-in table block support.
+type slackTableBlock struct {
+	Type           slack.MessageBlockType `json:"type"`
+	BlockID        string                 `json:"block_id,omitempty"`
+	Rows           [][]slackTableCell     `json:"rows"`
+	ColumnSettings []slackColumnSetting   `json:"column_settings,omitempty"`
+}
+
+type slackTableCell struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type slackColumnSetting struct {
+	Align     string `json:"align,omitempty"`
+	IsWrapped bool   `json:"is_wrapped,omitempty"`
+}
+
+func (b *slackTableBlock) BlockType() slack.MessageBlockType {
+	return b.Type
+}
+
+type slackFormattedMessage struct {
+	text   string
+	blocks []slack.Block
+}
+
+func formatResponseForSlack(markdown string, documentIDs map[string]string) slackFormattedMessage {
+	text := convertMarkdownToSlackFormatWithLinks(markdown, documentIDs)
+
+	segments := splitMarkdownByTables(markdown)
+	hasTable := false
+	for _, seg := range segments {
+		if seg.isTable {
+			hasTable = true
+			break
+		}
+	}
+	if !hasTable {
+		return slackFormattedMessage{text: text}
+	}
+
+	var blocks []slack.Block
+	tableUsed := false
+
+	for _, seg := range segments {
+		segText := strings.Join(seg.lines, "\n")
+
+		if seg.isTable && !tableUsed {
+			tb := buildTableBlock(seg.lines)
+			if tb != nil {
+				blocks = append(blocks, tb)
+				tableUsed = true
+				continue
+			}
+		}
+
+		if seg.isTable {
+			segText = strings.Join(convertTableToKeyValue(seg.lines), "\n")
+		}
+
+		converted := convertMarkdownToSlackFormatWithLinks(segText, documentIDs)
+		if trimmed := strings.TrimSpace(converted); trimmed != "" {
+			appendSectionBlocks(&blocks, trimmed)
+		}
+	}
+
+	if len(blocks) == 0 {
+		return slackFormattedMessage{text: text}
+	}
+
+	return slackFormattedMessage{text: text, blocks: blocks}
+}
+
+type markdownSegment struct {
+	isTable bool
+	lines   []string
+}
+
+func splitMarkdownByTables(markdown string) []markdownSegment {
+	lines := strings.Split(markdown, "\n")
+	var segments []markdownSegment
+	var currentText []string
+	i := 0
+
+	for i < len(lines) {
+		if isTableRow(lines[i]) {
+			if len(currentText) > 0 {
+				segments = append(segments, markdownSegment{isTable: false, lines: currentText})
+				currentText = nil
+			}
+			var tableLines []string
+			for i < len(lines) && isTableRow(lines[i]) {
+				tableLines = append(tableLines, lines[i])
+				i++
+			}
+			segments = append(segments, markdownSegment{isTable: true, lines: tableLines})
+		} else {
+			currentText = append(currentText, lines[i])
+			i++
+		}
+	}
+
+	if len(currentText) > 0 {
+		segments = append(segments, markdownSegment{isTable: false, lines: currentText})
+	}
+
+	return segments
+}
+
+func buildTableBlock(tableLines []string) *slackTableBlock {
+	if len(tableLines) < 2 {
+		return nil
+	}
+
+	headers := parseTableCells(tableLines[0])
+	if len(headers) == 0 || len(headers) > 20 {
+		return nil
+	}
+
+	dataStart := 1
+	if dataStart < len(tableLines) && isTableSeparator(tableLines[dataStart]) {
+		dataStart = 2
+	}
+	if dataStart >= len(tableLines) {
+		return nil
+	}
+
+	var rows [][]slackTableCell
+
+	headerRow := make([]slackTableCell, len(headers))
+	for i, h := range headers {
+		headerRow[i] = slackTableCell{Type: "raw_text", Text: h}
+	}
+	rows = append(rows, headerRow)
+
+	for i := dataStart; i < len(tableLines) && len(rows) < 100; i++ {
+		cells := parseTableCells(tableLines[i])
+		row := make([]slackTableCell, len(headers))
+		for j := range headers {
+			text := ""
+			if j < len(cells) {
+				text = cells[j]
+			}
+			row[j] = slackTableCell{Type: "raw_text", Text: text}
+		}
+		rows = append(rows, row)
+	}
+
+	settings := make([]slackColumnSetting, len(headers))
+	for i := range settings {
+		settings[i] = slackColumnSetting{IsWrapped: true}
+	}
+
+	return &slackTableBlock{
+		Type:           "table",
+		Rows:           rows,
+		ColumnSettings: settings,
+	}
+}
+
+const slackSectionMaxChars = 3000
+
+func appendSectionBlocks(blocks *[]slack.Block, text string) {
+	for len(text) > 0 {
+		chunk := text
+		if len(chunk) > slackSectionMaxChars {
+			idx := strings.LastIndex(chunk[:slackSectionMaxChars], "\n")
+			if idx > 0 {
+				chunk = chunk[:idx]
+			} else {
+				chunk = chunk[:slackSectionMaxChars]
+			}
+		}
+		*blocks = append(*blocks, slack.NewSectionBlock(
+			slack.NewTextBlockObject(slack.MarkdownType, chunk, false, false),
+			nil, nil,
+		))
+		text = text[len(chunk):]
+		text = strings.TrimLeft(text, "\n")
+	}
 }
 
 // convertBoldAndItalic handles the conversion of bold and italic markers

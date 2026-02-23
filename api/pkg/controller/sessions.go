@@ -104,6 +104,8 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 		return nil, fmt.Errorf("failed to create interaction: %w", err)
 	}
 
+	req.Session.Interactions = append(req.Session.Interactions, interaction)
+
 	messages := types.InteractionsToOpenAIMessages(systemPrompt, interactions)
 
 	request := openai.ChatCompletionRequest{
@@ -134,6 +136,20 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 	ctx = oai.SetContextAppID(ctx, req.App.ID)
 
 	start := time.Now()
+
+	if req.Session.Metadata.AgentType == "zed_external" {
+		_, err := c.RunExternalAgent(ctx, RunExternalAgentRequest{
+			Session:               req.Session,
+			ChatCompletionRequest: request,
+			Mode:                  ExternalAgentModeBlocking,
+			Start:                 start,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to run external agent: %w", err)
+		}
+
+		return interaction, nil
+	}
 
 	resp, _, err := c.ChatCompletion(ctx, req.User, request, &ChatCompletionOptions{
 		OrganizationID: req.Session.OrganizationID,

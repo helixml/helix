@@ -21,10 +21,6 @@ var startSpecTaskParameters = jsonschema.Definition{
 			Type:        jsonschema.String,
 			Description: "The ID of the task to start",
 		},
-		"skip_planning": {
-			Type:        jsonschema.Boolean,
-			Description: "If true, skip spec planning and go straight to implementation. If false, start with spec generation.",
-		},
 	},
 	Required: []string{"task_id", "skip_planning"},
 }
@@ -69,7 +65,7 @@ func (t *StartSpecTaskTool) OpenAI() []openai.Tool {
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
 				Name:        "StartSpecTask",
-				Description: "Start a spec task - either with spec planning or skip directly to implementation",
+				Description: "Start a spec task - begins working on the task",
 				Parameters:  startSpecTaskParameters,
 			},
 		},
@@ -110,8 +106,6 @@ func (t *StartSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args m
 		return "", fmt.Errorf("task_id is required")
 	}
 
-	skipPlanning, _ := args["skip_planning"].(bool)
-
 	task, err := t.store.GetSpecTask(ctx, taskID)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get spec task for start")
@@ -125,7 +119,7 @@ func (t *StartSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args m
 	var newStatus types.SpecTaskStatus
 	var message string
 
-	if skipPlanning {
+	if task.JustDoItMode {
 		newStatus = types.TaskStatusQueuedImplementation
 		task.JustDoItMode = true
 		message = "Task started - queued for implementation (skipping planning)"

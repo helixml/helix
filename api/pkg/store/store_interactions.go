@@ -125,13 +125,6 @@ func (s *PostgresStore) UpdateInteraction(ctx context.Context, interaction *type
 		return nil, result.Error
 	}
 
-	log.Info().
-		Str("interaction_id", interaction.ID).
-		Int("generation_id", interaction.GenerationID).
-		Int64("rows_affected", result.RowsAffected).
-		Int("response_length", len(interaction.ResponseMessage)).
-		Msg("✅ [STORE] UpdateInteraction completed")
-
 	return interaction, nil
 }
 

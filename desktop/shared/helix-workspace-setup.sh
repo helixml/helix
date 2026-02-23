@@ -252,6 +252,45 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
             echo "    The terminal will stay open so you can see this error."
             exit 1
         fi
+
+        # =========================================
+        # Initialize empty repositories
+        # =========================================
+        # Empty repos (e.g., newly created on GitHub with no README) have no commits
+        # and will fail branch checkout. Auto-init them with an initial commit.
+        for i in "${!CLONE_DIRS[@]}"; do
+            CLONE_DIR="${CLONE_DIRS[$i]}"
+            REPO_NAME="${CLONE_NAMES[$i]}"
+
+            if [ -d "$CLONE_DIR/.git" ]; then
+                # Check if repo is empty (no commits)
+                if ! git -C "$CLONE_DIR" rev-parse HEAD >/dev/null 2>&1; then
+                    echo ""
+                    echo "  Initializing empty repository: $REPO_NAME"
+
+                    cd "$CLONE_DIR"
+
+                    # Create README
+                    echo "# $REPO_NAME" > README.md
+                    echo "" >> README.md
+                    echo "This repository was initialized by Helix." >> README.md
+
+                    # Commit and push to main branch
+                    git checkout -b main 2>/dev/null || true
+                    git add README.md
+                    git commit -m "Initial commit"
+
+                    if git push -u origin main 2>&1; then
+                        echo "    ✅ Repository initialized with main branch"
+                    else
+                        echo "    ❌ Failed to push initial commit"
+                        echo "    You may need to initialize this repository manually"
+                    fi
+
+                    cd "$WORK_DIR"
+                fi
+            fi
+        done
     fi
 
     echo "========================================="

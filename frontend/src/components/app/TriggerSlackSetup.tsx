@@ -92,7 +92,10 @@ const getSlackAppManifest = (appName: string, description: string) => `{
         "event_subscriptions": {
             "bot_events": [
                 "app_mention",
-                "message.channels"
+                "message.channels",
+                "message.groups",
+                "message.im",
+                "message.mpim"
             ]
         },
         "interactivity": {
@@ -135,17 +138,17 @@ const setupSteps = [
   },
   {
     step: 7,
-    text: 'Click "Generate Token and Scopes" in the Basic Information section',
+    text: 'In "Basic Information" create an App-Level Token with scope "connections:write" (required for Socket Mode)',
     image: createSlackAppToken
   },
   {
     step: 8,
-    text: 'Select all scopes and click "Generate"',
+    text: 'Generate the App-Level token and copy the xapp- token into Helix',
     image: createSlackAppTokenScopes
   },
   {
     step: 9,
-    text: 'Go to "Install App" and generate the "Bot User OAuth Token"',
+    text: 'Go to "Install App" and generate/reinstall to get the "Bot User OAuth Token" (xoxb-)',
     image: createSlackAppInstall
   }
 ]

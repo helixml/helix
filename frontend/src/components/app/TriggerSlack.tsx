@@ -39,9 +39,14 @@ const TriggerSlack: FC<TriggerSlackProps> = ({
   // State for Slack configuration
   const [appToken, setAppToken] = useState<string>(slackTrigger?.app_token || '')
   const [botToken, setBotToken] = useState<string>(slackTrigger?.bot_token || '')
+  const [projectUpdates, setProjectUpdates] = useState<boolean>(slackTrigger?.project_updates || false)
+  const [projectChannel, setProjectChannel] = useState<string>(slackTrigger?.project_channel || '')
   const [showAppToken, setShowAppToken] = useState<boolean>(false)
   const [showBotToken, setShowBotToken] = useState<boolean>(false)
   const [showSetupDialog, setShowSetupDialog] = useState<boolean>(false)
+  const isProjectManagerEnabled = app.projectManagerTool?.enabled === true
+  const hasProjectManagerProjectId = Boolean(app.projectManagerTool?.project_id)
+  const showProjectManagerWarning = projectUpdates && (!isProjectManagerEnabled || !hasProjectManagerProjectId)
 
   // If slack is configured, we need to get the status of the bot
   const { data: slackStatus, isLoading: isLoadingSlackStatus } = useGetAppTriggerStatus(appId, 'slack', {
@@ -54,76 +59,72 @@ const TriggerSlack: FC<TriggerSlackProps> = ({
     if (slackTrigger) {
       setAppToken(slackTrigger.app_token || '')
       setBotToken(slackTrigger.bot_token || '')
+      setProjectUpdates(slackTrigger.project_updates || false)
+      setProjectChannel(slackTrigger.project_channel || '')
     }
   }, [slackTrigger])
 
+  const buildSlackTrigger = (
+    enabled: boolean,
+    appTokenValue: string,
+    botTokenValue: string,
+    projectUpdatesValue: boolean,
+    projectChannelValue: string
+  ) => {
+    const currentSlackTrigger = triggers.find(t => t.slack)?.slack
+
+    return {
+      enabled,
+      app_token: appTokenValue,
+      bot_token: botTokenValue,
+      channels: currentSlackTrigger?.channels || [],
+      project_updates: projectUpdatesValue,
+      project_channel: projectChannelValue
+    }
+  }
+
   const handleSlackToggle = (enabled: boolean) => {
     if (enabled) {
-      // Enable the existing Slack trigger or create a default one if none exists
-      const currentSlackTrigger = triggers.find(t => t.slack)?.slack
-      if (currentSlackTrigger) {
-        // Preserve existing configuration but set enabled to true
-        const newTriggers = [...triggers.filter(t => !t.slack), { 
-          slack: { 
-            enabled: true, 
-            app_token: currentSlackTrigger.app_token || '', 
-            bot_token: currentSlackTrigger.bot_token || '',
-            channels: currentSlackTrigger.channels || []
-          } 
-        }]
-        onUpdate(newTriggers)
-      } else {
-        // Create a default Slack trigger
-        const newTriggers = [...triggers.filter(t => !t.slack), { 
-          slack: { 
-            enabled: true, 
-            app_token: '', 
-            bot_token: '',
-            channels: []
-          } 
-        }]
-        onUpdate(newTriggers)
-      }
+      const newTriggers = [...triggers.filter(t => !t.slack), {
+        slack: buildSlackTrigger(true, appToken, botToken, projectUpdates, projectChannel)
+      }]
+      onUpdate(newTriggers)
     } else {
-      // Keep the Slack trigger but set enabled to false, preserving configuration
-      const currentSlackTrigger = triggers.find(t => t.slack)?.slack
-      if (currentSlackTrigger) {
-        const updatedTriggers = [...triggers.filter(t => !t.slack), { 
-          slack: { 
-            enabled: false, 
-            app_token: currentSlackTrigger.app_token || '', 
-            bot_token: currentSlackTrigger.bot_token || '',
-            channels: currentSlackTrigger.channels || []
-          } 
-        }]
-        onUpdate(updatedTriggers)
-      } else {
-        // Fallback: remove Slack trigger if none exists
-        const removedTriggers = triggers.filter(t => !t.slack)
-        onUpdate(removedTriggers)
-      }
+      const updatedTriggers = [...triggers.filter(t => !t.slack), {
+        slack: buildSlackTrigger(false, appToken, botToken, projectUpdates, projectChannel)
+      }]
+      onUpdate(updatedTriggers)
     }
   }
 
   const handleAppTokenChange = (token: string) => {
     setAppToken(token)
-    updateSlackTrigger(token, botToken)
+    updateSlackTrigger(token, botToken, projectUpdates, projectChannel)
   }
 
   const handleBotTokenChange = (token: string) => {
     setBotToken(token)
-    updateSlackTrigger(appToken, token)
+    updateSlackTrigger(appToken, token, projectUpdates, projectChannel)
   }
 
-  const updateSlackTrigger = (appTokenValue: string, botTokenValue: string) => {
-    const currentSlackTrigger = triggers.find(t => t.slack)?.slack
-    const newTriggers = [...triggers.filter(t => !t.slack), { 
-      slack: { 
-        enabled: true, 
-        app_token: appTokenValue, 
-        bot_token: botTokenValue,
-        channels: currentSlackTrigger?.channels || []
-      } 
+  const handleProjectUpdatesChange = (enabled: boolean) => {
+    setProjectUpdates(enabled)
+    updateSlackTrigger(appToken, botToken, enabled, projectChannel)
+  }
+
+  const handleProjectChannelChange = (channel: string) => {
+    setProjectChannel(channel)
+    updateSlackTrigger(appToken, botToken, projectUpdates, channel)
+  }
+
+  const updateSlackTrigger = (
+    appTokenValue: string,
+    botTokenValue: string,
+    projectUpdatesValue: boolean,
+    projectChannelValue: string
+  ) => {
+    const newTriggers = [...triggers.filter(t => !t.slack), {
+      slack: buildSlackTrigger(true, appTokenValue, botTokenValue, projectUpdatesValue, projectChannelValue)
     }]
     onUpdate(newTriggers)
   }
@@ -221,6 +222,42 @@ const TriggerSlack: FC<TriggerSlackProps> = ({
                   </InputAdornment>
                 ),
               }}
+            />
+          </Box>
+
+          <Box sx={{ mb: 2 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={projectUpdates}
+                  onChange={(e) => handleProjectUpdatesChange(e.target.checked)}
+                  disabled={readOnly || !hasSlackTrigger}
+                />
+              }
+              label="Project updates"
+            />
+            <Typography variant="body2" color="text.secondary">
+              This works together with the Project Manager skill to send updates to the provided channel when spec tasks are updated in Helix Projects.
+            </Typography>
+            {showProjectManagerWarning && (
+              <Alert severity="warning" sx={{ mt: 1.5 }}>
+                Project updates require Project Manager skill to be enabled and a project ID to be selected there.
+              </Alert>
+            )}
+          </Box>
+
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2 }}>
+              Project channel
+            </Typography>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="#project-updates"
+              value={projectChannel}
+              onChange={(e) => handleProjectChannelChange(e.target.value)}
+              disabled={readOnly || !hasSlackTrigger || !projectUpdates}
+              helperText="This is where the spec task updates will go."
             />
           </Box>
 

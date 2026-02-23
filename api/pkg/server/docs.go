@@ -24706,6 +24706,14 @@ const docTemplate = `{
                 },
                 "enabled": {
                     "type": "boolean"
+                },
+                "project_channel": {
+                    "description": "Send project updates to this channel",
+                    "type": "string"
+                },
+                "project_updates": {
+                    "description": "Send project updates (spec task creation, completion, etc)",
+                    "type": "boolean"
                 }
             }
         },

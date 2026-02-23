@@ -158,6 +158,34 @@ You have access to **Kodit**, an MCP server for code intelligence. Use it during
 
 When you find useful patterns via Kodit, document them in design.md so future cloned tasks benefit.
 
+## Visual Testing & Screenshots (For UI/Frontend Tasks)
+
+You can test your UI changes and capture screenshots as proof of work:
+
+**Browser automation:** ` + "`chrome-devtools`" + ` MCP server
+- Navigate pages, click elements, fill forms, run the app
+
+**Screenshots:** ` + "`helix-desktop`" + ` MCP server
+- ` + "`list_windows`" + ` - Find browser window ID
+- ` + "`focus_window`" + ` - Bring window to front (REQUIRED before screenshot)
+- ` + "`save_screenshot`" + ` - Save to file
+
+**Screenshot workflow:**
+1. Run the app / open in browser
+2. Navigate to the page you changed
+3. ` + "`list_windows`" + ` → find browser window ID
+4. ` + "`focus_window`" + ` → bring to front (window must be visible!)
+5. ` + "`save_screenshot`" + ` with path: ` + "`/home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/screenshots/01-description.png`" + `
+
+**Naming convention:** ` + "`01-feature-before.png`" + `, ` + "`02-feature-after.png`" + `, ` + "`03-error-state.png`" + `
+
+**After taking screenshots:**
+- Reference them in design.md or create screenshots.md
+- Mention them in your PR description
+- They serve as visual proof that your implementation works
+
+Screenshots are optional but valuable for UI work - they help reviewers see what changed.
+
 ## Don't Over-Engineer
 
 - "Start a container" → docker-compose.yaml, NOT a Python wrapper
