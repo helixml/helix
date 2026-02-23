@@ -1151,7 +1151,7 @@ const ProjectSettings: FC = () => {
                                 colors={["#4caf50"]}
                               />
                               <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5, fontFamily: "monospace", fontSize: "0.65rem" }}>
-                                {writeRates[writeRates.length - 1]?.toFixed(0)} MB/s
+                                {writeRates[writeRates.length - 1]?.toFixed(0)} MB/s cache writes
                               </Typography>
                             </Box>
                           )}
