@@ -240,7 +240,62 @@ type SampleProjectTask struct {
 
 // ProjectMetadata represents the metadata stored in Project.Metadata field
 type ProjectMetadata struct {
-	BoardSettings *BoardSettings `json:"board_settings,omitempty"`
+	BoardSettings       *BoardSettings    `json:"board_settings,omitempty"`
+	AutoWarmDockerCache bool              `json:"auto_warm_docker_cache,omitempty"`
+	DockerCacheStatus   *DockerCacheState `json:"docker_cache_status,omitempty"`
+}
+
+// DockerCacheState tracks the current state of the golden Docker cache for a project,
+// per sandbox. Each sandbox has its own cache state since golden caches are local
+// to the sandbox's filesystem.
+type DockerCacheState struct {
+	Sandboxes map[string]*SandboxCacheState `json:"sandboxes,omitempty"`
+}
+
+// OverallStatus returns an aggregate status across all sandboxes:
+// "building" if any sandbox is building, "ready" if all are ready,
+// "failed" if any failed (and none building), "none" otherwise.
+func (d *DockerCacheState) OverallStatus() string {
+	if d == nil || len(d.Sandboxes) == 0 {
+		return "none"
+	}
+	anyBuilding := false
+	anyFailed := false
+	allReady := true
+	for _, s := range d.Sandboxes {
+		switch s.Status {
+		case "building":
+			anyBuilding = true
+			allReady = false
+		case "failed":
+			anyFailed = true
+			allReady = false
+		case "ready":
+			// ok
+		default:
+			allReady = false
+		}
+	}
+	if anyBuilding {
+		return "building"
+	}
+	if allReady && len(d.Sandboxes) > 0 {
+		return "ready"
+	}
+	if anyFailed {
+		return "failed"
+	}
+	return "none"
+}
+
+// SandboxCacheState tracks the golden Docker cache state for a single sandbox.
+type SandboxCacheState struct {
+	Status         string     `json:"status"`
+	SizeBytes      int64      `json:"size_bytes,omitempty"`
+	LastBuildAt    *time.Time `json:"last_build_at,omitempty"`
+	LastReadyAt    *time.Time `json:"last_ready_at,omitempty"`
+	BuildSessionID string     `json:"build_session_id,omitempty"`
+	Error          string     `json:"error,omitempty"`
 }
 
 // BoardSettings represents the Kanban board settings for a project

@@ -13,6 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
+	hydra "github.com/helixml/helix/api/pkg/hydra"
 	types "github.com/helixml/helix/api/pkg/types"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -68,4 +69,33 @@ func (m *MockContainerExecutor) StopDesktop(ctx context.Context, sessionID strin
 func (mr *MockContainerExecutorMockRecorder) StopDesktop(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopDesktop", reflect.TypeOf((*MockContainerExecutor)(nil).StopDesktop), ctx, sessionID)
+}
+
+// HasRunningContainer mocks base method.
+func (m *MockContainerExecutor) HasRunningContainer(ctx context.Context, sessionID string) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasRunningContainer", ctx, sessionID)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// HasRunningContainer indicates an expected call of HasRunningContainer.
+func (mr *MockContainerExecutorMockRecorder) HasRunningContainer(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasRunningContainer", reflect.TypeOf((*MockContainerExecutor)(nil).HasRunningContainer), ctx, sessionID)
+}
+
+// GetGoldenBuildResult mocks base method.
+func (m *MockContainerExecutor) GetGoldenBuildResult(ctx context.Context, sandboxID, projectID string) (*hydra.GoldenBuildResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetGoldenBuildResult", ctx, sandboxID, projectID)
+	ret0, _ := ret[0].(*hydra.GoldenBuildResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetGoldenBuildResult indicates an expected call of GetGoldenBuildResult.
+func (mr *MockContainerExecutorMockRecorder) GetGoldenBuildResult(ctx, sandboxID, projectID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGoldenBuildResult", reflect.TypeOf((*MockContainerExecutor)(nil).GetGoldenBuildResult), ctx, sandboxID, projectID)
 }

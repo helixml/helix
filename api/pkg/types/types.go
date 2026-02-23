@@ -399,6 +399,7 @@ type SessionMetadata struct {
 	RenderNode              string               `json:"render_node,omitempty"`               // GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
 	PausedScreenshotPath    string               `json:"paused_screenshot_path,omitempty"`    // Path to saved screenshot when agent is paused
 	CodeAgentRuntime        CodeAgentRuntime     `json:"code_agent_runtime,omitempty"`        // Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.)
+	StatusMessage           string               `json:"status_message,omitempty"`            // Transient status message shown during startup (e.g., "Unpacking build cache (2.1/7.0 GB)")
 	// Container fields (Hydra executor)
 	ContainerName string `json:"container_name,omitempty"` // Docker container name
 	ContainerID   string `json:"container_id,omitempty"`   // Docker container ID
@@ -1957,6 +1958,9 @@ type DesktopAgent struct {
 
 	// Video capture/encoding mode for streaming
 	VideoMode string `json:"video_mode,omitempty"` // "shm" (default), "native", or "zerocopy"
+
+	// Golden build mode: session builds a golden Docker cache snapshot
+	GoldenBuild bool `json:"golden_build,omitempty"`
 }
 
 // GetEffectiveResolution returns the display dimensions based on Resolution preset

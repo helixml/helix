@@ -79,6 +79,14 @@ type CreateDevContainerRequest struct {
 
 	// Privileged mode (required for docker-in-desktop: inner dockerd needs it)
 	Privileged bool `json:"privileged,omitempty"`
+
+	// ProjectID for golden Docker cache lookup (per-project overlayfs)
+	ProjectID string `json:"project_id,omitempty"`
+
+	// GoldenBuild marks this as a golden cache build session.
+	// Golden build sessions use a plain directory (not overlay) for Docker data,
+	// and the data is promoted to golden when the container exits with code 0.
+	GoldenBuild bool `json:"golden_build,omitempty"`
 }
 
 // DevContainerResponse is the response after creating/querying a dev container
@@ -112,6 +120,10 @@ type DevContainer struct {
 	UserID        string             `json:"user_id"`
 	CreatedAt     time.Time          `json:"created_at"`
 	DockerSocket  string             `json:"docker_socket"` // Which dockerd manages this container
+
+	// Golden build fields
+	IsGoldenBuild bool   `json:"is_golden_build,omitempty"` // This is a golden cache build session
+	ProjectID     string `json:"project_id,omitempty"`      // Project ID for golden promotion
 }
 
 // ListDevContainersResponse is the response listing all dev containers

@@ -4,16 +4,37 @@
 # Produces pre-built qwen-code bundles that can be installed globally
 # without triggering prepare scripts (which require husky).
 #
+# Uses BuildKit cache mounts for npm download cache and layer caching
+# for dependencies (npm ci only re-runs when package manifests change).
+#
 # Usage: ./stack build-qwen-code
 # ====================================================================
-FROM node:20-slim
+FROM node:20-slim AS builder
 
 # Install git (required for simple-git dependency)
-RUN apt-get update && apt-get install -y \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
-# Set working directory for builds
-WORKDIR /qwen-code
+WORKDIR /build
 
-# The build script mounts qwen-code source here and runs npm ci + bundle
+# Copy package manifests and workspace packages first for layer caching.
+# npm ci only re-runs when these files change.
+COPY package.json package-lock.json ./
+COPY packages/ ./packages/
+
+# Install dependencies — cached as a Docker layer when manifests unchanged.
+# --ignore-scripts skips husky prepare hooks.
+# Cache mount keeps npm download cache across builds even when layer is rebuilt.
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --ignore-scripts
+
+# Copy remaining source and build the bundle.
+COPY . .
+RUN npm run bundle
+
+# Output stage — only the files needed for `npm install -g`
+FROM scratch
+COPY --from=builder /build/package.json /package.json
+COPY --from=builder /build/package-lock.json /package-lock.json
+COPY --from=builder /build/dist/ /dist/
+COPY --from=builder /build/packages/ /packages/
+COPY --from=builder /build/node_modules/ /node_modules/

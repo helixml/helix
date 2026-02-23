@@ -133,6 +133,7 @@ type HelixAPIServer struct {
 	exposedPortManager         *ExposedPortManager // Tracks exposed ports for session dev containers
 	wg                         sync.WaitGroup      // Control for goroutines to enable tests
 	summaryService             *SummaryService
+	goldenBuildService         *services.GoldenBuildService
 }
 
 func NewServer(
@@ -422,6 +423,14 @@ func NewServer(
 		apiServer.specDrivenTaskService,
 		apiServer.externalAgentExecutor, // Hydra executor for external agent management
 	)
+
+	// Initialize golden build service for Docker cache pre-warming
+	apiServer.goldenBuildService = services.NewGoldenBuildService(
+		store,
+		externalAgentExecutor,
+		apiServer.specDrivenTaskService,
+	)
+	apiServer.specTaskOrchestrator.SetGoldenBuildService(apiServer.goldenBuildService)
 
 	// Start orchestrator
 	go func() {
@@ -817,6 +826,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sandboxes/register", apiServer.registerSandbox).Methods("POST")
 	authRouter.HandleFunc("/sandboxes/{id}/heartbeat", apiServer.sandboxHeartbeat).Methods("POST")
 	authRouter.HandleFunc("/sandboxes/{id}/disk-history", apiServer.getDiskUsageHistory).Methods("GET")
+	authRouter.HandleFunc("/sandboxes/{id}/containers/{session_id}/blkio", apiServer.getContainerBlkioStats).Methods("GET")
 	authRouter.HandleFunc("/sandboxes", apiServer.listSandboxes).Methods("GET")
 	authRouter.HandleFunc("/sandboxes/{id}", apiServer.deregisterSandbox).Methods("DELETE")
 	// Reverse dial endpoint for user sandboxes (spec tasks, PDEs)
@@ -1069,6 +1079,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}/move", system.Wrapper(apiServer.moveProject)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/usage", system.Wrapper(apiServer.getProjectUsage)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/move/preview", system.Wrapper(apiServer.moveProjectPreview)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/docker-cache/build", system.Wrapper(apiServer.triggerGoldenBuild)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/docker-cache/cancel", system.Wrapper(apiServer.cancelGoldenBuild)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/docker-cache", system.Wrapper(apiServer.deleteDockerCache)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/projects/{id}/tasks-progress", apiServer.getBatchTaskProgress).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/tasks-usage", apiServer.getBatchTaskUsage).Methods(http.MethodGet)
 

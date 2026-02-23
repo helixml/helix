@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -26,6 +27,9 @@ type Executor interface {
 
 	// Container discovery from sandbox
 	DiscoverContainersFromSandbox(ctx context.Context, sandboxID string) error
+
+	// Golden build result from sandbox
+	GetGoldenBuildResult(ctx context.Context, sandboxID, projectID string) (*hydra.GoldenBuildResult, error)
 }
 
 // Shared types used by all executor implementations

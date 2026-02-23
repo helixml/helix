@@ -316,6 +316,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		UserID:        agent.UserID,
 		Network:       "bridge",
 		Privileged:    true, // Required for inner dockerd (docker-in-desktop mode)
+		ProjectID:     agent.ProjectID,
+		GoldenBuild:   agent.GoldenBuild,
 	}
 
 	// Create dev container via Hydra
@@ -326,7 +328,45 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Str("container_type", string(req.ContainerType)).
 		Msg("Creating dev container via Hydra")
 
+	// Mark session as "starting" so the frontend shows the starting UI
+	// (with progress messages) instead of the paused/absent state.
+	h.setExternalAgentStatus(ctx, agent.SessionID, "starting")
+
+	// Poll golden cache copy progress in a goroutine while CreateDevContainer blocks.
+	// If a golden cache exists, the Hydra side copies it before creating the container.
+	// We poll a separate Hydra endpoint and update session.StatusMessage so the
+	// frontend/CLI can show "Unpacking build cache (2.1/7.0 GB)" instead of just "Starting Desktop...".
+	stopProgress := make(chan struct{})
+	go func() {
+		// Use a separate RevDial client for concurrent progress polling
+		progressClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopProgress:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				progress, err := progressClient.GetGoldenCopyProgress(ctx, agent.ProjectID)
+				if err != nil || progress == nil {
+					continue // no copy in progress (yet or anymore)
+				}
+				copiedGB := float64(progress.CopiedBytes) / 1e9
+				totalGB := float64(progress.TotalBytes) / 1e9
+				msg := fmt.Sprintf("Unpacking build cache (%.1f/%.1f GB)", copiedGB, totalGB)
+				h.updateSessionStatusMessage(ctx, agent.SessionID, msg)
+			}
+		}
+	}()
+
 	resp, err := hydraClient.CreateDevContainer(ctx, req)
+
+	// Signal progress goroutine to stop and clear the status message
+	close(stopProgress)
+	h.updateSessionStatusMessage(ctx, agent.SessionID, "")
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create dev container via Hydra: %w", err)
 	}
@@ -598,7 +638,9 @@ func (h *HydraExecutor) FindContainerBySessionID(ctx context.Context, helixSessi
 	return "", fmt.Errorf("no container found for session %s", helixSessionID)
 }
 
-// HasRunningContainer checks if a session has a running container
+// HasRunningContainer checks if a session has a running container.
+// It verifies with the actual sandbox via RevDial to detect containers that
+// were stopped internally by Hydra (e.g., golden builds completing).
 func (h *HydraExecutor) HasRunningContainer(ctx context.Context, sessionID string) bool {
 	h.mutex.RLock()
 	session, exists := h.sessions[sessionID]
@@ -608,10 +650,86 @@ func (h *HydraExecutor) HasRunningContainer(ctx context.Context, sessionID strin
 		return false
 	}
 
-	return session.Status == "running" && session.ContainerID != ""
+	if session.Status != "running" || session.ContainerID == "" {
+		return false
+	}
+
+	// Verify with the actual sandbox that the container is still running.
+	// The in-memory sessions map can become stale when containers are stopped
+	// internally by Hydra (e.g., golden builds completing via monitorGoldenBuild).
+	if h.connman != nil {
+		sandboxID := session.SandboxID
+		if sandboxID == "" {
+			sandboxID = "local"
+		}
+		hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
+		hydraClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
+
+		_, err := hydraClient.GetDevContainer(ctx, sessionID)
+		if err != nil {
+			// Container no longer exists on sandbox — clean up stale entry
+			log.Info().
+				Str("session_id", sessionID).
+				Str("sandbox_id", sandboxID).
+				Msg("Container no longer running on sandbox, cleaning up stale session entry")
+			h.mutex.Lock()
+			delete(h.sessions, sessionID)
+			h.mutex.Unlock()
+			return false
+		}
+	}
+
+	return true
 }
 
 // Helper methods
+
+// GetGoldenBuildResult queries a specific sandbox for the latest golden build result.
+func (h *HydraExecutor) GetGoldenBuildResult(ctx context.Context, sandboxID, projectID string) (*hydra.GoldenBuildResult, error) {
+	if h.connman == nil {
+		return nil, fmt.Errorf("connection manager not available")
+	}
+	if sandboxID == "" {
+		sandboxID = "local"
+	}
+	hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
+	hydraClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
+	return hydraClient.GetGoldenBuildResult(ctx, projectID)
+}
+
+// updateSessionStatusMessage updates the session's transient status message in the database.
+// This is polled by the frontend (every 3s) and CLI (every 2s) to show startup progress
+// like "Unpacking build cache (2.1/7.0 GB)" instead of a generic "Starting Desktop...".
+// Pass empty string to clear the message.
+func (h *HydraExecutor) updateSessionStatusMessage(ctx context.Context, sessionID, message string) {
+	dbSession, err := h.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return
+	}
+	if dbSession.Metadata.StatusMessage == message {
+		return // no change needed
+	}
+	dbSession.Metadata.StatusMessage = message
+	if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
+		log.Debug().Err(err).Str("session_id", sessionID).Msg("Failed to update session status message")
+	}
+}
+
+// setExternalAgentStatus updates the session's external agent status in the database.
+// This controls which UI state the frontend shows (starting, running, stopped, etc.).
+func (h *HydraExecutor) setExternalAgentStatus(ctx context.Context, sessionID, status string) {
+	dbSession, err := h.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return
+	}
+	if dbSession.Metadata.ExternalAgentStatus == status {
+		return
+	}
+	dbSession.Metadata.ExternalAgentStatus = status
+	if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
+		log.Debug().Err(err).Str("session_id", sessionID).Msg("Failed to update external agent status")
+	}
+}
 
 // parseContainerType converts desktop type string to container type
 func (h *HydraExecutor) parseContainerType(desktopType string) string {

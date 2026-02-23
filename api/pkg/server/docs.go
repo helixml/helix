@@ -6891,6 +6891,177 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/docker-cache": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Remove the golden Docker cache for a project from all sandboxes",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Clear golden Docker cache",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/docker-cache/build": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Manually trigger a golden Docker cache build for a project",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Trigger golden Docker cache build",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/docker-cache/cancel": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stop all running golden builds for a project",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Cancel running golden Docker cache builds",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/exploratory-session": {
             "get": {
                 "security": [
@@ -9512,6 +9683,42 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sandboxes/{id}/containers/{session_id}/blkio": {
+            "get": {
+                "description": "Get per-container disk I/O stats (write_bytes, read_bytes) from cgroup blkio counters",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sandbox"
+                ],
+                "summary": "Get container blkio stats",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/hydra.ContainerBlkioStats"
                         }
                     }
                 }
@@ -14515,6 +14722,20 @@ const docTemplate = `{
                 }
             }
         },
+        "hydra.ContainerBlkioStats": {
+            "type": "object",
+            "properties": {
+                "read_bytes": {
+                    "type": "integer"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "write_bytes": {
+                    "type": "integer"
+                }
+            }
+        },
         "hydra.DevContainerStatus": {
             "type": "string",
             "enum": [
@@ -19093,6 +19314,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.DockerCacheState": {
+            "type": "object",
+            "properties": {
+                "sandboxes": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/types.SandboxCacheState"
+                    }
+                }
+            }
+        },
         "types.DynamicModelInfo": {
             "type": "object",
             "properties": {
@@ -22099,8 +22331,14 @@ const docTemplate = `{
         "types.ProjectMetadata": {
             "type": "object",
             "properties": {
+                "auto_warm_docker_cache": {
+                    "type": "boolean"
+                },
                 "board_settings": {
                     "$ref": "#/definitions/types.BoardSettings"
+                },
+                "docker_cache_status": {
+                    "$ref": "#/definitions/types.DockerCacheState"
                 }
             }
         },
@@ -23229,6 +23467,29 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SandboxCacheState": {
+            "type": "object",
+            "properties": {
+                "build_session_id": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "last_build_at": {
+                    "type": "string"
+                },
+                "last_ready_at": {
+                    "type": "string"
+                },
+                "size_bytes": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
         "types.SandboxFileUploadResponse": {
             "type": "object",
             "properties": {
@@ -24131,6 +24392,10 @@ const docTemplate = `{
                 },
                 "spec_task_id": {
                     "description": "Multi-session SpecTask context",
+                    "type": "string"
+                },
+                "status_message": {
+                    "description": "Transient status message shown during startup (e.g., \"Unpacking build cache (2.1/7.0 GB)\")",
                     "type": "string"
                 },
                 "stream": {

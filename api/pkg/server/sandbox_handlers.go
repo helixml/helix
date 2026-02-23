@@ -3,11 +3,13 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -188,4 +190,32 @@ func (apiServer *HelixAPIServer) getDiskUsageHistory(rw http.ResponseWriter, req
 
 	rw.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(rw).Encode(history)
+}
+
+// getContainerBlkioStats returns per-container blkio write/read bytes via Hydra
+// @Summary Get container blkio stats
+// @Description Get per-container disk I/O stats (write_bytes, read_bytes) from cgroup blkio counters
+// @Tags sandbox
+// @Produce json
+// @Param id path string true "Sandbox ID"
+// @Param session_id path string true "Session ID"
+// @Success 200 {object} hydra.ContainerBlkioStats
+// @Router /api/v1/sandboxes/{id}/containers/{session_id}/blkio [get]
+func (apiServer *HelixAPIServer) getContainerBlkioStats(rw http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	sandboxID := vars["id"]
+	sessionID := vars["session_id"]
+
+	hydraClient := hydra.NewRevDialClient(apiServer.connman, fmt.Sprintf("hydra-%s", sandboxID))
+	ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
+	defer cancel()
+
+	stats, err := hydraClient.GetContainerBlkioStats(ctx, sessionID)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rw.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(rw).Encode(stats)
 }

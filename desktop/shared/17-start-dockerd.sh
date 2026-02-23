@@ -107,14 +107,23 @@ EOF
     fi
 
     # Start dockerd in background with auto-restart
+    # The loop checks /tmp/.dockerd-stop to allow clean shutdown (e.g. golden builds)
     (
         while true; do
+            if [ -f /tmp/.dockerd-stop ]; then
+                echo "[$(date -Iseconds)] dockerd stop requested, exiting restart loop"
+                break
+            fi
             # Clean up stale PID files before each restart attempt
             rm -f /var/run/docker.pid /run/docker/containerd/containerd.pid 2>/dev/null || true
             echo "[$(date -Iseconds)] Starting dockerd..."
             dockerd --config-file /etc/docker/daemon.json \
                 --host=unix:///var/run/docker.sock 2>&1
             EXIT_CODE=$?
+            if [ -f /tmp/.dockerd-stop ]; then
+                echo "[$(date -Iseconds)] dockerd exited (stop requested), not restarting"
+                break
+            fi
             echo "[$(date -Iseconds)] dockerd exited with code $EXIT_CODE, restarting in 2s..."
             sleep 2
         done
@@ -190,21 +199,29 @@ REGEOF
     # Install docker wrapper that transparently adds --load for remote builders.
     # This makes user 'docker build -t foo .' work seamlessly — the image builds
     # on the shared BuildKit and automatically loads into the local daemon.
-    if [ -f /opt/helix/docker-buildx-wrapper.sh ]; then
-        cp /opt/helix/docker-buildx-wrapper.sh /usr/local/bin/docker
+    if [ -f /opt/helix/docker-wrapper ]; then
+        cp /opt/helix/docker-wrapper /usr/local/bin/docker
         chmod +x /usr/local/bin/docker
-        echo "[dockerd] Installed docker wrapper at /usr/local/bin/docker (auto --load for remote builders)"
+        echo "[dockerd] Installed docker wrapper at /usr/local/bin/docker"
     fi
 
-    # Fix ownership of .docker directory for retro user
-    # (buildx commands above run as root and create ~/.docker owned by root)
+    # Copy buildx builder config from root to retro user.
+    # Root created the helix-shared builder above, storing instance metadata
+    # in /root/.docker/buildx/. Retro needs the same metadata so that
+    # BUILDX_BUILDER=helix-shared resolves correctly. We also pre-create the
+    # activity directory so buildx doesn't create it as root later.
     if id -u retro >/dev/null 2>&1; then
-        if [ -d /home/retro/.docker ]; then
-            chown -R retro:retro /home/retro/.docker
+        mkdir -p /home/retro/.docker/buildx/activity
+        if [ -d /root/.docker/buildx/instances ]; then
+            cp -a /root/.docker/buildx/instances /home/retro/.docker/buildx/
         fi
+        if [ -f /root/.docker/buildx/current ]; then
+            cp -a /root/.docker/buildx/current /home/retro/.docker/buildx/
+        fi
+        chown -R retro:retro /home/retro/.docker
         # Also add to retro's .bashrc so interactive shells pick it up immediately
         if ! grep -q 'BUILDX_BUILDER' /home/retro/.bashrc 2>/dev/null; then
             echo 'export BUILDX_BUILDER=helix-shared' >> /home/retro/.bashrc
         fi
-        echo "[dockerd] Fixed /home/retro/.docker ownership and shell config"
+        echo "[dockerd] Copied buildx config to retro user and fixed ownership"
     fi
