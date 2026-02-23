@@ -2,7 +2,7 @@
 
 ## Part 1: Auto-focus Input on Dialog Open
 
-- [ ] In `NewSpecTaskForm.tsx`, add `useEffect` to focus `taskPromptRef` on component mount
+- [~] In `NewSpecTaskForm.tsx`, add `useEffect` to focus `taskPromptRef` on component mount
 - [ ] Use `setTimeout(..., 0)` to ensure focus happens after render
 
 ## Part 2: Focus Start Planning Button on New Task
