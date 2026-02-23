@@ -1301,8 +1301,8 @@ if ! sudo zfs list helix/container-docker 2>/dev/null; then
         sudo zfs create -V "$ZVOL_SIZE" -s -o dedup=on -o compression=lz4 helix/container-docker
         # Wait for device node
         for i in $(seq 1 10); do [ -e "$ZVOL_DEV" ] && break; sleep 1; done
-        echo 'Formatting container-docker zvol as ext4...'
-        sudo mkfs.ext4 -q -L container-docker "$ZVOL_DEV"
+        echo 'Formatting container-docker zvol as XFS (reflink=1)...'
+        sudo mkfs.xfs -m reflink=1 -L ctr-docker "$ZVOL_DEV"
     fi
 fi
 # Mount the zvol
