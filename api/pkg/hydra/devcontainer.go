@@ -687,18 +687,11 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 				// Golden cache available — copy to session dir (works for both
 				// normal sessions AND golden builds; golden builds start from the
 				// previous golden for incremental rebuilds)
-				// Only report progress for regular sessions — golden builds' cache
-				// copy is an internal detail, not user-facing progress.
-				var onProgress func(copied, total int64)
-				if !req.GoldenBuild {
-					onProgress = func(copied, total int64) {
-						dm.setGoldenCopyProgress(req.ProjectID, copied, total, false)
-					}
+				onProgress := func(copied, total int64) {
+					dm.setGoldenCopyProgress(req.ProjectID, copied, total, false)
 				}
 				dockerDir, err := SetupGoldenCopy(req.ProjectID, volumeName, onProgress)
-				if !req.GoldenBuild {
-					dm.setGoldenCopyProgress(req.ProjectID, 0, 0, true) // clear progress
-				}
+				dm.setGoldenCopyProgress(req.ProjectID, 0, 0, true) // clear progress
 				if err != nil {
 					log.Warn().Err(err).
 						Str("project_id", req.ProjectID).

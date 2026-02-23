@@ -425,7 +425,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           <>
             <CircularProgress size={32} sx={{ color: 'primary.main' }} />
             <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
-              Starting Desktop...
+              {statusMessage || "Starting Desktop..."}
             </Typography>
           </>
         )}

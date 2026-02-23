@@ -328,6 +328,10 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Str("container_type", string(req.ContainerType)).
 		Msg("Creating dev container via Hydra")
 
+	// Mark session as "starting" so the frontend shows the starting UI
+	// (with progress messages) instead of the paused/absent state.
+	h.setExternalAgentStatus(ctx, agent.SessionID, "starting")
+
 	// Poll golden cache copy progress in a goroutine while CreateDevContainer blocks.
 	// If a golden cache exists, the Hydra side copies it before creating the container.
 	// We poll a separate Hydra endpoint and update session.StatusMessage so the
@@ -708,6 +712,22 @@ func (h *HydraExecutor) updateSessionStatusMessage(ctx context.Context, sessionI
 	dbSession.Metadata.StatusMessage = message
 	if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
 		log.Debug().Err(err).Str("session_id", sessionID).Msg("Failed to update session status message")
+	}
+}
+
+// setExternalAgentStatus updates the session's external agent status in the database.
+// This controls which UI state the frontend shows (starting, running, stopped, etc.).
+func (h *HydraExecutor) setExternalAgentStatus(ctx context.Context, sessionID, status string) {
+	dbSession, err := h.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return
+	}
+	if dbSession.Metadata.ExternalAgentStatus == status {
+		return
+	}
+	dbSession.Metadata.ExternalAgentStatus = status
+	if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
+		log.Debug().Err(err).Str("session_id", sessionID).Msg("Failed to update external agent status")
 	}
 }
 

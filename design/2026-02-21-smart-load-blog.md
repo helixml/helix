@@ -227,14 +227,9 @@ It didn't work. Docker's overlay2 storage driver creates its own overlayfs mount
 
 We switched to `cp -a`: copy the entire golden directory to the session's Docker data directory at session start.
 
-| Metric | Value |
-|--------|-------|
-| Golden cache size | 8.7 GB (4 Docker images) |
-| Copy time | **13.8 seconds** |
-| Dockerd startup on copied data | First attempt, no errors |
-| Pre-populated images | helix-haystack (5.14 GB), helix-api (619 MB), helix-frontend (1.67 GB), helix-typesense (996 MB) |
+For a simple project with 4 images (8.7 GB), the copy takes about 14 seconds on ext4. Fast enough — but the golden cache grows with project complexity. For Helix-in-Helix (which includes nested Docker-in-Docker images, an inner sandbox, and inner BuildKit state), the golden cache is **33 GB**. On ext4, `cp -a` takes **51 seconds** — and that's just the copy. Add dockerd startup, container creation, and IDE launch and cold start is well over a minute.
 
-13.8 seconds to go from empty daemon to 8.7 GB of pre-built images. Compare that to 10 minutes of building and transferring through nested daemons.
+Still better than 10 minutes, but a minute-long startup for every new agent session adds up.
 
 On disk, the cost is near zero. We run ZFS with dedup enabled, so the `cp -a` writes reference the same underlying blocks as the golden source. Ten sessions sharing the same golden cache consume roughly 1x the storage, not 10x.
 
@@ -248,16 +243,19 @@ The golden rebuilds on the next merge to main, so staleness is bounded by the de
 
 Here's where we ended up, starting from 45 minutes:
 
-### Cold start: 14 seconds (from 10 minutes, from 45 minutes)
+### Cold start: ~1 minute (from 10 minutes, from 45 minutes)
 
-| Phase | Original | Smart --load | Golden cache |
+| Phase | Original | Smart --load | Golden cache (ext4) |
 |-------|----------|-------------|-------------|
 | API + frontend (compose) | 200s | 41s | **0s** (pre-built) |
 | Zed IDE + desktop image | 459s | 132s | **0s** (pre-built) |
 | Inner sandbox setup | 2,075s | 380s | **0s** (pre-built) |
-| Golden copy | — | — | **14s** |
-| **Total** | **45 min** | **10 min** | **14s** |
-| **Speedup** | baseline | 4.5x | **193x** |
+| Golden copy (33 GB) | — | — | **51s** |
+| Dockerd + container startup | — | — | **~10s** |
+| **Total** | **45 min** | **10 min** | **~1 min** |
+| **Speedup** | baseline | 4.5x | **~45x** |
+
+A huge improvement, but still dominated by the golden cache copy. Ext4 doesn't support reflink — `cp --reflink=auto` silently falls back to a full byte-by-byte copy. We fix this in the [next section](#xfs-reflink-the-last-bottleneck).
 
 ### Warm start: 3–5 seconds
 
@@ -271,7 +269,7 @@ Golden builds start from the previous golden, so they only rebuild what changed:
 |----------|----------|
 | First golden (no previous) | ~10 min |
 | Incremental (from previous golden) | 30s–2 min |
-| Session start (copy from golden) | ~14s |
+| Session start (copy 33 GB golden, ext4) | ~51s |
 
 ## Implementation
 
@@ -287,15 +285,51 @@ The system has four components working together:
 
 The wrapper is generic — it works for any `docker build` workload, not just Helix. It auto-detects whether the active builder is remote, and only applies smart --load when it is. On a standard local Docker setup, it's a transparent passthrough.
 
+## XFS Reflink: The Last Bottleneck
+
+The golden cache copy was the last remaining bottleneck. For a 33 GB golden cache (Helix-in-Helix with nested Docker-in-Docker), `cp -a` on ext4 takes **51 seconds** — dominating the entire cold start. Ext4 doesn't support reflink, so `cp --reflink=auto` silently falls back to a full byte-by-byte copy.
+
+The fix: XFS with `reflink=1`.
+
+We already run ZFS for dedup and compression. Creating an XFS filesystem on a ZFS zvol gives us both: ZFS handles block-level dedup across sessions (ten sessions sharing the same golden cache consume ~1x storage), and XFS handles instant copy-on-write at the filesystem level.
+
+```bash
+sudo zfs create -V 500G -s -o dedup=on -o compression=lz4 prod/container-docker
+sudo mkfs.xfs -m reflink=1 -L ctr-docker /dev/zvol/prod/container-docker
+```
+
+The `cp -a --reflink=auto` that was already in the code (added optimistically when the filesystem was still ext4) now actually works:
+
+| Golden cache size | ext4 (`cp -a`) | XFS (`cp --reflink`) | Speedup |
+|-------------------|----------------|----------------------|---------|
+| 8.7 GB | 14s | **<0.1s** | **140x+** |
+| 33 GB | 51s | **<0.1s** | **510x+** |
+
+Reflink copy is a metadata-only operation — the kernel updates inode pointers without copying any data blocks. Actual data copying happens later, on write, at page granularity. For a Docker daemon starting on a golden cache, most of the data is read-only (base image layers), so the copy-on-write never triggers for the bulk of the data.
+
+### The numbers
+
+Session startup is now dominated by container orchestration, not data copying:
+
+| Phase | Time |
+|-------|------|
+| Golden cache copy (33 GB) | **<0.1s** |
+| Docker daemon startup | ~2s |
+| Container creation + networking | ~3s |
+| IDE launch | ~2s |
+| **Total cold start** | **~7s** |
+
+![Golden build UI showing cache size, disk I/O sparkline during build, and "Unpacking build cache" progress during session startup](screenshot-golden-build-ui.png)
+
 ## Summary
 
 | Scenario | Before | After | Improvement |
 |----------|--------|-------|-------------|
-| Cold start (every new session) | 45 min | **14s** | **193x** |
+| Cold start (every new session) | 45 min | **~7s** | **~385x** |
 | Warm start (rebuild, nothing changed) | 45 min | **3–5s** | **540–900x** |
 | Incremental rebuild (1-line change) | 45 min | **3.5s** | **770x** |
 
-45 minutes to 14 seconds means agents can spin up, do focused work, and tear down without the build overhead dominating the task. None of this required changes to build scripts, Makefiles, or docker-compose files — the wrapper intercepts standard Docker commands and the golden cache is populated by running the same startup script that agents already use.
+45 minutes to 7 seconds means agents can spin up, do focused work, and tear down without the build overhead dominating the task. None of this required changes to build scripts, Makefiles, or docker-compose files — the wrapper intercepts standard Docker commands and the golden cache is populated by running the same startup script that agents already use.
 
 Source: [api/cmd/docker-wrapper/main.go](../api/cmd/docker-wrapper/main.go)
 Design doc: [2026-02-22-cold-start-optimization.md](2026-02-22-cold-start-optimization.md)
