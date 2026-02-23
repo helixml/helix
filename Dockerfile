@@ -72,7 +72,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 ### Frontend Base ###
 #--------------------
-FROM node:23-alpine AS ui-base
+FROM node:25-alpine AS ui-base
 WORKDIR /app
 # - Install dependencies
 COPY ./frontend/*.json /app/
