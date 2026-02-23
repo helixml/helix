@@ -355,6 +355,8 @@ func (g *GoldenBuildService) runGoldenBuildOnSandbox(parentCtx context.Context, 
 		DisplayWidth:       1920,
 		DisplayHeight:      1080,
 		DisplayRefreshRate: 60,
+		Resolution:         "1080p",
+		ZoomLevel:          200,
 		GoldenBuild:        true,
 		SandboxID:          sandboxID,
 	}

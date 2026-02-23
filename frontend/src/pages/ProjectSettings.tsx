@@ -322,13 +322,23 @@ const ProjectSettings: FC = () => {
         .getApiClient()
         .v1ProjectsDockerCacheBuildCreate(projectId);
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       snackbar.success("Golden build triggered on all sandboxes");
-      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-      // Poll for status updates so the sandbox rows appear
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-      }, 3000);
+      // Wait for project to refresh with sandbox build status, then open viewer
+      await new Promise((r) => setTimeout(r, 3000));
+      const freshProject = await queryClient.fetchQuery({
+        queryKey: ["project", projectId],
+        staleTime: 0,
+      });
+      const sandboxes = (freshProject as TypesProject)?.metadata?.docker_cache_status?.sandboxes;
+      if (sandboxes) {
+        const buildingSb = Object.entries(sandboxes).find(([, s]) => s.status === "building");
+        if (buildingSb) {
+          setSelectedGoldenSandboxId(buildingSb[0]);
+          setShowGoldenBuildViewer(true);
+          setShowTestSession(false);
+        }
+      }
     },
     onError: (error: any) => {
       const msg =
@@ -1671,7 +1681,7 @@ const ProjectSettings: FC = () => {
           {/* Golden build viewer - RHS panel */}
           {showGoldenBuildViewer && goldenBuildSessionId && !showTestSession && (
             <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
-              <Paper sx={{ p: 3, position: "sticky", top: 80 }}>
+              <Paper sx={{ p: 3 }}>
                 <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                   <Typography variant="h6" sx={{ flex: 1 }}>
                     Golden Build{selectedGoldenSandboxId ? ` (${selectedGoldenSandboxId})` : ""}
@@ -1693,7 +1703,6 @@ const ProjectSettings: FC = () => {
                     sx={{
                       aspectRatio: "16 / 9",
                       backgroundColor: "#000",
-                      overflow: "hidden",
                     }}
                   >
                     <DesktopStreamViewer
