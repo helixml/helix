@@ -68,7 +68,7 @@ type Search struct {
 }
 
 type Kodit struct {
-	Enabled      bool   `envconfig:"KODIT_ENABLED" default:"true"`
+	Enabled      bool   `envconfig:"KODIT_ENABLED" default:"false"`
 	DatabaseURL  string `envconfig:"KODIT_DB_URL" default:""`          // PostgreSQL+VectorChord DSN (required)
 	DataDir      string `envconfig:"KODIT_DATA_DIR" default:""`        // For cloned repos, defaults to {filestore}/kodit
 	ModelDir     string `envconfig:"KODIT_MODEL_DIR" default:""`       // ONNX embedding model directory, defaults to {dataDir}/models
