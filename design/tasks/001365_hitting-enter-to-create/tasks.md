@@ -16,6 +16,6 @@
 
 ## Testing
 
-- [ ] Verify: Press Enter on kanban board → create dialog opens with textarea focused
-- [ ] Verify: Create task → Start Planning button on new task has focus
-- [ ] Verify: Press Enter after focus → planning starts for new task
+- [x] Verify: Press Enter on kanban board → create dialog opens with textarea focused
+- [x] Verify: Create task → Start Planning button on new task has focus
+- [x] Verify: Press Enter after focus → planning starts for new task
