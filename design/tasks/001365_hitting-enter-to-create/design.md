@@ -63,3 +63,27 @@ The ref will be passed via a new `startPlanningButtonRef` prop on `SpecTaskActio
 1. Press Enter on kanban board → verify textarea is focused
 2. Create a task → verify Start Planning button has focus
 3. Press Enter after task creation → verify planning starts
+
+## Implementation Notes
+
+### Changes Made
+
+1. **NewSpecTaskForm.tsx**: Removed the `embedded` condition from the auto-focus useEffect. Previously it only focused when `embedded` was true. Now it focuses unconditionally on mount using `setTimeout(..., 0)`.
+
+2. **SpecTaskActionButtons.tsx**: Added `startPlanningButtonRef?: RefObject<HTMLButtonElement>` prop and attached it to the Start Planning `<Button>` element in the stacked (non-inline) variant.
+
+3. **TaskCard.tsx**: 
+   - Added `focusStartPlanning?: boolean` to `TaskCardProps`
+   - Created `startPlanningButtonRef` using `useRef<HTMLButtonElement>(null)`
+   - Added `useEffect` that focuses the button when `focusStartPlanning` is true and task is in backlog status
+   - Passed `startPlanningButtonRef` to `SpecTaskActionButtons`
+
+### Existing Infrastructure Leveraged
+
+- `focusTaskId` state in `SpecTasksPage.tsx` was already tracking newly created task IDs
+- `focusStartPlanning` prop was already being passed through the component tree but wasn't actually implemented
+- The wiring from `SpecTasksPage` → `SpecTaskKanbanBoard` → `DroppableColumn` → `TaskCard` already existed
+
+### Verified Behavior
+
+Screenshot saved showing Start Planning button with focus ring after task creation.
