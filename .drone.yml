@@ -750,7 +750,6 @@ steps:
           VERSION_FLAG=""
         fi
         # Build CLI binary (nokodit tag excludes kodit CGO dependencies) for all platforms
-        # Unrolled loop: Drone's command parser mangles ${...} and $(...) syntax
         echo "Building helix-linux-amd64"
         CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags nokodit -ldflags "-w -s $VERSION_FLAG" -o helix-linux-amd64 .
         echo "Building helix-linux-arm64"
