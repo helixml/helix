@@ -750,16 +750,13 @@ steps:
           VERSION_FLAG=""
         fi
         # Build CLI binary (nokodit tag excludes kodit CGO dependencies) for all platforms
-        echo "Building helix-linux-amd64"
-        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags nokodit -ldflags "-w -s $VERSION_FLAG" -o helix-linux-amd64 .
-        echo "Building helix-linux-arm64"
-        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -tags nokodit -ldflags "-w -s $VERSION_FLAG" -o helix-linux-arm64 .
-        echo "Building helix-darwin-amd64"
-        CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -tags nokodit -ldflags "-w -s $VERSION_FLAG" -o helix-darwin-amd64 .
-        echo "Building helix-darwin-arm64"
-        CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -tags nokodit -ldflags "-w -s $VERSION_FLAG" -o helix-darwin-arm64 .
-        echo "Building helix-windows-amd64.exe"
-        CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags nokodit -ldflags "-w -s $VERSION_FLAG" -o helix-windows-amd64.exe .
+        for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+          os=$(echo "$target" | cut -d/ -f1)
+          arch=$(echo "$target" | cut -d/ -f2)
+          ext=""; [ "$os" = "windows" ] && ext=".exe"
+          echo "Building helix-$os-$arch$ext"
+          CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -tags nokodit -ldflags "-w -s $VERSION_FLAG" -o "helix-$os-$arch$ext" .
+        done
       - ./helix-linux-amd64 version
       - apt-get update && apt-get install -y curl
       - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
