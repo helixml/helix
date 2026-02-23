@@ -23,6 +23,16 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// GoldenBuildResult stores the outcome of a golden build after the container is deleted.
+// Results are kept in memory so the API can query them via the Hydra endpoint.
+type GoldenBuildResult struct {
+	ProjectID string `json:"project_id"`
+	SessionID string `json:"session_id"`
+	Success   bool   `json:"success"`
+	ExitCode  string `json:"exit_code"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
 // DevContainerManager manages dev container lifecycle (Zed+agent environments)
 // This manages container launching functionality
 type DevContainerManager struct {
@@ -35,13 +45,19 @@ type DevContainerManager struct {
 	// Track active dev containers
 	containers map[string]*DevContainer
 	mu         sync.RWMutex
+
+	// Golden build results, keyed by projectID. Persists after container deletion
+	// so the API can query the outcome.
+	goldenBuildResults   map[string]*GoldenBuildResult
+	goldenBuildResultsMu sync.RWMutex
 }
 
 // NewDevContainerManager creates a new dev container manager
 func NewDevContainerManager(manager *Manager) *DevContainerManager {
 	return &DevContainerManager{
-		manager:    manager,
-		containers: make(map[string]*DevContainer),
+		manager:            manager,
+		containers:         make(map[string]*DevContainer),
+		goldenBuildResults: make(map[string]*GoldenBuildResult),
 	}
 }
 
@@ -1276,10 +1292,11 @@ func GetRegistryHost() string {
 	return fmt.Sprintf("%s:%s", ip, SharedRegistryPort)
 }
 
-// monitorGoldenBuild watches a golden build container and promotes its Docker data
-// to the project's golden cache when the container exits with code 0.
-// The container exits because helix-workspace-setup.sh (golden build mode) runs
-// the startup script, stops dockerd, and then terminates the container.
+// monitorGoldenBuild watches a golden build container for the result signal file.
+// When helix-workspace-setup.sh (golden build mode) finishes the startup script,
+// it writes .golden-build-result and stops dockerd. Hydra detects the file,
+// promotes the Docker data if successful, and stops the container cleanly
+// via DeleteDevContainer.
 func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 	log.Info().
 		Str("session_id", dc.SessionID).
@@ -1287,95 +1304,108 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 		Str("container_id", dc.ContainerID).
 		Msg("Monitoring golden build container")
 
-	dockerClient, err := dm.getDockerClient(dc.DockerSocket)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", dc.SessionID).Msg("Golden build: failed to create Docker client")
-		_ = SetGoldenBuildRunning(dc.ProjectID, false)
-		return
-	}
-	defer dockerClient.Close()
-
-	// Wait for container to exit with a 30-minute timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
-	statusCh, errCh := dockerClient.ContainerWait(ctx, dc.ContainerID, container.WaitConditionNotRunning)
 
-	var status container.WaitResponse
-	select {
-	case err := <-errCh:
-		if err != nil {
-			log.Error().Err(err).Str("session_id", dc.SessionID).Msg("Golden build: error waiting for container (timeout or connection issue)")
-			_ = SetGoldenBuildRunning(dc.ProjectID, false)
+	dockerDataVolume := fmt.Sprintf("docker-data-%s", dc.SessionID)
+	resultFile := filepath.Join(sessionsBaseDir, dockerDataVolume, "docker", ".golden-build-result")
+
+	// Poll for the result file. The workspace-setup script writes this after
+	// the startup script completes and dockerd is stopped.
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	var resultData []byte
+	for {
+		select {
+		case <-ctx.Done():
+			log.Error().
+				Str("session_id", dc.SessionID).
+				Str("project_id", dc.ProjectID).
+				Msg("Golden build: timed out waiting for result file (30 min)")
+			// Store timeout result so the API can query it
+			dm.storeGoldenBuildResult(dc.ProjectID, dc.SessionID, false, "timeout")
+			// Stop the container via the clean API
+			dm.DeleteDevContainer(context.Background(), dc.SessionID)
 			return
-		}
-		// nil error on errCh — wait for status
-		status = <-statusCh
-	case status = <-statusCh:
-		dockerDataVolume := fmt.Sprintf("docker-data-%s", dc.SessionID)
 
-		// Read the golden build result from the signal file.
-		// The workspace-setup.sh writes "0" on success or the exit code on failure
-		// to /var/lib/docker/.golden-build-result (which is bind-mounted from
-		// /container-docker/sessions/{volumeName}/docker/.golden-build-result).
-		resultFile := filepath.Join(sessionsBaseDir, dockerDataVolume, "docker", ".golden-build-result")
-		resultData, readErr := os.ReadFile(resultFile)
-		buildSucceeded := false
-		if readErr == nil {
-			result := strings.TrimSpace(string(resultData))
-			buildSucceeded = result == "0"
-			log.Info().
-				Str("session_id", dc.SessionID).
-				Str("result", result).
-				Int64("container_exit_code", status.StatusCode).
-				Msg("Golden build result file read")
-		} else {
-			log.Warn().Err(readErr).
-				Str("session_id", dc.SessionID).
-				Int64("container_exit_code", status.StatusCode).
-				Msg("Golden build: could not read result file")
-		}
-
-		if buildSucceeded {
-			log.Info().
-				Str("session_id", dc.SessionID).
-				Str("project_id", dc.ProjectID).
-				Msg("Golden build completed successfully, promoting Docker data")
-
-			if err := PromoteSessionToGolden(dc.ProjectID, dockerDataVolume); err != nil {
-				log.Error().Err(err).
-					Str("project_id", dc.ProjectID).
-					Msg("Golden build: failed to promote session data")
-			} else {
-				size := GetGoldenSize(dc.ProjectID)
-				log.Info().
-					Str("project_id", dc.ProjectID).
-					Int64("size_bytes", size).
-					Msg("Golden cache promoted successfully")
+		case <-ticker.C:
+			data, err := os.ReadFile(resultFile)
+			if err != nil {
+				continue // File doesn't exist yet — build still running
 			}
-		} else {
-			log.Warn().
-				Str("session_id", dc.SessionID).
-				Str("project_id", dc.ProjectID).
-				Msg("Golden build failed, not promoting")
-			// Clean up the failed session's Docker data
-			_ = CleanupSessionDockerDir(dockerDataVolume)
+			resultData = data
+			goto done
 		}
+	}
 
-		_ = SetGoldenBuildRunning(dc.ProjectID, false)
+done:
+	result := strings.TrimSpace(string(resultData))
+	buildSucceeded := result == "0"
+	log.Info().
+		Str("session_id", dc.SessionID).
+		Str("project_id", dc.ProjectID).
+		Str("result", result).
+		Msg("Golden build result file detected")
 
-		// Clean up: remove the container and named volume
-		// (StopDevContainer won't be called because the container already exited)
-		dockerClient.ContainerRemove(ctx, dc.ContainerID, container.RemoveOptions{Force: true})
-		dockerClient.VolumeRemove(ctx, dockerDataVolume, true)
-
-		// Remove from tracked containers
-		dm.mu.Lock()
-		delete(dm.containers, dc.SessionID)
-		dm.mu.Unlock()
-
+	if buildSucceeded {
 		log.Info().
 			Str("session_id", dc.SessionID).
 			Str("project_id", dc.ProjectID).
-			Msg("Golden build monitoring complete")
+			Msg("Golden build completed successfully, promoting Docker data")
+
+		if err := PromoteSessionToGolden(dc.ProjectID, dockerDataVolume); err != nil {
+			log.Error().Err(err).
+				Str("project_id", dc.ProjectID).
+				Msg("Golden build: failed to promote session data")
+		} else {
+			size := GetGoldenSize(dc.ProjectID)
+			log.Info().
+				Str("project_id", dc.ProjectID).
+				Int64("size_bytes", size).
+				Msg("Golden cache promoted successfully")
+		}
+	} else {
+		log.Warn().
+			Str("session_id", dc.SessionID).
+			Str("project_id", dc.ProjectID).
+			Msg("Golden build failed, not promoting")
+		// Clean up the failed session's Docker data
+		_ = CleanupSessionDockerDir(dockerDataVolume)
 	}
+
+	// Store the result so the API can query it after the container is gone.
+	dm.storeGoldenBuildResult(dc.ProjectID, dc.SessionID, buildSucceeded, result)
+
+	// Stop and clean up the container via the standard API.
+	// DeleteDevContainer handles: ContainerStop, ContainerRemove, VolumeRemove,
+	// and skips session Docker dir cleanup for golden builds.
+	dm.DeleteDevContainer(context.Background(), dc.SessionID)
+
+	log.Info().
+		Str("session_id", dc.SessionID).
+		Str("project_id", dc.ProjectID).
+		Bool("succeeded", buildSucceeded).
+		Msg("Golden build monitoring complete")
+}
+
+// storeGoldenBuildResult stores a golden build result for later querying by the API.
+func (dm *DevContainerManager) storeGoldenBuildResult(projectID, sessionID string, success bool, exitCode string) {
+	dm.goldenBuildResultsMu.Lock()
+	defer dm.goldenBuildResultsMu.Unlock()
+	dm.goldenBuildResults[projectID] = &GoldenBuildResult{
+		ProjectID: projectID,
+		SessionID: sessionID,
+		Success:   success,
+		ExitCode:  exitCode,
+		Timestamp: time.Now(),
+	}
+}
+
+// GetGoldenBuildResult returns the latest golden build result for a project.
+// Returns nil if no result is available.
+func (dm *DevContainerManager) GetGoldenBuildResult(projectID string) *GoldenBuildResult {
+	dm.goldenBuildResultsMu.RLock()
+	defer dm.goldenBuildResultsMu.RUnlock()
+	return dm.goldenBuildResults[projectID]
 }

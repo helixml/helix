@@ -486,7 +486,15 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		project.GuidelinesUpdatedBy = user.ID
 	}
 	if req.Metadata != nil {
-		project.Metadata = *req.Metadata
+		// Merge metadata fields selectively to avoid overwriting fields
+		// managed by backend services (e.g., DockerCacheStatus).
+		if req.Metadata.BoardSettings != nil {
+			project.Metadata.BoardSettings = req.Metadata.BoardSettings
+		}
+		// AutoWarmDockerCache is a bool — always apply from the request
+		// since it's user-controlled.
+		project.Metadata.AutoWarmDockerCache = req.Metadata.AutoWarmDockerCache
+		// DockerCacheStatus is managed exclusively by GoldenBuildService — never overwrite from API request.
 	}
 	// Skills can be set directly (nil means "don't update")
 	if req.Skills != nil {
@@ -1199,8 +1207,8 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 			displayWidth := 1920
 			displayHeight := 1080
 			displayRefreshRate := 60
-			resolution := ""
-			zoomLevel := 0
+			resolution := "1080p"
+			zoomLevel := 200
 			desktopType := ""
 			if project.DefaultHelixAppID != "" {
 				app, appErr := s.Store.GetApp(r.Context(), project.DefaultHelixAppID)

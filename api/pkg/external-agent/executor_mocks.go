@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 	time "time"
 
+	hydra "github.com/helixml/helix/api/pkg/hydra"
 	types "github.com/helixml/helix/api/pkg/types"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -81,6 +82,21 @@ func (m *MockExecutor) FindContainerBySessionID(ctx context.Context, helixSessio
 func (mr *MockExecutorMockRecorder) FindContainerBySessionID(ctx, helixSessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindContainerBySessionID", reflect.TypeOf((*MockExecutor)(nil).FindContainerBySessionID), ctx, helixSessionID)
+}
+
+// GetGoldenBuildResult mocks base method.
+func (m *MockExecutor) GetGoldenBuildResult(ctx context.Context, sandboxID, projectID string) (*hydra.GoldenBuildResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetGoldenBuildResult", ctx, sandboxID, projectID)
+	ret0, _ := ret[0].(*hydra.GoldenBuildResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetGoldenBuildResult indicates an expected call of GetGoldenBuildResult.
+func (mr *MockExecutorMockRecorder) GetGoldenBuildResult(ctx, sandboxID, projectID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGoldenBuildResult", reflect.TypeOf((*MockExecutor)(nil).GetGoldenBuildResult), ctx, sandboxID, projectID)
 }
 
 // GetSession mocks base method.

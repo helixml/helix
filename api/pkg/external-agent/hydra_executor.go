@@ -600,7 +600,9 @@ func (h *HydraExecutor) FindContainerBySessionID(ctx context.Context, helixSessi
 	return "", fmt.Errorf("no container found for session %s", helixSessionID)
 }
 
-// HasRunningContainer checks if a session has a running container
+// HasRunningContainer checks if a session has a running container.
+// It verifies with the actual sandbox via RevDial to detect containers that
+// were stopped internally by Hydra (e.g., golden builds completing).
 func (h *HydraExecutor) HasRunningContainer(ctx context.Context, sessionID string) bool {
 	h.mutex.RLock()
 	session, exists := h.sessions[sessionID]
@@ -610,10 +612,52 @@ func (h *HydraExecutor) HasRunningContainer(ctx context.Context, sessionID strin
 		return false
 	}
 
-	return session.Status == "running" && session.ContainerID != ""
+	if session.Status != "running" || session.ContainerID == "" {
+		return false
+	}
+
+	// Verify with the actual sandbox that the container is still running.
+	// The in-memory sessions map can become stale when containers are stopped
+	// internally by Hydra (e.g., golden builds completing via monitorGoldenBuild).
+	if h.connman != nil {
+		sandboxID := session.SandboxID
+		if sandboxID == "" {
+			sandboxID = "local"
+		}
+		hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
+		hydraClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
+
+		_, err := hydraClient.GetDevContainer(ctx, sessionID)
+		if err != nil {
+			// Container no longer exists on sandbox — clean up stale entry
+			log.Info().
+				Str("session_id", sessionID).
+				Str("sandbox_id", sandboxID).
+				Msg("Container no longer running on sandbox, cleaning up stale session entry")
+			h.mutex.Lock()
+			delete(h.sessions, sessionID)
+			h.mutex.Unlock()
+			return false
+		}
+	}
+
+	return true
 }
 
 // Helper methods
+
+// GetGoldenBuildResult queries a specific sandbox for the latest golden build result.
+func (h *HydraExecutor) GetGoldenBuildResult(ctx context.Context, sandboxID, projectID string) (*hydra.GoldenBuildResult, error) {
+	if h.connman == nil {
+		return nil, fmt.Errorf("connection manager not available")
+	}
+	if sandboxID == "" {
+		sandboxID = "local"
+	}
+	hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
+	hydraClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
+	return hydraClient.GetGoldenBuildResult(ctx, projectID)
+}
 
 // parseContainerType converts desktop type string to container type
 func (h *HydraExecutor) parseContainerType(desktopType string) string {

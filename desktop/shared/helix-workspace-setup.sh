@@ -662,15 +662,11 @@ if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
         echo "$EXIT_CODE" | sudo tee /var/lib/docker/.golden-build-result > /dev/null
     fi
 
-    echo "Shutting down container..."
-    # Send SIGTERM to PID 1 to stop the container.
-    # The golden build monitor (Hydra's ContainerWait) will detect the exit,
-    # read .golden-build-result, and promote if successful.
-    sudo kill 1
-    sleep 5
-    sudo kill -9 1 2>/dev/null || true
-    # Should not reach here — container should have been killed
-    exit 0
+    # Done. Hydra's monitorGoldenBuild polls for .golden-build-result
+    # and stops the container from the outside via ContainerStop.
+    echo "✅ Golden build complete. Waiting for Hydra to stop the container..."
+    # Sleep forever — Hydra will stop us cleanly.
+    exec sleep infinity
 fi
 
 # =========================================

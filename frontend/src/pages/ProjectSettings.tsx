@@ -208,6 +208,7 @@ const ProjectSettings: FC = () => {
   const anyBuilding = sandboxEntries.some(([, s]) => s.status === "building");
   const anyReady = sandboxEntries.some(([, s]) => s.status === "ready");
   const anyFailed = sandboxEntries.some(([, s]) => s.status === "failed");
+  const hasAnyViewer = showTestSession || showGoldenBuildViewer;
 
   // Golden build session - fetch when viewing a running build on a specific sandbox
   const goldenBuildSessionId = selectedGoldenSandboxId
@@ -336,13 +337,14 @@ const ProjectSettings: FC = () => {
         if (buildingSb) {
           setSelectedGoldenSandboxId(buildingSb[0]);
           setShowGoldenBuildViewer(true);
-          setShowTestSession(false);
         }
       }
     },
     onError: (error: any) => {
+      const data = error?.response?.data;
       const msg =
-        error?.response?.data?.message || "Failed to trigger golden build";
+        (typeof data === "string" ? data.trim() : data?.message) ||
+        "Failed to trigger golden build";
       snackbar.error(msg);
     },
   });
@@ -727,7 +729,6 @@ const ProjectSettings: FC = () => {
 
       // 5. Show test session viewer
       setShowTestSession(true);
-      setShowGoldenBuildViewer(false);
     } catch (err: any) {
       const errorMessage =
         err?.response?.data?.error ||
@@ -880,30 +881,20 @@ const ProjectSettings: FC = () => {
       }
     >
       <Container
-        maxWidth={showTestSession || showGoldenBuildViewer ? false : "md"}
-        sx={{ px: showTestSession || showGoldenBuildViewer ? 3 : 3 }}
+        maxWidth={hasAnyViewer ? "xl" : "md"}
+        sx={{ px: 3 }}
       >
         <Box
           sx={{
             mt: 4,
             display: "flex",
-            flexDirection: "row",
+            flexDirection: "column",
             gap: 3,
             width: "100%",
           }}
         >
-          {/* Left column: Settings sections */}
-          <Box
-            sx={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 3,
-              width: showTestSession || showGoldenBuildViewer ? "600px" : "100%",
-              flexShrink: 0,
-            }}
-          >
             {/* Basic Information */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, maxWidth: hasAnyViewer ? 600 : undefined }}>
               <Typography variant="h6" gutterBottom>
                 Basic Information
               </Typography>
@@ -929,8 +920,9 @@ const ProjectSettings: FC = () => {
               </Box>
             </Paper>
 
-            {/* Startup Script */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            {/* Startup Script + optional test viewer */}
+            <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start" }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, width: hasAnyViewer ? 600 : "100%", flexShrink: 0 }}>
               <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                 <CodeIcon sx={{ mr: 1 }} />
                 <Typography variant="h6">Startup Script</Typography>
@@ -958,8 +950,84 @@ const ProjectSettings: FC = () => {
 
             </Paper>
 
-            {/* Docker Cache */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            {/* Test session viewer - inline with startup script */}
+            {showTestSession && exploratorySessionData && (
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Paper sx={{ p: 3 }}>
+                  <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
+                    <Typography variant="h6" sx={{ flex: 1 }}>
+                      Test Session
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => setShowTestSession(false)}
+                    >
+                      Hide
+                    </Button>
+                  </Box>
+                  <Divider sx={{ mb: 2 }} />
+                  <Box
+                    sx={{
+                      aspectRatio: "16 / 9",
+                      backgroundColor: "#000",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <DesktopStreamViewer
+                      sessionId={exploratorySessionData.id}
+                      sandboxId={exploratorySessionData.config?.sandbox_id || ""}
+                      showLoadingOverlay={testingStartupScript}
+                      isRestart={isSessionRestart}
+                    />
+                  </Box>
+                  <Box
+                    sx={{
+                      mt: 2,
+                      p: 2,
+                      backgroundColor: "action.hover",
+                      borderRadius: 1,
+                    }}
+                  >
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      sx={{ mb: 1 }}
+                    >
+                      Having trouble with your startup script?
+                    </Typography>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={
+                        createSpecTaskMutation.isPending ? (
+                          <CircularProgress size={16} />
+                        ) : (
+                          <AutoFixHighIcon />
+                        )
+                      }
+                      onClick={() =>
+                        createSpecTaskMutation.mutate({
+                          prompt: `Fix the project startup script at /home/retro/work/helix-specs/.helix/startup.sh (in the helix-specs worktree). The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues. You can run the script to test it and iterate on it until it works. It should be idempotent.\n\nIMPORTANT: The startup script lives in the helix-specs branch, NOT the main code branch. After fixing the script:\n1. Edit /home/retro/work/helix-specs/.helix/startup.sh directly\n2. Commit and push directly to helix-specs branch: cd /home/retro/work/helix-specs && git add -A && git commit -m "Fix startup script" && git push origin helix-specs\n3. The user can then test it in the project settings panel.\n\nNote: A feature branch has been created on the primary repo for any code changes (like fixing bugs in the workspace setup or build scripts), but you probably won't need to use it unless the user specifically asks you to fix something in the codebase itself.`,
+                          branch_mode: "new",
+                          base_branch: "main",
+                        })
+                      }
+                      disabled={createSpecTaskMutation.isPending}
+                    >
+                      {createSpecTaskMutation.isPending
+                        ? "Creating task..."
+                        : "Get AI to fix it"}
+                    </Button>
+                  </Box>
+                </Paper>
+              </Box>
+            )}
+            </Box>
+
+            {/* Docker Cache + optional golden build viewer */}
+            <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start" }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, width: hasAnyViewer ? 600 : "100%", flexShrink: 0 }}>
               <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                 <Typography variant="h6">Docker Cache</Typography>
               </Box>
@@ -1036,7 +1104,6 @@ const ProjectSettings: FC = () => {
                               onClick={() => {
                                 setSelectedGoldenSandboxId(sbId);
                                 setShowGoldenBuildViewer(true);
-                                setShowTestSession(false);
                               }}
                             >
                               Watch
@@ -1087,8 +1154,53 @@ const ProjectSettings: FC = () => {
               )}
             </Paper>
 
+            {/* Golden build viewer - inline with Docker Cache */}
+            {showGoldenBuildViewer && goldenBuildSessionId && (
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Paper sx={{ p: 3 }}>
+                  <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
+                    <Typography variant="h6" sx={{ flex: 1 }}>
+                      Golden Build{selectedGoldenSandboxId ? ` (${selectedGoldenSandboxId})` : ""}
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => {
+                        setShowGoldenBuildViewer(false);
+                        setSelectedGoldenSandboxId("");
+                      }}
+                    >
+                      Hide
+                    </Button>
+                  </Box>
+                  <Divider sx={{ mb: 2 }} />
+                  {goldenBuildSession ? (
+                    <Box
+                      sx={{
+                        aspectRatio: "16 / 9",
+                        backgroundColor: "#000",
+                      }}
+                    >
+                      <DesktopStreamViewer
+                        sessionId={goldenBuildSessionId}
+                        sandboxId={goldenBuildSession.config?.sandbox_id || ""}
+                      />
+                    </Box>
+                  ) : (
+                    <Box sx={{ p: 4, textAlign: "center" }}>
+                      <CircularProgress size={24} />
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                        Waiting for session to start...
+                      </Typography>
+                    </Box>
+                  )}
+                </Paper>
+              </Box>
+            )}
+            </Box>
+
             {/* Repositories */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, maxWidth: hasAnyViewer ? 600 : undefined }}>
               <Box
                 sx={{
                   display: "flex",
@@ -1151,7 +1263,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Default Agent */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, maxWidth: hasAnyViewer ? 600 : undefined }}>
               <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                 <Bot size={24} style={{ marginRight: 8 }} />
                 <Typography variant="h6">Agent configuration</Typography>
@@ -1286,7 +1398,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Board Settings */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, maxWidth: hasAnyViewer ? 600 : undefined }}>
               <Typography variant="h6" gutterBottom>
                 Kanban Board Settings
               </Typography>
@@ -1345,7 +1457,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Automations */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, maxWidth: hasAnyViewer ? 600 : undefined }}>
               <Typography variant="h6" gutterBottom>
                 Automations
               </Typography>
@@ -1423,7 +1535,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Project Secrets */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, maxWidth: hasAnyViewer ? 600 : undefined }}>
               <Box
                 sx={{
                   display: "flex",
@@ -1504,7 +1616,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Project Skills */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, maxWidth: hasAnyViewer ? 600 : undefined }}>
               <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
                 <HubIcon sx={{ mr: 1, color: "#10B981" }} />
                 <Typography variant="h6">Skills</Typography>
@@ -1523,7 +1635,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Project Guidelines */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, maxWidth: hasAnyViewer ? 600 : undefined }}>
               <Box
                 sx={{
                   display: "flex",
@@ -1591,6 +1703,7 @@ const ProjectSettings: FC = () => {
                 mb: 3,
                 border: "2px solid",
                 borderColor: "error.main",
+                maxWidth: hasAnyViewer ? 600 : undefined,
               }}
             >
               <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
@@ -1674,131 +1787,6 @@ const ProjectSettings: FC = () => {
                 </Button>
               </Box>
             </Paper>
-          </Box>
-          {/* End of left column */}
-
-          {/* Test session viewer - fills width, natural height */}
-          {/* Golden build viewer - RHS panel */}
-          {showGoldenBuildViewer && goldenBuildSessionId && !showTestSession && (
-            <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
-              <Paper sx={{ p: 3 }}>
-                <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
-                  <Typography variant="h6" sx={{ flex: 1 }}>
-                    Golden Build{selectedGoldenSandboxId ? ` (${selectedGoldenSandboxId})` : ""}
-                  </Typography>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => {
-                      setShowGoldenBuildViewer(false);
-                      setSelectedGoldenSandboxId("");
-                    }}
-                  >
-                    Hide
-                  </Button>
-                </Box>
-                <Divider sx={{ mb: 2 }} />
-                {goldenBuildSession ? (
-                  <Box
-                    sx={{
-                      aspectRatio: "16 / 9",
-                      backgroundColor: "#000",
-                    }}
-                  >
-                    <DesktopStreamViewer
-                      sessionId={goldenBuildSessionId}
-                      sandboxId={goldenBuildSession.config?.sandbox_id || ""}
-                    />
-                  </Box>
-                ) : (
-                  <Box sx={{ p: 4, textAlign: "center" }}>
-                    <CircularProgress size={24} />
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      Waiting for session to start...
-                    </Typography>
-                  </Box>
-                )}
-              </Paper>
-            </Box>
-          )}
-
-          {showTestSession && exploratorySessionData && (
-            <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
-              {/* Spacer to align with Startup Script section (Basic Info section ~180px) */}
-              <Box sx={{ height: "310px" }} />
-
-              <Paper sx={{ p: 4 }}>
-                <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
-                  <Typography variant="h6" sx={{ flex: 1 }}>
-                    Test Session
-                  </Typography>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => setShowTestSession(false)}
-                  >
-                    Hide
-                  </Button>
-                </Box>
-                <Divider sx={{ mb: 3 }} />
-                {/* Stream viewer - 16:9 aspect ratio based on dynamic width */}
-                <Box
-                  sx={{
-                    aspectRatio: "16 / 9",
-                    backgroundColor: "#000",
-                    overflow: "hidden",
-                  }}
-                >
-                  <DesktopStreamViewer
-                    sessionId={exploratorySessionData.id}
-                    sandboxId={exploratorySessionData.config?.sandbox_id || ""}
-                    showLoadingOverlay={testingStartupScript}
-                    isRestart={isSessionRestart}
-                  />
-                </Box>
-                <Box
-                  sx={{
-                    mt: 2,
-                    p: 2,
-                    backgroundColor: "action.hover",
-                    borderRadius: 1,
-                  }}
-                >
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    sx={{ mb: 1 }}
-                  >
-                    Having trouble with your startup script?
-                  </Typography>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={
-                      createSpecTaskMutation.isPending ? (
-                        <CircularProgress size={16} />
-                      ) : (
-                        <AutoFixHighIcon />
-                      )
-                    }
-                    onClick={() =>
-                      createSpecTaskMutation.mutate({
-                        prompt: `Fix the project startup script at /home/retro/work/helix-specs/.helix/startup.sh (in the helix-specs worktree). The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues. You can run the script to test it and iterate on it until it works. It should be idempotent.\n\nIMPORTANT: The startup script lives in the helix-specs branch, NOT the main code branch. After fixing the script:\n1. Edit /home/retro/work/helix-specs/.helix/startup.sh directly\n2. Commit and push directly to helix-specs branch: cd /home/retro/work/helix-specs && git add -A && git commit -m "Fix startup script" && git push origin helix-specs\n3. The user can then test it in the project settings panel.\n\nNote: A feature branch has been created on the primary repo for any code changes (like fixing bugs in the workspace setup or build scripts), but you probably won't need to use it unless the user specifically asks you to fix something in the codebase itself.`,
-                        // Create a feature branch for any code changes, helix-specs worktree handles design docs
-                        branch_mode: "new",
-                        base_branch: "main",
-                      })
-                    }
-                    disabled={createSpecTaskMutation.isPending}
-                  >
-                    {createSpecTaskMutation.isPending
-                      ? "Creating task..."
-                      : "Get AI to fix it"}
-                  </Button>
-                </Box>
-              </Paper>
-            </Box>
-          )}
 
         </Box>
       </Container>

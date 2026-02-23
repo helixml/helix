@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -203,6 +204,33 @@ func (c *Client) ListDevContainers(ctx context.Context) (*ListDevContainersRespo
 	return &result, nil
 }
 
+// GetGoldenBuildResult returns the latest golden build result for a project via Unix socket.
+// Returns nil result with no error if no result is available.
+func (c *Client) GetGoldenBuildResult(ctx context.Context, projectID string) (*GoldenBuildResult, error) {
+	url := fmt.Sprintf("%s/api/v1/golden-cache/%s/build-result", c.baseURL, projectID)
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil // No result available
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("hydra API error (status %d): %s", resp.StatusCode, string(body))
+	}
+	var result GoldenBuildResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &result, nil
+}
+
 // DeleteGoldenCache removes the golden Docker cache for a project via Unix socket
 func (c *Client) DeleteGoldenCache(ctx context.Context, projectID string) error {
 	url := fmt.Sprintf("%s/api/v1/golden-cache/%s", c.baseURL, projectID)
@@ -382,6 +410,25 @@ func (c *RevDialClient) GetDevContainerVideoStats(ctx context.Context, sessionID
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
+	return &result, nil
+}
+
+// GetGoldenBuildResult returns the latest golden build result for a project via RevDial.
+// Returns nil result with no error if no result is available.
+func (c *RevDialClient) GetGoldenBuildResult(ctx context.Context, projectID string) (*GoldenBuildResult, error) {
+	path := fmt.Sprintf("/api/v1/golden-cache/%s/build-result", projectID)
+	respBody, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		// Check if it's a 404 (no result available)
+		if strings.Contains(err.Error(), "status 404") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var result GoldenBuildResult
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
 	return &result, nil
 }
 

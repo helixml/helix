@@ -166,6 +166,7 @@ func (s *Server) registerRoutes(router *mux.Router) {
 
 	// Golden cache management
 	api.HandleFunc("/golden-cache/{project_id}", s.handleDeleteGoldenCache).Methods("DELETE")
+	api.HandleFunc("/golden-cache/{project_id}/build-result", s.handleGetGoldenBuildResult).Methods("GET")
 
 	// System stats (GPU info, active sessions)
 	api.HandleFunc("/system/stats", s.handleSystemStats).Methods("GET")
@@ -766,6 +767,23 @@ func execCommand(name string, args ...string) (string, error) {
 }
 
 // handleDeleteGoldenCache removes the golden Docker cache for a project.
+func (s *Server) handleGetGoldenBuildResult(w http.ResponseWriter, r *http.Request) {
+	projectID := mux.Vars(r)["project_id"]
+	if projectID == "" {
+		http.Error(w, "project_id required", http.StatusBadRequest)
+		return
+	}
+
+	result := s.devContainerManager.GetGoldenBuildResult(projectID)
+	if result == nil {
+		http.Error(w, "no build result available", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
 func (s *Server) handleDeleteGoldenCache(w http.ResponseWriter, r *http.Request) {
 	projectID := mux.Vars(r)["project_id"]
 	if projectID == "" {

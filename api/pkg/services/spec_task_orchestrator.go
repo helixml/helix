@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -36,6 +37,7 @@ type ContainerExecutor interface {
 	StartDesktop(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error)
 	StopDesktop(ctx context.Context, sessionID string) error
 	HasRunningContainer(ctx context.Context, sessionID string) bool
+	GetGoldenBuildResult(ctx context.Context, sandboxID, projectID string) (*hydra.GoldenBuildResult, error)
 }
 
 // NewSpecTaskOrchestrator creates a new orchestrator

@@ -106,15 +106,19 @@ func (g *GoldenBuildService) TriggerManualGoldenBuild(ctx context.Context, proje
 	}
 
 	started := 0
+	alreadyRunning := 0
+	onlineCount := 0
 	for _, sb := range sandboxes {
 		if sb.Status != "online" {
 			continue
 		}
+		onlineCount++
 		key := buildKey(project.ID, sb.ID)
 		g.mu.Lock()
 		if startedAt, ok := g.building[key]; ok {
 			if time.Since(startedAt) < 30*time.Minute {
 				g.mu.Unlock()
+				alreadyRunning++
 				log.Info().Str("project_id", project.ID).Str("sandbox_id", sb.ID).
 					Msg("Golden build already running on sandbox, skipping")
 				continue
@@ -134,7 +138,13 @@ func (g *GoldenBuildService) TriggerManualGoldenBuild(ctx context.Context, proje
 	}
 
 	if started == 0 {
-		return fmt.Errorf("no online sandboxes available for golden build")
+		if onlineCount == 0 {
+			return fmt.Errorf("no online sandboxes available for golden build")
+		}
+		if alreadyRunning > 0 {
+			return fmt.Errorf("golden build already running on all %d sandbox(es)", alreadyRunning)
+		}
+		return fmt.Errorf("no sandboxes could start a golden build")
 	}
 	return nil
 }
@@ -382,8 +392,8 @@ func (g *GoldenBuildService) runGoldenBuildOnSandbox(parentCtx context.Context, 
 	g.waitForGoldenBuildCompletion(ctx, project.ID, sandboxID, session.ID)
 }
 
-// waitForGoldenBuildCompletion polls the session until the golden build
-// container exits, then updates the per-sandbox docker cache status.
+// waitForGoldenBuildCompletion polls until the golden build container exits,
+// then queries Hydra for the build result and updates the cache status.
 func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, projectID, sandboxID, sessionID string) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
@@ -408,11 +418,27 @@ func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, p
 			return
 
 		case <-ticker.C:
-			session, err := g.store.GetSession(ctx, sessionID)
+			// Check if the container is still running. HasRunningContainer
+			// verifies with the actual sandbox via RevDial (not just a stale map).
+			if g.containerExecutor.HasRunningContainer(ctx, sessionID) {
+				log.Debug().Str("project_id", projectID).Str("sandbox_id", sandboxID).Str("session_id", sessionID).
+					Msg("Golden build: still running, polling again in 15s")
+				continue
+			}
+
+			// Container is gone — query Hydra for the build result.
+			log.Info().Str("project_id", projectID).Str("sandbox_id", sandboxID).Str("session_id", sessionID).
+				Msg("Golden build: container no longer running, checking result")
+
+			result, err := g.containerExecutor.GetGoldenBuildResult(ctx, sandboxID, projectID)
 			if err != nil {
-				// Session deleted or DB error — build is done
-				log.Info().Str("project_id", projectID).Str("sandbox_id", sandboxID).Str("session_id", sessionID).
-					Msg("Golden build: session no longer found, build complete")
+				log.Warn().Err(err).Str("project_id", projectID).Str("sandbox_id", sandboxID).
+					Msg("Golden build: failed to get build result from sandbox")
+			}
+
+			if result != nil && result.Success {
+				log.Info().Str("project_id", projectID).Str("sandbox_id", sandboxID).
+					Msg("Golden build: completed successfully")
 				g.updateSandboxCacheStatus(context.Background(), projectID, sandboxID, func(s *types.SandboxCacheState) {
 					now := time.Now()
 					s.Status = "ready"
@@ -420,40 +446,22 @@ func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, p
 					s.BuildSessionID = ""
 					s.Error = ""
 				})
-				return
-			}
-
-			if session.Metadata.DesiredState == types.DesiredStateStopped {
-				log.Info().Str("project_id", projectID).Str("sandbox_id", sandboxID).Str("session_id", sessionID).
-					Msg("Golden build: session stopped, build complete")
+			} else {
+				errMsg := "Startup script failed"
+				if result != nil {
+					errMsg = fmt.Sprintf("Startup script exited with code %s", result.ExitCode)
+				} else if err != nil {
+					errMsg = "Build completed but result unknown"
+				}
+				log.Warn().Str("project_id", projectID).Str("sandbox_id", sandboxID).Str("error", errMsg).
+					Msg("Golden build: failed")
 				g.updateSandboxCacheStatus(context.Background(), projectID, sandboxID, func(s *types.SandboxCacheState) {
-					now := time.Now()
-					s.Status = "ready"
-					s.LastReadyAt = &now
+					s.Status = "failed"
+					s.Error = errMsg
 					s.BuildSessionID = ""
-					s.Error = ""
 				})
-				return
 			}
-
-			// Check if the container is still running. Hydra's monitorGoldenBuild
-			// removes the container after promoting the golden cache, but doesn't
-			// update the session record. Detect this by checking the executor.
-			if !g.containerExecutor.HasRunningContainer(ctx, sessionID) {
-				log.Info().Str("project_id", projectID).Str("sandbox_id", sandboxID).Str("session_id", sessionID).
-					Msg("Golden build: container no longer running, build complete")
-				g.updateSandboxCacheStatus(context.Background(), projectID, sandboxID, func(s *types.SandboxCacheState) {
-					now := time.Now()
-					s.Status = "ready"
-					s.LastReadyAt = &now
-					s.BuildSessionID = ""
-					s.Error = ""
-				})
-				return
-			}
-
-			log.Debug().Str("project_id", projectID).Str("sandbox_id", sandboxID).Str("session_id", sessionID).
-				Msg("Golden build: still running, polling again in 15s")
+			return
 		}
 	}
 }
