@@ -849,13 +849,15 @@ function get_image_tags() {
 
 function build-qwen-code() {
   # ====================================================================
-  # Build Qwen Code inside container for consistent, reproducible builds
+  # Build Qwen Code with Docker BuildKit layer caching
   # ====================================================================
-  # This avoids issues with host npm/node versions and husky prepare scripts.
-  # The build produces a pre-bundled qwen-code that can be installed globally
-  # in the sway container without triggering prepare hooks.
+  # Uses `docker build` with --mount=type=cache for persistent caching of
+  # npm download cache. Package manifests are copied first so npm ci is
+  # a cached layer when only source files change.
+  #
+  # The build artifacts are extracted via --output without keeping a large image.
   # ====================================================================
-  echo "📦 Building Qwen Code (containerized build)..."
+  echo "📦 Building Qwen Code (Docker build with BuildKit cache)..."
 
   local QWEN_SOURCE_DIR="$PROJECTS_ROOT/qwen-code"
   local QWEN_OUTPUT_DIR="./qwen-code-build"
@@ -892,71 +894,49 @@ function build-qwen-code() {
     return 0
   fi
 
-  echo "🐳 Building qwen-code inside Node.js 20 container..."
+  echo "🐳 Building qwen-code via docker build with BuildKit cache..."
   echo "   Source: $QWEN_SOURCE_DIR"
   echo "   Output: $QWEN_OUTPUT_DIR"
 
-  # Build the builder image if needed
-  if ! docker image inspect qwen-code-builder:node20 &> /dev/null; then
-    echo "📦 Building qwen-code-builder:node20 image (first time only)..."
-    docker buildx build -t qwen-code-builder:node20 -f Dockerfile.qwen-code-build .
-    if [ $? -ne 0 ]; then
-      echo "❌ Failed to build qwen-code-builder:node20 image"
-      return 1
-    fi
+  # Create temporary .dockerignore to exclude large dirs from build context
+  local DOCKERIGNORE="$QWEN_SOURCE_DIR/.dockerignore"
+  local DOCKERIGNORE_EXISTED=false
+  if [ -f "$DOCKERIGNORE" ]; then
+    DOCKERIGNORE_EXISTED=true
   fi
+  cat > "$DOCKERIGNORE" << 'EIGNORE'
+node_modules/
+.git/
+dist/
+EIGNORE
 
-  # Setup npm cache for faster rebuilds
-  local NPM_CACHE="$HOME/.npm-docker-cache"
-  mkdir -p "$NPM_CACHE"
-
-  # Create output directory
+  # Clean output dir before extraction (old builds may have root-owned files)
+  rm -rf "$QWEN_OUTPUT_DIR" 2>/dev/null || sudo rm -rf "$QWEN_OUTPUT_DIR"
   mkdir -p "$QWEN_OUTPUT_DIR"
-  if [ ! -w "$QWEN_OUTPUT_DIR" ]; then
-    echo "⚠️  $QWEN_OUTPUT_DIR exists but is not writable"
-    echo "   Fixing permissions..."
-    sudo chown -R "$USER:$USER" "$QWEN_OUTPUT_DIR"
-  fi
-
-  # Get absolute paths
-  local QWEN_ABS_PATH=$(cd "$QWEN_SOURCE_DIR" && pwd)
-  local OUTPUT_ABS_PATH=$(cd "$QWEN_OUTPUT_DIR" && pwd)
 
   echo "🚀 Starting Docker build..."
 
-  # Run build inside container
-  # 1. npm ci --ignore-scripts: Install deps without running prepare hook
-  # 2. npm run bundle: Build the dist/ directory manually
-  # Then copy the required files to output
-  docker run --rm \
-    -v "$QWEN_ABS_PATH:/qwen-code:ro" \
-    -v "$NPM_CACHE:/root/.npm" \
-    -v "$OUTPUT_ABS_PATH:/output" \
-    -w /build \
-    qwen-code-builder:node20 \
-    bash -c '
-      set -e
-      echo "📋 Copying source to build directory..."
-      cp -r /qwen-code/. /build/
+  # Build using Dockerfile.qwen-code-build with qwen-code source as context.
+  # --output extracts just the build artifacts from the scratch final stage.
+  # BuildKit cache mounts in the Dockerfile handle npm download caching.
+  # Use type=tar piped through tar to avoid lchown permission errors
+  # (BuildKit tries to preserve root ownership from container).
+  # Temporarily disable errexit so .dockerignore cleanup runs on failure.
+  set +e
+  docker buildx build \
+    --provenance=false \
+    -f "$DIR/Dockerfile.qwen-code-build" \
+    --output "type=tar,dest=-" \
+    "$QWEN_SOURCE_DIR" | tar xf - -C "$QWEN_OUTPUT_DIR"
+  local BUILD_EXIT=${PIPESTATUS[0]}
+  set -e
 
-      echo "📦 Installing dependencies (skipping prepare scripts)..."
-      npm ci --ignore-scripts
+  # Clean up temporary .dockerignore (unless it existed before)
+  if [ "$DOCKERIGNORE_EXISTED" = "false" ]; then
+    rm -f "$DOCKERIGNORE"
+  fi
 
-      echo "🔨 Building bundle..."
-      npm run bundle
-
-      echo "📤 Copying build artifacts to output..."
-      # Copy everything needed for npm install -g
-      cp -r package.json package-lock.json dist/ /output/
-      # Copy packages directory (workspaces)
-      cp -r packages/ /output/ 2>/dev/null || true
-      # Copy node_modules (required for workspaces to work)
-      cp -r node_modules/ /output/
-
-      echo "✅ Build complete!"
-    '
-
-  if [ $? -ne 0 ]; then
+  if [ $BUILD_EXIT -ne 0 ]; then
     echo "❌ Docker build failed"
     return 1
   fi
