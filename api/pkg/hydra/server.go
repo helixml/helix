@@ -165,6 +165,8 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	api.PathPrefix("/dev-containers/{session_id}/proxy/{port}").HandlerFunc(s.handleDevContainerProxy)
 
 	// Golden cache management
+	api.HandleFunc("/dev-containers/{session_id}/blkio", s.handleGetDevContainerBlkio).Methods("GET")
+
 	api.HandleFunc("/golden-cache/{project_id}", s.handleDeleteGoldenCache).Methods("DELETE")
 	api.HandleFunc("/golden-cache/{project_id}/build-result", s.handleGetGoldenBuildResult).Methods("GET")
 	api.HandleFunc("/golden-cache/{project_id}/copy-progress", s.handleGetGoldenCopyProgress).Methods("GET")
@@ -765,6 +767,24 @@ func execCommand(name string, args ...string) (string, error) {
 	out, err := cmd.Output()
 	_ = ctx
 	return string(out), err
+}
+
+// handleGetDevContainerBlkio returns cumulative blkio write/read bytes for a container.
+func (s *Server) handleGetDevContainerBlkio(w http.ResponseWriter, r *http.Request) {
+	sessionID := mux.Vars(r)["session_id"]
+	if sessionID == "" {
+		http.Error(w, "session_id required", http.StatusBadRequest)
+		return
+	}
+
+	stats, err := s.devContainerManager.GetContainerBlkioStats(r.Context(), sessionID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
 }
 
 // handleDeleteGoldenCache removes the golden Docker cache for a project.

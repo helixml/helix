@@ -3,6 +3,7 @@ package hydra
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -14,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
@@ -1431,6 +1433,61 @@ func (dm *DevContainerManager) storeGoldenBuildResult(projectID, sessionID strin
 		CacheSizeBytes: cacheSizeBytes,
 		Timestamp:      time.Now(),
 	}
+}
+
+// ContainerBlkioStats contains cumulative blkio write/read bytes for a container.
+// Used by the frontend to compute per-container disk write rate during golden builds.
+type ContainerBlkioStats struct {
+	SessionID  string `json:"session_id"`
+	WriteBytes uint64 `json:"write_bytes"`
+	ReadBytes  uint64 `json:"read_bytes"`
+}
+
+// GetContainerBlkioStats returns cumulative blkio write/read bytes for a container.
+// Uses the Docker stats API (cgroup counters), so stats are per-container and
+// isolated — concurrent builds don't appear in each other's stats.
+func (dm *DevContainerManager) GetContainerBlkioStats(ctx context.Context, sessionID string) (*ContainerBlkioStats, error) {
+	dm.mu.RLock()
+	dc, exists := dm.containers[sessionID]
+	dm.mu.RUnlock()
+	if !exists {
+		return nil, fmt.Errorf("container not found for session: %s", sessionID)
+	}
+
+	dockerClient, err := dm.getDockerClient(dc.DockerSocket)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Docker client: %w", err)
+	}
+	defer dockerClient.Close()
+
+	// One-shot stats (no streaming)
+	statsResp, err := dockerClient.ContainerStatsOneShot(ctx, dc.ContainerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get container stats: %w", err)
+	}
+	defer statsResp.Body.Close()
+
+	var stats dockertypes.Stats
+	if err := json.NewDecoder(statsResp.Body).Decode(&stats); err != nil {
+		return nil, fmt.Errorf("failed to decode container stats: %w", err)
+	}
+
+	// Sum write and read bytes across all block devices
+	var writeBytes, readBytes uint64
+	for _, entry := range stats.BlkioStats.IoServiceBytesRecursive {
+		switch entry.Op {
+		case "Write":
+			writeBytes += entry.Value
+		case "Read":
+			readBytes += entry.Value
+		}
+	}
+
+	return &ContainerBlkioStats{
+		SessionID:  sessionID,
+		WriteBytes: writeBytes,
+		ReadBytes:  readBytes,
+	}, nil
 }
 
 // GetGoldenCopyProgress returns the current golden cache copy progress for a project.

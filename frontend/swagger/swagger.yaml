@@ -111,6 +111,15 @@ definitions:
         description: Valid is true if Time is not NULL
         type: boolean
     type: object
+  hydra.ContainerBlkioStats:
+    properties:
+      read_bytes:
+        type: integer
+      session_id:
+        type: string
+      write_bytes:
+        type: integer
+    type: object
   hydra.DevContainerStatus:
     enum:
     - starting
@@ -6928,6 +6937,10 @@ definitions:
         type: string
       spec_task_id:
         description: Multi-session SpecTask context
+        type: string
+      status_message:
+        description: Transient status message shown during startup (e.g., "Unpacking
+          build cache (2.1/7.0 GB)")
         type: string
       stream:
         type: boolean
@@ -15137,6 +15150,31 @@ paths:
               type: string
             type: object
       summary: Deregister a sandbox instance
+      tags:
+      - sandbox
+  /api/v1/sandboxes/{id}/containers/{session_id}/blkio:
+    get:
+      description: Get per-container disk I/O stats (write_bytes, read_bytes) from
+        cgroup blkio counters
+      parameters:
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: session_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/hydra.ContainerBlkioStats'
+      summary: Get container blkio stats
       tags:
       - sandbox
   /api/v1/sandboxes/{id}/disk-history:

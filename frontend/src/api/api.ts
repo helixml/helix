@@ -82,6 +82,12 @@ export interface GormDeletedAt {
   valid?: boolean;
 }
 
+export interface HydraContainerBlkioStats {
+  read_bytes?: number;
+  session_id?: string;
+  write_bytes?: number;
+}
+
 export enum HydraDevContainerStatus {
   DevContainerStatusStarting = "starting",
   DevContainerStatusRunning = "running",
@@ -4200,6 +4206,8 @@ export interface TypesSessionMetadata {
   session_role?: string;
   /** Multi-session SpecTask context */
   spec_task_id?: string;
+  /** Transient status message shown during startup (e.g., "Unpacking build cache (2.1/7.0 GB)") */
+  status_message?: string;
   stream?: boolean;
   /** helix-sway image version (commit hash) running in this session */
   sway_version?: string;
@@ -10085,6 +10093,22 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<Record<string, string>, any>({
         path: `/api/v1/sandboxes/${id}`,
         method: "DELETE",
+        ...params,
+      }),
+
+    /**
+     * @description Get per-container disk I/O stats (write_bytes, read_bytes) from cgroup blkio counters
+     *
+     * @tags sandbox
+     * @name V1SandboxesContainersBlkioDetail
+     * @summary Get container blkio stats
+     * @request GET:/api/v1/sandboxes/{id}/containers/{session_id}/blkio
+     */
+    v1SandboxesContainersBlkioDetail: (id: string, sessionId: string, params: RequestParams = {}) =>
+      this.request<HydraContainerBlkioStats, any>({
+        path: `/api/v1/sandboxes/${id}/containers/${sessionId}/blkio`,
+        method: "GET",
+        format: "json",
         ...params,
       }),
 

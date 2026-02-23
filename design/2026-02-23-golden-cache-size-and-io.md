@@ -23,9 +23,11 @@ Changed `cp -a` to `cp -a --reflink=auto` in `SetupGoldenCopy`. On COW filesyste
 
 **Note**: Current setup uses ext4 on zvol. To get the speedup, reformat to XFS (`mkfs.xfs -m reflink=1`).
 
-### Disk I/O Sparkline
+### Disk I/O Sparkline (Per-Container Blkio)
 
-During golden builds, `ProjectSettings.tsx` polls the `disk-history` endpoint for the building sandbox and computes write rate (MB/s) from consecutive `/var` disk usage samples. Shows a SparkLineChart + "N MB/s" next to "Building..." status.
+During golden builds, `ProjectSettings.tsx` polls per-container blkio write bytes via `GET /api/v1/sandboxes/{id}/containers/{session_id}/blkio`. This reads Docker's cgroup `IoServiceBytesRecursive` counters via `ContainerStatsOneShot` API, giving isolated per-container write bytes. The frontend accumulates cumulative `write_bytes` samples over time and computes write rate (MB/s) from consecutive deltas. Shows a SparkLineChart + "N MB/s" next to "Building..." status.
+
+This ensures concurrent golden builds on different sandboxes don't contaminate each other's I/O metrics.
 
 ### Session Startup Progress: "Unpacking build cache (X/Y GB)"
 
@@ -43,8 +45,10 @@ Added real-time progress during golden cache copy on session startup:
 
 - `api/pkg/hydra/golden.go` — `PurgeContainersFromGolden()`, `--reflink=auto`, progress callback
 - `api/pkg/hydra/devcontainer.go` — `CacheSizeBytes`, `GoldenCopyProgress`, purge after promote
-- `api/pkg/hydra/server.go` — `GET /golden-copy-progress/{project_id}` endpoint
-- `api/pkg/hydra/client.go` — `GetGoldenCopyProgress()` RevDial client method
+- `api/pkg/hydra/server.go` — `GET /golden-copy-progress/{project_id}`, `GET /dev-containers/{session_id}/blkio` endpoints
+- `api/pkg/hydra/client.go` — `GetGoldenCopyProgress()`, `GetContainerBlkioStats()` RevDial client methods
+- `api/pkg/server/sandbox_handlers.go` — `GET /api/v1/sandboxes/{id}/containers/{session_id}/blkio` API endpoint
+- `api/pkg/server/server.go` — Route registration for blkio endpoint
 - `api/pkg/services/golden_build_service.go` — Set `SizeBytes` from build result
 - `api/pkg/external-agent/hydra_executor.go` — Progress polling goroutine, `updateSessionStatusMessage()`
 - `api/pkg/types/types.go` — `StatusMessage` field on `SessionMetadata`

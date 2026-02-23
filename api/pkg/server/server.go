@@ -805,6 +805,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sandboxes/register", apiServer.registerSandbox).Methods("POST")
 	authRouter.HandleFunc("/sandboxes/{id}/heartbeat", apiServer.sandboxHeartbeat).Methods("POST")
 	authRouter.HandleFunc("/sandboxes/{id}/disk-history", apiServer.getDiskUsageHistory).Methods("GET")
+	authRouter.HandleFunc("/sandboxes/{id}/containers/{session_id}/blkio", apiServer.getContainerBlkioStats).Methods("GET")
 	authRouter.HandleFunc("/sandboxes", apiServer.listSandboxes).Methods("GET")
 	authRouter.HandleFunc("/sandboxes/{id}", apiServer.deregisterSandbox).Methods("DELETE")
 	// Reverse dial endpoint for user sandboxes (spec tasks, PDEs)

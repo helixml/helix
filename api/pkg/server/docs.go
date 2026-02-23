@@ -9688,6 +9688,42 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sandboxes/{id}/containers/{session_id}/blkio": {
+            "get": {
+                "description": "Get per-container disk I/O stats (write_bytes, read_bytes) from cgroup blkio counters",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sandbox"
+                ],
+                "summary": "Get container blkio stats",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/hydra.ContainerBlkioStats"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sandboxes/{id}/disk-history": {
             "get": {
                 "description": "Get disk usage history for trending and alerts",
@@ -14683,6 +14719,20 @@ const docTemplate = `{
                 "valid": {
                     "description": "Valid is true if Time is not NULL",
                     "type": "boolean"
+                }
+            }
+        },
+        "hydra.ContainerBlkioStats": {
+            "type": "object",
+            "properties": {
+                "read_bytes": {
+                    "type": "integer"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "write_bytes": {
+                    "type": "integer"
                 }
             }
         },
@@ -24342,6 +24392,10 @@ const docTemplate = `{
                 },
                 "spec_task_id": {
                     "description": "Multi-session SpecTask context",
+                    "type": "string"
+                },
+                "status_message": {
+                    "description": "Transient status message shown during startup (e.g., \"Unpacking build cache (2.1/7.0 GB)\")",
                     "type": "string"
                 },
                 "stream": {

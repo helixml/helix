@@ -11687,6 +11687,47 @@
                 }
             }
         },
+        "/api/v1/sandboxes/{id}/containers/{session_id}/blkio": {
+            "get": {
+                "description": "Get per-container disk I/O stats (write_bytes, read_bytes) from cgroup blkio counters",
+                "tags": [
+                    "sandbox"
+                ],
+                "summary": "Get container blkio stats",
+                "parameters": [
+                    {
+                        "description": "Sandbox ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Session ID",
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hydra.ContainerBlkioStats"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sandboxes/{id}/disk-history": {
             "get": {
                 "description": "Get disk usage history for trending and alerts",
@@ -17747,6 +17788,20 @@
                     "valid": {
                         "description": "Valid is true if Time is not NULL",
                         "type": "boolean"
+                    }
+                }
+            },
+            "hydra.ContainerBlkioStats": {
+                "type": "object",
+                "properties": {
+                    "read_bytes": {
+                        "type": "integer"
+                    },
+                    "session_id": {
+                        "type": "string"
+                    },
+                    "write_bytes": {
+                        "type": "integer"
                     }
                 }
             },
@@ -27406,6 +27461,10 @@
                     },
                     "spec_task_id": {
                         "description": "Multi-session SpecTask context",
+                        "type": "string"
+                    },
+                    "status_message": {
+                        "description": "Transient status message shown during startup (e.g., \"Unpacking build cache (2.1/7.0 GB)\")",
                         "type": "string"
                     },
                     "stream": {

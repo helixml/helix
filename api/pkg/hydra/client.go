@@ -432,6 +432,20 @@ func (c *RevDialClient) GetGoldenBuildResult(ctx context.Context, projectID stri
 	return &result, nil
 }
 
+// GetContainerBlkioStats returns cumulative blkio write/read bytes for a container via RevDial.
+func (c *RevDialClient) GetContainerBlkioStats(ctx context.Context, sessionID string) (*ContainerBlkioStats, error) {
+	path := fmt.Sprintf("/api/v1/dev-containers/%s/blkio", sessionID)
+	respBody, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result ContainerBlkioStats
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &result, nil
+}
+
 // GetGoldenCopyProgress returns the current golden cache copy progress via RevDial.
 // Returns nil with no error if no copy is in progress.
 func (c *RevDialClient) GetGoldenCopyProgress(ctx context.Context, projectID string) (*GoldenCopyProgress, error) {

@@ -245,31 +245,49 @@ const ProjectSettings: FC = () => {
     }
   }, [showGoldenBuildViewer, selectedGoldenSandboxId, selectedSandboxStatus]);
 
-  // Disk I/O sparkline for building sandboxes — poll disk-history to show write rate
-  const buildingSandboxId = sandboxEntries.find(([, s]) => s.status === "building")?.[0];
-  const { data: diskHistory } = useQuery({
-    queryKey: ["disk-history", buildingSandboxId],
+  // Per-container blkio write rate sparkline for golden builds
+  const buildingSandbox = sandboxEntries.find(([, s]) => s.status === "building");
+  const buildingSandboxId = buildingSandbox?.[0];
+  const buildingSessionId = buildingSandbox?.[1]?.build_session_id;
+  const blkioSamplesRef = useRef<{ time: number; writeBytes: number }[]>([]);
+  const lastBuildSessionRef = useRef<string | undefined>();
+
+  // Reset samples when build session changes
+  if (buildingSessionId !== lastBuildSessionRef.current) {
+    blkioSamplesRef.current = [];
+    lastBuildSessionRef.current = buildingSessionId;
+  }
+
+  const { data: blkioStats } = useQuery({
+    queryKey: ["blkio", buildingSandboxId, buildingSessionId],
     queryFn: async () => {
-      const since = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-      const resp = await api.getApiClient().v1SandboxesDiskHistoryDetail(buildingSandboxId!, { since });
+      const resp = await api.getApiClient().v1SandboxesContainersBlkioDetail(buildingSandboxId!, buildingSessionId!);
       return resp.data;
     },
-    enabled: !!buildingSandboxId && anyBuilding,
-    refetchInterval: 15_000,
+    enabled: !!buildingSandboxId && !!buildingSessionId && anyBuilding,
+    refetchInterval: 5_000,
   });
 
-  // Compute disk write rate (MB/s) from consecutive /var used_bytes samples
+  // Accumulate blkio samples and compute write rate (MB/s)
   const writeRates = useMemo(() => {
-    if (!diskHistory?.length) return [];
-    const varPoints = diskHistory.filter((d) => d.mount_point === "/var");
-    if (varPoints.length < 2) return [];
-    return varPoints.slice(1).map((pt, i) => {
-      const prev = varPoints[i];
-      const dtSec = (new Date(pt.recorded ?? "").getTime() - new Date(prev.recorded ?? "").getTime()) / 1000;
-      const dBytes = (pt.used_bytes ?? 0) - (prev.used_bytes ?? 0);
-      return dtSec > 0 ? Math.max(0, dBytes / dtSec / 1e6) : 0; // MB/s, clamp to 0
+    if (!blkioStats?.write_bytes) return [];
+    const now = Date.now();
+    const samples = blkioSamplesRef.current;
+    // Only add if write_bytes changed (avoid duplicate samples)
+    const last = samples[samples.length - 1];
+    if (!last || blkioStats.write_bytes !== last.writeBytes) {
+      samples.push({ time: now, writeBytes: blkioStats.write_bytes });
+    }
+    // Keep last 30 samples max
+    if (samples.length > 30) samples.splice(0, samples.length - 30);
+    if (samples.length < 2) return [];
+    return samples.slice(1).map((s, i) => {
+      const prev = samples[i];
+      const dtSec = (s.time - prev.time) / 1000;
+      const dBytes = s.writeBytes - prev.writeBytes;
+      return dtSec > 0 ? Math.max(0, dBytes / dtSec / 1e6) : 0;
     });
-  }, [diskHistory]);
+  }, [blkioStats]);
 
   // Move to organization state
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
