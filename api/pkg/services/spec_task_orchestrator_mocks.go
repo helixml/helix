@@ -69,3 +69,17 @@ func (mr *MockContainerExecutorMockRecorder) StopDesktop(ctx, sessionID any) *go
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopDesktop", reflect.TypeOf((*MockContainerExecutor)(nil).StopDesktop), ctx, sessionID)
 }
+
+// HasRunningContainer mocks base method.
+func (m *MockContainerExecutor) HasRunningContainer(ctx context.Context, sessionID string) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasRunningContainer", ctx, sessionID)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// HasRunningContainer indicates an expected call of HasRunningContainer.
+func (mr *MockContainerExecutorMockRecorder) HasRunningContainer(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasRunningContainer", reflect.TypeOf((*MockContainerExecutor)(nil).HasRunningContainer), ctx, sessionID)
+}

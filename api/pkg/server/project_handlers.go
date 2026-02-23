@@ -2072,6 +2072,44 @@ func (s *HelixAPIServer) triggerGoldenBuild(_ http.ResponseWriter, r *http.Reque
 	return map[string]string{"message": "golden build triggered"}, nil
 }
 
+// cancelGoldenBuild godoc
+// @Summary Cancel running golden Docker cache builds
+// @Description Stop all running golden builds for a project
+// @Tags Projects
+// @Produce json
+// @Param id path string true "Project ID"
+// @Success 200 {object} map[string]string
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 409 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/docker-cache/cancel [post]
+func (s *HelixAPIServer) cancelGoldenBuild(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	project, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionUpdate)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	if s.goldenBuildService == nil {
+		return nil, system.NewHTTPError500("golden build service not available")
+	}
+
+	err = s.goldenBuildService.CancelGoldenBuilds(r.Context(), project)
+	if err != nil {
+		return nil, &system.HTTPError{StatusCode: 409, Message: err.Error()}
+	}
+
+	return map[string]string{"message": "golden builds cancelled"}, nil
+}
+
 // deleteDockerCache godoc
 // @Summary Clear golden Docker cache
 // @Description Remove the golden Docker cache for a project from all sandboxes

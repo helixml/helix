@@ -8938,6 +8938,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Stop all running golden builds for a project
+     *
+     * @tags Projects
+     * @name V1ProjectsDockerCacheCancelCreate
+     * @summary Cancel running golden Docker cache builds
+     * @request POST:/api/v1/projects/{id}/docker-cache/cancel
+     * @secure
+     */
+    v1ProjectsDockerCacheCancelCreate: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/docker-cache/cancel`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Stop the running exploratory session for a project (stops sandbox container, keeps session record)
      *
      * @tags Projects

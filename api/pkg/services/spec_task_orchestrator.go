@@ -35,6 +35,7 @@ type SpecTaskOrchestrator struct {
 type ContainerExecutor interface {
 	StartDesktop(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error)
 	StopDesktop(ctx context.Context, sessionID string) error
+	HasRunningContainer(ctx context.Context, sessionID string) bool
 }
 
 // NewSpecTaskOrchestrator creates a new orchestrator

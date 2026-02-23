@@ -139,6 +139,54 @@ func (g *GoldenBuildService) TriggerManualGoldenBuild(ctx context.Context, proje
 	return nil
 }
 
+// CancelGoldenBuilds stops all running golden builds for a project.
+func (g *GoldenBuildService) CancelGoldenBuilds(ctx context.Context, project *types.Project) error {
+	if project == nil {
+		return fmt.Errorf("project is nil")
+	}
+
+	if project.Metadata.DockerCacheStatus == nil || len(project.Metadata.DockerCacheStatus.Sandboxes) == 0 {
+		return fmt.Errorf("no golden builds to cancel")
+	}
+
+	cancelled := 0
+	for sbID, sbState := range project.Metadata.DockerCacheStatus.Sandboxes {
+		if sbState.Status != "building" || sbState.BuildSessionID == "" {
+			continue
+		}
+
+		// Stop the container
+		sessionID := sbState.BuildSessionID
+		if err := g.containerExecutor.StopDesktop(ctx, sessionID); err != nil {
+			log.Warn().Err(err).Str("session_id", sessionID).Str("sandbox_id", sbID).
+				Msg("Golden build: failed to stop container (may have already exited)")
+		}
+
+		// Clear the debounce entry
+		key := buildKey(project.ID, sbID)
+		g.mu.Lock()
+		delete(g.building, key)
+		g.mu.Unlock()
+
+		// Update status
+		g.updateSandboxCacheStatus(ctx, project.ID, sbID, func(s *types.SandboxCacheState) {
+			s.Status = "none"
+			s.BuildSessionID = ""
+			s.Error = ""
+		})
+
+		cancelled++
+	}
+
+	if cancelled == 0 {
+		return fmt.Errorf("no active golden builds found")
+	}
+
+	log.Info().Str("project_id", project.ID).Int("cancelled", cancelled).
+		Msg("Cancelled golden builds")
+	return nil
+}
+
 // fanOutBuilds lists online sandboxes and launches a golden build goroutine for each.
 func (g *GoldenBuildService) fanOutBuilds(ctx context.Context, project *types.Project) {
 	sandboxes, err := g.store.ListSandboxes(ctx)
@@ -376,6 +424,22 @@ func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, p
 			if session.Metadata.DesiredState == types.DesiredStateStopped {
 				log.Info().Str("project_id", projectID).Str("sandbox_id", sandboxID).Str("session_id", sessionID).
 					Msg("Golden build: session stopped, build complete")
+				g.updateSandboxCacheStatus(context.Background(), projectID, sandboxID, func(s *types.SandboxCacheState) {
+					now := time.Now()
+					s.Status = "ready"
+					s.LastReadyAt = &now
+					s.BuildSessionID = ""
+					s.Error = ""
+				})
+				return
+			}
+
+			// Check if the container is still running. Hydra's monitorGoldenBuild
+			// removes the container after promoting the golden cache, but doesn't
+			// update the session record. Detect this by checking the executor.
+			if !g.containerExecutor.HasRunningContainer(ctx, sessionID) {
+				log.Info().Str("project_id", projectID).Str("sandbox_id", sandboxID).Str("session_id", sessionID).
+					Msg("Golden build: container no longer running, build complete")
 				g.updateSandboxCacheStatus(context.Background(), projectID, sandboxID, func(s *types.SandboxCacheState) {
 					now := time.Now()
 					s.Status = "ready"

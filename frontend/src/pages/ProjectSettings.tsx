@@ -352,6 +352,23 @@ const ProjectSettings: FC = () => {
     },
   });
 
+  const cancelBuildMutation = useMutation({
+    mutationFn: async () => {
+      await api.getApiClient().v1ProjectsDockerCacheCancelCreate(projectId);
+    },
+    onSuccess: () => {
+      snackbar.success("Golden builds cancelled");
+      setShowGoldenBuildViewer(false);
+      setSelectedGoldenSandboxId("");
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    },
+    onError: (error: any) => {
+      const msg =
+        error?.response?.data?.message || "Failed to cancel builds";
+      snackbar.error(msg);
+    },
+  });
+
   // Move project mutation
   const moveProjectMutation = useMutation({
     mutationFn: async (organizationId: string) => {
@@ -1033,6 +1050,17 @@ const ProjectSettings: FC = () => {
                     >
                       {primeCacheMutation.isPending ? "Triggering..." : "Prime Cache"}
                     </Button>
+                    {anyBuilding && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="warning"
+                        disabled={cancelBuildMutation.isPending}
+                        onClick={() => cancelBuildMutation.mutate()}
+                      >
+                        {cancelBuildMutation.isPending ? "Cancelling..." : "Cancel Build"}
+                      </Button>
+                    )}
                     {(anyReady || anyFailed) && (
                       <Button
                         size="small"

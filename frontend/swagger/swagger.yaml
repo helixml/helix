@@ -13417,6 +13417,41 @@ paths:
       summary: Trigger golden Docker cache build
       tags:
       - Projects
+  /api/v1/projects/{id}/docker-cache/cancel:
+    post:
+      description: Stop all running golden builds for a project
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Cancel running golden Docker cache builds
+      tags:
+      - Projects
   /api/v1/projects/{id}/exploratory-session:
     delete:
       description: Stop the running exploratory session for a project (stops sandbox
