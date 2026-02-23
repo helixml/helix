@@ -175,7 +175,7 @@ func TestUpdaterVMDownloadingGuard(t *testing.T) {
 	u.vmDownloading = true
 	u.mu.Unlock()
 
-	err := u.DownloadVMUpdate(nil, nil, false)
+	err := u.DownloadVMUpdate(nil, nil, false, false)
 	if err == nil {
 		t.Fatal("expected error when download already in progress")
 	}

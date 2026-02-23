@@ -215,6 +215,25 @@ fi
 log "  Written to: ${MANIFEST_PATH}"
 cat "$MANIFEST_PATH"
 
+# Upload manifest to CDN so the in-app updater can fetch it at
+# https://dl.helix.ml/vm/{VERSION}/manifest.json
+log ""
+log "Uploading vm-manifest.json to CDN..."
+aws s3 cp "$MANIFEST_PATH" "s3://${R2_BUCKET}/vm/${VM_VERSION}/manifest.json" \
+    --endpoint-url "$R2_ENDPOINT" \
+    --content-type "application/json" \
+    --cache-control "no-cache, max-age=0" \
+    --no-progress 2>&1
+log "  Done."
+
+# Verify manifest is accessible
+MANIFEST_HTTP=$(curl -sI -o /dev/null -w "%{http_code}" "https://dl.helix.ml/vm/${VM_VERSION}/manifest.json")
+if [ "$MANIFEST_HTTP" = "200" ]; then
+    log "CDN check: https://dl.helix.ml/vm/${VM_VERSION}/manifest.json → 200 OK"
+else
+    log "WARNING: manifest CDN check returned HTTP ${MANIFEST_HTTP} (may need DNS propagation)"
+fi
+
 log ""
 log "================================================"
 log "Upload complete!"
@@ -222,6 +241,7 @@ log "================================================"
 log ""
 log "Version:     ${VM_VERSION}"
 log "Download:    https://dl.helix.ml/vm/${VM_VERSION}/${DISK_UPLOAD_NAME}"
+log "Manifest:    https://dl.helix.ml/vm/${VM_VERSION}/manifest.json"
 log "Disk size:   $(echo "$DISK_SIZE" | awk '{printf "%.1f GB", $1/1073741824}') (from $(echo "$ORIG_SIZE" | awk '{printf "%.1f GB", $1/1073741824}') on disk)"
 log ""
 log "The vm-manifest.json has been written to ${MANIFEST_PATH}"
