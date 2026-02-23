@@ -85,6 +85,7 @@ import ProjectRepositoriesList from "../components/project/ProjectRepositoriesLi
 import AgentDropdown from "../components/agent/AgentDropdown";
 import { SparkLineChart } from "@mui/x-charts";
 import DesktopStreamViewer from "../components/external-agent/DesktopStreamViewer";
+import { useSandboxState } from "../components/external-agent/ExternalAgentDesktopViewer";
 import useAccount from "../hooks/useAccount";
 import useRouter from "../hooks/useRouter";
 import useSnackbar from "../hooks/useSnackbar";
@@ -224,6 +225,10 @@ const ProjectSettings: FC = () => {
     enabled: !!goldenBuildSessionId && showGoldenBuildViewer,
     refetchInterval: 5000,
   });
+  const goldenBuildSandboxState = useSandboxState(
+    goldenBuildSessionId || "",
+    !!goldenBuildSessionId && showGoldenBuildViewer,
+  );
 
   // Poll project status while any golden build is running and viewer is open
   useEffect(() => {
@@ -1233,7 +1238,7 @@ const ProjectSettings: FC = () => {
                     </Button>
                   </Box>
                   <Divider sx={{ mb: 2 }} />
-                  {goldenBuildSession ? (
+                  {goldenBuildSession && goldenBuildSandboxState.isRunning ? (
                     <Box
                       sx={{
                         aspectRatio: "16 / 9",
@@ -1249,7 +1254,7 @@ const ProjectSettings: FC = () => {
                     <Box sx={{ p: 4, textAlign: "center" }}>
                       <CircularProgress size={24} />
                       <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                        Waiting for session to start...
+                        {goldenBuildSandboxState.statusMessage || "Starting session..."}
                       </Typography>
                     </Box>
                   )}
