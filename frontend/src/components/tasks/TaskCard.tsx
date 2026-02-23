@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Card,
   CardContent,
@@ -216,6 +216,8 @@ interface TaskCardProps {
   highlightedTaskIds?: string[] | null;
   onDependencyHoverStart?: (taskIds: string[]) => void;
   onDependencyHoverEnd?: () => void;
+  /** Whether to focus the Start Planning button (for newly created tasks) */
+  focusStartPlanning?: boolean;
 }
 
 // Interface for checklist items from API
@@ -551,12 +553,23 @@ function TaskCardInner({
   highlightedTaskIds,
   onDependencyHoverStart,
   onDependencyHoverEnd,
+  focusStartPlanning = false,
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false);
   const [showCloneDialog, setShowCloneDialog] = useState(false);
   const [showCloneBatchProgress, setShowCloneBatchProgress] = useState(false);
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [isRemovingFromQueue, setIsRemovingFromQueue] = useState(false);
+  const startPlanningButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Focus the Start Planning button when focusStartPlanning is true
+  useEffect(() => {
+    if (focusStartPlanning && task.status === "backlog") {
+      setTimeout(() => {
+        startPlanningButtonRef.current?.focus();
+      }, 100);
+    }
+  }, [focusStartPlanning, task.status]);
   const approveImplementationMutation = useApproveImplementation(task.id!);
   const stopAgentMutation = useStopAgent(task.id!);
   const updateSpecTask = useUpdateSpecTask();
@@ -993,7 +1006,9 @@ function TaskCardInner({
               sessionId={task.planning_session_id}
               projectId={projectId}
               startupErrorMessage={
-                typeof task.metadata?.error === "string" ? task.metadata.error : undefined
+                typeof task.metadata?.error === "string"
+                  ? task.metadata.error
+                  : undefined
               }
               onClick={() => onTaskClick?.(task)}
             />
@@ -1038,6 +1053,7 @@ function TaskCardInner({
                 metadata: task.metadata,
               }}
               variant="stacked"
+              startPlanningButtonRef={startPlanningButtonRef}
               onStartPlanning={async () => {
                 if (onStartPlanning) {
                   setIsStartingPlanning(true);
