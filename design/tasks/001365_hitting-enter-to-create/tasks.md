@@ -7,12 +7,12 @@
 
 ## Part 2: Focus Start Planning Button on New Task
 
-- [~] In `TaskCard.tsx`, add `focusStartPlanning?: boolean` to `TaskCardProps` interface
-- [ ] In `TaskCard.tsx`, create `startPlanningButtonRef` using `useRef<HTMLButtonElement>(null)`
-- [ ] In `TaskCard.tsx`, add `useEffect` that calls `startPlanningButtonRef.current?.focus()` when `focusStartPlanning` is true
-- [ ] In `SpecTaskActionButtons.tsx`, add optional `startPlanningButtonRef?: React.RefObject<HTMLButtonElement>` prop
-- [ ] In `SpecTaskActionButtons.tsx`, attach ref to the Start Planning `<Button>` element
-- [ ] In `TaskCard.tsx`, pass `startPlanningButtonRef` to `SpecTaskActionButtons` component
+- [x] In `TaskCard.tsx`, add `focusStartPlanning?: boolean` to `TaskCardProps` interface
+- [x] In `TaskCard.tsx`, create `startPlanningButtonRef` using `useRef<HTMLButtonElement>(null)`
+- [x] In `TaskCard.tsx`, add `useEffect` that calls `startPlanningButtonRef.current?.focus()` when `focusStartPlanning` is true
+- [x] In `SpecTaskActionButtons.tsx`, add optional `startPlanningButtonRef?: React.RefObject<HTMLButtonElement>` prop
+- [x] In `SpecTaskActionButtons.tsx`, attach ref to the Start Planning `<Button>` element
+- [x] In `TaskCard.tsx`, pass `startPlanningButtonRef` to `SpecTaskActionButtons` component
 
 ## Testing
 
