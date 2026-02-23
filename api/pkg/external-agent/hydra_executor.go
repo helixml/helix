@@ -328,7 +328,41 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Str("container_type", string(req.ContainerType)).
 		Msg("Creating dev container via Hydra")
 
+	// Poll golden cache copy progress in a goroutine while CreateDevContainer blocks.
+	// If a golden cache exists, the Hydra side copies it before creating the container.
+	// We poll a separate Hydra endpoint and update session.StatusMessage so the
+	// frontend/CLI can show "Unpacking build cache (2.1/7.0 GB)" instead of just "Starting Desktop...".
+	stopProgress := make(chan struct{})
+	go func() {
+		// Use a separate RevDial client for concurrent progress polling
+		progressClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopProgress:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				progress, err := progressClient.GetGoldenCopyProgress(ctx, agent.ProjectID)
+				if err != nil || progress == nil {
+					continue // no copy in progress (yet or anymore)
+				}
+				copiedGB := float64(progress.CopiedBytes) / 1e9
+				totalGB := float64(progress.TotalBytes) / 1e9
+				msg := fmt.Sprintf("Unpacking build cache (%.1f/%.1f GB)", copiedGB, totalGB)
+				h.updateSessionStatusMessage(ctx, agent.SessionID, msg)
+			}
+		}
+	}()
+
 	resp, err := hydraClient.CreateDevContainer(ctx, req)
+
+	// Signal progress goroutine to stop and clear the status message
+	close(stopProgress)
+	h.updateSessionStatusMessage(ctx, agent.SessionID, "")
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create dev container via Hydra: %w", err)
 	}
@@ -657,6 +691,24 @@ func (h *HydraExecutor) GetGoldenBuildResult(ctx context.Context, sandboxID, pro
 	hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
 	hydraClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
 	return hydraClient.GetGoldenBuildResult(ctx, projectID)
+}
+
+// updateSessionStatusMessage updates the session's transient status message in the database.
+// This is polled by the frontend (every 3s) and CLI (every 2s) to show startup progress
+// like "Unpacking build cache (2.1/7.0 GB)" instead of a generic "Starting Desktop...".
+// Pass empty string to clear the message.
+func (h *HydraExecutor) updateSessionStatusMessage(ctx context.Context, sessionID, message string) {
+	dbSession, err := h.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return
+	}
+	if dbSession.Metadata.StatusMessage == message {
+		return // no change needed
+	}
+	dbSession.Metadata.StatusMessage = message
+	if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
+		log.Debug().Err(err).Str("session_id", sessionID).Msg("Failed to update session status message")
+	}
 }
 
 // parseContainerType converts desktop type string to container type

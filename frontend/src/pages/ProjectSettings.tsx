@@ -83,6 +83,7 @@ const RECOMMENDED_MODELS = [
 import type { CodingAgentFormHandle } from "../components/agent/CodingAgentForm";
 import ProjectRepositoriesList from "../components/project/ProjectRepositoriesList";
 import AgentDropdown from "../components/agent/AgentDropdown";
+import { SparkLineChart } from "@mui/x-charts";
 import DesktopStreamViewer from "../components/external-agent/DesktopStreamViewer";
 import useAccount from "../hooks/useAccount";
 import useRouter from "../hooks/useRouter";
@@ -243,6 +244,32 @@ const ProjectSettings: FC = () => {
       setSelectedGoldenSandboxId("");
     }
   }, [showGoldenBuildViewer, selectedGoldenSandboxId, selectedSandboxStatus]);
+
+  // Disk I/O sparkline for building sandboxes — poll disk-history to show write rate
+  const buildingSandboxId = sandboxEntries.find(([, s]) => s.status === "building")?.[0];
+  const { data: diskHistory } = useQuery({
+    queryKey: ["disk-history", buildingSandboxId],
+    queryFn: async () => {
+      const since = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+      const resp = await api.getApiClient().v1SandboxesDiskHistoryDetail(buildingSandboxId!, { since });
+      return resp.data;
+    },
+    enabled: !!buildingSandboxId && anyBuilding,
+    refetchInterval: 15_000,
+  });
+
+  // Compute disk write rate (MB/s) from consecutive /var used_bytes samples
+  const writeRates = useMemo(() => {
+    if (!diskHistory?.length) return [];
+    const varPoints = diskHistory.filter((d) => d.mount_point === "/var");
+    if (varPoints.length < 2) return [];
+    return varPoints.slice(1).map((pt, i) => {
+      const prev = varPoints[i];
+      const dtSec = (new Date(pt.recorded ?? "").getTime() - new Date(prev.recorded ?? "").getTime()) / 1000;
+      const dBytes = (pt.used_bytes ?? 0) - (prev.used_bytes ?? 0);
+      return dtSec > 0 ? Math.max(0, dBytes / dtSec / 1e6) : 0; // MB/s, clamp to 0
+    });
+  }, [diskHistory]);
 
   // Move to organization state
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
@@ -1096,6 +1123,20 @@ const ProjectSettings: FC = () => {
                               <> &middot; Last built: {new Date(sbState.last_ready_at).toLocaleString()}</>
                             )}
                           </Typography>
+                          {sbState.status === "building" && writeRates.length > 1 && sbId === buildingSandboxId && (
+                            <Box sx={{ display: "inline-flex", alignItems: "center", ml: 0.5 }}>
+                              <SparkLineChart
+                                data={writeRates}
+                                height={20}
+                                width={60}
+                                curve="natural"
+                                colors={["#4caf50"]}
+                              />
+                              <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5, fontFamily: "monospace", fontSize: "0.65rem" }}>
+                                {writeRates[writeRates.length - 1]?.toFixed(0)} MB/s
+                              </Typography>
+                            </Box>
+                          )}
                           {sbState.status === "building" && sbState.build_session_id && (
                             <Button
                               size="small"

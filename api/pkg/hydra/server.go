@@ -167,6 +167,7 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	// Golden cache management
 	api.HandleFunc("/golden-cache/{project_id}", s.handleDeleteGoldenCache).Methods("DELETE")
 	api.HandleFunc("/golden-cache/{project_id}/build-result", s.handleGetGoldenBuildResult).Methods("GET")
+	api.HandleFunc("/golden-cache/{project_id}/copy-progress", s.handleGetGoldenCopyProgress).Methods("GET")
 
 	// System stats (GPU info, active sessions)
 	api.HandleFunc("/system/stats", s.handleSystemStats).Methods("GET")
@@ -799,4 +800,22 @@ func (s *Server) handleDeleteGoldenCache(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+}
+
+// handleGetGoldenCopyProgress returns the current golden cache copy progress.
+func (s *Server) handleGetGoldenCopyProgress(w http.ResponseWriter, r *http.Request) {
+	projectID := mux.Vars(r)["project_id"]
+	if projectID == "" {
+		http.Error(w, "project_id required", http.StatusBadRequest)
+		return
+	}
+
+	progress := s.devContainerManager.GetGoldenCopyProgress(projectID)
+	if progress == nil {
+		http.Error(w, "no copy in progress", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(progress)
 }

@@ -438,6 +438,7 @@ func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, p
 
 			if result != nil && result.Success {
 				log.Info().Str("project_id", projectID).Str("sandbox_id", sandboxID).
+					Int64("cache_size_bytes", result.CacheSizeBytes).
 					Msg("Golden build: completed successfully")
 				g.updateSandboxCacheStatus(context.Background(), projectID, sandboxID, func(s *types.SandboxCacheState) {
 					now := time.Now()
@@ -445,6 +446,7 @@ func (g *GoldenBuildService) waitForGoldenBuildCompletion(ctx context.Context, p
 					s.LastReadyAt = &now
 					s.BuildSessionID = ""
 					s.Error = ""
+					s.SizeBytes = result.CacheSizeBytes
 				})
 			} else {
 				errMsg := "Startup script failed"

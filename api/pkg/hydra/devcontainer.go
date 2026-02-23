@@ -23,14 +23,25 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// GoldenCopyProgress tracks the progress of a golden cache copy operation.
+// Stored in-memory and exposed via the Hydra API so the API server can poll
+// during the blocking CreateDevContainer RPC.
+type GoldenCopyProgress struct {
+	ProjectID   string `json:"project_id"`
+	CopiedBytes int64  `json:"copied_bytes"`
+	TotalBytes  int64  `json:"total_bytes"`
+	Done        bool   `json:"done"`
+}
+
 // GoldenBuildResult stores the outcome of a golden build after the container is deleted.
 // Results are kept in memory so the API can query them via the Hydra endpoint.
 type GoldenBuildResult struct {
-	ProjectID string `json:"project_id"`
-	SessionID string `json:"session_id"`
-	Success   bool   `json:"success"`
-	ExitCode  string `json:"exit_code"`
-	Timestamp time.Time `json:"timestamp"`
+	ProjectID      string    `json:"project_id"`
+	SessionID      string    `json:"session_id"`
+	Success        bool      `json:"success"`
+	ExitCode       string    `json:"exit_code"`
+	CacheSizeBytes int64     `json:"cache_size_bytes,omitempty"`
+	Timestamp      time.Time `json:"timestamp"`
 }
 
 // DevContainerManager manages dev container lifecycle (Zed+agent environments)
@@ -50,6 +61,11 @@ type DevContainerManager struct {
 	// so the API can query the outcome.
 	goldenBuildResults   map[string]*GoldenBuildResult
 	goldenBuildResultsMu sync.RWMutex
+
+	// Golden copy progress, keyed by projectID. Updated during SetupGoldenCopy
+	// and polled by the API server via the /golden-copy-progress endpoint.
+	goldenCopyProgress   map[string]*GoldenCopyProgress
+	goldenCopyProgressMu sync.RWMutex
 }
 
 // NewDevContainerManager creates a new dev container manager
@@ -58,6 +74,7 @@ func NewDevContainerManager(manager *Manager) *DevContainerManager {
 		manager:            manager,
 		containers:         make(map[string]*DevContainer),
 		goldenBuildResults: make(map[string]*GoldenBuildResult),
+		goldenCopyProgress: make(map[string]*GoldenCopyProgress),
 	}
 }
 
@@ -668,7 +685,11 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 				// Golden cache available — copy to session dir (works for both
 				// normal sessions AND golden builds; golden builds start from the
 				// previous golden for incremental rebuilds)
-				dockerDir, err := SetupGoldenCopy(req.ProjectID, volumeName)
+				onProgress := func(copied, total int64) {
+					dm.setGoldenCopyProgress(req.ProjectID, copied, total, false)
+				}
+				dockerDir, err := SetupGoldenCopy(req.ProjectID, volumeName, onProgress)
+				dm.setGoldenCopyProgress(req.ProjectID, 0, 0, true) // clear progress
 				if err != nil {
 					log.Warn().Err(err).
 						Str("project_id", req.ProjectID).
@@ -1324,7 +1345,7 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 				Str("project_id", dc.ProjectID).
 				Msg("Golden build: timed out waiting for result file (30 min)")
 			// Store timeout result so the API can query it
-			dm.storeGoldenBuildResult(dc.ProjectID, dc.SessionID, false, "timeout")
+			dm.storeGoldenBuildResult(dc.ProjectID, dc.SessionID, false, "timeout", 0)
 			// Stop the container via the clean API
 			dm.DeleteDevContainer(context.Background(), dc.SessionID)
 			return
@@ -1342,6 +1363,7 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 done:
 	result := strings.TrimSpace(string(resultData))
 	buildSucceeded := result == "0"
+	var cacheSizeBytes int64
 	log.Info().
 		Str("session_id", dc.SessionID).
 		Str("project_id", dc.ProjectID).
@@ -1359,10 +1381,18 @@ done:
 				Str("project_id", dc.ProjectID).
 				Msg("Golden build: failed to promote session data")
 		} else {
-			size := GetGoldenSize(dc.ProjectID)
+			// Purge container metadata from the golden cache to prevent
+			// workspace corruption on new sessions (containers have bind mounts
+			// to workspace paths that don't exist in new sessions).
+			if err := PurgeContainersFromGolden(dc.ProjectID); err != nil {
+				log.Warn().Err(err).
+					Str("project_id", dc.ProjectID).
+					Msg("Golden build: failed to purge containers from golden")
+			}
+			cacheSizeBytes = GetGoldenSize(dc.ProjectID)
 			log.Info().
 				Str("project_id", dc.ProjectID).
-				Int64("size_bytes", size).
+				Int64("size_bytes", cacheSizeBytes).
 				Msg("Golden cache promoted successfully")
 		}
 	} else {
@@ -1375,7 +1405,7 @@ done:
 	}
 
 	// Store the result so the API can query it after the container is gone.
-	dm.storeGoldenBuildResult(dc.ProjectID, dc.SessionID, buildSucceeded, result)
+	dm.storeGoldenBuildResult(dc.ProjectID, dc.SessionID, buildSucceeded, result, cacheSizeBytes)
 
 	// Stop and clean up the container via the standard API.
 	// DeleteDevContainer handles: ContainerStop, ContainerRemove, VolumeRemove,
@@ -1390,15 +1420,39 @@ done:
 }
 
 // storeGoldenBuildResult stores a golden build result for later querying by the API.
-func (dm *DevContainerManager) storeGoldenBuildResult(projectID, sessionID string, success bool, exitCode string) {
+func (dm *DevContainerManager) storeGoldenBuildResult(projectID, sessionID string, success bool, exitCode string, cacheSizeBytes int64) {
 	dm.goldenBuildResultsMu.Lock()
 	defer dm.goldenBuildResultsMu.Unlock()
 	dm.goldenBuildResults[projectID] = &GoldenBuildResult{
-		ProjectID: projectID,
-		SessionID: sessionID,
-		Success:   success,
-		ExitCode:  exitCode,
-		Timestamp: time.Now(),
+		ProjectID:      projectID,
+		SessionID:      sessionID,
+		Success:        success,
+		ExitCode:       exitCode,
+		CacheSizeBytes: cacheSizeBytes,
+		Timestamp:      time.Now(),
+	}
+}
+
+// GetGoldenCopyProgress returns the current golden cache copy progress for a project.
+// Returns nil if no copy is in progress.
+func (dm *DevContainerManager) GetGoldenCopyProgress(projectID string) *GoldenCopyProgress {
+	dm.goldenCopyProgressMu.RLock()
+	defer dm.goldenCopyProgressMu.RUnlock()
+	return dm.goldenCopyProgress[projectID]
+}
+
+// setGoldenCopyProgress updates the golden cache copy progress for a project.
+func (dm *DevContainerManager) setGoldenCopyProgress(projectID string, copied, total int64, done bool) {
+	dm.goldenCopyProgressMu.Lock()
+	defer dm.goldenCopyProgressMu.Unlock()
+	if done {
+		delete(dm.goldenCopyProgress, projectID)
+	} else {
+		dm.goldenCopyProgress[projectID] = &GoldenCopyProgress{
+			ProjectID:   projectID,
+			CopiedBytes: copied,
+			TotalBytes:  total,
+		}
 	}
 }
 

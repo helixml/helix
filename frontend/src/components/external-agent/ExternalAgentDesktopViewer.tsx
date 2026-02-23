@@ -30,6 +30,7 @@ import { GET_SESSION_QUERY_KEY } from "../../services/sessionService";
 export const useSandboxState = (sessionId: string, enabled: boolean = true) => {
   const api = useApi();
   const [sandboxState, setSandboxState] = React.useState<string>("loading");
+  const [statusMessage, setStatusMessage] = React.useState<string>("");
 
   React.useEffect(() => {
     // Skip polling when disabled (e.g., card is off-screen)
@@ -45,6 +46,9 @@ export const useSandboxState = (sessionId: string, enabled: boolean = true) => {
           const status = response.data.config?.external_agent_status || "";
           const desiredState = response.data.config?.desired_state || "";
           const hasContainer = !!response.data.config?.container_name;
+
+          // Pickup transient status message (e.g., "Unpacking build cache (2.1/7.0 GB)")
+          setStatusMessage(response.data.config?.status_message || "");
 
           // Map session metadata to sandbox state
           // Check stopped status first - it takes priority from the backend check
@@ -93,7 +97,7 @@ export const useSandboxState = (sessionId: string, enabled: boolean = true) => {
   // Show "paused" only if container was previously running but is now absent
   const isPaused = sandboxState === "absent";
 
-  return { sandboxState, isRunning, isPaused, isStarting };
+  return { sandboxState, isRunning, isPaused, isStarting, statusMessage };
 };
 
 interface ExternalAgentDesktopViewerProps {
@@ -135,7 +139,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   const snackbar = useSnackbar();
   const queryClient = useQueryClient();
   const { NewInference, setCurrentSessionId } = useStreaming();
-  const { isRunning, isPaused, isStarting } = useSandboxState(sessionId);
+  const { isRunning, isPaused, isStarting, statusMessage } = useSandboxState(sessionId);
   const [isResuming, setIsResuming] = useState(false);
   // Track if we've ever been running - once running, keep stream mounted to avoid fullscreen exit
   const [hasEverBeenRunning, setHasEverBeenRunning] = useState(false);
@@ -292,7 +296,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             <>
               <CircularProgress size={32} sx={{ color: 'primary.main' }} />
               <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
-                Starting Desktop...
+                {statusMessage || "Starting Desktop..."}
               </Typography>
             </>
           )}

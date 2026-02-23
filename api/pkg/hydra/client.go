@@ -432,6 +432,24 @@ func (c *RevDialClient) GetGoldenBuildResult(ctx context.Context, projectID stri
 	return &result, nil
 }
 
+// GetGoldenCopyProgress returns the current golden cache copy progress via RevDial.
+// Returns nil with no error if no copy is in progress.
+func (c *RevDialClient) GetGoldenCopyProgress(ctx context.Context, projectID string) (*GoldenCopyProgress, error) {
+	path := fmt.Sprintf("/api/v1/golden-cache/%s/copy-progress", projectID)
+	respBody, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		if strings.Contains(err.Error(), "status 404") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var result GoldenCopyProgress
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &result, nil
+}
+
 // DeleteGoldenCache removes the golden Docker cache for a project via RevDial
 func (c *RevDialClient) DeleteGoldenCache(ctx context.Context, projectID string) error {
 	path := fmt.Sprintf("/api/v1/golden-cache/%s", projectID)

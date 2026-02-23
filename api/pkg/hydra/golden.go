@@ -47,8 +47,11 @@ func GoldenExists(projectID string) bool {
 // For a typical golden (~3-5 GB), the copy takes ~5-15s on SSD, which is
 // dramatically faster than the cold build it replaces (~10 min).
 //
+// The onProgress callback (if non-nil) is called periodically with (copiedBytes, totalBytes).
+// This enables the API to show real-time progress like "Unpacking build cache (2.1/7.0 GB)".
+//
 // Returns the docker directory path to use as the bind mount source.
-func SetupGoldenCopy(projectID, volumeName string) (string, error) {
+func SetupGoldenCopy(projectID, volumeName string, onProgress func(copied, total int64)) (string, error) {
 	golden := goldenDir(projectID)
 	base := sessionOverlayDir(volumeName)
 	dockerDir := filepath.Join(base, "docker")
@@ -58,11 +61,51 @@ func SetupGoldenCopy(projectID, volumeName string) (string, error) {
 		return "", fmt.Errorf("failed to create session dir %s: %w", base, err)
 	}
 
-	// Copy golden to session docker dir (cp -a preserves permissions, ownership, timestamps)
+	// Copy golden to session docker dir.
+	// cp -a preserves permissions, ownership, timestamps.
+	// --reflink=auto uses copy-on-write on supporting filesystems (XFS, btrfs)
+	// making the copy near-instant. Falls back silently to full copy on ext4.
+	goldenSize := GetGoldenSize(projectID)
+	log.Info().
+		Str("golden", golden).
+		Int64("size_bytes", goldenSize).
+		Msg("Copying golden cache to session (reflink if supported)")
+
+	// Start progress monitor — polls destination size every 2s
+	done := make(chan struct{})
+	if onProgress != nil {
+		onProgress(0, goldenSize)
+		go func() {
+			ticker := time.NewTicker(2 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-ticker.C:
+					out, err := exec.Command("du", "-sb", dockerDir).Output()
+					if err == nil {
+						var copied int64
+						fmt.Sscanf(string(out), "%d", &copied)
+						onProgress(copied, goldenSize)
+					}
+				}
+			}
+		}()
+	}
+
 	start := time.Now()
-	cmd := exec.Command("cp", "-a", golden, dockerDir)
-	if output, err := cmd.CombinedOutput(); err != nil {
+	cmd := exec.Command("cp", "-a", "--reflink=auto", golden, dockerDir)
+	output, err := cmd.CombinedOutput()
+	close(done)
+
+	if err != nil {
 		return "", fmt.Errorf("failed to copy golden to session: %w (output: %s)", err, string(output))
+	}
+
+	// Final progress: report 100%
+	if onProgress != nil {
+		onProgress(goldenSize, goldenSize)
 	}
 
 	elapsed := time.Since(start)
@@ -70,6 +113,7 @@ func SetupGoldenCopy(projectID, volumeName string) (string, error) {
 		Str("golden", golden).
 		Str("docker_dir", dockerDir).
 		Str("volume", volumeName).
+		Int64("size_bytes", goldenSize).
 		Dur("copy_duration", elapsed).
 		Msg("Golden Docker cache copied to session")
 
@@ -196,6 +240,38 @@ func DeleteGolden(projectID string) error {
 		return fmt.Errorf("failed to remove golden cache at %s: %w", projectDir, err)
 	}
 	log.Info().Str("project_id", projectID).Str("path", projectDir).Msg("Deleted golden Docker cache")
+	return nil
+}
+
+// PurgeContainersFromGolden removes container-specific state from a golden cache.
+// The golden cache is a copy of /var/lib/docker from the golden build session.
+// It includes container metadata with bind mounts to workspace paths (e.g.
+// /home/retro/work/helix/...) that don't exist in new sessions. When inner
+// dockerd starts, it tries to restart those containers and auto-creates missing
+// bind mount sources as empty directories, corrupting the workspace.
+//
+// We keep: overlay2/ (image layers), image/ (image metadata), tmp/ (build cache).
+func PurgeContainersFromGolden(projectID string) error {
+	golden := goldenDir(projectID)
+
+	// Remove container metadata — they reference session-specific bind mounts
+	// that corrupt the workspace when dockerd auto-creates them as directories
+	os.RemoveAll(filepath.Join(golden, "containers"))
+
+	// Remove network state — stale sandbox-specific bridge/endpoint references
+	os.RemoveAll(filepath.Join(golden, "network"))
+
+	// Remove containerd state — stale shim references from the build session
+	os.RemoveAll(filepath.Join(golden, "containerd"))
+
+	// Remove buildx state — not needed, sessions use shared buildkit
+	os.RemoveAll(filepath.Join(golden, "buildx"))
+
+	log.Info().
+		Str("project_id", projectID).
+		Str("golden", golden).
+		Msg("Purged container/network/containerd/buildx state from golden cache")
+
 	return nil
 }
 
