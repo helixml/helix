@@ -108,7 +108,6 @@ services:
       - ./go.sum:/app/go.sum
       - ./api:/app/api
       - ./WORKDIR_README.md:/opt/helix/WORKDIR_README.md:ro
-      - ./kodit-models:/kodit-models:ro
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
       - helix-socket:/socket
       # Go caches for faster air rebuilds (shared with runner config)
