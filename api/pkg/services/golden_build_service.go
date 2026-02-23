@@ -304,10 +304,9 @@ func (g *GoldenBuildService) runGoldenBuildOnSandbox(parentCtx context.Context, 
 		Env:                 envVars,
 		BranchMode:          "existing",
 		WorkingBranch:       defaultBranch,
-		// Small display — golden build doesn't need video
-		DisplayWidth:       800,
-		DisplayHeight:      600,
-		DisplayRefreshRate: 30,
+		DisplayWidth:       1920,
+		DisplayHeight:      1080,
+		DisplayRefreshRate: 60,
 		GoldenBuild:        true,
 		SandboxID:          sandboxID,
 	}

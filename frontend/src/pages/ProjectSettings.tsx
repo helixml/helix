@@ -1640,6 +1640,51 @@ const ProjectSettings: FC = () => {
           {/* End of left column */}
 
           {/* Test session viewer - fills width, natural height */}
+          {/* Golden build viewer - RHS panel */}
+          {showGoldenBuildViewer && goldenBuildSessionId && !showTestSession && (
+            <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
+              <Paper sx={{ p: 3, position: "sticky", top: 80 }}>
+                <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
+                  <Typography variant="h6" sx={{ flex: 1 }}>
+                    Golden Build{selectedGoldenSandboxId ? ` (${selectedGoldenSandboxId})` : ""}
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => {
+                      setShowGoldenBuildViewer(false);
+                      setSelectedGoldenSandboxId("");
+                    }}
+                  >
+                    Hide
+                  </Button>
+                </Box>
+                <Divider sx={{ mb: 2 }} />
+                {goldenBuildSession ? (
+                  <Box
+                    sx={{
+                      aspectRatio: "16 / 9",
+                      backgroundColor: "#000",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <DesktopStreamViewer
+                      sessionId={goldenBuildSessionId}
+                      sandboxId={goldenBuildSession.config?.sandbox_id || ""}
+                    />
+                  </Box>
+                ) : (
+                  <Box sx={{ p: 4, textAlign: "center" }}>
+                    <CircularProgress size={24} />
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      Waiting for session to start...
+                    </Typography>
+                  </Box>
+                )}
+              </Paper>
+            </Box>
+          )}
+
           {showTestSession && exploratorySessionData && (
             <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
               {/* Spacer to align with Startup Script section (Basic Info section ~180px) */}
@@ -1718,50 +1763,6 @@ const ProjectSettings: FC = () => {
             </Box>
           )}
 
-          {/* Golden build viewer - fills width, natural height */}
-          {showGoldenBuildViewer && goldenBuildSessionId && (
-            <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
-              <Paper sx={{ p: 4 }}>
-                <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
-                  <Typography variant="h6" sx={{ flex: 1 }}>
-                    Golden Build{selectedGoldenSandboxId ? ` (${selectedGoldenSandboxId})` : ""}
-                  </Typography>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => {
-                      setShowGoldenBuildViewer(false);
-                      setSelectedGoldenSandboxId("");
-                    }}
-                  >
-                    Hide
-                  </Button>
-                </Box>
-                <Divider sx={{ mb: 3 }} />
-                {goldenBuildSession ? (
-                  <Box
-                    sx={{
-                      aspectRatio: "16 / 9",
-                      backgroundColor: "#000",
-                      overflow: "hidden",
-                    }}
-                  >
-                    <DesktopStreamViewer
-                      sessionId={goldenBuildSessionId}
-                      sandboxId={goldenBuildSession.config?.sandbox_id || ""}
-                    />
-                  </Box>
-                ) : (
-                  <Box sx={{ p: 4, textAlign: "center" }}>
-                    <CircularProgress size={24} />
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      Waiting for session to start...
-                    </Typography>
-                  </Box>
-                )}
-              </Paper>
-            </Box>
-          )}
         </Box>
       </Container>
 
