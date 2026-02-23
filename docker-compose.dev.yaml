@@ -96,7 +96,7 @@ services:
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       # Kodit code intelligence (in-process library)
-      - KODIT_ENABLED=true
+      - KODIT_ENABLED=${KODIT_ENABLED:-false}
       - KODIT_DB_URL=postgresql://postgres:${PGVECTOR_PASSWORD-postgres}@vectorchord-kodit:5432/kodit
       - KODIT_MODEL_DIR=/kodit-models
       - KODIT_LLM_BASE_URL=http://localhost:8080/v1
