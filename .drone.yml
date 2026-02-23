@@ -751,11 +751,11 @@ steps:
         fi
         # Build CLI binary (nokodit tag excludes kodit CGO dependencies) for all platforms
         for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
-          os="${target%%/*}"
-          arch="${target##*/}"
+          os=$(echo "$target" | cut -d/ -f1)
+          arch=$(echo "$target" | cut -d/ -f2)
           ext=""; [ "$os" = "windows" ] && ext=".exe"
-          echo "Building helix-${os}-${arch}${ext}"
-          CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -tags nokodit -ldflags "-w -s $VERSION_FLAG" -o "helix-${os}-${arch}${ext}" .
+          echo "Building helix-$os-$arch$ext"
+          CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -tags nokodit -ldflags "-w -s $VERSION_FLAG" -o "helix-$os-$arch$ext" .
         done
       - ./helix-linux-amd64 version
       - apt-get update && apt-get install -y curl
