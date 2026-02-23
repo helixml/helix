@@ -41,6 +41,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 # - Copy tokenizers library for CGo
 COPY --from=tokenizers-lib /app/lib/libtokenizers.a /usr/lib/
+# - Copy embedding models for kodit code intelligence
+COPY --from=embedding-model /build/models/ /kodit-models/
 # - Copy the files and run a build to make startup faster
 COPY api /app/api
 WORKDIR /app/api
