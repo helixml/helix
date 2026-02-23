@@ -233,15 +233,15 @@ const ProjectSettings: FC = () => {
   }, [showGoldenBuildViewer, anyBuilding, projectId]);
 
   // Auto-close golden build viewer when selected sandbox's build finishes
+  const selectedSandboxStatus = selectedGoldenSandboxId
+    ? sandboxCacheMap[selectedGoldenSandboxId]?.status
+    : undefined;
   useEffect(() => {
-    if (showGoldenBuildViewer && selectedGoldenSandboxId) {
-      const sbState = sandboxCacheMap[selectedGoldenSandboxId];
-      if (!sbState || sbState.status !== "building") {
-        setShowGoldenBuildViewer(false);
-        setSelectedGoldenSandboxId("");
-      }
+    if (showGoldenBuildViewer && selectedGoldenSandboxId && selectedSandboxStatus && selectedSandboxStatus !== "building") {
+      setShowGoldenBuildViewer(false);
+      setSelectedGoldenSandboxId("");
     }
-  }, [showGoldenBuildViewer, selectedGoldenSandboxId, sandboxCacheMap]);
+  }, [showGoldenBuildViewer, selectedGoldenSandboxId, selectedSandboxStatus]);
 
   // Move to organization state
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
@@ -323,13 +323,11 @@ const ProjectSettings: FC = () => {
         .v1ProjectsDockerCacheBuildCreate(projectId);
     },
     onSuccess: () => {
-      snackbar.success("Golden build triggered");
+      snackbar.success("Golden build triggered on all sandboxes");
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-      // Auto-open the viewer after a short delay for the project to refresh with build_session_id
+      // Poll for status updates so the sandbox rows appear
       setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-        setShowGoldenBuildViewer(true);
-        setShowTestSession(false);
       }, 3000);
     },
     onError: (error: any) => {
