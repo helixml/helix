@@ -103,6 +103,12 @@ func SetupGoldenCopy(projectID, volumeName string, onProgress func(copied, total
 		return "", fmt.Errorf("failed to copy golden to session: %w (output: %s)", err, string(output))
 	}
 
+	// Remove any stale golden build result marker from the copy.
+	// Without this, monitorGoldenBuild() would find the old result file
+	// and promote immediately without waiting for the actual build.
+	// cp -a creates dockerDir as a copy of golden, so the file is at dockerDir/.golden-build-result.
+	os.Remove(filepath.Join(dockerDir, ".golden-build-result"))
+
 	// Final progress: report 100%
 	if onProgress != nil {
 		onProgress(goldenSize, goldenSize)
@@ -267,10 +273,17 @@ func PurgeContainersFromGolden(projectID string) error {
 	// Remove buildx state — not needed, sessions use shared buildkit
 	os.RemoveAll(filepath.Join(golden, "buildx"))
 
+	// Remove the golden build result marker. If this file is left in the golden
+	// cache, monitorGoldenBuild() on subsequent golden builds will find it
+	// immediately after SetupGoldenCopy and promote prematurely — before the
+	// startup script has actually run. This was the root cause of golden builds
+	// completing in ~1 minute instead of the expected 10+ minutes.
+	os.Remove(filepath.Join(golden, ".golden-build-result"))
+
 	log.Info().
 		Str("project_id", projectID).
 		Str("golden", golden).
-		Msg("Purged container/network/containerd/buildx state from golden cache")
+		Msg("Purged container/network/containerd/buildx/result state from golden cache")
 
 	return nil
 }

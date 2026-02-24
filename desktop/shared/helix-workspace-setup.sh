@@ -674,10 +674,6 @@ if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
         echo ""
         echo "✅ Golden build: startup script completed successfully"
 
-        # Write success marker BEFORE stopping dockerd.
-        # Hydra reads this file from the bind mount to determine promotion.
-        echo "0" | sudo tee /var/lib/docker/.golden-build-result > /dev/null
-
         echo "Stopping dockerd for clean shutdown..."
         # Stop dockerd cleanly so Docker data on disk is consistent
         # (the data will be promoted to golden cache by Hydra)
@@ -693,6 +689,13 @@ if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
             done
             echo "✅ dockerd stopped"
         fi
+
+        # Write success marker AFTER dockerd is stopped.
+        # Hydra's monitorGoldenBuild polls for this file and promotes the
+        # Docker data to the golden cache. Writing it after dockerd stops
+        # ensures the data is quiescent — no active writes during promotion
+        # or when new sessions copy from the golden cache.
+        echo "0" | sudo tee /var/lib/docker/.golden-build-result > /dev/null
     else
         EXIT_CODE=$?
         echo ""
