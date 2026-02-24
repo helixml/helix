@@ -29,6 +29,7 @@ On iPad, the spec review page has two usability issues:
 - [ ] On wide screens (>1000px): panel appears to the right of content (current behavior)
 - [ ] On narrow screens (≤1000px): panel appears below the quoted text or as a modal/drawer
 - [ ] Panel never overlaps the main content area on any screen size
+- [ ] Panel is always scrollable into view (auto-scroll to panel after it appears, or ensure it's within scrollable bounds)
 
 ## Out of Scope
 - Desktop text selection behavior (unchanged)

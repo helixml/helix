@@ -16,6 +16,7 @@
   - Desktop: Keep `left: '670px'`
   - Mobile/tablet: Full-width overlay or bottom sheet pattern
 - [ ] Consider reducing comment panel width on small screens (300px → responsive width)
+- [ ] Add auto-scroll to ensure comment panel is visible after it appears (`scrollIntoView({ behavior: 'smooth', block: 'nearest' })`)
 
 ## Testing
 

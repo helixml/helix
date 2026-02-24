@@ -73,3 +73,4 @@ This keeps the panel at 670px when space permits, otherwise pushes it left.
 - **Selection across multiple paragraphs on touch**: Works—`window.getSelection()` handles this
 - **Virtual keyboard on iPad**: May need to account for keyboard height (existing pattern in `DesktopStreamViewer.tsx`)
 - **Portrait vs landscape**: Both handled by viewport width breakpoint
+- **Panel below visible area**: After showing the comment form, auto-scroll to ensure it's visible. Use `scrollIntoView({ behavior: 'smooth', block: 'nearest' })` on the panel element after render.
