@@ -887,6 +887,14 @@ func (d *SettingsDaemon) startWatcher() error {
 		return fmt.Errorf("failed to create settings directory: %w", err)
 	}
 
+	// Ensure themes directory exists. Zed's theme watcher watches this path;
+	// if it doesn't exist, the watcher falls back to the parent config dir
+	// and ends up trying to parse settings.json as a theme file on every write.
+	themesDir := filepath.Join(settingsDir, "themes")
+	if err := os.MkdirAll(themesDir, 0755); err != nil {
+		log.Printf("Warning: failed to create themes directory: %v", err)
+	}
+
 	// Create empty settings file if it doesn't exist
 	if _, err := os.Stat(SettingsPath); os.IsNotExist(err) {
 		if err := os.WriteFile(SettingsPath, []byte("{}"), 0644); err != nil {
