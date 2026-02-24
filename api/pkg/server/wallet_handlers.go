@@ -38,7 +38,8 @@ func (s *HelixAPIServer) getWalletHandler(_ http.ResponseWriter, req *http.Reque
 			return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
 		}
 
-		_, err = s.authorizeOrgOwner(req.Context(), user, org.ID)
+		// Everyone can check balance
+		_, err = s.authorizeOrgMember(req.Context(), user, org.ID)
 		if err != nil {
 			return nil, system.NewHTTPError500(fmt.Sprintf("failed to authorize org owner: %s", err))
 		}
