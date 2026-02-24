@@ -2609,3 +2609,34 @@ steps:
               --content-type "application/json" \
               --no-progress
         fi
+
+# ====================================================================
+# VM Upgrade Test Pipeline
+# Boots a VM, creates ZFS pool + data, swaps root disk (simulating
+# upgrade), reboots, and verifies ZFS pool imports + data survives.
+# Catches regressions like bbc21bb1f (missing zfs-import-scan.service).
+# Runs on flight-arm64 (native macOS exec, not Docker).
+# ====================================================================
+---
+kind: pipeline
+type: exec
+name: test-vm-upgrade
+
+platform:
+  os: darwin
+  arch: arm64
+
+trigger:
+  branch:
+    - main
+  event:
+    - push
+
+steps:
+  - name: test-upgrade
+    environment:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+    commands:
+      - export HOME=/Users/luke
+      - cd for-mac
+      - bash scripts/test-vm-upgrade.sh
