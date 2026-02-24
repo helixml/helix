@@ -12,6 +12,6 @@
 - [x] Update `columns` useMemo to use `filteredTasks` instead of `tasks`
 - [x] Add `searchFilter` prop to `DroppableColumn` component
 - [x] Add "No matching tasks" empty state in `DroppableColumn` when column is empty due to filtering
-- [~] Test: verify filter works across all columns (backlog, planning, review, in progress, merged)
-- [ ] Test: verify clearing filter restores all tasks
-- [ ] Test: verify filter persists when switching between kanban and workspace views
+- [x] Test: verify filter works across all columns (backlog, planning, review, in progress, merged)
+- [x] Test: verify clearing filter restores all tasks
+- [x] Test: verify filter persists when switching between kanban and workspace views
