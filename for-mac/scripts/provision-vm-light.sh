@@ -261,6 +261,7 @@ runcmd:
   # Enable helix-storage-init service (runs before Docker on every boot)
   - systemctl daemon-reload
   - systemctl enable helix-storage-init.service
+  - systemctl enable zfs-import-scan.service
   # Limit Virtual-1 (VM console) to 1080p so the text console isn't painfully slow at 5K.
   - sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="[^"]*"/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash console=tty0 video=Virtual-1:1920x1080"/' /etc/default/grub
   - update-grub
@@ -300,7 +301,7 @@ write_files:
       [Unit]
       Description=Helix ZFS Storage Initialization
       DefaultDependencies=no
-      After=zfs-mount.service zfs-import-cache.service
+      After=zfs-mount.service zfs-import-cache.service systemd-udev-settle.service
       Before=docker.service containerd.service
       Wants=zfs-mount.service
 
@@ -322,25 +323,28 @@ write_files:
       # Import ZFS pool if not already imported
       if ! zpool list helix 2>/dev/null; then
           log "Importing ZFS pool..."
-          # Try each possible data disk
-          for disk in /dev/vdb /dev/vdc /dev/vdd; do
-              if [ -b "\$disk" ]; then
-                  if zpool import -f -d "\$disk" helix 2>/dev/null; then
-                      log "Imported ZFS pool from \$disk"
-                      break
-                  fi
-              fi
-          done
+          if zpool import -f helix 2>/dev/null; then
+              log "Imported existing ZFS pool"
+          fi
       fi
 
-      # Exit early if pool still not available (host app will create it via SSH)
+      # Safety guard: if the pool exists in zpool import output but failed to
+      # import, do NOT proceed (the host app might fall through to zpool create
+      # and destroy existing data).
       if ! zpool list helix 2>/dev/null; then
+          if zpool import 2>/dev/null | grep -q 'pool: helix'; then
+              log "ERROR: ZFS pool 'helix' exists but failed to import — refusing to proceed"
+              exit 1
+          fi
           log "ZFS pool not found — waiting for host app initialization"
           exit 0
       fi
 
       # Expand pool if disk was resized
-      zpool online -e helix \$(zpool list -vHP helix 2>/dev/null | awk '/dev/{print \$1}' | head -1) 2>/dev/null || true
+      POOL_DEV=\$(zpool status -P helix 2>/dev/null | awk '/^\t  \/dev\//{print \$1}' | head -1)
+      if [ -n "\$POOL_DEV" ]; then
+          zpool online -e helix "\$POOL_DEV" 2>/dev/null || true
+      fi
 
       # Mount Docker volumes dataset if it exists.
       # Host Docker images stay on root disk (pre-baked during provisioning).
