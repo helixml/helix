@@ -186,6 +186,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		// The raw `claude` CLI does NOT support --experimental-acp.
 		return map[string]interface{}{
 			"claude": map[string]interface{}{
+				"name":         "claude", // Required: Zed expects a name field for agent_servers
 				"default_mode": "bypassPermissions",
 				"env":          env,
 			},
