@@ -185,17 +185,3 @@ func isAdmin(user *types.User) bool {
 func isRunner(user *types.User) bool {
 	return user != nil && user.Token != "" && user.TokenType == types.TokenTypeRunner
 }
-
-func canSeeSession(user *types.User, session *types.Session) bool {
-	return canEditSession(user, session)
-}
-
-func canEditSession(user *types.User, session *types.Session) bool {
-	if session.Owner == user.ID {
-		return true
-	}
-	if user.Admin {
-		return true
-	}
-	return false
-}
