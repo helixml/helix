@@ -20,7 +20,13 @@
 │                               │                                      │
 │                               ▼                                      │
 │                      ┌─────────────────┐                            │
-│                      │  /tmp/rec/*.mp4 │                            │
+│                      │  /tmp (staging) │                            │
+│                      └────────┬────────┘                            │
+│                               │ upload on stop                       │
+│                               ▼                                      │
+│                      ┌─────────────────┐                            │
+│                      │    Filestore    │                            │
+│                      │  (linkable URL) │                            │
 │                      └─────────────────┘                            │
 │                                                                      │
 │  ┌──────────────────────────────────────────────────────────────┐  │
@@ -61,9 +67,19 @@ The agent has two options:
 
 Both approaches buffer subtitles until `stop_recording` writes the VTT file. The `set_subtitles` method replaces any existing entries, allowing the agent to review the recording duration and craft precise narration.
 
-### 4. Local Temp Storage → Upload on Stop
+### 4. Filestore Storage with Linkable URLs
 
-Recordings go to `/tmp/helix-recordings/<session_id>/<recording_id>.mp4`. On `stop_recording`, the file is uploaded to the session's filestore via the existing `/upload` endpoint. This keeps recording fast (local disk) and storage durable (filestore).
+Recordings are staged locally during capture (`/tmp/helix-recordings/`), then uploaded to the filestore on `stop_recording`. The filestore provides:
+
+- **Persistent storage** - survives container restarts
+- **Linkable URLs** - can be embedded in design docs, markdown, etc. without pushing large files to git
+- **API access** - `GET /api/v1/filestore/<path>` for programmatic access
+
+The `stop_recording` response includes the filestore URL that agents can use in documentation:
+```markdown
+## Demo Video
+Watch the feature demo: [recording.mp4](https://helix.example.com/api/v1/filestore/recordings/ses_01abc/rec_xyz/demo.mp4)
+```
 
 ## Component Details
 
@@ -105,18 +121,31 @@ Added to existing `mcp_server.go`:
 
 ### File Output
 
+**During recording** (local staging):
 ```
-/tmp/helix-recordings/
-└── ses_01abc123/
-    └── rec_xyz789/
-        ├── demo.mp4        # H.264 video
-        └── demo.vtt        # WebVTT subtitles
+/tmp/helix-recordings/ses_01abc123/rec_xyz789/
+├── demo.mp4        # H.264 video (in progress)
+└── demo.vtt        # WebVTT subtitles (written on stop)
 ```
 
-After upload to filestore:
+**After stop_recording** (filestore - permanent):
 ```
-/filestore/<user_id>/recordings/<session_id>/rec_xyz789/demo.mp4
+/api/v1/filestore/recordings/<session_id>/<recording_id>/
+├── demo.mp4        # Linkable video URL
+└── demo.vtt        # Linkable subtitles URL
 ```
+
+**stop_recording response**:
+```json
+{
+  "recording_id": "rec_xyz789",
+  "duration_ms": 45000,
+  "video_url": "/api/v1/filestore/recordings/ses_01abc/rec_xyz789/demo.mp4",
+  "subtitles_url": "/api/v1/filestore/recordings/ses_01abc/rec_xyz789/demo.vtt"
+}
+```
+
+Agents can embed these URLs directly in design docs or other markdown outputs.
 
 ## Edge Cases
 
