@@ -22,4 +22,7 @@
 
 - [ ] Test on iPad Safari: highlight text → verify comment panel opens
 - [ ] Test on iPad Safari: verify comment panel doesn't obscure the highlighted text
-- [ ] Test on desktop: verify existing behavior unchanged
+- [ ] Test on iPad Safari: verify auto-scroll brings comment panel into view
+- [ ] Test on desktop: verify existing behavior unchanged (side panel positioning)
+
+**Note:** Implementation complete. Manual testing on iPad Safari required to verify touch selection and responsive positioning work correctly.
