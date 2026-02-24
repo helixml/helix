@@ -72,12 +72,27 @@ type DevContainerManager struct {
 
 // NewDevContainerManager creates a new dev container manager
 func NewDevContainerManager(manager *Manager) *DevContainerManager {
-	return &DevContainerManager{
+	dm := &DevContainerManager{
 		manager:            manager,
 		containers:         make(map[string]*DevContainer),
 		goldenBuildResults: make(map[string]*GoldenBuildResult),
 		goldenCopyProgress: make(map[string]*GoldenCopyProgress),
 	}
+
+	// GC orphaned session dirs on startup and periodically
+	go func() {
+		// Run immediately on startup (no active sessions yet, cleans all orphans)
+		dm.GCOrphanedSessions()
+
+		// Then run every 10 minutes
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			dm.GCOrphanedSessions()
+		}
+	}()
+
+	return dm
 }
 
 // getDockerClient returns a Docker client for the specified socket
@@ -1024,6 +1039,29 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 		Status:        DevContainerStatusStopped,
 		ContainerType: dc.ContainerType,
 	}, nil
+}
+
+// GCOrphanedSessions removes session Docker data directories that don't have
+// running containers. Should be called periodically and on startup.
+func (dm *DevContainerManager) GCOrphanedSessions() {
+	if os.Getenv("CONTAINER_DOCKER_PATH") == "" {
+		return // Not using per-session docker dirs
+	}
+
+	dm.mu.RLock()
+	active := make(map[string]bool, len(dm.containers))
+	for sessionID := range dm.containers {
+		active[sessionID] = true
+	}
+	dm.mu.RUnlock()
+
+	removed, freed, err := GCOrphanedSessionDirs(active)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to GC orphaned session dirs")
+	}
+	if removed > 0 {
+		log.Info().Int("removed", removed).Int64("freed_bytes", freed).Msg("GC completed")
+	}
 }
 
 // GetDevContainer returns the status of a dev container

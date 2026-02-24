@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -299,4 +300,66 @@ func GetGoldenSize(projectID string) int64 {
 	var size int64
 	fmt.Sscanf(string(out), "%d", &size)
 	return size
+}
+
+// GCOrphanedSessionDirs removes session Docker data directories that don't
+// have a corresponding running container. These accumulate when Hydra restarts
+// or containers are removed without proper cleanup.
+//
+// activeSessions is the set of session IDs that currently have running containers.
+func GCOrphanedSessionDirs(activeSessions map[string]bool) (int, int64, error) {
+	entries, err := os.ReadDir(sessionsBaseDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, 0, nil
+		}
+		return 0, 0, fmt.Errorf("failed to read sessions dir: %w", err)
+	}
+
+	var cleaned int
+	var freedBytes int64
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		// Session dirs are named "docker-data-ses_xxxxx"
+		name := entry.Name()
+		sessionID := strings.TrimPrefix(name, "docker-data-")
+
+		if activeSessions[sessionID] {
+			continue // Container still running
+		}
+
+		dir := filepath.Join(sessionsBaseDir, name)
+
+		// Get size before removal (for logging)
+		var size int64
+		if out, err := exec.Command("du", "-sb", dir).Output(); err == nil {
+			fmt.Sscanf(string(out), "%d", &size)
+		}
+
+		if err := os.RemoveAll(dir); err != nil {
+			log.Warn().Err(err).Str("path", dir).Msg("Failed to remove orphaned session dir")
+			continue
+		}
+
+		cleaned++
+		freedBytes += size
+		log.Info().
+			Str("session_id", sessionID).
+			Str("path", dir).
+			Int64("size_bytes", size).
+			Msg("Removed orphaned session Docker data")
+	}
+
+	if cleaned > 0 {
+		log.Info().
+			Int("removed", cleaned).
+			Int64("freed_bytes", freedBytes).
+			Msg("GC_SESSION_CLEANUP")
+	}
+
+	return cleaned, freedBytes, nil
 }
