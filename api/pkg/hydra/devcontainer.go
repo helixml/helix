@@ -72,12 +72,27 @@ type DevContainerManager struct {
 
 // NewDevContainerManager creates a new dev container manager
 func NewDevContainerManager(manager *Manager) *DevContainerManager {
-	return &DevContainerManager{
+	dm := &DevContainerManager{
 		manager:            manager,
 		containers:         make(map[string]*DevContainer),
 		goldenBuildResults: make(map[string]*GoldenBuildResult),
 		goldenCopyProgress: make(map[string]*GoldenCopyProgress),
 	}
+
+	// GC orphaned session dirs on startup and periodically
+	go func() {
+		// Run immediately on startup (no active sessions yet, cleans all orphans)
+		dm.GCOrphanedSessions()
+
+		// Then run every 10 minutes
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			dm.GCOrphanedSessions()
+		}
+	}()
+
+	return dm
 }
 
 // getDockerClient returns a Docker client for the specified socket
@@ -1026,6 +1041,42 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	}, nil
 }
 
+// GCOrphanedSessions removes session Docker data directories that don't have
+// running containers, and cleans up stale golden cache state.
+// Should be called periodically and on startup.
+func (dm *DevContainerManager) GCOrphanedSessions() {
+	if os.Getenv("CONTAINER_DOCKER_PATH") == "" {
+		return // Not using per-session docker dirs
+	}
+
+	dm.mu.RLock()
+	active := make(map[string]bool, len(dm.containers))
+	for sessionID := range dm.containers {
+		active[sessionID] = true
+	}
+	dm.mu.RUnlock()
+
+	removed, freed, err := GCOrphanedSessionDirs(active)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to GC orphaned session dirs")
+	}
+	if removed > 0 {
+		log.Info().Int("removed", removed).Int64("freed_bytes", freed).Msg("Session GC completed")
+	}
+
+	// Also clean up stale golden cache state:
+	// - .old directories from failed promotions
+	// - Stale .building lock files from crashed golden builds
+	// - Golden caches not accessed in 30 days
+	goldenCleaned, goldenFreed, err := GCStaleGoldenDirs(30 * 24 * time.Hour)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to GC stale golden dirs")
+	}
+	if goldenCleaned > 0 {
+		log.Info().Int("removed", goldenCleaned).Int64("freed_bytes", goldenFreed).Msg("Golden GC completed")
+	}
+}
+
 // GetDevContainer returns the status of a dev container
 func (dm *DevContainerManager) GetDevContainer(ctx context.Context, sessionID string) (*DevContainerResponse, error) {
 	dm.mu.RLock()
@@ -1321,6 +1372,7 @@ func GetRegistryHost() string {
 // promotes the Docker data if successful, and stops the container cleanly
 // via DeleteDevContainer.
 func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
+	buildStart := time.Now()
 	log.Info().
 		Str("session_id", dc.SessionID).
 		Str("project_id", dc.ProjectID).
@@ -1342,9 +1394,11 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 	for {
 		select {
 		case <-ctx.Done():
+			buildDuration := time.Since(buildStart)
 			log.Error().
 				Str("session_id", dc.SessionID).
 				Str("project_id", dc.ProjectID).
+				Dur("build_duration", buildDuration).
 				Msg("Golden build: timed out waiting for result file (30 min)")
 			// Store timeout result so the API can query it
 			dm.storeGoldenBuildResult(dc.ProjectID, dc.SessionID, false, "timeout", 0)
@@ -1363,6 +1417,7 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 	}
 
 done:
+	buildDuration := time.Since(buildStart)
 	result := strings.TrimSpace(string(resultData))
 	buildSucceeded := result == "0"
 	var cacheSizeBytes int64
@@ -1370,6 +1425,7 @@ done:
 		Str("session_id", dc.SessionID).
 		Str("project_id", dc.ProjectID).
 		Str("result", result).
+		Dur("build_duration", buildDuration).
 		Msg("Golden build result file detected")
 
 	if buildSucceeded {
@@ -1401,6 +1457,7 @@ done:
 		log.Warn().
 			Str("session_id", dc.SessionID).
 			Str("project_id", dc.ProjectID).
+			Dur("build_duration", buildDuration).
 			Msg("Golden build failed, not promoting")
 		// Clean up the failed session's Docker data
 		_ = CleanupSessionDockerDir(dockerDataVolume)
@@ -1414,11 +1471,15 @@ done:
 	// and skips session Docker dir cleanup for golden builds.
 	dm.DeleteDevContainer(context.Background(), dc.SessionID)
 
+	// Structured summary log for golden build history tracking
 	log.Info().
 		Str("session_id", dc.SessionID).
 		Str("project_id", dc.ProjectID).
 		Bool("succeeded", buildSucceeded).
-		Msg("Golden build monitoring complete")
+		Str("exit_code", result).
+		Dur("build_duration", buildDuration).
+		Int64("cache_size_bytes", cacheSizeBytes).
+		Msg("GOLDEN_BUILD_SUMMARY")
 }
 
 // storeGoldenBuildResult stores a golden build result for later querying by the API.
