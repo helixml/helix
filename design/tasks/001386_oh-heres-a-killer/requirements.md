@@ -29,9 +29,13 @@ Enable AI agents to record screencasts of their work, creating video artifacts t
   - Returns recording ID on success
 - [ ] `stop_recording` - ends capture and finalizes the video file
   - Returns file path/URL of the completed recording
-- [ ] `add_subtitle` - overlays text on the video
+- [ ] `add_subtitle` - adds a subtitle entry to the recording
   - Required `text` parameter (the caption to display)
-  - Optional `duration_ms` parameter (how long to show, default 3000ms)
+  - Required `start_ms` parameter (when subtitle appears, relative to recording start)
+  - Required `end_ms` parameter (when subtitle disappears)
+- [ ] `set_subtitles` - sets the complete subtitle track (replaces any existing)
+  - Required `subtitles` parameter: array of `{text, start_ms, end_ms}` objects
+  - Allows agent to specify entire narration with precise timestamps
 
 ### Video Output
 - [ ] Recordings saved as MP4 (H.264 video, AAC audio if present)

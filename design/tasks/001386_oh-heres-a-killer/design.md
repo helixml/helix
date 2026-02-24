@@ -55,7 +55,11 @@ Two approaches for subtitles:
 1. **Default**: Generate `.vtt` sidecar file alongside MP4 (lightweight, preserves original video)
 2. **Optional**: Burn subtitles into video using `textoverlay` element (single-file output, always visible)
 
-The agent calls `add_subtitle(text, duration_ms)` and internally we timestamp + buffer these until `stop_recording` writes the VTT file.
+The agent has two options:
+- `add_subtitle(text, start_ms, end_ms)` - add individual entries incrementally during recording
+- `set_subtitles([{text, start_ms, end_ms}, ...])` - provide complete subtitle track at once (e.g., after recording, before stop)
+
+Both approaches buffer subtitles until `stop_recording` writes the VTT file. The `set_subtitles` method replaces any existing entries, allowing the agent to review the recording duration and craft precise narration.
 
 ### 4. Local Temp Storage → Upload on Stop
 
@@ -82,9 +86,9 @@ type Recording struct {
 }
 
 type Subtitle struct {
-    Text      string
-    Timestamp time.Duration  // offset from recording start
-    Duration  time.Duration
+    Text    string
+    StartMs int64  // milliseconds from recording start
+    EndMs   int64  // milliseconds from recording start
 }
 ```
 
@@ -96,7 +100,8 @@ Added to existing `mcp_server.go`:
 |------|---------|-------|
 | `start_recording` | `handleStartRecording` | Creates Recording, subscribes to SharedVideoSource |
 | `stop_recording` | `handleStopRecording` | Finalizes MP4, writes VTT, uploads to filestore |
-| `add_subtitle` | `handleAddSubtitle` | Appends to active Recording.Subtitles |
+| `add_subtitle` | `handleAddSubtitle` | Appends single subtitle with start_ms/end_ms |
+| `set_subtitles` | `handleSetSubtitles` | Replaces entire subtitle track with array of entries |
 
 ### File Output
 

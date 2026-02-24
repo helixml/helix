@@ -18,12 +18,15 @@
   - Uploads files to filestore
   - Returns filestore URL
 - [ ] Add `add_subtitle` tool to `mcp_server.go`
-  - Parameters: `text` (required), `duration_ms` (optional, default 3000)
-  - Appends timestamped subtitle to active recording
+  - Parameters: `text` (required), `start_ms` (required), `end_ms` (required)
+  - Appends single subtitle entry to active recording
+- [ ] Add `set_subtitles` tool to `mcp_server.go`
+  - Parameters: `subtitles` (required array of `{text, start_ms, end_ms}` objects)
+  - Replaces entire subtitle track, allows agent to craft precise narration
 
 ## Phase 3: Subtitle Generation
 
-- [ ] Implement `Subtitle` struct with text, timestamp, duration
+- [ ] Implement `Subtitle` struct with text, start_ms, end_ms
 - [ ] Create `generateWebVTT()` function to convert subtitle buffer to VTT format
 - [ ] Write VTT file alongside MP4 on stop
 
