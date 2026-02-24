@@ -10,19 +10,20 @@
 
 ## Phase 2: MCP Tools
 
-- [~] Add HTTP endpoints to desktop.Server for recording control
-- [ ] Add `start_recording` tool to `mcp_server.go`
+- [x] Add HTTP endpoints to desktop.Server for recording control
+- [x] Add `start_recording` tool to `mcp_server.go`
   - Parameters: `title` (optional string)
   - Creates Recording, starts pipeline, returns recording ID
-- [ ] Add `stop_recording` tool to `mcp_server.go`
+- [x] Add `stop_recording` tool to `mcp_server.go`
   - Finalizes MP4 file, generates VTT from subtitle buffer
   - Returns file paths
-- [ ] Add `add_subtitle` tool to `mcp_server.go`
+- [x] Add `add_subtitle` tool to `mcp_server.go`
   - Parameters: `text` (required), `start_ms` (required), `end_ms` (required)
   - Appends single subtitle entry to active recording
-- [ ] Add `set_subtitles` tool to `mcp_server.go`
+- [x] Add `set_subtitles` tool to `mcp_server.go`
   - Parameters: `subtitles` (required array of `{text, start_ms, end_ms}` objects)
   - Replaces entire subtitle track, allows agent to craft precise narration
+- [x] Add `get_recording_status` tool to `mcp_server.go`
 
 ## Phase 3: Subtitle Generation
 
