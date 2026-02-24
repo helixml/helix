@@ -1646,8 +1646,9 @@ func (s *HelixAPIServer) getSessionStepInfo(_ http.ResponseWriter, req *http.Req
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get session %s, error: %s", id, err))
 	}
 
-	if session.Owner != user.ID {
-		return nil, system.NewHTTPError403("you are not allowed to access this session")
+	err = s.authorizeUserToSession(ctx, user, session, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	stepInfos, err := s.Store.ListStepInfos(ctx, &store.ListStepInfosQuery{
