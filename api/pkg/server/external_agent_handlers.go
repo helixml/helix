@@ -1384,9 +1384,9 @@ func (apiServer *HelixAPIServer) getExternalAgentDiff(res http.ResponseWriter, r
 	}
 
 	// Verify ownership
-	if session.Owner != user.ID {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session for diff")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -1492,10 +1492,9 @@ func (apiServer *HelixAPIServer) getExternalAgentWorkspaces(res http.ResponseWri
 		return
 	}
 
-	// Verify ownership
-	if session.Owner != user.ID {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session for workspaces")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
 
