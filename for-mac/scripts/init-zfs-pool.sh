@@ -138,6 +138,26 @@ else
     fi
 fi
 
+# Restore console password from ZFS config (set by injectDesktopSecret)
+if [ -f /helix/config/console_password ]; then
+    PASS=$(sudo cat /helix/config/console_password 2>/dev/null)
+    if [ -n "$PASS" ]; then
+        echo "ubuntu:$PASS" | sudo chpasswd
+        echo 'Restored console password from /helix/config/console_password'
+    fi
+fi
+
+# Fix sshd config ordering: 50-helix.conf must sort before 60-cloudimg-settings.conf
+# so PasswordAuthentication yes takes effect (sshd uses first-match-wins)
+if [ -f /etc/ssh/sshd_config.d/helix.conf ]; then
+    sudo mv /etc/ssh/sshd_config.d/helix.conf /etc/ssh/sshd_config.d/50-helix.conf
+    echo 'Renamed helix.conf -> 50-helix.conf for sshd ordering'
+fi
+if [ -f /etc/ssh/sshd_config.d/60-cloudimg-settings.conf ]; then
+    sudo sed -i '/^PasswordAuthentication/d' /etc/ssh/sshd_config.d/60-cloudimg-settings.conf
+    echo 'Removed PasswordAuthentication override from 60-cloudimg-settings.conf'
+fi
+
 # Machine ID
 if [ ! -f /helix/config/machine-id ]; then
     sudo cp /etc/machine-id /helix/config/machine-id
