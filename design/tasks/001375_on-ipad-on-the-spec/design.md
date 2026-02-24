@@ -74,3 +74,23 @@ This keeps the panel at 670px when space permits, otherwise pushes it left.
 - **Virtual keyboard on iPad**: May need to account for keyboard height (existing pattern in `DesktopStreamViewer.tsx`)
 - **Portrait vs landscape**: Both handled by viewport width breakpoint
 - **Panel below visible area**: After showing the comment form, auto-scroll to ensure it's visible. Use `scrollIntoView({ behavior: 'smooth', block: 'nearest' })` on the panel element after render.
+
+## Implementation Notes
+
+### Touch Selection Fix
+- Added `onTouchEnd={() => handleTextSelection(true)}` alongside the existing `onMouseUp`
+- Modified `handleTextSelection(isTouch: boolean)` to accept a flag indicating touch vs mouse
+- For touch events, added a 50ms `setTimeout` delay before processing the selection—iOS doesn't finalize text selection immediately on touchend
+- The core selection logic using `window.getSelection()` works identically for both mouse and touch
+
+### Responsive Positioning
+- Used `useMediaQuery(theme.breakpoints.down(1000))` to detect narrow viewports
+- Breakpoint of 1000px chosen because: document (800px max) + panel (300px) + padding
+- `InlineCommentForm`: On narrow viewports, renders as a fixed bottom sheet (`position: fixed`, `bottom: 20px`, centered with `left: 50%` + `transform: translateX(-50%)`)
+- `InlineCommentBubble`: On narrow viewports, renders inline with `position: relative` and full width, stacking vertically below the document
+- Auto-scroll implemented via `useEffect` that calls `scrollIntoView({ behavior: 'smooth', block: 'nearest' })` when the form appears
+
+### Files Modified
+1. `frontend/src/components/spec-tasks/DesignReviewContent.tsx` - Touch handler, useMediaQuery, passing isNarrowViewport prop
+2. `frontend/src/components/spec-tasks/InlineCommentForm.tsx` - Responsive positioning, auto-scroll
+3. `frontend/src/components/spec-tasks/InlineCommentBubble.tsx` - Responsive positioning
