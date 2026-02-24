@@ -2,7 +2,7 @@
 
 ## Phase 1: Core Recording Infrastructure
 
-- [ ] Create `api/pkg/desktop/recording.go` with `RecordingManager` struct
+- [~] Create `api/pkg/desktop/recording.go` with `RecordingManager` struct
 - [ ] Implement `Recording` struct with ID, title, start time, output path, subtitle buffer
 - [ ] Add method to subscribe to `SharedVideoSource` frame channel
 - [ ] Create GStreamer pipeline: `appsrc → h264parse → mp4mux → filesink`
