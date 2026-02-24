@@ -106,3 +106,20 @@ The search input goes in the topbar, positioned before the view mode toggle (kan
 - Filter runs on every keystroke but operates on already-loaded array (typically <100 tasks)
 - `useMemo` prevents unnecessary re-filtering when other state changes
 - No debouncing needed given small data size
+
+## Implementation Notes
+
+### Files Modified
+1. `frontend/src/pages/SpecTasksPage.tsx` - Added searchFilter state and TextField in topbar
+2. `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx` - Added filtering logic
+
+### Key Decisions
+- Search input placed before view mode toggle buttons in topbar for visibility
+- Filter hidden on mobile (`display: { xs: "none", md: "flex" }`) to save space
+- TextField width set to 200px to fit alongside other topbar elements
+- Used existing MUI SearchIcon and ClearIcon from @mui/icons-material
+
+### Gotchas
+- The `columns` useMemo depends on `filteredTasks` (not `tasks`) to apply the filter
+- DroppableColumn needs `searchFilter` prop to show appropriate empty state message ("No matching tasks" vs "No tasks")
+- Filter state lives in SpecTasksPage and is passed down as prop - this means it persists when switching view modes (kanban/workspace) within the same session
