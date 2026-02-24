@@ -1,7 +1,7 @@
 # Implementation Tasks
 
-- [ ] Add `searchFilter` state to `SpecTasksPage.tsx` (useState with empty string default)
-- [ ] Add search TextField to topbar in `SpecTasksPage.tsx` (before view mode toggle buttons)
+- [~] Add `searchFilter` state to `SpecTasksPage.tsx` (useState with empty string default)
+- [~] Add search TextField to topbar in `SpecTasksPage.tsx` (before view mode toggle buttons)
   - Use `SearchIcon` from `@mui/icons-material/Search` as startAdornment
   - Add clear button (X icon) as endAdornment when filter is not empty
   - Style to match existing topbar elements (size="small")
