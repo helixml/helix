@@ -39,9 +39,9 @@
 
 ## Phase 5: Testing
 
-- [ ] Unit test: RecordingManager start/stop lifecycle
-- [ ] Unit test: WebVTT generation from subtitle buffer
-- [ ] Integration test: MCP tool E2E (start → add subtitles → stop → verify files)
+- [x] Unit test: WebVTT generation from subtitle buffer (recording_test.go)
+- [x] Unit test: RecordingManager struct initialization
+- [ ] Integration test: MCP tool E2E (start → add subtitles → stop → verify files) - requires CGO/GCC
 - [ ] Manual test: Agent records demo, subtitles appear correctly
 
 ## Phase 6: Documentation
