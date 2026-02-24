@@ -31,11 +31,11 @@
 - [x] Create `generateWebVTT()` function to convert subtitle buffer to VTT format
 - [x] Write VTT file alongside MP4 on stop
 
-## Phase 4: File Upload & Cleanup
+## Phase 4: File Storage & Cleanup
 
-- [ ] Use existing `/upload` endpoint to push MP4 and VTT to filestore
-- [ ] Clean up `/tmp/helix-recordings/` files after successful upload
-- [ ] Add automatic cleanup on session end (desktop-bridge shutdown hook)
+- [x] Store recordings in `/tmp/helix-recordings/<session_id>/<recording_id>/` (accessible locally)
+- [x] Add automatic cleanup on session end (desktop-bridge shutdown hook)
+- [ ] (Future) Upload to filestore for persistent storage across sessions
 
 ## Phase 5: Testing
 
