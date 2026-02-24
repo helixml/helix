@@ -228,6 +228,7 @@ interface SpecTaskKanbanBoardProps {
   showArchived?: boolean; // Show archived tasks instead of active tasks
   showMetrics?: boolean; // Show metrics in task cards
   showMerged?: boolean; // Show merged column
+  searchFilter?: string; // Filter tasks by name, description, or implementation_plan
 }
 
 const DroppableColumn: React.FC<{
@@ -257,6 +258,7 @@ const DroppableColumn: React.FC<{
   onDependencyHoverStart?: (taskIds: string[]) => void;
   onDependencyHoverEnd?: () => void;
   fullWidth?: boolean;
+  searchFilter?: string;
 }> = ({
   column,
   columns,
@@ -279,6 +281,7 @@ const DroppableColumn: React.FC<{
   onDependencyHoverStart,
   onDependencyHoverEnd,
   fullWidth,
+  searchFilter,
 }): JSX.Element => {
   // Simplified - no drag and drop, no complex interactions
   const setNodeRef = (node: HTMLElement | null) => {};
@@ -332,7 +335,14 @@ const DroppableColumn: React.FC<{
   const accent = getColumnAccent(column.id);
 
   return (
-    <Box key={column.id} sx={{ width: fullWidth ? "calc(100% - 24px)" : 300, flexShrink: 0, height: "100%" }}>
+    <Box
+      key={column.id}
+      sx={{
+        width: fullWidth ? "calc(100% - 24px)" : 300,
+        flexShrink: 0,
+        height: "100%",
+      }}
+    >
       <Box
         sx={{
           height: "100%",
@@ -554,7 +564,7 @@ const DroppableColumn: React.FC<{
                 variant="caption"
                 sx={{ fontSize: "0.75rem", fontWeight: 500 }}
               >
-                No tasks
+                {searchFilter ? "No matching tasks" : "No tasks"}
               </Typography>
             </Box>
           )}
@@ -578,6 +588,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   showArchived: showArchivedProp = false,
   showMetrics: showMetricsProp,
   showMerged: showMergedProp = true,
+  searchFilter = "",
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -728,6 +739,27 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     completed: undefined,
   };
 
+  // Filter tasks based on search filter
+  const filterTasks = (
+    taskList: SpecTaskWithExtras[],
+    filter: string,
+  ): SpecTaskWithExtras[] => {
+    if (!filter.trim()) return taskList;
+    const lowerFilter = filter.toLowerCase();
+    return taskList.filter(
+      (task) =>
+        task.name?.toLowerCase().includes(lowerFilter) ||
+        task.description?.toLowerCase().includes(lowerFilter) ||
+        task.implementation_plan?.toLowerCase().includes(lowerFilter),
+    );
+  };
+
+  // Apply search filter to tasks
+  const filteredTasks = useMemo(
+    () => filterTasks(tasks, searchFilter),
+    [tasks, searchFilter],
+  );
+
   // Kanban columns configuration - Linear color scheme
   // Pull Request column only shown for external repos (ADO)
   const columns: KanbanColumn[] = useMemo(() => {
@@ -738,7 +770,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         color: "#6b7280",
         backgroundColor: "transparent",
         description: "Tasks without specifications",
-        tasks: tasks.filter(
+        tasks: filteredTasks.filter(
           (t) => (t as any).phase === "backlog" && !t.hasSpecs,
         ),
       },
@@ -749,7 +781,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         backgroundColor: "rgba(245, 158, 11, 0.08)",
         description: "Specs being generated",
         limit: WIP_LIMITS.planning,
-        tasks: tasks.filter(
+        tasks: filteredTasks.filter(
           (t) =>
             (t as any).phase === "planning" || t.planningStatus === "active",
         ),
@@ -761,7 +793,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         backgroundColor: "rgba(59, 130, 246, 0.08)",
         description: "Ready for review",
         limit: WIP_LIMITS.review,
-        tasks: tasks.filter(
+        tasks: filteredTasks.filter(
           (t) => (t as any).phase === "review" || t.specApprovalNeeded,
         ),
       },
@@ -772,7 +804,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         backgroundColor: "rgba(16, 185, 129, 0.08)",
         description: "Implementation active",
         limit: WIP_LIMITS.implementation,
-        tasks: tasks.filter((t) => (t as any).phase === "implementation"),
+        tasks: filteredTasks.filter(
+          (t) => (t as any).phase === "implementation",
+        ),
       },
     ];
 
@@ -784,7 +818,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         color: "#8b5cf6",
         backgroundColor: "rgba(139, 92, 246, 0.08)",
         description: "Awaiting merge in external repo",
-        tasks: tasks.filter(
+        tasks: filteredTasks.filter(
           (t) =>
             (t as any).phase === "pull_request" || t.status === "pull_request",
         ),
@@ -798,14 +832,14 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         color: "#6b7280",
         backgroundColor: "transparent",
         description: "Merged to main",
-        tasks: tasks.filter(
+        tasks: filteredTasks.filter(
           (t) => (t as any).phase === "completed" || t.status === "done",
         ),
       });
     }
 
     return baseColumns;
-  }, [tasks, theme, wipLimits, hasExternalRepo, showMergedProp]);
+  }, [filteredTasks, theme, wipLimits, hasExternalRepo, showMergedProp]);
 
   useEffect(() => {
     if (mobileColumnIndex >= columns.length && columns.length > 0) {
@@ -1342,7 +1376,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                 showMetrics={showMetrics}
                 highlightedTaskIds={highlightedDependencyTaskIds}
                 onDependencyHoverStart={setHighlightedDependencyTaskIds}
-                onDependencyHoverEnd={() => setHighlightedDependencyTaskIds(null)}
+                onDependencyHoverEnd={() =>
+                  setHighlightedDependencyTaskIds(null)
+                }
                 theme={theme}
                 onHeaderClick={
                   columns[mobileColumnIndex].id === "backlog"
@@ -1354,6 +1390,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                 autoStartBacklogTasks={autoStartBacklogTasks}
                 onToggleAutoStart={handleToggleAutoStart}
                 fullWidth
+                searchFilter={searchFilter}
               />
             )}
             <MobileColumnSidebar
@@ -1390,6 +1427,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
               batchUsageData={batchUsageData}
               autoStartBacklogTasks={autoStartBacklogTasks}
               onToggleAutoStart={handleToggleAutoStart}
+              searchFilter={searchFilter}
             />
           ))
         )}
