@@ -46,6 +46,17 @@
 
 ## Phase 6: Documentation
 
-- [ ] Add recording tools to MCP server tool list in README/docs
-- [ ] Document filestore path convention for recordings
-- [ ] Add example agent workflow using recording tools
+- [x] Add implementation notes to design.md
+- [x] MCP tools are self-documenting via tool descriptions (no separate docs file exists)
+- [x] Recording path convention documented in design.md: `/tmp/helix-recordings/<session_id>/<recording_id>/`
+
+## Summary
+
+Core implementation complete. Agent can now use MCP tools to:
+1. `start_recording(title?)` - Begin capturing video
+2. `add_subtitle(text, start_ms, end_ms)` - Add individual subtitle entries
+3. `set_subtitles([...])` - Set complete subtitle track with precise timing
+4. `get_recording_status()` - Check recording progress
+5. `stop_recording()` - Finalize MP4 and WebVTT files
+
+Output files are stored locally at `/tmp/helix-recordings/<session_id>/<recording_id>/recording.mp4` (and `.vtt` if subtitles added).

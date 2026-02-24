@@ -160,3 +160,35 @@ Agents can embed these URLs directly in design docs or other markdown outputs.
 - Multiple concurrent recordings (change map to support)
 - Recording presets (resolution, bitrate)
 - Automatic chapter markers from subtitles
+- Upload to filestore for persistent storage across sessions
+
+## Implementation Notes
+
+### Files Created
+- `api/pkg/desktop/recording.go` - RecordingManager and Recording structs (CGO build)
+- `api/pkg/desktop/recording_nocgo.go` - Stub for non-CGO builds
+- `api/pkg/desktop/recording_handlers.go` - HTTP endpoint handlers (CGO build)
+- `api/pkg/desktop/recording_handlers_nocgo.go` - Stub handlers for non-CGO builds
+- `api/pkg/desktop/recording_test.go` - Unit tests for WebVTT generation
+
+### Files Modified
+- `api/pkg/desktop/desktop.go` - Added `recordingManager` field to Server, HTTP routes, shutdown cleanup
+- `api/pkg/desktop/mcp_server.go` - Added `desktopURL` field, 5 new recording MCP tools
+
+### Design Decisions Made During Implementation
+
+1. **Raw H.264 + ffmpeg** instead of GStreamer mp4mux: Simpler approach that reuses the existing pattern from `spectask_mcp_test.go`. Write raw H.264 frames to temp file, then call `ffmpeg -c:v copy` to mux into MP4.
+
+2. **Local file storage** (not filestore): Recordings stay in `/tmp/helix-recordings/` within the container. Future work can add filestore upload for persistence across sessions.
+
+3. **HTTP endpoints + MCP proxy**: MCP server runs in a separate process (called by Zed), so it communicates with desktop-bridge via HTTP. The recording tools call HTTP endpoints which manage the actual RecordingManager.
+
+4. **Skip replay frames**: GOP replay frames (used for mid-stream decoder warmup) are not written to recordings - only live frames.
+
+5. **Shutdown cleanup**: If desktop-bridge shuts down with an active recording, it automatically stops the recording to ensure the MP4 is finalized properly.
+
+### Gotchas
+
+- Tests require CGO + GCC (build tag `//go:build cgo && linux`), so they only run in CI
+- ffmpeg must be available in the container (already present for audio conversion)
+- RecordingManager is lazily initialized on first `/recording/start` call
