@@ -535,6 +535,12 @@ runcmd:
   - touch /var/lib/cloud/instance/provision-ready
 
 write_files:
+  # Override zfs-import-scan to use -f (needed after root disk swap changes hostid)
+  - path: /etc/systemd/system/zfs-import-scan.service.d/force-import.conf
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=/sbin/zpool import -aN -f -o cachefile=none
   - path: /etc/docker/daemon.json
     content: |
       {
@@ -561,9 +567,9 @@ write_files:
       [Unit]
       Description=Helix ZFS Storage Initialization
       DefaultDependencies=no
-      After=zfs-mount.service zfs-import-cache.service systemd-udev-settle.service
+      After=zfs-mount.service zfs-import-cache.service zfs-import-scan.service systemd-udev-settle.service
       Before=docker.service containerd.service
-      Wants=zfs-mount.service
+      Wants=zfs-mount.service zfs-import-scan.service
 
       [Service]
       Type=oneshot
