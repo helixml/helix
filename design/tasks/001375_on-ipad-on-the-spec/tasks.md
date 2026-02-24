@@ -8,15 +8,15 @@
 
 ## Issue 2: Comment Panel Obscures Text on iPad
 
-- [~] Add `useMediaQuery` hook to detect mobile/tablet viewport in `DesignReviewContent.tsx`
-- [ ] Update `InlineCommentForm.tsx` positioning:
+- [x] Add `useMediaQuery` hook to detect mobile/tablet viewport in `DesignReviewContent.tsx`
+- [x] Update `InlineCommentForm.tsx` positioning:
   - Desktop: Keep `left: '670px'` (right side of content)
   - Mobile/tablet: Position below selected text or as bottom sheet
-- [ ] Update `InlineCommentBubble.tsx` positioning:
+- [x] Update `InlineCommentBubble.tsx` positioning:
   - Desktop: Keep `left: '670px'`
   - Mobile/tablet: Full-width overlay or bottom sheet pattern
-- [ ] Consider reducing comment panel width on small screens (300px → responsive width)
-- [ ] Add auto-scroll to ensure comment panel is visible after it appears (`scrollIntoView({ behavior: 'smooth', block: 'nearest' })`)
+- [x] Consider reducing comment panel width on small screens (300px → responsive width)
+- [x] Add auto-scroll to ensure comment panel is visible after it appears (`scrollIntoView({ behavior: 'smooth', block: 'nearest' })`)
 
 ## Testing
 
