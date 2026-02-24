@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -37,6 +38,91 @@ func GoldenExists(projectID string) bool {
 	}
 	info, err := os.Stat(goldenDir(projectID))
 	return err == nil && info.IsDir()
+}
+
+// parallelCopyDir copies src to dst using multiple workers for parallelism.
+// It creates dst, then copies each top-level entry inside src concurrently.
+// For the "overlay2" directory (which dominates golden cache size with hundreds
+// of layer dirs), it splits the children across workers too.
+//
+// Each copy uses cp -a --reflink=auto for CoW on XFS/btrfs.
+// workers controls the max concurrency (typically 8).
+func parallelCopyDir(src, dst string, workers int) error {
+	// Create destination directory preserving source permissions
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("failed to stat source %s: %w", src, err)
+	}
+	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
+		return fmt.Errorf("failed to create destination %s: %w", dst, err)
+	}
+
+	// Read top-level entries
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return fmt.Errorf("failed to read source dir %s: %w", src, err)
+	}
+
+	// Build list of copy jobs: (srcPath, dstPath)
+	type copyJob struct {
+		src string
+		dst string
+	}
+	var jobs []copyJob
+
+	for _, entry := range entries {
+		name := entry.Name()
+		entrySrc := filepath.Join(src, name)
+		entryDst := filepath.Join(dst, name)
+
+		// For overlay2, split its children across workers individually.
+		// overlay2 typically has 100-500 layer directories, each 50-200MB.
+		if name == "overlay2" && entry.IsDir() {
+			if err := os.MkdirAll(entryDst, srcInfo.Mode()); err != nil {
+				return fmt.Errorf("failed to create overlay2 dir: %w", err)
+			}
+			subEntries, err := os.ReadDir(entrySrc)
+			if err != nil {
+				return fmt.Errorf("failed to read overlay2 dir: %w", err)
+			}
+			for _, sub := range subEntries {
+				jobs = append(jobs, copyJob{
+					src: filepath.Join(entrySrc, sub.Name()),
+					dst: filepath.Join(entryDst, sub.Name()),
+				})
+			}
+			continue
+		}
+
+		jobs = append(jobs, copyJob{src: entrySrc, dst: entryDst})
+	}
+
+	// Execute jobs with bounded concurrency
+	sem := make(chan struct{}, workers)
+	var mu sync.Mutex
+	var firstErr error
+	var wg sync.WaitGroup
+
+	for _, job := range jobs {
+		wg.Add(1)
+		sem <- struct{}{} // acquire
+		go func(j copyJob) {
+			defer wg.Done()
+			defer func() { <-sem }() // release
+
+			cmd := exec.Command("cp", "-a", "--reflink=auto", j.src, j.dst)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = fmt.Errorf("cp %s → %s failed: %w (output: %s)", j.src, j.dst, err, string(output))
+				}
+				mu.Unlock()
+			}
+		}(job)
+	}
+
+	wg.Wait()
+	return firstErr
 }
 
 // SetupGoldenCopy copies the golden Docker cache snapshot into the session's
@@ -96,12 +182,11 @@ func SetupGoldenCopy(projectID, volumeName string, onProgress func(copied, total
 	}
 
 	start := time.Now()
-	cmd := exec.Command("cp", "-a", "--reflink=auto", golden, dockerDir)
-	output, err := cmd.CombinedOutput()
+	err := parallelCopyDir(golden, dockerDir, 8)
 	close(done)
 
 	if err != nil {
-		return "", fmt.Errorf("failed to copy golden to session: %w (output: %s)", err, string(output))
+		return "", fmt.Errorf("failed to copy golden to session: %w", err)
 	}
 
 	// Remove any stale golden build result marker from the copy.
@@ -300,6 +385,106 @@ func GetGoldenSize(projectID string) int64 {
 	var size int64
 	fmt.Sscanf(string(out), "%d", &size)
 	return size
+}
+
+// GCStaleGoldenDirs cleans up stale golden cache state:
+// 1. Removes .old directories left behind by PromoteSessionToGolden (failed cleanup)
+// 2. Removes stale .building lock files (golden builds that crashed without cleanup)
+// 3. Removes golden caches for projects not accessed in maxAge (0 = skip age check)
+//
+// Returns the number of items cleaned and bytes freed.
+func GCStaleGoldenDirs(maxAge time.Duration) (int, int64, error) {
+	entries, err := os.ReadDir(goldenBaseDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, 0, nil
+		}
+		return 0, 0, fmt.Errorf("failed to read golden dir: %w", err)
+	}
+
+	var cleaned int
+	var freedBytes int64
+	now := time.Now()
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		projectDir := filepath.Join(goldenBaseDir, name)
+
+		// 1. Clean up .old directories (leftover from failed PromoteSessionToGolden)
+		dockerOld := filepath.Join(projectDir, "docker.old")
+		if info, err := os.Stat(dockerOld); err == nil {
+			var size int64
+			if out, err := exec.Command("du", "-sb", dockerOld).Output(); err == nil {
+				fmt.Sscanf(string(out), "%d", &size)
+			}
+			age := now.Sub(info.ModTime())
+			log.Info().
+				Str("path", dockerOld).
+				Int64("size_bytes", size).
+				Dur("age", age).
+				Msg("Removing stale .old golden directory")
+			if err := os.RemoveAll(dockerOld); err != nil {
+				log.Warn().Err(err).Str("path", dockerOld).Msg("Failed to remove stale .old golden dir")
+			} else {
+				cleaned++
+				freedBytes += size
+			}
+		}
+
+		// 2. Clean up stale .building lock files (golden builds that crashed)
+		buildingFile := filepath.Join(projectDir, ".building")
+		if info, err := os.Stat(buildingFile); err == nil {
+			// If the lock file is older than 45 minutes, the build definitely crashed
+			if now.Sub(info.ModTime()) > 45*time.Minute {
+				log.Info().
+					Str("project_id", name).
+					Time("created", info.ModTime()).
+					Msg("Removing stale golden build lock file (build crashed)")
+				os.Remove(buildingFile)
+				cleaned++
+			}
+		}
+
+		// 3. Remove golden caches not accessed recently
+		if maxAge > 0 {
+			dockerDir := filepath.Join(projectDir, "docker")
+			info, err := os.Stat(dockerDir)
+			if err != nil {
+				continue // No docker dir — might just have lock file or .old
+			}
+			age := now.Sub(info.ModTime())
+			if age > maxAge {
+				var size int64
+				if out, err := exec.Command("du", "-sb", dockerDir).Output(); err == nil {
+					fmt.Sscanf(string(out), "%d", &size)
+				}
+				log.Info().
+					Str("project_id", name).
+					Int64("size_bytes", size).
+					Dur("age", age).
+					Msg("Removing stale golden cache (not used recently)")
+				if err := os.RemoveAll(projectDir); err != nil {
+					log.Warn().Err(err).Str("path", projectDir).Msg("Failed to remove stale golden cache")
+				} else {
+					cleaned++
+					freedBytes += size
+				}
+			}
+		}
+	}
+
+	if cleaned > 0 {
+		log.Info().
+			Int("removed", cleaned).
+			Int64("freed_bytes", freedBytes).
+			Msg("GC_GOLDEN_CLEANUP")
+	}
+
+	return cleaned, freedBytes, nil
 }
 
 // GCOrphanedSessionDirs removes session Docker data directories that don't

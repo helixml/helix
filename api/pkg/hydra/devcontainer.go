@@ -1042,7 +1042,8 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 }
 
 // GCOrphanedSessions removes session Docker data directories that don't have
-// running containers. Should be called periodically and on startup.
+// running containers, and cleans up stale golden cache state.
+// Should be called periodically and on startup.
 func (dm *DevContainerManager) GCOrphanedSessions() {
 	if os.Getenv("CONTAINER_DOCKER_PATH") == "" {
 		return // Not using per-session docker dirs
@@ -1060,7 +1061,19 @@ func (dm *DevContainerManager) GCOrphanedSessions() {
 		log.Warn().Err(err).Msg("Failed to GC orphaned session dirs")
 	}
 	if removed > 0 {
-		log.Info().Int("removed", removed).Int64("freed_bytes", freed).Msg("GC completed")
+		log.Info().Int("removed", removed).Int64("freed_bytes", freed).Msg("Session GC completed")
+	}
+
+	// Also clean up stale golden cache state:
+	// - .old directories from failed promotions
+	// - Stale .building lock files from crashed golden builds
+	// - Golden caches not accessed in 30 days
+	goldenCleaned, goldenFreed, err := GCStaleGoldenDirs(30 * 24 * time.Hour)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to GC stale golden dirs")
+	}
+	if goldenCleaned > 0 {
+		log.Info().Int("removed", goldenCleaned).Int64("freed_bytes", goldenFreed).Msg("Golden GC completed")
 	}
 }
 
