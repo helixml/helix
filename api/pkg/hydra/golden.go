@@ -79,7 +79,12 @@ func parallelCopyDir(src, dst string, workers int) error {
 		// For overlay2, split its children across workers individually.
 		// overlay2 typically has 100-500 layer directories, each 50-200MB.
 		if name == "overlay2" && entry.IsDir() {
-			if err := os.MkdirAll(entryDst, srcInfo.Mode()); err != nil {
+			// Get the actual overlay2 directory's mode (not the root's)
+			overlay2Info, err := os.Stat(entrySrc)
+			if err != nil {
+				return fmt.Errorf("failed to stat overlay2 dir: %w", err)
+			}
+			if err := os.MkdirAll(entryDst, overlay2Info.Mode().Perm()); err != nil {
 				return fmt.Errorf("failed to create overlay2 dir: %w", err)
 			}
 			subEntries, err := os.ReadDir(entrySrc)
