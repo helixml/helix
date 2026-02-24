@@ -2,21 +2,21 @@
 
 ## Phase 1: Core Recording Infrastructure
 
-- [~] Create `api/pkg/desktop/recording.go` with `RecordingManager` struct
-- [ ] Implement `Recording` struct with ID, title, start time, output path, subtitle buffer
-- [ ] Add method to subscribe to `SharedVideoSource` frame channel
-- [ ] Create GStreamer pipeline: `appsrc → h264parse → mp4mux → filesink`
-- [ ] Implement frame forwarding from SharedVideoSource to recording appsrc
+- [x] Create `api/pkg/desktop/recording.go` with `RecordingManager` struct
+- [x] Implement `Recording` struct with ID, title, start time, output path, subtitle buffer
+- [x] Add method to subscribe to `SharedVideoSource` frame channel
+- [x] Write raw H.264 frames to temp file (simpler than GStreamer pipeline)
+- [x] Use ffmpeg to mux H.264 to MP4 on stop (same pattern as spectask_mcp_test.go)
 
 ## Phase 2: MCP Tools
 
+- [~] Add HTTP endpoints to desktop.Server for recording control
 - [ ] Add `start_recording` tool to `mcp_server.go`
   - Parameters: `title` (optional string)
   - Creates Recording, starts pipeline, returns recording ID
 - [ ] Add `stop_recording` tool to `mcp_server.go`
   - Finalizes MP4 file, generates VTT from subtitle buffer
-  - Uploads files to filestore
-  - Returns filestore URL
+  - Returns file paths
 - [ ] Add `add_subtitle` tool to `mcp_server.go`
   - Parameters: `text` (required), `start_ms` (required), `end_ms` (required)
   - Appends single subtitle entry to active recording
@@ -26,9 +26,9 @@
 
 ## Phase 3: Subtitle Generation
 
-- [ ] Implement `Subtitle` struct with text, start_ms, end_ms
-- [ ] Create `generateWebVTT()` function to convert subtitle buffer to VTT format
-- [ ] Write VTT file alongside MP4 on stop
+- [x] Implement `Subtitle` struct with text, start_ms, end_ms
+- [x] Create `generateWebVTT()` function to convert subtitle buffer to VTT format
+- [x] Write VTT file alongside MP4 on stop
 
 ## Phase 4: File Upload & Cleanup
 
