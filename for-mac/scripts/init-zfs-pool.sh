@@ -27,12 +27,6 @@ else
         exit 1
     fi
     echo "Creating ZFS pool on $DATA_DISK..."
-    # Clear stale /helix from golden image (ZFS won't mount over non-empty dir)
-    if mountpoint -q /helix 2>/dev/null; then
-        echo 'ERROR: /helix is already a mountpoint, refusing to remove'
-        exit 1
-    fi
-    sudo rm -rf /helix 2>/dev/null || true
     sudo mkdir -p /helix
     sudo zpool create -f -m /helix helix "$DATA_DISK"
 fi
