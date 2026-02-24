@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -182,7 +183,16 @@ func SetupGoldenCopy(projectID, volumeName string, onProgress func(copied, total
 	}
 
 	start := time.Now()
-	err := parallelCopyDir(golden, dockerDir, 8)
+	// Use NumCPU workers — each worker spawns a cp process, and XFS
+	// parallelizes inode allocation across allocation groups.
+	cpWorkers := runtime.NumCPU()
+	if cpWorkers > 16 {
+		cpWorkers = 16 // cap to avoid spawning too many cp processes
+	}
+	if cpWorkers < 2 {
+		cpWorkers = 2
+	}
+	err := parallelCopyDir(golden, dockerDir, cpWorkers)
 	close(done)
 
 	if err != nil {
