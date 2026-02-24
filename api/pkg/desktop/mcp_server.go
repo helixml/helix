@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -24,6 +25,7 @@ type MCPServer struct {
 	mcpServer     *server.MCPServer
 	sseServer     *server.SSEServer
 	screenshotURL string // URL to the local screenshot HTTP endpoint
+	desktopURL    string // Base URL for desktop HTTP endpoints (recording, etc.)
 	logger        *slog.Logger
 }
 
@@ -33,6 +35,8 @@ type MCPConfig struct {
 	Port string
 	// ScreenshotURL is the local screenshot endpoint (default: http://localhost:9876/screenshot)
 	ScreenshotURL string
+	// DesktopURL is the base URL for desktop HTTP endpoints (default: http://localhost:9876)
+	DesktopURL string
 }
 
 // NewMCPServer creates a new MCP server for desktop tools.
@@ -43,9 +47,13 @@ func NewMCPServer(cfg MCPConfig, logger *slog.Logger) *MCPServer {
 	if cfg.ScreenshotURL == "" {
 		cfg.ScreenshotURL = "http://localhost:9876/screenshot"
 	}
+	if cfg.DesktopURL == "" {
+		cfg.DesktopURL = "http://localhost:9876"
+	}
 
 	m := &MCPServer{
 		screenshotURL: cfg.ScreenshotURL,
+		desktopURL:    cfg.DesktopURL,
 		logger:        logger,
 	}
 
@@ -190,6 +198,59 @@ func NewMCPServer(cfg MCPConfig, logger *slog.Logger) *MCPServer {
 		mcp.WithDescription("List all workspaces/desktops with their names and which is currently focused."),
 	)
 	m.mcpServer.AddTool(getWorkspacesTool, m.handleGetWorkspaces)
+
+	// =========================================================================
+	// Recording Tools (for agent screencasts)
+	// =========================================================================
+
+	// start_recording - Begin recording a screencast
+	startRecordingTool := mcp.NewTool("start_recording",
+		mcp.WithDescription("Start recording a screencast of the desktop. Returns a recording ID. Only one recording can be active at a time."),
+		mcp.WithString("title",
+			mcp.Description("Optional title for the recording"),
+		),
+	)
+	m.mcpServer.AddTool(startRecordingTool, m.handleStartRecording)
+
+	// stop_recording - Stop recording and get the video file
+	stopRecordingTool := mcp.NewTool("stop_recording",
+		mcp.WithDescription("Stop the active recording and finalize the video file. Returns the path to the MP4 and optional VTT subtitle file."),
+	)
+	m.mcpServer.AddTool(stopRecordingTool, m.handleStopRecording)
+
+	// add_subtitle - Add a subtitle to the recording
+	addSubtitleTool := mcp.NewTool("add_subtitle",
+		mcp.WithDescription("Add a subtitle entry to the active recording with precise timing."),
+		mcp.WithString("text",
+			mcp.Required(),
+			mcp.Description("The subtitle text to display"),
+		),
+		mcp.WithNumber("start_ms",
+			mcp.Required(),
+			mcp.Description("Start time in milliseconds from recording start"),
+		),
+		mcp.WithNumber("end_ms",
+			mcp.Required(),
+			mcp.Description("End time in milliseconds from recording start"),
+		),
+	)
+	m.mcpServer.AddTool(addSubtitleTool, m.handleAddSubtitle)
+
+	// set_subtitles - Set the complete subtitle track
+	setSubtitlesTool := mcp.NewTool("set_subtitles",
+		mcp.WithDescription("Replace the entire subtitle track with a list of subtitle entries. Use this to set precise narration after recording."),
+		mcp.WithArray("subtitles",
+			mcp.Required(),
+			mcp.Description("Array of subtitle objects with text, start_ms, and end_ms fields"),
+		),
+	)
+	m.mcpServer.AddTool(setSubtitlesTool, m.handleSetSubtitles)
+
+	// get_recording_status - Get current recording status
+	getRecordingStatusTool := mcp.NewTool("get_recording_status",
+		mcp.WithDescription("Get the current recording status including duration and frame count."),
+	)
+	m.mcpServer.AddTool(getRecordingStatusTool, m.handleGetRecordingStatus)
 
 	// Create SSE server
 	m.sseServer = server.NewSSEServer(m.mcpServer,
@@ -889,4 +950,125 @@ func (m *MCPServer) Run(ctx context.Context, port string) error {
 	case err := <-errCh:
 		return err
 	}
+}
+
+// =========================================================================
+// Recording Tool Handlers
+// =========================================================================
+
+// handleStartRecording starts a new recording session
+func (m *MCPServer) handleStartRecording(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	m.logger.Info("starting recording via MCP")
+
+	title := ""
+	if t, err := request.RequireString("title"); err == nil {
+		title = t
+	}
+
+	// Call the desktop HTTP endpoint
+	reqBody, _ := json.Marshal(map[string]string{"title": title})
+	resp, err := http.Post(m.desktopURL+"/recording/start", "application/json", bytes.NewReader(reqBody))
+	if err != nil {
+		return mcp.NewToolResultError("failed to start recording: " + err.Error()), nil
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return mcp.NewToolResultError("failed to start recording: " + string(body)), nil
+	}
+
+	return mcp.NewToolResultText(string(body)), nil
+}
+
+// handleStopRecording stops the active recording
+func (m *MCPServer) handleStopRecording(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	m.logger.Info("stopping recording via MCP")
+
+	resp, err := http.Post(m.desktopURL+"/recording/stop", "application/json", nil)
+	if err != nil {
+		return mcp.NewToolResultError("failed to stop recording: " + err.Error()), nil
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return mcp.NewToolResultError("failed to stop recording: " + string(body)), nil
+	}
+
+	return mcp.NewToolResultText(string(body)), nil
+}
+
+// handleAddSubtitle adds a single subtitle to the active recording
+func (m *MCPServer) handleAddSubtitle(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	text, err := request.RequireString("text")
+	if err != nil {
+		return mcp.NewToolResultError("text is required"), nil
+	}
+
+	startMs, err := request.RequireFloat("start_ms")
+	if err != nil {
+		return mcp.NewToolResultError("start_ms is required"), nil
+	}
+
+	endMs, err := request.RequireFloat("end_ms")
+	if err != nil {
+		return mcp.NewToolResultError("end_ms is required"), nil
+	}
+
+	reqBody, _ := json.Marshal(map[string]interface{}{
+		"text":     text,
+		"start_ms": int64(startMs),
+		"end_ms":   int64(endMs),
+	})
+
+	resp, err := http.Post(m.desktopURL+"/recording/subtitle", "application/json", bytes.NewReader(reqBody))
+	if err != nil {
+		return mcp.NewToolResultError("failed to add subtitle: " + err.Error()), nil
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return mcp.NewToolResultError("failed to add subtitle: " + string(body)), nil
+	}
+
+	return mcp.NewToolResultText("Subtitle added"), nil
+}
+
+// handleSetSubtitles replaces the entire subtitle track
+func (m *MCPServer) handleSetSubtitles(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	subtitles, ok := request.GetArguments()["subtitles"]
+	if !ok {
+		return mcp.NewToolResultError("subtitles array is required"), nil
+	}
+
+	reqBody, _ := json.Marshal(map[string]interface{}{
+		"subtitles": subtitles,
+	})
+
+	resp, err := http.Post(m.desktopURL+"/recording/subtitles", "application/json", bytes.NewReader(reqBody))
+	if err != nil {
+		return mcp.NewToolResultError("failed to set subtitles: " + err.Error()), nil
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return mcp.NewToolResultError("failed to set subtitles: " + string(body)), nil
+	}
+
+	return mcp.NewToolResultText(string(body)), nil
+}
+
+// handleGetRecordingStatus returns the current recording status
+func (m *MCPServer) handleGetRecordingStatus(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	resp, err := http.Get(m.desktopURL + "/recording/status")
+	if err != nil {
+		return mcp.NewToolResultError("failed to get recording status: " + err.Error()), nil
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	return mcp.NewToolResultText(string(body)), nil
 }

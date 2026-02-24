@@ -120,6 +120,9 @@ type Server struct {
 	cursorY    int32  // Last known cursor Y position
 	cursorName string // CSS cursor name (e.g., "default", "pointer", "text")
 
+	// Recording manager for agent screencasts
+	recordingManager *RecordingManager
+
 	// macOS keyboard remapping state
 }
 
@@ -433,6 +436,14 @@ func (s *Server) Run(ctx context.Context) error {
 		s.waylandInput.Close()
 	}
 
+	// Stop any active recording and cleanup
+	if s.recordingManager != nil && s.recordingManager.IsRecording() {
+		s.logger.Info("stopping active recording on shutdown")
+		if _, err := s.recordingManager.StopRecording(); err != nil {
+			s.logger.Warn("failed to stop recording on shutdown", "err", err)
+		}
+	}
+
 	s.wg.Wait()
 	return ctx.Err()
 }
@@ -445,10 +456,10 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/clipboard", s.handleClipboard)
 	mux.HandleFunc("/upload", s.handleUpload)
 	mux.HandleFunc("/input", s.handleInput)
-	mux.HandleFunc("/ws/input", s.handleWSInput)   // Direct WebSocket input
-	mux.HandleFunc("/ws/stream", s.handleWSStream) // Direct WebSocket video streaming
-	mux.HandleFunc("/exec", s.handleExec) // Execute command in container (for benchmarking)
-	mux.HandleFunc("/diff", s.handleDiff) // Git diff for live file changes
+	mux.HandleFunc("/ws/input", s.handleWSInput)      // Direct WebSocket input
+	mux.HandleFunc("/ws/stream", s.handleWSStream)    // Direct WebSocket video streaming
+	mux.HandleFunc("/exec", s.handleExec)             // Execute command in container (for benchmarking)
+	mux.HandleFunc("/diff", s.handleDiff)             // Git diff for live file changes
 	mux.HandleFunc("/workspaces", s.handleWorkspaces) // List git workspaces
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -456,6 +467,13 @@ func (s *Server) httpHandler() http.Handler {
 	})
 	mux.HandleFunc("/clients", s.handleClients)
 	mux.HandleFunc("/video/stats", s.handleVideoStats)
+
+	// Recording endpoints for agent screencasts
+	mux.HandleFunc("/recording/start", s.handleRecordingStart)
+	mux.HandleFunc("/recording/stop", s.handleRecordingStop)
+	mux.HandleFunc("/recording/subtitle", s.handleRecordingSubtitle)
+	mux.HandleFunc("/recording/subtitles", s.handleRecordingSubtitles)
+	mux.HandleFunc("/recording/status", s.handleRecordingStatus)
 
 	return mux
 }
