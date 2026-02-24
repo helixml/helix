@@ -8,7 +8,7 @@
 
 ## Issue 2: Comment Panel Obscures Text on iPad
 
-- [ ] Add `useMediaQuery` hook to detect mobile/tablet viewport in `DesignReviewContent.tsx`
+- [~] Add `useMediaQuery` hook to detect mobile/tablet viewport in `DesignReviewContent.tsx`
 - [ ] Update `InlineCommentForm.tsx` positioning:
   - Desktop: Keep `left: '670px'` (right side of content)
   - Mobile/tablet: Position below selected text or as bottom sheet
