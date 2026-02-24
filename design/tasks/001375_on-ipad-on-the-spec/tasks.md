@@ -2,7 +2,7 @@
 
 ## Issue 1: Touch Selection Not Opening Comment Panel
 
-- [ ] Add `onTouchEnd` handler alongside `onMouseUp` in `DesignReviewContent.tsx` (line ~834)
+- [~] Add `onTouchEnd` handler alongside `onMouseUp` in `DesignReviewContent.tsx` (line ~834)
 - [ ] Ensure `handleTextSelection()` works correctly with touch events (test `window.getSelection()` on touch)
 - [ ] Add small delay (~50ms) before checking selection to allow iOS to finalize text selection
 
