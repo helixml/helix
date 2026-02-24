@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +26,230 @@ import (
 
 	"github.com/rs/zerolog/log"
 )
+
+// getSession godoc
+// @Summary Get a session by ID
+// @Description Get a session by ID
+// @Tags    sessions
+// @Success 200 {object} types.Session
+// @Param id path string true "Session ID"
+// @Router /api/v1/sessions/{id} [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+	id := mux.Vars(req)["id"]
+	if id == "" {
+		return nil, system.NewHTTPError400("cannot load session without id")
+	}
+	ctx := req.Context()
+	user := getRequestUser(req)
+
+	session, err := apiServer.Store.GetSession(ctx, id)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	// Load interactions
+	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    id,
+		GenerationID: session.GenerationID,
+		PerPage:      1000,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	session.Interactions = interactions
+
+	// Check if the external agent (sandbox container) is actually running
+	// If not running, update status to "stopped"
+	if session.Metadata.ContainerName != "" {
+		if apiServer.externalAgentExecutor != nil {
+			_, err := apiServer.externalAgentExecutor.GetSession(session.ID)
+			if err != nil {
+				// External agent not running - mark as stopped
+				session.Metadata.ExternalAgentStatus = "stopped"
+			} else {
+				// External agent is running
+				session.Metadata.ExternalAgentStatus = "running"
+			}
+		} else {
+			// No external agent executor available - assume stopped
+			session.Metadata.ExternalAgentStatus = "stopped"
+		}
+	}
+
+	return session, nil
+}
+
+// listSessions godoc
+// @Summary List sessions
+// @Description List sessions
+// @Tags    sessions
+// @Param   page            query    int     false  "Page number"
+// @Param   page_size       query    int     false  "Page size"
+// @Param   org_id				  query    string  false  "Organization slug or ID"
+// @Param   question_set_id query    string  false  "Question set ID"
+// @Param   question_set_execution_id query    string  false  "Question set execution ID"
+// @Param   app_id          query    string  false  "App ID"
+// @Param   search          query    string  false  "Search sessions by name"
+// @Param   project_id      query    string  false  "Project ID"
+// @Success 200 {object} types.PaginatedSessionsList
+// @Router /api/v1/sessions [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.Request) (*types.PaginatedSessionsList, error) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+
+	query := store.ListSessionsQuery{
+		Search:                 req.URL.Query().Get("search"),
+		QuestionSetID:          req.URL.Query().Get("question_set_id"),
+		QuestionSetExecutionID: req.URL.Query().Get("question_set_execution_id"),
+		AppID:                  req.URL.Query().Get("app_id"),
+		ProjectID:              req.URL.Query().Get("project_id"),
+	}
+	query.Owner = user.ID
+	query.OwnerType = user.Type
+
+	// Extract organization_id query parameter if present
+	orgID := req.URL.Query().Get("org_id")
+	if orgID != "" {
+		// Lookup org
+		org, err := apiServer.lookupOrg(ctx, orgID)
+		if err != nil {
+			return nil, system.NewHTTPError404(err.Error())
+		}
+
+		orgID = org.ID
+
+		_, err = apiServer.authorizeOrgMember(ctx, user, orgID)
+		if err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+
+		query.OrganizationID = orgID
+	} else {
+		// When no organization is specified, we only want personal sessions
+		// Setting empty string explicitly ensures we only get sessions with no organization
+		query.OrganizationID = ""
+	}
+
+	// Parse query parameters
+	page, err := strconv.Atoi(req.URL.Query().Get("page"))
+	if err != nil || page < 1 {
+		page = 0
+	}
+
+	pageSize, err := strconv.Atoi(req.URL.Query().Get("page_size"))
+	if err != nil || pageSize < 1 {
+		pageSize = 50 // Default page size
+	}
+
+	query.Page = page
+	query.PerPage = pageSize
+
+	sessions, totalCount, err := apiServer.Store.ListSessions(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	sessionSummaries := []*types.SessionSummary{}
+	for _, session := range sessions {
+		summary, err := data.GetSessionSummary(session)
+		if err != nil {
+			log.Error().Err(err).Str("session_id", session.ID).Msg("failed to get session summary")
+			continue
+		}
+		sessionSummaries = append(sessionSummaries, summary)
+	}
+
+	return &types.PaginatedSessionsList{
+		Sessions:   sessionSummaries,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalCount: totalCount,
+		TotalPages: int(math.Ceil(float64(totalCount) / float64(pageSize))),
+	}, nil
+}
+
+// deleteSession godoc
+// @Summary Delete a session by ID
+// @Description Delete a session by ID
+// @Tags    sessions
+// @Success 200 {object} types.Session
+// @Param id path string true "Session ID"
+// @Router /api/v1/sessions/{id} [delete]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+
+	id := mux.Vars(req)["id"]
+	if id == "" {
+		return nil, system.NewHTTPError400("cannot load session without id")
+	}
+	ctx := req.Context()
+	user := getRequestUser(req)
+
+	session, err := apiServer.Store.GetSession(ctx, id)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionDelete)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	return system.DefaultController(apiServer.Store.DeleteSession(req.Context(), session.ID))
+}
+
+// updateSession godoc
+// @Summary Update a session by ID
+// @Description Update a session by ID
+// @Tags    sessions
+// @Param id path string true "Session ID"
+// @Param request body types.Session true "Session to update"
+// @Success 200 {object} types.Session
+// @Router /api/v1/sessions/{id} [put]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+	id := mux.Vars(req)["id"]
+	if id == "" {
+		return nil, system.NewHTTPError400("cannot load session without id")
+	}
+	ctx := req.Context()
+	user := getRequestUser(req)
+
+	session, err := apiServer.Store.GetSession(ctx, id)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionUpdate)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	var update *types.Session
+
+	err = json.NewDecoder(req.Body).Decode(&update)
+	if err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
+
+	session.Name = update.Name
+	session.Provider = update.Provider
+	session.ModelName = update.ModelName
+
+	updated, err := apiServer.Store.UpdateSession(req.Context(), *session)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return updated, nil
+}
 
 // startSessionHandler godoc
 // @Summary Start new text completion session
