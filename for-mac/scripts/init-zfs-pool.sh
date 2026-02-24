@@ -28,6 +28,12 @@ else
     fi
     echo "Creating ZFS pool on $DATA_DISK..."
     sudo mkdir -p /helix
+    if [ "$(ls -A /helix 2>/dev/null)" ]; then
+        echo "ERROR: /helix exists and is not empty (stale golden image data?). Contents:"
+        ls -la /helix
+        echo "Remove manually: sudo rm -rf /helix/*"
+        exit 1
+    fi
     sudo zpool create -f -m /helix helix "$DATA_DISK"
 fi
 
