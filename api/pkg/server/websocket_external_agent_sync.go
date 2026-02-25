@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
@@ -2484,28 +2485,60 @@ func (apiServer *HelixAPIServer) publishInteractionUpdateToFrontend(sessionID, o
 	return nil
 }
 
+// utf16RuneLen returns the number of UTF-16 code units needed to encode the rune.
+// BMP characters (U+0000 to U+FFFF) use 1 code unit; supplementary characters use 2.
+func utf16RuneLen(r rune) int {
+	if r >= 0x10000 {
+		return 2
+	}
+	return 1
+}
+
+// utf16Len returns the number of UTF-16 code units in s.
+// This matches JavaScript's string.length property.
+func utf16Len(s string) int {
+	n := 0
+	for _, r := range s {
+		n += utf16RuneLen(r)
+	}
+	return n
+}
+
 // computePatch computes the minimal patch between previousContent and newContent.
-// Returns (patchOffset, patch, totalLength). The caller can reconstruct newContent
-// as: newContent = previousContent[:patchOffset] + patch, truncated to totalLength.
-// Fast path: if newContent starts with previousContent, patchOffset = len(previousContent).
+// Returns (patchOffset, patch, totalLength) where offsets are in UTF-16 code units
+// to match JavaScript's string.slice() behavior.
+// The caller can reconstruct newContent as:
+//
+//	newContent = previousContent.slice(0, patchOffset) + patch   (in JS)
+//
+// Fast path: if newContent starts with previousContent, patchOffset = utf16Len(previousContent).
 func computePatch(previousContent, newContent string) (patchOffset int, patch string, totalLength int) {
-	totalLength = len(newContent)
+	totalLength = utf16Len(newContent)
 
 	// Fast path: pure append (99% of streaming tokens)
 	if len(newContent) >= len(previousContent) && newContent[:len(previousContent)] == previousContent {
-		return len(previousContent), newContent[len(previousContent):], totalLength
+		return utf16Len(previousContent), newContent[len(previousContent):], totalLength
 	}
 
-	// Slow path: find first differing byte (tool call status changes, edits)
-	minLen := len(previousContent)
-	if len(newContent) < minLen {
-		minLen = len(newContent)
+	// Slow path: find first differing rune, tracking both byte and UTF-16 positions.
+	// We iterate by rune (not byte) to avoid splitting multi-byte characters, and
+	// return the UTF-16 code unit offset so JavaScript can apply the patch correctly.
+	utf16Off := 0
+	byteOff := 0
+	prevLen := len(previousContent)
+	newLen := len(newContent)
+
+	for byteOff < prevLen && byteOff < newLen {
+		prevRune, prevSize := utf8.DecodeRuneInString(previousContent[byteOff:])
+		newRune, newSize := utf8.DecodeRuneInString(newContent[byteOff:])
+		if prevRune != newRune || prevSize != newSize {
+			break
+		}
+		utf16Off += utf16RuneLen(newRune)
+		byteOff += newSize
 	}
-	patchOffset = 0
-	for patchOffset < minLen && previousContent[patchOffset] == newContent[patchOffset] {
-		patchOffset++
-	}
-	return patchOffset, newContent[patchOffset:], totalLength
+
+	return utf16Off, newContent[byteOff:], totalLength
 }
 
 // publishInteractionPatchToFrontend sends a delta patch instead of the full interaction.

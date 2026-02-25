@@ -1707,6 +1707,47 @@ func (s *WebSocketSyncSuite) TestComputePatch_Truncation() {
 	s.Equal(len(new), totalLen)
 }
 
+// TestComputePatch_MultiByte verifies UTF-16 code unit offsets for multi-byte content.
+// This is the exact bug: Go's len() returns bytes but JS string.slice() uses UTF-16 code units.
+// Without the fix, emoji/unicode before the diff point would shift the patch offset,
+// causing content like "desktop" to be corrupted to "de Statussktop".
+func (s *WebSocketSyncSuite) TestComputePatch_MultiByte() {
+	// ✅ is U+2705: 3 bytes in UTF-8, 1 UTF-16 code unit
+	// 📤 is U+1F4E4: 4 bytes in UTF-8, 2 UTF-16 code units (surrogate pair)
+	old := "✅ Tool: Running"
+	new := "✅ Tool: Finished"
+
+	offset, patch, totalLen := computePatch(old, new)
+
+	// "✅ Tool: " = 1 + 7 = 8 UTF-16 code units (NOT 10 bytes)
+	// First diff is at 'R' vs 'F', which is UTF-16 offset 8
+	s.Equal(8, offset, "offset should be in UTF-16 code units, not bytes")
+	s.Equal("Finished", patch)
+
+	// totalLen should be UTF-16 length of new content, not byte length
+	// "✅ Tool: Finished" = 1 + 7 + 8 = 16 UTF-16 code units (NOT 19 bytes)
+	s.Equal(16, totalLen, "totalLen should be UTF-16 code units")
+	s.NotEqual(len(new), totalLen, "totalLen should differ from byte length for multi-byte content")
+
+	// Test with supplementary plane character (surrogate pair in UTF-16)
+	old2 := "📤 desktop/Status: Pending"
+	new2 := "📤 desktop/Status: Complete"
+	offset2, patch2, totalLen2 := computePatch(old2, new2)
+
+	// "📤 desktop/Status: " = 2 + 17 = 19 UTF-16 code units (NOT 22 bytes)
+	// 📤 is U+1F4E4: 4 bytes UTF-8, 2 UTF-16 code units (surrogate pair)
+	s.Equal(19, offset2, "supplementary char should count as 2 UTF-16 code units")
+	s.Equal("Complete", patch2)
+	s.Equal(27, totalLen2) // "📤 desktop/Status: Complete" = 2 + 25 = 27 UTF-16 code units
+
+	// Test append fast path with emoji prefix
+	old3 := "✅ Hello"
+	new3 := "✅ Hello world"
+	offset3, patch3, _ := computePatch(old3, new3)
+	s.Equal(7, offset3, "append offset should be UTF-16 length of old content")
+	s.Equal(" world", patch3)
+}
+
 // TestStreamingPatch_PreviousContentTracked verifies that the streaming context
 // tracks previousContent for patch computation and updates it after each publish.
 func (s *WebSocketSyncSuite) TestStreamingPatch_PreviousContentTracked() {
