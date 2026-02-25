@@ -874,6 +874,12 @@ type WebsocketEvent struct {
 	WorkerTaskResponse *RunnerTaskResponse         `json:"worker_task_response"`
 	InferenceResponse  *RunnerLLMInferenceResponse `json:"inference_response"`
 	StepInfo           *StepInfo                   `json:"step_info"`
+	// Patch fields for efficient streaming updates (interaction_patch events).
+	// Instead of sending the full interaction, we send only the changed portion
+	// of ResponseMessage. Frontend applies: content = content[:PatchOffset] + Patch
+	Patch       string `json:"patch,omitempty"`        // Content from PatchOffset onwards
+	PatchOffset int    `json:"patch_offset,omitempty"` // Byte position of first change
+	TotalLength int    `json:"total_length,omitempty"` // Final content length after patch
 }
 
 type StepInfoType string

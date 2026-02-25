@@ -1647,3 +1647,148 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_MultiMessageAccumulation() {
 	s.True(sctx.dirty)
 	sctx.mu.Unlock()
 }
+
+// TestComputePatch_Append verifies the fast path: pure append returns offset=len(old).
+func (s *WebSocketSyncSuite) TestComputePatch_Append() {
+	old := "Hello "
+	new := "Hello world"
+	offset, patch, totalLen := computePatch(old, new)
+	s.Equal(len(old), offset)
+	s.Equal("world", patch)
+	s.Equal(len(new), totalLen)
+
+	// Reconstruct
+	reconstructed := old[:offset] + patch
+	s.Equal(new, reconstructed)
+}
+
+// TestComputePatch_BackwardsEdit verifies the slow path: tool call status change.
+func (s *WebSocketSyncSuite) TestComputePatch_BackwardsEdit() {
+	old := "Let me help\n\n[Running: ls -la]"
+	new := "Let me help\n\n[Finished: ls -la]\nfile1.txt"
+	offset, patch, totalLen := computePatch(old, new)
+	// First difference is at position 14 ('R' vs 'F')
+	s.Equal(14, offset)
+	s.Equal("Finished: ls -la]\nfile1.txt", patch)
+	s.Equal(len(new), totalLen)
+
+	// Reconstruct
+	reconstructed := old[:offset] + patch
+	s.Equal(new, reconstructed)
+}
+
+// TestComputePatch_EmptyPrevious verifies first token (no previous content).
+func (s *WebSocketSyncSuite) TestComputePatch_EmptyPrevious() {
+	old := ""
+	new := "Hello"
+	offset, patch, totalLen := computePatch(old, new)
+	s.Equal(0, offset)
+	s.Equal("Hello", patch)
+	s.Equal(5, totalLen)
+}
+
+// TestComputePatch_Identical verifies no change produces empty patch.
+func (s *WebSocketSyncSuite) TestComputePatch_Identical() {
+	content := "Hello world"
+	offset, patch, totalLen := computePatch(content, content)
+	s.Equal(len(content), offset)
+	s.Equal("", patch)
+	s.Equal(len(content), totalLen)
+}
+
+// TestComputePatch_Truncation verifies content getting shorter (deletion).
+func (s *WebSocketSyncSuite) TestComputePatch_Truncation() {
+	old := "Hello world, how are you?"
+	new := "Hello world"
+	offset, patch, totalLen := computePatch(old, new)
+	// Content is identical up to len(new), then old has extra chars
+	s.Equal(len(new), offset)
+	s.Equal("", patch)
+	s.Equal(len(new), totalLen)
+}
+
+// TestStreamingPatch_PreviousContentTracked verifies that the streaming context
+// tracks previousContent for patch computation and updates it after each publish.
+func (s *WebSocketSyncSuite) TestStreamingPatch_PreviousContentTracked() {
+	helixSessionID := "ses-patch-test"
+	acpThreadID := "thread-patch-1"
+	interactionID := "int-patch-1"
+
+	// Setup context mapping
+	s.server.contextMappingsMutex.Lock()
+	s.server.contextMappings[acpThreadID] = helixSessionID
+	s.server.contextMappingsMutex.Unlock()
+
+	session := &types.Session{
+		ID:           helixSessionID,
+		Owner:        "user-1",
+		GenerationID: 1,
+	}
+	interaction := &types.Interaction{
+		ID:              interactionID,
+		SessionID:       helixSessionID,
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "",
+	}
+
+	// First token: expect DB queries (cache miss) + DB write + publish
+	s.store.EXPECT().GetSession(gomock.Any(), helixSessionID).Return(session, nil).Times(1)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{interaction}, int64(1), nil).Times(1)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(interaction, nil).AnyTimes()
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_added",
+		Data: map[string]interface{}{
+			"acp_thread_id": acpThreadID,
+			"role":          "assistant",
+			"message_id":    "msg-1",
+			"content":       "Hello",
+		},
+	}
+
+	// Send first token — creates streaming context with previousContent=""
+	err := s.server.handleMessageAdded("agent-1", syncMsg)
+	s.NoError(err)
+
+	// Verify previousContent is updated after publish
+	sctx := s.server.streamingContexts[helixSessionID]
+	sctx.mu.Lock()
+	s.Equal("Hello", sctx.previousContent, "previousContent should be updated after first publish")
+	s.Equal("Hello", sctx.interaction.ResponseMessage)
+	sctx.mu.Unlock()
+
+	// Expire throttles for second token
+	sctx.mu.Lock()
+	sctx.lastPublish = time.Now().Add(-100 * time.Millisecond)
+	sctx.lastDBWrite = time.Now().Add(-300 * time.Millisecond)
+	sctx.mu.Unlock()
+
+	// Second token: append
+	syncMsg.Data["content"] = "Hello world"
+	err = s.server.handleMessageAdded("agent-1", syncMsg)
+	s.NoError(err)
+
+	sctx.mu.Lock()
+	s.Equal("Hello world", sctx.previousContent, "previousContent should track latest published content")
+	s.Equal("Hello world", sctx.interaction.ResponseMessage)
+	sctx.mu.Unlock()
+
+	// Third token with backwards edit: tool call status change
+	sctx.mu.Lock()
+	sctx.lastPublish = time.Now().Add(-100 * time.Millisecond)
+	sctx.lastDBWrite = time.Now().Add(-300 * time.Millisecond)
+	sctx.mu.Unlock()
+
+	syncMsg.Data["content"] = "Hello earth"
+	err = s.server.handleMessageAdded("agent-1", syncMsg)
+	s.NoError(err)
+
+	sctx.mu.Lock()
+	s.Equal("Hello earth", sctx.previousContent)
+	// Verify patch computation would have produced the right delta
+	offset, patch, totalLen := computePatch("Hello world", "Hello earth")
+	s.Equal(6, offset)            // "Hello " is common prefix
+	s.Equal("earth", patch)       // Changed portion
+	s.Equal(11, totalLen)
+	sctx.mu.Unlock()
+}

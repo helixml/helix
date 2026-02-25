@@ -31,7 +31,9 @@ type streamingContext struct {
 	dirty       bool // true if interaction has been updated since last DB write
 	// Frontend publish throttling
 	lastPublish time.Time
-	mu          sync.Mutex
+	// Patch-based delta tracking: tracks content sent to frontend so we can compute diffs
+	previousContent string // last ResponseMessage sent to frontend
+	mu              sync.Mutex
 }
 
 const (
@@ -1017,14 +1019,16 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				Msg("📝 [HELIX] Updated interaction in-memory")
 
 			// THROTTLED FRONTEND PUBLISH: Only publish if enough time has passed.
+			// Uses patch-based delta to reduce wire traffic from O(N) to O(delta).
 			if now.Sub(sctx.lastPublish) >= publishInterval {
-				err := apiServer.publishInteractionUpdateToFrontend(helixSessionID, helixSession.Owner, targetInteraction)
+				err := apiServer.publishInteractionPatchToFrontend(helixSessionID, helixSession.Owner, targetInteraction, sctx.previousContent)
 				if err != nil {
 					log.Error().Err(err).
 						Str("session_id", helixSessionID).
 						Str("interaction_id", targetInteraction.ID).
-						Msg("Failed to publish interaction update to frontend")
+						Msg("Failed to publish interaction patch to frontend")
 				}
+				sctx.previousContent = targetInteraction.ResponseMessage
 				sctx.lastPublish = now
 			}
 		} else {
@@ -2475,6 +2479,78 @@ func (apiServer *HelixAPIServer) publishInteractionUpdateToFrontend(sessionID, o
 				}
 			}
 		}
+	}
+
+	return nil
+}
+
+// computePatch computes the minimal patch between previousContent and newContent.
+// Returns (patchOffset, patch, totalLength). The caller can reconstruct newContent
+// as: newContent = previousContent[:patchOffset] + patch, truncated to totalLength.
+// Fast path: if newContent starts with previousContent, patchOffset = len(previousContent).
+func computePatch(previousContent, newContent string) (patchOffset int, patch string, totalLength int) {
+	totalLength = len(newContent)
+
+	// Fast path: pure append (99% of streaming tokens)
+	if len(newContent) >= len(previousContent) && newContent[:len(previousContent)] == previousContent {
+		return len(previousContent), newContent[len(previousContent):], totalLength
+	}
+
+	// Slow path: find first differing byte (tool call status changes, edits)
+	minLen := len(previousContent)
+	if len(newContent) < minLen {
+		minLen = len(newContent)
+	}
+	patchOffset = 0
+	for patchOffset < minLen && previousContent[patchOffset] == newContent[patchOffset] {
+		patchOffset++
+	}
+	return patchOffset, newContent[patchOffset:], totalLength
+}
+
+// publishInteractionPatchToFrontend sends a delta patch instead of the full interaction.
+// This reduces per-update wire traffic from O(N) to O(delta). The frontend applies the
+// patch to reconstruct the full content: content = content[:patchOffset] + patch.
+func (apiServer *HelixAPIServer) publishInteractionPatchToFrontend(
+	sessionID, owner string,
+	interaction *types.Interaction,
+	previousContent string,
+) (err error) {
+	patchOffset, patch, totalLength := computePatch(previousContent, interaction.ResponseMessage)
+
+	event := &types.WebsocketEvent{
+		Type:          types.WebsocketEventInteractionPatch,
+		SessionID:     sessionID,
+		InteractionID: interaction.ID,
+		Owner:         owner,
+		Patch:         patch,
+		PatchOffset:   patchOffset,
+		TotalLength:   totalLength,
+	}
+
+	messageBytes, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("failed to marshal patch event: %w", err)
+	}
+
+	err = apiServer.pubsub.Publish(context.Background(), pubsub.GetSessionQueue(owner, sessionID), messageBytes)
+	if err != nil {
+		return fmt.Errorf("failed to publish patch to pubsub: %w", err)
+	}
+
+	log.Debug().
+		Str("session_id", sessionID).
+		Str("interaction_id", interaction.ID).
+		Int("patch_offset", patchOffset).
+		Int("patch_len", len(patch)).
+		Int("total_len", totalLength).
+		Int("full_content_len", len(interaction.ResponseMessage)).
+		Msg("📤 [HELIX] Published interaction patch to frontend")
+
+	// Also publish to commenter if applicable
+	if apiServer.requestToCommenterMapping != nil {
+		// We don't have requestID here, so we skip commenter publishing for patches.
+		// Commenters will get the full interaction on completion.
 	}
 
 	return nil
