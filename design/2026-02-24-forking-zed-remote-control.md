@@ -225,7 +225,7 @@ For backwards edits (tool call status changing from "Running" to "Finished"), th
 
 The frontend receives `interaction_patch` events and applies them directly to a ref (`patchContentRef`), bypassing React state entirely. Multiple patches between animation frames are coalesced. The React Query cache is not touched during streaming — only on completion.
 
-Wire traffic drops from O(N) per update to O(delta).
+Wire traffic drops from O(N) per update to O(delta). For a 100KB response where each token adds ~20 bytes, that's a 5000x reduction per update.
 
 ### The UTF-16 offset bug
 
