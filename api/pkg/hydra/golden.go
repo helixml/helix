@@ -502,12 +502,47 @@ func GCStaleGoldenDirs(maxAge time.Duration) (int, int64, error) {
 	return cleaned, freedBytes, nil
 }
 
-// GCOrphanedSessionDirs removes session Docker data directories that don't
-// have a corresponding running container. These accumulate when Hydra restarts
-// or containers are removed without proper cleanup.
+const sessionLastActiveFile = ".last-active"
+
+// TouchSessionLastActive writes a timestamp marker into the session dir so that
+// GC can determine when the session was last active. Directory mtime is
+// unreliable because it only updates when direct entries change, not when
+// files deep inside subdirectories are modified by Docker.
+//
+// Called on container stop and periodically by GC for running containers.
+func TouchSessionLastActive(sessionDir string) {
+	marker := filepath.Join(sessionDir, sessionLastActiveFile)
+	_ = os.WriteFile(marker, []byte(time.Now().Format(time.RFC3339)), 0644)
+}
+
+// sessionLastActiveAge returns how long ago a session was last active, based on
+// the .last-active marker file. Returns 0 if the marker doesn't exist (session
+// predates this change, or was never cleanly stopped).
+func sessionLastActiveAge(sessionDir string) time.Duration {
+	marker := filepath.Join(sessionDir, sessionLastActiveFile)
+	data, err := os.ReadFile(marker)
+	if err != nil {
+		return 0
+	}
+	t, err := time.Parse(time.RFC3339, string(data))
+	if err != nil {
+		return 0
+	}
+	return time.Since(t)
+}
+
+// GCOrphanedSessionDirs removes session Docker data directories that haven't
+// been active in over a week. Session dirs are kept around so that session
+// restarts can reuse the existing Docker data instead of re-copying the
+// golden cache (~28s for 30 GB).
+//
+// It also touches the .last-active marker for all currently running sessions
+// so that if Hydra crashes, the marker is at most 10 minutes stale.
 //
 // activeSessions is the set of session IDs that currently have running containers.
 func GCOrphanedSessionDirs(activeSessions map[string]bool) (int, int64, error) {
+	const maxAge = 7 * 24 * time.Hour
+
 	entries, err := os.ReadDir(sessionsBaseDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -527,12 +562,22 @@ func GCOrphanedSessionDirs(activeSessions map[string]bool) (int, int64, error) {
 		// Session dirs are named "docker-data-ses_xxxxx"
 		name := entry.Name()
 		sessionID := strings.TrimPrefix(name, "docker-data-")
+		dir := filepath.Join(sessionsBaseDir, name)
 
 		if activeSessions[sessionID] {
-			continue // Container still running
+			// Container still running — refresh the marker so that if
+			// Hydra crashes, GC won't consider this dir stale.
+			TouchSessionLastActive(dir)
+			continue
 		}
 
-		dir := filepath.Join(sessionsBaseDir, name)
+		// Only clean up dirs that haven't been active in over a week.
+		// If there's no .last-active marker (pre-existing dir), don't
+		// GC it — it'll get a marker next time the container runs or stops.
+		age := sessionLastActiveAge(dir)
+		if age == 0 || age < maxAge {
+			continue
+		}
 
 		// Get size before removal (for logging)
 		var size int64
@@ -551,7 +596,8 @@ func GCOrphanedSessionDirs(activeSessions map[string]bool) (int, int64, error) {
 			Str("session_id", sessionID).
 			Str("path", dir).
 			Int64("size_bytes", size).
-			Msg("Removed orphaned session Docker data")
+			Dur("age", age).
+			Msg("Removed stale session Docker data")
 	}
 
 	if cleaned > 0 {
