@@ -187,3 +187,63 @@ func (p *Protocol) dispatch(conn *Conn, sessionID string, msg *SyncMessage) erro
 The handler receives both the raw event (individual `message_id` content) and the accumulated full response. Production uses the accumulated string for storage; the raw event is available for logging and debugging.
 
 Adding a new event type means: (1) add a struct to `types.go`, (2) add a case to `dispatch`, (3) add a method to `EventHandler`. Both production and test code get the change, or neither does. No more protocol drift.
+
+## Streaming Performance: From O(N²) to O(delta)
+
+The naive streaming path had a quadratic cost profile. On every `message_added` event from Zed (dozens per second during fast token streaming), the API would:
+
+1. Query the database for the session (to find the owner)
+2. Query the database for the interaction (to get the current state)
+3. Write the updated interaction back to the database
+4. Serialize the entire interaction as JSON and publish it to the frontend via pubsub
+
+For a 100KB response, this meant pushing 100KB over the WebSocket to the browser on every token. The frontend would then parse the full JSON, update the React Query cache (allocating new interaction arrays), and re-render. By the end of a long response, the browser was doing megabytes of string copying per second and the UI would visibly lag.
+
+### Caching and throttling (Go side)
+
+The first fix was a `streamingContext` struct that caches the session and interaction across the lifetime of a streaming response. Created on the first `message_added`, cleared on `message_completed`. This eliminates two database round-trips per token.
+
+Database writes are throttled to one every 200ms. The in-memory interaction always has the latest content, but we only flush to Postgres when enough time has passed. Risk: up to 200ms of content lost on a crash. Acceptable because `message_completed` always writes the final state, and Zed retains the full content regardless.
+
+Frontend publishes are throttled to one every 50ms. The frontend batches updates to `requestAnimationFrame` (~16ms), so publishing faster than 50ms is wasted work.
+
+### Patch-based deltas (Go → Frontend)
+
+Instead of sending the full interaction JSON on every update, the API computes a patch: the byte offset of the first change and the new content from that point forward.
+
+```go
+func computePatch(previousContent, newContent string) (patchOffset int, patch string, totalLength int)
+```
+
+In the common case (pure append), the fast path fires: check that `newContent` starts with `previousContent`, return `offset = utf16Len(previousContent)`, `patch = newContent[len(previousContent):]`. This is a single string prefix comparison — no scanning.
+
+For backwards edits (tool call status changing from "Running" to "Finished"), the slow path finds the first differing rune and returns from there.
+
+The frontend receives `interaction_patch` events and applies them directly to a ref (`patchContentRef`), bypassing React state entirely. Multiple patches between animation frames are coalesced. The React Query cache is not touched during streaming — only on completion.
+
+Wire traffic drops from O(N) per update to O(delta). For a 100KB response where each token adds ~20 bytes, that's a 5000x reduction per update.
+
+### The UTF-16 offset bug
+
+The first deployment of the patch protocol produced garbled text. Users saw `"de Statussktop"` where `"desktop"` should have been. The content in the database was correct — the corruption was purely in frontend rendering.
+
+The root cause: `computePatch` returned byte offsets (Go's `len()` counts bytes), but JavaScript's `string.slice()` operates on UTF-16 code units. The streaming content contained 147 instances of `›` (U+203A, RIGHT SINGLE ANGLE QUOTATION MARK — Zed uses this as a breadcrumb separator in tool call output). Each `›` is 3 bytes in UTF-8 but 1 UTF-16 code unit, creating a cumulative offset divergence of 294 bytes. When a backwards edit occurred (tool call status change), the patch was spliced into the wrong position.
+
+The fix iterates by rune rather than byte and tracks the UTF-16 code unit position:
+
+```go
+func utf16RuneLen(r rune) int {
+    if r >= 0x10000 {
+        return 2 // surrogate pair
+    }
+    return 1
+}
+```
+
+The slow path now decodes runes from both strings in lockstep, accumulating `utf16Off` alongside `byteOff`. The returned offset matches what JavaScript expects. Supplementary plane characters (emoji like 📤) correctly count as 2 UTF-16 code units.
+
+### Zed-side throttling
+
+Zed fires an `EntryUpdated` event on every token from the LLM. At high token rates this means hundreds of `message_added` WebSocket messages per second, each carrying the full cumulative content for that entry. Most of these are redundant — the Go side only publishes to the frontend every 50ms anyway.
+
+The fix adds a 100ms throttle in Zed's `thread_service.rs`. A `STREAMING_THROTTLE` static tracks the last send time per entry. If less than 100ms has elapsed, the message is buffered. Before every `message_completed`, all pending buffers are flushed to guarantee no data loss. This cuts Zed→Go wire traffic by roughly 90%.
