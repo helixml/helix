@@ -2,7 +2,7 @@
 
 ## Why We Forked Zed
 
-Zed is a fast, GPU-accelerated code editor built in Rust. It has excellent language server support, a growing agent panel for AI-assisted coding, and a clean architecture. What it does not have is any concept of external orchestration.
+Zed is a fast, GPU-accelerated code editor built in Rust. It has excellent language server support, a growing agent panel for AI-assisted coding, and a clean architecture. It has no concept of external orchestration.
 
 Helix runs fleets of coding agents. Each agent is a headless Zed instance running inside a Docker container, connected to an LLM via the Agent Control Protocol (ACP). A central API dispatches tasks, monitors progress, manages thread lifecycles, and streams results back to users in real time. None of this is possible with stock Zed.
 
@@ -103,7 +103,7 @@ func (a *MessageAccumulator) AddMessage(messageID, content string) {
 }
 ```
 
-The key insight: Zed sends cumulative content per `message_id` (overwrite semantics), but the overall response is an append-only sequence of distinct message IDs. The accumulator handles both behaviors with a single offset tracker.
+Zed sends cumulative content per `message_id` (overwrite semantics), but the overall response is an append-only sequence of distinct message IDs. The accumulator handles both cases with a single offset tracker.
 
 ## The Completion Hang Bug
 
@@ -186,4 +186,4 @@ func (p *Protocol) dispatch(conn *Conn, sessionID string, msg *SyncMessage) erro
 
 The handler receives both the raw event (individual `message_id` content) and the accumulated full response. Production uses the accumulated string for storage; the raw event is available for logging and debugging.
 
-This structure means adding a new event type requires: (1) add a struct to `types.go`, (2) add a case to `dispatch`, (3) add a method to `EventHandler`. Both production and test code get the change, or neither does. Protocol drift is structurally impossible.
+Adding a new event type means: (1) add a struct to `types.go`, (2) add a case to `dispatch`, (3) add a method to `EventHandler`. Both production and test code get the change, or neither does. No more protocol drift.
