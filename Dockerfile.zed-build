@@ -87,6 +87,8 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
         echo "Bootstrapping rustup in cache mount..." && \
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none; \
     fi && \
+    echo "Ensuring toolchain from rust-toolchain.toml is installed..." && \
+    rustup show && \
     if [ -f rust-toolchain.toml ] && [ ! -s rust-toolchain.toml ]; then \
         echo "ERROR: rust-toolchain.toml exists but is empty — Docker context is stale." && \
         echo "Try: docker builder prune --filter type=regular (preserves cache mounts)" && \
