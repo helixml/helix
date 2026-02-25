@@ -564,6 +564,10 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
         throw new Error('Response body is null');
       }
 
+      // Read interaction ID from response header (set by handleStreamingSession)
+      // This allows useLiveInteraction to match SSE data to the correct interaction
+      const sseInteractionId = response.headers.get('X-Interaction-ID') || undefined;
+
       const reader = response.body.getReader();
       let sessionData: TypesSession | null = null;
       let promiseResolved = false;
@@ -623,8 +627,10 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
                     messageHistoryRef.current.set(sessionId, '');
 
                     // Initialize with empty response until we get content
+                    // Include interaction ID so useLiveInteraction can match SSE data
+                    // to the correct interaction (prevents stale content from previous interaction)
                     setCurrentResponses(prev => {
-                      return new Map(prev).set(sessionData?.id || '', { prompt_message: '' });
+                      return new Map(prev).set(sessionData?.id || '', { id: sseInteractionId, prompt_message: '' });
                     });
                     
                     if (parsedData.choices?.[0]?.delta?.content) {
@@ -691,7 +697,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
           checkResolved();
         }),
         new Promise<void>((_, reject) => 
-          setTimeout(() => reject(new Error('Timeout waiting for first chunk')), 5000)
+          setTimeout(() => reject(new Error('Timeout waiting for first chunk')), 30000)
         )
       ]);
 
