@@ -1144,6 +1144,12 @@ func (s *HelixAPIServer) handleBlockingSession(
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// Update session.Updated so the frontend can detect session changes
+	session.Updated = time.Now()
+	if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to update session timestamp after blocking completion")
+	}
+
 	err = s.Controller.UpdateInteraction(ctx, session, interaction)
 	if err != nil {
 		return err
@@ -1185,6 +1191,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	rw.Header().Set("Content-Type", "text/event-stream")
 	rw.Header().Set("Cache-Control", "no-cache")
 	rw.Header().Set("Connection", "keep-alive")
+	rw.Header().Set("X-Accel-Buffering", "no")
 
 	// Write an empty response to start chunk that contains the session id
 	bts, err := json.Marshal(&openai.ChatCompletionStreamResponse{
@@ -1364,6 +1371,12 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 			Str("session_id", session.ID).
 			Interface("document_ids", session.Metadata.DocumentIDs).
 			Msg("reloaded session metadata before final WebSocket update")
+	}
+
+	// Update session.Updated so the frontend can detect session changes
+	session.Updated = time.Now()
+	if _, err := s.Store.UpdateSession(ctx, *session); err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to update session timestamp after streaming")
 	}
 
 	err = s.Controller.UpdateInteraction(ctx, session, interaction)

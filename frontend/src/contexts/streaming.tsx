@@ -691,7 +691,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
           checkResolved();
         }),
         new Promise<void>((_, reject) => 
-          setTimeout(() => reject(new Error('Timeout waiting for first chunk')), 5000)
+          setTimeout(() => reject(new Error('Timeout waiting for first chunk')), 30000)
         )
       ]);
 
