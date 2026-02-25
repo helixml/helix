@@ -235,6 +235,45 @@ func (apiServer *HelixAPIServer) authorizeUserToRepository(ctx context.Context, 
 	return apiServer.authorizeUserToResource(ctx, user, repository.OrganizationID, repository.ID, types.ResourceGitRepository, action)
 }
 
+func (apiServer *HelixAPIServer) authorizeUserToSession(ctx context.Context, user *types.User, session *types.Session, action types.Action) error {
+	// If the organization ID is not set and the user is not the project owner, then error
+	if session.OrganizationID == "" {
+		// This is the old style project logic, where the project is owned by a user and optionally made global
+
+		// If the user is the owner of the project, they can access it
+		if user.ID == session.Owner {
+			return nil
+		}
+
+		// Otherwise the user is not allowed to access the app
+		return fmt.Errorf("user is not the owner of the app")
+	}
+
+	// If organization ID is set, authorize the user against the organization
+	orgMembership, err := apiServer.authorizeOrgMember(ctx, user, session.OrganizationID)
+	if err != nil {
+		return err
+	}
+
+	// Project owner can always access the project (they still have to have
+	// org membership)
+	if user.ID == session.Owner {
+		return nil
+	}
+
+	// Org owner can always access the app
+	if orgMembership.Role == types.OrganizationRoleOwner {
+		return nil
+	}
+
+	if session.ProjectID == "" {
+		return fmt.Errorf("not authorized to access session without a project")
+	}
+
+	// Authorize the user based on project ID
+	return apiServer.authorizeUserToResource(ctx, user, session.OrganizationID, session.ProjectID, types.ResourceProject, action)
+}
+
 // authorizeUserToResource loads RBAC configuration for the
 func (apiServer *HelixAPIServer) authorizeUserToResource(ctx context.Context, user *types.User, orgID, resourceID string, resourceType types.Resource, action types.Action) error {
 	// Load all authz configs for the user (teams, direct to user grants)

@@ -296,8 +296,9 @@ func (s *HelixAPIServer) listZedThreads(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if specTask.CreatedBy != user.ID {
-		http.Error(w, "forbidden", http.StatusForbidden)
+	err = s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 

@@ -520,6 +520,7 @@ runcmd:
   # Enable helix-storage-init service (runs before Docker on every boot)
   - systemctl daemon-reload
   - systemctl enable helix-storage-init.service
+  - systemctl enable zfs-import-scan.service
   # Limit Virtual-1 (VM console) to 1080p so the text console isn't painfully slow at 5K.
   # EDID advertises 5K as preferred mode, but only DRM lease connectors (Virtual-2+) need it.
   - sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="[^"]*"/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash console=tty0 video=Virtual-1:1920x1080"/' /etc/default/grub
@@ -534,6 +535,12 @@ runcmd:
   - touch /var/lib/cloud/instance/provision-ready
 
 write_files:
+  # Override zfs-import-scan to use -f (needed after root disk swap changes hostid)
+  - path: /etc/systemd/system/zfs-import-scan.service.d/force-import.conf
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=/sbin/zpool import -aN -f -o cachefile=none
   - path: /etc/docker/daemon.json
     content: |
       {
@@ -544,7 +551,7 @@ write_files:
           "max-file": "3"
         }
       }
-  - path: /etc/ssh/sshd_config.d/helix.conf
+  - path: /etc/ssh/sshd_config.d/50-helix.conf
     content: |
       PasswordAuthentication yes
       PubkeyAuthentication yes
@@ -560,9 +567,9 @@ write_files:
       [Unit]
       Description=Helix ZFS Storage Initialization
       DefaultDependencies=no
-      After=zfs-mount.service zfs-import-cache.service
+      After=zfs-mount.service zfs-import-cache.service zfs-import-scan.service systemd-udev-settle.service
       Before=docker.service containerd.service
-      Wants=zfs-mount.service
+      Wants=zfs-mount.service zfs-import-scan.service
 
       [Service]
       Type=oneshot
@@ -582,25 +589,28 @@ write_files:
       # Import ZFS pool if not already imported
       if ! zpool list helix 2>/dev/null; then
           log "Importing ZFS pool..."
-          # Try each possible data disk
-          for disk in /dev/vdb /dev/vdc /dev/vdd; do
-              if [ -b "\$disk" ]; then
-                  if zpool import -f -d "\$disk" helix 2>/dev/null; then
-                      log "Imported ZFS pool from \$disk"
-                      break
-                  fi
-              fi
-          done
+          if zpool import -f helix 2>/dev/null; then
+              log "Imported existing ZFS pool"
+          fi
       fi
 
-      # Exit early if pool still not available (host app will create it via SSH)
+      # Safety guard: if the pool exists in zpool import output but failed to
+      # import, do NOT proceed (the host app might fall through to zpool create
+      # and destroy existing data).
       if ! zpool list helix 2>/dev/null; then
+          if zpool import 2>/dev/null | grep -q 'pool: helix'; then
+              log "ERROR: ZFS pool 'helix' exists but failed to import — refusing to proceed"
+              exit 1
+          fi
           log "ZFS pool not found — waiting for host app initialization"
           exit 0
       fi
 
       # Expand pool if disk was resized
-      zpool online -e helix \$(zpool list -vHP helix 2>/dev/null | awk '/dev/{print \$1}' | head -1) 2>/dev/null || true
+      POOL_DEV=\$(zpool status -P helix 2>/dev/null | awk '/^\t  \/dev\//{print \$1}' | head -1)
+      if [ -n "\$POOL_DEV" ]; then
+          zpool online -e helix "\$POOL_DEV" 2>/dev/null || true
+      fi
 
       # Mount Docker volumes dataset if it exists.
       # Host Docker images stay on root disk (pre-baked during provisioning).
@@ -660,6 +670,26 @@ write_files:
           mkdir -p /home/ubuntu/helix
           cp /helix/config/env.vm /home/ubuntu/helix/.env.vm
           chown ubuntu:ubuntu /home/ubuntu/helix/.env.vm
+      fi
+
+      # Restore console password from ZFS config (set by injectDesktopSecret)
+      if [ -f /helix/config/console_password ]; then
+          PASS=\$(cat /helix/config/console_password 2>/dev/null)
+          if [ -n "\$PASS" ]; then
+              echo "ubuntu:\$PASS" | chpasswd
+              log "Restored console password from /helix/config/console_password"
+          fi
+      fi
+
+      # Fix sshd config ordering: 50-helix.conf must sort before 60-cloudimg-settings.conf
+      # so PasswordAuthentication yes takes effect (sshd uses first-match-wins)
+      if [ -f /etc/ssh/sshd_config.d/helix.conf ]; then
+          mv /etc/ssh/sshd_config.d/helix.conf /etc/ssh/sshd_config.d/50-helix.conf
+          log "Renamed helix.conf -> 50-helix.conf for sshd ordering"
+      fi
+      if [ -f /etc/ssh/sshd_config.d/60-cloudimg-settings.conf ]; then
+          sed -i '/^PasswordAuthentication/d' /etc/ssh/sshd_config.d/60-cloudimg-settings.conf
+          log "Removed PasswordAuthentication override from 60-cloudimg-settings.conf"
       fi
 
       # Docker starts automatically via systemd ordering (Before=docker.service).
