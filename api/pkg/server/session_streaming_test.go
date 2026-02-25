@@ -187,7 +187,7 @@ func (s *SessionStreamingSuite) TestStreamingSession_SSEHeaders() {
 	s.Equal("text/event-stream", rec.Header().Get("Content-Type"))
 	s.Equal("no-cache", rec.Header().Get("Cache-Control"))
 	s.Equal("keep-alive", rec.Header().Get("Connection"))
-	s.Equal("no", rec.Header().Get("X-Accel-Buffering"))
+	s.Equal("int_test_headers", rec.Header().Get("X-Interaction-ID"))
 }
 
 // TestStreamingSession_InitialChunkContainsSessionID verifies that the first SSE chunk

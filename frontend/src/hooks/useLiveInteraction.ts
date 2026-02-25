@@ -48,9 +48,7 @@ const useLiveInteraction = (
             const currentResponse = currentResponses.get(sessionId);
             // CRITICAL: Only use currentResponse if it matches the initialInteraction we're rendering
             // currentResponses is keyed by sessionId, so it may contain data from a different interaction
-            // Match by interaction ID when available, but also accept responses with no ID
-            // (SSE streaming path doesn't set .id on currentResponses — it only sets prompt_message/response_message)
-            const responseMatchesInteraction = !currentResponse?.id || currentResponse?.id === initialInteraction?.id;
+            const responseMatchesInteraction = currentResponse?.id === initialInteraction?.id;
 
             if (currentResponse && responseMatchesInteraction) {
                 // SSE streaming active - use currentResponses (matches our interaction)

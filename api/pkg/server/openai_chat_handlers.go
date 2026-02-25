@@ -277,7 +277,6 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	rw.Header().Set("Content-Type", "text/event-stream")
 	rw.Header().Set("Cache-Control", "no-cache")
 	rw.Header().Set("Connection", "keep-alive")
-	rw.Header().Set("X-Accel-Buffering", "no")
 
 	// Write the stream into the response
 	for {

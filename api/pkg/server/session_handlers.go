@@ -1191,7 +1191,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	rw.Header().Set("Content-Type", "text/event-stream")
 	rw.Header().Set("Cache-Control", "no-cache")
 	rw.Header().Set("Connection", "keep-alive")
-	rw.Header().Set("X-Accel-Buffering", "no")
+	rw.Header().Set("X-Interaction-ID", interaction.ID)
 
 	// Write an empty response to start chunk that contains the session id
 	bts, err := json.Marshal(&openai.ChatCompletionStreamResponse{
