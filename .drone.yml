@@ -1841,8 +1841,9 @@ steps:
 
           echo 'Building Zed binary (this may take 15-20 minutes on first run)...'
 
-          # Build the Zed builder image
-          docker build --pull -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
+          # Build the Zed builder environment image (deps + rustup, no compilation)
+          # --target builder-env stops before COPY/cargo build (which needs Zed source as context)
+          docker build --pull --target builder-env -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
 
           # Run Zed build in container, output directly to cache directory
           # Note: Zed source is cloned to /drone/src/cache/zed-source (inside Drone container)
@@ -1884,11 +1885,11 @@ steps:
       - clone-dependencies
 
   # Step 3b: Run Zed WebSocket E2E test
-  # Builds a lightweight runtime image with the pre-built Zed binary and runs
-  # the multi-phase E2E test (thread creation, follow-ups, thread transitions).
-  # Runs in parallel with build-desktops since it only needs the Zed binary.
+  # Builds a Go test server (imports real Helix server code) + runtime image,
+  # then runs the multi-phase E2E test (thread creation, follow-ups, thread
+  # transitions, UI state queries, open_thread). Uses multi-stage Docker build
+  # to compile the Go test server with the current helix source.
   - name: zed-e2e-test
-    failure: ignore
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
@@ -1906,12 +1907,30 @@ steps:
           exit 1
         fi
 
-        # Copy pre-built binary into Zed source tree for Docker context
-        cp zed-build/zed "$${ZED_SOURCE}/zed-prebuilt"
+        # Prepare Docker context with all needed files
+        CONTEXT_DIR=$$(mktemp -d)
+        cp zed-build/zed "$${CONTEXT_DIR}/zed-binary"
+        cp "$${ZED_SOURCE}/crates/external_websocket_sync/e2e-test/run_e2e.sh" "$${CONTEXT_DIR}/"
+        cp -r "$${ZED_SOURCE}/crates/external_websocket_sync/e2e-test/helix-ws-test-server" "$${CONTEXT_DIR}/"
+        # Copy helix Go source for the test server build (replace directive)
+        cp /drone/src/go.mod "$${CONTEXT_DIR}/helix-go.mod"
+        cp /drone/src/go.sum "$${CONTEXT_DIR}/helix-go.sum"
+        cp -r /drone/src/api "$${CONTEXT_DIR}/helix-api"
 
-        # Build runtime-only E2E image (skips Rust compilation)
-        # Uses a Dockerfile that just sets up runtime deps + copies the binary
-        cat > "$${ZED_SOURCE}/Dockerfile.e2e-runtime" << 'DOCKERFILE'
+        # Write multi-stage Dockerfile
+        cat > "$${CONTEXT_DIR}/Dockerfile" << 'DOCKERFILE'
+        # Stage 1: Build Go test server with real Helix server code
+        FROM golang:1.25-alpine AS go-builder
+        COPY helix-go.mod /helix/go.mod
+        COPY helix-go.sum /helix/go.sum
+        COPY helix-api /helix/api
+        COPY helix-ws-test-server /app
+        WORKDIR /app
+        RUN apk add --no-cache gcc g++ musl-dev && \
+            sed -i 's|/prod/home/luke/pm/helix|/helix|g' go.mod && \
+            CGO_ENABLED=1 go build -ldflags '-extldflags "-static"' -o /helix-ws-test-server .
+
+        # Stage 2: Runtime
         FROM ubuntu:25.10
         ENV DEBIAN_FRONTEND=noninteractive
         RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -1926,11 +1945,12 @@ steps:
             libatk1.0-0t64 libgtk-3-0t64 \
             xvfb x11-utils dbus \
             mesa-vulkan-drivers \
-            python3 python3-websockets \
+            imagemagick \
             && rm -rf /var/lib/apt/lists/*
-        COPY zed-prebuilt /usr/local/bin/zed
-        RUN chmod +x /usr/local/bin/zed
-        COPY crates/external_websocket_sync/e2e-test/run_e2e.sh /test/run_e2e.sh
+        COPY --from=go-builder /helix-ws-test-server /usr/local/bin/helix-ws-test-server
+        COPY zed-binary /usr/local/bin/zed
+        RUN chmod +x /usr/local/bin/zed /usr/local/bin/helix-ws-test-server
+        COPY run_e2e.sh /test/run_e2e.sh
         RUN chmod +x /test/run_e2e.sh
         ENV DISPLAY=:99
         ENV VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
@@ -1942,10 +1962,10 @@ steps:
         ENTRYPOINT ["/test/run_e2e.sh"]
         DOCKERFILE
 
-        echo "Building E2E runtime image..."
+        echo "Building E2E runtime image (multi-stage: Go builder + runtime)..."
         docker build -t zed-ws-e2e:$${ZED_COMMIT} \
-          -f "$${ZED_SOURCE}/Dockerfile.e2e-runtime" \
-          "$${ZED_SOURCE}"
+          -f "$${CONTEXT_DIR}/Dockerfile" \
+          "$${CONTEXT_DIR}"
 
         echo "Running E2E test..."
         docker run --rm \
@@ -1953,7 +1973,10 @@ steps:
           -e TEST_TIMEOUT=240 \
           zed-ws-e2e:$${ZED_COMMIT}
 
-        echo "✅ Zed WebSocket E2E test passed"
+        # Clean up context dir
+        rm -rf "$${CONTEXT_DIR}"
+
+        echo "Zed WebSocket E2E test passed"
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -2237,7 +2260,7 @@ steps:
 
           echo 'Building Zed binary (this may take 15-20 minutes on first run)...'
 
-          docker build --pull --provenance=false -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
+          docker build --pull --provenance=false --target builder-env -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
 
           mkdir -p /drone/src/cache/$${CACHE_KEY}
           docker run --rm \\

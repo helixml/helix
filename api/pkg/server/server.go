@@ -122,6 +122,9 @@ type HelixAPIServer struct {
 	kodit        *koditResult
 	mcpGateway                *MCPGateway
 	gitHTTPServer             *services.GitHTTPServer
+	// Streaming context cache - avoids redundant DB queries during token streaming
+	streamingContexts   map[string]*streamingContext // helix_session_id -> cached context
+	streamingContextsMu sync.RWMutex
 	// Rate limiting for streaming connections
 	streamingRateLimiter       map[string]time.Time // session_id -> last connection time
 	streamingRateLimiterMutex  sync.RWMutex
@@ -134,6 +137,7 @@ type HelixAPIServer struct {
 	wg                         sync.WaitGroup      // Control for goroutines to enable tests
 	summaryService             *SummaryService
 	goldenBuildService         *services.GoldenBuildService
+	syncEventHook              SyncEventHook // optional test hook, nil in production
 }
 
 func NewServer(
@@ -278,6 +282,7 @@ func NewServer(
 		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
 		requestToCommenterMapping:   make(map[string]string),
+		streamingContexts:          make(map[string]*streamingContext),
 		streamingRateLimiter:        make(map[string]time.Time),
 		inferenceServer:             inferenceServer,
 		sessionManager:              auth.NewSessionManager(store, oidcClient, cfg),

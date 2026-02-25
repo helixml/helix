@@ -8,14 +8,45 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/server/wsprotocol"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+)
+
+// streamingContext caches DB query results during token streaming to avoid
+// redundant queries. Created on first message_added, cleared on message_completed.
+// Also buffers interaction updates: DB writes are throttled to at most once per
+// dbWriteInterval, and frontend publishes to once per publishInterval.
+type streamingContext struct {
+	session     *types.Session
+	interaction *types.Interaction
+	// DB write throttling
+	lastDBWrite time.Time
+	dirty       bool // true if interaction has been updated since last DB write
+	// Frontend publish throttling
+	lastPublish time.Time
+	// Patch-based delta tracking: tracks content sent to frontend so we can compute diffs
+	previousContent string // last ResponseMessage sent to frontend
+	mu              sync.Mutex
+}
+
+const (
+	// dbWriteInterval is the minimum time between UpdateInteraction calls during streaming.
+	// Intermediate content is buffered in the streamingContext.
+	// Risk: up to dbWriteInterval of content lost on crash. Acceptable because
+	// message_completed always writes the final state, and Zed has the full content.
+	dbWriteInterval = 200 * time.Millisecond
+
+	// publishInterval is the minimum time between frontend pubsub events during streaming.
+	// Frontend batches to requestAnimationFrame (~16ms), so faster is wasted work.
+	publishInterval = 50 * time.Millisecond
 )
 
 // External agent WebSocket connections
@@ -469,41 +500,48 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		Msg("Processing external agent sync message")
 
 	// Process sync message directly
+	var err error
 	switch syncMsg.EventType {
 	case "thread_created":
-		return apiServer.handleThreadCreated(sessionID, syncMsg)
+		err = apiServer.handleThreadCreated(sessionID, syncMsg)
 	case "user_created_thread":
-		return apiServer.handleUserCreatedThread(sessionID, syncMsg)
+		err = apiServer.handleUserCreatedThread(sessionID, syncMsg)
 	case "thread_title_changed":
-		return apiServer.handleThreadTitleChanged(sessionID, syncMsg)
+		err = apiServer.handleThreadTitleChanged(sessionID, syncMsg)
 	case "context_created": // Legacy support - redirect to thread_created
-		return apiServer.handleThreadCreated(sessionID, syncMsg)
+		err = apiServer.handleThreadCreated(sessionID, syncMsg)
 	case "message_added":
-		return apiServer.handleMessageAdded(sessionID, syncMsg)
+		err = apiServer.handleMessageAdded(sessionID, syncMsg)
 	case "message_updated":
-		return apiServer.handleMessageUpdated(sessionID, syncMsg)
+		err = apiServer.handleMessageUpdated(sessionID, syncMsg)
 	case "context_title_changed":
-		return apiServer.handleContextTitleChanged(sessionID, syncMsg)
+		err = apiServer.handleContextTitleChanged(sessionID, syncMsg)
 	case "chat_response":
-		return apiServer.handleChatResponse(sessionID, syncMsg)
+		err = apiServer.handleChatResponse(sessionID, syncMsg)
 	case "chat_response_chunk":
-		return apiServer.handleChatResponseChunk(sessionID, syncMsg)
+		err = apiServer.handleChatResponseChunk(sessionID, syncMsg)
 	case "chat_response_done":
-		return apiServer.handleChatResponseDone(sessionID, syncMsg)
+		err = apiServer.handleChatResponseDone(sessionID, syncMsg)
 	case "message_completed":
-		return apiServer.handleMessageCompleted(sessionID, syncMsg)
+		err = apiServer.handleMessageCompleted(sessionID, syncMsg)
 	case "thread_load_error":
-		return apiServer.handleThreadLoadError(sessionID, syncMsg)
+		err = apiServer.handleThreadLoadError(sessionID, syncMsg)
 	case "chat_response_error":
-		return apiServer.handleChatResponseError(sessionID, syncMsg)
+		err = apiServer.handleChatResponseError(sessionID, syncMsg)
 	case "agent_ready":
-		return apiServer.handleAgentReady(sessionID, syncMsg)
+		err = apiServer.handleAgentReady(sessionID, syncMsg)
 	case "ping":
-		return nil
+		// no-op
 	default:
 		log.Warn().Str("event_type", syncMsg.EventType).Msg("Unknown sync message type")
-		return nil
 	}
+
+	// Fire test hook if registered (nil in production)
+	if apiServer.syncEventHook != nil {
+		apiServer.syncEventHook(sessionID, syncMsg)
+	}
+
+	return err
 }
 
 // handleThreadCreated processes thread creation from external agent (new protocol)
@@ -646,6 +684,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		Metadata: types.SessionMetadata{
 			SystemPrompt: "You are a helpful AI assistant integrated with Zed editor.",
 			AgentType:    "zed_external",
+			ZedThreadID:  contextID,
 		},
 	}
 
@@ -914,210 +953,84 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		}
 	}
 
-	// Get the Helix session
-	helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
-	if err != nil {
-		return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
-	}
-
 	if role == "assistant" {
-		// For assistant messages, we need to load interactions to update them
-		// Load interactions following the same pattern as handlers.go getSession
-		interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
-			SessionID:    helixSessionID,
-			GenerationID: helixSession.GenerationID,
-			PerPage:      1000,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to list interactions for session %s: %w", helixSessionID, err)
+		// PERFORMANCE OPTIMIZATION: Use streaming context cache to avoid
+		// redundant DB queries during token streaming. GetSession and
+		// ListInteractions are called once on the first token, then cached
+		// for all subsequent tokens until message_completed.
+		sctx := apiServer.getOrCreateStreamingContext(context.Background(), helixSessionID)
+		if sctx == nil {
+			return fmt.Errorf("failed to get or create streaming context for session %s", helixSessionID)
 		}
 
-		log.Info().
-			Str("helix_session_id", helixSessionID).
-			Int("interaction_count", len(interactions)).
-			Msg("🔍 [DEBUG] Retrieved session interactions")
+		sctx.mu.Lock()
+		defer sctx.mu.Unlock()
 
-		// CRITICAL: Use session->interaction mapping to find the exact interaction
-		// This mapping was stored when we sent the chat_message command
-		var targetInteraction *types.Interaction
-		apiServer.contextMappingsMutex.RLock()
-		interactionID, exists := apiServer.sessionToWaitingInteraction[helixSessionID]
-		apiServer.contextMappingsMutex.RUnlock()
-		if exists {
-			log.Info().
-				Str("helix_session_id", helixSessionID).
-				Str("mapped_interaction_id", interactionID).
-				Msg("🔍 [DEBUG] Found interaction mapping")
-
-			// Find the interaction by ID
-			for i := range interactions {
-				if interactions[i].ID == interactionID {
-					targetInteraction = interactions[i]
-					log.Info().
-						Str("helix_session_id", helixSessionID).
-						Str("interaction_id", interactionID).
-						Msg("🎯 [HELIX] Found interaction for session using mapping")
-					break
-				}
-			}
-		}
-
-		// Fallback: Find the most recent interaction that needs an AI response
-		if targetInteraction == nil {
-			for i := len(interactions) - 1; i >= 0; i-- {
-				// Look for interactions that are either Waiting OR Complete with empty response
-				if interactions[i].State == types.InteractionStateWaiting ||
-					(interactions[i].State == types.InteractionStateComplete && interactions[i].ResponseMessage == "") {
-					targetInteraction = interactions[i]
-					log.Info().
-						Str("helix_session_id", helixSessionID).
-						Str("interaction_id", interactions[i].ID).
-						Str("interaction_state", string(interactions[i].State)).
-						Msg("⚠️ [HELIX] No session mapping found, using most recent empty interaction")
-					break
-				}
-			}
-		}
+		helixSession := sctx.session
+		targetInteraction := sctx.interaction
 
 		if targetInteraction != nil {
 			// Update the existing interaction with the AI response content
 			// IMPORTANT: Keep state as Waiting - only message_completed marks it as Complete
 			//
-			// MULTI-MESSAGE HANDLING using Zed's message_id (restart-resilient):
-			// Zed sends a unique message_id with each message:
-			// - Same message_id = streaming update of same message (cumulative content) → OVERWRITE
-			// - Different message_id = new distinct message from agent → APPEND
-			//
-			// We persist LastZedMessageID in the database, so this works across restarts.
-			existingContent := targetInteraction.ResponseMessage
-			lastMessageID := targetInteraction.LastZedMessageID
-			shouldAppend := false
+			// MULTI-MESSAGE HANDLING using wsprotocol.MessageAccumulator:
+			// Restores state from DB fields (LastZedMessageID, LastZedMessageOffset)
+			// so accumulation is restart-resilient.
+			acc := &wsprotocol.MessageAccumulator{
+				Content:       targetInteraction.ResponseMessage,
+				LastMessageID: targetInteraction.LastZedMessageID,
+				Offset:        targetInteraction.LastZedMessageOffset,
+			}
+			prevMessageID := acc.LastMessageID
 
-			if lastMessageID == "" {
-				// First message for this interaction - overwrite
-				shouldAppend = false
-				log.Debug().
-					Str("interaction_id", targetInteraction.ID).
-					Str("message_id", messageID).
-					Msg("📝 [HELIX] First message for interaction (setting LastZedMessageID)")
-			} else if lastMessageID == messageID {
-				// Same message ID - this is a streaming update with cumulative content
-				shouldAppend = false
-				log.Debug().
-					Str("interaction_id", targetInteraction.ID).
-					Str("message_id", messageID).
-					Msg("📝 [HELIX] Streaming update (same message_id, overwriting)")
-			} else {
-				// Different message ID - this is a new distinct message from the agent
-				shouldAppend = true
+			acc.AddMessage(messageID, content)
+
+			if prevMessageID != "" && prevMessageID != messageID {
 				log.Info().
 					Str("interaction_id", targetInteraction.ID).
-					Str("last_message_id", lastMessageID).
+					Str("last_message_id", prevMessageID).
 					Str("new_message_id", messageID).
 					Msg("📝 [HELIX] New distinct message detected (different message_id)")
 			}
 
-			// Always update the LastZedMessageID to the current message
-			targetInteraction.LastZedMessageID = messageID
-
-			if shouldAppend && existingContent != "" {
-				// New distinct message - append it
-				targetInteraction.ResponseMessage = existingContent + "\n\n" + content
-				log.Info().
-					Str("interaction_id", targetInteraction.ID).
-					Int("existing_len", len(existingContent)).
-					Int("new_len", len(content)).
-					Msg("📝 [HELIX] Appending new message to interaction (multi-message response)")
-			} else {
-				// Cumulative update or first message - overwrite
-				targetInteraction.ResponseMessage = content
-			}
+			targetInteraction.ResponseMessage = acc.Content
+			targetInteraction.LastZedMessageID = acc.LastMessageID
+			targetInteraction.LastZedMessageOffset = acc.Offset
 			targetInteraction.Updated = time.Now()
+			sctx.dirty = true
 
-			_, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction)
-			if err != nil {
-				return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
+			// THROTTLED DB WRITE: Only flush to DB if enough time has passed.
+			// The in-memory interaction always has the latest content.
+			now := time.Now()
+			if now.Sub(sctx.lastDBWrite) >= dbWriteInterval {
+				_, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction)
+				if err != nil {
+					return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
+				}
+				sctx.lastDBWrite = now
+				sctx.dirty = false
 			}
 
-			// Link agent response to design review comment if this interaction came from a comment
-			go func() {
-				if err := apiServer.linkAgentResponseToComment(context.Background(), targetInteraction); err != nil {
-					log.Debug().
-						Err(err).
-						Str("interaction_id", targetInteraction.ID).
-						Msg("No design review comment linked to this interaction (this is normal for non-comment interactions)")
-				}
-			}()
-
-			log.Info().
+			log.Debug().
 				Str("session_id", sessionID).
-				Str("context_id", contextID).
 				Str("helix_session_id", helixSessionID).
 				Str("interaction_id", targetInteraction.ID).
-				Str("role", role).
-				Str("content_length", fmt.Sprintf("%d", len(content))).
-				Bool("appended_new_message", shouldAppend).
-				Msg("📝 [HELIX] Updated interaction with AI response (keeping Waiting state)")
+				Int("content_length", len(acc.Content)).
+				Bool("db_written", !sctx.dirty).
+				Msg("📝 [HELIX] Updated interaction in-memory")
 
-			// DATABASE-FIRST: Link response to pending design review comment
-			// Query database for comments with pending request_id (survives API and container restarts)
-			// IMPORTANT: Get the pending comment ID synchronously to avoid race conditions
-			// If we spawn a goroutine and it runs after message_completed, the next comment
-			// might already have RequestID set, causing us to update the wrong comment.
-			var requestIDForPublish string // Captured for passing to publishSessionUpdateToFrontend
-			pendingComment, err := apiServer.Store.GetPendingCommentByPlanningSessionID(context.Background(), helixSessionID)
-			if err == nil && pendingComment != nil {
-				// Found a pending comment - capture its ID and RequestID synchronously
-				commentID := pendingComment.ID
-				requestID := pendingComment.RequestID
-				requestIDForPublish = requestID // Capture for use outside this block
-
-				// Update the comment with streaming response content
-				go func(sessionID, commentID, requestID, responseContent string) {
-					// Use the request_id to update - this ensures we update the correct comment
-					if err := apiServer.updateCommentWithStreamingResponse(context.Background(), requestID, responseContent); err != nil {
-						log.Debug().
-							Err(err).
-							Str("session_id", sessionID).
-							Str("request_id", requestID).
-							Msg("Failed to update comment with streaming response (this is normal for non-comment interactions)")
-						return
-					}
-
-					log.Info().
-						Str("comment_id", commentID).
-						Str("session_id", sessionID).
-						Str("request_id", requestID).
-						Int("response_length", len(responseContent)).
-						Msg("✅ [HELIX] Updated comment with streaming agent response")
-
-					// Also try HTTP streaming for real-time updates (if channel exists)
-					if requestID != "" {
-						responseChan, _, _, exists := apiServer.getResponseChannel(sessionID, requestID)
-						if exists {
-							select {
-							case responseChan <- responseContent:
-								log.Debug().
-									Str("session_id", sessionID).
-									Str("request_id", requestID).
-									Msg("Sent response to HTTP streaming channel")
-							default:
-								log.Debug().Msg("HTTP response channel full or closed")
-							}
-						}
-					}
-				}(helixSessionID, commentID, requestID, content)
-			}
-
-			// OPTIMIZATION: Send only the updated interaction, not the full session
-			// This reduces O(n) data per update to O(1), dramatically improving streaming performance
-			err = apiServer.publishInteractionUpdateToFrontend(helixSessionID, helixSession.Owner, targetInteraction, requestIDForPublish)
-			if err != nil {
-				log.Error().Err(err).
-					Str("session_id", helixSessionID).
-					Str("interaction_id", targetInteraction.ID).
-					Str("request_id", requestIDForPublish).
-					Msg("Failed to publish interaction update to frontend")
+			// THROTTLED FRONTEND PUBLISH: Only publish if enough time has passed.
+			// Uses patch-based delta to reduce wire traffic from O(N) to O(delta).
+			if now.Sub(sctx.lastPublish) >= publishInterval {
+				err := apiServer.publishInteractionPatchToFrontend(helixSessionID, helixSession.Owner, targetInteraction, sctx.previousContent)
+				if err != nil {
+					log.Error().Err(err).
+						Str("session_id", helixSessionID).
+						Str("interaction_id", targetInteraction.ID).
+						Msg("Failed to publish interaction patch to frontend")
+				}
+				sctx.previousContent = targetInteraction.ResponseMessage
+				sctx.lastPublish = now
 			}
 		} else {
 			log.Warn().
@@ -1128,6 +1041,12 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		}
 	} else {
 		// For user messages, create new interaction
+		// User messages are infrequent (one per turn), no need to cache
+		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
+		if err != nil {
+			return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
+		}
+
 		interaction := &types.Interaction{
 			ID:            "", // Will be generated
 			Created:       time.Now(),
@@ -1168,6 +1087,115 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 	}
 
 	return nil
+}
+
+// getOrCreateStreamingContext returns a cached streaming context for the given
+// helix session, or creates one by querying the DB on the first call. This avoids
+// redundant GetSession + ListInteractions queries on every streaming token.
+func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context, helixSessionID string) *streamingContext {
+	apiServer.streamingContextsMu.RLock()
+	sctx, exists := apiServer.streamingContexts[helixSessionID]
+	apiServer.streamingContextsMu.RUnlock()
+	if exists {
+		return sctx
+	}
+
+	// First token for this session — do the DB lookups and cache results
+	helixSession, err := apiServer.Controller.Options.Store.GetSession(ctx, helixSessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", helixSessionID).
+			Msg("Failed to get session for streaming context")
+		return nil
+	}
+
+	interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    helixSessionID,
+		GenerationID: helixSession.GenerationID,
+		PerPage:      1000,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("session_id", helixSessionID).
+			Msg("Failed to list interactions for streaming context")
+		return nil
+	}
+
+	// Find the target interaction (same logic as before)
+	var targetInteraction *types.Interaction
+	apiServer.contextMappingsMutex.RLock()
+	interactionID, hasMapping := apiServer.sessionToWaitingInteraction[helixSessionID]
+	apiServer.contextMappingsMutex.RUnlock()
+	if hasMapping {
+		for i := range interactions {
+			if interactions[i].ID == interactionID {
+				targetInteraction = interactions[i]
+				break
+			}
+		}
+	}
+	if targetInteraction == nil {
+		for i := len(interactions) - 1; i >= 0; i-- {
+			if interactions[i].State == types.InteractionStateWaiting ||
+				(interactions[i].State == types.InteractionStateComplete && interactions[i].ResponseMessage == "") {
+				targetInteraction = interactions[i]
+				break
+			}
+		}
+	}
+
+	sctx = &streamingContext{
+		session:     helixSession,
+		interaction: targetInteraction,
+	}
+
+	apiServer.streamingContextsMu.Lock()
+	// Double-check: another goroutine may have created it while we were querying
+	if existing, ok := apiServer.streamingContexts[helixSessionID]; ok {
+		apiServer.streamingContextsMu.Unlock()
+		return existing
+	}
+	apiServer.streamingContexts[helixSessionID] = sctx
+	apiServer.streamingContextsMu.Unlock()
+
+	log.Info().
+		Str("session_id", helixSessionID).
+		Bool("has_interaction", targetInteraction != nil).
+		Msg("📦 [PERF] Created streaming context cache (will skip DB queries on subsequent tokens)")
+
+	return sctx
+}
+
+// flushAndClearStreamingContext flushes any dirty interaction state to the DB,
+// then removes the cached streaming context for a session.
+// Called on message_completed to ensure the DB has the latest content before
+// the interaction is marked as complete.
+func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Context, helixSessionID string) {
+	apiServer.streamingContextsMu.Lock()
+	sctx, exists := apiServer.streamingContexts[helixSessionID]
+	delete(apiServer.streamingContexts, helixSessionID)
+	apiServer.streamingContextsMu.Unlock()
+
+	if !exists || sctx == nil {
+		return
+	}
+
+	sctx.mu.Lock()
+	defer sctx.mu.Unlock()
+
+	if sctx.dirty && sctx.interaction != nil {
+		_, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, sctx.interaction)
+		if err != nil {
+			log.Error().Err(err).
+				Str("session_id", helixSessionID).
+				Str("interaction_id", sctx.interaction.ID).
+				Msg("Failed to flush dirty interaction on streaming context clear")
+		} else {
+			log.Info().
+				Str("session_id", helixSessionID).
+				Str("interaction_id", sctx.interaction.ID).
+				Int("content_length", len(sctx.interaction.ResponseMessage)).
+				Msg("📦 [PERF] Flushed dirty interaction to DB before message_completed")
+		}
+	}
 }
 
 // handleMessageUpdated processes message updates from external agent
@@ -1655,6 +1683,10 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("helix_session_id", helixSessionID).
 		Msg("✅ [HELIX] Found Helix session mapping for message_completed")
 
+	// Flush any dirty streaming context to DB before clearing.
+	// The throttled DB writes in handleMessageAdded may have left unflushed content.
+	apiServer.flushAndClearStreamingContext(context.Background(), helixSessionID)
+
 	// Get the session
 	helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
 	if err != nil {
@@ -1738,9 +1770,20 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	// This needs to be done before publishing so we can pass it to publishSessionUpdateToFrontend
 	messageRequestID, _ := syncMsg.Data["request_id"].(string)
 
-	// CRITICAL: Publish final session update to frontend so it gets the complete state
-	// Without this, the frontend never receives the final update with state=complete
-	// Must reload session and list ALL interactions to avoid sending stale/partial data
+	// CRITICAL: Publish completion through BOTH event channels:
+	// 1. interaction_update — same channel used during streaming, ensures useLiveInteraction sees state=complete
+	// 2. session_update — full session for React Query cache consistency
+	// The frontend's session_update handler has rejection logic (interaction count checks)
+	// that can silently drop events, so interaction_update is the reliable path.
+	err = apiServer.publishInteractionUpdateToFrontend(helixSessionID, helixSession.Owner, targetInteraction, messageRequestID)
+	if err != nil {
+		log.Error().Err(err).
+			Str("session_id", helixSessionID).
+			Str("interaction_id", targetInteraction.ID).
+			Msg("Failed to publish interaction completion update to frontend")
+	}
+
+	// Also publish full session update for cache consistency
 	reloadedSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", helixSessionID).Msg("Failed to reload session for final publish")
@@ -1759,7 +1802,6 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 				Str("last_interaction_state", string(allInteractions[len(allInteractions)-1].State)).
 				Msg("🔍 [DEBUG] Publishing final session update after message_completed")
 
-			// Pass messageRequestID so commenter also receives the final update
 			err = apiServer.publishSessionUpdateToFrontend(reloadedSession, targetInteraction, messageRequestID)
 			if err != nil {
 				log.Error().Err(err).
@@ -2438,6 +2480,110 @@ func (apiServer *HelixAPIServer) publishInteractionUpdateToFrontend(sessionID, o
 				}
 			}
 		}
+	}
+
+	return nil
+}
+
+// utf16RuneLen returns the number of UTF-16 code units needed to encode the rune.
+// BMP characters (U+0000 to U+FFFF) use 1 code unit; supplementary characters use 2.
+func utf16RuneLen(r rune) int {
+	if r >= 0x10000 {
+		return 2
+	}
+	return 1
+}
+
+// utf16Len returns the number of UTF-16 code units in s.
+// This matches JavaScript's string.length property.
+func utf16Len(s string) int {
+	n := 0
+	for _, r := range s {
+		n += utf16RuneLen(r)
+	}
+	return n
+}
+
+// computePatch computes the minimal patch between previousContent and newContent.
+// Returns (patchOffset, patch, totalLength) where offsets are in UTF-16 code units
+// to match JavaScript's string.slice() behavior.
+// The caller can reconstruct newContent as:
+//
+//	newContent = previousContent.slice(0, patchOffset) + patch   (in JS)
+//
+// Fast path: if newContent starts with previousContent, patchOffset = utf16Len(previousContent).
+func computePatch(previousContent, newContent string) (patchOffset int, patch string, totalLength int) {
+	totalLength = utf16Len(newContent)
+
+	// Fast path: pure append (99% of streaming tokens)
+	if len(newContent) >= len(previousContent) && newContent[:len(previousContent)] == previousContent {
+		return utf16Len(previousContent), newContent[len(previousContent):], totalLength
+	}
+
+	// Slow path: find first differing rune, tracking both byte and UTF-16 positions.
+	// We iterate by rune (not byte) to avoid splitting multi-byte characters, and
+	// return the UTF-16 code unit offset so JavaScript can apply the patch correctly.
+	utf16Off := 0
+	byteOff := 0
+	prevLen := len(previousContent)
+	newLen := len(newContent)
+
+	for byteOff < prevLen && byteOff < newLen {
+		prevRune, prevSize := utf8.DecodeRuneInString(previousContent[byteOff:])
+		newRune, newSize := utf8.DecodeRuneInString(newContent[byteOff:])
+		if prevRune != newRune || prevSize != newSize {
+			break
+		}
+		utf16Off += utf16RuneLen(newRune)
+		byteOff += newSize
+	}
+
+	return utf16Off, newContent[byteOff:], totalLength
+}
+
+// publishInteractionPatchToFrontend sends a delta patch instead of the full interaction.
+// This reduces per-update wire traffic from O(N) to O(delta). The frontend applies the
+// patch to reconstruct the full content: content = content[:patchOffset] + patch.
+func (apiServer *HelixAPIServer) publishInteractionPatchToFrontend(
+	sessionID, owner string,
+	interaction *types.Interaction,
+	previousContent string,
+) (err error) {
+	patchOffset, patch, totalLength := computePatch(previousContent, interaction.ResponseMessage)
+
+	event := &types.WebsocketEvent{
+		Type:          types.WebsocketEventInteractionPatch,
+		SessionID:     sessionID,
+		InteractionID: interaction.ID,
+		Owner:         owner,
+		Patch:         patch,
+		PatchOffset:   patchOffset,
+		TotalLength:   totalLength,
+	}
+
+	messageBytes, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("failed to marshal patch event: %w", err)
+	}
+
+	err = apiServer.pubsub.Publish(context.Background(), pubsub.GetSessionQueue(owner, sessionID), messageBytes)
+	if err != nil {
+		return fmt.Errorf("failed to publish patch to pubsub: %w", err)
+	}
+
+	log.Debug().
+		Str("session_id", sessionID).
+		Str("interaction_id", interaction.ID).
+		Int("patch_offset", patchOffset).
+		Int("patch_len", len(patch)).
+		Int("total_len", totalLength).
+		Int("full_content_len", len(interaction.ResponseMessage)).
+		Msg("📤 [HELIX] Published interaction patch to frontend")
+
+	// Also publish to commenter if applicable
+	if apiServer.requestToCommenterMapping != nil {
+		// We don't have requestID here, so we skip commenter publishing for patches.
+		// Commenters will get the full interaction on completion.
 	}
 
 	return nil

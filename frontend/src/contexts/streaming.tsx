@@ -1,6 +1,6 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect, useRef } from 'react';
 import ReconnectingWebSocket from 'reconnecting-websocket';
-import { IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, ISessionChatRequest, ISessionType, IAgentType } from '../types';
+import { IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WEBSOCKET_EVENT_TYPE_INTERACTION_PATCH, WORKER_TASK_RESPONSE_TYPE_PROGRESS, ISessionChatRequest, ISessionType, IAgentType } from '../types';
 import { TypesInteraction, TypesMessage, TypesSession } from '../api/api';
 import { GET_SESSION_QUERY_KEY, SESSION_STEPS_QUERY_KEY } from '../services/sessionService';
 import { useQueryClient } from '@tanstack/react-query';
@@ -62,6 +62,11 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   const pendingUpdateRef = useRef<boolean>(false);
   const messageHistoryRef = useRef<Map<string, string>>(new Map());
   const invalidateTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Track streaming content per interaction for patch-based updates.
+  // Keyed by interactionId, stores the current reconstructed content.
+  // Using a ref avoids React state reads during patch string operations.
+  const patchContentRef = useRef<Map<string, string>>(new Map());
+  const patchPendingRef = useRef<boolean>(false);
 
   // Clear stepInfos when setting a new session
   const clearSessionData = useCallback((sessionId: string | null) => {
@@ -235,6 +240,11 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     if (parsedData.type === "interaction_update" && parsedData.interaction) {
       const updatedInteraction = parsedData.interaction;
 
+      // Clear patch content ref since we have the full interaction now
+      if (updatedInteraction.id) {
+        patchContentRef.current.delete(updatedInteraction.id);
+      }
+
       // Surgically update just this interaction in the React Query cache
       queryClient.setQueryData(
         GET_SESSION_QUERY_KEY(currentSessionId),
@@ -289,6 +299,66 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
         });
       }
     }
+
+    // PATCH-BASED STREAMING: Handle delta updates from Go server.
+    // This is the most efficient path for streaming — only the changed portion of
+    // ResponseMessage is sent over the wire. We reconstruct the full content in a ref
+    // (no React state reads needed) and batch the state update via requestAnimationFrame.
+    // CRITICAL: We do NOT update React Query cache here — that would create new
+    // interactions arrays and trigger re-renders of the entire session. The cache is
+    // only updated on completion (via interaction_update or session_update).
+    if (parsedData.type === WEBSOCKET_EVENT_TYPE_INTERACTION_PATCH && parsedData.interaction_id) {
+      const interactionId = parsedData.interaction_id;
+      const patchOffset = parsedData.patch_offset ?? 0;
+      const patch = parsedData.patch ?? '';
+      const totalLength = parsedData.total_length ?? 0;
+
+      // Reconstruct content from patch: content = content[:patchOffset] + patch
+      const currentContent = patchContentRef.current.get(interactionId) || '';
+      let newContent: string;
+      if (patchOffset === 0 && currentContent.length === 0) {
+        // First patch — just use the patch directly
+        newContent = patch;
+      } else if (patchOffset >= currentContent.length) {
+        // Pure append — most common case during streaming
+        newContent = currentContent + patch;
+      } else {
+        // Backwards edit — tool call status change, etc.
+        newContent = currentContent.slice(0, patchOffset) + patch;
+      }
+
+      // Truncate if totalLength indicates content got shorter
+      if (totalLength < newContent.length) {
+        newContent = newContent.slice(0, totalLength);
+      }
+
+      patchContentRef.current.set(interactionId, newContent);
+
+      // Batch state update via RAF to avoid per-patch re-renders
+      if (!patchPendingRef.current) {
+        patchPendingRef.current = true;
+        requestAnimationFrame(() => {
+          patchPendingRef.current = false;
+
+          // Read latest content from ref (may have accumulated multiple patches)
+          const latestContent = patchContentRef.current.get(interactionId) || '';
+
+          setCurrentResponses(prev => {
+            const current = prev.get(currentSessionId!) || {};
+            // Only update response_message — don't touch other fields
+            if (current.response_message === latestContent && current.id === interactionId) {
+              return prev; // No change — skip re-render entirely
+            }
+            const updated: Partial<TypesInteraction> = {
+              ...current,
+              id: interactionId,
+              response_message: latestContent,
+            };
+            return new Map(prev).set(currentSessionId!, updated);
+          });
+        });
+      }
+    }
   }, [currentSessionId]);
 
   useEffect(() => {
@@ -308,6 +378,13 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
       if (parsedData.step_info && parsedData.step_info.type === "thinking") {
         // Don't reload on thinking info events as we will get a lot of them
+        return
+      }
+
+      if (parsedData.type === WEBSOCKET_EVENT_TYPE_INTERACTION_PATCH) {
+        // Don't trigger query invalidation for streaming patches — they're
+        // high-frequency events handled entirely through currentResponses.
+        // The cache will be updated on completion via interaction_update.
         return
       }
 
