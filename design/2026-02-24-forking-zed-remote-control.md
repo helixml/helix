@@ -190,7 +190,11 @@ Adding a new event type means: (1) add a struct to `types.go`, (2) add a case to
 
 ## Streaming Performance: From O(N²) to O(delta)
 
-The naive streaming path had a quadratic cost profile. On every `message_added` event from Zed (dozens per second during fast token streaming), the API would:
+Streaming from Zed is fundamentally different from streaming raw LLM output. An LLM token stream is append-only — each chunk extends the response and you never need to revisit earlier content. Zed's agent panel is not like this. A single response turn can contain an assistant message, several tool calls, and follow-up messages, all interleaved. Tool calls have status indicators that mutate in place: `**Status: Running**` becomes `**Status: Completed**` mid-stream. The content can change anywhere, not just at the end.
+
+This means you can't just stream appends. The API receives the full cumulative content on every update and has to figure out what changed. The naive approach — send the whole thing every time — worked, but scaled terribly.
+
+On every `message_added` event from Zed (dozens per second during fast token streaming), the API would:
 
 1. Query the database for the session (to find the owner)
 2. Query the database for the interaction (to get the current state)
