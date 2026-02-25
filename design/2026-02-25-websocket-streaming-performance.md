@@ -39,37 +39,39 @@ type streamingContext struct {
 
 **Saves:** 2 DB round-trips per token. For 1000 tokens -> 2000 fewer DB queries.
 
-**Status:** [ ] Implemented [ ] Tested
+**Status:** [x] Implemented [x] Tested (3 tests)
 
 ### Fix 2: Defer Comment Queries to Completion (HIGH IMPACT)
 
 Move `linkAgentResponseToComment` goroutine and `GetPendingCommentByPlanningSessionID` query to only run on `message_completed`. The comment only needs the final content.
 
-Cache the pending comment lookup once (first token) in the streamingContext -- don't query DB every token.
+Implemented as part of Fix 1 -- the streaming path no longer calls these per-token.
 
 **Saves:** 2 DB calls + 1 goroutine per token.
 
-**Status:** [ ] Implemented [ ] Tested
+**Status:** [x] Implemented [x] Tested (covered by existing comment tests)
 
 ### Fix 3: Throttle DB Writes (HIGH IMPACT)
 
-Don't call `UpdateInteraction` on every token. Buffer the latest state in the streamingContext and flush to DB on a timer (every 200ms) or on `message_completed`.
+Don't call `UpdateInteraction` on every token. Buffer the latest state in the streamingContext and flush to DB every 200ms or on `message_completed`.
 
 Risk: if API crashes mid-stream, up to 200ms of content is lost. Acceptable -- response is in Zed anyway and `message_completed` will write the final state.
 
-**Saves:** ~80% of UpdateInteraction calls. For 1000 tokens at 10 tok/sec -> ~100 DB writes instead of 1000.
+`flushAndClearStreamingContext()` ensures dirty state is written before marking complete.
 
-**Status:** [ ] Implemented [ ] Tested
+**Saves:** ~80% of UpdateInteraction calls.
+
+**Status:** [x] Implemented [x] Tested (3 tests)
 
 ### Fix 4: Throttle Frontend Publishing (MEDIUM IMPACT)
 
 Don't publish to frontend on every token. Coalesce: only publish if last publish was >50ms ago or on `message_completed`.
 
-Frontend already batches to `requestAnimationFrame` (~16ms), so publishing faster than 50ms is wasted work. Each publish currently JSON-marshals the full interaction (O(N) bytes).
+Frontend already batches to `requestAnimationFrame` (~16ms), so publishing faster than 50ms is wasted work.
 
 **Saves:** ~80% of JSON marshaling + pubsub overhead.
 
-**Status:** [ ] Implemented [ ] Tested
+**Status:** [x] Implemented [x] Tested (covered by throttle tests)
 
 ## Impact Estimate (Phase 1)
 
@@ -116,6 +118,20 @@ cd api && go build ./pkg/server/
 # Manual test: start spectask, monitor API logs for reduced DB calls
 ```
 
+## Test Coverage (52 tests total)
+
+New tests added for streaming performance:
+- `TestStreamingContextCache_SecondTokenSkipsDBQueries` -- verifies cache hit skips GetSession + ListInteractions
+- `TestStreamingContextCache_ClearedOnMessageCompleted` -- verifies cache cleared after completion
+- `TestStreamingContextCache_UserMessageDoesNotUseCache` -- user messages bypass cache
+- `TestStreamingThrottle_DBWriteAfterInterval` -- verifies 200ms throttle + interval-triggered flush
+- `TestStreamingThrottle_DirtyFlushOnMessageCompleted` -- verifies dirty state flushed before completion
+- `TestStreamingThrottle_MultiMessageAccumulation` -- verifies multi-message_id accumulation with tool call status changes
+
 ## Implementation Log
 
 - 2026-02-25: Created design doc, started implementation
+- 2026-02-25: Fix 1 (streaming context cache) implemented and tested
+- 2026-02-25: Fix 2 (defer comment queries) done as part of Fix 1
+- 2026-02-25: Fixes 3+4 (throttle DB writes + frontend publishes) implemented and tested
+- 2026-02-25: CI fix (CGO_ENABLED=1 in zed-e2e-test) committed
