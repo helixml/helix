@@ -697,8 +697,29 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 		// with cached images so builds start warm instead of cold.
 		if containerDockerPath != "" && m.Destination == "/var/lib/docker" && m.Type == "volume" {
 			volumeName := m.Source // e.g. "docker-data-{sessionID}"
+			sessionDir := filepath.Join("/container-docker/sessions", volumeName, "docker")
 
-			if GoldenExists(req.ProjectID) {
+			// Check if this session already has a Docker data directory from a
+			// previous run (e.g. session restart). If so, reuse it — copying
+			// 30+ GB of golden cache on every restart is wasteful (~28s) and
+			// overwrites any Docker state changes made during the session.
+			// Golden builds are excluded: they need the latest golden snapshot
+			// for incremental rebuilds.
+			sessionDirExists := false
+			if !req.GoldenBuild {
+				if info, err := os.Stat(sessionDir); err == nil && info.IsDir() {
+					sessionDirExists = true
+				}
+			}
+
+			if sessionDirExists {
+				mountType = mount.TypeBind
+				m.Source = sessionDir
+				log.Info().
+					Str("session_dir", sessionDir).
+					Str("volume", volumeName).
+					Msg("Reusing existing session Docker data dir (skipping golden copy)")
+			} else if GoldenExists(req.ProjectID) {
 				// Golden cache available — copy to session dir (works for both
 				// normal sessions AND golden builds; golden builds start from the
 				// previous golden for incremental rebuilds)
@@ -713,7 +734,6 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 						Str("volume", volumeName).
 						Msg("Failed to copy golden cache, falling back to empty dir")
 					// Fall back to plain directory
-					sessionDir := filepath.Join("/container-docker/sessions", volumeName, "docker")
 					if mkErr := os.MkdirAll(sessionDir, 0755); mkErr == nil {
 						mountType = mount.TypeBind
 						m.Source = sessionDir
@@ -728,7 +748,6 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 				}
 			} else {
 				// No golden — plain bind mount (existing behavior)
-				sessionDir := filepath.Join("/container-docker/sessions", volumeName, "docker")
 				if err := os.MkdirAll(sessionDir, 0755); err != nil {
 					log.Warn().Err(err).Str("path", sessionDir).Msg("Failed to create container-docker session dir, falling back to named volume")
 				} else {
@@ -1003,9 +1022,14 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 		log.Info().Str("volume", dockerDataVolume).Str("session_id", sessionID).Msg("Removed session docker-data volume")
 	}
 
-	// Clean up CONTAINER_DOCKER_PATH session directory.
+	// CONTAINER_DOCKER_PATH session directory cleanup.
 	// For golden builds, monitorGoldenBuild handles promotion and cleanup —
 	// we must NOT delete the Docker data here or it'll be gone before promotion.
+	// For normal sessions, we intentionally do NOT clean up the session Docker
+	// data directory here. This allows session restarts to reuse the existing
+	// Docker data instead of re-copying 30+ GB of golden cache (~28s).
+	// The periodic GCOrphanedSessions() (every 10 min) handles cleanup of
+	// session dirs that no longer have a running container.
 	if os.Getenv("CONTAINER_DOCKER_PATH") != "" {
 		if dc.IsGoldenBuild && dc.ProjectID != "" {
 			_ = SetGoldenBuildRunning(dc.ProjectID, false)
@@ -1014,10 +1038,15 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 				Str("session_id", sessionID).
 				Msg("Golden build session stopped, lock released (monitorGoldenBuild handles cleanup)")
 		} else {
-			// Normal session — clean up session Docker data directory
-			if err := CleanupSessionDockerDir(dockerDataVolume); err != nil {
-				log.Warn().Err(err).Str("volume", dockerDataVolume).Msg("Failed to clean up session docker dir")
-			}
+			// Write a timestamp so GC knows when this session was last active.
+			// Directory mtime doesn't update when files deep inside are modified,
+			// so we use an explicit marker file.
+			sessionDir := filepath.Join("/container-docker/sessions", dockerDataVolume)
+			TouchSessionLastActive(sessionDir)
+			log.Info().
+				Str("session_id", sessionID).
+				Str("volume", dockerDataVolume).
+				Msg("Session Docker data dir preserved for potential restart (GC will clean orphans)")
 		}
 	}
 
