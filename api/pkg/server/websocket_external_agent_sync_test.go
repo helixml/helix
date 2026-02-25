@@ -1276,12 +1276,14 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_SecondTokenSkipsDBQueries
 		[]*types.Interaction{existingInteraction}, int64(1), nil,
 	).Times(1)
 
-	// Both tokens call UpdateInteraction
+	// Only FIRST token writes to DB (lastDBWrite is zero, so first always flushes).
+	// Second token within 200ms is throttled — no UpdateInteraction call.
 	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			s.Equal("Hello", interaction.ResponseMessage)
 			return interaction, nil
 		},
-	).Times(2)
+	).Times(1)
 
 	// First token
 	syncMsg1 := &types.SyncMessage{
@@ -1304,8 +1306,8 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_SecondTokenSkipsDBQueries
 	s.NotNil(sctx.session)
 	s.NotNil(sctx.interaction)
 
-	// SECOND token: NO GetSession or ListInteractions calls (cache hit)
-	// Only UpdateInteraction is called (already expected above as Times(2))
+	// SECOND token: NO GetSession, ListInteractions, OR UpdateInteraction calls.
+	// DB write is throttled (within 200ms). Content updated in-memory only.
 	syncMsg2 := &types.SyncMessage{
 		EventType: "message_added",
 		Data: map[string]interface{}{
@@ -1317,6 +1319,12 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_SecondTokenSkipsDBQueries
 	}
 	err = s.server.handleMessageAdded("agent-1", syncMsg2)
 	s.NoError(err)
+
+	// Verify in-memory content is updated despite no DB write
+	sctx.mu.Lock()
+	s.Equal("Hello, world!", sctx.interaction.ResponseMessage)
+	s.True(sctx.dirty, "interaction should be dirty (not yet flushed)")
+	sctx.mu.Unlock()
 }
 
 func (s *WebSocketSyncSuite) TestStreamingContextCache_ClearedOnMessageCompleted() {
@@ -1412,4 +1420,230 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_UserMessageDoesNotUseCach
 	_, exists := s.server.streamingContexts["ses_usermsg"]
 	s.server.streamingContextsMu.RUnlock()
 	s.False(exists, "user messages should not create streaming context")
+}
+
+func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
+	// Test that DB write happens after the throttle interval expires.
+	s.server.contextMappings["thread-throttle"] = "ses_throttle"
+	s.server.sessionToWaitingInteraction["ses_throttle"] = "int-throttle"
+
+	session := &types.Session{
+		ID:    "ses_throttle",
+		Owner: "user-1",
+	}
+	existingInteraction := &types.Interaction{
+		ID:              "int-throttle",
+		SessionID:       "ses_throttle",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "",
+	}
+
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_throttle").Return(session, nil).Times(1)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{existingInteraction}, int64(1), nil,
+	).Times(1)
+
+	// First token writes immediately (lastDBWrite is zero)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			return interaction, nil
+		},
+	).Times(1)
+
+	// First token
+	syncMsg := &types.SyncMessage{
+		EventType: "message_added",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-throttle",
+			"message_id":    "msg-1",
+			"content":       "Token 1",
+			"role":          "assistant",
+		},
+	}
+	err := s.server.handleMessageAdded("agent-1", syncMsg)
+	s.NoError(err)
+
+	// Second token immediately — throttled, no DB write
+	syncMsg.Data["content"] = "Token 1 Token 2"
+	err = s.server.handleMessageAdded("agent-1", syncMsg)
+	s.NoError(err)
+
+	// Verify dirty flag
+	s.server.streamingContextsMu.RLock()
+	sctx := s.server.streamingContexts["ses_throttle"]
+	s.server.streamingContextsMu.RUnlock()
+	sctx.mu.Lock()
+	s.True(sctx.dirty, "should be dirty after throttled write")
+	s.Equal("Token 1 Token 2", sctx.interaction.ResponseMessage)
+	// Artificially expire the throttle interval
+	sctx.lastDBWrite = time.Now().Add(-300 * time.Millisecond)
+	sctx.mu.Unlock()
+
+	// Now expect another DB write since interval expired
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			s.Equal("Token 1 Token 2 Token 3", interaction.ResponseMessage)
+			return interaction, nil
+		},
+	).Times(1)
+
+	syncMsg.Data["content"] = "Token 1 Token 2 Token 3"
+	err = s.server.handleMessageAdded("agent-1", syncMsg)
+	s.NoError(err)
+
+	sctx.mu.Lock()
+	s.False(sctx.dirty, "should not be dirty after interval-triggered write")
+	sctx.mu.Unlock()
+}
+
+func (s *WebSocketSyncSuite) TestStreamingThrottle_DirtyFlushOnMessageCompleted() {
+	// Test that dirty interaction is flushed to DB when message_completed arrives.
+	s.server.contextMappings["thread-flush"] = "ses_flush"
+	s.server.sessionToWaitingInteraction["ses_flush"] = "int-flush"
+
+	session := &types.Session{
+		ID:    "ses_flush",
+		Owner: "user-1",
+	}
+	existingInteraction := &types.Interaction{
+		ID:              "int-flush",
+		SessionID:       "ses_flush",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "",
+	}
+
+	// Pre-populate cache with dirty state (simulates tokens that were throttled)
+	s.server.streamingContextsMu.Lock()
+	s.server.streamingContexts["ses_flush"] = &streamingContext{
+		session: session,
+		interaction: &types.Interaction{
+			ID:              "int-flush",
+			SessionID:       "ses_flush",
+			State:           types.InteractionStateWaiting,
+			ResponseMessage: "dirty unflushed content",
+		},
+		dirty:       true,
+		lastDBWrite: time.Now(), // recent write, so it was throttled
+	}
+	s.server.streamingContextsMu.Unlock()
+
+	// flushAndClearStreamingContext should flush the dirty interaction
+	flushUpdate := s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			s.Equal("dirty unflushed content", interaction.ResponseMessage)
+			s.Equal(types.InteractionStateWaiting, interaction.State) // Not yet complete
+			return interaction, nil
+		},
+	)
+
+	// handleMessageCompleted then does its normal flow
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_flush").Return(session, nil).Times(2)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{existingInteraction}, int64(1), nil,
+	).Times(2)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-flush").Return(&types.Interaction{
+		ID:              "int-flush",
+		SessionID:       "ses_flush",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "dirty unflushed content", // DB was just flushed
+	}, nil)
+
+	// Final UpdateInteraction to mark complete (must come after flush)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			s.Equal(types.InteractionStateComplete, interaction.State)
+			return interaction, nil
+		},
+	).After(flushUpdate)
+
+	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_flush").Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_flush").Return(nil, nil).AnyTimes()
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_completed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-flush",
+		},
+	}
+
+	err := s.server.handleMessageCompleted("agent-1", syncMsg)
+	s.NoError(err)
+
+	// Verify cache was cleared
+	s.server.streamingContextsMu.RLock()
+	_, exists := s.server.streamingContexts["ses_flush"]
+	s.server.streamingContextsMu.RUnlock()
+	s.False(exists, "streaming context should be cleared after message_completed")
+
+	time.Sleep(50 * time.Millisecond)
+}
+
+func (s *WebSocketSyncSuite) TestStreamingThrottle_MultiMessageAccumulation() {
+	// Test content accumulation across different message_ids (text -> tool call -> text)
+	s.server.contextMappings["thread-multi"] = "ses_multi"
+	s.server.sessionToWaitingInteraction["ses_multi"] = "int-multi"
+
+	session := &types.Session{
+		ID:    "ses_multi",
+		Owner: "user-1",
+	}
+	existingInteraction := &types.Interaction{
+		ID:              "int-multi",
+		SessionID:       "ses_multi",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "",
+	}
+
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_multi").Return(session, nil).Times(1)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{existingInteraction}, int64(1), nil,
+	).Times(1)
+
+	// First message_id writes immediately
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			return interaction, nil
+		},
+	).Times(1)
+
+	// First message_id: assistant text
+	syncMsg := &types.SyncMessage{
+		EventType: "message_added",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-multi",
+			"message_id":    "msg-text",
+			"content":       "Let me help",
+			"role":          "assistant",
+		},
+	}
+	err := s.server.handleMessageAdded("agent-1", syncMsg)
+	s.NoError(err)
+
+	// Second message_id: tool call (different message_id triggers \n\n separator)
+	// Throttled, no DB write
+	syncMsg.Data["message_id"] = "msg-tool"
+	syncMsg.Data["content"] = "[Running: ls -la]"
+	err = s.server.handleMessageAdded("agent-1", syncMsg)
+	s.NoError(err)
+
+	// Verify accumulated content in memory
+	s.server.streamingContextsMu.RLock()
+	sctx := s.server.streamingContexts["ses_multi"]
+	s.server.streamingContextsMu.RUnlock()
+
+	sctx.mu.Lock()
+	s.Equal("Let me help\n\n[Running: ls -la]", sctx.interaction.ResponseMessage)
+	s.Equal("msg-tool", sctx.interaction.LastZedMessageID)
+
+	// Third update: tool call status changes (same message_id, content replaces from offset)
+	sctx.mu.Unlock()
+
+	syncMsg.Data["content"] = "[Finished: ls -la]\nfile1.txt\nfile2.txt"
+	err = s.server.handleMessageAdded("agent-1", syncMsg)
+	s.NoError(err)
+
+	sctx.mu.Lock()
+	s.Equal("Let me help\n\n[Finished: ls -la]\nfile1.txt\nfile2.txt", sctx.interaction.ResponseMessage)
+	s.True(sctx.dirty)
+	sctx.mu.Unlock()
 }

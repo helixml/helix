@@ -21,11 +21,30 @@ import (
 
 // streamingContext caches DB query results during token streaming to avoid
 // redundant queries. Created on first message_added, cleared on message_completed.
+// Also buffers interaction updates: DB writes are throttled to at most once per
+// dbWriteInterval, and frontend publishes to once per publishInterval.
 type streamingContext struct {
 	session     *types.Session
 	interaction *types.Interaction
+	// DB write throttling
+	lastDBWrite time.Time
+	dirty       bool // true if interaction has been updated since last DB write
+	// Frontend publish throttling
+	lastPublish time.Time
 	mu          sync.Mutex
 }
+
+const (
+	// dbWriteInterval is the minimum time between UpdateInteraction calls during streaming.
+	// Intermediate content is buffered in the streamingContext.
+	// Risk: up to dbWriteInterval of content lost on crash. Acceptable because
+	// message_completed always writes the final state, and Zed has the full content.
+	dbWriteInterval = 200 * time.Millisecond
+
+	// publishInterval is the minimum time between frontend pubsub events during streaming.
+	// Frontend batches to requestAnimationFrame (~16ms), so faster is wasted work.
+	publishInterval = 50 * time.Millisecond
+)
 
 // External agent WebSocket connections
 type ExternalAgentWSManager struct {
@@ -975,30 +994,38 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			targetInteraction.LastZedMessageID = acc.LastMessageID
 			targetInteraction.LastZedMessageOffset = acc.Offset
 			targetInteraction.Updated = time.Now()
+			sctx.dirty = true
 
-			_, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction)
-			if err != nil {
-				return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
+			// THROTTLED DB WRITE: Only flush to DB if enough time has passed.
+			// The in-memory interaction always has the latest content.
+			now := time.Now()
+			if now.Sub(sctx.lastDBWrite) >= dbWriteInterval {
+				_, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction)
+				if err != nil {
+					return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
+				}
+				sctx.lastDBWrite = now
+				sctx.dirty = false
 			}
 
-			log.Info().
+			log.Debug().
 				Str("session_id", sessionID).
-				Str("context_id", contextID).
 				Str("helix_session_id", helixSessionID).
 				Str("interaction_id", targetInteraction.ID).
-				Str("role", role).
-				Str("content_length", fmt.Sprintf("%d", len(content))).
-				Bool("new_message", prevMessageID != "" && prevMessageID != messageID).
-				Msg("📝 [HELIX] Updated interaction with AI response (keeping Waiting state)")
+				Int("content_length", len(acc.Content)).
+				Bool("db_written", !sctx.dirty).
+				Msg("📝 [HELIX] Updated interaction in-memory")
 
-			// OPTIMIZATION: Send only the updated interaction, not the full session
-			// This reduces O(n) data per update to O(1), dramatically improving streaming performance
-			err = apiServer.publishInteractionUpdateToFrontend(helixSessionID, helixSession.Owner, targetInteraction)
-			if err != nil {
-				log.Error().Err(err).
-					Str("session_id", helixSessionID).
-					Str("interaction_id", targetInteraction.ID).
-					Msg("Failed to publish interaction update to frontend")
+			// THROTTLED FRONTEND PUBLISH: Only publish if enough time has passed.
+			if now.Sub(sctx.lastPublish) >= publishInterval {
+				err := apiServer.publishInteractionUpdateToFrontend(helixSessionID, helixSession.Owner, targetInteraction)
+				if err != nil {
+					log.Error().Err(err).
+						Str("session_id", helixSessionID).
+						Str("interaction_id", targetInteraction.ID).
+						Msg("Failed to publish interaction update to frontend")
+				}
+				sctx.lastPublish = now
 			}
 		} else {
 			log.Warn().
@@ -1132,12 +1159,38 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 	return sctx
 }
 
-// clearStreamingContext removes the cached streaming context for a session.
-// Called on message_completed to free memory and ensure fresh state on next interaction.
-func (apiServer *HelixAPIServer) clearStreamingContext(helixSessionID string) {
+// flushAndClearStreamingContext flushes any dirty interaction state to the DB,
+// then removes the cached streaming context for a session.
+// Called on message_completed to ensure the DB has the latest content before
+// the interaction is marked as complete.
+func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Context, helixSessionID string) {
 	apiServer.streamingContextsMu.Lock()
+	sctx, exists := apiServer.streamingContexts[helixSessionID]
 	delete(apiServer.streamingContexts, helixSessionID)
 	apiServer.streamingContextsMu.Unlock()
+
+	if !exists || sctx == nil {
+		return
+	}
+
+	sctx.mu.Lock()
+	defer sctx.mu.Unlock()
+
+	if sctx.dirty && sctx.interaction != nil {
+		_, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, sctx.interaction)
+		if err != nil {
+			log.Error().Err(err).
+				Str("session_id", helixSessionID).
+				Str("interaction_id", sctx.interaction.ID).
+				Msg("Failed to flush dirty interaction on streaming context clear")
+		} else {
+			log.Info().
+				Str("session_id", helixSessionID).
+				Str("interaction_id", sctx.interaction.ID).
+				Int("content_length", len(sctx.interaction.ResponseMessage)).
+				Msg("📦 [PERF] Flushed dirty interaction to DB before message_completed")
+		}
+	}
 }
 
 // handleMessageUpdated processes message updates from external agent
@@ -1625,8 +1678,9 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("helix_session_id", helixSessionID).
 		Msg("✅ [HELIX] Found Helix session mapping for message_completed")
 
-	// Clear streaming context cache — this session's streaming is done
-	apiServer.clearStreamingContext(helixSessionID)
+	// Flush any dirty streaming context to DB before clearing.
+	// The throttled DB writes in handleMessageAdded may have left unflushed content.
+	apiServer.flushAndClearStreamingContext(context.Background(), helixSessionID)
 
 	// Get the session
 	helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
