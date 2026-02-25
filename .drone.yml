@@ -1925,8 +1925,9 @@ steps:
         COPY helix-api /helix/api
         COPY helix-ws-test-server /app
         WORKDIR /app
-        RUN sed -i 's|/prod/home/luke/pm/helix|/helix|g' go.mod && \
-            CGO_ENABLED=0 go build -o /helix-ws-test-server .
+        RUN apk add --no-cache gcc g++ musl-dev && \
+            sed -i 's|/prod/home/luke/pm/helix|/helix|g' go.mod && \
+            CGO_ENABLED=1 go build -o /helix-ws-test-server .
 
         # Stage 2: Runtime
         FROM ubuntu:25.10
