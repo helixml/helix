@@ -190,7 +190,7 @@ Adding a new event type means: (1) add a struct to `types.go`, (2) add a case to
 
 ## Streaming Performance: From O(N²) to O(delta)
 
-Streaming from Zed is fundamentally different from streaming raw LLM output. An LLM token stream is append-only — each chunk extends the response and you never need to revisit earlier content. Zed's agent panel is not like this. A single response turn can contain an assistant message, several tool calls, and follow-up messages, all interleaved. Tool calls have status indicators that mutate in place: `**Status: Running**` becomes `**Status: Completed**` mid-stream. The content can change anywhere, not just at the end.
+Streaming from Zed is different from streaming raw LLM output. An LLM token stream is append-only — each chunk extends the response and you never revisit earlier content. Zed's agent panel is not like this. A single response turn can contain an assistant message, several tool calls, and follow-up messages, all interleaved. Tool calls have status indicators that mutate in place: `**Status: Running**` becomes `**Status: Completed**` mid-stream. Content can change anywhere, not just at the end.
 
 This means you can't just stream appends. The API receives the full cumulative content on every update and has to figure out what changed. The naive approach — send the whole thing every time — worked, but scaled terribly.
 
@@ -225,7 +225,7 @@ For backwards edits (tool call status changing from "Running" to "Finished"), th
 
 The frontend receives `interaction_patch` events and applies them directly to a ref (`patchContentRef`), bypassing React state entirely. Multiple patches between animation frames are coalesced. The React Query cache is not touched during streaming — only on completion.
 
-Wire traffic drops from O(N) per update to O(delta). For a 100KB response where each token adds ~20 bytes, that's a 5000x reduction per update.
+Wire traffic drops from O(N) per update to O(delta).
 
 ### The UTF-16 offset bug
 
@@ -244,10 +244,10 @@ func utf16RuneLen(r rune) int {
 }
 ```
 
-The slow path now decodes runes from both strings in lockstep, accumulating `utf16Off` alongside `byteOff`. The returned offset matches what JavaScript expects. Supplementary plane characters (emoji like 📤) correctly count as 2 UTF-16 code units.
+The slow path decodes runes from both strings in lockstep, accumulating `utf16Off` alongside `byteOff`. Supplementary plane characters (emoji like 📤) count as 2 UTF-16 code units.
 
 ### Zed-side throttling
 
 Zed fires an `EntryUpdated` event on every token from the LLM. At high token rates this means hundreds of `message_added` WebSocket messages per second, each carrying the full cumulative content for that entry. Most of these are redundant — the Go side only publishes to the frontend every 50ms anyway.
 
-The fix adds a 100ms throttle in Zed's `thread_service.rs`. A `STREAMING_THROTTLE` static tracks the last send time per entry. If less than 100ms has elapsed, the message is buffered. Before every `message_completed`, all pending buffers are flushed to guarantee no data loss. This cuts Zed→Go wire traffic by roughly 90%.
+The fix adds a 100ms throttle in Zed's `thread_service.rs`. A `STREAMING_THROTTLE` static tracks the last send time per entry. If less than 100ms has elapsed, the message is buffered. Before every `message_completed`, all pending buffers are flushed so nothing is dropped. This cuts Zed→Go wire traffic by roughly 90%.
