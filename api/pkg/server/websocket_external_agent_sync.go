@@ -19,6 +19,14 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+// streamingContext caches DB query results during token streaming to avoid
+// redundant queries. Created on first message_added, cleared on message_completed.
+type streamingContext struct {
+	session     *types.Session
+	interaction *types.Interaction
+	mu          sync.Mutex
+}
+
 // External agent WebSocket connections
 type ExternalAgentWSManager struct {
 	connections map[string]*ExternalAgentWSConnection
@@ -923,70 +931,21 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		}
 	}
 
-	// Get the Helix session
-	helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
-	if err != nil {
-		return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
-	}
-
 	if role == "assistant" {
-		// For assistant messages, we need to load interactions to update them
-		// Load interactions following the same pattern as handlers.go getSession
-		interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
-			SessionID:    helixSessionID,
-			GenerationID: helixSession.GenerationID,
-			PerPage:      1000,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to list interactions for session %s: %w", helixSessionID, err)
+		// PERFORMANCE OPTIMIZATION: Use streaming context cache to avoid
+		// redundant DB queries during token streaming. GetSession and
+		// ListInteractions are called once on the first token, then cached
+		// for all subsequent tokens until message_completed.
+		sctx := apiServer.getOrCreateStreamingContext(context.Background(), helixSessionID)
+		if sctx == nil {
+			return fmt.Errorf("failed to get or create streaming context for session %s", helixSessionID)
 		}
 
-		log.Info().
-			Str("helix_session_id", helixSessionID).
-			Int("interaction_count", len(interactions)).
-			Msg("🔍 [DEBUG] Retrieved session interactions")
+		sctx.mu.Lock()
+		defer sctx.mu.Unlock()
 
-		// CRITICAL: Use session->interaction mapping to find the exact interaction
-		// This mapping was stored when we sent the chat_message command
-		var targetInteraction *types.Interaction
-		apiServer.contextMappingsMutex.RLock()
-		interactionID, exists := apiServer.sessionToWaitingInteraction[helixSessionID]
-		apiServer.contextMappingsMutex.RUnlock()
-		if exists {
-			log.Info().
-				Str("helix_session_id", helixSessionID).
-				Str("mapped_interaction_id", interactionID).
-				Msg("🔍 [DEBUG] Found interaction mapping")
-
-			// Find the interaction by ID
-			for i := range interactions {
-				if interactions[i].ID == interactionID {
-					targetInteraction = interactions[i]
-					log.Info().
-						Str("helix_session_id", helixSessionID).
-						Str("interaction_id", interactionID).
-						Msg("🎯 [HELIX] Found interaction for session using mapping")
-					break
-				}
-			}
-		}
-
-		// Fallback: Find the most recent interaction that needs an AI response
-		if targetInteraction == nil {
-			for i := len(interactions) - 1; i >= 0; i-- {
-				// Look for interactions that are either Waiting OR Complete with empty response
-				if interactions[i].State == types.InteractionStateWaiting ||
-					(interactions[i].State == types.InteractionStateComplete && interactions[i].ResponseMessage == "") {
-					targetInteraction = interactions[i]
-					log.Info().
-						Str("helix_session_id", helixSessionID).
-						Str("interaction_id", interactions[i].ID).
-						Str("interaction_state", string(interactions[i].State)).
-						Msg("⚠️ [HELIX] No session mapping found, using most recent empty interaction")
-					break
-				}
-			}
-		}
+		helixSession := sctx.session
+		targetInteraction := sctx.interaction
 
 		if targetInteraction != nil {
 			// Update the existing interaction with the AI response content
@@ -1022,16 +981,6 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
 			}
 
-			// Link agent response to design review comment if this interaction came from a comment
-			go func() {
-				if err := apiServer.linkAgentResponseToComment(context.Background(), targetInteraction); err != nil {
-					log.Debug().
-						Err(err).
-						Str("interaction_id", targetInteraction.ID).
-						Msg("No design review comment linked to this interaction (this is normal for non-comment interactions)")
-				}
-			}()
-
 			log.Info().
 				Str("session_id", sessionID).
 				Str("context_id", contextID).
@@ -1042,64 +991,13 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				Bool("new_message", prevMessageID != "" && prevMessageID != messageID).
 				Msg("📝 [HELIX] Updated interaction with AI response (keeping Waiting state)")
 
-			// DATABASE-FIRST: Link response to pending design review comment
-			// Query database for comments with pending request_id (survives API and container restarts)
-			// IMPORTANT: Get the pending comment ID synchronously to avoid race conditions
-			// If we spawn a goroutine and it runs after message_completed, the next comment
-			// might already have RequestID set, causing us to update the wrong comment.
-			var requestIDForPublish string // Captured for passing to publishSessionUpdateToFrontend
-			pendingComment, err := apiServer.Store.GetPendingCommentByPlanningSessionID(context.Background(), helixSessionID)
-			if err == nil && pendingComment != nil {
-				// Found a pending comment - capture its ID and RequestID synchronously
-				commentID := pendingComment.ID
-				requestID := pendingComment.RequestID
-				requestIDForPublish = requestID // Capture for use outside this block
-
-				// Update the comment with streaming response content
-				go func(sessionID, commentID, requestID, responseContent string) {
-					// Use the request_id to update - this ensures we update the correct comment
-					if err := apiServer.updateCommentWithStreamingResponse(context.Background(), requestID, responseContent); err != nil {
-						log.Debug().
-							Err(err).
-							Str("session_id", sessionID).
-							Str("request_id", requestID).
-							Msg("Failed to update comment with streaming response (this is normal for non-comment interactions)")
-						return
-					}
-
-					log.Info().
-						Str("comment_id", commentID).
-						Str("session_id", sessionID).
-						Str("request_id", requestID).
-						Int("response_length", len(responseContent)).
-						Msg("✅ [HELIX] Updated comment with streaming agent response")
-
-					// Also try HTTP streaming for real-time updates (if channel exists)
-					if requestID != "" {
-						responseChan, _, _, exists := apiServer.getResponseChannel(sessionID, requestID)
-						if exists {
-							select {
-							case responseChan <- responseContent:
-								log.Debug().
-									Str("session_id", sessionID).
-									Str("request_id", requestID).
-									Msg("Sent response to HTTP streaming channel")
-							default:
-								log.Debug().Msg("HTTP response channel full or closed")
-							}
-						}
-					}
-				}(helixSessionID, commentID, requestID, content)
-			}
-
 			// OPTIMIZATION: Send only the updated interaction, not the full session
 			// This reduces O(n) data per update to O(1), dramatically improving streaming performance
-			err = apiServer.publishInteractionUpdateToFrontend(helixSessionID, helixSession.Owner, targetInteraction, requestIDForPublish)
+			err = apiServer.publishInteractionUpdateToFrontend(helixSessionID, helixSession.Owner, targetInteraction)
 			if err != nil {
 				log.Error().Err(err).
 					Str("session_id", helixSessionID).
 					Str("interaction_id", targetInteraction.ID).
-					Str("request_id", requestIDForPublish).
 					Msg("Failed to publish interaction update to frontend")
 			}
 		} else {
@@ -1111,6 +1009,12 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		}
 	} else {
 		// For user messages, create new interaction
+		// User messages are infrequent (one per turn), no need to cache
+		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
+		if err != nil {
+			return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
+		}
+
 		interaction := &types.Interaction{
 			ID:            "", // Will be generated
 			Created:       time.Now(),
@@ -1151,6 +1055,89 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 	}
 
 	return nil
+}
+
+// getOrCreateStreamingContext returns a cached streaming context for the given
+// helix session, or creates one by querying the DB on the first call. This avoids
+// redundant GetSession + ListInteractions queries on every streaming token.
+func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context, helixSessionID string) *streamingContext {
+	apiServer.streamingContextsMu.RLock()
+	sctx, exists := apiServer.streamingContexts[helixSessionID]
+	apiServer.streamingContextsMu.RUnlock()
+	if exists {
+		return sctx
+	}
+
+	// First token for this session — do the DB lookups and cache results
+	helixSession, err := apiServer.Controller.Options.Store.GetSession(ctx, helixSessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", helixSessionID).
+			Msg("Failed to get session for streaming context")
+		return nil
+	}
+
+	interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    helixSessionID,
+		GenerationID: helixSession.GenerationID,
+		PerPage:      1000,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("session_id", helixSessionID).
+			Msg("Failed to list interactions for streaming context")
+		return nil
+	}
+
+	// Find the target interaction (same logic as before)
+	var targetInteraction *types.Interaction
+	apiServer.contextMappingsMutex.RLock()
+	interactionID, hasMapping := apiServer.sessionToWaitingInteraction[helixSessionID]
+	apiServer.contextMappingsMutex.RUnlock()
+	if hasMapping {
+		for i := range interactions {
+			if interactions[i].ID == interactionID {
+				targetInteraction = interactions[i]
+				break
+			}
+		}
+	}
+	if targetInteraction == nil {
+		for i := len(interactions) - 1; i >= 0; i-- {
+			if interactions[i].State == types.InteractionStateWaiting ||
+				(interactions[i].State == types.InteractionStateComplete && interactions[i].ResponseMessage == "") {
+				targetInteraction = interactions[i]
+				break
+			}
+		}
+	}
+
+	sctx = &streamingContext{
+		session:     helixSession,
+		interaction: targetInteraction,
+	}
+
+	apiServer.streamingContextsMu.Lock()
+	// Double-check: another goroutine may have created it while we were querying
+	if existing, ok := apiServer.streamingContexts[helixSessionID]; ok {
+		apiServer.streamingContextsMu.Unlock()
+		return existing
+	}
+	apiServer.streamingContexts[helixSessionID] = sctx
+	apiServer.streamingContextsMu.Unlock()
+
+	log.Info().
+		Str("session_id", helixSessionID).
+		Bool("has_interaction", targetInteraction != nil).
+		Msg("📦 [PERF] Created streaming context cache (will skip DB queries on subsequent tokens)")
+
+	return sctx
+}
+
+// clearStreamingContext removes the cached streaming context for a session.
+// Called on message_completed to free memory and ensure fresh state on next interaction.
+func (apiServer *HelixAPIServer) clearStreamingContext(helixSessionID string) {
+	apiServer.streamingContextsMu.Lock()
+	delete(apiServer.streamingContexts, helixSessionID)
+	apiServer.streamingContextsMu.Unlock()
 }
 
 // handleMessageUpdated processes message updates from external agent
@@ -1637,6 +1624,9 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("acp_thread_id", acpThreadID).
 		Str("helix_session_id", helixSessionID).
 		Msg("✅ [HELIX] Found Helix session mapping for message_completed")
+
+	// Clear streaming context cache — this session's streaming is done
+	apiServer.clearStreamingContext(helixSessionID)
 
 	// Get the session
 	helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)

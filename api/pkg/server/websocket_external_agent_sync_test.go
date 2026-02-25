@@ -58,6 +58,7 @@ func (s *WebSocketSyncSuite) SetupTest() {
 		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
 		requestToCommenterMapping:   make(map[string]string),
+		streamingContexts:          make(map[string]*streamingContext),
 		streamingRateLimiter:        make(map[string]time.Time),
 	}
 }
@@ -1247,4 +1248,168 @@ func (s *WebSocketSyncSuite) TestProcessSyncMessage_SyncEventHookFires() {
 	s.True(hookCalled)
 	s.Equal("agent-hook", hookSessionID)
 	s.Equal("ping", hookEventType)
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Streaming context cache tests
+// ──────────────────────────────────────────────────────────────────────────────
+
+func (s *WebSocketSyncSuite) TestStreamingContextCache_SecondTokenSkipsDBQueries() {
+	// Setup: context mapping and waiting interaction
+	s.server.contextMappings["thread-cache"] = "ses_cache"
+	s.server.sessionToWaitingInteraction["ses_cache"] = "int-cache"
+
+	session := &types.Session{
+		ID:    "ses_cache",
+		Owner: "user-1",
+	}
+	existingInteraction := &types.Interaction{
+		ID:              "int-cache",
+		SessionID:       "ses_cache",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "",
+	}
+
+	// FIRST token: GetSession + ListInteractions called (cache miss)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_cache").Return(session, nil).Times(1)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{existingInteraction}, int64(1), nil,
+	).Times(1)
+
+	// Both tokens call UpdateInteraction
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			return interaction, nil
+		},
+	).Times(2)
+
+	// First token
+	syncMsg1 := &types.SyncMessage{
+		EventType: "message_added",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-cache",
+			"message_id":    "msg-1",
+			"content":       "Hello",
+			"role":          "assistant",
+		},
+	}
+	err := s.server.handleMessageAdded("agent-1", syncMsg1)
+	s.NoError(err)
+
+	// Verify cache was populated
+	s.server.streamingContextsMu.RLock()
+	sctx, exists := s.server.streamingContexts["ses_cache"]
+	s.server.streamingContextsMu.RUnlock()
+	s.True(exists, "streaming context should be cached after first token")
+	s.NotNil(sctx.session)
+	s.NotNil(sctx.interaction)
+
+	// SECOND token: NO GetSession or ListInteractions calls (cache hit)
+	// Only UpdateInteraction is called (already expected above as Times(2))
+	syncMsg2 := &types.SyncMessage{
+		EventType: "message_added",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-cache",
+			"message_id":    "msg-1",
+			"content":       "Hello, world!",
+			"role":          "assistant",
+		},
+	}
+	err = s.server.handleMessageAdded("agent-1", syncMsg2)
+	s.NoError(err)
+}
+
+func (s *WebSocketSyncSuite) TestStreamingContextCache_ClearedOnMessageCompleted() {
+	s.server.contextMappings["thread-clear"] = "ses_clear"
+	s.server.sessionToWaitingInteraction["ses_clear"] = "int-clear"
+
+	session := &types.Session{
+		ID:    "ses_clear",
+		Owner: "user-1",
+	}
+
+	// Pre-populate the streaming context cache
+	s.server.streamingContextsMu.Lock()
+	s.server.streamingContexts["ses_clear"] = &streamingContext{
+		session: session,
+		interaction: &types.Interaction{
+			ID:              "int-clear",
+			SessionID:       "ses_clear",
+			State:           types.InteractionStateWaiting,
+			ResponseMessage: "cached content",
+		},
+	}
+	s.server.streamingContextsMu.Unlock()
+
+	// handleMessageCompleted should clear the cache
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_clear").Return(session, nil).Times(2)
+
+	waitingInteraction := &types.Interaction{
+		ID:              "int-clear",
+		SessionID:       "ses_clear",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "final content",
+	}
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{waitingInteraction}, int64(1), nil,
+	).Times(2)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-clear").Return(waitingInteraction, nil)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(waitingInteraction, nil)
+	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_clear").Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_clear").Return(nil, nil).AnyTimes()
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_completed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-clear",
+		},
+	}
+
+	err := s.server.handleMessageCompleted("agent-1", syncMsg)
+	s.NoError(err)
+
+	// Verify cache was cleared
+	s.server.streamingContextsMu.RLock()
+	_, exists := s.server.streamingContexts["ses_clear"]
+	s.server.streamingContextsMu.RUnlock()
+	s.False(exists, "streaming context should be cleared after message_completed")
+
+	time.Sleep(50 * time.Millisecond)
+}
+
+func (s *WebSocketSyncSuite) TestStreamingContextCache_UserMessageDoesNotUseCache() {
+	s.server.contextMappings["thread-usermsg"] = "ses_usermsg"
+
+	session := &types.Session{
+		ID:           "ses_usermsg",
+		Owner:        "user-1",
+		GenerationID: 0,
+	}
+	// User messages always call GetSession (not cached)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_usermsg").Return(session, nil)
+
+	createdInteraction := &types.Interaction{
+		ID:        "int-usermsg-new",
+		SessionID: "ses_usermsg",
+	}
+	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(createdInteraction, nil)
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_added",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-usermsg",
+			"message_id":    "msg-user",
+			"content":       "User message",
+			"role":          "user",
+		},
+	}
+
+	err := s.server.handleMessageAdded("agent-1", syncMsg)
+	s.NoError(err)
+
+	// Verify no streaming context was created for user messages
+	s.server.streamingContextsMu.RLock()
+	_, exists := s.server.streamingContexts["ses_usermsg"]
+	s.server.streamingContextsMu.RUnlock()
+	s.False(exists, "user messages should not create streaming context")
 }
