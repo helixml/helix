@@ -117,12 +117,13 @@ function mapStatusToPhase(status: string): {
     | "queued" = "none";
   let hasSpecs = status !== "backlog";
 
-  // Queued states - show in backlog but with queued status
-  if (
-    status === "queued_spec_generation" ||
-    status === "queued_implementation"
-  ) {
-    phase = "backlog";
+  // Queued states - show in planning/implementation (user clicked Start, waiting for orchestrator)
+  if (status === "queued_spec_generation") {
+    phase = "planning";
+    planningStatus = "queued";
+    hasSpecs = false;
+  } else if (status === "queued_implementation") {
+    phase = "implementation";
     planningStatus = "queued";
     hasSpecs = false;
   }

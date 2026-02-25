@@ -62,7 +62,7 @@ const getStatusLabel = (status: string): string => {
 const statusToPhase = (status: string): 'backlog' | 'planning' | 'review' | 'implementation' | 'pull_request' | 'completed' => {
   const mapping: Record<string, 'backlog' | 'planning' | 'review' | 'implementation' | 'pull_request' | 'completed'> = {
     backlog: 'backlog',
-    queued_spec_generation: 'backlog',
+    queued_spec_generation: 'planning',
     spec_generation: 'planning',
     spec_review: 'review',
     spec_revision: 'review',
