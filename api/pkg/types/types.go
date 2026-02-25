@@ -74,6 +74,11 @@ type Interaction struct {
 	// different ID = new distinct message (append). Persisted in DB for restart resilience.
 	LastZedMessageID string `json:"last_zed_message_id,omitempty"`
 
+	// LastZedMessageOffset is the byte offset in ResponseMessage where the current
+	// message_id's content begins. Used by the accumulator to replace only the
+	// current message's portion during streaming updates, preserving earlier messages.
+	LastZedMessageOffset int `json:"last_zed_message_offset,omitempty"`
+
 	// Summary is a one-line description of this interaction for search/indexing.
 	// Generated lazily on first access or via background job.
 	Summary          string     `json:"summary,omitempty"`

@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/server/wsprotocol"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -469,41 +470,48 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		Msg("Processing external agent sync message")
 
 	// Process sync message directly
+	var err error
 	switch syncMsg.EventType {
 	case "thread_created":
-		return apiServer.handleThreadCreated(sessionID, syncMsg)
+		err = apiServer.handleThreadCreated(sessionID, syncMsg)
 	case "user_created_thread":
-		return apiServer.handleUserCreatedThread(sessionID, syncMsg)
+		err = apiServer.handleUserCreatedThread(sessionID, syncMsg)
 	case "thread_title_changed":
-		return apiServer.handleThreadTitleChanged(sessionID, syncMsg)
+		err = apiServer.handleThreadTitleChanged(sessionID, syncMsg)
 	case "context_created": // Legacy support - redirect to thread_created
-		return apiServer.handleThreadCreated(sessionID, syncMsg)
+		err = apiServer.handleThreadCreated(sessionID, syncMsg)
 	case "message_added":
-		return apiServer.handleMessageAdded(sessionID, syncMsg)
+		err = apiServer.handleMessageAdded(sessionID, syncMsg)
 	case "message_updated":
-		return apiServer.handleMessageUpdated(sessionID, syncMsg)
+		err = apiServer.handleMessageUpdated(sessionID, syncMsg)
 	case "context_title_changed":
-		return apiServer.handleContextTitleChanged(sessionID, syncMsg)
+		err = apiServer.handleContextTitleChanged(sessionID, syncMsg)
 	case "chat_response":
-		return apiServer.handleChatResponse(sessionID, syncMsg)
+		err = apiServer.handleChatResponse(sessionID, syncMsg)
 	case "chat_response_chunk":
-		return apiServer.handleChatResponseChunk(sessionID, syncMsg)
+		err = apiServer.handleChatResponseChunk(sessionID, syncMsg)
 	case "chat_response_done":
-		return apiServer.handleChatResponseDone(sessionID, syncMsg)
+		err = apiServer.handleChatResponseDone(sessionID, syncMsg)
 	case "message_completed":
-		return apiServer.handleMessageCompleted(sessionID, syncMsg)
+		err = apiServer.handleMessageCompleted(sessionID, syncMsg)
 	case "thread_load_error":
-		return apiServer.handleThreadLoadError(sessionID, syncMsg)
+		err = apiServer.handleThreadLoadError(sessionID, syncMsg)
 	case "chat_response_error":
-		return apiServer.handleChatResponseError(sessionID, syncMsg)
+		err = apiServer.handleChatResponseError(sessionID, syncMsg)
 	case "agent_ready":
-		return apiServer.handleAgentReady(sessionID, syncMsg)
+		err = apiServer.handleAgentReady(sessionID, syncMsg)
 	case "ping":
-		return nil
+		// no-op
 	default:
 		log.Warn().Str("event_type", syncMsg.EventType).Msg("Unknown sync message type")
-		return nil
 	}
+
+	// Fire test hook if registered (nil in production)
+	if apiServer.syncEventHook != nil {
+		apiServer.syncEventHook(sessionID, syncMsg)
+	}
+
+	return err
 }
 
 // handleThreadCreated processes thread creation from external agent (new protocol)
@@ -646,6 +654,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		Metadata: types.SessionMetadata{
 			SystemPrompt: "You are a helpful AI assistant integrated with Zed editor.",
 			AgentType:    "zed_external",
+			ZedThreadID:  contextID,
 		},
 	}
 
@@ -983,55 +992,29 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			// Update the existing interaction with the AI response content
 			// IMPORTANT: Keep state as Waiting - only message_completed marks it as Complete
 			//
-			// MULTI-MESSAGE HANDLING using Zed's message_id (restart-resilient):
-			// Zed sends a unique message_id with each message:
-			// - Same message_id = streaming update of same message (cumulative content) → OVERWRITE
-			// - Different message_id = new distinct message from agent → APPEND
-			//
-			// We persist LastZedMessageID in the database, so this works across restarts.
-			existingContent := targetInteraction.ResponseMessage
-			lastMessageID := targetInteraction.LastZedMessageID
-			shouldAppend := false
+			// MULTI-MESSAGE HANDLING using wsprotocol.MessageAccumulator:
+			// Restores state from DB fields (LastZedMessageID, LastZedMessageOffset)
+			// so accumulation is restart-resilient.
+			acc := &wsprotocol.MessageAccumulator{
+				Content:       targetInteraction.ResponseMessage,
+				LastMessageID: targetInteraction.LastZedMessageID,
+				Offset:        targetInteraction.LastZedMessageOffset,
+			}
+			prevMessageID := acc.LastMessageID
 
-			if lastMessageID == "" {
-				// First message for this interaction - overwrite
-				shouldAppend = false
-				log.Debug().
-					Str("interaction_id", targetInteraction.ID).
-					Str("message_id", messageID).
-					Msg("📝 [HELIX] First message for interaction (setting LastZedMessageID)")
-			} else if lastMessageID == messageID {
-				// Same message ID - this is a streaming update with cumulative content
-				shouldAppend = false
-				log.Debug().
-					Str("interaction_id", targetInteraction.ID).
-					Str("message_id", messageID).
-					Msg("📝 [HELIX] Streaming update (same message_id, overwriting)")
-			} else {
-				// Different message ID - this is a new distinct message from the agent
-				shouldAppend = true
+			acc.AddMessage(messageID, content)
+
+			if prevMessageID != "" && prevMessageID != messageID {
 				log.Info().
 					Str("interaction_id", targetInteraction.ID).
-					Str("last_message_id", lastMessageID).
+					Str("last_message_id", prevMessageID).
 					Str("new_message_id", messageID).
 					Msg("📝 [HELIX] New distinct message detected (different message_id)")
 			}
 
-			// Always update the LastZedMessageID to the current message
-			targetInteraction.LastZedMessageID = messageID
-
-			if shouldAppend && existingContent != "" {
-				// New distinct message - append it
-				targetInteraction.ResponseMessage = existingContent + "\n\n" + content
-				log.Info().
-					Str("interaction_id", targetInteraction.ID).
-					Int("existing_len", len(existingContent)).
-					Int("new_len", len(content)).
-					Msg("📝 [HELIX] Appending new message to interaction (multi-message response)")
-			} else {
-				// Cumulative update or first message - overwrite
-				targetInteraction.ResponseMessage = content
-			}
+			targetInteraction.ResponseMessage = acc.Content
+			targetInteraction.LastZedMessageID = acc.LastMessageID
+			targetInteraction.LastZedMessageOffset = acc.Offset
 			targetInteraction.Updated = time.Now()
 
 			_, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction)
@@ -1056,7 +1039,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				Str("interaction_id", targetInteraction.ID).
 				Str("role", role).
 				Str("content_length", fmt.Sprintf("%d", len(content))).
-				Bool("appended_new_message", shouldAppend).
+				Bool("new_message", prevMessageID != "" && prevMessageID != messageID).
 				Msg("📝 [HELIX] Updated interaction with AI response (keeping Waiting state)")
 
 			// DATABASE-FIRST: Link response to pending design review comment
@@ -1738,9 +1721,20 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	// This needs to be done before publishing so we can pass it to publishSessionUpdateToFrontend
 	messageRequestID, _ := syncMsg.Data["request_id"].(string)
 
-	// CRITICAL: Publish final session update to frontend so it gets the complete state
-	// Without this, the frontend never receives the final update with state=complete
-	// Must reload session and list ALL interactions to avoid sending stale/partial data
+	// CRITICAL: Publish completion through BOTH event channels:
+	// 1. interaction_update — same channel used during streaming, ensures useLiveInteraction sees state=complete
+	// 2. session_update — full session for React Query cache consistency
+	// The frontend's session_update handler has rejection logic (interaction count checks)
+	// that can silently drop events, so interaction_update is the reliable path.
+	err = apiServer.publishInteractionUpdateToFrontend(helixSessionID, helixSession.Owner, targetInteraction, messageRequestID)
+	if err != nil {
+		log.Error().Err(err).
+			Str("session_id", helixSessionID).
+			Str("interaction_id", targetInteraction.ID).
+			Msg("Failed to publish interaction completion update to frontend")
+	}
+
+	// Also publish full session update for cache consistency
 	reloadedSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", helixSessionID).Msg("Failed to reload session for final publish")
@@ -1759,7 +1753,6 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 				Str("last_interaction_state", string(allInteractions[len(allInteractions)-1].State)).
 				Msg("🔍 [DEBUG] Publishing final session update after message_completed")
 
-			// Pass messageRequestID so commenter also receives the final update
 			err = apiServer.publishSessionUpdateToFrontend(reloadedSession, targetInteraction, messageRequestID)
 			if err != nil {
 				log.Error().Err(err).

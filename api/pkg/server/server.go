@@ -134,6 +134,7 @@ type HelixAPIServer struct {
 	wg                         sync.WaitGroup      // Control for goroutines to enable tests
 	summaryService             *SummaryService
 	goldenBuildService         *services.GoldenBuildService
+	syncEventHook              SyncEventHook // optional test hook, nil in production
 }
 
 func NewServer(

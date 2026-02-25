@@ -256,5 +256,47 @@ Look for: StreamInit received, video frames > 0, FPS > 0. Common issues: 0 frame
 
 From macOS host via SSH: `ssh -p 2222 -o StrictHostKeyChecking=no luke@127.0.0.1 "export HELIX_API_KEY=... && /tmp/helix spectask list"`. Don't combine `run_in_background` with `&` in SSH.
 
+## Zed WebSocket Sync E2E Testing
+
+The WebSocket sync protocol between Helix (Go) and Zed (Rust) has E2E tests that run a real Zed binary against a Go test server importing real production Helix server code.
+
+### Architecture
+- **Go test server**: `zed-repo/crates/external_websocket_sync/e2e-test/helix-ws-test-server/main.go`
+- **Imports real code**: `server.NewTestServer()` from `api/pkg/server/test_helpers.go` + `memorystore` (in-memory, no Postgres)
+- **7-phase test**: thread creation → follow-up → new thread → follow-up → completion → UI state query → open_thread + follow-up
+- **Screenshots**: Periodic Xvfb screenshots captured in `/test/screenshots/`
+
+### Running Locally
+```bash
+cd ../zed/crates/external_websocket_sync/e2e-test
+# Requires: zed-binary (from ./stack build-zed release), ANTHROPIC_API_KEY
+cp ../../zed-build/zed zed-binary
+./run_docker_e2e.sh  # builds Go test server + Docker image + runs test
+# Screenshots saved to ./screenshots/
+```
+
+### Go Unit Tests (server-side)
+```bash
+cd api && go test -v -run TestWebSocketSyncSuite ./pkg/server/ -count=1
+```
+
+### CI (Drone)
+The `zed-e2e-test` step in `.drone.yml` runs automatically on the sandbox-build pipeline:
+1. Clones Zed at commit pinned in `sandbox-versions.txt` (`ZED_COMMIT=...`)
+2. Builds Zed binary (cached by commit hash)
+3. Multi-stage Docker build: Go test server (with current helix source) + runtime
+4. Runs 7-phase E2E test with `ANTHROPIC_API_KEY` from Drone secrets
+
+**Updating pinned Zed version**: After pushing Zed changes, update `sandbox-versions.txt` with the new commit hash. The Go test server's `go.mod` has a `replace` directive for local dev; CI overrides it to point to `/drone/src`.
+
+### Key Files
+| File | Purpose |
+|------|---------|
+| `sandbox-versions.txt` | Pins `ZED_COMMIT` for CI builds |
+| `api/pkg/server/test_helpers.go` | `NewTestServer`, `QueueCommand`, `SetSyncEventHook` |
+| `api/pkg/store/memorystore/` | In-memory store for tests (no Postgres) |
+| `api/pkg/server/websocket_external_agent_sync_test.go` | 46 Go unit tests for handler paths |
+| `design/2026-02-25-websocket-sync-test-coverage.md` | Coverage analysis and gaps |
+
 ## CLI Development
 Use the helix CLI for testing, not raw curl. If functionality is missing, add it to `api/pkg/cli/spectask/`.
