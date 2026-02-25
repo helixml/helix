@@ -285,7 +285,7 @@ write_files:
           "max-file": "3"
         }
       }
-  - path: /etc/ssh/sshd_config.d/helix.conf
+  - path: /etc/ssh/sshd_config.d/50-helix.conf
     content: |
       PasswordAuthentication yes
       PubkeyAuthentication yes
@@ -404,6 +404,26 @@ write_files:
           mkdir -p /home/ubuntu/helix
           cp /helix/config/env.vm /home/ubuntu/helix/.env.vm
           chown ubuntu:ubuntu /home/ubuntu/helix/.env.vm
+      fi
+
+      # Restore console password from ZFS config (set by injectDesktopSecret)
+      if [ -f /helix/config/console_password ]; then
+          PASS=\$(cat /helix/config/console_password 2>/dev/null)
+          if [ -n "\$PASS" ]; then
+              echo "ubuntu:\$PASS" | chpasswd
+              log "Restored console password from /helix/config/console_password"
+          fi
+      fi
+
+      # Fix sshd config ordering: 50-helix.conf must sort before 60-cloudimg-settings.conf
+      # so PasswordAuthentication yes takes effect (sshd uses first-match-wins)
+      if [ -f /etc/ssh/sshd_config.d/helix.conf ]; then
+          mv /etc/ssh/sshd_config.d/helix.conf /etc/ssh/sshd_config.d/50-helix.conf
+          log "Renamed helix.conf -> 50-helix.conf for sshd ordering"
+      fi
+      if [ -f /etc/ssh/sshd_config.d/60-cloudimg-settings.conf ]; then
+          sed -i '/^PasswordAuthentication/d' /etc/ssh/sshd_config.d/60-cloudimg-settings.conf
+          log "Removed PasswordAuthentication override from 60-cloudimg-settings.conf"
       fi
 
       # Docker starts automatically via systemd ordering (Before=docker.service).
