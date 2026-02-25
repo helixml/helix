@@ -1841,8 +1841,9 @@ steps:
 
           echo 'Building Zed binary (this may take 15-20 minutes on first run)...'
 
-          # Build the Zed builder image
-          docker build --pull -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
+          # Build the Zed builder environment image (deps + rustup, no compilation)
+          # --target builder-env stops before COPY/cargo build (which needs Zed source as context)
+          docker build --pull --target builder-env -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
 
           # Run Zed build in container, output directly to cache directory
           # Note: Zed source is cloned to /drone/src/cache/zed-source (inside Drone container)
@@ -2259,7 +2260,7 @@ steps:
 
           echo 'Building Zed binary (this may take 15-20 minutes on first run)...'
 
-          docker build --pull --provenance=false -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
+          docker build --pull --provenance=false --target builder-env -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
 
           mkdir -p /drone/src/cache/$${CACHE_KEY}
           docker run --rm \\
