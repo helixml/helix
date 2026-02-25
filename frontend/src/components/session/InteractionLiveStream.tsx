@@ -13,8 +13,6 @@ const SCROLL_THROTTLE_MS = 200;
 import Typography from "@mui/material/Typography";
 import Box from "@mui/material/Box";
 import { useTheme } from "@mui/material/styles";
-import WaitingInQueue from "./WaitingInQueue";
-
 import useLiveInteraction from "../../hooks/useLiveInteraction";
 import Markdown from "./Markdown";
 import { IServerConfig } from "../../types";
@@ -44,21 +42,13 @@ export const InteractionLiveStream: FC<{
     onMessageUpdate,
     onFilterDocument,
 }) => {
-    const { message, status, isStale, stepInfos, isComplete } =
+    const { message, status, stepInfos, isComplete } =
         useLiveInteraction(session_id, interaction);
 
     // Removed excessive debug logging
 
     // Add state to track if we're still in streaming mode or completed
     const [isActivelyStreaming, setIsActivelyStreaming] = useState(true);
-
-    // Memoize values that don't change frequently to prevent unnecessary re-renders
-    const showLoading = useMemo(
-        () =>
-            !message &&
-            interaction.state === TypesInteractionState.InteractionStateWaiting,
-        [message, status],
-    );
 
     // Memoize the useClientURL function
     const useClientURL = useCallback(
@@ -169,9 +159,6 @@ export const InteractionLiveStream: FC<{
                 </div>
             )}
 
-            {interaction.state === "waiting" && isStale && (
-                <WaitingInQueue hasSubscription={false} />
-            )}
         </>
     );
 };
