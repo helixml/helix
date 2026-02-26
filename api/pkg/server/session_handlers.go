@@ -1790,14 +1790,9 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		return
 	}
 
-	// Check if user owns this session
-	if session.Owner != user.ID {
-		log.Warn().
-			Str("session_id", id).
-			Str("user_id", user.ID).
-			Str("owner_id", session.Owner).
-			Msg("User not authorized to resume session")
-		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+	err = s.authorizeUserToSession(ctx, user, session, types.ActionUpdate)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -2066,9 +2061,9 @@ func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http
 		return nil, system.NewHTTPError404("session not found")
 	}
 
-	// Verify user owns this session
-	if user == nil || session.Owner != user.ID {
-		return nil, system.NewHTTPError403("access denied")
+	err = s.authorizeUserToSession(ctx, user, session, types.ActionUpdate)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// Check if this is an external agent session
