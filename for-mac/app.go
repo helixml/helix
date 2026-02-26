@@ -864,11 +864,15 @@ func (a *App) CancelUpdate() {
 // from the installed VM version. This works regardless of whether an app update
 // is available — it catches both post-app-update and manual .app replacement.
 func (a *App) IsVMUpdateAvailable() bool {
+	installed := a.settings.Get().InstalledVMVersion
+	if installed == "" {
+		return false // No VM installed yet — can't be stale
+	}
 	m, err := a.downloader.LoadManifest()
 	if err != nil || m == nil {
 		return false
 	}
-	return a.settings.Get().InstalledVMVersion != m.Version
+	return installed != m.Version
 }
 
 // isVMStale returns true if the installed VM version doesn't match either:
@@ -876,6 +880,9 @@ func (a *App) IsVMUpdateAvailable() bool {
 // 2. The CDN-reported latest version (if an app update is available).
 func (a *App) isVMStale() bool {
 	installed := a.settings.Get().InstalledVMVersion
+	if installed == "" {
+		return false // No VM installed yet — can't be stale
+	}
 
 	// Check bundled manifest
 	m, err := a.downloader.LoadManifest()

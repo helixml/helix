@@ -364,6 +364,11 @@ export function App() {
   const stateLabel =
     vmStatus.state.charAt(0).toUpperCase() + vmStatus.state.slice(1);
 
+  // Only show update badges when the VM is in a stable state (running/stopped)
+  // and not during initial download — avoids false update prompts on first install
+  const canShowUpdateBadges = !needsDownload && !downloadProgress &&
+    (vmStatus.state === "running" || vmStatus.state === "stopped");
+
   // Don't render content until initial state is loaded to avoid flashing
   // stale defaults (e.g., license form when a key is already configured)
   if (!initialized) {
@@ -501,7 +506,7 @@ export function App() {
 
         {/* Update badges */}
         {/* App update available — starts combined (VM+DMG) download */}
-        {updateInfo?.available && !combinedUpdateProgress && !combinedUpdateReady && !vmUpdateReady && !vmUpdateProgress && (
+        {canShowUpdateBadges && updateInfo?.available && !combinedUpdateProgress && !combinedUpdateReady && !vmUpdateReady && !vmUpdateProgress && (
           <button
             className="update-badge"
             onDoubleClick={(e) => e.stopPropagation()}
@@ -517,7 +522,7 @@ export function App() {
         )}
 
         {/* Standalone VM update — only when no app update is available */}
-        {vmUpdateAvailable && !updateInfo?.available && !vmUpdateProgress && !vmUpdateReady && !combinedUpdateProgress && !combinedUpdateReady && (
+        {canShowUpdateBadges && vmUpdateAvailable && !updateInfo?.available && !vmUpdateProgress && !vmUpdateReady && !combinedUpdateProgress && !combinedUpdateReady && (
           <button
             className="update-badge"
             onDoubleClick={(e) => e.stopPropagation()}
@@ -583,7 +588,7 @@ export function App() {
         )}
 
         {/* Combined update ready — restart applies both VM + app */}
-        {combinedUpdateReady && (
+        {canShowUpdateBadges && combinedUpdateReady && (
           <button
             className="update-ready-badge"
             onDoubleClick={(e) => e.stopPropagation()}
@@ -595,7 +600,7 @@ export function App() {
         )}
 
         {/* Standalone VM update ready (no combined flow) */}
-        {vmUpdateReady && !combinedUpdateReady && (
+        {canShowUpdateBadges && vmUpdateReady && !combinedUpdateReady && (
           <button
             className="update-ready-badge"
             onDoubleClick={(e) => e.stopPropagation()}

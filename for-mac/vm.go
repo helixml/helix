@@ -714,7 +714,7 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		// Too small causes virglrenderer to block in proxy_socket_receive_reply,
 		// which deadlocks the BQL and hangs the entire VM.
 		// EDID enabled with 5K preferred resolution so 5120x2880 is available as a DRM mode.
-		"-device", fmt.Sprintf("virtio-gpu-gl-pci,id=gpu0,hostmem=1024M,blob=true,venus=true,edid=on,xres=5120,yres=2880,helix-port=%d", vm.config.FrameExportPort),
+		"-device", fmt.Sprintf("virtio-gpu-gl-pci,id=gpu0,hostmem=%s,blob=true,venus=true,edid=on,xres=5120,yres=2880,helix-port=%d", getGPUHostMem(), vm.config.FrameExportPort),
 		// 16 virtual display outputs: index 0 for VM console, 1-15 for container desktops.
 		// Matches UTM plist AdditionalArguments config.
 		"-global", "virtio-gpu-gl-pci.max_outputs=16",
@@ -1608,6 +1608,37 @@ func (vm *VMManager) getAppBundlePath() string {
 //  3. Bundled in app: Contents/MacOS/qemu-system-aarch64 (production mode)
 //  4. System PATH: qemu-system-aarch64
 //
+// getGPUHostMem returns the hostmem size for virtio-gpu-gl-pci, scaled by
+// system RAM.
+//
+// Context: 8GB M1 Air fails to boot with EDK2 "Out Of Resource!" /
+// PciHostBridgeResourceConflict, dropping to UEFI shell. 16GB M1 boots
+// fine with hostmem=1024M. Root cause unknown. The hostmem parameter
+// sets the PCI BAR size for the virtio-gpu shared memory region. The
+// QEMU virt machine's 32-bit MMIO window (VIRT_PCIE_MMIO) is ~752MB,
+// so a 1GB BAR must go in the 64-bit high MMIO region -- this works on
+// 16GB M1, so EDK2/HVF handles it. Why 8GB fails is unclear; scaling
+// hostmem down is the first thing to test.
+//
+// Each desktop needs ~64-128MB of GPU blob resources, so:
+//   - <=8GB RAM:  256M (2-4 desktops)
+//   - <=16GB RAM: 512M (4-8 desktops)
+//   - >16GB RAM:  1024M (8+ desktops)
+func getGPUHostMem() string {
+	memMB := getSystemMemoryMB()
+	var hostmem string
+	switch {
+	case memMB <= 8*1024:
+		hostmem = "256M"
+	case memMB <= 16*1024:
+		hostmem = "512M"
+	default:
+		hostmem = "1024M"
+	}
+	log.Printf("GPU hostmem: %s (system RAM: %d MB)", hostmem, memMB)
+	return hostmem
+}
+
 // QEMU is built as a dylib + thin wrapper. The wrapper (75KB) has main() and
 // loads libqemu-aarch64-softmmu.dylib via @executable_path. You cannot execute
 // a .dylib directly — the wrapper executable is required.
