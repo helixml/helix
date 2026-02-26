@@ -1011,25 +1011,15 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 		log.Warn().Err(err).Str("container_id", dc.ContainerID).Msg("Failed to remove container")
 	}
 
-	// Remove the per-session docker-data volume that was mounted at /var/lib/docker.
-	// This volume is created by hydra_executor.go when the container starts and
-	// accumulates docker images/layers from in-desktop Docker usage. Without cleanup
-	// these orphaned volumes leak tens of GB each and fill the disk over time.
+	// Session Docker data directory lifecycle:
+	// - CONTAINER_DOCKER_PATH converts the docker-data named volume to a bind
+	//   mount at /container-docker/sessions/docker-data-{sessionID}/docker/.
+	//   This is always set in practice (dev .env + production provisioning).
+	// - We preserve the session dir on stop so restarts can reuse it instead
+	//   of re-copying 30+ GB of golden cache (~28s).
+	// - GCOrphanedSessions() (every 10 min) cleans dirs inactive for >7 days.
+	// - For golden builds, monitorGoldenBuild handles promotion and cleanup.
 	dockerDataVolume := fmt.Sprintf("docker-data-%s", sessionID)
-	if err := dockerClient.VolumeRemove(ctx, dockerDataVolume, true); err != nil {
-		log.Warn().Err(err).Str("volume", dockerDataVolume).Msg("Failed to remove session docker-data volume")
-	} else {
-		log.Info().Str("volume", dockerDataVolume).Str("session_id", sessionID).Msg("Removed session docker-data volume")
-	}
-
-	// CONTAINER_DOCKER_PATH session directory cleanup.
-	// For golden builds, monitorGoldenBuild handles promotion and cleanup —
-	// we must NOT delete the Docker data here or it'll be gone before promotion.
-	// For normal sessions, we intentionally do NOT clean up the session Docker
-	// data directory here. This allows session restarts to reuse the existing
-	// Docker data instead of re-copying 30+ GB of golden cache (~28s).
-	// The periodic GCOrphanedSessions() (every 10 min) handles cleanup of
-	// session dirs that no longer have a running container.
 	if os.Getenv("CONTAINER_DOCKER_PATH") != "" {
 		if dc.IsGoldenBuild && dc.ProjectID != "" {
 			_ = SetGoldenBuildRunning(dc.ProjectID, false)
@@ -1045,8 +1035,15 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 			TouchSessionLastActive(sessionDir)
 			log.Info().
 				Str("session_id", sessionID).
-				Str("volume", dockerDataVolume).
 				Msg("Session Docker data dir preserved for potential restart (GC will clean orphans)")
+		}
+	} else {
+		// No CONTAINER_DOCKER_PATH: docker data is in a named Docker volume.
+		// Clean it up directly since there's no bind-mount dir to reuse.
+		if err := dockerClient.VolumeRemove(ctx, dockerDataVolume, true); err != nil {
+			log.Warn().Err(err).Str("volume", dockerDataVolume).Msg("Failed to remove session docker-data volume")
+		} else {
+			log.Info().Str("volume", dockerDataVolume).Str("session_id", sessionID).Msg("Removed session docker-data volume")
 		}
 	}
 
