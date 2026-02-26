@@ -302,7 +302,7 @@ func PromoteSessionToGolden(projectID, volumeName string) error {
 }
 
 // CleanupSessionDockerDir removes the per-session Docker data directory.
-// Works for both golden-seeded and plain sessions that use CONTAINER_DOCKER_PATH.
+// Only used for failed golden builds; normal sessions are cleaned by GC.
 func CleanupSessionDockerDir(volumeName string) error {
 	base := sessionOverlayDir(volumeName)
 

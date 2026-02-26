@@ -72,6 +72,10 @@ type DevContainerManager struct {
 
 // NewDevContainerManager creates a new dev container manager
 func NewDevContainerManager(manager *Manager) *DevContainerManager {
+	if os.Getenv("CONTAINER_DOCKER_PATH") == "" {
+		log.Fatal().Msg("CONTAINER_DOCKER_PATH must be set — Hydra requires bind-mount-backed session storage")
+	}
+
 	dm := &DevContainerManager{
 		manager:            manager,
 		containers:         make(map[string]*DevContainer),
@@ -676,33 +680,24 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *
 func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mount.Mount {
 	var mounts []mount.Mount
 
-	// CONTAINER_DOCKER_PATH: if set, per-session inner dockerd data uses bind mounts
-	// from a ZFS-backed path instead of Docker named volumes. This keeps the sandbox's
-	// own Docker storage on the root disk (so provisioned desktop images persist)
-	// while inner dockerd data benefits from ZFS dedup+compression.
-	containerDockerPath := os.Getenv("CONTAINER_DOCKER_PATH")
-
 	for _, m := range req.Mounts {
 		mountType := mount.TypeBind
 		if m.Type == "volume" {
 			mountType = mount.TypeVolume
 		}
 
-		// Redirect inner dockerd volumes to ZFS-backed bind mounts when configured.
-		// The API sends docker-data-{sessionID} as a named volume for /var/lib/docker;
-		// we convert it to a bind mount from /container-docker/sessions/{volumeName}/docker/.
+		// Inner dockerd data: convert the named volume to a bind mount from
+		// /container-docker/sessions/{volumeName}/docker/. This keeps the
+		// sandbox's own Docker storage on the root disk while inner dockerd
+		// data lives on the CONTAINER_DOCKER_PATH filesystem.
 		//
-		// When a golden Docker cache exists for the project, copy it into the
-		// session's Docker data directory. This pre-populates the inner dockerd
-		// with cached images so builds start warm instead of cold.
-		if containerDockerPath != "" && m.Destination == "/var/lib/docker" && m.Type == "volume" {
+		// If the session dir already exists (e.g. session restart), reuse it
+		// instead of re-copying 30+ GB of golden cache (~28s).
+		if m.Destination == "/var/lib/docker" && m.Type == "volume" {
 			volumeName := m.Source // e.g. "docker-data-{sessionID}"
 			sessionDir := filepath.Join("/container-docker/sessions", volumeName, "docker")
 
-			// Check if this session already has a Docker data directory from a
-			// previous run (e.g. session restart). If so, reuse it — copying
-			// 30+ GB of golden cache on every restart is wasteful (~28s) and
-			// overwrites any Docker state changes made during the session.
+			// Reuse existing session dir on restart (skip golden copy).
 			// Golden builds are excluded: they need the latest golden snapshot
 			// for incremental rebuilds.
 			sessionDirExists := false
@@ -717,12 +712,9 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 				m.Source = sessionDir
 				log.Info().
 					Str("session_dir", sessionDir).
-					Str("volume", volumeName).
 					Msg("Reusing existing session Docker data dir (skipping golden copy)")
 			} else if GoldenExists(req.ProjectID) {
-				// Golden cache available — copy to session dir (works for both
-				// normal sessions AND golden builds; golden builds start from the
-				// previous golden for incremental rebuilds)
+				// Golden cache available — copy to session dir
 				onProgress := func(copied, total int64) {
 					dm.setGoldenCopyProgress(req.ProjectID, copied, total, false)
 				}
@@ -733,7 +725,6 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 						Str("project_id", req.ProjectID).
 						Str("volume", volumeName).
 						Msg("Failed to copy golden cache, falling back to empty dir")
-					// Fall back to plain directory
 					if mkErr := os.MkdirAll(sessionDir, 0755); mkErr == nil {
 						mountType = mount.TypeBind
 						m.Source = sessionDir
@@ -747,13 +738,12 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 						Msg("Using golden cache copy for inner dockerd")
 				}
 			} else {
-				// No golden — plain bind mount (existing behavior)
+				// No golden cache — empty bind mount
 				if err := os.MkdirAll(sessionDir, 0755); err != nil {
-					log.Warn().Err(err).Str("path", sessionDir).Msg("Failed to create container-docker session dir, falling back to named volume")
+					log.Warn().Err(err).Str("path", sessionDir).Msg("Failed to create session docker dir")
 				} else {
 					mountType = mount.TypeBind
 					m.Source = sessionDir
-					log.Debug().Str("source", sessionDir).Msg("Using ZFS-backed bind mount for inner dockerd")
 				}
 			}
 		}
@@ -1011,40 +1001,23 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 		log.Warn().Err(err).Str("container_id", dc.ContainerID).Msg("Failed to remove container")
 	}
 
-	// Session Docker data directory lifecycle:
-	// - CONTAINER_DOCKER_PATH converts the docker-data named volume to a bind
-	//   mount at /container-docker/sessions/docker-data-{sessionID}/docker/.
-	//   This is always set in practice (dev .env + production provisioning).
-	// - We preserve the session dir on stop so restarts can reuse it instead
-	//   of re-copying 30+ GB of golden cache (~28s).
-	// - GCOrphanedSessions() (every 10 min) cleans dirs inactive for >7 days.
-	// - For golden builds, monitorGoldenBuild handles promotion and cleanup.
+	// Preserve the session Docker data dir so restarts can reuse it instead
+	// of re-copying 30+ GB of golden cache (~28s). Write a .last-active marker
+	// so GCOrphanedSessions() (every 10 min) can clean dirs inactive for >7 days.
+	// For golden builds, monitorGoldenBuild handles promotion and cleanup.
 	dockerDataVolume := fmt.Sprintf("docker-data-%s", sessionID)
-	if os.Getenv("CONTAINER_DOCKER_PATH") != "" {
-		if dc.IsGoldenBuild && dc.ProjectID != "" {
-			_ = SetGoldenBuildRunning(dc.ProjectID, false)
-			log.Info().
-				Str("project_id", dc.ProjectID).
-				Str("session_id", sessionID).
-				Msg("Golden build session stopped, lock released (monitorGoldenBuild handles cleanup)")
-		} else {
-			// Write a timestamp so GC knows when this session was last active.
-			// Directory mtime doesn't update when files deep inside are modified,
-			// so we use an explicit marker file.
-			sessionDir := filepath.Join("/container-docker/sessions", dockerDataVolume)
-			TouchSessionLastActive(sessionDir)
-			log.Info().
-				Str("session_id", sessionID).
-				Msg("Session Docker data dir preserved for potential restart (GC will clean orphans)")
-		}
+	if dc.IsGoldenBuild && dc.ProjectID != "" {
+		_ = SetGoldenBuildRunning(dc.ProjectID, false)
+		log.Info().
+			Str("project_id", dc.ProjectID).
+			Str("session_id", sessionID).
+			Msg("Golden build session stopped, lock released (monitorGoldenBuild handles cleanup)")
 	} else {
-		// No CONTAINER_DOCKER_PATH: docker data is in a named Docker volume.
-		// Clean it up directly since there's no bind-mount dir to reuse.
-		if err := dockerClient.VolumeRemove(ctx, dockerDataVolume, true); err != nil {
-			log.Warn().Err(err).Str("volume", dockerDataVolume).Msg("Failed to remove session docker-data volume")
-		} else {
-			log.Info().Str("volume", dockerDataVolume).Str("session_id", sessionID).Msg("Removed session docker-data volume")
-		}
+		sessionDir := filepath.Join("/container-docker/sessions", dockerDataVolume)
+		TouchSessionLastActive(sessionDir)
+		log.Info().
+			Str("session_id", sessionID).
+			Msg("Session Docker data dir preserved for potential restart (GC will clean orphans)")
 	}
 
 	// Update status
@@ -1071,10 +1044,6 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 // running containers, and cleans up stale golden cache state.
 // Should be called periodically and on startup.
 func (dm *DevContainerManager) GCOrphanedSessions() {
-	if os.Getenv("CONTAINER_DOCKER_PATH") == "" {
-		return // Not using per-session docker dirs
-	}
-
 	dm.mu.RLock()
 	active := make(map[string]bool, len(dm.containers))
 	for sessionID := range dm.containers {
