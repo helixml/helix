@@ -37,6 +37,11 @@ const (
 	DevContainerStatusError    DevContainerStatus = "error"
 )
 
+// DockerDataVolumePrefix is the naming convention for per-session inner dockerd
+// data volumes. Used by hydra_executor (creation) and devcontainer (mount
+// conversion to bind mount, GC, cleanup).
+const DockerDataVolumePrefix = "docker-data-"
+
 // MountConfig represents a volume mount configuration
 type MountConfig struct {
 	Source      string `json:"source"`

@@ -693,7 +693,7 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 		//
 		// If the session dir already exists (e.g. session restart), reuse it
 		// instead of re-copying 30+ GB of golden cache (~28s).
-		if m.Destination == "/var/lib/docker" && m.Type == "volume" {
+		if strings.HasPrefix(m.Source, DockerDataVolumePrefix) && m.Type == "volume" {
 			volumeName := m.Source // e.g. "docker-data-{sessionID}"
 			sessionDir := filepath.Join("/container-docker/sessions", volumeName, "docker")
 
@@ -1005,7 +1005,7 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	// of re-copying 30+ GB of golden cache (~28s). Write a .last-active marker
 	// so GCOrphanedSessions() (every 10 min) can clean dirs inactive for >7 days.
 	// For golden builds, monitorGoldenBuild handles promotion and cleanup.
-	dockerDataVolume := fmt.Sprintf("docker-data-%s", sessionID)
+	dockerDataVolume := DockerDataVolumePrefix + sessionID
 	if dc.IsGoldenBuild && dc.ProjectID != "" {
 		_ = SetGoldenBuildRunning(dc.ProjectID, false)
 		log.Info().
@@ -1377,7 +1377,7 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	dockerDataVolume := fmt.Sprintf("docker-data-%s", dc.SessionID)
+	dockerDataVolume := DockerDataVolumePrefix + dc.SessionID
 	resultFile := filepath.Join(sessionsBaseDir, dockerDataVolume, "docker", ".golden-build-result")
 
 	// Poll for the result file. The workspace-setup script writes this after

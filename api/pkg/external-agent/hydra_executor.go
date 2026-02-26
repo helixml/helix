@@ -1001,9 +1001,9 @@ func (h *HydraExecutor) buildMounts(agent *types.DesktopAgent, workspaceDir stri
 	// The desktop's 17-start-dockerd.sh init script detects this mountpoint
 	// and starts dockerd automatically. No docker.sock mount needed.
 	mounts = append(mounts, hydra.MountConfig{
-		Source:      fmt.Sprintf("docker-data-%s", agent.SessionID),
+		Source:      hydra.DockerDataVolumePrefix + agent.SessionID,
 		Destination: "/var/lib/docker",
-		Type:        "volume", // Docker named volume, backed by host ext4
+		Type:        "volume", // Converted to bind mount by Hydra's buildMounts
 	})
 
 	// NOTE: Shared BuildKit cache mount (/buildkit-cache) and BUILDKIT_HOST env var

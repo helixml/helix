@@ -561,7 +561,7 @@ func GCOrphanedSessionDirs(activeSessions map[string]bool) (int, int64, error) {
 
 		// Session dirs are named "docker-data-ses_xxxxx"
 		name := entry.Name()
-		sessionID := strings.TrimPrefix(name, "docker-data-")
+		sessionID := strings.TrimPrefix(name, DockerDataVolumePrefix)
 		dir := filepath.Join(sessionsBaseDir, name)
 
 		if activeSessions[sessionID] {
