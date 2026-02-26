@@ -32,5 +32,5 @@
 - [ ] Integration test: apply updates existing project
 
 ## Documentation
-- [ ] Add example `helixproject.yaml` to `helix/sample/`
+- [ ] Add example `helix.yaml` to `helix/sample/`
 - [ ] Update CLI help text with project apply examples

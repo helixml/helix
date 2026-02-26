@@ -23,7 +23,7 @@ As a developer, I want to run `helix apply -f myproject.yaml` to create or updat
 - Prints project ID on success
 
 ### US3: Store project in a Git repo
-As a team, I want to put `helixproject.yaml` in our repo so anyone on Helix can import our project easily.
+As a team, I want to put `helix.yaml` in our repo so anyone on Helix can import our project easily.
 
 **Acceptance Criteria:**
 - Project YAML works when placed in a git repository
