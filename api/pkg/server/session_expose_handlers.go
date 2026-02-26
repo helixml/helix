@@ -18,6 +18,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // ExposedPort represents a port exposed from a session's dev container
@@ -529,9 +530,9 @@ func (apiServer *HelixAPIServer) exposeSessionPort(rw http.ResponseWriter, r *ht
 		return nil, system.NewHTTPError404(fmt.Sprintf("session not found: %s", err))
 	}
 
-	// Verify user has access to this session
-	if session.Owner != user.ID && !user.Admin {
-		return nil, system.NewHTTPError403("access denied")
+	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionUpdate)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// Parse request
@@ -594,8 +595,9 @@ func (apiServer *HelixAPIServer) unexposeSessionPort(rw http.ResponseWriter, r *
 	}
 
 	// Verify user has access to this session
-	if session.Owner != user.ID && !user.Admin {
-		return nil, system.NewHTTPError403("access denied")
+	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionUpdate)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// Remove the exposed port
@@ -638,8 +640,9 @@ func (apiServer *HelixAPIServer) listExposedPorts(rw http.ResponseWriter, r *htt
 	}
 
 	// Verify user has access to this session
-	if session.Owner != user.ID && !user.Admin {
-		return nil, system.NewHTTPError403("access denied")
+	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	ports := apiServer.exposedPortManager.ListExposedPorts(sessionID)
