@@ -42,14 +42,14 @@ type AgentConfig struct {
 	InlineAssistantModel   *ModelConfig `json:"inline_assistant_model,omitempty"`
 	CommitMessageModel     *ModelConfig `json:"commit_message_model,omitempty"`
 	ThreadSummaryModel     *ModelConfig `json:"thread_summary_model,omitempty"`
-	AlwaysAllowToolActions bool         `json:"always_allow_tool_actions"`
+	AlwaysAllowToolActions bool         `json:"always_allow_tool_actions"` // Deprecated: mapped to tool_permissions.default="allow" by handler
 	ShowOnboarding         bool         `json:"show_onboarding"`
 	AutoOpenPanel          bool         `json:"auto_open_panel"`
 }
 
 type LanguageModelConfig struct {
 	APIURL string `json:"api_url"`           // Custom API URL (empty = use default provider URL)
-	APIKey string `json:"api_key,omitempty"` // API key for authentication
+	APIKey string `json:"api_key,omitempty"` // Deprecated: Zed reads from env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY)
 }
 
 type AssistantSettings struct {
@@ -69,10 +69,8 @@ type ContextServerConfig struct {
 	Env     map[string]string `json:"env,omitempty"`
 
 	// HTTP-based MCP server (direct connection)
-	// Zed uses "source" field to distinguish transport type:
-	// - "http" = Streamable HTTP transport (MCP 2025-03-26+)
-	// - "sse" = Legacy SSE transport (MCP 2024-11-05)
-	Source  string            `json:"source,omitempty"`
+	// Upstream Zed uses untagged enum — presence of "url" field indicates Http variant.
+	// The "source" field is no longer used (deprecated in upstream Zed).
 	URL     string            `json:"url,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
 }
@@ -177,14 +175,14 @@ func GenerateZedMCPConfig(
 	// IMPORTANT: Anthropic and OpenAI have different URL conventions in Zed:
 	// - Anthropic: base URL only (Zed appends /v1/messages)
 	// - OpenAI: base URL + /v1 (Zed appends /chat/completions)
+	// api_key is NOT set here — Zed reads ANTHROPIC_API_KEY / OPENAI_API_KEY from
+	// container env vars (set by DesktopAgentAPIEnvVars). Only api_url routing is needed.
 	config.LanguageModels = map[string]LanguageModelConfig{
 		"anthropic": {
 			APIURL: helixAPIURL, // Zed appends /v1/messages
-			APIKey: helixToken,  // Helix token for authentication
 		},
 		"openai": {
 			APIURL: helixAPIURL + "/v1", // Zed appends /chat/completions
-			APIKey: helixToken,          // Helix token for authentication
 		},
 	}
 
@@ -207,7 +205,6 @@ func GenerateZedMCPConfig(
 		// The Helix MCP gateway at /api/v1/mcp/kodit authenticates users and forwards to Kodit
 		koditMCPURL := fmt.Sprintf("%s/api/v1/mcp/kodit", helixAPIURL)
 		config.ContextServers["kodit"] = ContextServerConfig{
-			Source: "http",
 			URL:    koditMCPURL,
 			Headers: map[string]string{
 				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
@@ -220,7 +217,6 @@ func GenerateZedMCPConfig(
 	// Provides take_screenshot, save_screenshot, type_text, mouse_click, get_clipboard, set_clipboard,
 	// list_windows, focus_window, maximize_window, tile_window, move_to_workspace, switch_to_workspace, get_workspaces
 	config.ContextServers["helix-desktop"] = ContextServerConfig{
-		Source: "http",
 		URL:    "http://localhost:9878/mcp", // Desktop MCP server (desktop-bridge runs on 9878)
 	}
 
@@ -230,7 +226,6 @@ func GenerateZedMCPConfig(
 	// search_all_sessions, list_sessions, get_turn, get_turns, get_interaction
 	sessionMCPURL := fmt.Sprintf("%s/api/v1/mcp/session?session_id=%s", helixAPIURL, sessionID)
 	config.ContextServers["helix-session"] = ContextServerConfig{
-		Source: "http",
 		URL:    sessionMCPURL,
 		Headers: map[string]string{
 			"Authorization": fmt.Sprintf("Bearer %s", helixToken),
@@ -367,7 +362,6 @@ func mcpToContextServerWithProxy(ctx context.Context, mcp types.AssistantMCP, us
 		// The proxy always exposes as Streamable HTTP (the modern protocol)
 		// It handles SSE transport internally when connecting to legacy servers
 		return ContextServerConfig{
-			Source: "http",
 			URL:    proxyURL,
 			Headers: map[string]string{
 				"Authorization": fmt.Sprintf("Bearer %s", helixToken),

@@ -186,7 +186,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		// The raw `claude` CLI does NOT support --experimental-acp.
 		return map[string]interface{}{
 			"claude": map[string]interface{}{
-				"default_mode": "bypassPermissions",
+				"default": "bypassPermissions",
 				"env":          env,
 			},
 		}
@@ -722,9 +722,8 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	d.helixSettings = map[string]interface{}{
 		"context_servers": config.ContextServers,
 		// Disable dev container suggestions - Helix runs Zed inside its own containers
-		"remote": map[string]interface{}{
-			"suggest_dev_container": false,
-		},
+		// Note: remote settings use #[serde(flatten)] in Zed, so fields go at the top level
+		"suggest_dev_container": false,
 	}
 
 	// Inject API keys and custom models before writing settings
@@ -750,11 +749,14 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	// Always auto-approve tool actions — our fork of Zed respects this for all
 	// agents including Claude Code. This is the Zed-level safety net that
 	// auto-approves permission prompts the ACP sends to Zed.
+	// Note: always_allow_tool_actions is deprecated in Zed; use tool_permissions.default instead.
 	agentSection, ok := d.helixSettings["agent"].(map[string]interface{})
 	if !ok {
 		agentSection = map[string]interface{}{}
 	}
-	agentSection["always_allow_tool_actions"] = true
+	agentSection["tool_permissions"] = map[string]interface{}{
+		"default": "allow",
+	}
 	d.helixSettings["agent"] = agentSection
 	if config.Theme != "" {
 		d.helixSettings["theme"] = config.Theme
