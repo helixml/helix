@@ -137,10 +137,9 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		return
 	}
 
-	// Verify ownership
-	if session.Owner != user.ID {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -254,9 +253,9 @@ func (apiServer *HelixAPIServer) getExternalAgentVideoStats(res http.ResponseWri
 	}
 
 	// Verify ownership (or admin access)
-	if session.Owner != user.ID && !isAdmin(user) {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not have access to session for video stats")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -345,12 +344,11 @@ func (apiServer *HelixAPIServer) execInSandbox(res http.ResponseWriter, req *htt
 	log.Info().Str("session_id", session.ID).Str("owner", session.Owner).Msg("🔧 execInSandbox: session found")
 
 	// Verify ownership
-	if session.Owner != user.ID {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("🔧 execInSandbox: User does not own session")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
-	log.Info().Msg("🔧 execInSandbox: ownership verified")
 
 	// Read request body
 	log.Info().Msg("🔧 execInSandbox: reading request body")
@@ -364,7 +362,9 @@ func (apiServer *HelixAPIServer) execInSandbox(res http.ResponseWriter, req *htt
 
 	// Connect to desktop container via RevDial
 	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+
 	log.Info().Str("runner_id", runnerID).Msg("🔧 execInSandbox: connecting via RevDial")
+
 	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
 	if err != nil {
 		log.Error().
@@ -376,6 +376,7 @@ func (apiServer *HelixAPIServer) execInSandbox(res http.ResponseWriter, req *htt
 		return
 	}
 	defer revDialConn.Close()
+
 	log.Info().Msg("🔧 execInSandbox: RevDial connected")
 
 	// Send POST request to /exec over RevDial tunnel
@@ -488,9 +489,9 @@ func (apiServer *HelixAPIServer) getExternalAgentClipboard(res http.ResponseWrit
 	}
 
 	// Verify ownership
-	if session.Owner != user.ID {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -599,9 +600,9 @@ func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWrit
 	}
 
 	// Verify ownership
-	if session.Owner != user.ID {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -720,9 +721,9 @@ func (apiServer *HelixAPIServer) sendInputToSandbox(res http.ResponseWriter, req
 	}
 
 	// Verify ownership
-	if session.Owner != user.ID {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session for input")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -839,9 +840,9 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 	}
 
 	// Verify ownership
-	if session.Owner != user.ID {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session for file upload")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -1021,9 +1022,9 @@ func (apiServer *HelixAPIServer) proxyInputWebSocket(res http.ResponseWriter, re
 	}
 
 	// Verify ownership
-	if session.Owner != user.ID {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session for input WebSocket")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -1211,9 +1212,9 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	}
 
 	// Verify ownership (or streaming access grant)
-	if session.Owner != user.ID && !isAdmin(user) {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not have access to session for stream WebSocket")
-		http.Error(res, "Forbidden", http.StatusForbidden)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
 		return
 	}
 
