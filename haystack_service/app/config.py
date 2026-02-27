@@ -41,7 +41,7 @@ class Settings:
     EMBEDDINGS_SOCKET: Optional[str] = os.getenv("HELIX_EMBEDDINGS_SOCKET", None)
     EMBEDDINGS_API_BASE_URL: Optional[str] = os.getenv(
         "RAG_HAYSTACK_EMBEDDINGS_API_BASE_URL", None
-    )  # OpenAI-compatible embeddings API base URL, takes priority over socket when set
+    )  # OpenAI-compatible embeddings API base URL, fallback when socket is not set
     EMBEDDINGS_API_KEY: str = os.getenv("RAG_HAYSTACK_EMBEDDINGS_API_KEY", "EMPTY")
 
     # Vision model settings
