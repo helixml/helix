@@ -28,14 +28,10 @@ else
     fi
     echo "Creating ZFS pool on $DATA_DISK..."
     sudo mkdir -p /helix
-    if [ "$(ls -A /helix 2>/dev/null)" ]; then
-        # /helix may have stale data from the root disk (e.g. Docker creating
-        # /helix/container-docker before ZFS is mounted). This is ephemeral
-        # root disk data — safe to remove before ZFS pool creation.
-        echo "Cleaning stale /helix contents before pool creation:"
-        ls -la /helix
-        sudo rm -rf /helix/*
-    fi
+    # /helix may have stale data from the root disk (e.g. Docker creating
+    # /helix/container-docker before ZFS is mounted). The ZFS mount will
+    # overlay these contents — they remain on the root disk but are hidden
+    # under the mountpoint. No cleanup needed.
     sudo zpool create -f -m /helix helix "$DATA_DISK"
 fi
 
