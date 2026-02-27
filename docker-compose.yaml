@@ -91,6 +91,7 @@ services:
     #   - 5433:5432
     command: >
       postgres
+      -c shared_preload_libraries=vchord,vchord_bm25,vector
       -c shared_buffers=32MB
       -c work_mem=2MB
       -c max_connections=50
