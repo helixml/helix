@@ -663,8 +663,14 @@ func (e *updateEmitter) EventsEmit(eventName string, data ...interface{}) {
 	// emits "download:progress" events which we translate.
 	if len(data) > 0 {
 		if p, ok := data[0].(DownloadProgress); ok {
+			phase := "downloading_vm"
+			if p.Status == "decompressing" {
+				phase = "decompressing_vm"
+			} else if p.Status == "verifying" {
+				phase = "verifying_vm"
+			}
 			e.emitFn(UpdateProgress{
-				Phase:      "downloading_vm",
+				Phase:      phase,
 				BytesDone:  p.BytesDone,
 				BytesTotal: p.BytesTotal,
 				Percent:    p.Percent,
