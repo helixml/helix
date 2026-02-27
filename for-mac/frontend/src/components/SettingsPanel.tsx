@@ -339,7 +339,9 @@ export function SettingsPanel({
             {vmUpdateProgress && !combinedUpdateProgress && (
               <div style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                  Downloading system update...
+                  {vmUpdateProgress.phase === 'decompressing_vm' ? 'Unpacking system update...' :
+                   vmUpdateProgress.phase === 'verifying_vm' ? 'Verifying system update...' :
+                   'Downloading system update...'}
                 </div>
                 <div className="progress-bar">
                   <div
