@@ -45,6 +45,14 @@ The `ExternalAgentDesktopViewer` already handles showing appropriate UI for paus
 
 - **Container starting**: Show desktop viewer (it handles the loading state)
 - **Container running**: Show desktop viewer
-- **Container stopped + task completed**: Show "Task finished" message
+- **Container stopped + task completed**: Show desktop viewer in "paused" state with play button to restart
 - **Container stopped + task not completed**: Desktop viewer shows "paused" state (existing behavior)
 - **Archived tasks**: Keep existing behavior (always show archived message)
+
+## Key Insight
+
+The `ExternalAgentDesktopViewer` already handles showing a "paused" state with a play button when the container is stopped. So for completed tasks, we should just render the desktop viewer unconditionally (same as non-completed tasks). This gives the user:
+1. The desktop view when running
+2. A play button to restart when stopped
+
+The "Task finished" alert in the details panel is sufficient to inform the user the task is done - we don't need to block the desktop view.
