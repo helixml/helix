@@ -67,7 +67,15 @@ class HaystackService:
         self.indexing_pipeline = Pipeline()
 
         # Create components for indexing pipeline
-        if settings.EMBEDDINGS_SOCKET:
+        # Prefer explicit API URL over socket when both are configured
+        if settings.EMBEDDINGS_API_BASE_URL:
+            logger.info(f"Using API for document embeddings: {settings.EMBEDDINGS_API_BASE_URL}")
+            embedder = OpenAIDocumentEmbedder(
+                api_key=Secret.from_token(settings.EMBEDDINGS_API_KEY),
+                api_base_url=settings.EMBEDDINGS_API_BASE_URL,
+                model=settings.EMBEDDINGS_MODEL,
+            )
+        elif settings.EMBEDDINGS_SOCKET:
             logger.info(
                 f"Using UNIX socket for document embeddings: {settings.EMBEDDINGS_SOCKET}"
             )
@@ -76,11 +84,8 @@ class HaystackService:
                 model=settings.EMBEDDINGS_MODEL,
             )
         else:
-            logger.info(f"Using API for document embeddings: {settings.EMBEDDINGS_API_BASE_URL}")
-            embedder = OpenAIDocumentEmbedder(
-                api_key=Secret.from_token(settings.EMBEDDINGS_API_KEY),
-                api_base_url=settings.EMBEDDINGS_API_BASE_URL,
-                model=settings.EMBEDDINGS_MODEL,
+            raise ValueError(
+                "No embeddings backend configured. Set RAG_HAYSTACK_EMBEDDINGS_API_BASE_URL or HELIX_EMBEDDINGS_SOCKET."
             )
 
         converter = LocalUnstructuredConverter()
@@ -131,7 +136,15 @@ class HaystackService:
         self.query_pipeline = Pipeline()
 
         # Create components for query pipeline
-        if settings.EMBEDDINGS_SOCKET:
+        # Prefer explicit API URL over socket when both are configured
+        if settings.EMBEDDINGS_API_BASE_URL:
+            logger.info(f"Using API for text embeddings: {settings.EMBEDDINGS_API_BASE_URL}")
+            embedder = OpenAITextEmbedder(
+                api_key=Secret.from_token(settings.EMBEDDINGS_API_KEY),
+                api_base_url=settings.EMBEDDINGS_API_BASE_URL,
+                model=settings.EMBEDDINGS_MODEL,
+            )
+        elif settings.EMBEDDINGS_SOCKET:
             logger.info(
                 f"Using UNIX socket for text embeddings: {settings.EMBEDDINGS_SOCKET}"
             )
@@ -140,11 +153,8 @@ class HaystackService:
                 model=settings.EMBEDDINGS_MODEL,
             )
         else:
-            logger.info(f"Using API for text embeddings: {settings.EMBEDDINGS_API_BASE_URL}")
-            embedder = OpenAITextEmbedder(
-                api_key=Secret.from_token(settings.EMBEDDINGS_API_KEY),
-                api_base_url=settings.EMBEDDINGS_API_BASE_URL,
-                model=settings.EMBEDDINGS_MODEL,
+            raise ValueError(
+                "No embeddings backend configured. Set RAG_HAYSTACK_EMBEDDINGS_API_BASE_URL or HELIX_EMBEDDINGS_SOCKET."
             )
 
         # Dense vector retriever using VectorChord
@@ -321,8 +331,10 @@ class HaystackService:
             f"Processing and indexing {original_filename} with metadata: {metadata}"
         )
 
-        # Use the original filename as the source, never the temp path
-        metadata["source"] = original_filename
+        # Preserve the source from the caller (e.g. a full URL for web pages).
+        # Only fall back to the filename when no source was provided.
+        if not metadata.get("source"):
+            metadata["source"] = original_filename
 
         # Set up the parameters for the indexing pipeline
         params = {
