@@ -15,8 +15,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -520,6 +522,39 @@ func copyFile(src, dst string) error {
 }
 
 // Start starts the VM
+// checkSystemRequirements verifies the host meets minimum requirements.
+// Returns a user-facing error message if requirements are not met.
+func checkSystemRequirements() error {
+	version, err := syscall.Sysctl("kern.osproductversion")
+	if err != nil {
+		log.Printf("Warning: could not determine macOS version: %v", err)
+		return nil // don't block on detection failure
+	}
+
+	parts := strings.SplitN(version, ".", 3)
+	if len(parts) < 1 {
+		return nil
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return nil
+	}
+
+	// Require macOS 14.0 (Sonoma) or later. The QEMU binary is built with
+	// MACOSX_DEPLOYMENT_TARGET=14.0 and Apple's Hypervisor.framework features
+	// we depend on were stabilized in Sonoma.
+	if major < 14 {
+		return fmt.Errorf("Helix requires macOS 14.0 (Sonoma) or later. You are running macOS %s. Please update your operating system.", version)
+	}
+
+	memMB := getSystemMemoryMB()
+	if memMB > 0 && memMB < 4*1024 {
+		return fmt.Errorf("Helix requires at least 4 GB of RAM. This machine has %d MB.", memMB)
+	}
+
+	return nil
+}
+
 func (vm *VMManager) Start() error {
 	vm.statusMu.Lock()
 	if vm.status.State != VMStateStopped && vm.status.State != VMStateError {
@@ -534,6 +569,12 @@ func (vm *VMManager) Start() error {
 	vm.statusMu.Unlock()
 
 	vm.emitStatus()
+
+	// Check system requirements before anything else
+	if err := checkSystemRequirements(); err != nil {
+		vm.setError(err)
+		return err
+	}
 
 	// Kill any orphaned QEMU process from a previous crash
 	vm.killStaleQEMU()
@@ -817,12 +858,21 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	// Forward QEMU stderr to both os.Stderr and the logs ring buffer.
 	// QEMU prints warnings, errors, and virglrenderer diagnostics to stderr
 	// which were previously invisible in the UI.
+	// Also keep recent lines so we can include them in crash error messages.
+	var recentStderr []string
+	var recentStderrMu sync.Mutex
 	go func() {
 		scanner := bufio.NewScanner(stderrPipe)
 		for scanner.Scan() {
 			line := scanner.Text()
 			fmt.Fprintln(os.Stderr, line) // keep original stderr behavior
 			vm.appendLogs([]byte(fmt.Sprintf("\x1b[33m[QEMU] %s\x1b[0m\r\n", line)))
+			recentStderrMu.Lock()
+			recentStderr = append(recentStderr, line)
+			if len(recentStderr) > 20 {
+				recentStderr = recentStderr[len(recentStderr)-20:]
+			}
+			recentStderrMu.Unlock()
 		}
 	}()
 
@@ -842,7 +892,18 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		vm.status.State = VMStateStopped
 	} else if err != nil {
 		vm.status.State = VMStateError
-		vm.status.ErrorMsg = err.Error()
+		// Include recent stderr lines in the error message so users see
+		// actionable info (e.g. dyld errors) instead of just "abort trap".
+		recentStderrMu.Lock()
+		stderrContext := make([]string, len(recentStderr))
+		copy(stderrContext, recentStderr)
+		recentStderrMu.Unlock()
+		if len(stderrContext) > 0 {
+			vm.status.ErrorMsg = fmt.Sprintf("QEMU exited: %v\n\n%s", err, strings.Join(stderrContext, "\n"))
+		} else {
+			vm.status.ErrorMsg = fmt.Sprintf("QEMU exited: %v", err)
+		}
+		log.Printf("VM error: %s", vm.status.ErrorMsg)
 	} else {
 		vm.status.State = VMStateStopped
 	}
