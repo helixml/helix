@@ -12,13 +12,19 @@
 
 ## Testing
 
-- [~] Run `cargo test -p workspace` to check for regressions
-- [ ] Run `cargo test -p agent_ui` to verify agent panel tests pass
+- [ ] Run `cargo test -p workspace` to check for regressions (requires Rust build environment)
+- [ ] Run `cargo test -p agent_ui` to verify agent panel tests pass (requires Rust build environment)
 - [ ] Manual test: Start agent task, type in prompt while agent opens files, verify keystrokes stay in prompt
 - [ ] Manual test: Click on editor while following agent, verify focus transfers correctly
 - [ ] Manual test: Toggle follow off/on, verify no focus steal occurs
 
 ## Cleanup
 
-- [ ] Remove any debug logging added during investigation
-- [ ] Run `./script/clippy` to ensure no warnings
+- [x] Remove any debug logging added during investigation (none needed - root cause was clear from code review)
+- [ ] Run `./script/clippy` to ensure no warnings (requires Rust build environment)
+
+## Notes
+
+- Testing requires a proper Rust build environment with cargo installed
+- The fix is minimal: 2 targeted changes adding `!matches!(leader_id, CollaboratorId::Agent)` guards
+- Changes only affect Agent following behavior; peer-to-peer collaboration is unchanged

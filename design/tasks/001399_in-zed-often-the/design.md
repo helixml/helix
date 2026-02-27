@@ -107,3 +107,28 @@ pane.update(cx, |pane, cx| {
 - **Low risk:** Changes are localized to two methods
 - **Peer following unaffected:** Changes only apply to `CollaboratorId::Agent`
 - **Visual tracking preserved:** Only focus behavior changes, not which file is displayed
+
+## Implementation Notes
+
+**Actual changes made:**
+
+1. `zed/crates/workspace/src/workspace.rs` line ~5050 in `follow()`:
+   - Added guard `if !matches!(leader_id, CollaboratorId::Agent)` around the `window.focus()` call
+   - Added comment explaining the rationale
+
+2. `zed/crates/workspace/src/workspace.rs` line ~5689 in `leader_updated()`:
+   - Changed `focus_active_item` calculation to include `!matches!(leader_id, CollaboratorId::Agent)` check
+   - Added comment explaining agent following never steals focus
+
+**Pattern discovered:**
+- The codebase uses `matches!()` macro for enum variant checks
+- `CollaboratorId` enum has `PeerId(PeerId)` and `Agent` variants
+- The follow/leader system is shared between peer collaboration and agent tracking
+
+**Gotcha:**
+- The `follow()` method has an early return path when already following - both paths needed modification
+- Must modify both `follow()` AND `leader_updated()` - fixing only one doesn't fully solve the problem
+
+**Testing note:**
+- Build environment requires Rust/cargo which isn't available in the design doc environment
+- Tests should be run in the proper Helix dev environment: `cargo test -p workspace` and `cargo test -p agent_ui`
