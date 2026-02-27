@@ -29,10 +29,12 @@ else
     echo "Creating ZFS pool on $DATA_DISK..."
     sudo mkdir -p /helix
     if [ "$(ls -A /helix 2>/dev/null)" ]; then
-        echo "ERROR: /helix exists and is not empty (stale golden image data?). Contents:"
+        # /helix may have stale data from the root disk (e.g. Docker creating
+        # /helix/container-docker before ZFS is mounted). This is ephemeral
+        # root disk data — safe to remove before ZFS pool creation.
+        echo "Cleaning stale /helix contents before pool creation:"
         ls -la /helix
-        echo "Remove manually: sudo rm -rf /helix/*"
-        exit 1
+        sudo rm -rf /helix/*
     fi
     sudo zpool create -f -m /helix helix "$DATA_DISK"
 fi
