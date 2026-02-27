@@ -1043,10 +1043,9 @@ function build-desktop() {
   echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
   echo "📦 Version file: ${IMAGE_TAG}"
 
-  # Check if image actually changed
+  # Log whether image changed (transfer function handles dedup via sandbox tag check)
   if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ]; then
-    echo "✅ Image unchanged - skipping transfer"
-    return 0
+    echo "ℹ️  Image unchanged (layers cached)"
   fi
 
   # Transfer to running sandbox via local registry
