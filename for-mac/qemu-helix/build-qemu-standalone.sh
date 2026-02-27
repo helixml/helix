@@ -51,8 +51,13 @@ echo "📝 Setting up build environment..."
 export PKG_CONFIG="$SYSROOT/host/bin/pkg-config"
 export PKG_CONFIG_PATH="$SYSROOT/lib/pkgconfig"
 export PATH="$SYSROOT/host/bin:$PATH"
+# Target macOS 14.0 (Sonoma) so the binary runs on older macOS versions.
+# APIs from newer SDKs (e.g. hv_vm_config_set_ipa_granule in macOS 26) are
+# weak-linked and guarded by __builtin_available() runtime checks in the code.
+export MACOSX_DEPLOYMENT_TARGET="14.0"
 echo "   PKG_CONFIG: $PKG_CONFIG"
 echo "   PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
+echo "   MACOSX_DEPLOYMENT_TARGET: $MACOSX_DEPLOYMENT_TARGET"
 echo ""
 
 # Step 2: Run configure script
