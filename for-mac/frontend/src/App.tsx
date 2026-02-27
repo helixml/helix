@@ -634,14 +634,14 @@ export function App() {
               <button
                 className={`trial-badge-titlebar${urgent ? ' trial-urgent' : ''}`}
                 onDoubleClick={(e) => e.stopPropagation()}
-                onClick={() => BrowserOpenURL("https://deploy.helix.ml/licenses")}
+                onClick={() => BrowserOpenURL("https://helix.ml/account/licenses")}
               >
                 Trial: {remaining}
               </button>
               <button
                 className="buy-license-btn"
                 onDoubleClick={(e) => e.stopPropagation()}
-                onClick={() => BrowserOpenURL("https://deploy.helix.ml/licenses")}
+                onClick={() => BrowserOpenURL("https://helix.ml/account/licenses")}
               >
                 Get a License
               </button>

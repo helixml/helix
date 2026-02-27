@@ -136,7 +136,7 @@ The app includes a 24-hour free trial and offline license key validation.
 **License validation:**
 - License keys are validated offline using ECDSA P-256 signature verification
 - Compatible with Launchpad license keys (trial, community, enterprise)
-- License keys can be obtained from [deploy.helix.ml](https://deploy.helix.ml/licenses/new)
+- License keys can be obtained from [helix.ml](https://helix.ml/account/licenses)
 - Validated keys are stored in `~/Library/Application Support/Helix/settings.json`
 
 ## Provisioning a VM
