@@ -66,16 +66,6 @@ func (h *HaystackRAG) Index(ctx context.Context, chunks ...*types.SessionRAGInde
 		// This prevents temporary/modified filenames from leaking into user-facing code
 		filename := filepath.Base(chunk.Filename)
 
-		// Ensure the filename has a correct extension so haystack's converter
-		// can identify the file type. URLs like arxiv.org/pdf/2602.23242 produce
-		// a filename "2602.23242" with no valid extension — detect by content.
-		ext := strings.ToLower(filepath.Ext(filename))
-		if ext == "" || !isKnownFileExtension(ext) {
-			if detected := detectExtensionFromContent(chunk.Content); detected != "" {
-				filename = filename + detected
-			}
-		}
-
 		logger.Debug().Str("filename", filename).Msg("Indexing file")
 
 		// Create a form file for the document
@@ -479,26 +469,4 @@ func toString(value interface{}) string {
 // removeNULBytes removes NUL bytes from a string
 func removeNULBytes(s string) string {
 	return strings.ReplaceAll(s, "\x00", "")
-}
-
-// knownFileExtensions are extensions that haystack can handle natively.
-var knownFileExtensions = map[string]bool{
-	".pdf": true, ".doc": true, ".docx": true, ".ppt": true, ".pptx": true,
-	".xls": true, ".xlsx": true, ".csv": true, ".tsv": true,
-	".odt": true, ".ods": true, ".odp": true, ".rtf": true, ".epub": true,
-	".txt": true, ".md": true, ".html": true, ".htm": true, ".json": true,
-	".xml": true, ".yaml": true, ".yml": true,
-}
-
-func isKnownFileExtension(ext string) bool {
-	return knownFileExtensions[strings.ToLower(ext)]
-}
-
-// detectExtensionFromContent sniffs the content to determine the file type
-// when the filename has no recognizable extension.
-func detectExtensionFromContent(content string) string {
-	if strings.HasPrefix(content, "%PDF") {
-		return ".pdf"
-	}
-	return ""
 }
