@@ -4878,6 +4878,9 @@ export interface TypesSystemSettingsRequest {
   kodit_enrichment_provider?: string;
   max_concurrent_desktops?: number;
   providers_management_enabled?: boolean;
+  rag_embeddings_model?: string;
+  /** RAG embedding model configuration */
+  rag_embeddings_provider?: string;
 }
 
 export interface TypesSystemSettingsResponse {
@@ -4896,6 +4899,11 @@ export interface TypesSystemSettingsResponse {
   /** Per user */
   max_concurrent_desktops?: number;
   providers_management_enabled?: boolean;
+  rag_embeddings_model?: string;
+  /** true if both provider and model are configured */
+  rag_embeddings_model_set?: boolean;
+  /** RAG embedding model configuration (not sensitive, returned as-is) */
+  rag_embeddings_provider?: string;
   updated?: string;
 }
 
