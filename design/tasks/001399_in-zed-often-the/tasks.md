@@ -2,7 +2,7 @@
 
 ## Investigation & Preparation
 
-- [ ] Verify root cause by adding debug logging to `leader_updated()` and `follow()` in `workspace.rs`
+- [~] Verify root cause by adding debug logging to `leader_updated()` and `follow()` in `workspace.rs`
 - [ ] Confirm the focus steal happens via `pane.focus_active_item()` call path
 
 ## Core Fix
