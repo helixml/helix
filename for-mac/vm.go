@@ -548,8 +548,8 @@ func checkSystemRequirements() error {
 	}
 
 	memMB := getSystemMemoryMB()
-	if memMB > 0 && memMB < 4*1024 {
-		return fmt.Errorf("Helix requires at least 4 GB of RAM. This machine has %d MB.", memMB)
+	if memMB > 0 && memMB < 8*1024 {
+		return fmt.Errorf("Helix requires at least 8 GB of RAM. This machine has %d MB.", memMB)
 	}
 
 	return nil
