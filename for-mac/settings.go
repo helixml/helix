@@ -74,8 +74,8 @@ func DefaultSettings() AppSettings {
 	memoryMB := 8192 // fallback
 	if totalMem := getSystemMemoryMB(); totalMem > 0 {
 		memoryMB = totalMem / 2
-		if memoryMB < 4096 {
-			memoryMB = 4096
+		if memoryMB < 6144 {
+			memoryMB = 6144
 		}
 	}
 

@@ -114,7 +114,7 @@ export function ConsoleDrawer({
   // Console terminal setup
   useEffect(() => {
     if (!consoleContainerRef.current) return;
-    if (vmState !== "running" && vmState !== "starting") return;
+    if (vmState !== "running" && vmState !== "starting" && vmState !== "error") return;
 
     const term = new Terminal({
       cursorBlink: true,
@@ -171,7 +171,7 @@ export function ConsoleDrawer({
   // Logs terminal setup
   useEffect(() => {
     if (!logsContainerRef.current) return;
-    if (vmState !== "running" && vmState !== "starting") return;
+    if (vmState !== "running" && vmState !== "starting" && vmState !== "error") return;
 
     const term = new Terminal({
       cursorBlink: false,
@@ -213,7 +213,7 @@ export function ConsoleDrawer({
     };
   }, [vmState]);
 
-  const isActive = vmState === "running" || vmState === "starting";
+  const isActive = vmState === "running" || vmState === "starting" || vmState === "error";
 
   return (
     <>

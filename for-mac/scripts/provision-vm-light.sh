@@ -839,6 +839,11 @@ if ! step_done "prime_stack"; then
     # Stop Docker (will be started by the desktop app on user's first boot)
     run_ssh "sudo systemctl stop docker"
 
+    # Clean up /helix — docker compose creates bind mount targets here
+    # (e.g. /helix/container-docker) which would conflict with ZFS pool
+    # creation on the user's first boot.
+    run_ssh "sudo rm -rf /helix" || true
+
     # List cached images for verification
     run_ssh "sudo systemctl start docker && docker images --format 'table {{.Repository}}\t{{.Tag}}\t{{.Size}}' && sudo systemctl stop docker"
 
