@@ -27,6 +27,8 @@ fi
 # Add Homebrew tools to PATH
 export PATH="/opt/homebrew/opt/bison/bin:/opt/homebrew/bin:$PATH"
 export PKG_CONFIG_PATH="$SYSROOT/lib/pkgconfig"
+# Target macOS 14.0 so the binary runs on older macOS versions.
+export MACOSX_DEPLOYMENT_TARGET="14.0"
 
 BUILD_DIR="$QEMU_SRC/build"
 
