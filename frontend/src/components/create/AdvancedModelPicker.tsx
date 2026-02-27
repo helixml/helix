@@ -55,6 +55,8 @@ interface AdvancedModelPickerProps {
   hint?: string; // Optional hint text to display in the dialog
   recommendedModels?: string[]; // List of recommended model IDs to show at the top
   autoSelectFirst?: boolean; // Whether to auto-select first model when none is selected (default: true)
+  externalOpen?: boolean; // When true, dialog is controlled externally (no trigger button rendered)
+  onExternalClose?: () => void; // Called when the externally-controlled dialog is closed
 }
 
 const ProviderIcon: React.FC<{ provider: TypesProviderEndpoint }> = ({ provider }) => {
@@ -151,15 +153,26 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   hint,
   recommendedModels = [], // Default to empty array
   autoSelectFirst = true, // Default to true for backward compatibility
+  externalOpen,
+  onExternalClose,
 }) => {
   const router = useRouter()
   const lightTheme = useLightTheme();
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [internalDialogOpen, setInternalDialogOpen] = useState(false);
+  const dialogOpen = externalOpen !== undefined ? externalOpen : internalDialogOpen;
   const [searchQuery, setSearchQuery] = useState('');
   const [showOnlyEnabled, setShowOnlyEnabled] = useState(true);
 
   // Track the initially selected model when dialog opens (so it stays at top without jumping)
   const initialSelectedModelRef = useRef<string | undefined>(undefined);
+
+  // Reset state when externally-controlled dialog opens
+  useEffect(() => {
+    if (externalOpen) {
+      setSearchQuery('');
+      initialSelectedModelRef.current = selectedModelId;
+    }
+  }, [externalOpen]);
 
   const orgName = router.params.org_id  
 
@@ -303,11 +316,15 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
     setSearchQuery('');
     // Capture the initially selected model so we can pin it to the top without jumping
     initialSelectedModelRef.current = selectedModelId;
-    setDialogOpen(true);
+    setInternalDialogOpen(true);
   };
 
   const handleCloseDialog = () => {
-    setDialogOpen(false);
+    if (externalOpen !== undefined) {
+      onExternalClose?.();
+    } else {
+      setInternalDialogOpen(false);
+    }
   };
 
   const handleSelectModel = (provider: string, modelId: string) => {
@@ -320,56 +337,58 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
 
   return (
     <>
-      <Tooltip title={tooltipTitle} placement="top-start">
-        {/* Wrap button in a span if disabled to allow tooltip to show */}
-        <span style={{ display: 'inline-block', cursor: disabled ? 'not-allowed' : 'pointer' }}>
-          <Button
-            variant="text"
-            onClick={handleOpenDialog}
-            disabled={disabled} // Disable button if picker is disabled
-            endIcon={<ArrowDropDownIcon />}
-            sx={{
-              borderRadius: '8px',
-              color: '#F1F1F1',
-              textTransform: 'none',
-              fontSize: '0.875rem',
-              padding: '4px 8px',
-              height: '32px',
-              minWidth: 'auto',
-              maxWidth: '200px',
-              display: 'flex',
-              alignItems: 'center',
-              border: buttonVariant === 'outlined' ? '1px solid #353945' : 'none',
-              '&:hover': {
-                backgroundColor: '#23262F',
-                borderColor: '#6366F1',
-              },
-              // More explicit styling for disabled state if needed
-              ...(disabled && {
-                opacity: 0.5, // Example: reduce opacity when disabled
-                pointerEvents: 'none', // Ensure no interaction
-              }),
-            }}
-            {...buttonProps}
-          >
-            <Typography 
-              variant="caption" 
-              component="span"
-              sx={{ 
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                display: 'inline-block',
-                lineHeight: 1.2,
-                verticalAlign: 'middle',
+      {externalOpen === undefined && (
+        <Tooltip title={tooltipTitle} placement="top-start">
+          {/* Wrap button in a span if disabled to allow tooltip to show */}
+          <span style={{ display: 'inline-block', cursor: disabled ? 'not-allowed' : 'pointer' }}>
+            <Button
+              variant="text"
+              onClick={handleOpenDialog}
+              disabled={disabled} // Disable button if picker is disabled
+              endIcon={<ArrowDropDownIcon />}
+              sx={{
+                borderRadius: '8px',
+                color: '#F1F1F1',
+                textTransform: 'none',
                 fontSize: '0.875rem',
+                padding: '4px 8px',
+                height: '32px',
+                minWidth: 'auto',
+                maxWidth: '200px',
+                display: 'flex',
+                alignItems: 'center',
+                border: buttonVariant === 'outlined' ? '1px solid #353945' : 'none',
+                '&:hover': {
+                  backgroundColor: '#23262F',
+                  borderColor: '#6366F1',
+                },
+                // More explicit styling for disabled state if needed
+                ...(disabled && {
+                  opacity: 0.5, // Example: reduce opacity when disabled
+                  pointerEvents: 'none', // Ensure no interaction
+                }),
               }}
+              {...buttonProps}
             >
-              {getShortModelName(displayModelName, displayMode)}
-            </Typography>
-          </Button>
-        </span>
-      </Tooltip>
+              <Typography
+                variant="caption"
+                component="span"
+                sx={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  display: 'inline-block',
+                  lineHeight: 1.2,
+                  verticalAlign: 'middle',
+                  fontSize: '0.875rem',
+                }}
+              >
+                {getShortModelName(displayModelName, displayMode)}
+              </Typography>
+            </Button>
+          </span>
+        </Tooltip>
+      )}
 
       <DarkDialog 
         open={dialogOpen} 

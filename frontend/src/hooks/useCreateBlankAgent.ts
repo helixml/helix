@@ -1,37 +1,38 @@
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
 import useApps from './useApps'
 import useAccount from './useAccount'
 import useSnackbar from './useSnackbar'
 
-const DEFAULT_NEW_AGENT_MODEL = 'claude-opus-4-6'
-const DEFAULT_NEW_AGENT_PROVIDER = 'anthropic'
-
 /**
  * Hook that provides a function to create a blank agent and navigate to its settings page.
  * Used by both Home.tsx and Apps.tsx to avoid code duplication.
+ * The caller must provide the provider and model (from the model picker dialog).
  */
 export const useCreateBlankAgent = () => {
   const apps = useApps()
   const account = useAccount()
   const snackbar = useSnackbar()
+  const creatingRef = useRef(false)
 
-  const createBlankAgent = useCallback(async () => {
+  const createBlankAgent = useCallback(async (provider: string, model: string) => {
+    if (creatingRef.current) return
     if (!account.user) {
       account.setShowLoginWindow(true)
       return
     }
 
+    creatingRef.current = true
     try {
       const newAgent = await apps.createAgent({
         name: 'New Agent',
         systemPrompt: '',
-        model: DEFAULT_NEW_AGENT_MODEL,
-        provider: DEFAULT_NEW_AGENT_PROVIDER,
+        model,
+        provider,
         reasoningModelProvider: '',
         reasoningModel: '',
         reasoningModelEffort: '',
-        generationModelProvider: '',
-        generationModel: DEFAULT_NEW_AGENT_MODEL,
+        generationModelProvider: provider,
+        generationModel: model,
         smallReasoningModelProvider: '',
         smallReasoningModel: '',
         smallReasoningModelEffort: '',
@@ -48,6 +49,8 @@ export const useCreateBlankAgent = () => {
     } catch (error) {
       console.error('Error creating agent:', error)
       snackbar.error('Failed to create agent')
+    } finally {
+      creatingRef.current = false
     }
   }, [apps, account, snackbar])
 

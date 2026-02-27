@@ -9,6 +9,7 @@ import Page from '../components/system/Page'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import AppsTable from '../components/apps/AppsTable'
 import LaunchpadCTAButton from '../components/widgets/LaunchpadCTAButton'
+import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 
 import useApps from '../hooks/useApps'
 import useAccount from '../hooks/useAccount'
@@ -32,6 +33,7 @@ const Apps: FC = () => {
   } = useRouter()
 
   const [ deletingApp, setDeletingApp ] = useState<IApp>()
+  const [ modelPickerOpen, setModelPickerOpen ] = useState(false)
 
   const onEditApp = (app: IApp) => {
     account.orgNavigate('app', {
@@ -49,7 +51,12 @@ const Apps: FC = () => {
 
   const onNewAgent = async () => {
     if(!checkLoginStatus()) return
-    await createBlankAgent()
+    setModelPickerOpen(true)
+  }
+
+  const handleModelSelected = async (provider: string, model: string) => {
+    setModelPickerOpen(false)
+    await createBlankAgent(provider, model)
   }
 
   const onNewSecret = () => {
@@ -139,6 +146,14 @@ const Apps: FC = () => {
           />
         )
       }
+      <AdvancedModelPicker
+        currentType="chat"
+        onSelectModel={handleModelSelected}
+        autoSelectFirst={false}
+        externalOpen={modelPickerOpen}
+        onExternalClose={() => setModelPickerOpen(false)}
+        hint="Select a model for your new agent"
+      />
     </Page>
   )
 }
