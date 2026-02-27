@@ -789,7 +789,7 @@ export function SettingsPanel({
           <div className="panel-section">
             <div className="panel-section-title">License</div>
             <div className="form-group">
-              <label className="form-label" htmlFor="settingLicenseKey">License Key{licenseInfo?.state !== 'licensed' && (<> — <span onClick={() => BrowserOpenURL('https://deploy.helix.ml/licenses')} style={{ color: 'var(--teal)', cursor: 'pointer' }}>Buy a license</span></>)}</label>
+              <label className="form-label" htmlFor="settingLicenseKey">License Key{licenseInfo?.state !== 'licensed' && (<> — <span onClick={() => BrowserOpenURL('https://helix.ml/account/licenses')} style={{ color: 'var(--teal)', cursor: 'pointer' }}>Buy a license</span></>)}</label>
               <div style={{ display: 'flex', gap: 6 }}>
                 <input
                   className="form-input"
@@ -847,7 +847,7 @@ export function SettingsPanel({
                   )}
                   <div style={{ marginTop: 4 }}>
                     <span
-                      onClick={() => BrowserOpenURL('https://deploy.helix.ml/licenses')}
+                      onClick={() => BrowserOpenURL('https://helix.ml/account/licenses')}
                       style={{ color: 'var(--warning)', cursor: 'pointer', fontSize: 11 }}
                     >
                       Manage license
@@ -868,7 +868,7 @@ export function SettingsPanel({
                     <span style={{ color: 'var(--error)', fontWeight: 600, fontSize: 13 }}>License expired</span>
                   </div>
                   <div style={{ color: 'var(--text-secondary)', fontSize: 11, marginTop: 2 }}>
-                    <span onClick={() => BrowserOpenURL('https://deploy.helix.ml/licenses')} style={{ color: 'var(--teal)', cursor: 'pointer' }}>Renew your license</span> to continue using Helix.
+                    <span onClick={() => BrowserOpenURL('https://helix.ml/account/licenses')} style={{ color: 'var(--teal)', cursor: 'pointer' }}>Renew your license</span> to continue using Helix.
                   </div>
                 </div>
               )}

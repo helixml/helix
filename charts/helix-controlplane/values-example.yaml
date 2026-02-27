@@ -130,7 +130,7 @@ controlplane:
   # runnerTokenExistingSecretKey: "token"  # defaults to "token" if not specified
 
   # License key for deployment identification
-  # Get your license key from https://deploy.helix.ml/licenses
+  # Get your license key from https://helix.ml/account/licenses
   licenseKey: ""
   # Option: Use existing secret for license key (recommended for production)
   # Create the license secret with:
