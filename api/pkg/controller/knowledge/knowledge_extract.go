@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -31,20 +32,146 @@ func (r *Reconciler) getIndexingData(ctx context.Context, k *types.Knowledge) ([
 	}
 }
 
+// documentURLExtensions are file extensions that should be extracted directly
+// via Unstructured rather than crawled, since crawlers expect HTML content.
+var documentURLExtensions = []string{
+	".pdf", ".doc", ".docx", ".ppt", ".pptx",
+	".xls", ".xlsx", ".csv", ".tsv",
+	".odt", ".ods", ".odp", ".rtf", ".epub",
+}
+
+// documentContentTypes are Content-Type prefixes that indicate a document
+// (non-HTML) response, used as a fallback when the URL has no file extension.
+var documentContentTypes = []string{
+	"application/pdf",
+	"application/msword",
+	"application/vnd.openxmlformats",
+	"application/vnd.ms-excel",
+	"application/vnd.ms-powerpoint",
+	"application/vnd.oasis.opendocument",
+	"application/rtf",
+	"application/epub",
+	"text/csv",
+	"text/tab-separated-values",
+}
+
+// isDocumentURLByExtension checks whether a URL path ends with a known
+// document file extension.
+func isDocumentURLByExtension(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	lower := strings.ToLower(parsed.Path)
+	for _, ext := range documentURLExtensions {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// isDocumentContentType checks whether a Content-Type header value indicates
+// a document rather than an HTML page.
+func isDocumentContentType(contentType string) bool {
+	ct := strings.ToLower(strings.TrimSpace(contentType))
+	for _, prefix := range documentContentTypes {
+		if strings.HasPrefix(ct, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// classifyURLs splits URLs into document URLs (to be extracted directly) and
+// crawlable URLs (HTML pages). It first checks file extensions, then issues
+// HEAD requests for ambiguous URLs to inspect Content-Type.
+func (r *Reconciler) classifyURLs(ctx context.Context, urls []string) (docURLs, crawlURLs []string) {
+	for _, u := range urls {
+		if isDocumentURLByExtension(u) {
+			docURLs = append(docURLs, u)
+			continue
+		}
+
+		// No recognizable extension — issue a HEAD request to check Content-Type
+		req, err := http.NewRequestWithContext(ctx, http.MethodHead, u, http.NoBody)
+		if err != nil {
+			// Can't build request, assume it's crawlable
+			crawlURLs = append(crawlURLs, u)
+			continue
+		}
+
+		resp, err := r.httpClient.Do(req)
+		if err != nil {
+			log.Debug().Err(err).Str("url", u).Msg("HEAD request failed, assuming crawlable URL")
+			crawlURLs = append(crawlURLs, u)
+			continue
+		}
+		resp.Body.Close()
+
+		ct := resp.Header.Get("Content-Type")
+		if isDocumentContentType(ct) {
+			log.Info().Str("url", u).Str("content_type", ct).Msg("HEAD request detected document content type")
+			docURLs = append(docURLs, u)
+		} else {
+			crawlURLs = append(crawlURLs, u)
+		}
+	}
+	return
+}
+
 func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
 	if k.Source.Web == nil {
 		return nil, fmt.Errorf("no web source defined")
 	}
 
+	if len(k.Source.Web.URLs) == 0 {
+		return nil, nil
+	}
+
 	if crawlerEnabled(k) {
-		return r.extractDataFromWebWithCrawler(ctx, k)
+		// Split URLs: document files go through direct extraction,
+		// the rest go through the crawler.
+		docURLs, crawlURLs := r.classifyURLs(ctx, k.Source.Web.URLs)
+
+		var result []*indexerData
+
+		// Extract document URLs directly via Unstructured
+		for _, u := range docURLs {
+			log.Info().Str("url", u).Msg("document URL detected, extracting directly instead of crawling")
+
+			extracted, err := r.extractor.Extract(ctx, &extract.Request{
+				URL: u,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to extract data from %s, error: %w", u, err)
+			}
+
+			result = append(result, &indexerData{
+				Data:            []byte(extracted),
+				Source:          u,
+				DocumentGroupID: getDocumentGroupID(u),
+			})
+		}
+
+		// Crawl the remaining HTML URLs (clone the Web source to avoid mutating the original)
+		if len(crawlURLs) > 0 {
+			crawlKnowledge := *k
+			crawlWeb := *k.Source.Web
+			crawlWeb.URLs = crawlURLs
+			crawlKnowledge.Source.Web = &crawlWeb
+
+			crawled, err := r.extractDataFromWebWithCrawler(ctx, &crawlKnowledge)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, crawled...)
+		}
+
+		return result, nil
 	}
 
 	var result []*indexerData
-
-	if len(k.Source.Web.URLs) == 0 {
-		return result, nil
-	}
 
 	// Optional mode to disable text extractor and chunking,
 	// useful when the indexing server will know how to handle
