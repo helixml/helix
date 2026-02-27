@@ -3,7 +3,6 @@ import os
 from typing import Any, Dict, List
 
 from haystack import Pipeline
-from haystack.components.embedders import OpenAIDocumentEmbedder, OpenAITextEmbedder
 from haystack.components.joiners import DocumentJoiner
 from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
 from haystack.components.writers import DocumentWriter
@@ -56,6 +55,12 @@ class HaystackService:
             logger.error(f"Failed to connect to document stores: {str(e)}")
             raise
 
+        # Validate socket configuration — all embedding requests must go through Helix for accounting
+        if not settings.EMBEDDINGS_SOCKET:
+            raise ValueError(
+                "HELIX_EMBEDDINGS_SOCKET is required. All embedding requests must go through Helix for accounting."
+            )
+
         # Initialize pipelines
         self._init_indexing_pipeline()
         self._init_query_pipeline()
@@ -67,21 +72,13 @@ class HaystackService:
         self.indexing_pipeline = Pipeline()
 
         # Create components for indexing pipeline
-        if settings.EMBEDDINGS_SOCKET:
-            logger.info(
-                f"Using UNIX socket for document embeddings: {settings.EMBEDDINGS_SOCKET}"
-            )
-            embedder = UnixSocketOpenAIDocumentEmbedder(
-                socket_path=settings.EMBEDDINGS_SOCKET,
-                model=settings.EMBEDDINGS_MODEL,
-            )
-        else:
-            logger.info(f"Using API for document embeddings: {settings.VLLM_BASE_URL}")
-            embedder = OpenAIDocumentEmbedder(
-                api_key=Secret.from_token(settings.VLLM_API_KEY),
-                api_base_url=settings.VLLM_BASE_URL,
-                model=settings.EMBEDDINGS_MODEL,
-            )
+        logger.info(
+            f"Using UNIX socket for document embeddings: {settings.EMBEDDINGS_SOCKET}"
+        )
+        embedder = UnixSocketOpenAIDocumentEmbedder(
+            socket_path=settings.EMBEDDINGS_SOCKET,
+            model=settings.EMBEDDINGS_MODEL,
+        )
 
         converter = LocalUnstructuredConverter()
 
@@ -131,21 +128,13 @@ class HaystackService:
         self.query_pipeline = Pipeline()
 
         # Create components for query pipeline
-        if settings.EMBEDDINGS_SOCKET:
-            logger.info(
-                f"Using UNIX socket for text embeddings: {settings.EMBEDDINGS_SOCKET}"
-            )
-            embedder = UnixSocketOpenAITextEmbedder(
-                socket_path=settings.EMBEDDINGS_SOCKET,
-                model=settings.EMBEDDINGS_MODEL,
-            )
-        else:
-            logger.info(f"Using API for text embeddings: {settings.VLLM_BASE_URL}")
-            embedder = OpenAITextEmbedder(
-                api_key=Secret.from_token(settings.VLLM_API_KEY),
-                api_base_url=settings.VLLM_BASE_URL,
-                model=settings.EMBEDDINGS_MODEL,
-            )
+        logger.info(
+            f"Using UNIX socket for text embeddings: {settings.EMBEDDINGS_SOCKET}"
+        )
+        embedder = UnixSocketOpenAITextEmbedder(
+            socket_path=settings.EMBEDDINGS_SOCKET,
+            model=settings.EMBEDDINGS_MODEL,
+        )
 
         # Dense vector retriever using VectorChord
         vector_retriever = VectorchordEmbeddingRetriever(
@@ -321,8 +310,10 @@ class HaystackService:
             f"Processing and indexing {original_filename} with metadata: {metadata}"
         )
 
-        # Use the original filename as the source, never the temp path
-        metadata["source"] = original_filename
+        # Preserve the source from the caller (e.g. a full URL for web pages).
+        # Only fall back to the filename when no source was provided.
+        if not metadata.get("source"):
+            metadata["source"] = original_filename
 
         # Set up the parameters for the indexing pipeline
         params = {

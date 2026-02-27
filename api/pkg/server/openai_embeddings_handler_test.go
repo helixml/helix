@@ -159,3 +159,68 @@ func (s *OpenAIEmbeddingsSuite) TestCreateEmbeddingsWithChatFormat() {
 
 	s.Equal(http.StatusOK, rec.Code)
 }
+
+func (s *OpenAIEmbeddingsSuite) TestRAGEmbeddingPlaceholderSubstitution() {
+	req, err := http.NewRequest("POST", "/v1/embeddings", bytes.NewBufferString(`{
+    "input": "test query",
+    "model": "rag-embedding"
+  }`))
+	s.NoError(err)
+
+	req = req.WithContext(s.authCtx)
+
+	rec := httptest.NewRecorder()
+
+	// Mock GetEffectiveSystemSettings returning configured RAG embedding model
+	s.store.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		RAGEmbeddingsProvider: "openai",
+		RAGEmbeddingsModel:    "text-embedding-3-small",
+	}, nil)
+
+	// Expect the client to be fetched with the configured provider (not the default)
+	s.manager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
+		Provider: "openai",
+	}).Return(s.openAiClient, nil)
+
+	s.openAiClient.EXPECT().CreateFlexibleEmbeddings(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, req types.FlexibleEmbeddingRequest) (types.FlexibleEmbeddingResponse, error) {
+			// Model should be substituted to provider/model format
+			s.Equal("openai/text-embedding-3-small", req.Model)
+
+			return types.FlexibleEmbeddingResponse{
+				Object: "list",
+				Data: []struct {
+					Object    string    `json:"object"`
+					Index     int       `json:"index"`
+					Embedding []float32 `json:"embedding"`
+				}{
+					{Object: "embedding", Index: 0, Embedding: []float32{0.1, 0.2, 0.3}},
+				},
+				Model: "text-embedding-3-small",
+			}, nil
+		})
+
+	s.server.createEmbeddings(rec, req)
+
+	s.Equal(http.StatusOK, rec.Code)
+}
+
+func (s *OpenAIEmbeddingsSuite) TestRAGEmbeddingPlaceholderNotConfigured() {
+	req, err := http.NewRequest("POST", "/v1/embeddings", bytes.NewBufferString(`{
+    "input": "test query",
+    "model": "rag-embedding"
+  }`))
+	s.NoError(err)
+
+	req = req.WithContext(s.authCtx)
+
+	rec := httptest.NewRecorder()
+
+	// Mock GetEffectiveSystemSettings returning empty settings (not configured)
+	s.store.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil)
+
+	s.server.createEmbeddings(rec, req)
+
+	s.Equal(http.StatusBadRequest, rec.Code)
+	s.Contains(rec.Body.String(), "RAG embedding model not configured")
+}

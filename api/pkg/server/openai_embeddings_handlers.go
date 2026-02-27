@@ -59,9 +59,38 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Resolve the provider to use for embeddings
+	embeddingsProvider := s.Cfg.RAG.PGVector.Provider
+
+	// Special handling for rag-embedding placeholder model
+	// When Haystack sends requests with model "rag-embedding", we substitute with the configured model from SystemSettings
+	if embeddingRequest.Model == "rag-embedding" {
+		settings, err := s.Store.GetEffectiveSystemSettings(r.Context())
+		if err != nil {
+			log.Error().Err(err).Msg("failed to get system settings for rag-embedding substitution")
+			http.Error(rw, "Failed to get system settings", http.StatusInternalServerError)
+			return
+		}
+		if settings.RAGEmbeddingsProvider == "" || settings.RAGEmbeddingsModel == "" {
+			log.Warn().Msg("rag-embedding requested but no embedding model configured in system settings")
+			http.Error(rw, "RAG embedding model not configured. Please configure the embedding model in Admin > System Settings.", http.StatusBadRequest)
+			return
+		}
+
+		embeddingsProvider = settings.RAGEmbeddingsProvider
+		resolvedModel := settings.RAGEmbeddingsProvider + "/" + settings.RAGEmbeddingsModel
+		log.Debug().
+			Str("original_model", "rag-embedding").
+			Str("provider", settings.RAGEmbeddingsProvider).
+			Str("model", settings.RAGEmbeddingsModel).
+			Str("resolved_model", resolvedModel).
+			Msg("substituted rag-embedding with configured embedding model")
+		embeddingRequest.Model = resolvedModel
+	}
+
 	// Get the appropriate client for the provider
 	client, err := s.providerManager.GetClient(r.Context(), &manager.GetClientRequest{
-		Provider: s.Cfg.RAG.PGVector.Provider,
+		Provider: embeddingsProvider,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("error getting client")
