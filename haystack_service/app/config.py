@@ -39,10 +39,10 @@ class Settings:
         "RAG_HAYSTACK_EMBEDDINGS_MODEL", "MrLight/dse-qwen2-2b-mrl-v1"
     )
     EMBEDDINGS_SOCKET: Optional[str] = os.getenv("HELIX_EMBEDDINGS_SOCKET", None)
-    VLLM_BASE_URL: str = os.getenv(
-        "VLLM_BASE_URL", None
-    )  # optional, not used if socket is set
-    VLLM_API_KEY: str = os.getenv("VLLM_API_KEY", "EMPTY")
+    EMBEDDINGS_API_BASE_URL: Optional[str] = os.getenv(
+        "RAG_HAYSTACK_EMBEDDINGS_API_BASE_URL", None
+    )  # OpenAI-compatible embeddings API base URL, not used if socket is set
+    EMBEDDINGS_API_KEY: str = os.getenv("RAG_HAYSTACK_EMBEDDINGS_API_KEY", "EMPTY")
 
     # Vision model settings
     VISION_ENABLED: bool = os.getenv("RAG_VISION_ENABLED", "true").lower() == "true"

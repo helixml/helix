@@ -76,10 +76,10 @@ class HaystackService:
                 model=settings.EMBEDDINGS_MODEL,
             )
         else:
-            logger.info(f"Using API for document embeddings: {settings.VLLM_BASE_URL}")
+            logger.info(f"Using API for document embeddings: {settings.EMBEDDINGS_API_BASE_URL}")
             embedder = OpenAIDocumentEmbedder(
-                api_key=Secret.from_token(settings.VLLM_API_KEY),
-                api_base_url=settings.VLLM_BASE_URL,
+                api_key=Secret.from_token(settings.EMBEDDINGS_API_KEY),
+                api_base_url=settings.EMBEDDINGS_API_BASE_URL,
                 model=settings.EMBEDDINGS_MODEL,
             )
 
@@ -140,10 +140,10 @@ class HaystackService:
                 model=settings.EMBEDDINGS_MODEL,
             )
         else:
-            logger.info(f"Using API for text embeddings: {settings.VLLM_BASE_URL}")
+            logger.info(f"Using API for text embeddings: {settings.EMBEDDINGS_API_BASE_URL}")
             embedder = OpenAITextEmbedder(
-                api_key=Secret.from_token(settings.VLLM_API_KEY),
-                api_base_url=settings.VLLM_BASE_URL,
+                api_key=Secret.from_token(settings.EMBEDDINGS_API_KEY),
+                api_base_url=settings.EMBEDDINGS_API_BASE_URL,
                 model=settings.EMBEDDINGS_MODEL,
             )
 
