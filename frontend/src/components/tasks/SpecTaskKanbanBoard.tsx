@@ -26,6 +26,7 @@ import {
   FormControl,
   InputLabel,
   Avatar,
+  InputAdornment,
 } from "@mui/material";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -55,6 +56,8 @@ import {
   RocketLaunch as LaunchIcon,
   InfoOutlined as InfoIcon,
   PlayArrowRounded as AutoPlayIcon,
+  Search as SearchIcon,
+  Clear as ClearIcon,
 } from "@mui/icons-material";
 // Removed drag-and-drop imports to prevent infinite loops
 import { useTheme } from "@mui/material/styles";
@@ -588,7 +591,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   showArchived: showArchivedProp = false,
   showMetrics: showMetricsProp,
   showMerged: showMergedProp = true,
-  searchFilter = "",
+  searchFilter: searchFilterProp = "",
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -615,6 +618,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const [highlightedDependencyTaskIds, setHighlightedDependencyTaskIds] =
     useState<string[] | null>(null);
   const [archivingTaskId, setArchivingTaskId] = useState<string | null>(null);
+
+  // Local search filter state (use prop as initial value, but manage locally)
+  const [searchFilter, setSearchFilter] = useState(searchFilterProp);
 
   // Backlog table view state
   const [backlogExpanded, setBacklogExpanded] = useState(false);
@@ -1306,6 +1312,37 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
               </Button>
             </Tooltip>
           )}
+          {/* Search filter */}
+          <TextField
+            size="small"
+            placeholder="Search tasks..."
+            value={searchFilter}
+            onChange={(e) => setSearchFilter(e.target.value)}
+            sx={{
+              width: 200,
+              "& .MuiOutlinedInput-root": {
+                height: 36,
+              },
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+                </InputAdornment>
+              ),
+              endAdornment: searchFilter && (
+                <InputAdornment position="end">
+                  <IconButton
+                    size="small"
+                    onClick={() => setSearchFilter("")}
+                    sx={{ padding: 0.25 }}
+                  >
+                    <ClearIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+          />
         </Box>
       </Box>
 

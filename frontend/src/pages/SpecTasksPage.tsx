@@ -12,8 +12,6 @@ import {
   Tooltip,
   useMediaQuery,
   useTheme,
-  TextField,
-  InputAdornment,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -26,8 +24,6 @@ import {
   Archive as ArchiveIcon,
   BarChart as MetricsIcon,
   Visibility as ViewIcon,
-  Search as SearchIcon,
-  Clear as ClearIcon,
 } from "@mui/icons-material";
 import {
   Plus,
@@ -195,7 +191,6 @@ const SpecTasksPage: FC = () => {
   const METRICS_STORAGE_KEY = "helix-kanban-show-metrics";
   const MERGED_STORAGE_KEY = "helix-kanban-show-merged";
   const [showArchived, setShowArchived] = useState(false);
-  const [searchFilter, setSearchFilter] = useState("");
   const [showMetrics, setShowMetrics] = useState(() => {
     const stored = localStorage.getItem(METRICS_STORAGE_KEY);
     return stored !== null ? stored === "true" : true;
@@ -694,39 +689,6 @@ const SpecTasksPage: FC = () => {
             />
           </Box>
 
-          {/* Search filter for kanban board */}
-          <TextField
-            size="small"
-            placeholder="Search tasks..."
-            value={searchFilter}
-            onChange={(e) => setSearchFilter(e.target.value)}
-            sx={{
-              width: 200,
-              display: { xs: "none", md: "flex" },
-              "& .MuiOutlinedInput-root": {
-                height: 32,
-              },
-            }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon sx={{ fontSize: 18, color: "text.secondary" }} />
-                </InputAdornment>
-              ),
-              endAdornment: searchFilter && (
-                <InputAdornment position="end">
-                  <IconButton
-                    size="small"
-                    onClick={() => setSearchFilter("")}
-                    sx={{ padding: 0.25 }}
-                  >
-                    <ClearIcon sx={{ fontSize: 16 }} />
-                  </IconButton>
-                </InputAdornment>
-              ),
-            }}
-          />
-
           {/* View mode toggle: Board vs Workspace vs Audit Trail */}
           <Stack direction="row" spacing={0.5} sx={{ borderRadius: 1, p: 0.5 }}>
             <Tooltip
@@ -1182,7 +1144,6 @@ const SpecTasksPage: FC = () => {
                 showArchived={showArchived}
                 showMetrics={showMetrics}
                 showMerged={showMerged}
-                searchFilter={searchFilter}
               />
             )}
             {viewMode === "workspace" && (
