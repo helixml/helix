@@ -17,7 +17,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.13.0
 	github.com/crisp-im/go-crisp-api/crisp/v3 v3.0.0-20251002125107-1bc4bdbcc749
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
-	github.com/dgraph-io/ristretto/v2 v2.2.0
+	github.com/dgraph-io/ristretto/v2 v2.4.0
 	github.com/docker/docker v25.0.5+incompatible
 	github.com/docker/go-units v0.5.0
 	github.com/dop251/goja v0.0.0-20250531102226-cb187b08699c
