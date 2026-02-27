@@ -39,10 +39,6 @@ class Settings:
         "RAG_HAYSTACK_EMBEDDINGS_MODEL", "MrLight/dse-qwen2-2b-mrl-v1"
     )
     EMBEDDINGS_SOCKET: Optional[str] = os.getenv("HELIX_EMBEDDINGS_SOCKET", None)
-    EMBEDDINGS_API_BASE_URL: Optional[str] = os.getenv(
-        "RAG_HAYSTACK_EMBEDDINGS_API_BASE_URL", None
-    )  # OpenAI-compatible embeddings API base URL, fallback when socket is not set
-    EMBEDDINGS_API_KEY: str = os.getenv("RAG_HAYSTACK_EMBEDDINGS_API_KEY", "EMPTY")
 
     # Vision model settings
     VISION_ENABLED: bool = os.getenv("RAG_VISION_ENABLED", "true").lower() == "true"
