@@ -1,0 +1,196 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.3.0 Chrome/140.0.7339.249 Electron/38.7.2 Safari/537.36" version="29.3.0">
+  <diagram id="cp-internals" name="Controlplane Internal Components">
+    <mxGraphModel dx="2066" dy="1210" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;fontSize=22;fontStyle=1;align=center;" value="Helix Controlplane — Internal Components &amp; Data Flow" vertex="1">
+          <mxGeometry height="35" width="600" x="300" y="15" as="geometry" />
+        </mxCell>
+        <mxCell id="sub" parent="1" style="text;html=1;fontSize=11;fontStyle=2;align=center;fontColor=#666;" value="Helm Chart: helix-controlplane v0.3.38 | Image: registry.helixml.tech/helix/controlplane" vertex="1">
+          <mxGeometry height="20" width="600" x="300" y="48" as="geometry" />
+        </mxCell>
+        <mxCell id="ingress" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontStyle=1;" value="Ingress&#xa;helix.example.com&#xa;TLS termination" vertex="1">
+          <mxGeometry height="50" width="180" x="530" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="svc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;fontStyle=1;" value="Service (ClusterIP)&#xa;Port 80 → 8080" vertex="1">
+          <mxGeometry height="40" width="150" x="545" y="155" as="geometry" />
+        </mxCell>
+        <mxCell id="e-ing-svc" edge="1" parent="1" source="ingress" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#6c8ebf;" target="svc" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-pod-bg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#F57F17;strokeWidth=2;" value="" vertex="1">
+          <mxGeometry height="240" width="480" x="380" y="220" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-pod-label" parent="1" style="text;html=1;fontSize=13;fontStyle=1;fontColor=#F57F17;align=left;" value="Controlplane Pod (1 replica, Recreate strategy)" vertex="1">
+          <mxGeometry height="22" width="400" x="390" y="225" as="geometry" />
+        </mxCell>
+        <mxCell id="api" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;" value="Helix API Server&#xa;(:8080)&#xa;&#xa;• REST API&#xa;• WebSocket endpoints&#xa;• Session management&#xa;• Auth (regular/OIDC/KC)&#xa;• File storage&#xa;• Runner orchestration&#xa;• RevDial relay" vertex="1">
+          <mxGeometry height="175" width="180" x="400" y="255" as="geometry" />
+        </mxCell>
+        <mxCell id="sidecar" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;strokeDasharray=3 3;" value="Sidecar&#xa;(optional)&#xa;custom image" vertex="1">
+          <mxGeometry height="55" width="100" x="600" y="255" as="geometry" />
+        </mxCell>
+        <mxCell id="haystack" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;strokeDasharray=3 3;" value="Haystack&#xa;Embeddings&#xa;(optional sidecar)&#xa;Unix socket" vertex="1">
+          <mxGeometry height="55" width="120" x="720" y="255" as="geometry" />
+        </mxCell>
+        <mxCell id="vol-filestore" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=6;fillColor=#FFF9C4;strokeColor=#F57F17;fontSize=9;" value="/filestore&#xa;(git repos, docs)" vertex="1">
+          <mxGeometry height="50" width="100" x="610" y="350" as="geometry" />
+        </mxCell>
+        <mxCell id="vol-socket" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=6;fillColor=#FFF9C4;strokeColor=#F57F17;fontSize=9;" value="/socket&#xa;(haystack IPC)" vertex="1">
+          <mxGeometry height="50" width="100" x="730" y="350" as="geometry" />
+        </mxCell>
+        <mxCell id="e-svc-api" edge="1" parent="1" source="svc" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#9673a6;" target="api" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pg-bg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E9;strokeColor=#2E7D32;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="140" width="280" x="40" y="220" as="geometry" />
+        </mxCell>
+        <mxCell id="pg-label" parent="1" style="text;html=1;fontSize=11;fontStyle=1;fontColor=#2E7D32;align=left;" value="PostgreSQL (Bitnami sub-chart or external)" vertex="1">
+          <mxGeometry height="20" width="260" x="50" y="225" as="geometry" />
+        </mxCell>
+        <mxCell id="pg-icon" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;align=left;spacingLeft=8;" value="postgresql:5432&#xa;&#xa;DB: helix&#xa;User: helix&#xa;&#xa;Stores:&#xa;• Users &amp; auth&#xa;• Sessions&#xa;• Apps/Knowledge&#xa;• Access grants" vertex="1">
+          <mxGeometry height="100" width="140" x="60" y="250" as="geometry" />
+        </mxCell>
+        <mxCell id="pg-pvc" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=6;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;" value="PVC&#xa;(Bitnami)" vertex="1">
+          <mxGeometry height="45" width="70" x="220" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="pgv-bg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E9;strokeColor=#2E7D32;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="130" width="280" x="40" y="380" as="geometry" />
+        </mxCell>
+        <mxCell id="pgv-label" parent="1" style="text;html=1;fontSize=11;fontStyle=1;fontColor=#2E7D32;align=left;" value="pgvector (vchord-bm25-postgres:pg17)" vertex="1">
+          <mxGeometry height="20" width="260" x="50" y="385" as="geometry" />
+        </mxCell>
+        <mxCell id="pgv-icon" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;align=left;spacingLeft=8;" value="pgvector:5432&#xa;&#xa;Extensions:&#xa;• vector&#xa;• vectorchord&#xa;• vectorchord-bm25&#xa;&#xa;For: RAG embeddings" vertex="1">
+          <mxGeometry height="85" width="140" x="60" y="408" as="geometry" />
+        </mxCell>
+        <mxCell id="pgv-pvc" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=6;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;" value="PVC 8Gi&#xa;RWO" vertex="1">
+          <mxGeometry height="45" width="70" x="220" y="430" as="geometry" />
+        </mxCell>
+        <mxCell id="e-api-pg" edge="1" parent="1" source="api" style="endArrow=classic;html=1;strokeColor=#2E7D32;fontSize=9;fontColor=#2E7D32;edgeStyle=elbowEdgeStyle;elbow=vertical;" target="pg-icon" value="POSTGRES_HOST">
+          <mxGeometry relative="1" x="-0.5" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-api-pgv" edge="1" parent="1" source="api" style="endArrow=classic;html=1;strokeColor=#2E7D32;fontSize=9;fontColor=#2E7D32;edgeStyle=elbowEdgeStyle;elbow=vertical;" target="pgv-icon" value="PGVECTOR_DSN">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rag-bg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#1565C0;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="190" width="820" x="50" y="590" as="geometry" />
+        </mxCell>
+        <mxCell id="rag-label" parent="1" style="text;html=1;fontSize=13;fontStyle=1;fontColor=#1565C0;align=left;" value="RAG / Search / Indexing Services" vertex="1">
+          <mxGeometry height="22" width="300" x="60" y="595" as="geometry" />
+        </mxCell>
+        <mxCell id="searxng2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BBDEFB;strokeColor=#1565C0;fontSize=10;align=left;spacingLeft=6;" value="Searxng&#xa;:8080&#xa;&#xa;Web search&#xa;(WolframAlpha,&#xa;rate-limited)&#xa;&#xa;ConfigMap:&#xa;settings.yml&#xa;limiter.toml" vertex="1">
+          <mxGeometry height="140" width="130" x="70" y="625" as="geometry" />
+        </mxCell>
+        <mxCell id="chrome2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BBDEFB;strokeColor=#1565C0;fontSize=10;align=left;spacingLeft=6;" value="Chrome/Rod&#xa;:7317&#xa;&#xa;Headless browser&#xa;for web crawling&#xa;RAG content&#xa;extraction" vertex="1">
+          <mxGeometry height="120" width="130" x="220" y="625" as="geometry" />
+        </mxCell>
+        <mxCell id="tika2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BBDEFB;strokeColor=#1565C0;fontSize=10;align=left;spacingLeft=6;strokeDasharray=3 3;" value="Apache Tika&#xa;:9998&#xa;(optional)&#xa;&#xa;Document text&#xa;extraction&#xa;(PDF, DOCX...)" vertex="1">
+          <mxGeometry height="120" width="130" x="440" y="625" as="geometry" />
+        </mxCell>
+        <mxCell id="ts2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BBDEFB;strokeColor=#1565C0;fontSize=10;align=left;spacingLeft=6;strokeDasharray=3 3;" value="Typesense&#xa;:8108&#xa;(optional)&#xa;&#xa;Full-text search&#xa;index&#xa;&#xa;PVC: 8Gi" vertex="1">
+          <mxGeometry height="120" width="130" x="610" y="625" as="geometry" />
+        </mxCell>
+        <mxCell id="e-api-srx" edge="1" parent="1" source="api" style="endArrow=classic;html=1;strokeColor=#1565C0;fontSize=8;fontColor=#1565C0;edgeStyle=elbowEdgeStyle;elbow=vertical;" target="searxng2" value="RAG_SEARCH">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-api-chr" edge="1" parent="1" source="api" style="endArrow=classic;html=1;strokeColor=#1565C0;fontSize=8;fontColor=#1565C0;edgeStyle=elbowEdgeStyle;elbow=vertical;" target="chrome2" value="CRAWLER">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="390" y="550" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-api-tik" edge="1" parent="1" source="api" style="endArrow=classic;html=1;strokeColor=#1565C0;fontSize=8;fontColor=#1565C0;dashed=1;edgeStyle=elbowEdgeStyle;elbow=vertical;" target="tika2" value="TIKA">
+          <mxGeometry relative="1" x="0.4359" y="-10" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="500" y="550" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-api-ts" edge="1" parent="1" source="api" style="endArrow=classic;html=1;strokeColor=#1565C0;fontSize=8;fontColor=#1565C0;dashed=1;edgeStyle=elbowEdgeStyle;elbow=vertical;" target="ts2" value="TYPESENSE">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="510" y="510" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ai-bg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCE4EC;strokeColor=#C62828;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="200" width="160" x="1230" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="ai-label" parent="1" style="text;html=1;fontSize=12;fontStyle=1;fontColor=#C62828;align=left;" value="External AI Providers" vertex="1">
+          <mxGeometry height="20" width="200" x="1240" y="245" as="geometry" />
+        </mxCell>
+        <mxCell id="openai" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFCDD2;strokeColor=#C62828;fontSize=10;" value="OpenAI API" vertex="1">
+          <mxGeometry height="30" width="100" x="1250" y="270" as="geometry" />
+        </mxCell>
+        <mxCell id="anthropic" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFCDD2;strokeColor=#C62828;fontSize=10;" value="Anthropic API" vertex="1">
+          <mxGeometry height="30" width="100" x="1250" y="310" as="geometry" />
+        </mxCell>
+        <mxCell id="together" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFCDD2;strokeColor=#C62828;fontSize=10;" value="TogetherAI" vertex="1">
+          <mxGeometry height="30" width="100" x="1250" y="350" as="geometry" />
+        </mxCell>
+        <mxCell id="vllm" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFCDD2;strokeColor=#C62828;fontSize=10;" value="vLLM (self-hosted)" vertex="1">
+          <mxGeometry height="30" width="100" x="1250" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="runners-ext" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#2E7D32;fontSize=10;align=left;spacingLeft=6;" value="Helix Runners&#xa;(GPU inference)&#xa;&#xa;Poll for tasks&#xa;via API_TOKEN&#xa;&#xa;Ollama + vLLM" vertex="1">
+          <mxGeometry height="100" width="120" x="1080" y="305" as="geometry" />
+        </mxCell>
+        <mxCell id="sandboxes-ext" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BBDEFB;strokeColor=#1565C0;fontSize=10;align=left;spacingLeft=6;" value="Helix Sandboxes&#xa;(GPU desktops)&#xa;&#xa;RevDial WebSocket&#xa;via RUNNER_TOKEN" vertex="1">
+          <mxGeometry height="85" width="120" x="1070" y="185" as="geometry" />
+        </mxCell>
+        <mxCell id="e-api-ai" edge="1" parent="1" source="api" style="endArrow=classic;html=1;strokeColor=#C62828;fontSize=9;fontColor=#C62828;edgeStyle=elbowEdgeStyle;" target="openai" value="API Keys">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="950" y="340" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-api-runners" edge="1" parent="1" source="api" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#2E7D32;fontSize=9;fontColor=#2E7D32;edgeStyle=elbowEdgeStyle;" target="runners-ext" value="task dispatch">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="970" y="410" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-api-sb" edge="1" parent="1" source="api" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#1565C0;fontSize=9;fontColor=#1565C0;edgeStyle=elbowEdgeStyle;" target="sandboxes-ext" value="RevDial">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="910" y="320" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="auth-bg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF3E0;strokeColor=#E65100;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="130" width="280" x="920" y="450" as="geometry" />
+        </mxCell>
+        <mxCell id="auth-label" parent="1" style="text;html=1;fontSize=11;fontStyle=1;fontColor=#E65100;align=left;" value="Authentication Modes" vertex="1">
+          <mxGeometry height="18" width="200" x="930" y="455" as="geometry" />
+        </mxCell>
+        <mxCell id="auth-regular" parent="1" style="text;html=1;fontSize=10;align=left;" value="regular — Built-in email/password" vertex="1">
+          <mxGeometry height="18" width="240" x="940" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="auth-kc" parent="1" style="text;html=1;fontSize=10;align=left;" value="keycloak — External Keycloak server" vertex="1">
+          <mxGeometry height="18" width="240" x="940" y="500" as="geometry" />
+        </mxCell>
+        <mxCell id="auth-oidc" parent="1" style="text;html=1;fontSize=10;align=left;" value="oidc — Any OIDC provider (SSO)" vertex="1">
+          <mxGeometry height="18" width="240" x="940" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="auth-smtp" parent="1" style="text;html=1;fontSize=10;align=left;" value="SMTP (optional) — password reset, alerts" vertex="1">
+          <mxGeometry height="18" width="240" x="940" y="545" as="geometry" />
+        </mxCell>
+        <mxCell id="secrets-box" parent="1" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=15;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;align=left;spacingLeft=6;" value="K8s Secrets&#xa;&#xa;• RUNNER_TOKEN (shared auth)&#xa;• ENCRYPTION_KEY (AES-256-GCM)&#xa;• LICENSE_KEY&#xa;• postgresql-auth-secret&#xa;• pgvector-auth-secret&#xa;• openai/anthropic/together creds&#xa;• kodit-auth&#xa;• HF_TOKEN" vertex="1">
+          <mxGeometry height="160" width="250" x="920" y="600" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-pvc-detail" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#FFF9C4;strokeColor=#F57F17;fontSize=10;align=left;spacingLeft=8;" value="PVC: controlplane&#xa;8Gi RWO&#xa;&#xa;Mount: /filestore&#xa;&#xa;Contains:&#xa;• Git repositories&#xa;• Uploaded documents&#xa;• Generated files" vertex="1">
+          <mxGeometry height="170" width="200" x="1190" y="600" as="geometry" />
+        </mxCell>
+        <mxCell id="ports" parent="1" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=15;fillColor=#F3E5F5;strokeColor=#7B1FA2;fontSize=10;align=left;spacingLeft=6;fontFamily=Courier New;" value="Internal Service Ports&#xa;&#xa;Controlplane:  80 → 8080&#xa;PostgreSQL:     5432&#xa;pgvector:         5432&#xa;Typesense:      8108&#xa;Tika:                 9998&#xa;Chrome/Rod:    7317&#xa;Searxng:           8080&#xa;Kodit VChord:  5432" vertex="1">
+          <mxGeometry height="130" width="220" x="830" y="70" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

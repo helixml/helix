@@ -1,0 +1,210 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.3.0 Chrome/140.0.7339.249 Electron/38.7.2 Safari/537.36" version="29.3.0">
+  <diagram id="spectrocloud" name="Helix on SpectroCloud Palette">
+    <mxGraphModel dx="1797" dy="1052" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;fontSize=22;fontStyle=1;align=center;" value="Deploying Helix on SpectroCloud Palette" vertex="1">
+          <mxGeometry height="35" width="500" x="350" y="15" as="geometry" />
+        </mxCell>
+        <mxCell id="sub" parent="1" style="text;html=1;fontSize=11;fontStyle=2;align=center;fontColor=#666;" value="Palette Add-on Cluster Profile with 3 Helix Helm Charts" vertex="1">
+          <mxGeometry height="20" width="500" x="350" y="48" as="geometry" />
+        </mxCell>
+        <mxCell id="palette-bg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EAF6;strokeColor=#283593;strokeWidth=2;arcSize=5;" value="" vertex="1">
+          <mxGeometry height="420" width="550" x="40" y="85" as="geometry" />
+        </mxCell>
+        <mxCell id="palette-label" parent="1" style="text;html=1;fontSize=16;fontStyle=1;fontColor=#283593;align=left;" value="SpectroCloud Palette Console" vertex="1">
+          <mxGeometry height="25" width="350" x="55" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="tenant" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C5CAE9;strokeColor=#283593;fontSize=11;fontStyle=1;" value="Tenant: Customer Org" vertex="1">
+          <mxGeometry height="35" width="170" x="60" y="125" as="geometry" />
+        </mxCell>
+        <mxCell id="project" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C5CAE9;strokeColor=#283593;fontSize=11;" value="Project: helix-deploy" vertex="1">
+          <mxGeometry height="35" width="170" x="250" y="125" as="geometry" />
+        </mxCell>
+        <mxCell id="step1-bg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#1565C0;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="65" width="510" x="60" y="175" as="geometry" />
+        </mxCell>
+        <mxCell id="step1-num" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#1565C0;strokeColor=none;fontColor=#FFFFFF;fontSize=14;fontStyle=1;" value="1" vertex="1">
+          <mxGeometry height="30" width="30" x="70" y="185" as="geometry" />
+        </mxCell>
+        <mxCell id="step1" parent="1" style="text;html=1;fontSize=10;align=left;verticalAlign=top;" value="Register Helm Repository&#xa;Settings → Registries → Add Helm Registry&#xa;Name: helix | Endpoint: https://charts.helixml.tech" vertex="1">
+          <mxGeometry height="55" width="440" x="110" y="178" as="geometry" />
+        </mxCell>
+        <mxCell id="step2-bg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF3E0;strokeColor=#E65100;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="235" width="510" x="60" y="250" as="geometry" />
+        </mxCell>
+        <mxCell id="step2-num" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#E65100;strokeColor=none;fontColor=#FFFFFF;fontSize=14;fontStyle=1;" value="2" vertex="1">
+          <mxGeometry height="30" width="30" x="70" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="step2" parent="1" style="text;html=1;fontSize=10;align=left;fontStyle=1;" value="Create Add-on Cluster Profile&#xa;Profiles → Add Cluster Profile → Type: Add-on" vertex="1">
+          <mxGeometry height="30" width="400" x="110" y="255" as="geometry" />
+        </mxCell>
+        <mxCell id="layer-label" parent="1" style="text;html=1;fontSize=10;fontStyle=2;align=left;fontColor=#E65100;" value="Profile Layers (install order):" vertex="1">
+          <mxGeometry height="18" width="200" x="80" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="layer1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=6;" value="Layer 1: helix-controlplane&#xa;&#xa;Chart: helix/helix-controlplane v0.3.38&#xa;Namespace: helix&#xa;&#xa;Values: serverUrl, runnerToken,&#xa;encryptionKey, ingress, providers,&#xa;postgresql, pgvector, kodit" vertex="1">
+          <mxGeometry height="130" width="160" x="68" y="312" as="geometry" />
+        </mxCell>
+        <mxCell id="layer2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#2E7D32;fontSize=9;align=left;spacingLeft=6;" value="Layer 2: helix-runner&#xa;&#xa;Chart: helix/helix-runner v0.3.8&#xa;Namespace: helix&#xa;&#xa;Values: runner.host,&#xa;runner.token, gpuCount,&#xa;replicaCount, nodeSelector" vertex="1">
+          <mxGeometry height="130" width="150" x="244" y="312" as="geometry" />
+        </mxCell>
+        <mxCell id="layer3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BBDEFB;strokeColor=#1565C0;fontSize=9;align=left;spacingLeft=6;" value="Layer 3: helix-sandbox&#xa;(optional)&#xa;&#xa;Chart: helix/helix-sandbox v0.2.0&#xa;Namespace: helix&#xa;&#xa;Values: apiUrl, runnerToken,&#xa;gpu vendor, maxSandboxes,&#xa;PVC sizes" vertex="1">
+          <mxGeometry height="130" width="150" x="410" y="312" as="geometry" />
+        </mxCell>
+        <mxCell id="e-l1-l2" edge="1" parent="1" source="layer1" style="endArrow=classic;html=1;strokeColor=#666;strokeWidth=1;" target="layer2" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-l2-l3" edge="1" parent="1" source="layer2" style="endArrow=classic;html=1;strokeColor=#666;strokeWidth=1;" target="layer3" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="order-note" parent="1" style="text;html=1;fontSize=9;fontStyle=2;align=left;fontColor=#666;" value="Install order: 1 → 2 → 3&#xa;(controlplane must be up before runner/sandbox connect)" vertex="1">
+          <mxGeometry height="30" width="350" x="80" y="450" as="geometry" />
+        </mxCell>
+        <mxCell id="cluster-bg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E9;strokeColor=#2E7D32;strokeWidth=2;arcSize=5;" value="" vertex="1">
+          <mxGeometry height="575" width="720" x="640" y="85" as="geometry" />
+        </mxCell>
+        <mxCell id="cluster-label" parent="1" style="text;html=1;fontSize=16;fontStyle=1;fontColor=#2E7D32;align=left;" value="Target Kubernetes Cluster (managed by Palette)" vertex="1">
+          <mxGeometry height="25" width="450" x="675" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="palette-agent" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#283593;strokeColor=#1A237E;fontColor=#FFFFFF;fontSize=10;fontStyle=1;" value="Palette Agent&#xa;(cluster mgmt)" vertex="1">
+          <mxGeometry height="40" width="130" x="1200" y="82.5" as="geometry" />
+        </mxCell>
+        <mxCell id="e-palette-cluster" edge="1" parent="1" source="step2-bg" style="endArrow=classic;html=1;strokeWidth=3;strokeColor=#283593;fontSize=10;fontColor=#283593;fontStyle=1;" target="cluster-bg" value="Palette deploys&#xa;cluster profile">
+          <mxGeometry relative="1" x="0.1492" y="-30" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ns-helix" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1F8E9;strokeColor=#558B2F;strokeWidth=1;strokeDasharray=3 3;" value="" vertex="1">
+          <mxGeometry height="515" width="680" x="660" y="125" as="geometry" />
+        </mxCell>
+        <mxCell id="ns-label" parent="1" style="text;html=1;fontSize=12;fontStyle=1;fontColor=#558B2F;align=left;" value="Namespace: helix" vertex="1">
+          <mxGeometry height="20" width="150" x="690" y="128" as="geometry" />
+        </mxCell>
+        <mxCell id="ingress2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;fontStyle=1;" value="Ingress&#xa;helix.customer.com" vertex="1">
+          <mxGeometry height="35" width="150" x="830" y="150" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-group" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#F57F17;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="220" width="310" x="690" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-title" parent="1" style="text;html=1;fontSize=11;fontStyle=1;fontColor=#F57F17;align=left;" value="helix-controlplane" vertex="1">
+          <mxGeometry height="18" width="200" x="780" y="198.5" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-api2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" value="API Server&#xa;:8080" vertex="1">
+          <mxGeometry height="40" width="90" x="700" y="230" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-pg2" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=6;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;" value="PostgreSQL&#xa;:5432" vertex="1">
+          <mxGeometry height="45" width="80" x="800" y="230" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-pgv2" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=6;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;" value="pgvector&#xa;:5432" vertex="1">
+          <mxGeometry height="45" width="80" x="890" y="230" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-searxng2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BBDEFB;strokeColor=#1565C0;fontSize=9;" value="Searxng" vertex="1">
+          <mxGeometry height="25" width="60" x="700" y="285" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-chrome2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BBDEFB;strokeColor=#1565C0;fontSize=9;" value="Chrome" vertex="1">
+          <mxGeometry height="25" width="55" x="770" y="285" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-kodit2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BBDEFB;strokeColor=#1565C0;fontSize=9;" value="Kodit" vertex="1">
+          <mxGeometry height="25" width="55" x="835" y="285" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-pvcs" parent="1" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=10;fillColor=#f5f5f5;strokeColor=#666;fontSize=8;align=left;spacingLeft=4;" value="PVCs: controlplane 8Gi,&#xa;pgvector 8Gi, kodit 10Gi,&#xa;postgresql (Bitnami)" vertex="1">
+          <mxGeometry height="55" width="170" x="700" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="cp-secrets2" parent="1" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=10;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=8;align=left;spacingLeft=4;" value="Secrets:&#xa;runner-token&#xa;encryption-key&#xa;license-key&#xa;provider-keys" vertex="1">
+          <mxGeometry height="80" width="100" x="890" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="runner-group" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E9;strokeColor=#2E7D32;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="180" width="220" x="690" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="runner-title" parent="1" style="text;html=1;fontSize=11;fontStyle=1;fontColor=#2E7D32;align=left;" value="helix-runner (GPU Node Pool)" vertex="1">
+          <mxGeometry height="18" width="200" x="700" y="445" as="geometry" />
+        </mxCell>
+        <mxCell id="runner1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#2E7D32;fontSize=9;" value="Runner Pod 1&#xa;GPU: nvidia.com/gpu&#xa;Ollama + vLLM" vertex="1">
+          <mxGeometry height="55" width="120" x="700" y="470" as="geometry" />
+        </mxCell>
+        <mxCell id="runner2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#2E7D32;fontSize=9;" value="Runner Pod 2&#xa;GPU: nvidia.com/gpu" vertex="1">
+          <mxGeometry height="40" width="120" x="700" y="535" as="geometry" />
+        </mxCell>
+        <mxCell id="runnerN" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#2E7D32;fontSize=9;strokeDasharray=3 3;" value="Runner Pod N" vertex="1">
+          <mxGeometry height="25" width="100" x="700" y="585" as="geometry" />
+        </mxCell>
+        <mxCell id="gpu-icon1" parent="1" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#76FF03;strokeColor=#33691E;fontSize=9;fontStyle=1;size=8;" value="GPU" vertex="1">
+          <mxGeometry height="25" width="50" x="840" y="475" as="geometry" />
+        </mxCell>
+        <mxCell id="gpu-icon2" parent="1" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#76FF03;strokeColor=#33691E;fontSize=9;fontStyle=1;size=8;" value="GPU" vertex="1">
+          <mxGeometry height="25" width="50" x="840" y="540" as="geometry" />
+        </mxCell>
+        <mxCell id="sandbox-group" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#1565C0;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="180" width="380" x="940" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="sandbox-title" parent="1" style="text;html=1;fontSize=11;fontStyle=1;fontColor=#1565C0;align=left;" value="helix-sandbox (GPU Node Pool, privileged)" vertex="1">
+          <mxGeometry height="18" width="350" x="950" y="445" as="geometry" />
+        </mxCell>
+        <mxCell id="sandbox1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BBDEFB;strokeColor=#1565C0;fontSize=9;align=left;spacingLeft=5;" value="Sandbox Pod&#xa;(DinD + Hydra)&#xa;&#xa;Desktop sessions&#xa;Video streaming" vertex="1">
+          <mxGeometry height="80" width="130" x="950" y="470" as="geometry" />
+        </mxCell>
+        <mxCell id="sb-pvcs" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=8;fillColor=#f5f5f5;strokeColor=#666;fontSize=8;align=left;spacingLeft=4;" value="PVCs:&#xa;docker 50Gi&#xa;hydra 20Gi&#xa;workspace 100Gi" vertex="1">
+          <mxGeometry height="75" width="100" x="1100" y="470" as="geometry" />
+        </mxCell>
+        <mxCell id="gpu-sb" parent="1" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#76FF03;strokeColor=#33691E;fontSize=9;fontStyle=1;size=8;" value="GPU" vertex="1">
+          <mxGeometry height="25" width="50" x="1215" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="sb-security" parent="1" style="text;html=1;fontSize=8;fontColor=#C62828;align=left;" value="privileged: true&#xa;hostPath: /dev, /run/udev&#xa;Pod Security: privileged" vertex="1">
+          <mxGeometry height="40" width="200" x="950" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="e-ing-cp2" edge="1" parent="1" source="ingress2" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#6c8ebf;edgeStyle=elbowEdgeStyle;" target="cp-api2" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="720" y="200" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-run-cp" edge="1" parent="1" source="runner1" style="endArrow=classic;html=1;strokeWidth=1;strokeColor=#2E7D32;fontSize=8;fontColor=#2E7D32;edgeStyle=elbowEdgeStyle;elbow=vertical;" target="cp-api2" value="API_TOKEN">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="670" y="380" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-sb-cp2" edge="1" parent="1" source="sandbox1" style="endArrow=classic;html=1;strokeWidth=1;strokeColor=#1565C0;fontSize=8;fontColor=#1565C0;edgeStyle=elbowEdgeStyle;" target="cp-api2" value="RevDial&#xa;WebSocket">
+          <mxGeometry relative="1" x="-0.3191" y="10" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="930" y="190" />
+              <mxPoint x="1015" y="410" />
+              <mxPoint x="980" y="400" />
+              <mxPoint x="1030" y="340" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="registry2" parent="1" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#1565C0;fontSize=9;" value="Container Registry&#xa;registry.helixml.tech&#xa;(or internal)" vertex="1">
+          <mxGeometry height="70" width="140" x="1210" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="e-sb-reg" edge="1" parent="1" source="sandbox1" style="endArrow=classic;html=1;strokeColor=#1565C0;dashed=1;fontSize=8;fontColor=#1565C0;edgeStyle=elbowEdgeStyle;entryX=0.078;entryY=0.456;entryDx=0;entryDy=0;entryPerimeter=0;" target="registry2" value="pull desktop&#xa;images">
+          <mxGeometry relative="1" x="0.1" y="-15" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="1090" y="580" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="reqs-bg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3E5F5;strokeColor=#7B1FA2;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="190" width="550" x="40" y="513" as="geometry" />
+        </mxCell>
+        <mxCell id="reqs-label" parent="1" style="text;html=1;fontSize=14;fontStyle=1;fontColor=#7B1FA2;align=left;" value="Cluster Node Pool Requirements" vertex="1">
+          <mxGeometry height="22" width="350" x="55" y="518" as="geometry" />
+        </mxCell>
+        <mxCell id="pool1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1BEE7;strokeColor=#7B1FA2;fontSize=9;align=left;spacingLeft=6;" value="Pool 1: System / Controlplane&#xa;&#xa;• 4 CPU, 8GB RAM, 50GB disk&#xa;• No GPU required&#xa;• Standard nodes&#xa;• Runs: API, PostgreSQL, pgvector,&#xa;  searxng, chrome, kodit" vertex="1">
+          <mxGeometry height="120" width="170" x="55" y="548" as="geometry" />
+        </mxCell>
+        <mxCell id="pool2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1BEE7;strokeColor=#7B1FA2;fontSize=9;align=left;spacingLeft=6;" value="Pool 2: GPU Runners&#xa;&#xa;• GPU: 8-40GB VRAM&#xa;• 150GB+ disk&#xa;• NVIDIA device plugin&#xa;• Taint: nvidia.com/gpu&#xa;• Runs: helix-runner pods" vertex="1">
+          <mxGeometry height="120" width="160" x="240" y="548" as="geometry" />
+        </mxCell>
+        <mxCell id="pool3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1BEE7;strokeColor=#7B1FA2;fontSize=9;align=left;spacingLeft=6;" value="Pool 3: GPU Sandbox&#xa;(if cloud desktops needed)&#xa;&#xa;• GPU: NVIDIA w/ NVENC&#xa;• 170Gi+ PVC storage&#xa;• Privileged pods allowed&#xa;• hostPath mounts&#xa;• Runs: helix-sandbox" vertex="1">
+          <mxGeometry height="130" width="160" x="415" y="548" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
