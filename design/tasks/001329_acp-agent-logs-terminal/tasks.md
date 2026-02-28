@@ -2,9 +2,9 @@
 
 ## Primary Implementation
 
-- [ ] Add window name matching for "ACP Agent Logs" in `helix/desktop/ubuntu-config/devilspie2/helix-tiling.lua`
-- [ ] Call `minimize()` function for matched ACP Agent Logs window
-- [ ] Add debug logging for the minimize action
+- [~] Add window name matching for "ACP Agent Logs" in `helix/desktop/ubuntu-config/devilspie2/helix-tiling.lua`
+- [~] Call `minimize()` function for matched ACP Agent Logs window
+- [~] Add debug logging for the minimize action
 
 ## Testing
 
