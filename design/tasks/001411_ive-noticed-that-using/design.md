@@ -29,26 +29,6 @@ Instead of using CSS transform to zoom, increase the canvas's CSS display size p
 
 **Why this works:** When `canvasDisplaySize.width * zoomLevel` exceeds the container width, the browser must render more pixels from the canvas's internal 1920px buffer to fill the larger CSS area.
 
-### Code Changes
-
-**DesktopStreamViewer.tsx - Canvas style (around line 4875):**
-
-Current:
-```tsx
-width: canvasDisplaySize ? `${canvasDisplaySize.width}px` : "100%",
-height: canvasDisplaySize ? `${canvasDisplaySize.height}px` : "100%",
-transform: `translate(-50%, -50%) scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${panOffset.y / zoomLevel}px)`,
-```
-
-Proposed:
-```tsx
-width: canvasDisplaySize ? `${canvasDisplaySize.width * zoomLevel}px` : "100%",
-height: canvasDisplaySize ? `${canvasDisplaySize.height * zoomLevel}px` : "100%",
-transform: `translate(calc(-50% + ${panOffset.x}px), calc(-50% + ${panOffset.y}px))`,
-```
-
-Apply same change to screenshot img element.
-
 ---
 
 ## Issue 2: Trackpad Edge-Pan Not Working
@@ -60,98 +40,55 @@ Coordinate system mismatch in `handleTouchMove`:
 1. **Cursor position** (`newX`/`newY`): Container screen coordinates (e.g., 0-390px on mobile)
 2. **Viewport bounds** from `calculateVisibleViewportBounds()`: Content coordinates divided by zoom
 
-When comparing cursor position against viewport bounds for edge detection, the coordinate systems don't match:
-
-```tsx
-// calculateVisibleViewportBounds() returns content coords
-const visibleWidth = containerRect.width / zoomLevel;  // e.g., 195px at 2x zoom
-const left = centerX - visibleWidth / 2 - panOffset.x / zoomLevel;
-
-// But newX is in screen coords (0-390px range)
-const distFromLeft = newX - viewportBounds.left;  // WRONG: mixing coord systems
-```
-
-At 2x zoom on a 390px container:
-- `viewportBounds.left` might be ~97px (content coords)
-- `newX` cursor at left edge is ~0px (screen coords)
-- `distFromLeft` = 0 - 97 = -97px → incorrectly thinks cursor is way outside
+When comparing cursor position against viewport bounds for edge detection, the coordinate systems don't match.
 
 ### Solution: Use Screen Coordinates for Edge Detection
 
-The edge-pan logic should work in screen coordinates since that's what the cursor uses. The visible viewport in screen coordinates is simply the container bounds (0 to containerWidth, 0 to containerHeight).
-
-**Option A: Simplify to container bounds (Recommended)**
-
-When zoomed, the visible viewport in screen coordinates IS the container. Edge detection should check distance from container edges, not from calculated viewport bounds:
+When zoomed, the visible viewport in screen coordinates IS the container. Edge detection should check distance from container edges directly:
 
 ```tsx
-// In handleTouchMove, replace viewport bounds calculation with:
-if (zoomLevel > 1 && containerRef.current) {
-  const containerRect = containerRef.current.getBoundingClientRect();
-  
-  // Distance from container edges (screen coordinates)
-  const distFromLeft = newX;
-  const distFromRight = containerRect.width - newX;
-  const distFromTop = newY;
-  const distFromBottom = containerRect.height - newY;
-  
-  // Rest of edge detection logic unchanged...
-}
+const distFromLeft = newX;
+const distFromRight = containerRect.width - newX;
+const distFromTop = newY;
+const distFromBottom = containerRect.height - newY;
 ```
 
-**Option B: Convert cursor to content coordinates**
+---
 
-Alternatively, convert cursor position to content coordinates before comparison:
-```tsx
-const cursorContentX = (newX - containerRect.width/2) / zoomLevel + containerRect.width/2;
-```
+## Implementation Notes
 
-Option A is simpler and more intuitive.
+### Files Modified
+- `frontend/src/components/external-agent/DesktopStreamViewer.tsx`
 
-### Code Changes
+### Key Changes Made
 
-**DesktopStreamViewer.tsx - handleTouchMove (around line 3265):**
+1. **Canvas element style (line ~4872)**
+   - Changed `width` from `canvasDisplaySize.width` to `canvasDisplaySize.width * zoomLevel`
+   - Changed `height` from `canvasDisplaySize.height` to `canvasDisplaySize.height * zoomLevel`
+   - Changed `transform` from `scale(${zoomLevel})` to just centering + pan offset
 
-Current:
-```tsx
-if (zoomLevel > 1) {
-  const viewportBounds = calculateVisibleViewportBounds();
-  if (viewportBounds) {
-    const distFromLeft = newX - viewportBounds.left;
-    const distFromRight = viewportBounds.right - newX;
-    // ...
-  }
-}
-```
+2. **Container element (line ~4236)**
+   - Added `overflow: "hidden"` to clip zoomed content
 
-Proposed:
-```tsx
-if (zoomLevel > 1 && containerRef.current) {
-  const containerRect = containerRef.current.getBoundingClientRect();
-  
-  // Use container edges directly (cursor is in container-relative coords)
-  const distFromLeft = newX;
-  const distFromRight = containerRect.width - newX;
-  const distFromTop = newY;
-  const distFromBottom = containerRect.height - newY;
-  
-  let panDirection = { x: 0, y: 0 };
-  let maxIntensity = 0;
-  
-  if (distFromLeft < EDGE_PAN_ZONE_PX) {
-    panDirection.x = 1; // Pan right (reveal content on left)
-    maxIntensity = Math.max(maxIntensity, 1 - distFromLeft / EDGE_PAN_ZONE_PX);
-  } else if (distFromRight < EDGE_PAN_ZONE_PX) {
-    panDirection.x = -1; // Pan left (reveal content on right)
-    maxIntensity = Math.max(maxIntensity, 1 - distFromRight / EDGE_PAN_ZONE_PX);
-  }
-  // ... similar for top/bottom
-}
-```
+3. **Screenshot img element (line ~4910)**
+   - Applied same CSS size-based zoom approach as canvas
 
-### Additional Fix: Remove calculateVisibleViewportBounds dependency
+4. **Pan offset bounds calculation (lines ~3151, ~3401)**
+   - Updated `maxPanX`/`maxPanY` to use: `(scaledCanvasWidth - containerRect.width) / 2`
+   - Added `canvasDisplaySize` to useCallback dependencies
 
-The `calculateVisibleViewportBounds()` function can be removed or simplified since edge-pan no longer needs it. Keep it only if used elsewhere.
+5. **Edge-pan detection (line ~3273)**
+   - Replaced `calculateVisibleViewportBounds()` with direct container edge detection
+   - Uses `newX`/`newY` directly against container dimensions
+
+6. **Cleanup**
+   - Removed unused `calculateVisibleViewportBounds()` function
+   - Removed it from `handleTouchMove` dependencies
+
+### Gotchas Discovered
+- The pan offset calculation needed updating because the relationship between zoom and pan bounds changed
+- Old formula: `maxPanX = containerRect.width * (zoomLevel - 1) / 2`
+- New formula: `maxPanX = (canvasDisplaySize.width * zoomLevel - containerRect.width) / 2`
 
 ---
 
