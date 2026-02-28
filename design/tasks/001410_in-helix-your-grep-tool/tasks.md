@@ -2,11 +2,11 @@
 
 ## Primary Fix: Zed Grep Tool
 
-- [ ] Add `MAX_LINE_CHARS` constant (500 chars) in `zed/crates/agent/src/tools/grep_tool.rs`
-- [ ] Create `truncate_long_lines(text: &str, max_chars: usize) -> String` helper function
-- [ ] Modify output section (~line 314) to use `truncate_long_lines` before extending output
-- [ ] Add test case with a long line (>500 chars) verifying truncation and indicator
-- [ ] Add test case verifying short lines pass through unchanged
+- [x] Add `MAX_LINE_CHARS` constant (500 chars) in `zed/crates/agent/src/tools/grep_tool.rs`
+- [x] Create `truncate_long_lines(text: &str, max_chars: usize) -> String` helper function
+- [x] Modify output section (~line 314) to use `truncate_long_lines` before extending output
+- [x] Add test case with a long line (>500 chars) verifying truncation and indicator
+- [x] Add test case verifying short lines pass through unchanged
 
 ## Optional: Fix the Data in Helix
 
