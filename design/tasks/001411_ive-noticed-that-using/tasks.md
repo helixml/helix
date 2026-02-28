@@ -2,7 +2,7 @@
 
 ## Issue 1: Pinch-to-Zoom Quality
 
-- [ ] Modify canvas element style in `DesktopStreamViewer.tsx` to use CSS width/height scaling instead of transform scale
+- [~] Modify canvas element style in `DesktopStreamViewer.tsx` to use CSS width/height scaling instead of transform scale
   - Change `width: canvasDisplaySize.width * zoomLevel` instead of `transform: scale(zoomLevel)`
   - Change `height: canvasDisplaySize.height * zoomLevel` similarly
   - Update transform to only handle centering and pan offset (no scale)
