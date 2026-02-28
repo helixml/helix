@@ -8,6 +8,8 @@
 
 ## Testing
 
+_Manual testing required - needs full desktop environment with `SHOW_ACP_DEBUG_LOGS=true`_
+
 - [ ] Test with `SHOW_ACP_DEBUG_LOGS=true` - verify terminal starts minimized
 - [ ] Test that terminal can be restored from taskbar
 - [ ] Test that logs continue to be captured while minimized
