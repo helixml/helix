@@ -51,4 +51,10 @@ elseif win_class == "com.mitchellh.ghostty" or win_class == "ghostty"
     debug_print("Positioning terminal in left column")
     set_window_position(0, PANEL_HEIGHT)
     set_window_size(COLUMN_WIDTH, WINDOW_HEIGHT)
+
+    -- ACP Agent Logs terminal -> minimize by default so it doesn't obscure Zed
+    if win_name == "ACP Agent Logs" then
+        debug_print("Minimizing ACP Agent Logs terminal")
+        minimize()
+    end
 end
