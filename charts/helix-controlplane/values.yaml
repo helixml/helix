@@ -281,15 +281,10 @@ postgresql:
     annotations: {}
 
 # Kodit configuration - Code indexing service
-# Kodit provides code search and analysis capabilities for Helix
+# Kodit is compiled into the controlplane binary as a Go library (not a separate container).
+# It still requires a Vectorchord (PostgreSQL + pgvector) database for storing embeddings.
 kodit:
   enabled: true
-
-  # Kodit application image
-  image:
-    repository: registry.helixml.tech/helix/kodit
-    tag: "1.0.0"
-    pullPolicy: IfNotPresent
 
   # Database authentication (for kodit's vectorchord database)
   auth:
@@ -302,7 +297,8 @@ kodit:
     passwordKey: "" # defaults to "password"
     databaseKey: "" # defaults to "database"
 
-  # Enrichment endpoint configuration (Kodit uses Helix as LLM proxy)
+  # Enrichment endpoint configuration
+  # Kodit uses the controlplane's own API as an LLM proxy for code enrichment
   enrichment:
     # Base URL for enrichment API (defaults to Helix controlplane)
     baseUrl: "" # Defaults to http://<fullname>:80/v1
@@ -314,18 +310,6 @@ kodit:
     # Option: Use existing secret for API key (recommended - use runner token secret)
     existingSecret: ""
     existingSecretKey: "" # defaults to "api-token"
-
-  # Persistence for kodit data
-  persistence:
-    enabled: true
-    size: "10Gi"
-    storageClass: ""
-    annotations: {}
-    accessModes:
-      - ReadWriteOnce
-    existingClaim: ""
-    selector: {}
-    dataSource: {}
 
   # Vectorchord (PostgreSQL + pgvector) configuration for kodit
   vectorchord:
