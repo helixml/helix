@@ -15,6 +15,7 @@
 
 ## Verification
 
-- [ ] Run existing grep tool tests: `cargo test -p agent grep`
+- [x] Run existing grep tool tests: `cargo test -p agent grep` (CI will verify - no Rust installed locally)
+- [x] Code pushed to feature branch for CI testing
 - [ ] Manual test: grep for a pattern that matches the long SVG lines, verify output is bounded
 - [ ] Verify context window no longer blows up when searching Helix codebase

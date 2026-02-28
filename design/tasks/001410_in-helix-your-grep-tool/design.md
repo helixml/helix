@@ -97,3 +97,34 @@ We could also fix `frontend/src/components/icons/ProviderIcons.tsx` by:
 - Using an icon library
 
 This is orthogonal and could be done independently. The Zed fix is more general and helps with any codebase containing long lines.
+
+## Implementation Notes
+
+### Files Modified
+- `zed/crates/agent/src/tools/grep_tool.rs` — Added constant, helper function, and 5 unit tests
+
+### Actual Implementation
+The implementation followed the design exactly:
+1. Added `const MAX_LINE_CHARS: usize = 500;` at line 68 (next to `RESULTS_PER_PAGE`)
+2. Changed line ~303 from `output.extend(snapshot.text_for_range(range));` to:
+   ```rust
+   let text: String = snapshot.text_for_range(range).collect();
+   output.push_str(&truncate_long_lines(&text, MAX_LINE_CHARS));
+   ```
+3. Added `truncate_long_lines()` helper function after the `AgentTool` impl block
+
+### Tests Added
+- `test_truncate_long_lines_short_line_unchanged` — Short lines pass through
+- `test_truncate_long_lines_exactly_at_limit` — Boundary case at 500 chars
+- `test_truncate_long_lines_exceeds_limit` — Long lines get truncated with indicator
+- `test_truncate_long_lines_multiline_mixed` — Mixed short/long lines in same text
+- `test_truncate_long_lines_unicode` — Unicode chars count correctly (not bytes)
+
+### Root Cause Discovery
+The problematic file was `helix/frontend/src/components/icons/ProviderIcons.tsx`:
+- Line 33: 22,464 characters (inline SVG path data)
+- Multiple other lines exceed 1,000 characters
+- Contains common patterns like `d=`, `path`, `svg` that grep often matches
+
+### Commit
+`f51c0d5dae` on Zed main branch, pushed to `feature/001410-in-helix-your-grep-tool`
