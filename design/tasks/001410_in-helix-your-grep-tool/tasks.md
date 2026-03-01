@@ -8,6 +8,25 @@
 - [x] Add test case with a long line (>500 chars) verifying truncation and indicator
 - [x] Add test case verifying short lines pass through unchanged
 
+## Long Lines Found in Helix Codebase
+
+Investigation found several sources of extremely long lines:
+
+| File | Max Line Length | Type |
+|------|-----------------|------|
+| `desktop/sway-config/settings-sync-daemon` | 333,027 chars | **Binary executable checked into git!** |
+| `frontend/assets/external-libs/redoc/redoc.standalone.js` | 661,439 chars | Minified JS library |
+| `api/pkg/controller/knowledge/readability/testdata/article.html` | 36,643 chars | HTML test fixture |
+| `frontend/src/components/icons/ProviderIcons.tsx` | 22,464 chars | Inline SVG paths |
+| `api/pkg/tools/testdata/github_*.json` | 10-15K chars | Dependabot PR bodies in test data |
+| `frontend/src/components/providers/logos/togetherai.tsx` | 8,336 chars | Inline SVG path |
+
+### Recommended Follow-up Actions
+
+- [ ] Add `.gitattributes` to mark binaries (`settings-sync-daemon`, `*.rgba`) as binary
+- [ ] Consider excluding `desktop/sway-config/settings-sync-daemon` from git or using Git LFS
+- [ ] Consider excluding vendored minified JS from search (already in node_modules pattern?)
+
 ## Optional: Fix the Data in Helix
 
 - [~] Evaluate moving inline SVGs in `frontend/src/components/icons/ProviderIcons.tsx` to separate `.svg` files
