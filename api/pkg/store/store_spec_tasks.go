@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -12,10 +11,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 )
-
-func newTaskSpecSubject(projectID string) string {
-	return fmt.Sprintf("spec-task.%s", projectID)
-}
 
 // CreateSpecTask creates a new spec-driven task
 func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask) error {
@@ -49,7 +44,7 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 		Str("status", task.Status.String()).
 		Msg("Created spec task")
 
-	_ = s.notifyTaskUpdates(ctx, task)
+	_ = s.notifyTaskUpdates(ctx, StoreEventOperationCreated, task)
 
 	return nil
 }
@@ -136,7 +131,7 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 		Str("planning_session_id", task.PlanningSessionID).
 		Msg("Updated spec task")
 
-	s.notifyTaskUpdates(ctx, task)
+	_ = s.notifyTaskUpdates(ctx, StoreEventOperationUpdated, task)
 
 	return nil
 }
@@ -274,6 +269,11 @@ func (s *PostgresStore) DeleteSpecTask(ctx context.Context, id string) error {
 		return fmt.Errorf("task ID is required")
 	}
 
+	task, err := s.GetSpecTask(ctx, id)
+	if err != nil {
+		return err
+	}
+
 	// Clean up junction table entries where this task is either the owner or a dependency
 	if err := s.gdb.WithContext(ctx).Exec(
 		"DELETE FROM spec_task_dependencies WHERE spec_task_id = ? OR depends_on_id = ?", id, id,
@@ -293,6 +293,8 @@ func (s *PostgresStore) DeleteSpecTask(ctx context.Context, id string) error {
 	log.Info().
 		Str("task_id", id).
 		Msg("Deleted spec task")
+
+	_ = s.notifyTaskUpdates(ctx, StoreEventOperationDeleted, task)
 
 	return nil
 }
@@ -361,17 +363,16 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 // Returns a subscription that receives task updates matching the filter criteria.
 // Supports multiple concurrent subscribers in a broadcast style.
 func (s *PostgresStore) SubscribeForTasks(ctx context.Context, filter *SpecTaskSubscriptionFilter, handler func(task *types.SpecTask) error) (pubsub.Subscription, error) {
-	if filter.ProjectID == "" {
-		filter.ProjectID = "*"
+	storeFilter := &StoreEventSubscriptionFilter{
+		ResourceType: StoreEventResourceTypeSpecTask,
 	}
-
-	subject := newTaskSpecSubject(filter.ProjectID)
-
-	sub, err := s.pubsub.Subscribe(ctx, subject, func(payload []byte) error {
+	if filter != nil {
+		storeFilter.ProjectID = filter.ProjectID
+	}
+	return s.subscribeStoreEvents(ctx, storeFilter, func(event *StoreEvent) error {
 		var task types.SpecTask
 
-		err := json.Unmarshal(payload, &task)
-		if err != nil {
+		if err := event.UnmarshalResource(&task); err != nil {
 			return fmt.Errorf("failed to unmarshal task: %w", err)
 		}
 		if !filter.Matches(&task) {
@@ -380,20 +381,10 @@ func (s *PostgresStore) SubscribeForTasks(ctx context.Context, filter *SpecTaskS
 
 		return handler(&task)
 	})
-
-	return sub, err
 }
 
-func (s *PostgresStore) notifyTaskUpdates(ctx context.Context, task *types.SpecTask) error {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	message, err := json.Marshal(task)
-	if err != nil {
-		return fmt.Errorf("failed to marshal task: %w", err)
-	}
-
-	return s.pubsub.Publish(ctx, newTaskSpecSubject(task.ProjectID), message)
+func (s *PostgresStore) notifyTaskUpdates(ctx context.Context, operation StoreEventOperation, task *types.SpecTask) error {
+	return s.publishStoreEvent(ctx, operation, task)
 }
 
 type SpecTaskSubscriptionFilter struct {
