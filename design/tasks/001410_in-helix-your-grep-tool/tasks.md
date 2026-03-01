@@ -10,12 +10,14 @@
 
 ## Optional: Fix the Data in Helix
 
-- [ ] Evaluate moving inline SVGs in `frontend/src/components/icons/ProviderIcons.tsx` to separate `.svg` files
+- [~] Evaluate moving inline SVGs in `frontend/src/components/icons/ProviderIcons.tsx` to separate `.svg` files
+  - **Deferred**: The Zed grep fix handles this properly. Inline SVGs are a common React pattern and the tool should handle them gracefully (which it now does with truncation).
 - [ ] Or add icon files to exclusion patterns if they shouldn't be searched
 
 ## Verification
 
 - [x] Run existing grep tool tests: `cargo test -p agent grep` (CI will verify - no Rust installed locally)
 - [x] Code pushed to feature branch for CI testing
+- [x] PR opened: https://github.com/helixml/zed/pull/15
 - [ ] Manual test: grep for a pattern that matches the long SVG lines, verify output is bounded
 - [ ] Verify context window no longer blows up when searching Helix codebase
