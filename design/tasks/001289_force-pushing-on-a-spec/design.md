@@ -76,6 +76,58 @@ Agents are **never** allowed to push to the default branch (main/master). So whe
 | Default branch (main) | Users only | No (agents can't push at all) |
 | Feature branches | Assigned agent | Yes (this change enables it) |
 
+## Divergence Scenarios and Agent Reconciliation
+
+### When Force Push is Appropriate
+
+Force push is safe when the agent is updating **its own work** - e.g., after rebasing onto the latest main branch. The agent knows it's replacing its previous commits with amended versions.
+
+### When Force Push Could Cause Data Loss
+
+If someone else pushed to the same feature branch (directly to GitHub, bypassing Helix), a force push would overwrite their changes. This is rare for agent feature branches but possible.
+
+### How Agents Can Reconcile
+
+The agent can already reconcile because:
+
+1. **Pre-push sync**: Before accepting any push, Helix calls `SyncAllBranches` which fetches upstream changes into the local bare repo
+2. **Agent can fetch**: The agent can `git fetch origin` to see upstream commits
+3. **Agent can merge/rebase**: The agent can incorporate upstream changes before pushing
+
+**Reconciliation workflow for agents:**
+```bash
+# Agent detects push failed (non-fast-forward)
+git fetch origin
+git log --oneline origin/feature/my-branch..HEAD  # See local commits
+git log --oneline HEAD..origin/feature/my-branch  # See upstream commits
+
+# Option A: Rebase (if upstream has new commits to incorporate)
+git rebase origin/feature/my-branch
+git push  # Now fast-forward, no force needed
+
+# Option B: Force push (if agent intentionally replacing its own work)
+git push --force
+```
+
+### Future Enhancement: Divergence Detection and Flagging
+
+Out of scope for this task, but a future enhancement could:
+
+1. **Detect divergence on push failure**: When upstream push fails with non-fast-forward, check if it's:
+   - Agent's own commits being replaced (safe to force push)
+   - Unknown upstream commits that would be lost (needs reconciliation)
+
+2. **Flag on SpecTask**: Add a status flag like `needs_reconciliation` with details:
+   - "Branch diverged: local has 3 commits, upstream has 2 unknown commits"
+   - "Upstream commits by: user@example.com (not this agent)"
+
+3. **Agent guidance**: Provide clear instructions in error message for reconciliation
+
+This is deferred because:
+- It's complex to determine "ownership" of commits
+- The simple case (agent rebasing its own work) should just work with force push
+- True divergence (someone else pushed) is rare for agent branches
+
 ## Security Considerations
 
 - Force push is only propagated, not enabled - if the local receive-pack rejected it, we never get here

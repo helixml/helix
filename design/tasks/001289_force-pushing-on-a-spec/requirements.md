@@ -37,5 +37,6 @@ Error observed:
 
 - Force push on `helix-specs` branch (intentionally blocked)
 - Force push on default branch (agents can't push there anyway)
-- Automatic startup recovery for diverged branches
+- Automatic startup recovery for diverged branches (too risky - could overwrite legitimate upstream changes)
+- Divergence detection and SpecTask flagging (future enhancement - would flag when upstream has unknown commits that would be lost)
 - UI changes
