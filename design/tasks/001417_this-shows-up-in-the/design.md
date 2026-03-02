@@ -95,5 +95,6 @@ private closeUnclosedTags(html: string): string {
 
 - Unit test: Streaming with unclosed `<div>` tag
 - Unit test: Streaming with partial tag `<span class="`
+- Unit test: Streaming with unclosed `<pre>` block
 - Unit test: Verify existing code block handling unchanged
 - Unit test: Multiple unclosed tags at different nesting levels

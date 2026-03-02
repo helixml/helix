@@ -13,6 +13,7 @@ As a user watching an AI response stream, I should see a clean blinking cursor a
 
 - [ ] Blinker renders as a styled cursor, not literal HTML text, during all streaming scenarios
 - [ ] Partial/unclosed HTML tags in streaming content don't cause blinker to render as text
+- [ ] Blinker inside unclosed `<pre>` blocks renders correctly (not as literal text)
 - [ ] Existing blinker behavior (appears during streaming, disappears when done) is preserved
 - [ ] No regression in code block handling (blinker already skipped inside incomplete code blocks)
 - [ ] No regression in thinking tag handling
@@ -25,6 +26,8 @@ return message + '<span class="blinker-class">┃</span>';
 ```
 
 When streaming content has an unclosed HTML tag (e.g., `<div` without `>`), the blinker span gets interpreted as part of that partial tag, causing it to render as escaped text rather than HTML.
+
+Additionally, if the blinker is added inside an unclosed `<pre>` block, it may render as literal text since preformatted blocks treat content literally. Note: The code already handles markdown code blocks (triple backticks) but not raw `<pre>` tags that might appear in streamed content.
 
 ## Scope
 
