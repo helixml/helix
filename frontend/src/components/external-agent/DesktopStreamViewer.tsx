@@ -3102,39 +3102,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     ],
   );
 
-  // Calculate the visible viewport bounds in container coordinates
-  // When zoomed in, only a portion of the stream is visible
-  const calculateVisibleViewportBounds = useCallback(() => {
-    if (!containerRef.current) return null;
-    const containerRect = containerRef.current.getBoundingClientRect();
-
-    // The visible viewport is the container divided by zoom level, centered
-    // At zoom 2x, we see 50% of the content, centered in the container
-    const visibleWidth = containerRect.width / zoomLevel;
-    const visibleHeight = containerRect.height / zoomLevel;
-
-    // Pan offset shifts what's visible (in screen pixels, divided by zoom for content coords)
-    // The visible area center is at container center minus pan offset (adjusted for zoom)
-    const centerX = containerRect.width / 2;
-    const centerY = containerRect.height / 2;
-
-    // Convert pan offset to the visible region bounds
-    // panOffset is in screen pixels, so we need to account for zoom
-    const left = centerX - visibleWidth / 2 - panOffset.x / zoomLevel;
-    const top = centerY - visibleHeight / 2 - panOffset.y / zoomLevel;
-    const right = left + visibleWidth;
-    const bottom = top + visibleHeight;
-
-    return {
-      left,
-      top,
-      right,
-      bottom,
-      width: visibleWidth,
-      height: visibleHeight,
-    };
-  }, [zoomLevel, panOffset]);
-
   // Start edge-pan animation in a given direction
   // Uses requestAnimationFrame for smooth 60fps panning
   const startEdgePan = useCallback(
@@ -3145,11 +3112,20 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       }
 
       const animate = () => {
-        if (!containerRef.current) return;
+        if (!containerRef.current || !canvasDisplaySize) return;
 
         const containerRect = containerRef.current.getBoundingClientRect();
-        const maxPanX = (containerRect.width * (zoomLevel - 1)) / 2;
-        const maxPanY = (containerRect.height * (zoomLevel - 1)) / 2;
+        // With CSS-based zoom, max pan = (scaled canvas size - container size) / 2
+        const scaledCanvasWidth = canvasDisplaySize.width * zoomLevel;
+        const scaledCanvasHeight = canvasDisplaySize.height * zoomLevel;
+        const maxPanX = Math.max(
+          0,
+          (scaledCanvasWidth - containerRect.width) / 2,
+        );
+        const maxPanY = Math.max(
+          0,
+          (scaledCanvasHeight - containerRect.height) / 2,
+        );
 
         // Apply quadratic easing - intensity is 0-1, squared for smooth acceleration
         const easedIntensity = intensity * intensity;
@@ -3168,7 +3144,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       edgePanAnimationRef.current = requestAnimationFrame(animate);
     },
-    [zoomLevel, EDGE_PAN_SPEED],
+    [zoomLevel, EDGE_PAN_SPEED, canvasDisplaySize],
   );
 
   // Stop any active edge-pan animation
@@ -3261,57 +3237,55 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
         lastTouchPosRef.current = { x: touch.clientX, y: touch.clientY };
 
-        // Edge-pan: when zoomed in and cursor reaches edge of visible viewport, auto-pan
+        // Edge-pan: when zoomed in and cursor reaches edge of container, auto-pan
+        // Use container edges directly since cursor position (newX/newY) is in
+        // container-relative coordinates
         if (zoomLevel > 1) {
-          const viewportBounds = calculateVisibleViewportBounds();
-          if (viewportBounds) {
-            // Check if cursor is in edge zone of the visible viewport
-            const distFromLeft = newX - viewportBounds.left;
-            const distFromRight = viewportBounds.right - newX;
-            const distFromTop = newY - viewportBounds.top;
-            const distFromBottom = viewportBounds.bottom - newY;
+          const containerRect = containerRef.current.getBoundingClientRect();
 
-            let panDirection = { x: 0, y: 0 };
-            let maxIntensity = 0;
+          // Distance from container edges (cursor is container-relative)
+          const distFromLeft = newX;
+          const distFromRight = containerRect.width - newX;
+          const distFromTop = newY;
+          const distFromBottom = containerRect.height - newY;
 
-            // Check each edge and calculate pan direction/intensity
-            if (distFromLeft < EDGE_PAN_ZONE_PX && distFromLeft >= 0) {
-              panDirection.x = 1; // Pan right (move view left)
-              maxIntensity = Math.max(
-                maxIntensity,
-                1 - distFromLeft / EDGE_PAN_ZONE_PX,
-              );
-            } else if (distFromRight < EDGE_PAN_ZONE_PX && distFromRight >= 0) {
-              panDirection.x = -1; // Pan left (move view right)
-              maxIntensity = Math.max(
-                maxIntensity,
-                1 - distFromRight / EDGE_PAN_ZONE_PX,
-              );
-            }
+          let panDirection = { x: 0, y: 0 };
+          let maxIntensity = 0;
 
-            if (distFromTop < EDGE_PAN_ZONE_PX && distFromTop >= 0) {
-              panDirection.y = 1; // Pan down (move view up)
-              maxIntensity = Math.max(
-                maxIntensity,
-                1 - distFromTop / EDGE_PAN_ZONE_PX,
-              );
-            } else if (
-              distFromBottom < EDGE_PAN_ZONE_PX &&
-              distFromBottom >= 0
-            ) {
-              panDirection.y = -1; // Pan up (move view down)
-              maxIntensity = Math.max(
-                maxIntensity,
-                1 - distFromBottom / EDGE_PAN_ZONE_PX,
-              );
-            }
+          // Check each edge and calculate pan direction/intensity
+          if (distFromLeft < EDGE_PAN_ZONE_PX && distFromLeft >= 0) {
+            panDirection.x = 1; // Pan right (reveal content on left)
+            maxIntensity = Math.max(
+              maxIntensity,
+              1 - distFromLeft / EDGE_PAN_ZONE_PX,
+            );
+          } else if (distFromRight < EDGE_PAN_ZONE_PX && distFromRight >= 0) {
+            panDirection.x = -1; // Pan left (reveal content on right)
+            maxIntensity = Math.max(
+              maxIntensity,
+              1 - distFromRight / EDGE_PAN_ZONE_PX,
+            );
+          }
 
-            // Start or stop edge pan based on whether cursor is in edge zone
-            if (panDirection.x !== 0 || panDirection.y !== 0) {
-              startEdgePan(panDirection, maxIntensity);
-            } else {
-              stopEdgePan();
-            }
+          if (distFromTop < EDGE_PAN_ZONE_PX && distFromTop >= 0) {
+            panDirection.y = 1; // Pan down (reveal content on top)
+            maxIntensity = Math.max(
+              maxIntensity,
+              1 - distFromTop / EDGE_PAN_ZONE_PX,
+            );
+          } else if (distFromBottom < EDGE_PAN_ZONE_PX && distFromBottom >= 0) {
+            panDirection.y = -1; // Pan up (reveal content on bottom)
+            maxIntensity = Math.max(
+              maxIntensity,
+              1 - distFromBottom / EDGE_PAN_ZONE_PX,
+            );
+          }
+
+          // Start or stop edge pan based on whether cursor is in edge zone
+          if (panDirection.x !== 0 || panDirection.y !== 0) {
+            startEdgePan(panDirection, maxIntensity);
+          } else {
+            stopEdgePan();
           }
         } else {
           // Not zoomed - ensure edge pan is stopped
@@ -3392,14 +3366,27 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           setZoomLevel(newZoom);
 
           // Pan while pinching (move the view with the gesture)
-          if (lastPinchCenterRef.current && containerRef.current) {
+          if (
+            lastPinchCenterRef.current &&
+            containerRef.current &&
+            canvasDisplaySize
+          ) {
             const panDx = centerX - lastPinchCenterRef.current.x;
             const panDy = centerY - lastPinchCenterRef.current.y;
 
             // Update pan offset, clamping to bounds
+            // With CSS-based zoom, max pan = (scaled canvas size - container size) / 2
             const containerRect = containerRef.current.getBoundingClientRect();
-            const maxPanX = (containerRect.width * (newZoom - 1)) / 2;
-            const maxPanY = (containerRect.height * (newZoom - 1)) / 2;
+            const scaledCanvasWidth = canvasDisplaySize.width * newZoom;
+            const scaledCanvasHeight = canvasDisplaySize.height * newZoom;
+            const maxPanX = Math.max(
+              0,
+              (scaledCanvasWidth - containerRect.width) / 2,
+            );
+            const maxPanY = Math.max(
+              0,
+              (scaledCanvasHeight - containerRect.height) / 2,
+            );
 
             setPanOffset((prev) => ({
               x: Math.max(-maxPanX, Math.min(maxPanX, prev.x + panDx)),
@@ -3427,10 +3414,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       zoomLevel,
       MIN_ZOOM,
       MAX_ZOOM,
-      calculateVisibleViewportBounds,
       startEdgePan,
       stopEdgePan,
       EDGE_PAN_ZONE_PX,
+      canvasDisplaySize,
     ],
   );
 
@@ -4234,6 +4221,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         WebkitTouchCallout: "none",
         WebkitUserSelect: "none",
         userSelect: "none",
+        // Clip zoomed content that extends beyond container bounds
+        overflow: "hidden",
         // Cursor is hidden only on the canvas element, not the container
         // This ensures the cursor is visible in the black letterbox/pillarbox bars
         // Fallback height for iOS when dvh isn't supported
@@ -4870,16 +4859,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         onSelectStart={(e) => e.preventDefault()}
         onDragStart={(e) => e.preventDefault()}
         style={{
-          // Use calculated dimensions to maintain aspect ratio
-          // Canvas doesn't support objectFit like video, so we calculate size manually
-          width: canvasDisplaySize ? `${canvasDisplaySize.width}px` : "100%",
-          height: canvasDisplaySize ? `${canvasDisplaySize.height}px` : "100%",
-          // Center the canvas within the container, with pinch-zoom and pan transform
+          // Use calculated dimensions to maintain aspect ratio, scaled by zoom level
+          // By scaling CSS dimensions (not CSS transform), the browser renders more pixels
+          // from the canvas's internal buffer, giving access to native resolution detail
+          width: canvasDisplaySize
+            ? `${canvasDisplaySize.width * zoomLevel}px`
+            : "100%",
+          height: canvasDisplaySize
+            ? `${canvasDisplaySize.height * zoomLevel}px`
+            : "100%",
+          // Center the canvas within the container, with pan offset for navigation
           position: "absolute",
           left: "50%",
           top: "50%",
-          // Order: translate to center, then apply zoom, then apply pan offset
-          transform: `translate(-50%, -50%) scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${panOffset.y / zoomLevel}px)`,
+          // Only centering and pan - no scale transform (zoom is via CSS dimensions)
+          transform: `translate(calc(-50% + ${panOffset.x}px), calc(-50% + ${panOffset.y}px))`,
           transformOrigin: "center center",
           backgroundColor: "#000",
           cursor: nativeCursorStyle, // Use native cursor (custom image or CSS name from server)
@@ -4913,19 +4907,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           src={screenshotUrl}
           alt="Remote Desktop Screenshot"
           style={{
-            width: "100%",
-            height: "100%",
+            // Scale dimensions by zoom level for sharper rendering (same as canvas)
+            width: canvasDisplaySize
+              ? `${canvasDisplaySize.width * zoomLevel}px`
+              : "100%",
+            height: canvasDisplaySize
+              ? `${canvasDisplaySize.height * zoomLevel}px`
+              : "100%",
             position: "absolute",
-            left: 0,
-            top: 0,
+            left: "50%",
+            top: "50%",
             objectFit: "contain",
             pointerEvents: "none", // Allow clicks to pass through to canvas for input
             zIndex: 10, // Above canvas but below UI elements
-            // Apply same pinch-zoom and pan as canvas
-            transform:
-              zoomLevel > 1
-                ? `scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${panOffset.y / zoomLevel}px)`
-                : undefined,
+            // Only centering and pan - no scale transform (zoom is via CSS dimensions)
+            transform: `translate(calc(-50% + ${panOffset.x}px), calc(-50% + ${panOffset.y}px))`,
             transformOrigin: "center center",
           }}
         />
