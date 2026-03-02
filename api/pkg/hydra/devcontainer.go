@@ -460,9 +460,8 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	// Uses context.Background() so streaming continues after API request completes.
 	go dm.streamContainerLogs(context.Background(), resp.ID, req.ContainerName, req.DockerSocket)
 
-	// For golden builds, set the build lock and monitor the container
+	// For golden builds, monitor the container for completion
 	if req.GoldenBuild {
-		_ = SetGoldenBuildRunning(req.ProjectID, true)
 		go dm.monitorGoldenBuild(dc)
 	}
 
@@ -1032,11 +1031,10 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	// session dirs that no longer have a running container.
 	if os.Getenv("CONTAINER_DOCKER_PATH") != "" {
 		if dc.IsGoldenBuild && dc.ProjectID != "" {
-			_ = SetGoldenBuildRunning(dc.ProjectID, false)
 			log.Info().
 				Str("project_id", dc.ProjectID).
 				Str("session_id", sessionID).
-				Msg("Golden build session stopped, lock released (monitorGoldenBuild handles cleanup)")
+				Msg("Golden build session stopped (monitorGoldenBuild handles cleanup)")
 		} else {
 			// Write a timestamp so GC knows when this session was last active.
 			// Directory mtime doesn't update when files deep inside are modified,
@@ -1463,7 +1461,7 @@ done:
 			Str("project_id", dc.ProjectID).
 			Msg("Golden build completed successfully, promoting Docker data")
 
-		if err := PromoteSessionToGolden(dc.ProjectID, dockerDataVolume); err != nil {
+		if err := PromoteSessionToGolden(dc.ProjectID, dockerDataVolume, dc.SessionID); err != nil {
 			log.Error().Err(err).
 				Str("project_id", dc.ProjectID).
 				Msg("Golden build: failed to promote session data")
