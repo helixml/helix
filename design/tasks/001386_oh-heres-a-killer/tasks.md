@@ -41,8 +41,9 @@
 
 - [x] Unit test: WebVTT generation from subtitle buffer (recording_test.go)
 - [x] Unit test: RecordingManager struct initialization
-- [ ] Integration test: MCP tool E2E (start → add subtitles → stop → verify files) - requires CGO/GCC
-- [ ] Manual test: Agent records demo, subtitles appear correctly
+- [x] Code compiles successfully (`go build ./api/pkg/desktop/...`)
+- [ ] Integration test: MCP tool E2E - requires rebuild/deploy of desktop-bridge container
+- [ ] Manual test: Agent records demo - requires `./stack build-ubuntu` to deploy changes
 
 ## Phase 6: Documentation
 
@@ -60,3 +61,11 @@ Core implementation complete. Agent can now use MCP tools to:
 5. `stop_recording()` - Finalize MP4 and WebVTT files
 
 Output files are stored locally at `/tmp/helix-recordings/<session_id>/<recording_id>/recording.mp4` (and `.vtt` if subtitles added).
+
+## Testing Note
+
+To test E2E, the desktop-bridge container must be rebuilt with these changes:
+```bash
+./stack build-ubuntu  # Rebuilds helix-ubuntu image with new desktop-bridge
+```
+Then start a new session - existing sessions use the old image.
