@@ -1,8 +1,8 @@
-# Design: Cross-User SpectTask Authorization Fix
+# Design: Cross-User SpecTask Authorization Fix
 
 ## Overview
 
-Fix authorization failures when org members (not the session owner) interact with spectask sessions.
+Fix authorization failures when org members (not the session owner) interact with SpecTask sessions.
 
 ## Current Behavior
 
@@ -11,70 +11,82 @@ User A creates spectask → Session created with Owner=UserA
 User B (org member with project RBAC) → 403 on clipboard, 401 on resume
 ```
 
-## Root Cause
+## Root Cause (Verified via Browser Testing)
 
-The `authorizeUserToSession()` function has two paths:
+The session has `organization_id` and `project_id` correctly set. The RBAC path in `authorizeUserToSession()` is being followed. However, **the default "write" role does not include the "Project" resource type**.
 
-```go
-// Path 1: No OrganizationID - owner check only (FAILING PATH)
-if session.OrganizationID == "" {
-    if user.ID == session.Owner { return nil }
-    return error  // ← User B fails here
-}
-
-// Path 2: Has OrganizationID - RBAC check (SHOULD WORK)
-return authorizeUserToResource(session.OrganizationID, session.ProjectID, ...)
+The "write" role config:
+```json
+{"rules": [{"effect": "allow", "actions": ["Get", "List", "UseAction", "Create", "Update", "Delete"], "resource": ["Application", "Knowledge"]}]}
 ```
 
-Sessions are falling into Path 1 because `OrganizationID` is not being propagated from the spectask to the session.
+But session authorization checks:
+```go
+return apiServer.authorizeUserToResource(ctx, user, session.OrganizationID, session.ProjectID, types.ResourceProject, action)
+```
+
+Since `"Project"` is not in `["Application", "Knowledge"]`, the RBAC check fails.
 
 ## Solution
 
-Ensure sessions created for spectasks inherit `OrganizationID` and `ProjectID` from the parent spectask.
+Update the default role configurations to include `"Project"` in the allowed resources list.
 
 ### Code Changes
 
-**Location:** `api/pkg/server/session_handlers.go` - `startChatSessionHandler`
+**Location:** Find where default roles are created (likely during org creation or in migrations)
 
-When creating a new session with a `SpecTaskID` in the request context, look up the spectask and inherit its org/project:
-
-```go
-// If this is a spectask session and org/project not set, inherit from spectask
-if session.Metadata.SpecTaskID != "" && session.OrganizationID == "" {
-    specTask, err := s.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
-    if err == nil && specTask != nil {
-        session.OrganizationID = specTask.OrganizationID
-        session.ProjectID = specTask.ProjectID
-    }
+Update the "write" role to:
+```json
+{
+  "rules": [{
+    "effect": "allow",
+    "actions": ["Get", "List", "UseAction", "Create", "Update", "Delete"],
+    "resource": ["Application", "Knowledge", "Project"]
+  }]
 }
 ```
+
+Similarly update "read" and "admin" roles as appropriate.
 
 ### Data Flow After Fix
 
 ```
-SpectTask (UserID, ProjectID, OrganizationID)
+User B attempts clipboard paste
     ↓
-Session (Owner=UserID, ProjectID, OrganizationID)  ← NOW POPULATED
+authorizeUserToSession() → session has OrganizationID ✓
     ↓
-authorizeUserToSession() → Path 2 (RBAC) → authorizeUserToResource(ProjectID) → SUCCESS
+authorizeOrgMember() → User B is org member ✓
+    ↓
+authorizeUserToResource(ProjectID, ResourceProject, ActionGet)
+    ↓
+getAuthzConfigs() → finds User B's access grant with role binding
+    ↓
+evaluate(ResourceProject, ActionGet, configs) → role now includes "Project" → SUCCESS ✓
 ```
 
 ## Alternatives Considered
 
-1. **Check spectask ownership in each endpoint** - Too invasive, duplicates authz logic
-2. **Add spectask ID to session and check in authz** - More complex, session already has the fields
+1. **Add Session resource type** - More complex, requires new resource type and migrations
+2. **Change session auth to check Application** - Would be incorrect semantically
+3. **Special-case SpecTask sessions** - Adds complexity, doesn't fix the general RBAC gap
 
 ## Testing
 
-1. Create spectask as User A
-2. Start session for spectask as User A
-3. As User B (org member with project access):
-   - Resume session → Should succeed
-   - Paste to clipboard → Should succeed
-   - Screenshot → Should succeed
-4. As User C (no project access):
-   - All operations → Should fail with 403
+Verified bug reproduction via browser MCP:
+1. User A creates spectask, starts planning (creates session)
+2. User B added to org and project with "write" role
+3. User B calls clipboard API → 403 Forbidden (bug confirmed)
+4. Database shows session has correct org_id/project_id
+5. Database shows User B has access_grant and role_binding
+6. Role config shows only ["Application", "Knowledge"], missing "Project"
+
+After fix:
+1. Same setup
+2. User B calls clipboard API → 200 OK (expected)
 
 ## Migration
 
-Existing sessions with empty `OrganizationID` will need backfill if their spectask has org/project set. This can be done via a one-time migration or lazy update on session access.
+Existing roles need to be updated to include "Project" resource. Options:
+1. Migration script to update existing role configs
+2. Lazy update on role access
+3. Manual update for existing orgs (if few)
