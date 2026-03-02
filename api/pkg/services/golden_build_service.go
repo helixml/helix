@@ -49,6 +49,18 @@ func buildKey(projectID, sandboxID string) string {
 	return projectID + "/" + sandboxID
 }
 
+// IsTracking returns true if the golden build service is actively monitoring
+// a build for this project+sandbox pair (i.e., the monitoring goroutine is alive).
+// After an API restart, all tracking is lost — this method returns false for
+// everything, which signals that the DB status may be stale.
+func (g *GoldenBuildService) IsTracking(projectID, sandboxID string) bool {
+	key := buildKey(projectID, sandboxID)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	_, ok := g.building[key]
+	return ok
+}
+
 // updateSandboxCacheStatus updates the per-sandbox DockerCacheState in project metadata.
 func (g *GoldenBuildService) updateSandboxCacheStatus(ctx context.Context, projectID, sandboxID string, update func(*types.SandboxCacheState)) {
 	g.mu.Lock()

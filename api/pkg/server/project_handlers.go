@@ -145,6 +145,44 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 		}
 	}
 
+	// Recover stale "building" golden build states (lazy recovery on read).
+	// After an API restart, the monitoring goroutine is dead but DB still says
+	// "building". If the build isn't tracked in memory AND the container isn't
+	// running, reset the status so the UI doesn't get stuck.
+	if project.Metadata.DockerCacheStatus != nil {
+		staleRecovered := false
+		for sbID, sbState := range project.Metadata.DockerCacheStatus.Sandboxes {
+			if sbState.Status != "building" || sbState.BuildSessionID == "" {
+				continue
+			}
+			// Two conditions must BOTH be false for recovery:
+			// 1. Monitoring goroutine alive (in-memory tracking)
+			// 2. Container still running on sandbox
+			// During normal operation, condition 1 is true → no recovery.
+			// After API restart, both are false → recovery triggers.
+			if s.goldenBuildService.IsTracking(project.ID, sbID) {
+				continue
+			}
+			if s.externalAgentExecutor.HasRunningContainer(r.Context(), sbState.BuildSessionID) {
+				continue
+			}
+			log.Info().
+				Str("project_id", projectID).
+				Str("sandbox_id", sbID).
+				Str("session_id", sbState.BuildSessionID).
+				Msg("Recovering stale golden build: monitoring goroutine dead and container not running")
+			sbState.Status = "none"
+			sbState.BuildSessionID = ""
+			sbState.Error = ""
+			staleRecovered = true
+		}
+		if staleRecovered {
+			if updateErr := s.Store.UpdateProject(r.Context(), project); updateErr != nil {
+				log.Warn().Err(updateErr).Str("project_id", projectID).Msg("Failed to reset stale golden build status")
+			}
+		}
+	}
+
 	// Load startup script from helix-specs branch in primary repo.
 	// Sync from upstream first — helix-specs can be modified outside Helix
 	// (e.g., direct git pushes), so we need the latest version.

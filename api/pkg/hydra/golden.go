@@ -458,6 +458,13 @@ func PurgeContainersFromGolden(projectID string) error {
 	// Remove buildx state — not needed, sessions use shared buildkit
 	os.RemoveAll(filepath.Join(golden, "buildx"))
 
+	// Remove volumes — stale named/anonymous volumes from build steps
+	// (node_modules, Go module cache, etc). Sessions create their own.
+	// This is a safety net; the in-container cleanup (workspace-setup.sh)
+	// runs `docker volume prune` before dockerd stops, but if that was
+	// skipped or incomplete, this catches it at the filesystem level.
+	os.RemoveAll(filepath.Join(golden, "volumes"))
+
 	// Remove the golden build result marker. If this file is left in the golden
 	// cache, monitorGoldenBuild() on subsequent golden builds will find it
 	// immediately after SetupGoldenCopy and promote prematurely — before the
@@ -471,7 +478,7 @@ func PurgeContainersFromGolden(projectID string) error {
 	log.Info().
 		Str("project_id", projectID).
 		Str("golden", golden).
-		Msg("Purged container/network/containerd/buildx/result state from golden cache")
+		Msg("Purged container/network/containerd/buildx/volumes/result state from golden cache")
 
 	return nil
 }
