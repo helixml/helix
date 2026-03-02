@@ -14,6 +14,7 @@ The ACP agent logs terminal (Ghostty) launches in a visible state when `SHOW_ACP
 - `Dockerfile.ubuntu-helix` does not install devilspie2
 - `desktop/ubuntu-config/startup-app.sh` does not reference devilspie2
 - Design doc `2025-12-08-ubuntu-layout.md` mentions devilspie2 in architecture but it's outdated
+- Directory will be deleted as part of this task
 
 ## Current Window Management
 
@@ -21,91 +22,105 @@ Ubuntu GNOME containers use **Mutter/GNOME Shell on Xwayland** (DISPLAY=:9). Win
 
 There is **no automatic window positioning** currently in place. Windows appear wherever GNOME Shell places them by default.
 
-## Solution Options
+## Available Resources
 
-### Option 1: Ghostty Config (CHOSEN)
+**Helix GNOME Shell Extension:** `desktop/ubuntu-config/gnome-extension/helix-cursor@helix.ml/`
 
-Ghostty does not have a `--start-minimized` flag, but we can hide the window using the `window-height` and `window-position-y` trick to place it off-screen, or better yet, we can simply **not launch the terminal by default**.
+This extension currently tracks cursor shape changes. It has access to:
+- `global.display` - The display object
+- `global.get_window_actors()` - All windows
+- Window management APIs via Meta.Window
 
-**Better approach:** Add a condition in `launch_acp_log_viewer()` to only launch when explicitly requested, not by default.
+We can extend this extension to also handle window minimization.
 
-### Option 2: wmctrl/xdotool
+## Solution: Extend GNOME Shell Extension
 
-Install wmctrl or xdotool and minimize the window after launch:
+Add window management to the existing `helix-cursor@helix.ml` extension to minimize the "ACP Agent Logs" terminal on launch.
 
-```bash
-ghostty --title="ACP Agent Logs" ... &
-sleep 0.5
-wmctrl -r "ACP Agent Logs" -b add,hidden
+### GNOME Shell Window Management API
+
+```javascript
+// Get all windows
+global.get_window_actors().forEach(actor => {
+    let window = actor.get_meta_window();
+    let title = window.get_title();
+    
+    if (title === "ACP Agent Logs") {
+        window.minimize();
+    }
+});
 ```
 
-**Cons:** Requires installing additional package, adds complexity, timing-dependent.
+### Implementation Approach
 
-### Option 3: GNOME Extension
+1. Add a window tracker to the extension that watches for new windows
+2. When a window with title "ACP Agent Logs" is created, minimize it immediately
+3. Use `global.display.connect('window-created', ...)` signal
 
-Create a custom GNOME Shell extension to minimize windows by title.
+```javascript
+enable() {
+    // ... existing cursor tracking code ...
+    
+    // Window management: minimize ACP Agent Logs terminal
+    this._windowCreatedId = global.display.connect('window-created', (display, window) => {
+        this._onWindowCreated(window);
+    });
+}
 
-**Cons:** Significant complexity for a simple feature.
+_onWindowCreated(window) {
+    // Wait a moment for window title to be set
+    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
+        const title = window.get_title();
+        if (title && title.includes('ACP Agent Logs')) {
+            console.log('[HelixCursor] Minimizing ACP Agent Logs terminal');
+            window.minimize();
+        }
+        return GLib.SOURCE_REMOVE;
+    });
+}
 
-### Option 4: Change Default Behavior (SIMPLEST - CHOSEN)
-
-The real question is: **do we even need this terminal visible by default?**
-
-Looking at the code in `start-zed-core.sh`:
-
-```bash
-launch_acp_log_viewer() {
-    if [ "$SHOW_ACP_DEBUG_LOGS" = "true" ] || [ -n "$HELIX_DEBUG" ]; then
-        echo "Starting ACP log viewer..."
-        launch_terminal "ACP Agent Logs" "$WORK_DIR" bash -c '
-            echo "ACP Agent Log Viewer - Tailing Zed logs"
-            echo ""
-            while [ ! -d ~/.local/share/zed/logs ]; do sleep 1; done
-            tail -F ~/.local/share/zed/logs/*.log 2>/dev/null
-        '
-    fi
+disable() {
+    // ... existing cleanup ...
+    
+    if (this._windowCreatedId) {
+        global.display.disconnect(this._windowCreatedId);
+        this._windowCreatedId = 0;
+    }
 }
 ```
 
-This is a **debug feature**. The logs are already being captured to `~/.local/share/zed/logs/*.log`. Users can:
-1. View logs via the file system
-2. Manually launch a terminal and run `tail -f ~/.local/share/zed/logs/*.log`
-3. Access logs via the Helix API/UI
+## Alternative: Don't Launch Terminal by Default
 
-**Proposed solution:** Simply don't auto-launch the log viewer terminal. Remove or disable the `launch_acp_log_viewer` call.
+**Even simpler:** Just comment out the `launch_acp_log_viewer` call entirely.
 
-## Revised Implementation Plan
+The logs are still written to `~/.local/share/zed/logs/*.log` regardless of whether the terminal viewer is shown. Users can manually tail logs when needed.
 
-**Approach:** Comment out or remove the automatic log viewer launch. Keep the function for manual debugging if needed.
-
-**Change in:** `helix/desktop/shared/start-zed-core.sh`
-
-```bash
-# Commented out - log viewer terminal obscures Zed window
-# Users can manually tail logs: tail -f ~/.local/share/zed/logs/*.log
-# launch_acp_log_viewer
-```
-
-**Alternative (if we want to keep the feature):** Add an explicit env var `HELIX_SHOW_ACP_LOG_TERMINAL=true` separate from `SHOW_ACP_DEBUG_LOGS` so logs are still written but terminal is only shown on explicit request.
-
-## Key Discoveries
-
-1. **devilspie2 config exists but is NOT used** - Legacy artifact from earlier implementation
-2. **No window positioning automation** in current Ubuntu image - GNOME Shell manages windows freely
-3. **ACP logs are written to files** - The terminal viewer is just a convenience, not required
-4. **Simplest solution:** Don't launch the terminal by default - it's a debug feature
+This is the **absolute simplest** solution and removes an unnecessary visible window.
 
 ## Chosen Approach
 
-Remove the automatic launch of the ACP log viewer terminal in `start-zed-core.sh`. The logs will still be captured to `~/.local/share/zed/logs/*.log` and can be viewed manually when needed.
+**Two-part solution:**
 
-This is better than minimizing because:
-- No additional dependencies needed
-- No window management complexity
-- Cleaner desktop by default
-- Logs are still fully accessible
-- Debug feature remains available for manual use
+1. **Primary:** Extend GNOME Shell extension to minimize "ACP Agent Logs" window on creation
+2. **Cleanup:** Remove unused devilspie2 directory
 
-## Implementation
+This keeps the debug feature functional (terminal can be restored from taskbar) while solving the visual obstruction issue.
 
-Modify `helix/desktop/shared/start-zed-core.sh` line 274 to comment out the `launch_acp_log_viewer` call.
+## Key Discoveries
+
+1. **devilspie2 config exists but is NOT used** - Legacy artifact, will be deleted
+2. **GNOME Shell extension already exists** - `helix-cursor@helix.ml` can be extended
+3. **GNOME Shell provides window management APIs** - Meta.Window.minimize() is available
+4. **window-created signal** - Fires when new windows appear, perfect for auto-minimization
+5. **ACP logs are written to files** - Terminal viewer is optional convenience
+
+## Implementation Files
+
+- `helix/desktop/ubuntu-config/gnome-extension/helix-cursor@helix.ml/extension.js` - Add window-created handler
+- `helix/desktop/ubuntu-config/devilspie2/` - DELETE (unused legacy)
+- `helix/design/2025-12-08-ubuntu-layout.md` - Add deprecation notice
+
+## Risks
+
+- **Low:** Window title check timing - mitigated by 100ms delay
+- **Low:** GNOME Shell API compatibility across versions 45-49 - extension already supports this range
