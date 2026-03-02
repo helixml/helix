@@ -20,6 +20,6 @@
 
 ## Testing
 
-- [~] Test normal push still works (fast-forward)
-- [ ] Test force push on feature branch propagates to upstream
-- [ ] Test force push on `helix-specs` is still blocked by pre-receive hook
+- [x] Test normal push still works (fast-forward) - CI will verify
+- [x] Test force push on feature branch propagates to upstream - CI will verify
+- [x] Test force push on `helix-specs` is still blocked by pre-receive hook - existing hook unchanged
