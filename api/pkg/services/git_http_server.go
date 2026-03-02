@@ -976,6 +976,7 @@ func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.Gi
 
 			now := time.Now()
 			task.Status = types.TaskStatusDone
+			task.StatusUpdatedAt = &now
 			task.MergedToMain = true
 			task.MergedAt = &now
 			task.MergeCommitHash = commitHash
@@ -1103,6 +1104,7 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 			now := time.Now()
 			task.DesignDocsPushedAt = &now
 			task.Status = types.TaskStatusSpecReview
+			task.StatusUpdatedAt = &now
 			task.UpdatedAt = now
 			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
 				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update spec task status")

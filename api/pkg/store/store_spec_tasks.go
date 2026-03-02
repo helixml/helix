@@ -22,6 +22,12 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 		return fmt.Errorf("project ID is required")
 	}
 
+	// Set StatusUpdatedAt to CreatedAt so new tasks appear at top of their column in Kanban
+	if task.StatusUpdatedAt == nil {
+		now := time.Now()
+		task.StatusUpdatedAt = &now
+	}
+
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Omit("DependsOn").Create(task)
 		if result.Error != nil {
@@ -351,7 +357,9 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 		db = db.Offset(filters.Offset)
 	}
 
-	err := db.Order("created_at DESC").Find(&tasks).Error
+	// Sort by status_updated_at first (so recently-moved tasks appear at top of their column),
+	// then by created_at for tasks without status_updated_at set
+	err := db.Order("status_updated_at DESC NULLS LAST, created_at DESC").Find(&tasks).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list spec tasks: %w", err)
 	}

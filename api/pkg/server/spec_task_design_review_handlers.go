@@ -271,6 +271,7 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		review.OverallComment = req.OverallComment
 
 		specTask.Status = types.TaskStatusSpecRevision
+		specTask.StatusUpdatedAt = &now
 		specTask.SpecRevisionCount++
 
 		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
