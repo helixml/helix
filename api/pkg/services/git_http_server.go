@@ -689,11 +689,7 @@ func (s *GitHTTPServer) detectChangedBranches(repoPath string, before, after map
 			if existed && oldHash != "" {
 				// Check if old commit is ancestor of new commit (fast-forward)
 				// If NOT ancestor, this is a force push
-				_, _, err := gitcmd.NewCommand("merge-base", "--is-ancestor").
-					AddDynamicArguments(oldHash, newHash).
-					RunStdString(context.Background(), &gitcmd.RunOpts{Dir: repoPath})
-				if err != nil {
-					// merge-base --is-ancestor returns non-zero if not ancestor
+				if !IsAncestor(context.Background(), repoPath, oldHash, newHash) {
 					isForce = true
 					log.Info().
 						Str("branch", branch).

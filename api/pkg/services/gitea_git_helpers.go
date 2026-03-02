@@ -27,8 +27,8 @@ func IsErrEmptyRepository(err error) bool {
 // Note: Git error messages can vary by version and locale. These patterns
 // cover common English git outputs from versions 2.x+.
 var gitErrorPatterns = struct {
-	AlreadyUpToDate   []string // Not really an error, just informational
-	EmptyRepository   []string // Remote has no refs (empty repo)
+	AlreadyUpToDate     []string // Not really an error, just informational
+	EmptyRepository     []string // Remote has no refs (empty repo)
 	RemoteAlreadyExists []string
 }{
 	AlreadyUpToDate: []string{
@@ -57,14 +57,14 @@ func matchesAnyPattern(text string, patterns []string) bool {
 
 // FetchOptions contains options for git fetch operations
 type FetchOptions struct {
-	Remote    string        // Remote name (e.g., "origin")
-	Branch    string        // Specific branch to fetch (empty for all)
-	Force     bool          // Force fetch (overwrite local refs)
-	Prune     bool          // Remove remote-tracking refs that no longer exist
-	Depth     int           // Shallow fetch with depth limit (0 for full)
-	Env       []string      // Environment variables (for auth)
-	Timeout   time.Duration // Command timeout
-	RefSpecs  []string      // Explicit refspecs (optional)
+	Remote   string        // Remote name (e.g., "origin")
+	Branch   string        // Specific branch to fetch (empty for all)
+	Force    bool          // Force fetch (overwrite local refs)
+	Prune    bool          // Remove remote-tracking refs that no longer exist
+	Depth    int           // Shallow fetch with depth limit (0 for full)
+	Env      []string      // Environment variables (for auth)
+	Timeout  time.Duration // Command timeout
+	RefSpecs []string      // Explicit refspecs (optional)
 }
 
 // Fetch fetches from a remote repository using native git
@@ -363,6 +363,17 @@ func ShortHash(hash string) string {
 		return hash
 	}
 	return hash[:8]
+}
+
+// IsAncestor checks if ancestorCommit is an ancestor of descendantCommit.
+// Returns true if ancestorCommit is reachable from descendantCommit's history.
+// This is useful for detecting force pushes (old commit not ancestor of new = force push).
+func IsAncestor(ctx context.Context, repoPath, ancestorCommit, descendantCommit string) bool {
+	_, _, err := gitcmd.NewCommand("merge-base", "--is-ancestor").
+		AddDynamicArguments(ancestorCommit, descendantCommit).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	// merge-base --is-ancestor returns 0 if ancestor, non-zero otherwise
+	return err == nil
 }
 
 // PreReceiveHookVersion is incremented when the hook logic changes.
