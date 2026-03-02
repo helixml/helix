@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Add `StatusUpdatedAt *time.Time` field to `SpecTask` struct in `api/pkg/types/simple_spec_task.go`
+- [~] Add `StatusUpdatedAt *time.Time` field to `SpecTask` struct in `api/pkg/types/simple_spec_task.go`
 - [ ] Run `./stack update_openapi` to regenerate API client with new field
 - [ ] Update `updateSpecTask` handler in `api/pkg/server/spec_driven_task_handlers.go` to set `StatusUpdatedAt = time.Now()` when `updateReq.Status != ""`
 - [ ] Update `createSpecTask` handler to set `StatusUpdatedAt = CreatedAt` for new tasks
