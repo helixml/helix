@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/helixml/helix/api/pkg/ptr"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -267,7 +266,8 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 
 	case "request_changes":
 		review.Status = types.SpecTaskDesignReviewStatusChangesRequested
-		review.RejectedAt = ptr.To(time.Now())
+		now := time.Now()
+		review.RejectedAt = &now
 		review.OverallComment = req.OverallComment
 
 		specTask.Status = types.TaskStatusSpecRevision
