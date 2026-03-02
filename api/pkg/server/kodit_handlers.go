@@ -185,6 +185,12 @@ func (apiServer *HelixAPIServer) ensureKoditRepoID(w http.ResponseWriter, r *htt
 		return 0, nil, false
 	}
 
+	// Early exit if the kodit service itself isn't running
+	if apiServer.koditService == nil || !apiServer.koditService.IsEnabled() {
+		http.Error(w, "Kodit service is not enabled", http.StatusNotFound)
+		return 0, nil, false
+	}
+
 	// Check if kodit_repo_id is set in metadata
 	var koditRepoID int64
 	if repository.Metadata != nil {
@@ -236,8 +242,8 @@ func extractKoditRepoID(metadata map[string]interface{}) int64 {
 
 // reRegisterWithKodit attempts to register a repository with Kodit and update its metadata.
 func (apiServer *HelixAPIServer) reRegisterWithKodit(r *http.Request, repository *types.GitRepository) (int64, error) {
-	if apiServer.koditService == nil {
-		return 0, fmt.Errorf("kodit service not available")
+	if apiServer.koditService == nil || !apiServer.koditService.IsEnabled() {
+		return 0, fmt.Errorf("kodit service not available or not enabled")
 	}
 
 	user := getRequestUser(r)
@@ -252,13 +258,14 @@ func (apiServer *HelixAPIServer) reRegisterWithKodit(r *http.Request, repository
 
 	koditCloneURL := apiServer.gitRepositoryService.BuildAuthenticatedCloneURL(repository.ID, apiKey)
 
+	log.Debug().
+		Str("repo_id", repository.ID).
+		Str("clone_url", koditCloneURL).
+		Msg("Attempting to re-register repository with Kodit")
+
 	koditRepoID, _, err := apiServer.koditService.RegisterRepository(r.Context(), koditCloneURL)
 	if err != nil {
 		return 0, fmt.Errorf("failed to register repository with Kodit: %w", err)
-	}
-
-	if koditRepoID == 0 {
-		return 0, fmt.Errorf("kodit service returned zero ID")
 	}
 
 	// Update repository metadata with Kodit ID
