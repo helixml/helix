@@ -579,8 +579,15 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	}
 
 	// Detect pushed branches by comparing before/after
+	// Returns map[branch]isForce where isForce=true means force push detected
 	branchesAfter := s.getBranchHashes(repoPath)
-	pushedBranches := s.detectChangedBranches(branchesBefore, branchesAfter)
+	pushedBranchesMap := s.detectChangedBranches(repoPath, branchesBefore, branchesAfter)
+
+	// Extract branch names for logging
+	pushedBranches := make([]string, 0, len(pushedBranchesMap))
+	for branch := range pushedBranchesMap {
+		pushedBranches = append(pushedBranches, branch)
+	}
 
 	log.Info().Str("repo_id", repoID).Strs("pushed_branches", pushedBranches).Msg("Receive-pack completed")
 
@@ -594,24 +601,24 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	// headers have already been sent, so we cannot signal upstream push failures to the
 	// client - they will see success regardless. If upstream push fails, we rollback
 	// locally but the agent won't know. This is a known architectural limitation.
-	if len(pushedBranches) > 0 && repo != nil && repo.ExternalURL != "" {
-		log.Debug().Str("repo_id", repoID).Int("branch_count", len(pushedBranches)).Msg("Starting external push with detached context")
+	if len(pushedBranchesMap) > 0 && repo != nil && repo.ExternalURL != "" {
+		log.Debug().Str("repo_id", repoID).Int("branch_count", len(pushedBranchesMap)).Msg("Starting external push with detached context")
 
 		upstreamPushFailed := false
-		for _, branch := range pushedBranches {
+		for branch, isForce := range pushedBranchesMap {
 			// Create per-branch timeout so later branches don't get starved
 			branchCtx, branchCancel := context.WithTimeout(context.Background(), 90*time.Second)
 
-			log.Info().Str("repo_id", repoID).Str("branch", branch).Msg("Pushing branch to upstream")
-			err := s.gitRepoService.PushBranchToRemote(branchCtx, repoID, branch, false)
+			log.Info().Str("repo_id", repoID).Str("branch", branch).Bool("force", isForce).Msg("Pushing branch to upstream")
+			err := s.gitRepoService.PushBranchToRemote(branchCtx, repoID, branch, isForce)
 			branchCancel()
 
 			if err != nil {
-				log.Error().Err(err).Str("repo_id", repoID).Str("branch", branch).Msg("Failed to push branch to upstream - rolling back")
+				log.Error().Err(err).Str("repo_id", repoID).Str("branch", branch).Bool("force", isForce).Msg("Failed to push branch to upstream - rolling back")
 				upstreamPushFailed = true
 				break
 			}
-			log.Info().Str("repo_id", repoID).Str("branch", branch).Msg("Successfully pushed branch to upstream")
+			log.Info().Str("repo_id", repoID).Str("branch", branch).Bool("force", isForce).Msg("Successfully pushed branch to upstream")
 		}
 
 		if upstreamPushFailed {
@@ -670,15 +677,35 @@ func (s *GitHTTPServer) getBranchHashes(repoPath string) map[string]string {
 	return result
 }
 
-// detectChangedBranches compares before/after branch hashes to find changed branches
-func (s *GitHTTPServer) detectChangedBranches(before, after map[string]string) []string {
-	var changed []string
-	for branch, hash := range after {
-		if beforeHash, exists := before[branch]; !exists || beforeHash != hash {
-			changed = append(changed, branch)
+// detectChangedBranches compares before/after branch hashes to find changed branches.
+// Returns a map of branch name -> isForce (true if force push detected).
+// A force push is detected when the old commit is NOT an ancestor of the new commit.
+func (s *GitHTTPServer) detectChangedBranches(repoPath string, before, after map[string]string) map[string]bool {
+	result := make(map[string]bool)
+	for branch, newHash := range after {
+		oldHash, existed := before[branch]
+		if !existed || oldHash != newHash {
+			isForce := false
+			if existed && oldHash != "" {
+				// Check if old commit is ancestor of new commit (fast-forward)
+				// If NOT ancestor, this is a force push
+				_, _, err := gitcmd.NewCommand("merge-base", "--is-ancestor").
+					AddDynamicArguments(oldHash, newHash).
+					RunStdString(context.Background(), &gitcmd.RunOpts{Dir: repoPath})
+				if err != nil {
+					// merge-base --is-ancestor returns non-zero if not ancestor
+					isForce = true
+					log.Info().
+						Str("branch", branch).
+						Str("old_hash", oldHash).
+						Str("new_hash", newHash).
+						Msg("Force push detected: old commit is not ancestor of new commit")
+				}
+			}
+			result[branch] = isForce
 		}
 	}
-	return changed
+	return result
 }
 
 // rollbackBranchRefs restores branch refs to their previous state using native git
