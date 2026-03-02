@@ -16,11 +16,13 @@
 
 - [x] Add `minimize_window` tool to desktop MCP server
 - [x] Add handler implementation for Sway and GNOME (uses gdbus for Wayland)
-
-## Future Cleanup (Out of Scope for This Task)
-
-- [ ] Replace wmctrl/xdotool calls in mcp_server.go with gdbus equivalents (desktop is Wayland-only now)
-- [ ] Remove X11-specific code paths in focus_window, maximize_window, tile_window handlers
+- [~] Replace wmctrl/xdotool calls in mcp_server.go with gdbus (desktop is Wayland-only)
+- [~] Fix focus_window handler to use gdbus
+- [~] Fix maximize_window handler to use gdbus
+- [~] Fix tile_window handler to use gdbus
+- [~] Fix move_to_workspace handler to use gdbus
+- [~] Fix switch_to_workspace handler to use gdbus
+- [~] Fix list_windows handler to remove wmctrl fallback
 
 ## Testing
 
