@@ -1825,9 +1825,10 @@ type CrispTrigger struct {
 }
 
 type CronTrigger struct {
-	Enabled  bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Schedule string `json:"schedule,omitempty" yaml:"schedule,omitempty"`
-	Input    string `json:"input,omitempty" yaml:"input,omitempty"`
+	Enabled  bool     `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Schedule string   `json:"schedule,omitempty" yaml:"schedule,omitempty"`
+	Input    string   `json:"input,omitempty" yaml:"input,omitempty"`
+	Emails   []string `json:"emails,omitempty" yaml:"emails,omitempty"`
 }
 
 // AzureDevOpsTrigger - once enabled, a trigger in the database will be created
@@ -2947,6 +2948,9 @@ type Notification struct {
 	// Populated by the provider
 	Email     string
 	FirstName string
+
+	// If set, send to these emails instead of the session owner
+	Emails []string
 }
 
 // StreamingTokenResponse contains token for accessing streaming session

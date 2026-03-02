@@ -128,13 +128,19 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prep
   const updateTriggerMutation = useUpdateAppTrigger(task?.id || '', account.organizationTools.organization?.id || '');
   const executeTriggerMutation = useExecuteAppTrigger(createdTaskId || task?.id || '');
 
-  const handleSaveTask = async () => {
+  const handleSaveTask = async (
+    agentOverride?: IApp,
+    options?: { showSuccessToast?: boolean }
+  ) => {
+    const showSuccessToast = options?.showSuccessToast ?? true;
+    const agentToSave = agentOverride || selectedAgent;
+
     if (!taskName.trim()) {
       setError('Task name is required');
       return;
     }
 
-    if (!selectedAgent) {
+    if (!agentToSave) {
       setError('Please select an agent');
       return;
     }
@@ -152,7 +158,7 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prep
     try {
       const triggerConfig: TypesTriggerConfiguration = {
         name: taskName.trim(),
-        app_id: selectedAgent.id,
+        app_id: agentToSave.id,
         organization_id: account.organizationTools.organization?.id || '',
         owner: account.user?.id || '',
         owner_type: account.organizationTools.organization ? TypesOwnerType.OwnerTypeSystem : TypesOwnerType.OwnerTypeUser,
@@ -165,12 +171,16 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prep
         // Update existing task
         const updatedTask = await updateTriggerMutation.mutateAsync(triggerConfig);
         setCreatedTaskId(updatedTask.data?.id);
-        snackbar.success('Task updated successfully');
+        if (showSuccessToast) {
+          snackbar.success('Task updated successfully');
+        }
       } else {
         // Create new task
         const newTask = await createTriggerMutation.mutateAsync(triggerConfig);
         setCreatedTaskId(newTask.data?.id);
-        snackbar.success('Task created successfully');
+        if (showSuccessToast) {
+          snackbar.success('Task created successfully');
+        }
       }
 
       // Don't close the dialog - let user test the task
@@ -180,6 +190,20 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prep
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleAgentSelect = async (agent: IApp) => {
+    if (isSubmitting || selectedAgent?.id === agent.id) {
+      return;
+    }
+
+    setSelectedAgent(agent);
+
+    if (!task?.id && !createdTaskId) {
+      return;
+    }
+
+    await handleSaveTask(agent, { showSuccessToast: false });
   };
 
   const handleClose = () => {
@@ -382,7 +406,7 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prep
           <AgentSelector
             apps={apps}
             selectedAgent={selectedAgent}
-            onAgentSelect={setSelectedAgent}
+            onAgentSelect={handleAgentSelect}
           />  
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
@@ -397,7 +421,7 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prep
           </Button>
           <Button
             variant="outlined"
-            onClick={handleSaveTask}
+            onClick={() => { void handleSaveTask(); }}
             color="secondary"
             disabled={isSubmitting || !taskName.trim() || !selectedAgent || !triggers[0].cron?.input}
             startIcon={isSubmitting ? <CircularProgress size={16} /> : undefined}

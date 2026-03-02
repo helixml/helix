@@ -506,6 +506,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 			Event:   types.EventCronTriggerFailed,
 			Session: session,
 			Message: err.Error(),
+			Emails:  trigger.Emails,
 		})
 		if notifyErr != nil {
 			log.Error().
@@ -538,6 +539,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		Session:        session,
 		Message:        resp.ResponseMessage,
 		RenderMarkdown: true,
+		Emails:         trigger.Emails,
 	})
 	if err != nil {
 		log.Error().
