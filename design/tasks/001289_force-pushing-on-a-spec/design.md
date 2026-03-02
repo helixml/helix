@@ -140,3 +140,23 @@ This is deferred because:
 1. **Always force push**: Risky - could overwrite legitimate upstream changes
 2. **Parse receive-pack output**: Complex and fragile - protocol is binary
 3. **Compare ancestry (chosen)**: Simple, reliable, matches what git does internally
+
+## Implementation Notes
+
+### Files Modified
+- `api/pkg/services/git_http_server.go` - Single file change
+
+### Changes Made
+1. `detectChangedBranches` function:
+   - Changed return type from `[]string` to `map[string]bool`
+   - Added `repoPath` parameter
+   - Added `git merge-base --is-ancestor` check to detect force pushes
+   - Logs when force push is detected with old/new commit hashes
+
+2. `handleReceivePack` function:
+   - Extract branch names into `pushedBranches` slice for backward compatibility with `rollbackBranchRefs` and `handlePostPushHook`
+   - Loop now iterates over map, passing `isForce` flag to `PushBranchToRemote`
+   - Added `Bool("force", isForce)` to all push-related log statements
+
+### Build Note
+Local build fails due to unrelated `go-tree-sitter` dependency issue on main branch. Code verified with `gofmt` and LSP diagnostics (no errors). CI will perform full build verification.
