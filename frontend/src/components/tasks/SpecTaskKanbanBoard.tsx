@@ -777,9 +777,24 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         color: "#6b7280",
         backgroundColor: "transparent",
         description: "Tasks without specifications",
-        tasks: filteredTasks.filter(
-          (t) => (t as any).phase === "backlog" && !t.hasSpecs,
-        ),
+        tasks: filteredTasks
+          .filter((t) => (t as any).phase === "backlog" && !t.hasSpecs)
+          .sort((a, b) => {
+            // Sort by priority (critical first), then by created date (newest first)
+            const PRIORITY_ORDER: Record<string, number> = {
+              critical: 0,
+              high: 1,
+              medium: 2,
+              low: 3,
+            };
+            const priorityA = PRIORITY_ORDER[a.priority || "medium"] ?? 2;
+            const priorityB = PRIORITY_ORDER[b.priority || "medium"] ?? 2;
+            if (priorityA !== priorityB) return priorityA - priorityB;
+            return (
+              new Date(b.created || 0).getTime() -
+              new Date(a.created || 0).getTime()
+            );
+          }),
       },
       {
         id: "planning",
