@@ -333,11 +333,13 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 	// This ensures both explicit start and auto-start use the same code path
 	// Auto-start doesn't have user browser context, so pass empty options
 	// o.specTaskService.StartSpecGeneration(ctx, latestTask)
+	now := time.Now()
 	if latestTask.JustDoItMode {
 		latestTask.Status = types.TaskStatusQueuedImplementation
 	} else {
 		latestTask.Status = types.TaskStatusQueuedSpecGeneration
 	}
+	latestTask.StatusUpdatedAt = &now
 
 	err = o.store.UpdateSpecTask(ctx, latestTask)
 	if err != nil {
@@ -464,6 +466,7 @@ func (o *SpecTaskOrchestrator) handleSpecGeneration(ctx context.Context, task *t
 
 		now := time.Now()
 		task.Status = types.TaskStatusSpecReview
+		task.StatusUpdatedAt = &now
 		task.UpdatedAt = now
 		// Ensure DesignDocsPushedAt is set so the "Approve Spec" button appears.
 		// For cloned tasks, specs may already exist on the record without being "pushed".
@@ -488,8 +491,10 @@ func (o *SpecTaskOrchestrator) handleSpecReview(ctx context.Context, task *types
 func (o *SpecTaskOrchestrator) handleSpecRevision(ctx context.Context, task *types.SpecTask) error {
 	// Similar to spec generation, regenerate specs based on feedback
 	// For now, move back to spec generation
+	now := time.Now()
 	task.Status = types.TaskStatusSpecGeneration
-	task.UpdatedAt = time.Now()
+	task.StatusUpdatedAt = &now
+	task.UpdatedAt = now
 
 	return o.store.UpdateSpecTask(ctx, task)
 }
@@ -502,8 +507,10 @@ func (o *SpecTaskOrchestrator) handleImplementationQueued(ctx context.Context, t
 		Msg("Task in implementation_queued - moving directly to implementation")
 
 	// Just move to implementation status - agent is already running from planning
+	now := time.Now()
 	task.Status = types.TaskStatusImplementation
-	task.UpdatedAt = time.Now()
+	task.StatusUpdatedAt = &now
+	task.UpdatedAt = now
 
 	return o.store.UpdateSpecTask(ctx, task)
 }
@@ -580,6 +587,7 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 		// PR merged - move to done
 		now := time.Now()
 		task.Status = types.TaskStatusDone
+		task.StatusUpdatedAt = &now
 		task.MergedToMain = true
 		task.MergedAt = &now
 		task.CompletedAt = &now

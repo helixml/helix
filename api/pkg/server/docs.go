@@ -3954,7 +3954,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/services.KoditEnrichmentListResponse"
+                            "$ref": "#/definitions/server.KoditEnrichmentListResponse"
                         }
                     },
                     "400": {
@@ -3971,12 +3971,6 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "502": {
-                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -4019,7 +4013,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/services.KoditEnrichmentData"
+                            "$ref": "#/definitions/server.KoditEnrichmentDTO"
                         }
                     },
                     "400": {
@@ -4036,12 +4030,6 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "502": {
-                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -4085,8 +4073,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "type": "object",
-                                "additionalProperties": true
+                                "$ref": "#/definitions/server.KoditCommitDTO"
                             }
                         }
                     },
@@ -4104,12 +4091,6 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "502": {
-                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -4175,12 +4156,6 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
-                    },
-                    "502": {
-                        "description": "Bad Gateway",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
                     }
                 }
             }
@@ -4213,7 +4188,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/services.KoditIndexingStatus"
+                            "$ref": "#/definitions/server.KoditIndexingStatusDTO"
                         }
                     },
                     "400": {
@@ -4230,12 +4205,6 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "502": {
-                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -4582,12 +4551,6 @@ const docTemplate = `{
                         "description": "Limit number of results (default 20)",
                         "name": "limit",
                         "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by commit SHA",
-                        "name": "commit_sha",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -4596,7 +4559,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/services.KoditSearchResult"
+                                "$ref": "#/definitions/server.KoditSearchResultDTO"
                             }
                         }
                     },
@@ -4614,12 +4577,6 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "502": {
-                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -14800,38 +14757,22 @@ const docTemplate = `{
                 }
             }
         },
-        "kodit.RepositoryStatusSummaryAttributes": {
+        "mcp.Icon": {
             "type": "object",
             "properties": {
-                "message": {
-                    "description": "Message Error message if failed",
+                "mimeType": {
+                    "description": "Optional MIME type (e.g., \"image/png\", \"image/svg+xml\")",
                     "type": "string"
                 },
-                "status": {
-                    "description": "Status Overall indexing status",
-                    "type": "string"
+                "sizes": {
+                    "description": "Optional size specifications (e.g., [\"48x48\"], [\"any\"] for SVG)",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
-                "updated_at": {
-                    "description": "UpdatedAt Most recent activity timestamp",
-                    "type": "string"
-                }
-            }
-        },
-        "kodit.RepositoryStatusSummaryData": {
-            "type": "object",
-            "properties": {
-                "attributes": {
-                    "description": "Attributes Attributes for repository status summary.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/kodit.RepositoryStatusSummaryAttributes"
-                        }
-                    ]
-                },
-                "id": {
-                    "type": "string"
-                },
-                "type": {
+                "src": {
+                    "description": "URI pointing to the icon resource (HTTPS URL or data URI)",
                     "type": "string"
                 }
             }
@@ -14848,6 +14789,19 @@ const docTemplate = `{
                     "description": "If specified, the caller is requesting out-of-band progress\nnotifications for this request (as represented by\nnotifications/progress). The value of this parameter is an\nopaque token that will be attached to any subsequent\nnotifications. The receiver is not obligated to provide these\nnotifications."
                 }
             }
+        },
+        "mcp.TaskSupport": {
+            "type": "string",
+            "enum": [
+                "forbidden",
+                "optional",
+                "required"
+            ],
+            "x-enum-varnames": [
+                "TaskSupportForbidden",
+                "TaskSupportOptional",
+                "TaskSupportRequired"
+            ]
         },
         "mcp.Tool": {
             "type": "object",
@@ -14868,9 +14822,28 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "defer_loading": {
+                    "description": "Support for deferred loading",
+                    "type": "boolean"
+                },
                 "description": {
                     "description": "A human-readable description of the tool.",
                     "type": "string"
+                },
+                "execution": {
+                    "description": "Execution describes execution behavior for the tool",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.ToolExecution"
+                        }
+                    ]
+                },
+                "icons": {
+                    "description": "Icons provides visual identifiers for the tool",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mcp.Icon"
+                    }
                 },
                 "inputSchema": {
                     "description": "A JSON Schema object defining the expected parameters for the tool.",
@@ -14883,6 +14856,14 @@ const docTemplate = `{
                 "name": {
                     "description": "The name of the tool.",
                     "type": "string"
+                },
+                "outputSchema": {
+                    "description": "A JSON Schema object defining the expected output returned by the tool .",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.ToolOutputSchema"
+                        }
+                    ]
                 }
             }
         },
@@ -14911,6 +14892,19 @@ const docTemplate = `{
                 }
             }
         },
+        "mcp.ToolExecution": {
+            "type": "object",
+            "properties": {
+                "taskSupport": {
+                    "description": "TaskSupport indicates whether the tool supports task augmentation.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.TaskSupport"
+                        }
+                    ]
+                }
+            }
+        },
         "mcp.ToolInputSchema": {
             "type": "object",
             "properties": {
@@ -14918,6 +14912,30 @@ const docTemplate = `{
                     "type": "object",
                     "additionalProperties": {}
                 },
+                "additionalProperties": {},
+                "properties": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "required": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "mcp.ToolOutputSchema": {
+            "type": "object",
+            "properties": {
+                "$defs": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "additionalProperties": {},
                 "properties": {
                     "type": "object",
                     "additionalProperties": {}
@@ -15147,6 +15165,10 @@ const docTemplate = `{
                     "description": "This property isn't in the official documentation, but it's in\nthe documentation for the official library for python:\n- https://github.com/openai/openai-python/blob/main/chatml.md\n- https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb",
                     "type": "string"
                 },
+                "reasoning_content": {
+                    "description": "This property is used for the \"reasoning\" feature supported by deepseek-reasoner\nwhich is not in the official documentation.\nthe doc from deepseek:\n- https://api-docs.deepseek.com/api/create-chat-completion#responses",
+                    "type": "string"
+                },
                 "refusal": {
                     "type": "string"
                 },
@@ -15169,6 +15191,11 @@ const docTemplate = `{
         "openai.ChatCompletionRequest": {
             "type": "object",
             "properties": {
+                "chat_template_kwargs": {
+                    "description": "ChatTemplateKwargs provides a way to add non-standard parameters to the request body.\nAdditional kwargs to pass to the template renderer. Will be accessible by the chat template.\nSuch as think mode for qwen3. \"chat_template_kwargs\": {\"enable_thinking\": false}\nhttps://qwen.readthedocs.io/en/latest/deployment/vllm.html#thinking-non-thinking-modes",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
                 "frequency_penalty": {
                     "type": "number"
                 },
@@ -15180,6 +15207,13 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/openai.FunctionDefinition"
+                    }
+                },
+                "guided_choice": {
+                    "description": "GuidedChoice is a vLLM-specific extension that restricts the model's output\nto one of the predefined string choices provided in this field. This feature\nis used to constrain the model's responses to a controlled set of options,\nensuring predictable and consistent outputs in scenarios where specific\nchoices are required.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
                     }
                 },
                 "logit_bias": {
@@ -15198,7 +15232,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "max_tokens": {
-                    "description": "MaxTokens The maximum number of tokens that can be generated in the chat completion.\nThis value can be used to control costs for text generated via API.\nThis value is now deprecated in favor of max_completion_tokens, and is not compatible with o1 series models.\nrefs: https://platform.openai.com/docs/api-reference/chat/create#chat-create-max_tokens",
+                    "description": "MaxTokens The maximum number of tokens that can be generated in the chat completion.\nThis value can be used to control costs for text generated via API.\nDeprecated: use MaxCompletionTokens. Not compatible with o1-series models.\nrefs: https://platform.openai.com/docs/api-reference/chat/create#chat-create-max_tokens",
                     "type": "integer"
                 },
                 "messages": {
@@ -15223,6 +15257,14 @@ const docTemplate = `{
                 "parallel_tool_calls": {
                     "description": "Disable the default behavior of parallel tool calls by setting it: false."
                 },
+                "prediction": {
+                    "description": "Configuration for a predicted output.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/openai.Prediction"
+                        }
+                    ]
+                },
                 "presence_penalty": {
                     "type": "number"
                 },
@@ -15233,8 +15275,20 @@ const docTemplate = `{
                 "response_format": {
                     "$ref": "#/definitions/openai.ChatCompletionResponseFormat"
                 },
+                "safety_identifier": {
+                    "description": "A stable identifier used to help detect users of your application that may be violating OpenAI's usage policies.\nThe IDs should be a string that uniquely identifies each user.\nWe recommend hashing their username or email address, in order to avoid sending us any identifying information.\nhttps://platform.openai.com/docs/api-reference/chat/create#chat_create-safety_identifier",
+                    "type": "string"
+                },
                 "seed": {
                     "type": "integer"
+                },
+                "service_tier": {
+                    "description": "Specifies the latency tier to use for processing the request.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/openai.ServiceTier"
+                        }
+                    ]
                 },
                 "stop": {
                     "type": "array",
@@ -15278,6 +15332,10 @@ const docTemplate = `{
                 },
                 "user": {
                     "type": "string"
+                },
+                "verbosity": {
+                    "description": "Verbosity determines how many output tokens are generated. Lowering the number of\ntokens reduces overall latency. It can be set to \"low\", \"medium\", or \"high\".\nNote: This field is only confirmed to work with gpt-5, gpt-5-mini and gpt-5-nano.\nAlso, it is not in the API reference of chat completion at the time of writing,\nthough it is supported by the API.",
+                    "type": "string"
                 }
             }
         },
@@ -15307,6 +15365,9 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/openai.PromptFilterResult"
                     }
+                },
+                "service_tier": {
+                    "$ref": "#/definitions/openai.ServiceTier"
                 },
                 "system_fingerprint": {
                     "type": "string"
@@ -15394,10 +15455,16 @@ const docTemplate = `{
         "openai.CompletionTokensDetails": {
             "type": "object",
             "properties": {
+                "accepted_prediction_tokens": {
+                    "type": "integer"
+                },
                 "audio_tokens": {
                     "type": "integer"
                 },
                 "reasoning_tokens": {
+                    "type": "integer"
+                },
+                "rejected_prediction_tokens": {
                     "type": "integer"
                 }
             }
@@ -15545,6 +15612,17 @@ const docTemplate = `{
                 }
             }
         },
+        "openai.Prediction": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
         "openai.Profanity": {
             "type": "object",
             "properties": {
@@ -15588,6 +15666,21 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "openai.ServiceTier": {
+            "type": "string",
+            "enum": [
+                "auto",
+                "default",
+                "flex",
+                "priority"
+            ],
+            "x-enum-varnames": [
+                "ServiceTierAuto",
+                "ServiceTierDefault",
+                "ServiceTierFlex",
+                "ServiceTierPriority"
+            ]
         },
         "openai.Sexual": {
             "type": "object",
@@ -16178,6 +16271,138 @@ const docTemplate = `{
                 },
                 "turn": {
                     "type": "integer"
+                }
+            }
+        },
+        "server.KoditCommitAttributes": {
+            "type": "object",
+            "properties": {
+                "authored_at": {
+                    "type": "string"
+                },
+                "committed_at": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "sha": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.KoditCommitDTO": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "$ref": "#/definitions/server.KoditCommitAttributes"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.KoditEnrichmentAttributes": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "subtype": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.KoditEnrichmentDTO": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "$ref": "#/definitions/server.KoditEnrichmentAttributes"
+                },
+                "commit_sha": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.KoditEnrichmentListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.KoditEnrichmentDTO"
+                    }
+                }
+            }
+        },
+        "server.KoditIndexingStatusAttributes": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.KoditIndexingStatusDTO": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/server.KoditIndexingStatusData"
+                }
+            }
+        },
+        "server.KoditIndexingStatusData": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "$ref": "#/definitions/server.KoditIndexingStatusAttributes"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.KoditSearchResultDTO": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "language": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
                 }
             }
         },
@@ -16795,89 +17020,6 @@ const docTemplate = `{
                 },
                 "gop_buffer_size": {
                     "type": "integer"
-                }
-            }
-        },
-        "services.KoditEnrichmentAttributes": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "subtype": {
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                }
-            }
-        },
-        "services.KoditEnrichmentData": {
-            "type": "object",
-            "properties": {
-                "attributes": {
-                    "$ref": "#/definitions/services.KoditEnrichmentAttributes"
-                },
-                "commit_sha": {
-                    "description": "Added for frontend",
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string"
-                }
-            }
-        },
-        "services.KoditEnrichmentListResponse": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/services.KoditEnrichmentData"
-                    }
-                }
-            }
-        },
-        "services.KoditIndexingStatus": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "description": "Data Data for repository status summary response.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/kodit.RepositoryStatusSummaryData"
-                        }
-                    ]
-                }
-            }
-        },
-        "services.KoditSearchResult": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string"
-                },
-                "file_path": {
-                    "description": "File path from DerivesFrom",
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "language": {
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string"
                 }
             }
         },
@@ -17562,10 +17704,6 @@ const docTemplate = `{
         "types.AssistantConfig": {
             "type": "object",
             "properties": {
-                "agent_mode": {
-                    "description": "AgentMode triggers the use of the agent loop (deprecated - use AgentType instead)",
-                    "type": "boolean"
-                },
                 "agent_type": {
                     "description": "AgentType specifies the type of agent to use",
                     "allOf": [
@@ -20518,6 +20656,10 @@ const docTemplate = `{
                 "last_zed_message_id": {
                     "description": "LastZedMessageID tracks the last Zed message ID received for this interaction.\nUsed to detect multi-message responses: same ID = streaming update (overwrite),\ndifferent ID = new distinct message (append). Persisted in DB for restart resilience.",
                     "type": "string"
+                },
+                "last_zed_message_offset": {
+                    "description": "LastZedMessageOffset is the byte offset in ResponseMessage where the current\nmessage_id's content begins. Used by the accumulator to replace only the\ncurrent message's portion during streaming updates, preserving earlier messages.",
+                    "type": "integer"
                 },
                 "mode": {
                     "$ref": "#/definitions/types.SessionMode"
@@ -24965,6 +25107,10 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "status_updated_at": {
+                    "description": "When status last changed (for Kanban column sorting)",
+                    "type": "string"
+                },
                 "task_number": {
                     "description": "Human-readable directory naming for design docs in helix-specs branch\nTaskNumber is auto-assigned from project.NextTaskNumber when task starts\nDesignDocPath format: \"YYYY-MM-DD_shortname_N\" e.g., \"2025-12-09_install-cowsay_1\"",
                     "type": "integer"
@@ -25655,6 +25801,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.SpecTaskStatus"
                         }
                     ]
+                },
+                "status_updated_at": {
+                    "description": "When status last changed (for Kanban column sorting)",
+                    "type": "string"
                 },
                 "task_number": {
                     "description": "Human-readable directory naming for design docs in helix-specs branch\nTaskNumber is auto-assigned from project.NextTaskNumber when task starts\nDesignDocPath format: \"YYYY-MM-DD_shortname_N\" e.g., \"2025-12-09_install-cowsay_1\"",

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/helixml/helix/api/pkg/ptr"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -292,9 +291,11 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	now := time.Now()
 	existingTask.SpecApprovedBy = user.ID
-	existingTask.SpecApprovedAt = ptr.To(time.Now())
+	existingTask.SpecApprovedAt = &now
 	existingTask.Status = types.TaskStatusSpecApproved
+	existingTask.StatusUpdatedAt = &now
 	existingTask.SpecApproval = &req
 
 	err = s.Store.UpdateSpecTask(ctx, existingTask)
@@ -657,12 +658,14 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	task.UpdatedAt = time.Now()
 
 	// Check if Just Do It mode is enabled - skip spec and go straight to implementation
+	now := time.Now()
 	if task.JustDoItMode {
 		task.Status = types.TaskStatusQueuedImplementation
 	} else {
 		// Normal mode: Start spec generation
 		task.Status = types.TaskStatusQueuedSpecGeneration
 	}
+	task.StatusUpdatedAt = &now
 
 	// Save the task with queued status first (so response reflects immediate status)
 	err = s.Store.UpdateSpecTask(ctx, task)
@@ -730,6 +733,9 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	// Update fields if provided
 	if updateReq.Status != "" {
 		task.Status = updateReq.Status
+		// Update StatusUpdatedAt so task appears at top of new column in Kanban
+		now := time.Now()
+		task.StatusUpdatedAt = &now
 	}
 	if updateReq.Priority != "" {
 		task.Priority = updateReq.Priority

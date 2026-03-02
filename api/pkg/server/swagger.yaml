@@ -167,27 +167,18 @@ definitions:
         description: '"nvidia", "amd", "intel"'
         type: string
     type: object
-  kodit.RepositoryStatusSummaryAttributes:
+  mcp.Icon:
     properties:
-      message:
-        description: Message Error message if failed
+      mimeType:
+        description: Optional MIME type (e.g., "image/png", "image/svg+xml")
         type: string
-      status:
-        description: Status Overall indexing status
-        type: string
-      updated_at:
-        description: UpdatedAt Most recent activity timestamp
-        type: string
-    type: object
-  kodit.RepositoryStatusSummaryData:
-    properties:
-      attributes:
-        allOf:
-        - $ref: '#/definitions/kodit.RepositoryStatusSummaryAttributes'
-        description: Attributes Attributes for repository status summary.
-      id:
-        type: string
-      type:
+      sizes:
+        description: Optional size specifications (e.g., ["48x48"], ["any"] for SVG)
+        items:
+          type: string
+        type: array
+      src:
+        description: URI pointing to the icon resource (HTTPS URL or data URI)
         type: string
     type: object
   mcp.Meta:
@@ -207,6 +198,16 @@ definitions:
           notifications. The receiver is not obligated to provide these
           notifications.
     type: object
+  mcp.TaskSupport:
+    enum:
+    - forbidden
+    - optional
+    - required
+    type: string
+    x-enum-varnames:
+    - TaskSupportForbidden
+    - TaskSupportOptional
+    - TaskSupportRequired
   mcp.Tool:
     properties:
       _meta:
@@ -218,9 +219,21 @@ definitions:
         allOf:
         - $ref: '#/definitions/mcp.ToolAnnotation'
         description: Optional properties describing tool behavior
+      defer_loading:
+        description: Support for deferred loading
+        type: boolean
       description:
         description: A human-readable description of the tool.
         type: string
+      execution:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolExecution'
+        description: Execution describes execution behavior for the tool
+      icons:
+        description: Icons provides visual identifiers for the tool
+        items:
+          $ref: '#/definitions/mcp.Icon'
+        type: array
       inputSchema:
         allOf:
         - $ref: '#/definitions/mcp.ToolInputSchema'
@@ -229,6 +242,11 @@ definitions:
       name:
         description: The name of the tool.
         type: string
+      outputSchema:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolOutputSchema'
+        description: A JSON Schema object defining the expected output returned by
+          the tool .
     type: object
   mcp.ToolAnnotation:
     properties:
@@ -248,11 +266,35 @@ definitions:
         description: Human-readable title for the tool
         type: string
     type: object
+  mcp.ToolExecution:
+    properties:
+      taskSupport:
+        allOf:
+        - $ref: '#/definitions/mcp.TaskSupport'
+        description: TaskSupport indicates whether the tool supports task augmentation.
+    type: object
   mcp.ToolInputSchema:
     properties:
       $defs:
         additionalProperties: {}
         type: object
+      additionalProperties: {}
+      properties:
+        additionalProperties: {}
+        type: object
+      required:
+        items:
+          type: string
+        type: array
+      type:
+        type: string
+    type: object
+  mcp.ToolOutputSchema:
+    properties:
+      $defs:
+        additionalProperties: {}
+        type: object
+      additionalProperties: {}
       properties:
         additionalProperties: {}
         type: object
@@ -432,6 +474,13 @@ definitions:
           - https://github.com/openai/openai-python/blob/main/chatml.md
           - https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb
         type: string
+      reasoning_content:
+        description: |-
+          This property is used for the "reasoning" feature supported by deepseek-reasoner
+          which is not in the official documentation.
+          the doc from deepseek:
+          - https://api-docs.deepseek.com/api/create-chat-completion#responses
+        type: string
       refusal:
         type: string
       role:
@@ -449,6 +498,14 @@ definitions:
     type: object
   openai.ChatCompletionRequest:
     properties:
+      chat_template_kwargs:
+        additionalProperties: {}
+        description: |-
+          ChatTemplateKwargs provides a way to add non-standard parameters to the request body.
+          Additional kwargs to pass to the template renderer. Will be accessible by the chat template.
+          Such as think mode for qwen3. "chat_template_kwargs": {"enable_thinking": false}
+          https://qwen.readthedocs.io/en/latest/deployment/vllm.html#thinking-non-thinking-modes
+        type: object
       frequency_penalty:
         type: number
       function_call:
@@ -457,6 +514,16 @@ definitions:
         description: 'Deprecated: use Tools instead.'
         items:
           $ref: '#/definitions/openai.FunctionDefinition'
+        type: array
+      guided_choice:
+        description: |-
+          GuidedChoice is a vLLM-specific extension that restricts the model's output
+          to one of the predefined string choices provided in this field. This feature
+          is used to constrain the model's responses to a controlled set of options,
+          ensuring predictable and consistent outputs in scenarios where specific
+          choices are required.
+        items:
+          type: string
         type: array
       logit_bias:
         additionalProperties:
@@ -481,7 +548,7 @@ definitions:
         description: |-
           MaxTokens The maximum number of tokens that can be generated in the chat completion.
           This value can be used to control costs for text generated via API.
-          This value is now deprecated in favor of max_completion_tokens, and is not compatible with o1 series models.
+          Deprecated: use MaxCompletionTokens. Not compatible with o1-series models.
           refs: https://platform.openai.com/docs/api-reference/chat/create#chat-create-max_tokens
         type: integer
       messages:
@@ -500,6 +567,10 @@ definitions:
       parallel_tool_calls:
         description: 'Disable the default behavior of parallel tool calls by setting
           it: false.'
+      prediction:
+        allOf:
+        - $ref: '#/definitions/openai.Prediction'
+        description: Configuration for a predicted output.
       presence_penalty:
         type: number
       reasoning_effort:
@@ -508,8 +579,19 @@ definitions:
         type: string
       response_format:
         $ref: '#/definitions/openai.ChatCompletionResponseFormat'
+      safety_identifier:
+        description: |-
+          A stable identifier used to help detect users of your application that may be violating OpenAI's usage policies.
+          The IDs should be a string that uniquely identifies each user.
+          We recommend hashing their username or email address, in order to avoid sending us any identifying information.
+          https://platform.openai.com/docs/api-reference/chat/create#chat_create-safety_identifier
+        type: string
       seed:
         type: integer
+      service_tier:
+        allOf:
+        - $ref: '#/definitions/openai.ServiceTier'
+        description: Specifies the latency tier to use for processing the request.
       stop:
         items:
           type: string
@@ -544,6 +626,14 @@ definitions:
         type: number
       user:
         type: string
+      verbosity:
+        description: |-
+          Verbosity determines how many output tokens are generated. Lowering the number of
+          tokens reduces overall latency. It can be set to "low", "medium", or "high".
+          Note: This field is only confirmed to work with gpt-5, gpt-5-mini and gpt-5-nano.
+          Also, it is not in the API reference of chat completion at the time of writing,
+          though it is supported by the API.
+        type: string
     type: object
   openai.ChatCompletionResponse:
     properties:
@@ -563,6 +653,8 @@ definitions:
         items:
           $ref: '#/definitions/openai.PromptFilterResult'
         type: array
+      service_tier:
+        $ref: '#/definitions/openai.ServiceTier'
       system_fingerprint:
         type: string
       usage:
@@ -621,9 +713,13 @@ definitions:
     - ChatMessagePartTypeImageURL
   openai.CompletionTokensDetails:
     properties:
+      accepted_prediction_tokens:
+        type: integer
       audio_tokens:
         type: integer
       reasoning_tokens:
+        type: integer
+      rejected_prediction_tokens:
         type: integer
     type: object
   openai.ContentFilterResults:
@@ -733,6 +829,13 @@ definitions:
           $ref: '#/definitions/openai.LogProb'
         type: array
     type: object
+  openai.Prediction:
+    properties:
+      content:
+        type: string
+      type:
+        type: string
+    type: object
   openai.Profanity:
     properties:
       detected:
@@ -761,6 +864,18 @@ definitions:
       severity:
         type: string
     type: object
+  openai.ServiceTier:
+    enum:
+    - auto
+    - default
+    - flex
+    - priority
+    type: string
+    x-enum-varnames:
+    - ServiceTierAuto
+    - ServiceTierDefault
+    - ServiceTierFlex
+    - ServiceTierPriority
   openai.Sexual:
     properties:
       filtered:
@@ -1150,6 +1265,91 @@ definitions:
         $ref: '#/definitions/server.InteractionBrief'
       turn:
         type: integer
+    type: object
+  server.KoditCommitAttributes:
+    properties:
+      authored_at:
+        type: string
+      committed_at:
+        type: string
+      message:
+        type: string
+      sha:
+        type: string
+    type: object
+  server.KoditCommitDTO:
+    properties:
+      attributes:
+        $ref: '#/definitions/server.KoditCommitAttributes'
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  server.KoditEnrichmentAttributes:
+    properties:
+      content:
+        type: string
+      created_at:
+        type: string
+      subtype:
+        type: string
+      type:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  server.KoditEnrichmentDTO:
+    properties:
+      attributes:
+        $ref: '#/definitions/server.KoditEnrichmentAttributes'
+      commit_sha:
+        type: string
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  server.KoditEnrichmentListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditEnrichmentDTO'
+        type: array
+    type: object
+  server.KoditIndexingStatusAttributes:
+    properties:
+      message:
+        type: string
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  server.KoditIndexingStatusDTO:
+    properties:
+      data:
+        $ref: '#/definitions/server.KoditIndexingStatusData'
+    type: object
+  server.KoditIndexingStatusData:
+    properties:
+      attributes:
+        $ref: '#/definitions/server.KoditIndexingStatusAttributes'
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  server.KoditSearchResultDTO:
+    properties:
+      content:
+        type: string
+      id:
+        type: string
+      language:
+        type: string
+      type:
+        type: string
     type: object
   server.LicenseKeyRequest:
     properties:
@@ -1575,59 +1775,6 @@ definitions:
         type: integer
       gop_buffer_size:
         type: integer
-    type: object
-  services.KoditEnrichmentAttributes:
-    properties:
-      content:
-        type: string
-      created_at:
-        type: string
-      subtype:
-        type: string
-      type:
-        type: string
-      updated_at:
-        type: string
-    type: object
-  services.KoditEnrichmentData:
-    properties:
-      attributes:
-        $ref: '#/definitions/services.KoditEnrichmentAttributes'
-      commit_sha:
-        description: Added for frontend
-        type: string
-      id:
-        type: string
-      type:
-        type: string
-    type: object
-  services.KoditEnrichmentListResponse:
-    properties:
-      data:
-        items:
-          $ref: '#/definitions/services.KoditEnrichmentData'
-        type: array
-    type: object
-  services.KoditIndexingStatus:
-    properties:
-      data:
-        allOf:
-        - $ref: '#/definitions/kodit.RepositoryStatusSummaryData'
-        description: Data Data for repository status summary response.
-    type: object
-  services.KoditSearchResult:
-    properties:
-      content:
-        type: string
-      file_path:
-        description: File path from DerivesFrom
-        type: string
-      id:
-        type: string
-      language:
-        type: string
-      type:
-        type: string
     type: object
   services.SampleProjectCode:
     properties:
@@ -2100,10 +2247,6 @@ definitions:
     type: object
   types.AssistantConfig:
     properties:
-      agent_mode:
-        description: AgentMode triggers the use of the agent loop (deprecated - use
-          AgentType instead)
-        type: boolean
       agent_type:
         allOf:
         - $ref: '#/definitions/types.AgentType'
@@ -4198,6 +4341,12 @@ definitions:
           Used to detect multi-message responses: same ID = streaming update (overwrite),
           different ID = new distinct message (append). Persisted in DB for restart resilience.
         type: string
+      last_zed_message_offset:
+        description: |-
+          LastZedMessageOffset is the byte offset in ResponseMessage where the current
+          message_id's content begins. Used by the accumulator to replace only the
+          current message's portion during streaming updates, preserving earlier messages.
+        type: integer
       mode:
         $ref: '#/definitions/types.SessionMode'
       prompt_message:
@@ -7346,6 +7495,9 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.SpecTaskStatus'
         description: Spec-driven workflow statuses - see constants below
+      status_updated_at:
+        description: When status last changed (for Kanban column sorting)
+        type: string
       task_number:
         description: |-
           Human-readable directory naming for design docs in helix-specs branch
@@ -7860,6 +8012,9 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.SpecTaskStatus'
         description: Spec-driven workflow statuses - see constants below
+      status_updated_at:
+        description: When status last changed (for Kanban column sorting)
+        type: string
       task_number:
         description: |-
           Human-readable directory naming for design docs in helix-specs branch
@@ -11522,7 +11677,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/services.KoditEnrichmentListResponse'
+            $ref: '#/definitions/server.KoditEnrichmentListResponse'
         "400":
           description: Bad Request
           schema:
@@ -11533,10 +11688,6 @@ paths:
             $ref: '#/definitions/types.APIError'
         "500":
           description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "502":
-          description: Bad Gateway
           schema:
             $ref: '#/definitions/types.APIError'
       security:
@@ -11564,7 +11715,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/services.KoditEnrichmentData'
+            $ref: '#/definitions/server.KoditEnrichmentDTO'
         "400":
           description: Bad Request
           schema:
@@ -11575,10 +11726,6 @@ paths:
             $ref: '#/definitions/types.APIError'
         "500":
           description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "502":
-          description: Bad Gateway
           schema:
             $ref: '#/definitions/types.APIError'
       security:
@@ -11606,8 +11753,7 @@ paths:
           description: OK
           schema:
             items:
-              additionalProperties: true
-              type: object
+              $ref: '#/definitions/server.KoditCommitDTO'
             type: array
         "400":
           description: Bad Request
@@ -11619,10 +11765,6 @@ paths:
             $ref: '#/definitions/types.APIError'
         "500":
           description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "502":
-          description: Bad Gateway
           schema:
             $ref: '#/definitions/types.APIError'
       security:
@@ -11666,10 +11808,6 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/types.APIError'
-        "502":
-          description: Bad Gateway
-          schema:
-            $ref: '#/definitions/types.APIError'
       security:
       - BearerAuth: []
       summary: Rescan repository commit
@@ -11690,7 +11828,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/services.KoditIndexingStatus'
+            $ref: '#/definitions/server.KoditIndexingStatusDTO'
         "400":
           description: Bad Request
           schema:
@@ -11701,10 +11839,6 @@ paths:
             $ref: '#/definitions/types.APIError'
         "500":
           description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "502":
-          description: Bad Gateway
           schema:
             $ref: '#/definitions/types.APIError'
       security:
@@ -11929,10 +12063,6 @@ paths:
         in: query
         name: limit
         type: integer
-      - description: Filter by commit SHA
-        in: query
-        name: commit_sha
-        type: string
       produces:
       - application/json
       responses:
@@ -11940,7 +12070,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/services.KoditSearchResult'
+              $ref: '#/definitions/server.KoditSearchResultDTO'
             type: array
         "400":
           description: Bad Request
@@ -11952,10 +12082,6 @@ paths:
             $ref: '#/definitions/types.APIError'
         "500":
           description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "502":
-          description: Bad Gateway
           schema:
             $ref: '#/definitions/types.APIError'
       security:

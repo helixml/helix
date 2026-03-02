@@ -114,20 +114,13 @@ export interface HydraGPUInfo {
   vendor?: string;
 }
 
-export interface KoditRepositoryStatusSummaryAttributes {
-  /** Message Error message if failed */
-  message?: string;
-  /** Status Overall indexing status */
-  status?: string;
-  /** UpdatedAt Most recent activity timestamp */
-  updated_at?: string;
-}
-
-export interface KoditRepositoryStatusSummaryData {
-  /** Attributes Attributes for repository status summary. */
-  attributes?: KoditRepositoryStatusSummaryAttributes;
-  id?: string;
-  type?: string;
+export interface McpIcon {
+  /** Optional MIME type (e.g., "image/png", "image/svg+xml") */
+  mimeType?: string;
+  /** Optional size specifications (e.g., ["48x48"], ["any"] for SVG) */
+  sizes?: string[];
+  /** URI pointing to the icon resource (HTTPS URL or data URI) */
+  src?: string;
 }
 
 export interface McpMeta {
@@ -147,17 +140,31 @@ export interface McpMeta {
   progressToken?: any;
 }
 
+export enum McpTaskSupport {
+  TaskSupportForbidden = "forbidden",
+  TaskSupportOptional = "optional",
+  TaskSupportRequired = "required",
+}
+
 export interface McpTool {
   /** Meta is a metadata object that is reserved by MCP for storing additional information. */
   _meta?: McpMeta;
   /** Optional properties describing tool behavior */
   annotations?: McpToolAnnotation;
+  /** Support for deferred loading */
+  defer_loading?: boolean;
   /** A human-readable description of the tool. */
   description?: string;
+  /** Execution describes execution behavior for the tool */
+  execution?: McpToolExecution;
+  /** Icons provides visual identifiers for the tool */
+  icons?: McpIcon[];
   /** A JSON Schema object defining the expected parameters for the tool. */
   inputSchema?: McpToolInputSchema;
   /** The name of the tool. */
   name?: string;
+  /** A JSON Schema object defining the expected output returned by the tool . */
+  outputSchema?: McpToolOutputSchema;
 }
 
 export interface McpToolAnnotation {
@@ -173,8 +180,22 @@ export interface McpToolAnnotation {
   title?: string;
 }
 
+export interface McpToolExecution {
+  /** TaskSupport indicates whether the tool supports task augmentation. */
+  taskSupport?: McpTaskSupport;
+}
+
 export interface McpToolInputSchema {
   $defs?: Record<string, any>;
+  additionalProperties?: any;
+  properties?: Record<string, any>;
+  required?: string[];
+  type?: string;
+}
+
+export interface McpToolOutputSchema {
+  $defs?: Record<string, any>;
+  additionalProperties?: any;
   properties?: Record<string, any>;
   required?: string[];
   type?: string;
@@ -289,6 +310,13 @@ export interface OpenaiChatCompletionMessage {
    * - https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb
    */
   name?: string;
+  /**
+   * This property is used for the "reasoning" feature supported by deepseek-reasoner
+   * which is not in the official documentation.
+   * the doc from deepseek:
+   * - https://api-docs.deepseek.com/api/create-chat-completion#responses
+   */
+  reasoning_content?: string;
   refusal?: string;
   role?: string;
   /** For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool. */
@@ -298,11 +326,26 @@ export interface OpenaiChatCompletionMessage {
 }
 
 export interface OpenaiChatCompletionRequest {
+  /**
+   * ChatTemplateKwargs provides a way to add non-standard parameters to the request body.
+   * Additional kwargs to pass to the template renderer. Will be accessible by the chat template.
+   * Such as think mode for qwen3. "chat_template_kwargs": {"enable_thinking": false}
+   * https://qwen.readthedocs.io/en/latest/deployment/vllm.html#thinking-non-thinking-modes
+   */
+  chat_template_kwargs?: Record<string, any>;
   frequency_penalty?: number;
   /** Deprecated: use ToolChoice instead. */
   function_call?: any;
   /** Deprecated: use Tools instead. */
   functions?: OpenaiFunctionDefinition[];
+  /**
+   * GuidedChoice is a vLLM-specific extension that restricts the model's output
+   * to one of the predefined string choices provided in this field. This feature
+   * is used to constrain the model's responses to a controlled set of options,
+   * ensuring predictable and consistent outputs in scenarios where specific
+   * choices are required.
+   */
+  guided_choice?: string[];
   /**
    * LogitBias is must be a token id string (specified by their token ID in the tokenizer), not a word string.
    * incorrect: `"logit_bias":{"You": 6}`, correct: `"logit_bias":{"1639": 6}`
@@ -323,7 +366,7 @@ export interface OpenaiChatCompletionRequest {
   /**
    * MaxTokens The maximum number of tokens that can be generated in the chat completion.
    * This value can be used to control costs for text generated via API.
-   * This value is now deprecated in favor of max_completion_tokens, and is not compatible with o1 series models.
+   * Deprecated: use MaxCompletionTokens. Not compatible with o1-series models.
    * refs: https://platform.openai.com/docs/api-reference/chat/create#chat-create-max_tokens
    */
   max_tokens?: number;
@@ -334,11 +377,22 @@ export interface OpenaiChatCompletionRequest {
   n?: number;
   /** Disable the default behavior of parallel tool calls by setting it: false. */
   parallel_tool_calls?: any;
+  /** Configuration for a predicted output. */
+  prediction?: OpenaiPrediction;
   presence_penalty?: number;
   /** Controls effort on reasoning for reasoning models. It can be set to "low", "medium", or "high". */
   reasoning_effort?: string;
   response_format?: OpenaiChatCompletionResponseFormat;
+  /**
+   * A stable identifier used to help detect users of your application that may be violating OpenAI's usage policies.
+   * The IDs should be a string that uniquely identifies each user.
+   * We recommend hashing their username or email address, in order to avoid sending us any identifying information.
+   * https://platform.openai.com/docs/api-reference/chat/create#chat_create-safety_identifier
+   */
+  safety_identifier?: string;
   seed?: number;
+  /** Specifies the latency tier to use for processing the request. */
+  service_tier?: OpenaiServiceTier;
   stop?: string[];
   /**
    * Store can be set to true to store the output of this completion request for use in distillations and evals.
@@ -360,6 +414,14 @@ export interface OpenaiChatCompletionRequest {
   top_logprobs?: number;
   top_p?: number;
   user?: string;
+  /**
+   * Verbosity determines how many output tokens are generated. Lowering the number of
+   * tokens reduces overall latency. It can be set to "low", "medium", or "high".
+   * Note: This field is only confirmed to work with gpt-5, gpt-5-mini and gpt-5-nano.
+   * Also, it is not in the API reference of chat completion at the time of writing,
+   * though it is supported by the API.
+   */
+  verbosity?: string;
 }
 
 export interface OpenaiChatCompletionResponse {
@@ -369,6 +431,7 @@ export interface OpenaiChatCompletionResponse {
   model?: string;
   object?: string;
   prompt_filter_results?: OpenaiPromptFilterResult[];
+  service_tier?: OpenaiServiceTier;
   system_fingerprint?: string;
   usage?: OpenaiUsage;
 }
@@ -408,8 +471,10 @@ export enum OpenaiChatMessagePartType {
 }
 
 export interface OpenaiCompletionTokensDetails {
+  accepted_prediction_tokens?: number;
   audio_tokens?: number;
   reasoning_tokens?: number;
+  rejected_prediction_tokens?: number;
 }
 
 export interface OpenaiContentFilterResults {
@@ -483,6 +548,11 @@ export interface OpenaiLogProbs {
   content?: OpenaiLogProb[];
 }
 
+export interface OpenaiPrediction {
+  content?: string;
+  type?: string;
+}
+
 export interface OpenaiProfanity {
   detected?: boolean;
   filtered?: boolean;
@@ -501,6 +571,13 @@ export interface OpenaiPromptTokensDetails {
 export interface OpenaiSelfHarm {
   filtered?: boolean;
   severity?: string;
+}
+
+export enum OpenaiServiceTier {
+  ServiceTierAuto = "auto",
+  ServiceTierDefault = "default",
+  ServiceTierFlex = "flex",
+  ServiceTierPriority = "priority",
 }
 
 export interface OpenaiSexual {
@@ -739,6 +816,61 @@ export interface ServerInteractionWithContext {
   next?: ServerInteractionBrief;
   previous?: ServerInteractionBrief;
   turn?: number;
+}
+
+export interface ServerKoditCommitAttributes {
+  authored_at?: string;
+  committed_at?: string;
+  message?: string;
+  sha?: string;
+}
+
+export interface ServerKoditCommitDTO {
+  attributes?: ServerKoditCommitAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ServerKoditEnrichmentAttributes {
+  content?: string;
+  created_at?: string;
+  subtype?: string;
+  type?: string;
+  updated_at?: string;
+}
+
+export interface ServerKoditEnrichmentDTO {
+  attributes?: ServerKoditEnrichmentAttributes;
+  commit_sha?: string;
+  id?: string;
+  type?: string;
+}
+
+export interface ServerKoditEnrichmentListResponse {
+  data?: ServerKoditEnrichmentDTO[];
+}
+
+export interface ServerKoditIndexingStatusAttributes {
+  message?: string;
+  status?: string;
+  updated_at?: string;
+}
+
+export interface ServerKoditIndexingStatusDTO {
+  data?: ServerKoditIndexingStatusData;
+}
+
+export interface ServerKoditIndexingStatusData {
+  attributes?: ServerKoditIndexingStatusAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ServerKoditSearchResultDTO {
+  content?: string;
+  id?: string;
+  language?: string;
+  type?: string;
 }
 
 export interface ServerLicenseKeyRequest {
@@ -1000,40 +1132,6 @@ export interface ServerVideoStreamingStats {
   client_count?: number;
   frames_received?: number;
   gop_buffer_size?: number;
-}
-
-export interface ServicesKoditEnrichmentAttributes {
-  content?: string;
-  created_at?: string;
-  subtype?: string;
-  type?: string;
-  updated_at?: string;
-}
-
-export interface ServicesKoditEnrichmentData {
-  attributes?: ServicesKoditEnrichmentAttributes;
-  /** Added for frontend */
-  commit_sha?: string;
-  id?: string;
-  type?: string;
-}
-
-export interface ServicesKoditEnrichmentListResponse {
-  data?: ServicesKoditEnrichmentData[];
-}
-
-export interface ServicesKoditIndexingStatus {
-  /** Data Data for repository status summary response. */
-  data?: KoditRepositoryStatusSummaryData;
-}
-
-export interface ServicesKoditSearchResult {
-  content?: string;
-  /** File path from DerivesFrom */
-  file_path?: string;
-  id?: string;
-  language?: string;
-  type?: string;
 }
 
 export interface ServicesSampleProjectCode {
@@ -1306,8 +1404,6 @@ export interface TypesAssistantCalculator {
 }
 
 export interface TypesAssistantConfig {
-  /** AgentMode triggers the use of the agent loop (deprecated - use AgentType instead) */
-  agent_mode?: boolean;
   /** AgentType specifies the type of agent to use */
   agent_type?: TypesAgentType;
   apis?: TypesAssistantAPI[];
@@ -2582,6 +2678,12 @@ export interface TypesInteraction {
    * different ID = new distinct message (append). Persisted in DB for restart resilience.
    */
   last_zed_message_id?: string;
+  /**
+   * LastZedMessageOffset is the byte offset in ResponseMessage where the current
+   * message_id's content begins. Used by the accumulator to replace only the
+   * current message's portion during streaming updates, preserving earlier messages.
+   */
+  last_zed_message_offset?: number;
   mode?: TypesSessionMode;
   /** User prompt (text) */
   prompt_message?: string;
@@ -4449,6 +4551,8 @@ export interface TypesSpecTask {
   started_at?: string;
   /** Spec-driven workflow statuses - see constants below */
   status?: TypesSpecTaskStatus;
+  /** When status last changed (for Kanban column sorting) */
+  status_updated_at?: string;
   /**
    * Human-readable directory naming for design docs in helix-specs branch
    * TaskNumber is auto-assigned from project.NextTaskNumber when task starts
@@ -4737,6 +4841,8 @@ export interface TypesSpecTaskWithProject {
   started_at?: string;
   /** Spec-driven workflow statuses - see constants below */
   status?: TypesSpecTaskStatus;
+  /** When status last changed (for Kanban column sorting) */
+  status_updated_at?: string;
   /**
    * Human-readable directory naming for design docs in helix-specs branch
    * TaskNumber is auto-assigned from project.NextTaskNumber when task starts
@@ -7513,7 +7619,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServicesKoditEnrichmentListResponse, TypesAPIError>({
+      this.request<ServerKoditEnrichmentListResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/enrichments`,
         method: "GET",
         query: query,
@@ -7534,7 +7640,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1GitRepositoriesEnrichmentsDetail2: (id: string, enrichmentId: string, params: RequestParams = {}) =>
-      this.request<ServicesKoditEnrichmentData, TypesAPIError>({
+      this.request<ServerKoditEnrichmentDTO, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/enrichments/${enrichmentId}`,
         method: "GET",
         secure: true,
@@ -7559,7 +7665,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<Record<string, any>[], TypesAPIError>({
+      this.request<ServerKoditCommitDTO[], TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/kodit-commits`,
         method: "GET",
         query: query,
@@ -7604,7 +7710,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1GitRepositoriesKoditStatusDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServicesKoditIndexingStatus, TypesAPIError>({
+      this.request<ServerKoditIndexingStatusDTO, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/kodit-status`,
         method: "GET",
         secure: true,
@@ -7746,12 +7852,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: string;
         /** Limit number of results (default 20) */
         limit?: number;
-        /** Filter by commit SHA */
-        commit_sha?: string;
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServicesKoditSearchResult[], TypesAPIError>({
+      this.request<ServerKoditSearchResultDTO[], TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/search-snippets`,
         method: "GET",
         query: query,

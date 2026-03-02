@@ -9,7 +9,6 @@ import (
 
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/notification"
-	"github.com/helixml/helix/api/pkg/ptr"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -318,9 +317,11 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Update task status (SpecAgent already set in CreateTaskFromPrompt)
+	now := time.Now()
 	task.Status = types.TaskStatusSpecGeneration
-	task.PlanningStartedAt = ptr.To(time.Now())
-	task.UpdatedAt = time.Now()
+	task.StatusUpdatedAt = &now
+	task.PlanningStartedAt = &now
+	task.UpdatedAt = now
 
 	err := s.store.UpdateSpecTask(ctx, task)
 	if err != nil {
@@ -692,10 +693,11 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 
 	// Update task status directly to implementation (skip all spec phases)
 	// NOTE: If HelixAppID was inherited from project, it will be persisted here
-	task.Status = types.TaskStatusImplementation
-	task.BranchName = branchName
-	task.UpdatedAt = time.Now()
 	now := time.Now()
+	task.Status = types.TaskStatusImplementation
+	task.StatusUpdatedAt = &now
+	task.BranchName = branchName
+	task.UpdatedAt = now
 	task.StartedAt = &now
 
 	err := s.store.UpdateSpecTask(ctx, task)
@@ -998,11 +1000,13 @@ func (s *SpecDrivenTaskService) HandleSpecGenerationComplete(ctx context.Context
 	}
 
 	// Update task with generated specs
+	now := time.Now()
 	task.RequirementsSpec = specs.RequirementsSpec
 	task.TechnicalDesign = specs.TechnicalDesign
 	task.ImplementationPlan = specs.ImplementationPlan
 	task.Status = types.TaskStatusSpecReview
-	task.UpdatedAt = time.Now()
+	task.StatusUpdatedAt = &now
+	task.UpdatedAt = now
 
 	err = s.store.UpdateSpecTask(ctx, task)
 	if err != nil {
@@ -1168,9 +1172,11 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 				Msg("No planning session ID found - agent will not receive implementation instruction")
 		}
 
+		now := time.Now()
 		task.Status = types.TaskStatusImplementation
+		task.StatusUpdatedAt = &now
 		task.BranchName = branchName
-		task.StartedAt = ptr.To(time.Now())
+		task.StartedAt = &now
 
 		err = s.store.UpdateSpecTask(ctx, task)
 		if err != nil {
@@ -1179,7 +1185,9 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 
 	} else {
 		// Specs need revision
+		now := time.Now()
 		task.Status = types.TaskStatusSpecRevision
+		task.StatusUpdatedAt = &now
 		task.SpecRevisionCount++
 
 		// Ensure HelixAppID is set - inherit from project default for old tasks
@@ -1258,8 +1266,10 @@ func (s *SpecDrivenTaskService) selectZedAgent() string {
 
 func (s *SpecDrivenTaskService) markTaskFailed(ctx context.Context, task *types.SpecTask, errorMessage string) {
 	// Keep task in backlog status but set error metadata
+	now := time.Now()
 	task.Status = types.TaskStatusBacklog
-	task.UpdatedAt = time.Now()
+	task.StatusUpdatedAt = &now
+	task.UpdatedAt = now
 
 	// Store error in metadata
 	if task.Metadata == nil {
@@ -1352,9 +1362,11 @@ func (s *SpecDrivenTaskService) detectAndLinkExistingPR(ctx context.Context, tas
 				Msg("Found existing PR for branch")
 
 			// Update task with PR info
+			now := time.Now()
 			task.PullRequestID = pr.ID
 			task.PullRequestURL = pr.URL
 			task.Status = types.TaskStatusPullRequest
+			task.StatusUpdatedAt = &now
 
 			// Save updated task
 			err = s.store.UpdateSpecTask(ctx, task)

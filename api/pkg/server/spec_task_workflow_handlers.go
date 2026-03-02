@@ -89,6 +89,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		specTask.ImplementationApprovedBy = user.ID
 		specTask.ImplementationApprovedAt = &now
 		specTask.Status = types.TaskStatusPullRequest
+		specTask.StatusUpdatedAt = &now
 
 		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
@@ -191,6 +192,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		// Don't record approval yet - user needs to review after rebase
 		// Keep in implementation_review status so agent stays alive
 		specTask.Status = types.TaskStatusImplementationReview
+		specTask.StatusUpdatedAt = &now
 		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
 			return
@@ -266,6 +268,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	specTask.MergedToMain = true
 	specTask.MergedAt = &now
 	specTask.Status = types.TaskStatusDone
+	specTask.StatusUpdatedAt = &now
 	specTask.CompletedAt = &now
 
 	log.Info().
