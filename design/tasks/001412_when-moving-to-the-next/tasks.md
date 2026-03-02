@@ -4,7 +4,7 @@
 - [x] Run `./stack update_openapi` to regenerate API client with new field
 - [x] Update `updateSpecTask` handler in `api/pkg/server/spec_driven_task_handlers.go` to set `StatusUpdatedAt = time.Now()` when `updateReq.Status != ""`
 - [x] Update `createSpecTask` handler to set `StatusUpdatedAt = CreatedAt` for new tasks
-- [~] Change sort order in `ListSpecTasks` in `api/pkg/store/store_spec_tasks.go` from `created_at DESC` to `status_updated_at DESC NULLS LAST, created_at DESC`
+- [x] Change sort order in `ListSpecTasks` in `api/pkg/store/store_spec_tasks.go` from `created_at DESC` to `status_updated_at DESC NULLS LAST, created_at DESC`
 - [ ] Test: Create new task, verify it appears at top of backlog
 - [ ] Test: Move task to different column, verify it appears at top of new column
 - [ ] Test: Verify existing tasks without `status_updated_at` still appear (sorted by `created_at`)
@@ -18,3 +18,5 @@
   - `git_http_server.go`: handleMainBranchPush, processDesignDocsForBranch
   - `spec_driven_task_service.go`: StartSpecGeneration, StartJustDoItMode, HandleSpecGenerationComplete, ApproveSpecs (2 paths), markTaskFailed, detectAndLinkExistingPR
   - `spec_task_orchestrator.go`: handleBacklog, handleSpecGeneration, handleSpecRevision, handleImplementationQueued, processExternalPullRequestStatus
+- Task 4 implemented in store layer: `CreateSpecTask` in `store_spec_tasks.go` sets `StatusUpdatedAt` to current time if not already set
+- Sort order changed to `status_updated_at DESC NULLS LAST, created_at DESC` - NULLS LAST ensures existing tasks without the field still appear
