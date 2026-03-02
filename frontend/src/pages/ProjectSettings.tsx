@@ -83,7 +83,9 @@ const RECOMMENDED_MODELS = [
 import type { CodingAgentFormHandle } from "../components/agent/CodingAgentForm";
 import ProjectRepositoriesList from "../components/project/ProjectRepositoriesList";
 import AgentDropdown from "../components/agent/AgentDropdown";
+import { SparkLineChart } from "@mui/x-charts";
 import DesktopStreamViewer from "../components/external-agent/DesktopStreamViewer";
+import { useSandboxState } from "../components/external-agent/ExternalAgentDesktopViewer";
 import useAccount from "../hooks/useAccount";
 import useRouter from "../hooks/useRouter";
 import useSnackbar from "../hooks/useSnackbar";
@@ -182,6 +184,9 @@ const ProjectSettings: FC = () => {
   const [autoStartBacklogTasks, setAutoStartBacklogTasks] = useState(false);
   const [pullRequestReviewsEnabled, setPullRequestReviewsEnabled] =
     useState(false);
+  const [autoWarmDockerCache, setAutoWarmDockerCache] = useState(false);
+  const [showGoldenBuildViewer, setShowGoldenBuildViewer] = useState(false);
+  const [selectedGoldenSandboxId, setSelectedGoldenSandboxId] = useState("");
   const [showTestSession, setShowTestSession] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
@@ -198,6 +203,96 @@ const ProjectSettings: FC = () => {
     projectId,
     guidelinesHistoryDialogOpen,
   );
+
+  // Per-sandbox golden cache state
+  const sandboxCacheMap = project?.metadata?.docker_cache_status?.sandboxes ?? {};
+  const sandboxEntries = Object.entries(sandboxCacheMap);
+  const anyBuilding = sandboxEntries.some(([, s]) => s.status === "building");
+  const anyReady = sandboxEntries.some(([, s]) => s.status === "ready");
+  const anyFailed = sandboxEntries.some(([, s]) => s.status === "failed");
+  const hasAnyViewer = showTestSession || showGoldenBuildViewer;
+
+  // Golden build session - fetch when viewing a running build on a specific sandbox
+  const goldenBuildSessionId = selectedGoldenSandboxId
+    ? sandboxCacheMap[selectedGoldenSandboxId]?.build_session_id
+    : undefined;
+  const { data: goldenBuildSession } = useQuery({
+    queryKey: ["session", goldenBuildSessionId],
+    queryFn: async () => {
+      const response = await api.getApiClient().v1SessionsDetail(goldenBuildSessionId!);
+      return response.data;
+    },
+    enabled: !!goldenBuildSessionId && showGoldenBuildViewer,
+    refetchInterval: 5000,
+  });
+  const goldenBuildSandboxState = useSandboxState(
+    goldenBuildSessionId || "",
+    !!goldenBuildSessionId && showGoldenBuildViewer,
+  );
+
+  // Poll project status while any golden build is running and viewer is open
+  useEffect(() => {
+    if (!showGoldenBuildViewer || !anyBuilding) return;
+    const interval = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [showGoldenBuildViewer, anyBuilding, projectId]);
+
+  // Auto-close golden build viewer when selected sandbox's build finishes
+  const selectedSandboxStatus = selectedGoldenSandboxId
+    ? sandboxCacheMap[selectedGoldenSandboxId]?.status
+    : undefined;
+  useEffect(() => {
+    if (showGoldenBuildViewer && selectedGoldenSandboxId && selectedSandboxStatus && selectedSandboxStatus !== "building") {
+      setShowGoldenBuildViewer(false);
+      setSelectedGoldenSandboxId("");
+    }
+  }, [showGoldenBuildViewer, selectedGoldenSandboxId, selectedSandboxStatus]);
+
+  // Per-container blkio write rate sparkline for golden builds
+  const buildingSandbox = sandboxEntries.find(([, s]) => s.status === "building");
+  const buildingSandboxId = buildingSandbox?.[0];
+  const buildingSessionId = buildingSandbox?.[1]?.build_session_id;
+  const blkioSamplesRef = useRef<{ time: number; writeBytes: number }[]>([]);
+  const lastBuildSessionRef = useRef<string | undefined>();
+
+  // Reset samples when build session changes
+  if (buildingSessionId !== lastBuildSessionRef.current) {
+    blkioSamplesRef.current = [];
+    lastBuildSessionRef.current = buildingSessionId;
+  }
+
+  const { data: blkioStats } = useQuery({
+    queryKey: ["blkio", buildingSandboxId, buildingSessionId],
+    queryFn: async () => {
+      const resp = await api.getApiClient().v1SandboxesContainersBlkioDetail(buildingSandboxId!, buildingSessionId!);
+      return resp.data;
+    },
+    enabled: !!buildingSandboxId && !!buildingSessionId && anyBuilding,
+    refetchInterval: 5_000,
+  });
+
+  // Accumulate blkio samples and compute write rate (MB/s)
+  const writeRates = useMemo(() => {
+    if (!blkioStats?.write_bytes) return [];
+    const now = Date.now();
+    const samples = blkioSamplesRef.current;
+    // Only add if write_bytes changed (avoid duplicate samples)
+    const last = samples[samples.length - 1];
+    if (!last || blkioStats.write_bytes !== last.writeBytes) {
+      samples.push({ time: now, writeBytes: blkioStats.write_bytes });
+    }
+    // Keep last 30 samples max
+    if (samples.length > 30) samples.splice(0, samples.length - 30);
+    if (samples.length < 2) return [];
+    return samples.slice(1).map((s, i) => {
+      const prev = samples[i];
+      const dtSec = (s.time - prev.time) / 1000;
+      const dBytes = s.writeBytes - prev.writeBytes;
+      return dtSec > 0 ? Math.max(0, dBytes / dtSec / 1e6) : 0;
+    });
+  }, [blkioStats]);
 
   // Move to organization state
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
@@ -269,6 +364,70 @@ const ProjectSettings: FC = () => {
     },
     onError: () => {
       snackbar.error("Failed to delete secret");
+    },
+  });
+
+  const primeCacheMutation = useMutation({
+    mutationFn: async () => {
+      await api
+        .getApiClient()
+        .v1ProjectsDockerCacheBuildCreate(projectId);
+    },
+    onSuccess: async () => {
+      snackbar.success("Golden build triggered on all sandboxes");
+      // Wait for project to refresh with sandbox build status, then open viewer
+      await new Promise((r) => setTimeout(r, 3000));
+      const freshProject = await queryClient.fetchQuery({
+        queryKey: ["project", projectId],
+        staleTime: 0,
+      });
+      const sandboxes = (freshProject as TypesProject)?.metadata?.docker_cache_status?.sandboxes;
+      if (sandboxes) {
+        const buildingSb = Object.entries(sandboxes).find(([, s]) => s.status === "building");
+        if (buildingSb) {
+          setSelectedGoldenSandboxId(buildingSb[0]);
+          setShowGoldenBuildViewer(true);
+        }
+      }
+    },
+    onError: (error: any) => {
+      const data = error?.response?.data;
+      const msg =
+        (typeof data === "string" ? data.trim() : data?.message) ||
+        "Failed to trigger golden build";
+      snackbar.error(msg);
+    },
+  });
+
+  const clearCacheMutation = useMutation({
+    mutationFn: async () => {
+      await api.getApiClient().v1ProjectsDockerCacheDelete(projectId);
+    },
+    onSuccess: () => {
+      snackbar.success("Docker cache cleared");
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    },
+    onError: (error: any) => {
+      const msg =
+        error?.response?.data?.message || "Failed to clear cache";
+      snackbar.error(msg);
+    },
+  });
+
+  const cancelBuildMutation = useMutation({
+    mutationFn: async () => {
+      await api.getApiClient().v1ProjectsDockerCacheCancelCreate(projectId);
+    },
+    onSuccess: () => {
+      snackbar.success("Golden builds cancelled");
+      setShowGoldenBuildViewer(false);
+      setSelectedGoldenSandboxId("");
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    },
+    onError: (error: any) => {
+      const msg =
+        error?.response?.data?.message || "Failed to cancel builds";
+      snackbar.error(msg);
     },
   });
 
@@ -442,6 +601,9 @@ const ProjectSettings: FC = () => {
       setPullRequestReviewsEnabled(
         project.pull_request_reviews_enabled || false,
       );
+      setAutoWarmDockerCache(
+        project.metadata?.auto_warm_docker_cache || false,
+      );
       setSelectedAgentId(project.default_helix_app_id || "");
       setSelectedProjectManagerAgentId(
         project.project_manager_helix_app_id || "",
@@ -506,6 +668,7 @@ const ProjectSettings: FC = () => {
           board_settings: {
             wip_limits: wipLimits,
           },
+          auto_warm_docker_cache: autoWarmDockerCache,
         },
       });
       console.log("[ProjectSettings] Project settings saved to database");
@@ -768,30 +931,20 @@ const ProjectSettings: FC = () => {
       }
     >
       <Container
-        maxWidth={showTestSession ? false : "md"}
-        sx={{ px: showTestSession ? 3 : 3 }}
+        maxWidth={hasAnyViewer ? "xl" : "md"}
+        sx={{ px: 3 }}
       >
         <Box
           sx={{
             mt: 4,
             display: "flex",
-            flexDirection: "row",
+            flexDirection: "column",
             gap: 3,
             width: "100%",
           }}
         >
-          {/* Left column: Settings sections */}
-          <Box
-            sx={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 3,
-              width: showTestSession ? "600px" : "100%",
-              flexShrink: 0,
-            }}
-          >
             {/* Basic Information */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, maxWidth: hasAnyViewer ? 600 : undefined }}>
               <Typography variant="h6" gutterBottom>
                 Basic Information
               </Typography>
@@ -817,8 +970,9 @@ const ProjectSettings: FC = () => {
               </Box>
             </Paper>
 
-            {/* Startup Script */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            {/* Startup Script + optional test viewer */}
+            <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start" }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, width: hasAnyViewer ? 600 : "100%", flexShrink: 0 }}>
               <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                 <CodeIcon sx={{ mr: 1 }} />
                 <Typography variant="h6">Startup Script</Typography>
@@ -843,10 +997,274 @@ const ProjectSettings: FC = () => {
                 }
                 projectId={projectId}
               />
+
             </Paper>
 
+            {/* Test session viewer - inline with startup script */}
+            {showTestSession && exploratorySessionData && (
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Paper sx={{ p: 3 }}>
+                  <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
+                    <Typography variant="h6" sx={{ flex: 1 }}>
+                      Test Session
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => setShowTestSession(false)}
+                    >
+                      Hide
+                    </Button>
+                  </Box>
+                  <Divider sx={{ mb: 2 }} />
+                  <Box
+                    sx={{
+                      aspectRatio: "16 / 9",
+                      backgroundColor: "#000",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <DesktopStreamViewer
+                      sessionId={exploratorySessionData.id}
+                      sandboxId={exploratorySessionData.config?.sandbox_id || ""}
+                      showLoadingOverlay={testingStartupScript}
+                      isRestart={isSessionRestart}
+                    />
+                  </Box>
+                  <Box
+                    sx={{
+                      mt: 2,
+                      p: 2,
+                      backgroundColor: "action.hover",
+                      borderRadius: 1,
+                    }}
+                  >
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      sx={{ mb: 1 }}
+                    >
+                      Having trouble with your startup script?
+                    </Typography>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={
+                        createSpecTaskMutation.isPending ? (
+                          <CircularProgress size={16} />
+                        ) : (
+                          <AutoFixHighIcon />
+                        )
+                      }
+                      onClick={() =>
+                        createSpecTaskMutation.mutate({
+                          prompt: `Fix the project startup script at /home/retro/work/helix-specs/.helix/startup.sh (in the helix-specs worktree). The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues. You can run the script to test it and iterate on it until it works. It should be idempotent.\n\nIMPORTANT: The startup script lives in the helix-specs branch, NOT the main code branch. After fixing the script:\n1. Edit /home/retro/work/helix-specs/.helix/startup.sh directly\n2. Commit and push directly to helix-specs branch: cd /home/retro/work/helix-specs && git add -A && git commit -m "Fix startup script" && git push origin helix-specs\n3. The user can then test it in the project settings panel.\n\nNote: A feature branch has been created on the primary repo for any code changes (like fixing bugs in the workspace setup or build scripts), but you probably won't need to use it unless the user specifically asks you to fix something in the codebase itself.`,
+                          branch_mode: "new",
+                          base_branch: "main",
+                        })
+                      }
+                      disabled={createSpecTaskMutation.isPending}
+                    >
+                      {createSpecTaskMutation.isPending
+                        ? "Creating task..."
+                        : "Get AI to fix it"}
+                    </Button>
+                  </Box>
+                </Paper>
+              </Box>
+            )}
+            </Box>
+
+            {/* Docker Cache + optional golden build viewer */}
+            <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start" }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, width: hasAnyViewer ? 600 : "100%", flexShrink: 0 }}>
+              <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
+                <Typography variant="h6">Docker Cache</Typography>
+              </Box>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <Box sx={{ flex: 1, mr: 2 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    Pre-warm Docker cache
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Build a golden Docker cache on merge to main. New sessions
+                    start with pre-built images instead of building from
+                    scratch.
+                  </Typography>
+                </Box>
+                <Switch
+                  checked={autoWarmDockerCache}
+                  onChange={(e) => {
+                    const newValue = e.target.checked;
+                    setAutoWarmDockerCache(newValue);
+                    updateProjectMutation.mutate({
+                      metadata: {
+                        auto_warm_docker_cache: newValue,
+                      },
+                    });
+                  }}
+                />
+              </Box>
+              {autoWarmDockerCache && (
+                <Box
+                  sx={{
+                    mt: 1,
+                    p: 1.5,
+                    bgcolor: "action.hover",
+                    borderRadius: 1,
+                  }}
+                >
+                  {sandboxEntries.length === 0 ? (
+                    <Typography variant="caption" color="text.secondary" component="div">
+                      Waiting for first merge to main
+                    </Typography>
+                  ) : (
+                    sandboxEntries.map(([sbId, sbState]) => (
+                      <Box key={sbId} sx={{ mb: sandboxEntries.length > 1 ? 1 : 0 }}>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                          <Chip
+                            label={sbId}
+                            size="small"
+                            variant="outlined"
+                            sx={{ fontFamily: "monospace", fontSize: "0.7rem" }}
+                          />
+                          <Typography variant="caption" color="text.secondary">
+                            {sbState.status === "ready" && "Ready"}
+                            {sbState.status === "building" && "Building..."}
+                            {sbState.status === "failed" && "Failed"}
+                            {sbState.status === "none" && "No cache"}
+                            {(sbState.size_bytes ?? 0) > 0 && (
+                              <> &middot; {((sbState.size_bytes ?? 0) / 1e9).toFixed(1)} GB</>
+                            )}
+                            {sbState.last_ready_at && (
+                              <> &middot; Last built: {new Date(sbState.last_ready_at).toLocaleString()}</>
+                            )}
+                          </Typography>
+                          {sbState.status === "building" && writeRates.length > 1 && sbId === buildingSandboxId && (
+                            <Box sx={{ display: "inline-flex", alignItems: "center", ml: 0.5 }}>
+                              <SparkLineChart
+                                data={writeRates}
+                                height={20}
+                                width={60}
+                                curve="natural"
+                                colors={["#4caf50"]}
+                              />
+                              <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5, fontFamily: "monospace", fontSize: "0.65rem" }}>
+                                {writeRates[writeRates.length - 1]?.toFixed(0)} MB/s cache writes
+                              </Typography>
+                            </Box>
+                          )}
+                          {sbState.status === "building" && sbState.build_session_id && (
+                            <Button
+                              size="small"
+                              variant="contained"
+                              sx={{ ml: "auto", minWidth: 0, px: 1, py: 0.25, fontSize: "0.7rem" }}
+                              onClick={() => {
+                                setSelectedGoldenSandboxId(sbId);
+                                setShowGoldenBuildViewer(true);
+                              }}
+                            >
+                              Watch
+                            </Button>
+                          )}
+                        </Box>
+                        {sbState.error && (
+                          <Typography variant="caption" color="error" component="div" sx={{ mt: 0.25, ml: 1 }}>
+                            {sbState.error}
+                          </Typography>
+                        )}
+                      </Box>
+                    ))
+                  )}
+                  <Box sx={{ mt: 1, display: "flex", gap: 1 }}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      disabled={primeCacheMutation.isPending || anyBuilding}
+                      onClick={() => primeCacheMutation.mutate()}
+                    >
+                      {primeCacheMutation.isPending ? "Triggering..." : "Prime Cache"}
+                    </Button>
+                    {anyBuilding && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="warning"
+                        disabled={cancelBuildMutation.isPending}
+                        onClick={() => cancelBuildMutation.mutate()}
+                      >
+                        {cancelBuildMutation.isPending ? "Cancelling..." : "Cancel Build"}
+                      </Button>
+                    )}
+                    {(anyReady || anyFailed) && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="error"
+                        disabled={clearCacheMutation.isPending}
+                        onClick={() => clearCacheMutation.mutate()}
+                      >
+                        {clearCacheMutation.isPending ? "Clearing..." : "Clear Cache"}
+                      </Button>
+                    )}
+                  </Box>
+                </Box>
+              )}
+            </Paper>
+
+            {/* Golden build viewer - inline with Docker Cache */}
+            {showGoldenBuildViewer && goldenBuildSessionId && (
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Paper sx={{ p: 3 }}>
+                  <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
+                    <Typography variant="h6" sx={{ flex: 1 }}>
+                      Golden Build{selectedGoldenSandboxId ? ` (${selectedGoldenSandboxId})` : ""}
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => {
+                        setShowGoldenBuildViewer(false);
+                        setSelectedGoldenSandboxId("");
+                      }}
+                    >
+                      Hide
+                    </Button>
+                  </Box>
+                  <Divider sx={{ mb: 2 }} />
+                  {goldenBuildSession && goldenBuildSandboxState.isRunning ? (
+                    <Box
+                      sx={{
+                        aspectRatio: "16 / 9",
+                        backgroundColor: "#000",
+                      }}
+                    >
+                      <DesktopStreamViewer
+                        sessionId={goldenBuildSessionId}
+                        sandboxId={goldenBuildSession.config?.sandbox_id || ""}
+                      />
+                    </Box>
+                  ) : (
+                    <Box sx={{ p: 4, textAlign: "center" }}>
+                      <CircularProgress size={24} />
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                        {goldenBuildSandboxState.statusMessage || "Starting session..."}
+                      </Typography>
+                    </Box>
+                  )}
+                </Paper>
+              </Box>
+            )}
+            </Box>
+
             {/* Repositories */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, maxWidth: hasAnyViewer ? 600 : undefined }}>
               <Box
                 sx={{
                   display: "flex",
@@ -909,7 +1327,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Default Agent */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, maxWidth: hasAnyViewer ? 600 : undefined }}>
               <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                 <Bot size={24} style={{ marginRight: 8 }} />
                 <Typography variant="h6">Agent configuration</Typography>
@@ -1044,7 +1462,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Board Settings */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, maxWidth: hasAnyViewer ? 600 : undefined }}>
               <Typography variant="h6" gutterBottom>
                 Kanban Board Settings
               </Typography>
@@ -1103,7 +1521,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Automations */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, maxWidth: hasAnyViewer ? 600 : undefined }}>
               <Typography variant="h6" gutterBottom>
                 Automations
               </Typography>
@@ -1181,7 +1599,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Project Secrets */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, maxWidth: hasAnyViewer ? 600 : undefined }}>
               <Box
                 sx={{
                   display: "flex",
@@ -1262,7 +1680,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Project Skills */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, maxWidth: hasAnyViewer ? 600 : undefined }}>
               <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
                 <HubIcon sx={{ mr: 1, color: "#10B981" }} />
                 <Typography variant="h6">Skills</Typography>
@@ -1281,7 +1699,7 @@ const ProjectSettings: FC = () => {
             </Paper>
 
             {/* Project Guidelines */}
-            <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, maxWidth: hasAnyViewer ? 600 : undefined }}>
               <Box
                 sx={{
                   display: "flex",
@@ -1349,6 +1767,7 @@ const ProjectSettings: FC = () => {
                 mb: 3,
                 border: "2px solid",
                 borderColor: "error.main",
+                maxWidth: hasAnyViewer ? 600 : undefined,
               }}
             >
               <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
@@ -1432,87 +1851,7 @@ const ProjectSettings: FC = () => {
                 </Button>
               </Box>
             </Paper>
-          </Box>
-          {/* End of left column */}
 
-          {/* Test session viewer - fills width, natural height */}
-          {showTestSession && exploratorySessionData && (
-            <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
-              {/* Spacer to align with Startup Script section (Basic Info section ~180px) */}
-              <Box sx={{ height: "310px" }} />
-
-              <Paper sx={{ p: 4 }}>
-                <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
-                  <Typography variant="h6" sx={{ flex: 1 }}>
-                    Test Session
-                  </Typography>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => setShowTestSession(false)}
-                  >
-                    Hide
-                  </Button>
-                </Box>
-                <Divider sx={{ mb: 3 }} />
-                {/* Stream viewer - 16:9 aspect ratio based on dynamic width */}
-                <Box
-                  sx={{
-                    aspectRatio: "16 / 9",
-                    backgroundColor: "#000",
-                    overflow: "hidden",
-                  }}
-                >
-                  <DesktopStreamViewer
-                    sessionId={exploratorySessionData.id}
-                    sandboxId={exploratorySessionData.config?.sandbox_id || ""}
-                    showLoadingOverlay={testingStartupScript}
-                    isRestart={isSessionRestart}
-                  />
-                </Box>
-                <Box
-                  sx={{
-                    mt: 2,
-                    p: 2,
-                    backgroundColor: "action.hover",
-                    borderRadius: 1,
-                  }}
-                >
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    sx={{ mb: 1 }}
-                  >
-                    Having trouble with your startup script?
-                  </Typography>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={
-                      createSpecTaskMutation.isPending ? (
-                        <CircularProgress size={16} />
-                      ) : (
-                        <AutoFixHighIcon />
-                      )
-                    }
-                    onClick={() =>
-                      createSpecTaskMutation.mutate({
-                        prompt: `Fix the project startup script at /home/retro/work/helix-specs/.helix/startup.sh (in the helix-specs worktree). The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues. You can run the script to test it and iterate on it until it works. It should be idempotent.\n\nIMPORTANT: The startup script lives in the helix-specs branch, NOT the main code branch. After fixing the script:\n1. Edit /home/retro/work/helix-specs/.helix/startup.sh directly\n2. Commit and push directly to helix-specs branch: cd /home/retro/work/helix-specs && git add -A && git commit -m "Fix startup script" && git push origin helix-specs\n3. The user can then test it in the project settings panel.\n\nNote: A feature branch has been created on the primary repo for any code changes (like fixing bugs in the workspace setup or build scripts), but you probably won't need to use it unless the user specifically asks you to fix something in the codebase itself.`,
-                        // Create a feature branch for any code changes, helix-specs worktree handles design docs
-                        branch_mode: "new",
-                        base_branch: "main",
-                      })
-                    }
-                    disabled={createSpecTaskMutation.isPending}
-                  >
-                    {createSpecTaskMutation.isPending
-                      ? "Creating task..."
-                      : "Get AI to fix it"}
-                  </Button>
-                </Box>
-              </Paper>
-            </Box>
-          )}
         </Box>
       </Container>
 

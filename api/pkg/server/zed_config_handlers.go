@@ -140,19 +140,18 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	for name, server := range zedConfig.ContextServers {
 		serverMap := make(map[string]interface{})
 
-		// HTTP/SSE-based MCP server
-		// Zed uses "source" field to distinguish transport type:
-		// - "http" = Streamable HTTP transport (MCP 2025-03-26+)
-		// - "sse" = Legacy SSE transport (MCP 2024-11-05)
+		// Upstream Zed uses untagged enum for context server config:
+		// - Has "url" field → Http variant
+		// - Has "command" field → Stdio variant
+		// - Has "settings" field → Extension variant
+		// The "source" field is no longer used (deprecated).
 		if server.URL != "" {
-			serverMap["source"] = server.Source
 			serverMap["url"] = server.URL
 			if len(server.Headers) > 0 {
 				serverMap["headers"] = server.Headers
 			}
 		} else {
 			// Stdio-based MCP server
-			serverMap["source"] = "stdio"
 			serverMap["command"] = server.Command
 			serverMap["args"] = server.Args
 			if len(server.Env) > 0 {
@@ -163,14 +162,12 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	}
 
 	// Build language models config
-	// Include api_key so Zed authenticates LLM calls with session-scoped token (not runner token)
+	// api_key is NOT included here — Zed reads ANTHROPIC_API_KEY / OPENAI_API_KEY from
+	// container env vars (set by DesktopAgentAPIEnvVars). Only api_url is needed in settings.
 	languageModels := make(map[string]interface{})
 	for provider, config := range zedConfig.LanguageModels {
 		modelConfig := map[string]interface{}{
 			"api_url": config.APIURL,
-		}
-		if config.APIKey != "" {
-			modelConfig["api_key"] = config.APIKey
 		}
 		languageModels[provider] = modelConfig
 	}
@@ -207,9 +204,14 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	var agentConfig map[string]interface{}
 	if zedConfig.Agent != nil {
 		agentConfig = map[string]interface{}{
-			"always_allow_tool_actions": zedConfig.Agent.AlwaysAllowToolActions,
-			"show_onboarding":           zedConfig.Agent.ShowOnboarding,
-			"auto_open_panel":           zedConfig.Agent.AutoOpenPanel,
+			"show_onboarding": zedConfig.Agent.ShowOnboarding,
+			"auto_open_panel": zedConfig.Agent.AutoOpenPanel,
+		}
+		// Use tool_permissions instead of deprecated always_allow_tool_actions
+		if zedConfig.Agent.AlwaysAllowToolActions {
+			agentConfig["tool_permissions"] = map[string]interface{}{
+				"default": "allow",
+			}
 		}
 		// Add default_model if configured
 		if zedConfig.Agent.DefaultModel != nil {

@@ -23,6 +23,7 @@ import (
 )
 
 var serverCmd *exec.Cmd
+var serverExited = make(chan error, 1) // signals when the server process exits
 
 func TestMain(m *testing.M) {
 	// Load file
@@ -37,8 +38,10 @@ func TestMain(m *testing.M) {
 		buf = startAPIServer()
 
 		// Wait for server to be ready
-		if err := waitForAPIServer(); err != nil {
-			log.Fatalf("Failed to start API server: %v", err)
+		if err := waitForAPIServer(buf); err != nil {
+			log.Printf("Failed to start API server: %v", err)
+			log.Printf("Server logs:\n%s", buf.String())
+			os.Exit(1)
 		}
 	}
 
@@ -51,55 +54,51 @@ func TestMain(m *testing.M) {
 				log.Printf("Failed to kill server process: %v", err)
 			}
 		}
-		// Print the server logs
-		log.Printf("Server logs: %s", buf.String())
 	}
 
 	os.Exit(runTests)
 }
 
 func startAPIServer() *bytes.Buffer {
-
 	buf := bytes.NewBuffer(nil)
+
 	serverCmd = exec.Command("helix", "serve")
+	serverCmd.Stdout = buf
+	serverCmd.Stderr = buf
+
+	// Get the main env variables for keycloak, database, etc.
+	serverCmd.Env = os.Environ()
+
+	// Define the rest env variables, similarly to what we set in docker-compose.dev.yaml
+	serverCmd.Env = append(serverCmd.Env,
+		"SERVER_PORT=8080",
+		"LOG_LEVEL=debug",
+		"APP_URL=http://localhost:8080",
+		"RUNNER_TOKEN=oh-hallo-insecure-token",
+		"SERVER_URL=http://localhost:8080",
+		"FILESTORE_LOCALFS_PATH=/tmp",
+		"FRONTEND_URL=/tmp", // No frontend here but doesn't matter for API integration tests
+		"FILESTORE_AVATARS_PATH=/tmp/avatars",
+	)
+
+	fmt.Println("Starting API server on port 8080")
+
+	if err := serverCmd.Start(); err != nil {
+		log.Printf("Failed to start API server: %v (%s)", err, buf.String())
+		os.Exit(1)
+	}
+
+	// Monitor server process — detect early crashes
 	go func() {
-		cmd := exec.Command("helix", "serve")
-
-		cmd.Stdout = buf
-		cmd.Stderr = buf
-
-		// Get the main env variables for keycloak, database, etc.
-		cmd.Env = os.Environ()
-
-		// Define the rest env variables, similarly to what we set in docker-compose.dev.yaml
-		cmd.Env = append(cmd.Env,
-			"SERVER_PORT=8080",
-			"LOG_LEVEL=debug",
-			"APP_URL=http://localhost:8080",
-			"RUNNER_TOKEN=oh-hallo-insecure-token",
-			"SERVER_URL=http://localhost:8080",
-			"FILESTORE_LOCALFS_PATH=/tmp",
-			"FRONTEND_URL=/tmp", // No frontend here but doesn't matter for API integration tests
-			"FILESTORE_AVATARS_PATH=/tmp/avatars",
-		)
-
-		fmt.Println("Starting API server on port 8080")
-
-		if err := cmd.Start(); err != nil {
-			log.Printf("Failed to start API server: %v (%s)", err, buf.String())
-			os.Exit(1)
-			return
-		}
+		serverExited <- serverCmd.Wait()
 	}()
-
-	time.Sleep(2 * time.Second)
 
 	return buf
 }
 
-// Wait for API to be ready
-func waitForAPIServer() error {
-	client := &http.Client{
+// waitForAPIServer polls the server until it responds or the process exits.
+func waitForAPIServer(serverLogs *bytes.Buffer) error {
+	httpClient := &http.Client{
 		Timeout: 5 * time.Second,
 	}
 
@@ -109,15 +108,18 @@ func waitForAPIServer() error {
 
 	for {
 		select {
+		case err := <-serverExited:
+			// Server process crashed before becoming ready
+			return fmt.Errorf("server process exited early: %v", err)
 		case <-timeout:
 			return fmt.Errorf("timeout waiting for API server to start")
 		case <-tick.C:
-			resp, err := client.Get("http://localhost:8080/api/v1/config")
+			resp, err := httpClient.Get("http://localhost:8080/api/v1/config")
 			if err != nil {
 				log.Printf("API not ready yet: %v", err)
 				continue
 			}
-			defer resp.Body.Close()
+			resp.Body.Close()
 
 			if resp.StatusCode == http.StatusOK {
 				return nil

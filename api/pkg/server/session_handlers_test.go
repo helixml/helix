@@ -1,11 +1,19 @@
 package server
 
 import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-
 	"github.com/stretchr/testify/suite"
+	"go.uber.org/mock/gomock"
 )
 
 // func TestLimitInteractions(t *testing.T) {
@@ -396,4 +404,388 @@ func (suite *ExternalAgentSessionSuite) processModelName(provider, modelName str
 		return "external_agent", nil
 	}
 	return modelName, nil
+}
+
+// =============================================================================
+// Session Authorization Tests
+// =============================================================================
+
+type SessionAuthzSuite struct {
+	suite.Suite
+
+	ctrl    *gomock.Controller
+	store   *store.MockStore
+	server  *HelixAPIServer
+	authCtx context.Context
+
+	userID string
+	orgID  string
+}
+
+func TestSessionAuthzSuite(t *testing.T) {
+	suite.Run(t, new(SessionAuthzSuite))
+}
+
+func (s *SessionAuthzSuite) SetupTest() {
+	s.ctrl = gomock.NewController(s.T())
+	s.store = store.NewMockStore(s.ctrl)
+	s.server = &HelixAPIServer{
+		Cfg:   &config.ServerConfig{},
+		Store: s.store,
+	}
+	s.userID = "user_123"
+	s.orgID = "org_123"
+	s.authCtx = setRequestUser(context.Background(), types.User{
+		ID: s.userID,
+	})
+}
+
+// -----------------------------------------------------------------------------
+// deleteSession tests
+// -----------------------------------------------------------------------------
+
+// 1. User is the session owner, no org
+func (s *SessionAuthzSuite) TestDeleteSession_OwnerNoOrg() {
+	session := &types.Session{
+		ID:    "ses_123",
+		Owner: s.userID,
+	}
+
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+
+	result, httpErr := s.server.deleteSession(httptest.NewRecorder(), req)
+
+	s.Nil(httpErr)
+	s.Require().NotNil(result)
+	s.Equal(session.ID, result.ID)
+}
+
+// 2. User is the session owner in an org
+func (s *SessionAuthzSuite) TestDeleteSession_OwnerInOrg() {
+	session := &types.Session{
+		ID:             "ses_123",
+		Owner:          s.userID,
+		OrganizationID: s.orgID,
+	}
+
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return(&types.OrganizationMembership{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		Role:           types.OrganizationRoleMember,
+	}, nil)
+	s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+
+	result, httpErr := s.server.deleteSession(httptest.NewRecorder(), req)
+
+	s.Nil(httpErr)
+	s.Require().NotNil(result)
+	s.Equal(session.ID, result.ID)
+}
+
+// 3. User is not the session owner but is the org owner
+func (s *SessionAuthzSuite) TestDeleteSession_OrgOwnerNotSessionOwner() {
+	session := &types.Session{
+		ID:             "ses_123",
+		Owner:          "other_user",
+		OrganizationID: s.orgID,
+	}
+
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return(&types.OrganizationMembership{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		Role:           types.OrganizationRoleOwner,
+	}, nil)
+	s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+
+	result, httpErr := s.server.deleteSession(httptest.NewRecorder(), req)
+
+	s.Nil(httpErr)
+	s.Require().NotNil(result)
+	s.Equal(session.ID, result.ID)
+}
+
+// 4. User is an org member, not the session owner, NOT authorized to the project
+func (s *SessionAuthzSuite) TestDeleteSession_OrgMemberNotAuthorizedToProject() {
+	session := &types.Session{
+		ID:             "ses_123",
+		Owner:          "other_user",
+		OrganizationID: s.orgID,
+		ProjectID:      "proj_123",
+	}
+
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return(&types.OrganizationMembership{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		Role:           types.OrganizationRoleMember,
+	}, nil)
+	// No teams
+	s.store.EXPECT().ListTeams(gomock.Any(), &store.ListTeamsQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return([]*types.Team{}, nil)
+	// No access grants
+	s.store.EXPECT().ListAccessGrants(gomock.Any(), &store.ListAccessGrantsQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		ResourceID:     session.ProjectID,
+	}).Return([]*types.AccessGrant{}, nil)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+
+	result, httpErr := s.server.deleteSession(httptest.NewRecorder(), req)
+
+	s.Nil(result)
+	s.Require().NotNil(httpErr)
+	s.Equal(http.StatusForbidden, httpErr.StatusCode)
+}
+
+// 5. User is an org member, not the session owner, authorized to the project
+func (s *SessionAuthzSuite) TestDeleteSession_OrgMemberAuthorizedToProject() {
+	session := &types.Session{
+		ID:             "ses_123",
+		Owner:          "other_user",
+		OrganizationID: s.orgID,
+		ProjectID:      "proj_123",
+	}
+
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return(&types.OrganizationMembership{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		Role:           types.OrganizationRoleMember,
+	}, nil)
+	// No teams
+	s.store.EXPECT().ListTeams(gomock.Any(), &store.ListTeamsQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return([]*types.Team{}, nil)
+	// Has access grant to the project
+	s.store.EXPECT().ListAccessGrants(gomock.Any(), &store.ListAccessGrantsQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		ResourceID:     session.ProjectID,
+	}).Return([]*types.AccessGrant{
+		{
+			Roles: []types.Role{
+				{
+					Config: types.Config{
+						Rules: []types.Rule{
+							{
+								Resources: []types.Resource{types.ResourceProject},
+								Actions:   []types.Action{types.ActionDelete},
+							},
+						},
+					},
+				},
+			},
+		},
+	}, nil)
+	s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+
+	result, httpErr := s.server.deleteSession(httptest.NewRecorder(), req)
+
+	s.Nil(httpErr)
+	s.Require().NotNil(result)
+	s.Equal(session.ID, result.ID)
+}
+
+// 6. User is not a member of the org and not the session owner
+func (s *SessionAuthzSuite) TestDeleteSession_NotOrgMemberNotSessionOwner() {
+	session := &types.Session{
+		ID:             "ses_123",
+		Owner:          "other_user",
+		OrganizationID: s.orgID,
+	}
+
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return(nil, fmt.Errorf("not found"))
+
+	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+
+	result, httpErr := s.server.deleteSession(httptest.NewRecorder(), req)
+
+	s.Nil(result)
+	s.Require().NotNil(httpErr)
+	s.Equal(http.StatusForbidden, httpErr.StatusCode)
+}
+
+// -----------------------------------------------------------------------------
+// listSessions tests
+// -----------------------------------------------------------------------------
+
+// Helper to assert listSessions error is an HTTPError with expected status code
+func assertHTTPError(s *SessionAuthzSuite, err error, expectedStatus int) {
+	s.Require().Error(err)
+	httpErr, ok := err.(*system.HTTPError)
+	s.Require().True(ok, "expected *system.HTTPError, got %T", err)
+	s.Equal(expectedStatus, httpErr.StatusCode)
+}
+
+// 1. User lists personal sessions (no org)
+func (s *SessionAuthzSuite) TestListSessions_OwnerNoOrg() {
+	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		Owner:   s.userID,
+		Page:    0,
+		PerPage: 50,
+	}).Return([]*types.Session{
+		{ID: "ses_1", Owner: s.userID, Name: "test"},
+	}, int64(1), nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions", http.NoBody)
+	req = req.WithContext(s.authCtx)
+
+	result, err := s.server.listSessions(httptest.NewRecorder(), req)
+
+	s.NoError(err)
+	s.Require().NotNil(result)
+	s.Equal(int64(1), result.TotalCount)
+}
+
+// 2. User is owner and org member, lists org sessions
+func (s *SessionAuthzSuite) TestListSessions_OwnerInOrg() {
+	s.store.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{
+		ID: s.orgID,
+	}).Return(&types.Organization{ID: s.orgID}, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return(&types.OrganizationMembership{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		Role:           types.OrganizationRoleMember,
+	}, nil)
+	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		Owner:          s.userID,
+		OrganizationID: s.orgID,
+		Page:           0,
+		PerPage:        50,
+	}).Return([]*types.Session{
+		{ID: "ses_1", Owner: s.userID, OrganizationID: s.orgID, Name: "org session"},
+	}, int64(1), nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions?org_id="+s.orgID, http.NoBody)
+	req = req.WithContext(s.authCtx)
+
+	result, err := s.server.listSessions(httptest.NewRecorder(), req)
+
+	s.NoError(err)
+	s.Require().NotNil(result)
+	s.Equal(int64(1), result.TotalCount)
+}
+
+// 3. User is the org owner, lists org sessions
+func (s *SessionAuthzSuite) TestListSessions_OrgOwner() {
+	s.store.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{
+		ID: s.orgID,
+	}).Return(&types.Organization{ID: s.orgID}, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return(&types.OrganizationMembership{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		Role:           types.OrganizationRoleOwner,
+	}, nil)
+	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		Owner:          s.userID,
+		OrganizationID: s.orgID,
+		Page:           0,
+		PerPage:        50,
+	}).Return([]*types.Session{}, int64(0), nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions?org_id="+s.orgID, http.NoBody)
+	req = req.WithContext(s.authCtx)
+
+	result, err := s.server.listSessions(httptest.NewRecorder(), req)
+
+	s.NoError(err)
+	s.Require().NotNil(result)
+}
+
+// 4. User is org member (not owner) - listing only requires org membership, so this succeeds.
+// Per-session project-level RBAC is enforced on get/delete/update, not on list.
+func (s *SessionAuthzSuite) TestListSessions_OrgMemberCanList() {
+	s.store.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{
+		ID: s.orgID,
+	}).Return(&types.Organization{ID: s.orgID}, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return(&types.OrganizationMembership{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		Role:           types.OrganizationRoleMember,
+	}, nil)
+	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		Owner:          s.userID,
+		OrganizationID: s.orgID,
+		Page:           0,
+		PerPage:        50,
+	}).Return([]*types.Session{}, int64(0), nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions?org_id="+s.orgID, http.NoBody)
+	req = req.WithContext(s.authCtx)
+
+	result, err := s.server.listSessions(httptest.NewRecorder(), req)
+
+	s.NoError(err)
+	s.Require().NotNil(result)
+}
+
+// 6. User is not a member of the org
+func (s *SessionAuthzSuite) TestListSessions_NotOrgMemberDenied() {
+	s.store.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{
+		ID: s.orgID,
+	}).Return(&types.Organization{ID: s.orgID}, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return(nil, fmt.Errorf("not found"))
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions?org_id="+s.orgID, http.NoBody)
+	req = req.WithContext(s.authCtx)
+
+	result, err := s.server.listSessions(httptest.NewRecorder(), req)
+
+	s.Nil(result)
+	assertHTTPError(s, err, http.StatusForbidden)
 }

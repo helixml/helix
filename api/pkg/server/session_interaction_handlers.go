@@ -41,7 +41,8 @@ func (s *HelixAPIServer) listInteractions(_ http.ResponseWriter, req *http.Reque
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get session %s, error: %s", id, err))
 	}
 
-	if !canSeeSession(user, session) {
+	err = s.authorizeUserToSession(ctx, user, session, types.ActionGet)
+	if err != nil {
 		return nil, system.NewHTTPError403("you are not allowed to access this session")
 	}
 
@@ -80,7 +81,8 @@ func (s *HelixAPIServer) getInteraction(_ http.ResponseWriter, req *http.Request
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get session %s, error: %s", sessionID, err))
 	}
 
-	if !canSeeSession(user, session) {
+	err = s.authorizeUserToSession(ctx, user, session, types.ActionGet)
+	if err != nil {
 		return nil, system.NewHTTPError403("you are not allowed to access this session")
 	}
 
@@ -128,7 +130,8 @@ func (s *HelixAPIServer) feedbackInteraction(_ http.ResponseWriter, req *http.Re
 		return nil, system.NewHTTPError403("you are not allowed to access this interaction")
 	}
 
-	if !canSeeSession(user, session) {
+	err = s.authorizeUserToSession(ctx, user, session, types.ActionGet)
+	if err != nil {
 		return nil, system.NewHTTPError403("you are not allowed to access this session")
 	}
 

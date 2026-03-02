@@ -268,7 +268,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
                 control={<Radio size="small" sx={claudeRadioSx} />}
                 disabled={!hasClaudeSubscription}
                 label={
-                  <Typography variant="body2">
+                  <Typography variant="body2" color="inherit">
                     Claude Subscription{hasClaudeSubscription ? ' (connected)' : ' (not connected)'}
                   </Typography>
                 }
@@ -278,7 +278,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
                 control={<Radio size="small" sx={claudeRadioSx} />}
                 disabled={!hasAnthropicProvider}
                 label={
-                  <Typography variant="body2">
+                  <Typography variant="body2" color="inherit">
                     Anthropic API Key{hasAnthropicProvider ? ' (configured)' : ' (not configured)'}
                   </Typography>
                 }

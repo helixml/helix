@@ -104,6 +104,8 @@ func (s *PostgresStore) CreateSession(ctx context.Context, session types.Session
 		return nil, err
 	}
 
+	_ = s.notifySessionUpdates(ctx, StoreEventOperationCreated, &session)
+
 	return &session, nil
 }
 
@@ -192,6 +194,8 @@ func (s *PostgresStore) UpdateSession(ctx context.Context, session types.Session
 		return nil, err
 	}
 
+	_ = s.notifySessionUpdates(ctx, StoreEventOperationUpdated, &session)
+
 	return s.GetSession(ctx, session.ID)
 }
 
@@ -216,7 +220,14 @@ func (s *PostgresStore) UpdateSessionMeta(ctx context.Context, data types.Sessio
 		return nil, err
 	}
 
-	return s.GetSession(ctx, data.ID)
+	session, err := s.GetSession(ctx, data.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = s.notifySessionUpdates(ctx, StoreEventOperationUpdated, session)
+
+	return session, nil
 }
 
 func (s *PostgresStore) UpdateSessionName(ctx context.Context, sessionID, name string) error {
@@ -237,6 +248,7 @@ func (s *PostgresStore) UpdateSessionName(ctx context.Context, sessionID, name s
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -266,6 +278,8 @@ func (s *PostgresStore) DeleteSession(ctx context.Context, sessionID string) (*t
 	if err != nil {
 		return nil, err
 	}
+
+	_ = s.notifySessionUpdates(ctx, StoreEventOperationDeleted, existing)
 
 	return existing, nil
 }
@@ -309,4 +323,8 @@ func (s *PostgresStore) ListSessionsWithDesiredState(ctx context.Context, desire
 	}
 
 	return sessions, nil
+}
+
+func (s *PostgresStore) notifySessionUpdates(ctx context.Context, operation StoreEventOperation, session *types.Session) error {
+	return s.publishStoreEvent(ctx, operation, session)
 }

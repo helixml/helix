@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,12 +15,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+//go:embed scripts/init-zfs-pool.sh
+var initZFSPoolScript string
 
 // incompleteUTF8Tail returns the number of trailing bytes that form
 // an incomplete UTF-8 multi-byte sequence (0 if data ends on a rune boundary).
@@ -516,6 +522,39 @@ func copyFile(src, dst string) error {
 }
 
 // Start starts the VM
+// checkSystemRequirements verifies the host meets minimum requirements.
+// Returns a user-facing error message if requirements are not met.
+func checkSystemRequirements() error {
+	version, err := syscall.Sysctl("kern.osproductversion")
+	if err != nil {
+		log.Printf("Warning: could not determine macOS version: %v", err)
+		return nil // don't block on detection failure
+	}
+
+	parts := strings.SplitN(version, ".", 3)
+	if len(parts) < 1 {
+		return nil
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return nil
+	}
+
+	// Require macOS 14.0 (Sonoma) or later. The QEMU binary is built with
+	// MACOSX_DEPLOYMENT_TARGET=14.0 and Apple's Hypervisor.framework features
+	// we depend on were stabilized in Sonoma.
+	if major < 14 {
+		return fmt.Errorf("Helix requires macOS 14.0 (Sonoma) or later. You are running macOS %s. Please update your operating system.", version)
+	}
+
+	memMB := getSystemMemoryMB()
+	if memMB > 0 && memMB < 8*1024 {
+		return fmt.Errorf("Helix requires at least 8 GB of RAM. This machine has %d MB.", memMB)
+	}
+
+	return nil
+}
+
 func (vm *VMManager) Start() error {
 	vm.statusMu.Lock()
 	if vm.status.State != VMStateStopped && vm.status.State != VMStateError {
@@ -530,6 +569,12 @@ func (vm *VMManager) Start() error {
 	vm.statusMu.Unlock()
 
 	vm.emitStatus()
+
+	// Check system requirements before anything else
+	if err := checkSystemRequirements(); err != nil {
+		vm.setError(err)
+		return err
+	}
 
 	// Kill any orphaned QEMU process from a previous crash
 	vm.killStaleQEMU()
@@ -710,7 +755,7 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		// Too small causes virglrenderer to block in proxy_socket_receive_reply,
 		// which deadlocks the BQL and hangs the entire VM.
 		// EDID enabled with 5K preferred resolution so 5120x2880 is available as a DRM mode.
-		"-device", fmt.Sprintf("virtio-gpu-gl-pci,id=gpu0,hostmem=1024M,blob=true,venus=true,edid=on,xres=5120,yres=2880,helix-port=%d", vm.config.FrameExportPort),
+		"-device", fmt.Sprintf("virtio-gpu-gl-pci,id=gpu0,hostmem=%s,blob=true,venus=true,edid=on,xres=5120,yres=2880,helix-port=%d", getGPUHostMem(), vm.config.FrameExportPort),
 		// 16 virtual display outputs: index 0 for VM console, 1-15 for container desktops.
 		// Matches UTM plist AdditionalArguments config.
 		"-global", "virtio-gpu-gl-pci.max_outputs=16",
@@ -813,12 +858,21 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	// Forward QEMU stderr to both os.Stderr and the logs ring buffer.
 	// QEMU prints warnings, errors, and virglrenderer diagnostics to stderr
 	// which were previously invisible in the UI.
+	// Also keep recent lines so we can include them in crash error messages.
+	var recentStderr []string
+	var recentStderrMu sync.Mutex
 	go func() {
 		scanner := bufio.NewScanner(stderrPipe)
 		for scanner.Scan() {
 			line := scanner.Text()
 			fmt.Fprintln(os.Stderr, line) // keep original stderr behavior
 			vm.appendLogs([]byte(fmt.Sprintf("\x1b[33m[QEMU] %s\x1b[0m\r\n", line)))
+			recentStderrMu.Lock()
+			recentStderr = append(recentStderr, line)
+			if len(recentStderr) > 20 {
+				recentStderr = recentStderr[len(recentStderr)-20:]
+			}
+			recentStderrMu.Unlock()
 		}
 	}()
 
@@ -838,7 +892,18 @@ func (vm *VMManager) runVM(ctx context.Context) {
 		vm.status.State = VMStateStopped
 	} else if err != nil {
 		vm.status.State = VMStateError
-		vm.status.ErrorMsg = err.Error()
+		// Include recent stderr lines in the error message so users see
+		// actionable info (e.g. dyld errors) instead of just "abort trap".
+		recentStderrMu.Lock()
+		stderrContext := make([]string, len(recentStderr))
+		copy(stderrContext, recentStderr)
+		recentStderrMu.Unlock()
+		if len(stderrContext) > 0 {
+			vm.status.ErrorMsg = fmt.Sprintf("QEMU exited: %v\n\n%s", err, strings.Join(stderrContext, "\n"))
+		} else {
+			vm.status.ErrorMsg = fmt.Sprintf("QEMU exited: %v", err)
+		}
+		log.Printf("VM error: %s", vm.status.ErrorMsg)
 	} else {
 		vm.status.State = VMStateStopped
 	}
@@ -1219,175 +1284,7 @@ fi
 //
 // All steps are idempotent — safe to run on every boot.
 func (vm *VMManager) initZFSPool() error {
-	script := `
-set -e
-
-# =========================================================================
-# Step 1: Import or create pool
-# =========================================================================
-if sudo zpool list helix 2>/dev/null; then
-    echo 'ZFS pool helix already exists'
-else
-    # Find the data disk (second virtio disk, typically /dev/vdb or /dev/vdc)
-    DATA_DISK=""
-    for disk in /dev/vdb /dev/vdc /dev/vdd; do
-        if [ -b "$disk" ] && ! mount | grep -q "$disk"; then
-            # Try importing first (upgrade scenario: pool exists on disk but not imported)
-            if sudo zpool import -f -d "$disk" helix 2>/dev/null; then
-                echo "Imported existing ZFS pool from $disk"
-                DATA_DISK="imported"
-                break
-            fi
-            DATA_DISK="$disk"
-            break
-        fi
-    done
-    if [ -z "$DATA_DISK" ]; then
-        echo 'ERROR: No unmounted data disk found'
-        exit 1
-    fi
-    if [ "$DATA_DISK" != "imported" ]; then
-        echo "Creating ZFS pool on $DATA_DISK..."
-        # Clear stale /helix from golden image (ZFS won't mount over non-empty dir)
-        sudo rm -rf /helix 2>/dev/null || true
-        sudo mkdir -p /helix
-        sudo zpool create -f -m /helix helix "$DATA_DISK"
-    fi
-fi
-
-# Expand pool if disk was resized (no-op if already at full size)
-sudo zpool online -e helix $(sudo zpool list -vHP helix 2>/dev/null | awk '/dev/{print $1}' | head -1) 2>/dev/null || true
-
-# =========================================================================
-# Step 2: Create datasets
-# =========================================================================
-
-# Workspaces dataset (dedup + compression for user workspace data)
-if ! sudo zfs list helix/workspaces 2>/dev/null; then
-    echo 'Creating helix/workspaces dataset...'
-    sudo zfs create -o dedup=on -o compression=lz4 -o atime=off -o mountpoint=/helix/workspaces helix/workspaces
-fi
-
-# Docker volumes dataset — persists user data (postgres, keycloak, etc.)
-# across root disk upgrades. Mounted at /var/lib/docker/volumes/ so Docker
-# named volumes survive while images stay on root disk (pre-baked).
-if ! sudo zfs list helix/docker-volumes 2>/dev/null; then
-    echo 'Creating helix/docker-volumes dataset...'
-    sudo zfs create -o compression=lz4 -o atime=off -o mountpoint=/var/lib/docker/volumes helix/docker-volumes
-fi
-# Ensure mount exists even if dataset was already created (e.g., after reboot)
-if ! mountpoint -q /var/lib/docker/volumes 2>/dev/null; then
-    sudo mkdir -p /var/lib/docker/volumes
-    sudo zfs mount helix/docker-volumes 2>/dev/null || true
-fi
-
-# Container Docker zvol — stores per-session inner dockerd data and BuildKit state.
-# The sandbox's own Docker storage stays on the root disk (default named volume)
-# so desktop images baked during provisioning persist without transfer.
-# This zvol is for data that benefits from ZFS dedup+compression:
-#   - Per-session inner dockerd (/helix/container-docker/sessions/{id}/docker/)
-#   - BuildKit state (/helix/container-docker/buildkit/)
-# Hydra bind-mounts these paths into desktop containers and the BuildKit container.
-ZVOL_SIZE=200G
-ZVOL_DEV=/dev/zvol/helix/container-docker
-if ! sudo zfs list helix/container-docker 2>/dev/null; then
-    # Migrate from old name if it exists
-    if sudo zfs list helix/sandbox-docker 2>/dev/null; then
-        echo "Renaming helix/sandbox-docker zvol to helix/container-docker..."
-        sudo umount /helix/sandbox-docker 2>/dev/null || true
-        sudo zfs rename helix/sandbox-docker helix/container-docker
-    else
-        echo "Creating helix/container-docker zvol (${ZVOL_SIZE}, dedup + compression)..."
-        sudo zfs create -V "$ZVOL_SIZE" -s -o dedup=on -o compression=lz4 helix/container-docker
-        # Wait for device node
-        for i in $(seq 1 10); do [ -e "$ZVOL_DEV" ] && break; sleep 1; done
-        echo 'Formatting container-docker zvol as ext4...'
-        sudo mkfs.ext4 -q -L container-docker "$ZVOL_DEV"
-    fi
-fi
-# Mount the zvol
-if ! mountpoint -q /helix/container-docker 2>/dev/null; then
-    sudo mkdir -p /helix/container-docker
-    if [ -e "$ZVOL_DEV" ]; then
-        sudo mount "$ZVOL_DEV" /helix/container-docker
-    fi
-fi
-# Create subdirectories for Hydra
-sudo mkdir -p /helix/container-docker/sessions
-sudo mkdir -p /helix/container-docker/buildkit
-
-# Config dataset (persistent state surviving root disk swaps)
-if ! sudo zfs list helix/config 2>/dev/null; then
-    echo 'Creating helix/config dataset...'
-    sudo zfs create -o compression=lz4 -o mountpoint=/helix/config helix/config
-fi
-
-# =========================================================================
-# Step 3: Persist / restore config (SSH keys, machine-id, authorized_keys)
-# =========================================================================
-
-# SSH host keys
-if [ ! -d /helix/config/ssh ]; then
-    # First boot: copy keys TO config
-    echo 'Persisting SSH host keys to /helix/config/ssh/...'
-    sudo mkdir -p /helix/config/ssh
-    sudo cp /etc/ssh/ssh_host_* /helix/config/ssh/
-    # Also persist authorized_keys if they exist
-    if [ -f /home/ubuntu/.ssh/authorized_keys ]; then
-        sudo cp /home/ubuntu/.ssh/authorized_keys /helix/config/ssh/authorized_keys
-    fi
-else
-    # Upgrade boot: restore keys FROM config
-    echo 'Restoring SSH host keys from /helix/config/ssh/...'
-    sudo cp /helix/config/ssh/ssh_host_* /etc/ssh/
-    sudo chmod 600 /etc/ssh/ssh_host_*_key
-    sudo chmod 644 /etc/ssh/ssh_host_*_key.pub
-    sudo systemctl restart sshd 2>/dev/null || true
-    # Restore authorized_keys
-    if [ -f /helix/config/ssh/authorized_keys ]; then
-        mkdir -p /home/ubuntu/.ssh
-        sudo cp /helix/config/ssh/authorized_keys /home/ubuntu/.ssh/authorized_keys
-        sudo chmod 600 /home/ubuntu/.ssh/authorized_keys
-        sudo chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys
-    fi
-fi
-
-# Machine ID
-if [ ! -f /helix/config/machine-id ]; then
-    sudo cp /etc/machine-id /helix/config/machine-id
-else
-    sudo cp /helix/config/machine-id /etc/machine-id
-    sudo systemd-machine-id-commit 2>/dev/null || true
-fi
-
-# Helix .env.vm
-if [ -f /home/ubuntu/helix/.env.vm ] && [ ! -f /helix/config/env.vm ]; then
-    sudo cp /home/ubuntu/helix/.env.vm /helix/config/env.vm
-elif [ -f /helix/config/env.vm ] && [ ! -f /home/ubuntu/helix/.env.vm ]; then
-    sudo mkdir -p /home/ubuntu/helix
-    sudo cp /helix/config/env.vm /home/ubuntu/helix/.env.vm
-    sudo chown ubuntu:ubuntu /home/ubuntu/helix/.env.vm
-fi
-
-# Sandbox Docker storage — bind mount on root disk (NOT a Docker named volume)
-# so pre-baked desktop images survive the ZFS mount over /var/lib/docker/volumes/.
-sudo mkdir -p /var/lib/helix-sandbox-docker
-
-# =========================================================================
-# Step 4: Ensure Docker is running
-# =========================================================================
-# Host Docker runs on root disk (images pre-baked during provisioning).
-# Only sandbox inner Docker and workspace data use ZFS.
-if ! systemctl is-active docker >/dev/null 2>&1; then
-    echo 'Starting Docker...'
-    sudo systemctl start docker
-else
-    echo 'Docker already running'
-fi
-
-echo 'ZFS storage ready'
-`
-	out, err := vm.runSSH("ZFS init", script)
+	out, err := vm.runSSH("ZFS init", initZFSPoolScript)
 	if err != nil {
 		return fmt.Errorf("SSH command failed: %w (output: %s)", err, out)
 	}
@@ -1772,6 +1669,37 @@ func (vm *VMManager) getAppBundlePath() string {
 //  3. Bundled in app: Contents/MacOS/qemu-system-aarch64 (production mode)
 //  4. System PATH: qemu-system-aarch64
 //
+// getGPUHostMem returns the hostmem size for virtio-gpu-gl-pci, scaled by
+// system RAM.
+//
+// Context: 8GB M1 Air fails to boot with EDK2 "Out Of Resource!" /
+// PciHostBridgeResourceConflict, dropping to UEFI shell. 16GB M1 boots
+// fine with hostmem=1024M. Root cause unknown. The hostmem parameter
+// sets the PCI BAR size for the virtio-gpu shared memory region. The
+// QEMU virt machine's 32-bit MMIO window (VIRT_PCIE_MMIO) is ~752MB,
+// so a 1GB BAR must go in the 64-bit high MMIO region -- this works on
+// 16GB M1, so EDK2/HVF handles it. Why 8GB fails is unclear; scaling
+// hostmem down is the first thing to test.
+//
+// Each desktop needs ~64-128MB of GPU blob resources, so:
+//   - <=8GB RAM:  256M (2-4 desktops)
+//   - <=16GB RAM: 512M (4-8 desktops)
+//   - >16GB RAM:  1024M (8+ desktops)
+func getGPUHostMem() string {
+	memMB := getSystemMemoryMB()
+	var hostmem string
+	switch {
+	case memMB <= 8*1024:
+		hostmem = "256M"
+	case memMB <= 16*1024:
+		hostmem = "512M"
+	default:
+		hostmem = "1024M"
+	}
+	log.Printf("GPU hostmem: %s (system RAM: %d MB)", hostmem, memMB)
+	return hostmem
+}
+
 // QEMU is built as a dylib + thin wrapper. The wrapper (75KB) has main() and
 // loads libqemu-aarch64-softmmu.dylib via @executable_path. You cannot execute
 // a .dylib directly — the wrapper executable is required.

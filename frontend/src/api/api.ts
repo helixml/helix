@@ -82,6 +82,12 @@ export interface GormDeletedAt {
   valid?: boolean;
 }
 
+export interface HydraContainerBlkioStats {
+  read_bytes?: number;
+  session_id?: string;
+  write_bytes?: number;
+}
+
 export enum HydraDevContainerStatus {
   DevContainerStatusStarting = "starting",
   DevContainerStatusRunning = "running",
@@ -2060,6 +2066,10 @@ export interface TypesDiskUsageMetric {
   used_percent?: number;
 }
 
+export interface TypesDockerCacheState {
+  sandboxes?: Record<string, TypesSandboxCacheState>;
+}
+
 export interface TypesDynamicModelInfo {
   created?: string;
   id?: string;
@@ -3326,7 +3336,9 @@ export interface TypesProjectCreateRequest {
 }
 
 export interface TypesProjectMetadata {
+  auto_warm_docker_cache?: boolean;
   board_settings?: TypesBoardSettings;
+  docker_cache_status?: TypesDockerCacheState;
 }
 
 export interface TypesProjectStats {
@@ -3794,6 +3806,15 @@ export interface TypesRunnerStateView {
   warm_slots?: number;
 }
 
+export interface TypesSandboxCacheState {
+  build_session_id?: string;
+  error?: string;
+  last_build_at?: string;
+  last_ready_at?: string;
+  size_bytes?: number;
+  status?: string;
+}
+
 export interface TypesSandboxFileUploadResponse {
   /** Original filename */
   filename?: string;
@@ -4185,6 +4206,8 @@ export interface TypesSessionMetadata {
   session_role?: string;
   /** Multi-session SpecTask context */
   spec_task_id?: string;
+  /** Transient status message shown during startup (e.g., "Unpacking build cache (2.1/7.0 GB)") */
+  status_message?: string;
   stream?: boolean;
   /** helix-sway image version (commit hash) running in this session */
   sway_version?: string;
@@ -8891,6 +8914,60 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Remove the golden Docker cache for a project from all sandboxes
+     *
+     * @tags Projects
+     * @name V1ProjectsDockerCacheDelete
+     * @summary Clear golden Docker cache
+     * @request DELETE:/api/v1/projects/{id}/docker-cache
+     * @secure
+     */
+    v1ProjectsDockerCacheDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/docker-cache`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Manually trigger a golden Docker cache build for a project
+     *
+     * @tags Projects
+     * @name V1ProjectsDockerCacheBuildCreate
+     * @summary Trigger golden Docker cache build
+     * @request POST:/api/v1/projects/{id}/docker-cache/build
+     * @secure
+     */
+    v1ProjectsDockerCacheBuildCreate: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/docker-cache/build`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Stop all running golden builds for a project
+     *
+     * @tags Projects
+     * @name V1ProjectsDockerCacheCancelCreate
+     * @summary Cancel running golden Docker cache builds
+     * @request POST:/api/v1/projects/{id}/docker-cache/cancel
+     * @secure
+     */
+    v1ProjectsDockerCacheCancelCreate: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/docker-cache/cancel`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Stop the running exploratory session for a project (stops sandbox container, keeps session record)
      *
      * @tags Projects
@@ -10020,6 +10097,22 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<Record<string, string>, any>({
         path: `/api/v1/sandboxes/${id}`,
         method: "DELETE",
+        ...params,
+      }),
+
+    /**
+     * @description Get per-container disk I/O stats (write_bytes, read_bytes) from cgroup blkio counters
+     *
+     * @tags sandbox
+     * @name V1SandboxesContainersBlkioDetail
+     * @summary Get container blkio stats
+     * @request GET:/api/v1/sandboxes/{id}/containers/{session_id}/blkio
+     */
+    v1SandboxesContainersBlkioDetail: (id: string, sessionId: string, params: RequestParams = {}) =>
+      this.request<HydraContainerBlkioStats, any>({
+        path: `/api/v1/sandboxes/${id}/containers/${sessionId}/blkio`,
+        method: "GET",
+        format: "json",
         ...params,
       }),
 

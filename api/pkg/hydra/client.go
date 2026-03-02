@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -203,6 +204,52 @@ func (c *Client) ListDevContainers(ctx context.Context) (*ListDevContainersRespo
 	return &result, nil
 }
 
+// GetGoldenBuildResult returns the latest golden build result for a project via Unix socket.
+// Returns nil result with no error if no result is available.
+func (c *Client) GetGoldenBuildResult(ctx context.Context, projectID string) (*GoldenBuildResult, error) {
+	url := fmt.Sprintf("%s/api/v1/golden-cache/%s/build-result", c.baseURL, projectID)
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil // No result available
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("hydra API error (status %d): %s", resp.StatusCode, string(body))
+	}
+	var result GoldenBuildResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &result, nil
+}
+
+// DeleteGoldenCache removes the golden Docker cache for a project via Unix socket
+func (c *Client) DeleteGoldenCache(ctx context.Context, projectID string) error {
+	url := fmt.Sprintf("%s/api/v1/golden-cache/%s", c.baseURL, projectID)
+	httpReq, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("hydra API error (status %d): %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
 // RevDial client methods - these make HTTP requests over RevDial connections
 
 // CreateDevContainer creates a dev container via RevDial
@@ -364,6 +411,64 @@ func (c *RevDialClient) GetDevContainerVideoStats(ctx context.Context, sessionID
 	}
 
 	return &result, nil
+}
+
+// GetGoldenBuildResult returns the latest golden build result for a project via RevDial.
+// Returns nil result with no error if no result is available.
+func (c *RevDialClient) GetGoldenBuildResult(ctx context.Context, projectID string) (*GoldenBuildResult, error) {
+	path := fmt.Sprintf("/api/v1/golden-cache/%s/build-result", projectID)
+	respBody, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		// Check if it's a 404 (no result available)
+		if strings.Contains(err.Error(), "status 404") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var result GoldenBuildResult
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &result, nil
+}
+
+// GetContainerBlkioStats returns cumulative blkio write/read bytes for a container via RevDial.
+func (c *RevDialClient) GetContainerBlkioStats(ctx context.Context, sessionID string) (*ContainerBlkioStats, error) {
+	path := fmt.Sprintf("/api/v1/dev-containers/%s/blkio", sessionID)
+	respBody, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result ContainerBlkioStats
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &result, nil
+}
+
+// GetGoldenCopyProgress returns the current golden cache copy progress via RevDial.
+// Returns nil with no error if no copy is in progress.
+func (c *RevDialClient) GetGoldenCopyProgress(ctx context.Context, projectID string) (*GoldenCopyProgress, error) {
+	path := fmt.Sprintf("/api/v1/golden-cache/%s/copy-progress", projectID)
+	respBody, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		if strings.Contains(err.Error(), "status 404") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var result GoldenCopyProgress
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &result, nil
+}
+
+// DeleteGoldenCache removes the golden Docker cache for a project via RevDial
+func (c *RevDialClient) DeleteGoldenCache(ctx context.Context, projectID string) error {
+	path := fmt.Sprintf("/api/v1/golden-cache/%s", projectID)
+	_, err := c.doRequest(ctx, "DELETE", path, nil)
+	return err
 }
 
 // doRequest performs an HTTP request over RevDial

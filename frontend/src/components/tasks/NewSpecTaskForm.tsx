@@ -1,5 +1,11 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+} from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
   Button,
@@ -17,55 +23,59 @@ import {
   Autocomplete,
   Tooltip,
   IconButton,
-} from '@mui/material'
+} from "@mui/material";
+import { Add as AddIcon, Close as CloseIcon } from "@mui/icons-material";
+import { X } from "lucide-react";
+
+import { CodeAgentRuntime, generateAgentName } from "../../contexts/apps";
+import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
 import {
-  Add as AddIcon,
-  Close as CloseIcon,
-} from '@mui/icons-material'
-import { X } from 'lucide-react'
+  TypesSpecTaskPriority,
+  TypesBranchMode,
+  TypesSpecTask,
+  TypesSpecTaskStatus,
+} from "../../api/api";
+import AgentDropdown from "../agent/AgentDropdown";
+import CodingAgentForm, {
+  CodingAgentFormHandle,
+} from "../agent/CodingAgentForm";
+import { useClaudeSubscriptions } from "../account/ClaudeSubscriptionConnect";
+import { useListProviders } from "../../services/providersService";
+import { TypesProviderEndpointType } from "../../api/api";
 
-import { CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
-import { AGENT_TYPE_ZED_EXTERNAL, IApp } from '../../types'
-import { TypesSpecTaskPriority, TypesBranchMode, TypesSpecTask, TypesSpecTaskStatus } from '../../api/api'
-import AgentDropdown from '../agent/AgentDropdown'
-import CodingAgentForm, { CodingAgentFormHandle } from '../agent/CodingAgentForm'
-import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
-import { useListProviders } from '../../services/providersService'
-import { TypesProviderEndpointType } from '../../api/api'
-
-import useAccount from '../../hooks/useAccount'
-import useApi from '../../hooks/useApi'
-import useSnackbar from '../../hooks/useSnackbar'
-import useApps from '../../hooks/useApps'
-import { useGetProject, useGetProjectRepositories } from '../../services'
-import { useSpecTasks } from '../../services/specTaskService'
+import useAccount from "../../hooks/useAccount";
+import useApi from "../../hooks/useApi";
+import useSnackbar from "../../hooks/useSnackbar";
+import useApps from "../../hooks/useApps";
+import { useGetProject, useGetProjectRepositories } from "../../services";
+import { useSpecTasks } from "../../services/specTaskService";
 
 // Recommended models for zed_external agents (state-of-the-art coding models)
 const RECOMMENDED_MODELS = [
   // Anthropic
-  'claude-opus-4-5-20251101',
-  'claude-sonnet-4-5-20250929',
-  'claude-haiku-4-5-20251001',
+  "claude-opus-4-5-20251101",
+  "claude-sonnet-4-5-20250929",
+  "claude-haiku-4-5-20251001",
   // OpenAI
-  'openai/gpt-5.1-codex',
-  'openai/gpt-oss-120b',
+  "openai/gpt-5.1-codex",
+  "openai/gpt-oss-120b",
   // Google Gemini
-  'gemini-2.5-pro',
-  'gemini-2.5-flash',
+  "gemini-2.5-pro",
+  "gemini-2.5-flash",
   // Zhipu GLM
-  'glm-4.6',
+  "glm-4.6",
   // Qwen (Coder + Large)
-  'Qwen/Qwen3-Coder-480B-A35B-Instruct',
-  'Qwen/Qwen3-Coder-30B-A3B-Instruct',
-  'Qwen/Qwen3-235B-A22B-fp8-tput',
-]
+  "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+  "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+  "Qwen/Qwen3-235B-A22B-fp8-tput",
+];
 
 interface NewSpecTaskFormProps {
-  projectId: string
-  onTaskCreated: (task: TypesSpecTask) => void
-  onClose?: () => void
-  showHeader?: boolean // Show header with close button (for panel mode)
-  embedded?: boolean // Embedded in tab (affects styling)
+  projectId: string;
+  onTaskCreated: (task: TypesSpecTask) => void;
+  onClose?: () => void;
+  showHeader?: boolean; // Show header with close button (for panel mode)
+  embedded?: boolean; // Embedded in tab (affects styling)
 }
 
 const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
@@ -75,223 +85,251 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   showHeader = true,
   embedded = false,
 }) => {
-  const account = useAccount()
-  const api = useApi()
-  const snackbar = useSnackbar()
-  const apps = useApps()
-  const queryClient = useQueryClient()
+  const account = useAccount();
+  const api = useApi();
+  const snackbar = useSnackbar();
+  const apps = useApps();
+  const queryClient = useQueryClient();
 
   // Fetch project data
-  const { data: project } = useGetProject(projectId, !!projectId)
-  const { data: projectRepositories = [] } = useGetProjectRepositories(projectId, !!projectId)
+  const { data: project } = useGetProject(projectId, !!projectId);
+  const { data: projectRepositories = [] } = useGetProjectRepositories(
+    projectId,
+    !!projectId,
+  );
   const { data: projectTasks = [] } = useSpecTasks({
     projectId,
     withDependsOn: true,
     enabled: !!projectId,
-  })
+  });
 
   // Form state
-  const [taskPrompt, setTaskPrompt] = useState('')
-  const [taskPriority, setTaskPriority] = useState('medium')
-  const [selectedDependencyTaskIds, setSelectedDependencyTaskIds] = useState<string[]>([])
-  const [selectedHelixAgent, setSelectedHelixAgent] = useState('')
-  const [justDoItMode, setJustDoItMode] = useState(false)
-  const [isCreating, setIsCreating] = useState(false)
+  const [taskPrompt, setTaskPrompt] = useState("");
+  const [taskPriority, setTaskPriority] = useState("medium");
+  const [selectedDependencyTaskIds, setSelectedDependencyTaskIds] = useState<
+    string[]
+  >([]);
+  const [selectedHelixAgent, setSelectedHelixAgent] = useState("");
+  const [justDoItMode, setJustDoItMode] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
 
   // Branch configuration state
-  const [branchMode, setBranchMode] = useState<TypesBranchMode>(TypesBranchMode.BranchModeNew)
-  const [baseBranch, setBaseBranch] = useState('')
-  const [branchPrefix, setBranchPrefix] = useState('')
-  const [workingBranch, setWorkingBranch] = useState('')
-  const [showBranchCustomization, setShowBranchCustomization] = useState(false)
+  const [branchMode, setBranchMode] = useState<TypesBranchMode>(
+    TypesBranchMode.BranchModeNew,
+  );
+  const [baseBranch, setBaseBranch] = useState("");
+  const [branchPrefix, setBranchPrefix] = useState("");
+  const [workingBranch, setWorkingBranch] = useState("");
+  const [showBranchCustomization, setShowBranchCustomization] = useState(false);
 
   // Get the default repository ID from the project
-  const defaultRepoId = project?.default_repo_id
+  const defaultRepoId = project?.default_repo_id;
 
   // Fetch branches for the default repository
   const { data: branchesData } = useQuery({
-    queryKey: ['repository-branches', defaultRepoId],
+    queryKey: ["repository-branches", defaultRepoId],
     queryFn: async () => {
-      if (!defaultRepoId) return []
-      const response = await api.getApiClient().listGitRepositoryBranches(defaultRepoId)
-      return response.data || []
+      if (!defaultRepoId) return [];
+      const response = await api
+        .getApiClient()
+        .listGitRepositoryBranches(defaultRepoId);
+      return response.data || [];
     },
     enabled: !!defaultRepoId,
     staleTime: 30000,
-  })
+  });
 
   // Get the default branch name from the repository
   const defaultBranchName = useMemo(() => {
-    const defaultRepo = projectRepositories.find(r => r.id === defaultRepoId)
-    return defaultRepo?.default_branch || 'main'
-  }, [projectRepositories, defaultRepoId])
+    const defaultRepo = projectRepositories.find((r) => r.id === defaultRepoId);
+    return defaultRepo?.default_branch || "main";
+  }, [projectRepositories, defaultRepoId]);
 
   const dependencyTaskOptions = useMemo(
-    () => projectTasks.filter((task) => !!task.id && task.status !== TypesSpecTaskStatus.TaskStatusDone),
-    [projectTasks]
-  )
+    () =>
+      projectTasks.filter(
+        (task) =>
+          !!task.id && task.status !== TypesSpecTaskStatus.TaskStatusDone,
+      ),
+    [projectTasks],
+  );
 
   const selectedDependencyTasks = useMemo(() => {
-    const taskById = new Map(dependencyTaskOptions.map((task) => [task.id, task]))
+    const taskById = new Map(
+      dependencyTaskOptions.map((task) => [task.id, task]),
+    );
     return selectedDependencyTaskIds
       .map((taskId) => taskById.get(taskId))
-      .filter((task): task is NonNullable<typeof task> => !!task)
-  }, [dependencyTaskOptions, selectedDependencyTaskIds])
+      .filter((task): task is NonNullable<typeof task> => !!task);
+  }, [dependencyTaskOptions, selectedDependencyTaskIds]);
 
   // Set baseBranch to default when component mounts
   useEffect(() => {
     if (defaultBranchName && !baseBranch) {
-      setBaseBranch(defaultBranchName)
+      setBaseBranch(defaultBranchName);
     }
-  }, [defaultBranchName, baseBranch])
+  }, [defaultBranchName, baseBranch]);
 
   // Inline agent creation state
-  const [showCreateAgentForm, setShowCreateAgentForm] = useState(false)
-  const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent')
-  const [claudeCodeMode, setClaudeCodeMode] = useState<'subscription' | 'api_key'>('subscription')
-  const [selectedProvider, setSelectedProvider] = useState('')
-  const [selectedModel, setSelectedModel] = useState('')
-  const [newAgentName, setNewAgentName] = useState('-')
-  const [userModifiedName, setUserModifiedName] = useState(false)
-  const [creatingAgent, setCreatingAgent] = useState(false)
-  const codingAgentFormRef = useRef<CodingAgentFormHandle>(null)
-  const { data: claudeSubscriptions } = useClaudeSubscriptions()
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
-  const { data: providerEndpoints } = useListProviders({ loadModels: false })
+  const [showCreateAgentForm, setShowCreateAgentForm] = useState(false);
+  const [codeAgentRuntime, setCodeAgentRuntime] =
+    useState<CodeAgentRuntime>("zed_agent");
+  const [claudeCodeMode, setClaudeCodeMode] = useState<
+    "subscription" | "api_key"
+  >("subscription");
+  const [selectedProvider, setSelectedProvider] = useState("");
+  const [selectedModel, setSelectedModel] = useState("");
+  const [newAgentName, setNewAgentName] = useState("-");
+  const [userModifiedName, setUserModifiedName] = useState(false);
+  const [creatingAgent, setCreatingAgent] = useState(false);
+  const codingAgentFormRef = useRef<CodingAgentFormHandle>(null);
+  const { data: claudeSubscriptions } = useClaudeSubscriptions();
+  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0;
+  const { data: providerEndpoints } = useListProviders({ loadModels: false });
   const hasAnthropicProvider = useMemo(() => {
-    if (!providerEndpoints) return false
-    return providerEndpoints.some(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser && p.name === 'anthropic')
-  }, [providerEndpoints])
+    if (!providerEndpoints) return false;
+    return providerEndpoints.some(
+      (p) =>
+        p.endpoint_type ===
+          TypesProviderEndpointType.ProviderEndpointTypeUser &&
+        p.name === "anthropic",
+    );
+  }, [providerEndpoints]);
   const userProviderCount = useMemo(() => {
-    if (!providerEndpoints) return 0
-    return providerEndpoints.filter(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser).length
-  }, [providerEndpoints])
+    if (!providerEndpoints) return 0;
+    return providerEndpoints.filter(
+      (p) =>
+        p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser,
+    ).length;
+  }, [providerEndpoints]);
 
   // Ref for task prompt text field
-  const taskPromptRef = useRef<HTMLTextAreaElement>(null)
+  const taskPromptRef = useRef<HTMLTextAreaElement>(null);
 
   // Sort apps: project default first, then zed_external, then others
   const sortedApps = useMemo(() => {
-    if (!apps.apps) return []
-    const zedExternalApps: IApp[] = []
-    const otherApps: IApp[] = []
-    let defaultApp: IApp | null = null
-    const projectDefaultId = project?.default_helix_app_id
+    if (!apps.apps) return [];
+    const zedExternalApps: IApp[] = [];
+    const otherApps: IApp[] = [];
+    let defaultApp: IApp | null = null;
+    const projectDefaultId = project?.default_helix_app_id;
 
     apps.apps.forEach((app) => {
       if (projectDefaultId && app.id === projectDefaultId) {
-        defaultApp = app
-        return
+        defaultApp = app;
+        return;
       }
-      const hasZedExternal = app.config?.helix?.assistants?.some(
-        (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
-      ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
+      const hasZedExternal =
+        app.config?.helix?.assistants?.some(
+          (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL,
+        ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL;
       if (hasZedExternal) {
-        zedExternalApps.push(app)
+        zedExternalApps.push(app);
       } else {
-        otherApps.push(app)
+        otherApps.push(app);
       }
-    })
+    });
 
-    const result: IApp[] = []
-    if (defaultApp) result.push(defaultApp)
-    result.push(...zedExternalApps, ...otherApps)
-    return result
-  }, [apps.apps, project?.default_helix_app_id])
+    const result: IApp[] = [];
+    if (defaultApp) result.push(defaultApp);
+    result.push(...zedExternalApps, ...otherApps);
+    return result;
+  }, [apps.apps, project?.default_helix_app_id]);
 
   // Auto-generate agent name when model or runtime changes
   useEffect(() => {
     if (!userModifiedName && showCreateAgentForm) {
-      setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime))
+      setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime));
     }
-  }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm])
+  }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm]);
 
   useEffect(() => {
-    if (hasClaudeSubscription && !hasAnthropicProvider && userProviderCount === 0) {
-      setCodeAgentRuntime('claude_code')
-      setClaudeCodeMode('subscription')
+    if (
+      hasClaudeSubscription &&
+      !hasAnthropicProvider &&
+      userProviderCount === 0
+    ) {
+      setCodeAgentRuntime("claude_code");
+      setClaudeCodeMode("subscription");
     }
-  }, [hasClaudeSubscription, hasAnthropicProvider, userProviderCount])
+  }, [hasClaudeSubscription, hasAnthropicProvider, userProviderCount]);
 
   // Load apps on mount
   useEffect(() => {
     if (account.user?.id) {
-      apps.loadApps()
+      apps.loadApps();
     }
-  }, [])
+  }, []);
 
   // Auto-select default agent
   useEffect(() => {
     if (project?.default_helix_app_id) {
-      setSelectedHelixAgent(project.default_helix_app_id)
-      setShowCreateAgentForm(false)
+      setSelectedHelixAgent(project.default_helix_app_id);
+      setShowCreateAgentForm(false);
     } else if (sortedApps.length === 0) {
-      setShowCreateAgentForm(true)
-      setSelectedHelixAgent('')
+      setShowCreateAgentForm(true);
+      setSelectedHelixAgent("");
     } else {
-      setSelectedHelixAgent(sortedApps[0]?.id || '')
-      setShowCreateAgentForm(false)
+      setSelectedHelixAgent(sortedApps[0]?.id || "");
+      setShowCreateAgentForm(false);
     }
-  }, [sortedApps, project?.default_helix_app_id])
+  }, [sortedApps, project?.default_helix_app_id]);
 
-  // Focus text field on mount (embedded mode)
+  // Focus text field on mount
   useEffect(() => {
-    if (embedded) {
-      setTimeout(() => {
-        if (taskPromptRef.current) {
-          taskPromptRef.current.focus()
-        }
-      }, 100)
-    }
-  }, [embedded])
+    setTimeout(() => {
+      taskPromptRef.current?.focus();
+    }, 0);
+  }, []);
 
   // Handle inline agent creation
   // Reset form
   const resetForm = useCallback(() => {
-    setTaskPrompt('')
-    setTaskPriority('medium')
-    setSelectedDependencyTaskIds([])
-    setSelectedHelixAgent('')
-    setJustDoItMode(false)
-    setBranchMode(TypesBranchMode.BranchModeNew)
-    setBaseBranch(defaultBranchName)
-    setBranchPrefix('')
-    setWorkingBranch('')
-    setShowBranchCustomization(false)
-    setShowCreateAgentForm(false)
-    setCodeAgentRuntime('zed_agent')
-    setClaudeCodeMode('subscription')
-    setSelectedProvider('')
-    setSelectedModel('')
-    setNewAgentName('-')
-    setUserModifiedName(false)
-  }, [defaultBranchName])
+    setTaskPrompt("");
+    setTaskPriority("medium");
+    setSelectedDependencyTaskIds([]);
+    setSelectedHelixAgent("");
+    setJustDoItMode(false);
+    setBranchMode(TypesBranchMode.BranchModeNew);
+    setBaseBranch(defaultBranchName);
+    setBranchPrefix("");
+    setWorkingBranch("");
+    setShowBranchCustomization(false);
+    setShowCreateAgentForm(false);
+    setCodeAgentRuntime("zed_agent");
+    setClaudeCodeMode("subscription");
+    setSelectedProvider("");
+    setSelectedModel("");
+    setNewAgentName("-");
+    setUserModifiedName(false);
+  }, [defaultBranchName]);
 
   // Handle task creation
   const handleCreateTask = async () => {
     if (!account.user) {
-      account.setShowLoginWindow(true)
-      return
+      account.setShowLoginWindow(true);
+      return;
     }
 
     if (!taskPrompt.trim()) {
-      snackbar.error('Please describe what you want to get done')
-      return
+      snackbar.error("Please describe what you want to get done");
+      return;
     }
 
-    setIsCreating(true)
+    setIsCreating(true);
 
     try {
-      let agentId = selectedHelixAgent
+      let agentId = selectedHelixAgent;
 
       // Create agent inline if showing create form
       if (showCreateAgentForm) {
-        const createdAgent = await codingAgentFormRef.current?.handleCreateAgent()
+        const createdAgent =
+          await codingAgentFormRef.current?.handleCreateAgent();
         if (!createdAgent?.id) {
-          setIsCreating(false)
-          return
+          setIsCreating(false);
+          return;
         }
-        agentId = createdAgent.id
+        agentId = createdAgent.id;
       }
 
       const createTaskRequest = {
@@ -300,69 +338,94 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         project_id: projectId,
         app_id: agentId || undefined,
         just_do_it_mode: justDoItMode,
-        depends_on: selectedDependencyTasks.map((task) => task.id || '').filter((taskId) => !!taskId),
+        depends_on: selectedDependencyTasks
+          .map((task) => task.id || "")
+          .filter((taskId) => !!taskId),
         branch_mode: branchMode,
-        base_branch: branchMode === TypesBranchMode.BranchModeNew ? baseBranch : undefined,
-        branch_prefix: branchMode === TypesBranchMode.BranchModeNew && branchPrefix ? branchPrefix : undefined,
-        working_branch: branchMode === TypesBranchMode.BranchModeExisting ? workingBranch : undefined,
-      }
+        base_branch:
+          branchMode === TypesBranchMode.BranchModeNew ? baseBranch : undefined,
+        branch_prefix:
+          branchMode === TypesBranchMode.BranchModeNew && branchPrefix
+            ? branchPrefix
+            : undefined,
+        working_branch:
+          branchMode === TypesBranchMode.BranchModeExisting
+            ? workingBranch
+            : undefined,
+      };
 
-      const response = await api.getApiClient().v1SpecTasksFromPromptCreate(createTaskRequest)
+      const response = await api
+        .getApiClient()
+        .v1SpecTasksFromPromptCreate(createTaskRequest);
 
       if (response.data) {
-        snackbar.success('SpecTask created! Planning agent will generate specifications.')
+        snackbar.success(
+          "SpecTask created! Planning agent will generate specifications.",
+        );
         // Invalidate task list to update kanban board immediately
-        queryClient.invalidateQueries({ queryKey: ['spec-tasks'] })
-        resetForm()
-        onTaskCreated(response.data)
+        queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
+        resetForm();
+        onTaskCreated(response.data);
       }
     } catch (error: any) {
-      console.error('Failed to create SpecTask:', error)
-      const errorMessage = error?.response?.data?.message || error?.message || 'Failed to create SpecTask. Please try again.'
-      snackbar.error(errorMessage)
+      console.error("Failed to create SpecTask:", error);
+      const errorMessage =
+        error?.response?.data?.message ||
+        error?.message ||
+        "Failed to create SpecTask. Please try again.";
+      snackbar.error(errorMessage);
     } finally {
-      setIsCreating(false)
+      setIsCreating(false);
     }
-  }
+  };
 
   // Keyboard shortcut: Ctrl/Cmd+Enter to submit
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         if (taskPrompt.trim()) {
-          e.preventDefault()
-          handleCreateTask()
+          e.preventDefault();
+          handleCreateTask();
         }
       }
-    }
+    };
 
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [taskPrompt, justDoItMode, selectedHelixAgent, selectedDependencyTaskIds])
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [taskPrompt, justDoItMode, selectedHelixAgent, selectedDependencyTaskIds]);
 
   // Keyboard shortcut: Ctrl/Cmd+J to toggle Just Do It mode
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'j') {
-        e.preventDefault()
-        setJustDoItMode(prev => !prev)
+      if ((e.ctrlKey || e.metaKey) && e.key === "j") {
+        e.preventDefault();
+        setJustDoItMode((prev) => !prev);
       }
-    }
+    };
 
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
       {/* Header */}
       {showHeader && (
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, borderBottom: 1, borderColor: 'divider' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            p: 2,
+            borderBottom: 1,
+            borderColor: "divider",
+          }}
+        >
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <AddIcon />
             <Typography variant="h6">New SpecTask</Typography>
           </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             {onClose && (
               <IconButton onClick={onClose}>
                 <X size={20} />
@@ -373,7 +436,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
       )}
 
       {/* Content */}
-      <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
+      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
         <Stack spacing={2}>
           {/* Priority Selector */}
           <FormControl fullWidth size="small">
@@ -401,18 +464,26 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             onChange={(e) => setTaskPrompt(e.target.value)}
             onKeyDown={(e) => {
               // If user presses Enter in empty text box, close panel
-              if (e.key === 'Enter' && !taskPrompt.trim() && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
-                e.preventDefault()
-                onClose?.()
+              if (
+                e.key === "Enter" &&
+                !taskPrompt.trim() &&
+                !e.shiftKey &&
+                !e.ctrlKey &&
+                !e.metaKey
+              ) {
+                e.preventDefault();
+                onClose?.();
               }
             }}
-            placeholder={justDoItMode
-              ? "Describe what you want the agent to do. It will start immediately without planning."
-              : "Describe the task - the AI will generate specs from this."
+            placeholder={
+              justDoItMode
+                ? "Describe what you want the agent to do. It will start immediately without planning."
+                : "Describe the task - the AI will generate specs from this."
             }
-            helperText={justDoItMode
-              ? "Agent will start working immediately"
-              : "Planning agent extracts task name, description, and generates specifications"
+            helperText={
+              justDoItMode
+                ? "Agent will start working immediately"
+                : "Planning agent extracts task name, description, and generates specifications"
             }
             inputRef={taskPromptRef}
             size="small"
@@ -424,12 +495,19 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             value={selectedDependencyTasks}
             onChange={(_, selectedTasks) => {
               setSelectedDependencyTaskIds(
-                selectedTasks.map((task) => task.id || '').filter((taskId) => !!taskId)
-              )
+                selectedTasks
+                  .map((task) => task.id || "")
+                  .filter((taskId) => !!taskId),
+              );
             }}
             isOptionEqualToValue={(option, value) => option.id === value.id}
             getOptionLabel={(task) =>
-              task.name || task.short_title || task.description || task.original_prompt || task.id || 'Untitled task'
+              task.name ||
+              task.short_title ||
+              task.description ||
+              task.original_prompt ||
+              task.id ||
+              "Untitled task"
             }
             filterSelectedOptions
             clearOnBlur={false}
@@ -444,12 +522,16 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             )}
             renderOption={(props, option) => (
               <li {...props} key={option.id}>
-                <Box sx={{ display: 'flex', flexDirection: 'column', py: 0.25 }}>
+                <Box
+                  sx={{ display: "flex", flexDirection: "column", py: 0.25 }}
+                >
                   <Typography variant="body2">
-                    {option.name || option.short_title || `Task #${option.task_number || '?'}`}
+                    {option.name ||
+                      option.short_title ||
+                      `Task #${option.task_number || "?"}`}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {`#${option.task_number || '?'} • ${option.status || 'unknown'}`}
+                    {`#${option.task_number || "?"} • ${option.status || "unknown"}`}
                   </Typography>
                 </Box>
               </li>
@@ -458,24 +540,32 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
 
           {/* Branch Configuration */}
           {defaultRepoId && (
-            <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 2 }}>
+            <Box
+              sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 2 }}
+            >
               <Typography variant="subtitle2" gutterBottom>
                 Where do you want to work?
               </Typography>
 
               {/* Mode Selection - Two Cards */}
-              <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+              <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
                 <Box
                   onClick={() => setBranchMode(TypesBranchMode.BranchModeNew)}
                   sx={{
                     flex: 1,
                     p: 1.5,
                     border: 2,
-                    borderColor: branchMode === TypesBranchMode.BranchModeNew ? 'primary.main' : 'divider',
+                    borderColor:
+                      branchMode === TypesBranchMode.BranchModeNew
+                        ? "primary.main"
+                        : "divider",
                     borderRadius: 1,
-                    cursor: 'pointer',
-                    bgcolor: branchMode === TypesBranchMode.BranchModeNew ? 'action.selected' : 'transparent',
-                    '&:hover': { bgcolor: 'action.hover' },
+                    cursor: "pointer",
+                    bgcolor:
+                      branchMode === TypesBranchMode.BranchModeNew
+                        ? "action.selected"
+                        : "transparent",
+                    "&:hover": { bgcolor: "action.hover" },
                   }}
                 >
                   <Typography variant="body2" fontWeight={600}>
@@ -486,16 +576,24 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   </Typography>
                 </Box>
                 <Box
-                  onClick={() => setBranchMode(TypesBranchMode.BranchModeExisting)}
+                  onClick={() =>
+                    setBranchMode(TypesBranchMode.BranchModeExisting)
+                  }
                   sx={{
                     flex: 1,
                     p: 1.5,
                     border: 2,
-                    borderColor: branchMode === TypesBranchMode.BranchModeExisting ? 'primary.main' : 'divider',
+                    borderColor:
+                      branchMode === TypesBranchMode.BranchModeExisting
+                        ? "primary.main"
+                        : "divider",
                     borderRadius: 1,
-                    cursor: 'pointer',
-                    bgcolor: branchMode === TypesBranchMode.BranchModeExisting ? 'action.selected' : 'transparent',
-                    '&:hover': { bgcolor: 'action.hover' },
+                    cursor: "pointer",
+                    bgcolor:
+                      branchMode === TypesBranchMode.BranchModeExisting
+                        ? "action.selected"
+                        : "transparent",
+                    "&:hover": { bgcolor: "action.hover" },
                   }}
                 >
                   <Typography variant="body2" fontWeight={600}>
@@ -513,18 +611,31 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   {!showBranchCustomization ? (
                     <Box>
                       <Typography variant="caption" color="text.secondary">
-                        New branch from <strong>{baseBranch || defaultBranchName}</strong>
+                        New branch from{" "}
+                        <strong>{baseBranch || defaultBranchName}</strong>
                       </Typography>
                       <Button
                         size="small"
                         onClick={() => setShowBranchCustomization(true)}
-                        sx={{ display: 'block', textTransform: 'none', fontSize: '0.75rem', p: 0, mt: 0.5 }}
+                        sx={{
+                          display: "block",
+                          textTransform: "none",
+                          fontSize: "0.75rem",
+                          p: 0,
+                          mt: 0.5,
+                        }}
                       >
                         Customize branches
                       </Button>
                     </Box>
                   ) : (
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 1.5,
+                      }}
+                    >
                       <Box>
                         <FormControl fullWidth size="small">
                           <InputLabel>Base branch</InputLabel>
@@ -537,14 +648,23 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                               <MenuItem key={branch} value={branch}>
                                 {branch}
                                 {branch === defaultBranchName && (
-                                  <Chip label="default" size="small" sx={{ ml: 1, height: 18 }} />
+                                  <Chip
+                                    label="default"
+                                    size="small"
+                                    sx={{ ml: 1, height: 18 }}
+                                  />
                                 )}
                               </MenuItem>
                             ))}
                           </Select>
                         </FormControl>
-                        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1.75, display: 'block' }}>
-                          New branch will be created from this base. Use to build on existing work.
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ mt: 0.5, ml: 1.75, display: "block" }}
+                        >
+                          New branch will be created from this base. Use to
+                          build on existing work.
                         </Typography>
                       </Box>
                       <TextField
@@ -554,19 +674,24 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                         value={branchPrefix}
                         onChange={(e) => setBranchPrefix(e.target.value)}
                         placeholder="feature/user-auth"
-                        helperText={branchPrefix
-                          ? `Work will be done on: ${branchPrefix}-{task#}`
-                          : "Leave empty to auto-generate. This is where the agent commits changes."
+                        helperText={
+                          branchPrefix
+                            ? `Work will be done on: ${branchPrefix}-{task#}`
+                            : "Leave empty to auto-generate. This is where the agent commits changes."
                         }
                       />
                       <Button
                         size="small"
                         onClick={() => {
-                          setShowBranchCustomization(false)
-                          setBaseBranch(defaultBranchName)
-                          setBranchPrefix('')
+                          setShowBranchCustomization(false);
+                          setBaseBranch(defaultBranchName);
+                          setBranchPrefix("");
                         }}
-                        sx={{ alignSelf: 'flex-start', textTransform: 'none', fontSize: '0.75rem' }}
+                        sx={{
+                          alignSelf: "flex-start",
+                          textTransform: "none",
+                          fontSize: "0.75rem",
+                        }}
                       >
                         Use defaults
                       </Button>
@@ -588,7 +713,9 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                           {branch}
                         </MenuItem>
                       ))}
-                    {branchesData?.filter((branch: string) => branch !== defaultBranchName).length === 0 && (
+                    {branchesData?.filter(
+                      (branch: string) => branch !== defaultBranchName,
+                    ).length === 0 && (
                       <MenuItem disabled value="">
                         No feature branches available
                       </MenuItem>
@@ -602,7 +729,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
           {/* Agent Selection (dropdown) */}
           <Box>
             {!showCreateAgentForm ? (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
                 <AgentDropdown
                   value={selectedHelixAgent}
                   onChange={setSelectedHelixAgent}
@@ -611,13 +738,17 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                 <Button
                   size="small"
                   onClick={() => setShowCreateAgentForm(true)}
-                  sx={{ alignSelf: 'flex-start', textTransform: 'none', fontSize: '0.75rem' }}
+                  sx={{
+                    alignSelf: "flex-start",
+                    textTransform: "none",
+                    fontSize: "0.75rem",
+                  }}
                 >
                   + Create new agent
                 </Button>
               </Box>
             ) : (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 <CodingAgentForm
                   ref={codingAgentFormRef}
                   value={{
@@ -628,14 +759,14 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                     agentName: newAgentName,
                   }}
                   onChange={(nextValue) => {
-                    setCodeAgentRuntime(nextValue.codeAgentRuntime)
-                    setClaudeCodeMode(nextValue.claudeCodeMode)
-                    setSelectedProvider(nextValue.selectedProvider)
-                    setSelectedModel(nextValue.selectedModel)
+                    setCodeAgentRuntime(nextValue.codeAgentRuntime);
+                    setClaudeCodeMode(nextValue.claudeCodeMode);
+                    setSelectedProvider(nextValue.selectedProvider);
+                    setSelectedModel(nextValue.selectedModel);
                     if (nextValue.agentName !== newAgentName) {
-                      setUserModifiedName(true)
+                      setUserModifiedName(true);
                     }
-                    setNewAgentName(nextValue.agentName)
+                    setNewAgentName(nextValue.agentName);
                   }}
                   disabled={creatingAgent || isCreating}
                   hasClaudeSubscription={hasClaudeSubscription}
@@ -644,19 +775,19 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   createAgentDescription="Code development agent for spec tasks"
                   onCreateStateChange={setCreatingAgent}
                   onAgentCreated={(app) => {
-                    setSelectedHelixAgent(app.id)
-                    setShowCreateAgentForm(false)
+                    setSelectedHelixAgent(app.id);
+                    setShowCreateAgentForm(false);
                   }}
                   modelPickerHint="Choose a capable model for agentic coding."
                   modelPickerDisplayMode="short"
-                  sx={{ display: 'flex', flexDirection: 'column', gap: 0 }}
+                  sx={{ display: "flex", flexDirection: "column", gap: 0 }}
                 />
 
                 {sortedApps.length > 0 && (
                   <Button
                     size="small"
                     onClick={() => setShowCreateAgentForm(false)}
-                    sx={{ alignSelf: 'flex-start' }}
+                    sx={{ alignSelf: "flex-start" }}
                     disabled={creatingAgent}
                   >
                     Back to agent list
@@ -668,7 +799,10 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
 
           {/* Just Do It Mode Checkbox */}
           <FormControl fullWidth>
-            <Tooltip title={`Skip writing a spec and just get the agent to immediately start doing what you ask (${navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'})`} placement="top">
+            <Tooltip
+              title={`Skip writing a spec and just get the agent to immediately start doing what you ask (${navigator.platform.includes("Mac") ? "⌘J" : "Ctrl+J"})`}
+              placement="top"
+            >
               <FormControlLabel
                 control={
                   <Checkbox
@@ -679,16 +813,28 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                 }
                 label={
                   <Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>
                         Just Do It
                       </Typography>
-                      <Box component="span" sx={{ fontSize: '0.65rem', opacity: 0.6, fontFamily: 'monospace', border: '1px solid', borderColor: 'divider', borderRadius: '3px', px: 0.5 }}>
-                        {navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'}
+                      <Box
+                        component="span"
+                        sx={{
+                          fontSize: "0.65rem",
+                          opacity: 0.6,
+                          fontFamily: "monospace",
+                          border: "1px solid",
+                          borderColor: "divider",
+                          borderRadius: "3px",
+                          px: 0.5,
+                        }}
+                      >
+                        {navigator.platform.includes("Mac") ? "⌘J" : "Ctrl+J"}
                       </Box>
                     </Box>
                     <Typography variant="caption" color="text.secondary">
-                      Skip spec planning — useful for tasks that don't require planning code changes
+                      Skip spec planning — useful for tasks that don't require
+                      planning code changes
                     </Typography>
                   </Box>
                 }
@@ -699,9 +845,23 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
       </Box>
 
       {/* Footer Actions */}
-      <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+      <Box
+        sx={{
+          p: 2,
+          borderTop: 1,
+          borderColor: "divider",
+          display: "flex",
+          gap: 2,
+          justifyContent: "flex-end",
+        }}
+      >
         {onClose && (
-          <Button onClick={() => { resetForm(); onClose(); }}>
+          <Button
+            onClick={() => {
+              resetForm();
+              onClose();
+            }}
+          >
             Cancel
           </Button>
         )}
@@ -713,31 +873,38 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             !taskPrompt.trim() ||
             isCreating ||
             creatingAgent ||
-            (
-              showCreateAgentForm &&
+            (showCreateAgentForm &&
               !(
-                codeAgentRuntime === 'claude_code' &&
-                claudeCodeMode === 'subscription'
+                codeAgentRuntime === "claude_code" &&
+                claudeCodeMode === "subscription"
               ) &&
-              (!selectedModel || !selectedProvider)
+              (!selectedModel || !selectedProvider))
+          }
+          startIcon={
+            isCreating || creatingAgent ? (
+              <CircularProgress size={16} />
+            ) : (
+              <AddIcon />
             )
           }
-          startIcon={isCreating || creatingAgent ? <CircularProgress size={16} /> : <AddIcon />}
           sx={{
-            '& .MuiButton-endIcon': {
+            "& .MuiButton-endIcon": {
               ml: 1,
               opacity: 0.6,
-              fontSize: '0.75rem',
+              fontSize: "0.75rem",
             },
           }}
           endIcon={
-            <Box component="span" sx={{
-              fontSize: '0.75rem',
-              opacity: 0.6,
-              fontFamily: 'monospace',
-              ml: 1,
-            }}>
-              {navigator.platform.includes('Mac') ? '⌘↵' : 'Ctrl+↵'}
+            <Box
+              component="span"
+              sx={{
+                fontSize: "0.75rem",
+                opacity: 0.6,
+                fontFamily: "monospace",
+                ml: 1,
+              }}
+            >
+              {navigator.platform.includes("Mac") ? "⌘↵" : "Ctrl+↵"}
             </Box>
           }
         >
@@ -745,7 +912,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         </Button>
       </Box>
     </Box>
-  )
-}
+  );
+};
 
-export default NewSpecTaskForm
+export default NewSpecTaskForm;

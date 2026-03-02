@@ -3,6 +3,7 @@ package janitor
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 )
 
@@ -37,7 +38,7 @@ func sendSlackNotification(webhookURL string, message string) error {
 		return err
 	}
 	if buf.String() != "ok" {
-		return err
+		return fmt.Errorf("slack webhook returned %d: %s", resp.StatusCode, buf.String())
 	}
 
 	return nil

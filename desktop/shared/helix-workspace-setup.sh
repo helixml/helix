@@ -640,6 +640,78 @@ echo "Zed will open ${#ZED_FOLDERS[@]} folder(s)"
 echo ""
 
 # =========================================
+# Golden build mode: run startup script and exit
+# =========================================
+# When HELIX_GOLDEN_BUILD=true, this session exists solely to populate
+# the Docker cache (images, volumes, registry). We run the startup script
+# in the foreground, skip Zed, and exit with the script's exit code.
+# The resulting /var/lib/docker is then promoted to a golden snapshot.
+if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
+    STARTUP_SCRIPT="$WORK_DIR/helix-specs/.helix/startup.sh"
+    if [ ! -f "$STARTUP_SCRIPT" ]; then
+        echo "❌ Golden build: no startup script found at $STARTUP_SCRIPT"
+        # Disable trap — no interactive menu for golden builds
+        trap - EXIT
+        exit 1
+    fi
+
+    echo "========================================="
+    echo "🔨 Golden build: running startup script..."
+    echo "========================================="
+
+    # Change to primary repo
+    if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -d "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME" ]; then
+        cd "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
+        echo "Working directory: $HELIX_PRIMARY_REPO_NAME"
+    fi
+    echo ""
+
+    # Disable trap — golden builds should exit cleanly, no interactive menu
+    trap - EXIT
+
+    # Run startup script in foreground (blocking)
+    if bash -i "$STARTUP_SCRIPT"; then
+        echo ""
+        echo "✅ Golden build: startup script completed successfully"
+
+        echo "Stopping dockerd for clean shutdown..."
+        # Stop dockerd cleanly so Docker data on disk is consistent
+        # (the data will be promoted to golden cache by Hydra)
+        # 1. Signal the restart loop to NOT restart dockerd after it exits
+        sudo touch /tmp/.dockerd-stop
+        # 2. Kill dockerd via PID file
+        if [ -f /var/run/docker.pid ]; then
+            sudo kill "$(cat /var/run/docker.pid)" 2>/dev/null || true
+            # Wait for dockerd to exit (up to 30 seconds)
+            for i in $(seq 1 30); do
+                [ ! -f /var/run/docker.pid ] && break
+                sleep 1
+            done
+            echo "✅ dockerd stopped"
+        fi
+
+        # Write success marker AFTER dockerd is stopped.
+        # Hydra's monitorGoldenBuild polls for this file and promotes the
+        # Docker data to the golden cache. Writing it after dockerd stops
+        # ensures the data is quiescent — no active writes during promotion
+        # or when new sessions copy from the golden cache.
+        echo "0" | sudo tee /var/lib/docker/.golden-build-result > /dev/null
+    else
+        EXIT_CODE=$?
+        echo ""
+        echo "❌ Golden build failed with exit code $EXIT_CODE"
+        # Write failure marker
+        echo "$EXIT_CODE" | sudo tee /var/lib/docker/.golden-build-result > /dev/null
+    fi
+
+    # Done. Hydra's monitorGoldenBuild polls for .golden-build-result
+    # and stops the container from the outside via ContainerStop.
+    echo "✅ Golden build complete. Waiting for Hydra to stop the container..."
+    # Sleep forever — Hydra will stop us cleanly.
+    exec sleep infinity
+fi
+
+# =========================================
 # Signal completion - Zed can now start
 # =========================================
 # Signal BEFORE running startup script so Zed starts in parallel

@@ -540,10 +540,11 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SessionID:           session.ID,
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment for spec generation",
-		ProjectPath:         "workspace",   // Use relative path
-		SpecTaskID:          task.ID,       // For task-scoped workspace
-		PrimaryRepositoryID: primaryRepoID, // Primary repo to open in Zed
-		RepositoryIDs:       repositoryIDs, // ALL project repos to checkout
+		ProjectID:           task.ProjectID, // For golden Docker cache overlay
+		ProjectPath:         "workspace",    // Use relative path
+		SpecTaskID:          task.ID,        // For task-scoped workspace
+		PrimaryRepositoryID: primaryRepoID,  // Primary repo to open in Zed
+		RepositoryIDs:       repositoryIDs,  // ALL project repos to checkout
 		DisplayWidth:        displayWidth,
 		DisplayHeight:       displayHeight,
 		DisplayRefreshRate:  displayRefreshRate,
@@ -922,10 +923,11 @@ Follow these guidelines when making changes:
 		SessionID:           session.ID,
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment",
-		ProjectPath:         "workspace",   // Use relative path
-		SpecTaskID:          task.ID,       // For task-scoped workspace
-		PrimaryRepositoryID: primaryRepoID, // Primary repo to open in Zed
-		RepositoryIDs:       repositoryIDs, // ALL project repos to checkout
+		ProjectID:           task.ProjectID, // For golden Docker cache overlay
+		ProjectPath:         "workspace",    // Use relative path
+		SpecTaskID:          task.ID,        // For task-scoped workspace
+		PrimaryRepositoryID: primaryRepoID,  // Primary repo to open in Zed
+		RepositoryIDs:       repositoryIDs,  // ALL project repos to checkout
 		DisplayWidth:        displayWidthJDI,
 		DisplayHeight:       displayHeightJDI,
 		DisplayRefreshRate:  displayRefreshRateJDI,

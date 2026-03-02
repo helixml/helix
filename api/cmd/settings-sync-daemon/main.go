@@ -722,9 +722,8 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	d.helixSettings = map[string]interface{}{
 		"context_servers": config.ContextServers,
 		// Disable dev container suggestions - Helix runs Zed inside its own containers
-		"remote": map[string]interface{}{
-			"suggest_dev_container": false,
-		},
+		// Note: remote settings use #[serde(flatten)] in Zed, so fields go at the top level
+		"suggest_dev_container": false,
 	}
 
 	// Inject API keys and custom models before writing settings
@@ -750,11 +749,14 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	// Always auto-approve tool actions — our fork of Zed respects this for all
 	// agents including Claude Code. This is the Zed-level safety net that
 	// auto-approves permission prompts the ACP sends to Zed.
+	// Note: always_allow_tool_actions is deprecated in Zed; use tool_permissions.default instead.
 	agentSection, ok := d.helixSettings["agent"].(map[string]interface{})
 	if !ok {
 		agentSection = map[string]interface{}{}
 	}
-	agentSection["always_allow_tool_actions"] = true
+	agentSection["tool_permissions"] = map[string]interface{}{
+		"default": "allow",
+	}
 	d.helixSettings["agent"] = agentSection
 	if config.Theme != "" {
 		d.helixSettings["theme"] = config.Theme
@@ -889,6 +891,14 @@ func (d *SettingsDaemon) startWatcher() error {
 	settingsDir := filepath.Dir(SettingsPath)
 	if err := os.MkdirAll(settingsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create settings directory: %w", err)
+	}
+
+	// Ensure themes directory exists. Zed's theme watcher watches this path;
+	// if it doesn't exist, the watcher falls back to the parent config dir
+	// and ends up trying to parse settings.json as a theme file on every write.
+	themesDir := filepath.Join(settingsDir, "themes")
+	if err := os.MkdirAll(themesDir, 0755); err != nil {
+		log.Printf("Warning: failed to create themes directory: %v", err)
 	}
 
 	// Create empty settings file if it doesn't exist

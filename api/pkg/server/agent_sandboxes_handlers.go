@@ -15,10 +15,10 @@ import (
 // AgentSandboxesDebugResponse combines data from multiple sandbox endpoints
 // for comprehensive debugging of the agent streaming infrastructure
 type AgentSandboxesDebugResponse struct {
-	Message       string                       `json:"message"`
-	Sandboxes     []SandboxInstanceInfo        `json:"sandboxes,omitempty"`
-	GPUs          []hydra.GPUInfo              `json:"gpus,omitempty"`
-	DevContainers []DevContainerWithClients    `json:"dev_containers,omitempty"`
+	Message       string                    `json:"message"`
+	Sandboxes     []SandboxInstanceInfo     `json:"sandboxes,omitempty"`
+	GPUs          []hydra.GPUInfo           `json:"gpus,omitempty"`
+	DevContainers []DevContainerWithClients `json:"dev_containers,omitempty"`
 }
 
 // SandboxInstanceInfo represents a running sandbox instance
@@ -50,10 +50,10 @@ type DevContainerWithClients struct {
 
 // VideoStreamingStats contains video streaming buffer statistics
 type VideoStreamingStats struct {
-	ClientCount    int                    `json:"client_count"`
-	FramesReceived uint64                 `json:"frames_received"`
-	GOPBufferSize  int                    `json:"gop_buffer_size"`
-	ClientBuffers  []ClientBufferStats    `json:"client_buffers,omitempty"`
+	ClientCount    int                 `json:"client_count"`
+	FramesReceived uint64              `json:"frames_received"`
+	GOPBufferSize  int                 `json:"gop_buffer_size"`
+	ClientBuffers  []ClientBufferStats `json:"client_buffers,omitempty"`
 }
 
 // ClientBufferStats contains per-client buffer statistics
@@ -377,16 +377,16 @@ func (apiServer *HelixAPIServer) getSessionSandboxState(rw http.ResponseWriter, 
 	vars := mux.Vars(req)
 	sessionID := vars["id"]
 
-	// Check session access
 	session, err := apiServer.Store.GetSession(ctx, sessionID)
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("session not found: %v", err), http.StatusNotFound)
 		return
 	}
 
-	// Verify user has access to this session
-	if session.Owner != user.ID && !user.Admin {
-		http.Error(rw, "forbidden: you don't have access to this session", http.StatusForbidden)
+	// Check session access
+	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionUpdate)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
 		return
 	}
 

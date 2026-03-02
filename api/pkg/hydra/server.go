@@ -164,6 +164,13 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	// Port proxy - forward HTTP requests to a port on the desktop container's network
 	api.PathPrefix("/dev-containers/{session_id}/proxy/{port}").HandlerFunc(s.handleDevContainerProxy)
 
+	// Golden cache management
+	api.HandleFunc("/dev-containers/{session_id}/blkio", s.handleGetDevContainerBlkio).Methods("GET")
+
+	api.HandleFunc("/golden-cache/{project_id}", s.handleDeleteGoldenCache).Methods("DELETE")
+	api.HandleFunc("/golden-cache/{project_id}/build-result", s.handleGetGoldenBuildResult).Methods("GET")
+	api.HandleFunc("/golden-cache/{project_id}/copy-progress", s.handleGetGoldenCopyProgress).Methods("GET")
+
 	// System stats (GPU info, active sessions)
 	api.HandleFunc("/system/stats", s.handleSystemStats).Methods("GET")
 }
@@ -760,4 +767,75 @@ func execCommand(name string, args ...string) (string, error) {
 	out, err := cmd.Output()
 	_ = ctx
 	return string(out), err
+}
+
+// handleGetDevContainerBlkio returns cumulative blkio write/read bytes for a container.
+func (s *Server) handleGetDevContainerBlkio(w http.ResponseWriter, r *http.Request) {
+	sessionID := mux.Vars(r)["session_id"]
+	if sessionID == "" {
+		http.Error(w, "session_id required", http.StatusBadRequest)
+		return
+	}
+
+	stats, err := s.devContainerManager.GetContainerBlkioStats(r.Context(), sessionID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
+// handleDeleteGoldenCache removes the golden Docker cache for a project.
+func (s *Server) handleGetGoldenBuildResult(w http.ResponseWriter, r *http.Request) {
+	projectID := mux.Vars(r)["project_id"]
+	if projectID == "" {
+		http.Error(w, "project_id required", http.StatusBadRequest)
+		return
+	}
+
+	result := s.devContainerManager.GetGoldenBuildResult(projectID)
+	if result == nil {
+		http.Error(w, "no build result available", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+func (s *Server) handleDeleteGoldenCache(w http.ResponseWriter, r *http.Request) {
+	projectID := mux.Vars(r)["project_id"]
+	if projectID == "" {
+		http.Error(w, "project_id required", http.StatusBadRequest)
+		return
+	}
+
+	if err := DeleteGolden(projectID); err != nil {
+		log.Error().Err(err).Str("project_id", projectID).Msg("Failed to delete golden cache")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+}
+
+// handleGetGoldenCopyProgress returns the current golden cache copy progress.
+func (s *Server) handleGetGoldenCopyProgress(w http.ResponseWriter, r *http.Request) {
+	projectID := mux.Vars(r)["project_id"]
+	if projectID == "" {
+		http.Error(w, "project_id required", http.StatusBadRequest)
+		return
+	}
+
+	progress := s.devContainerManager.GetGoldenCopyProgress(projectID)
+	if progress == nil {
+		http.Error(w, "no copy in progress", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(progress)
 }

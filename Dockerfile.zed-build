@@ -5,9 +5,14 @@
 # BuildKit cache mounts persist cargo registry, git deps, rustup
 # toolchain, and build artifacts across builds.
 #
-# Usage: ./stack build-zed [dev|release]
+# Usage:
+#   Local:  ./stack build-zed [dev|release]  (builds full image with Zed source as context)
+#   CI:     docker build --target builder-env -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
+#           (builds just the environment; actual compilation runs via docker run with volume mounts)
 # ====================================================================
-FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS builder
+
+# --- Stage 1: Build environment (deps + rustup, no source or compilation) ---
+FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS builder-env
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -55,12 +60,15 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install rustup minimal installer (no toolchain yet — that comes from rust-toolchain.toml)
-# We install to /root/.rustup-base which is baked into the image layer.
-# The actual build step copies this into the cache mount if needed.
 ENV RUSTUP_HOME=/root/.rustup
 ENV CARGO_HOME=/root/.cargo
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
 ENV PATH="/root/.cargo/bin:${PATH}"
+
+# --- Stage 2: Full build (copies source, compiles Zed) ---
+# Only reached when building locally with Zed source as Docker context.
+# CI uses --target builder-env to stop before this stage.
+FROM builder-env AS builder
 
 ARG BUILD_TYPE=release
 

@@ -36,6 +36,7 @@ import vllmLogo from '../../../assets/img/vllm-logo.png'
 import helixLogo from '../../../assets/img/logo.png'
 import googleLogo from '../../../assets/img/providers/google.svg'
 import anthropicLogo from '../../../assets/img/providers/anthropic.png'
+import fireworksLogo from '../../../assets/img/providers/fireworks.png'
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
 
@@ -70,6 +71,10 @@ const ProviderIcon: React.FC<{ provider: TypesProviderEndpoint }> = ({ provider 
 
   if (provider.name === 'anthropic' || provider.base_url?.startsWith('https://api.anthropic.com/')) {
     return <Avatar src={anthropicLogo} sx={{ width: 32, height: 32 }} variant="square" />;
+  }
+
+  if (provider.base_url?.startsWith('https://api.fireworks.ai/')) {
+    return <Avatar src={fireworksLogo} sx={{ width: 32, height: 32 }} variant="square" />;
   }
 
   // Check provider models, if it has more than 1 and "owned_by" = "vllm", then show vllm logo

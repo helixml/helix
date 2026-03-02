@@ -62,7 +62,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     echo "Building Go binaries..." && \
     CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w" -o /desktop-bridge ./cmd/desktop-bridge && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /docker-wrapper ./cmd/docker-wrapper
 
 # ====================================================================
 # Rust build stage for GStreamer zero-copy plugin
@@ -732,11 +733,9 @@ RUN chmod 755 /etc/cont-init.d/15-setup-gpu-permissions.sh
 ADD desktop/shared/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
 RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh
 
-# Workspace README and docker wrapper for transparent shared BuildKit
+# Workspace README
 RUN mkdir -p /opt/helix
 ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
-ADD desktop/shared/docker-buildx-wrapper.sh /opt/helix/docker-buildx-wrapper.sh
-RUN chmod 755 /opt/helix/docker-buildx-wrapper.sh
 
 # ====================================================================
 # GStreamer zero-copy plugin and CUDA libs (amd64 only)
@@ -955,3 +954,4 @@ RUN chmod +x /usr/local/bin/start-zed-helix.sh \
 # Helix Go binaries - at the very end since they're the lightest to rebuild
 COPY --from=go-build-env /desktop-bridge /usr/local/bin/desktop-bridge
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
+COPY --from=go-build-env /docker-wrapper /opt/helix/docker-wrapper

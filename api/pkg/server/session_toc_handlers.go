@@ -16,12 +16,12 @@ import (
 
 // SessionTOCEntry represents a single entry in the session table of contents
 type SessionTOCEntry struct {
-	Turn      int       `json:"turn"`       // 1-indexed turn number
-	ID        string    `json:"id"`         // Interaction ID
-	Summary   string    `json:"summary"`    // One-line summary
-	Created   time.Time `json:"created"`    // When this turn happened
-	HasPrompt bool      `json:"has_prompt"` // Whether there's a user prompt
-	HasResponse bool    `json:"has_response"` // Whether there's an assistant response
+	Turn        int       `json:"turn"`         // 1-indexed turn number
+	ID          string    `json:"id"`           // Interaction ID
+	Summary     string    `json:"summary"`      // One-line summary
+	Created     time.Time `json:"created"`      // When this turn happened
+	HasPrompt   bool      `json:"has_prompt"`   // Whether there's a user prompt
+	HasResponse bool      `json:"has_response"` // Whether there's an assistant response
 }
 
 // SessionTOCResponse is the response for the session TOC endpoint
@@ -177,8 +177,15 @@ func (apiServer *HelixAPIServer) getInteractionByTurn(_ http.ResponseWriter, req
 	}
 
 	// Check authorization
-	if session.Owner != user.ID && user.ID != "runner-system" {
-		return nil, system.NewHTTPError403("you don't have access to this session")
+
+	switch {
+	case user.ID == "runner-system":
+		// OK
+	default:
+		err := apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet)
+		if err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
 	}
 
 	// Get all interactions for this session
@@ -285,8 +292,14 @@ func (apiServer *HelixAPIServer) searchSessionInteractions(_ http.ResponseWriter
 	}
 
 	// Check authorization
-	if session.Owner != user.ID && user.ID != "runner-system" {
-		return nil, system.NewHTTPError403("you don't have access to this session")
+	switch {
+	case user.ID == "runner-system":
+		// OK
+	default:
+		err := apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet)
+		if err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
 	}
 
 	// Get all interactions and filter by search query

@@ -24,6 +24,7 @@ interface InlineCommentBubbleProps {
   onResolve: (commentId: string) => void;
   commentRef?: (el: HTMLDivElement | null) => void;
   streamingResponse?: string; // Live streaming response content
+  isNarrowViewport?: boolean;
 }
 
 // Number of lines to show when collapsed
@@ -35,9 +36,11 @@ export default function InlineCommentBubble({
   onResolve,
   commentRef,
   streamingResponse,
+  isNarrowViewport = false,
 }: InlineCommentBubbleProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  const paperRef = useRef<HTMLDivElement>(null);
 
   // Use streaming response if available, otherwise fall back to persisted response
   const displayResponse = streamingResponse || comment.agent_response;
@@ -68,21 +71,48 @@ export default function InlineCommentBubble({
       contentRef.current.scrollTop = contentRef.current.scrollHeight;
     }
   }, [truncatedResponse, isExpanded]);
+
+  // Combine refs for both commentRef callback and internal ref
+  const setRefs = (el: HTMLDivElement | null) => {
+    (paperRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    if (commentRef) {
+      commentRef(el);
+    }
+  };
+
+  // On narrow viewports, use a stacked layout below the document
+  // On wide viewports, keep the original side positioning
+  const narrowStyles = {
+    position: "relative" as const,
+    left: "auto",
+    top: "auto",
+    width: "100%",
+    maxWidth: "100%",
+    mt: 2,
+    mb: 2,
+  };
+
+  const wideStyles = {
+    position: "absolute" as const,
+    left: "670px",
+    top: `${yPos}px`,
+    width: "300px",
+    mt: 0,
+    mb: 0,
+  };
+
   return (
     <Paper
-      ref={commentRef}
+      ref={setRefs}
       sx={{
-        position: "absolute",
-        left: "670px",
-        top: `${yPos}px`,
-        width: "300px",
+        ...(isNarrowViewport ? narrowStyles : wideStyles),
         p: 2,
         bgcolor: "background.paper",
         border: 2,
         borderColor: "warning.main",
         boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
         zIndex: 10,
-        transition: "top 0.3s ease-in-out",
+        transition: isNarrowViewport ? "none" : "top 0.3s ease-in-out",
       }}
     >
       <Box
@@ -107,6 +137,8 @@ export default function InlineCommentBubble({
             mb: 1,
             fontStyle: "italic",
             fontSize: "0.75rem",
+            maxHeight: isNarrowViewport ? "60px" : "none",
+            overflow: "auto",
           }}
         >
           "

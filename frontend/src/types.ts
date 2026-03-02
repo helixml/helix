@@ -43,9 +43,10 @@ export const INTERACTION_STATE_EDITING: IInteractionState = 'editing'
 export const INTERACTION_STATE_COMPLETE: IInteractionState = 'complete'
 export const INTERACTION_STATE_ERROR: IInteractionState = 'error'
 
-export type IWebSocketEventType = 'session_update' | 'interaction_update' | 'worker_task_response' | 'step_info'
+export type IWebSocketEventType = 'session_update' | 'interaction_update' | 'interaction_patch' | 'worker_task_response' | 'step_info'
 export const WEBSOCKET_EVENT_TYPE_SESSION_UPDATE: IWebSocketEventType = 'session_update'
 export const WEBSOCKET_EVENT_TYPE_INTERACTION_UPDATE: IWebSocketEventType = 'interaction_update'
+export const WEBSOCKET_EVENT_TYPE_INTERACTION_PATCH: IWebSocketEventType = 'interaction_patch'
 export const WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE: IWebSocketEventType = 'worker_task_response'
 export const WEBSOCKET_EVENT_TYPE_STEP_INFO: IWebSocketEventType = 'step_info'
 export type IWorkerTaskResponseType = 'stream' | 'progress' | 'result'
@@ -333,6 +334,11 @@ export interface IWebsocketEvent {
   interaction?: TypesInteraction, // Single interaction for interaction_update events
   worker_task_response?: IWorkerTaskResponse,
   step_info?: TypesStepInfo,
+  // Patch fields for efficient streaming updates (interaction_patch events).
+  // Frontend applies: content = content.slice(0, patch_offset) + patch
+  patch?: string,        // Content from patch_offset onwards
+  patch_offset?: number, // Byte position of first change
+  total_length?: number, // Final content length after patch
 }
 
 export interface IServerConfig {

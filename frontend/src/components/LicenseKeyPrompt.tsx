@@ -51,8 +51,8 @@ export const LicenseKeyPrompt: React.FC = () => {
       )}
       <Typography paragraph>
         Get your free Community license key from{' '}
-        <Link href="https://deploy.helix.ml/licenses" target="_blank" rel="noopener">
-          deploy.helix.ml/licenses
+        <Link href="https://helix.ml/account/licenses" target="_blank" rel="noopener">
+          helix.ml/account/licenses
         </Link>
       </Typography>
       {!isLoggedIn && (

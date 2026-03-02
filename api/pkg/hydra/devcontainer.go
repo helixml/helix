@@ -3,6 +3,7 @@ package hydra
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -14,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
@@ -22,6 +24,27 @@ import (
 	"github.com/docker/go-units"
 	"github.com/rs/zerolog/log"
 )
+
+// GoldenCopyProgress tracks the progress of a golden cache copy operation.
+// Stored in-memory and exposed via the Hydra API so the API server can poll
+// during the blocking CreateDevContainer RPC.
+type GoldenCopyProgress struct {
+	ProjectID   string `json:"project_id"`
+	CopiedBytes int64  `json:"copied_bytes"`
+	TotalBytes  int64  `json:"total_bytes"`
+	Done        bool   `json:"done"`
+}
+
+// GoldenBuildResult stores the outcome of a golden build after the container is deleted.
+// Results are kept in memory so the API can query them via the Hydra endpoint.
+type GoldenBuildResult struct {
+	ProjectID      string    `json:"project_id"`
+	SessionID      string    `json:"session_id"`
+	Success        bool      `json:"success"`
+	ExitCode       string    `json:"exit_code"`
+	CacheSizeBytes int64     `json:"cache_size_bytes,omitempty"`
+	Timestamp      time.Time `json:"timestamp"`
+}
 
 // DevContainerManager manages dev container lifecycle (Zed+agent environments)
 // This manages container launching functionality
@@ -35,14 +58,41 @@ type DevContainerManager struct {
 	// Track active dev containers
 	containers map[string]*DevContainer
 	mu         sync.RWMutex
+
+	// Golden build results, keyed by projectID. Persists after container deletion
+	// so the API can query the outcome.
+	goldenBuildResults   map[string]*GoldenBuildResult
+	goldenBuildResultsMu sync.RWMutex
+
+	// Golden copy progress, keyed by projectID. Updated during SetupGoldenCopy
+	// and polled by the API server via the /golden-copy-progress endpoint.
+	goldenCopyProgress   map[string]*GoldenCopyProgress
+	goldenCopyProgressMu sync.RWMutex
 }
 
 // NewDevContainerManager creates a new dev container manager
 func NewDevContainerManager(manager *Manager) *DevContainerManager {
-	return &DevContainerManager{
-		manager:    manager,
-		containers: make(map[string]*DevContainer),
+	dm := &DevContainerManager{
+		manager:            manager,
+		containers:         make(map[string]*DevContainer),
+		goldenBuildResults: make(map[string]*GoldenBuildResult),
+		goldenCopyProgress: make(map[string]*GoldenCopyProgress),
 	}
+
+	// GC orphaned session dirs on startup and periodically
+	go func() {
+		// Run immediately on startup (no active sessions yet, cleans all orphans)
+		dm.GCOrphanedSessions()
+
+		// Then run every 10 minutes
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			dm.GCOrphanedSessions()
+		}
+	}()
+
+	return dm
 }
 
 // getDockerClient returns a Docker client for the specified socket
@@ -389,6 +439,8 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		UserID:        req.UserID,
 		CreatedAt:     time.Now(),
 		DockerSocket:  req.DockerSocket,
+		IsGoldenBuild: req.GoldenBuild,
+		ProjectID:     req.ProjectID,
 	}
 	dm.mu.Lock()
 	dm.containers[req.SessionID] = dc
@@ -399,6 +451,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		Str("container_id", resp.ID).
 		Str("container_name", req.ContainerName).
 		Str("ip_address", ipAddress).
+		Bool("golden_build", req.GoldenBuild).
 		Msg("Dev container started successfully")
 
 	// Start streaming container logs to sandbox stdout in background.
@@ -406,6 +459,12 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	// sandbox's stdout, making debugging easier for operators.
 	// Uses context.Background() so streaming continues after API request completes.
 	go dm.streamContainerLogs(context.Background(), resp.ID, req.ContainerName, req.DockerSocket)
+
+	// For golden builds, set the build lock and monitor the container
+	if req.GoldenBuild {
+		_ = SetGoldenBuildRunning(req.ProjectID, true)
+		go dm.monitorGoldenBuild(dc)
+	}
 
 	// Get desktop version from version file
 	desktopVersion := getDesktopVersion(req.ContainerType)
@@ -631,15 +690,71 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 
 		// Redirect inner dockerd volumes to ZFS-backed bind mounts when configured.
 		// The API sends docker-data-{sessionID} as a named volume for /var/lib/docker;
-		// we convert it to a bind mount from /container-docker/sessions/{sessionID}/docker/.
+		// we convert it to a bind mount from /container-docker/sessions/{volumeName}/docker/.
+		//
+		// When a golden Docker cache exists for the project, copy it into the
+		// session's Docker data directory. This pre-populates the inner dockerd
+		// with cached images so builds start warm instead of cold.
 		if containerDockerPath != "" && m.Destination == "/var/lib/docker" && m.Type == "volume" {
-			sessionDir := filepath.Join("/container-docker/sessions", m.Source, "docker")
-			if err := os.MkdirAll(sessionDir, 0755); err != nil {
-				log.Warn().Err(err).Str("path", sessionDir).Msg("Failed to create container-docker session dir, falling back to named volume")
-			} else {
+			volumeName := m.Source // e.g. "docker-data-{sessionID}"
+			sessionDir := filepath.Join("/container-docker/sessions", volumeName, "docker")
+
+			// Check if this session already has a Docker data directory from a
+			// previous run (e.g. session restart). If so, reuse it — copying
+			// 30+ GB of golden cache on every restart is wasteful (~28s) and
+			// overwrites any Docker state changes made during the session.
+			// Golden builds are excluded: they need the latest golden snapshot
+			// for incremental rebuilds.
+			sessionDirExists := false
+			if !req.GoldenBuild {
+				if info, err := os.Stat(sessionDir); err == nil && info.IsDir() {
+					sessionDirExists = true
+				}
+			}
+
+			if sessionDirExists {
 				mountType = mount.TypeBind
 				m.Source = sessionDir
-				log.Debug().Str("source", sessionDir).Msg("Using ZFS-backed bind mount for inner dockerd")
+				log.Info().
+					Str("session_dir", sessionDir).
+					Str("volume", volumeName).
+					Msg("Reusing existing session Docker data dir (skipping golden copy)")
+			} else if GoldenExists(req.ProjectID) {
+				// Golden cache available — copy to session dir (works for both
+				// normal sessions AND golden builds; golden builds start from the
+				// previous golden for incremental rebuilds)
+				onProgress := func(copied, total int64) {
+					dm.setGoldenCopyProgress(req.ProjectID, copied, total, false)
+				}
+				dockerDir, err := SetupGoldenCopy(req.ProjectID, volumeName, onProgress)
+				dm.setGoldenCopyProgress(req.ProjectID, 0, 0, true) // clear progress
+				if err != nil {
+					log.Warn().Err(err).
+						Str("project_id", req.ProjectID).
+						Str("volume", volumeName).
+						Msg("Failed to copy golden cache, falling back to empty dir")
+					// Fall back to plain directory
+					if mkErr := os.MkdirAll(sessionDir, 0755); mkErr == nil {
+						mountType = mount.TypeBind
+						m.Source = sessionDir
+					}
+				} else {
+					mountType = mount.TypeBind
+					m.Source = dockerDir
+					log.Info().
+						Str("project_id", req.ProjectID).
+						Str("docker_dir", dockerDir).
+						Msg("Using golden cache copy for inner dockerd")
+				}
+			} else {
+				// No golden — plain bind mount (existing behavior)
+				if err := os.MkdirAll(sessionDir, 0755); err != nil {
+					log.Warn().Err(err).Str("path", sessionDir).Msg("Failed to create container-docker session dir, falling back to named volume")
+				} else {
+					mountType = mount.TypeBind
+					m.Source = sessionDir
+					log.Debug().Str("source", sessionDir).Msg("Using ZFS-backed bind mount for inner dockerd")
+				}
 			}
 		}
 
@@ -907,6 +1022,34 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 		log.Info().Str("volume", dockerDataVolume).Str("session_id", sessionID).Msg("Removed session docker-data volume")
 	}
 
+	// CONTAINER_DOCKER_PATH session directory cleanup.
+	// For golden builds, monitorGoldenBuild handles promotion and cleanup —
+	// we must NOT delete the Docker data here or it'll be gone before promotion.
+	// For normal sessions, we intentionally do NOT clean up the session Docker
+	// data directory here. This allows session restarts to reuse the existing
+	// Docker data instead of re-copying 30+ GB of golden cache (~28s).
+	// The periodic GCOrphanedSessions() (every 10 min) handles cleanup of
+	// session dirs that no longer have a running container.
+	if os.Getenv("CONTAINER_DOCKER_PATH") != "" {
+		if dc.IsGoldenBuild && dc.ProjectID != "" {
+			_ = SetGoldenBuildRunning(dc.ProjectID, false)
+			log.Info().
+				Str("project_id", dc.ProjectID).
+				Str("session_id", sessionID).
+				Msg("Golden build session stopped, lock released (monitorGoldenBuild handles cleanup)")
+		} else {
+			// Write a timestamp so GC knows when this session was last active.
+			// Directory mtime doesn't update when files deep inside are modified,
+			// so we use an explicit marker file.
+			sessionDir := filepath.Join("/container-docker/sessions", dockerDataVolume)
+			TouchSessionLastActive(sessionDir)
+			log.Info().
+				Str("session_id", sessionID).
+				Str("volume", dockerDataVolume).
+				Msg("Session Docker data dir preserved for potential restart (GC will clean orphans)")
+		}
+	}
+
 	// Update status
 	dm.mu.Lock()
 	dc.Status = DevContainerStatusStopped
@@ -925,6 +1068,42 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 		Status:        DevContainerStatusStopped,
 		ContainerType: dc.ContainerType,
 	}, nil
+}
+
+// GCOrphanedSessions removes session Docker data directories that don't have
+// running containers, and cleans up stale golden cache state.
+// Should be called periodically and on startup.
+func (dm *DevContainerManager) GCOrphanedSessions() {
+	if os.Getenv("CONTAINER_DOCKER_PATH") == "" {
+		return // Not using per-session docker dirs
+	}
+
+	dm.mu.RLock()
+	active := make(map[string]bool, len(dm.containers))
+	for sessionID := range dm.containers {
+		active[sessionID] = true
+	}
+	dm.mu.RUnlock()
+
+	removed, freed, err := GCOrphanedSessionDirs(active)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to GC orphaned session dirs")
+	}
+	if removed > 0 {
+		log.Info().Int("removed", removed).Int64("freed_bytes", freed).Msg("Session GC completed")
+	}
+
+	// Also clean up stale golden cache state:
+	// - .old directories from failed promotions
+	// - Stale .building lock files from crashed golden builds
+	// - Golden caches not accessed in 30 days
+	goldenCleaned, goldenFreed, err := GCStaleGoldenDirs(30 * 24 * time.Hour)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to GC stale golden dirs")
+	}
+	if goldenCleaned > 0 {
+		log.Info().Int("removed", goldenCleaned).Int64("freed_bytes", goldenFreed).Msg("Golden GC completed")
+	}
 }
 
 // GetDevContainer returns the status of a dev container
@@ -1214,4 +1393,221 @@ func GetRegistryHost() string {
 	}
 
 	return fmt.Sprintf("%s:%s", ip, SharedRegistryPort)
+}
+
+// monitorGoldenBuild watches a golden build container for the result signal file.
+// When helix-workspace-setup.sh (golden build mode) finishes the startup script,
+// it writes .golden-build-result and stops dockerd. Hydra detects the file,
+// promotes the Docker data if successful, and stops the container cleanly
+// via DeleteDevContainer.
+func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
+	buildStart := time.Now()
+	log.Info().
+		Str("session_id", dc.SessionID).
+		Str("project_id", dc.ProjectID).
+		Str("container_id", dc.ContainerID).
+		Msg("Monitoring golden build container")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	dockerDataVolume := fmt.Sprintf("docker-data-%s", dc.SessionID)
+	resultFile := filepath.Join(sessionsBaseDir, dockerDataVolume, "docker", ".golden-build-result")
+
+	// Poll for the result file. The workspace-setup script writes this after
+	// the startup script completes and dockerd is stopped.
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	var resultData []byte
+	for {
+		select {
+		case <-ctx.Done():
+			buildDuration := time.Since(buildStart)
+			log.Error().
+				Str("session_id", dc.SessionID).
+				Str("project_id", dc.ProjectID).
+				Dur("build_duration", buildDuration).
+				Msg("Golden build: timed out waiting for result file (30 min)")
+			// Store timeout result so the API can query it
+			dm.storeGoldenBuildResult(dc.ProjectID, dc.SessionID, false, "timeout", 0)
+			// Stop the container via the clean API
+			dm.DeleteDevContainer(context.Background(), dc.SessionID)
+			return
+
+		case <-ticker.C:
+			data, err := os.ReadFile(resultFile)
+			if err != nil {
+				continue // File doesn't exist yet — build still running
+			}
+			resultData = data
+			goto done
+		}
+	}
+
+done:
+	buildDuration := time.Since(buildStart)
+	result := strings.TrimSpace(string(resultData))
+	buildSucceeded := result == "0"
+	var cacheSizeBytes int64
+	log.Info().
+		Str("session_id", dc.SessionID).
+		Str("project_id", dc.ProjectID).
+		Str("result", result).
+		Dur("build_duration", buildDuration).
+		Msg("Golden build result file detected")
+
+	if buildSucceeded {
+		log.Info().
+			Str("session_id", dc.SessionID).
+			Str("project_id", dc.ProjectID).
+			Msg("Golden build completed successfully, promoting Docker data")
+
+		if err := PromoteSessionToGolden(dc.ProjectID, dockerDataVolume); err != nil {
+			log.Error().Err(err).
+				Str("project_id", dc.ProjectID).
+				Msg("Golden build: failed to promote session data")
+		} else {
+			// Purge container metadata from the golden cache to prevent
+			// workspace corruption on new sessions (containers have bind mounts
+			// to workspace paths that don't exist in new sessions).
+			if err := PurgeContainersFromGolden(dc.ProjectID); err != nil {
+				log.Warn().Err(err).
+					Str("project_id", dc.ProjectID).
+					Msg("Golden build: failed to purge containers from golden")
+			}
+			cacheSizeBytes = GetGoldenSize(dc.ProjectID)
+			log.Info().
+				Str("project_id", dc.ProjectID).
+				Int64("size_bytes", cacheSizeBytes).
+				Msg("Golden cache promoted successfully")
+		}
+	} else {
+		log.Warn().
+			Str("session_id", dc.SessionID).
+			Str("project_id", dc.ProjectID).
+			Dur("build_duration", buildDuration).
+			Msg("Golden build failed, not promoting")
+		// Clean up the failed session's Docker data
+		_ = CleanupSessionDockerDir(dockerDataVolume)
+	}
+
+	// Store the result so the API can query it after the container is gone.
+	dm.storeGoldenBuildResult(dc.ProjectID, dc.SessionID, buildSucceeded, result, cacheSizeBytes)
+
+	// Stop and clean up the container via the standard API.
+	// DeleteDevContainer handles: ContainerStop, ContainerRemove, VolumeRemove,
+	// and skips session Docker dir cleanup for golden builds.
+	dm.DeleteDevContainer(context.Background(), dc.SessionID)
+
+	// Structured summary log for golden build history tracking
+	log.Info().
+		Str("session_id", dc.SessionID).
+		Str("project_id", dc.ProjectID).
+		Bool("succeeded", buildSucceeded).
+		Str("exit_code", result).
+		Dur("build_duration", buildDuration).
+		Int64("cache_size_bytes", cacheSizeBytes).
+		Msg("GOLDEN_BUILD_SUMMARY")
+}
+
+// storeGoldenBuildResult stores a golden build result for later querying by the API.
+func (dm *DevContainerManager) storeGoldenBuildResult(projectID, sessionID string, success bool, exitCode string, cacheSizeBytes int64) {
+	dm.goldenBuildResultsMu.Lock()
+	defer dm.goldenBuildResultsMu.Unlock()
+	dm.goldenBuildResults[projectID] = &GoldenBuildResult{
+		ProjectID:      projectID,
+		SessionID:      sessionID,
+		Success:        success,
+		ExitCode:       exitCode,
+		CacheSizeBytes: cacheSizeBytes,
+		Timestamp:      time.Now(),
+	}
+}
+
+// ContainerBlkioStats contains cumulative blkio write/read bytes for a container.
+// Used by the frontend to compute per-container disk write rate during golden builds.
+type ContainerBlkioStats struct {
+	SessionID  string `json:"session_id"`
+	WriteBytes uint64 `json:"write_bytes"`
+	ReadBytes  uint64 `json:"read_bytes"`
+}
+
+// GetContainerBlkioStats returns cumulative blkio write/read bytes for a container.
+// Uses the Docker stats API (cgroup counters), so stats are per-container and
+// isolated — concurrent builds don't appear in each other's stats.
+func (dm *DevContainerManager) GetContainerBlkioStats(ctx context.Context, sessionID string) (*ContainerBlkioStats, error) {
+	dm.mu.RLock()
+	dc, exists := dm.containers[sessionID]
+	dm.mu.RUnlock()
+	if !exists {
+		return nil, fmt.Errorf("container not found for session: %s", sessionID)
+	}
+
+	dockerClient, err := dm.getDockerClient(dc.DockerSocket)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Docker client: %w", err)
+	}
+	defer dockerClient.Close()
+
+	// One-shot stats (no streaming)
+	statsResp, err := dockerClient.ContainerStatsOneShot(ctx, dc.ContainerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get container stats: %w", err)
+	}
+	defer statsResp.Body.Close()
+
+	var stats dockertypes.Stats
+	if err := json.NewDecoder(statsResp.Body).Decode(&stats); err != nil {
+		return nil, fmt.Errorf("failed to decode container stats: %w", err)
+	}
+
+	// Sum write and read bytes across all block devices.
+	// Op is titlecase ("Write"/"Read") on cgroup v1, lowercase ("write"/"read") on cgroup v2.
+	var writeBytes, readBytes uint64
+	for _, entry := range stats.BlkioStats.IoServiceBytesRecursive {
+		switch strings.ToLower(entry.Op) {
+		case "write":
+			writeBytes += entry.Value
+		case "read":
+			readBytes += entry.Value
+		}
+	}
+
+	return &ContainerBlkioStats{
+		SessionID:  sessionID,
+		WriteBytes: writeBytes,
+		ReadBytes:  readBytes,
+	}, nil
+}
+
+// GetGoldenCopyProgress returns the current golden cache copy progress for a project.
+// Returns nil if no copy is in progress.
+func (dm *DevContainerManager) GetGoldenCopyProgress(projectID string) *GoldenCopyProgress {
+	dm.goldenCopyProgressMu.RLock()
+	defer dm.goldenCopyProgressMu.RUnlock()
+	return dm.goldenCopyProgress[projectID]
+}
+
+// setGoldenCopyProgress updates the golden cache copy progress for a project.
+func (dm *DevContainerManager) setGoldenCopyProgress(projectID string, copied, total int64, done bool) {
+	dm.goldenCopyProgressMu.Lock()
+	defer dm.goldenCopyProgressMu.Unlock()
+	if done {
+		delete(dm.goldenCopyProgress, projectID)
+	} else {
+		dm.goldenCopyProgress[projectID] = &GoldenCopyProgress{
+			ProjectID:   projectID,
+			CopiedBytes: copied,
+			TotalBytes:  total,
+		}
+	}
+}
+
+// GetGoldenBuildResult returns the latest golden build result for a project.
+// Returns nil if no result is available.
+func (dm *DevContainerManager) GetGoldenBuildResult(projectID string) *GoldenBuildResult {
+	dm.goldenBuildResultsMu.RLock()
+	defer dm.goldenBuildResultsMu.RUnlock()
+	return dm.goldenBuildResults[projectID]
 }

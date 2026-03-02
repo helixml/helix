@@ -400,6 +400,7 @@ type SessionMetadata struct {
 	DevContainerID  string `json:"dev_container_id"`
 	ExternalAgentID string `json:"external_agent_id"`
 	SpecTaskID      string `json:"spec_task_id"`
+	StatusMessage   string `json:"status_message"`
 }
 
 func createSpecTask(apiURL, token, name, prompt, projectID, agentID string) (*SpecTask, error) {
@@ -476,6 +477,7 @@ func triggerStartPlanning(apiURL, token, taskID string) (*SpecTask, error) {
 func waitForTaskSession(apiURL, token, taskID string, timeout time.Duration) (*Session, error) {
 	deadline := time.Now().Add(timeout)
 	pollInterval := 2 * time.Second
+	lastStatusMsg := ""
 
 	for time.Now().Before(deadline) {
 		// Get all sessions and find one for this task
@@ -503,6 +505,11 @@ func waitForTaskSession(apiURL, token, taskID string, timeout time.Duration) (*S
 		// Find session for this task that has a running sandbox
 		for _, s := range response.Sessions {
 			if s.Metadata.SpecTaskID == taskID {
+				// Show status message updates (e.g., "Unpacking build cache (2.1/7.0 GB)")
+				if s.Metadata.StatusMessage != "" && s.Metadata.StatusMessage != lastStatusMsg {
+					fmt.Printf("   %s\n", s.Metadata.StatusMessage)
+					lastStatusMsg = s.Metadata.StatusMessage
+				}
 				// Check for active container
 				if s.Metadata.DevContainerID != "" || s.Metadata.ContainerID != "" {
 					return &s, nil

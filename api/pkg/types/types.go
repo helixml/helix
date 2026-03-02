@@ -74,6 +74,11 @@ type Interaction struct {
 	// different ID = new distinct message (append). Persisted in DB for restart resilience.
 	LastZedMessageID string `json:"last_zed_message_id,omitempty"`
 
+	// LastZedMessageOffset is the byte offset in ResponseMessage where the current
+	// message_id's content begins. Used by the accumulator to replace only the
+	// current message's portion during streaming updates, preserving earlier messages.
+	LastZedMessageOffset int `json:"last_zed_message_offset,omitempty"`
+
 	// Summary is a one-line description of this interaction for search/indexing.
 	// Generated lazily on first access or via background job.
 	Summary          string     `json:"summary,omitempty"`
@@ -399,6 +404,7 @@ type SessionMetadata struct {
 	RenderNode              string               `json:"render_node,omitempty"`               // GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
 	PausedScreenshotPath    string               `json:"paused_screenshot_path,omitempty"`    // Path to saved screenshot when agent is paused
 	CodeAgentRuntime        CodeAgentRuntime     `json:"code_agent_runtime,omitempty"`        // Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.)
+	StatusMessage           string               `json:"status_message,omitempty"`            // Transient status message shown during startup (e.g., "Unpacking build cache (2.1/7.0 GB)")
 	// Container fields (Hydra executor)
 	ContainerName string `json:"container_name,omitempty"` // Docker container name
 	ContainerID   string `json:"container_id,omitempty"`   // Docker container ID
@@ -868,6 +874,12 @@ type WebsocketEvent struct {
 	WorkerTaskResponse *RunnerTaskResponse         `json:"worker_task_response"`
 	InferenceResponse  *RunnerLLMInferenceResponse `json:"inference_response"`
 	StepInfo           *StepInfo                   `json:"step_info"`
+	// Patch fields for efficient streaming updates (interaction_patch events).
+	// Instead of sending the full interaction, we send only the changed portion
+	// of ResponseMessage. Frontend applies: content = content[:PatchOffset] + Patch
+	Patch       string `json:"patch,omitempty"`        // Content from PatchOffset onwards
+	PatchOffset int    `json:"patch_offset,omitempty"` // Byte position of first change
+	TotalLength int    `json:"total_length,omitempty"` // Final content length after patch
 }
 
 type StepInfoType string
@@ -1957,6 +1969,9 @@ type DesktopAgent struct {
 
 	// Video capture/encoding mode for streaming
 	VideoMode string `json:"video_mode,omitempty"` // "shm" (default), "native", or "zerocopy"
+
+	// Golden build mode: session builds a golden Docker cache snapshot
+	GoldenBuild bool `json:"golden_build,omitempty"`
 }
 
 // GetEffectiveResolution returns the display dimensions based on Resolution preset
