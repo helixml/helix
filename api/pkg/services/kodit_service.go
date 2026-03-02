@@ -50,8 +50,7 @@ func wrapNotFound(err error) error {
 // Returns the source ID (int64), whether it was newly created, and any error.
 func (s *KoditService) RegisterRepository(ctx context.Context, cloneURL string) (int64, bool, error) {
 	if !s.enabled {
-		log.Debug().Msg("Kodit service not enabled, skipping repository registration")
-		return 0, false, nil
+		return 0, false, fmt.Errorf("kodit service not enabled")
 	}
 
 	source, isNew, err := s.client.Repositories.Add(ctx, &service.RepositoryAddParams{
@@ -59,6 +58,19 @@ func (s *KoditService) RegisterRepository(ctx context.Context, cloneURL string) 
 	})
 	if err != nil {
 		return 0, false, fmt.Errorf("failed to register repository: %w", err)
+	}
+
+	if source.ID() == 0 {
+		log.Error().
+			Str("clone_url", cloneURL).
+			Bool("is_new", isNew).
+			Str("remote_url", source.RemoteURL()).
+			Str("status", source.Status().String()).
+			Str("last_error", source.LastError()).
+			Bool("is_cloned", source.IsCloned()).
+			Str("cloned_path", source.ClonedPath()).
+			Msg("Kodit Repositories.Add returned zero ID — this indicates a persistence bug in kodit")
+		return 0, false, fmt.Errorf("kodit returned zero source ID for clone URL (is_new=%v, status=%s)", isNew, source.Status())
 	}
 
 	log.Info().Str("clone_url", cloneURL).Int64("kodit_repo_id", source.ID()).Bool("is_new", isNew).Msg("Registered repository with Kodit")
