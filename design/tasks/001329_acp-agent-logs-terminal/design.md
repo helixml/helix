@@ -117,10 +117,62 @@ This keeps the debug feature functional (terminal can be restored from taskbar) 
 ## Implementation Files
 
 - `helix/desktop/ubuntu-config/gnome-extension/helix-cursor@helix.ml/extension.js` - Add window-created handler
+- `helix/desktop/ubuntu-config/gnome-extension/helix-cursor@helix.ml/metadata.json` - Bump version to 2
 - `helix/desktop/ubuntu-config/devilspie2/` - DELETE (unused legacy)
 - `helix/design/2025-12-08-ubuntu-layout.md` - Add deprecation notice
 
+## Implementation Summary
+
+### What Was Done
+
+1. **Removed unused devilspie2 directory** - Legacy config that was never installed or used
+2. **Extended GNOME Shell extension** - Added window-created signal handler to existing `helix-cursor@helix.ml` extension
+3. **Added auto-minimize logic** - When a window with title containing "ACP Agent Logs" is created, it's minimized after 100ms
+4. **Updated metadata** - Bumped extension version to 2, updated description
+5. **Marked old design doc** - Added deprecation notice to 2025-12-08-ubuntu-layout.md
+6. **Added MCP server tool** - Implemented `minimize_window` tool for agents to minimize windows programmatically (useful for screencasts/demos)
+
+### Code Changes
+
+**extension.js additions:**
+- Added `_windowCreatedId` field to track window-created signal
+- Connected to `global.display.connect('window-created', ...)` in `enable()`
+- Added `_onWindowCreated(window)` handler that checks title and calls `window.minimize()`
+- Added cleanup in `disable()` to disconnect window-created signal
+
+**Why this approach:**
+- Reuses existing GNOME Shell extension infrastructure
+- No additional packages to install
+- GNOME Shell API is stable and well-supported
+- 100ms delay ensures window title is set before checking
+- Terminal can be restored from taskbar when needed
+
+### MCP Server Tool
+
+Added `minimize_window` to `helix/api/pkg/desktop/mcp_server.go`:
+- Accepts `window_id` (from list_windows) or `title` (window title string)
+- If neither specified, minimizes the focused window
+- Sway implementation: moves window to scratchpad
+- GNOME implementation: uses `gdbus` to execute `window.minimize()` JavaScript in GNOME Shell
+
+**Critical Discovery:** Ubuntu desktop is now **Wayland-only** (uses `wayland-0` socket, not X11).
+
+**wmctrl is X11-only** - it requires EWMH/NetWM which are X11 window manager protocols. It does NOT work on Wayland.
+
+**Impact:** The existing MCP window management tools (focus_window, maximize_window, tile_window, move_to_workspace) are **currently broken** on GNOME because they use wmctrl/xdotool.
+
+**Correct approach for Wayland GNOME:** Use `gdbus` to execute JavaScript in GNOME Shell via `org.gnome.Shell.Eval` method. This is what the new `minimize_window` implementation uses.
+
+**Future cleanup needed:** Replace all wmctrl/xdotool calls with gdbus equivalents across all window management handlers.
+
+**Agent usage example:**
+```
+Use minimize_window with title="Terminal" to hide the terminal window before taking a screenshot
+```
+
 ## Risks
 
-- **Low:** Window title check timing - mitigated by 100ms delay
+- **Low:** Window title check timing - mitigated by 100ms delay in GNOME extension
 - **Low:** GNOME Shell API compatibility across versions 45-49 - extension already supports this range
+- **Low:** Extension needs to be reloaded in existing sessions - new sessions will pick it up automatically
+- **Medium:** Existing MCP window tools (focus_window, maximize_window, etc.) are broken on Wayland - need separate task to fix them

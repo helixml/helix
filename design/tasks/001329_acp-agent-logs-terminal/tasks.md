@@ -12,6 +12,16 @@
 - [x] Update extension metadata version number
 - [x] Mark 2025-12-08-ubuntu-layout.md as outdated (devilspie2 reference)
 
+## Bonus: MCP Server Window Management
+
+- [x] Add `minimize_window` tool to desktop MCP server
+- [x] Add handler implementation for Sway and GNOME (uses gdbus for Wayland)
+
+## Future Cleanup (Out of Scope for This Task)
+
+- [ ] Replace wmctrl/xdotool calls in mcp_server.go with gdbus equivalents (desktop is Wayland-only now)
+- [ ] Remove X11-specific code paths in focus_window, maximize_window, tile_window handlers
+
 ## Testing
 
 _Manual testing required - needs full desktop environment with `SHOW_ACP_DEBUG_LOGS=true`_
@@ -26,9 +36,10 @@ _Manual testing required - needs full desktop environment with `SHOW_ACP_DEBUG_L
 ## Files Modified
 
 - `helix/desktop/ubuntu-config/gnome-extension/helix-cursor@helix.ml/extension.js` - Add window minimization
-- `helix/desktop/ubuntu-config/gnome-extension/helix-cursor@helix.ml/metadata.json` - Bump version
+- `helix/desktop/ubuntu-config/gnome-extension/helix-cursor@helix.ml/metadata.json` - Bump version to 2
 - `helix/desktop/ubuntu-config/devilspie2/` - DELETED (unused legacy)
 - `helix/design/2025-12-08-ubuntu-layout.md` - Add deprecation notice
+- `helix/api/pkg/desktop/mcp_server.go` - Add minimize_window tool for agents
 
 ## Implementation Notes
 
