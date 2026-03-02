@@ -2,7 +2,7 @@
 
 ## Modify detectChangedBranches
 
-- [ ] Change return type from `[]string` to `map[string]bool` (branch → isForce)
+- [~] Change return type from `[]string` to `map[string]bool` (branch → isForce)
 - [ ] Add `repoPath` parameter to function signature
 - [ ] Add force push detection using `git merge-base --is-ancestor oldrev newrev`
 - [ ] If old commit is NOT ancestor of new commit → mark as force push
