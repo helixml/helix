@@ -74,3 +74,11 @@ Could extract to a shared utility in `helix/frontend/src/utils/taskSorting.ts` a
 2. Verify kanban view shows critical → high → medium → low
 3. Verify tasks with same priority are sorted by newest first
 4. Compare with table view to confirm consistency
+
+## Implementation Notes
+
+- Modified `SpecTaskKanbanBoard.tsx` at line 780 (backlog column definition)
+- Used inline `PRIORITY_ORDER` constant inside the sort callback (same pattern as `BacklogTableView.tsx`)
+- Change is minimal: just chained `.sort()` after the existing `.filter()`
+- File parses successfully with esbuild
+- Note: Full `yarn build` has pre-existing permission issue on dist folder (not related to this change)
