@@ -149,6 +149,18 @@ func NewMCPServer(cfg MCPConfig, logger *slog.Logger) *MCPServer {
 	)
 	m.mcpServer.AddTool(maximizeWindowTool, m.handleMaximizeWindow)
 
+	// minimize_window - Minimize a window
+	minimizeWindowTool := mcp.NewTool("minimize_window",
+		mcp.WithDescription("Minimize a window to taskbar/dock. If no window specified, minimizes the focused window."),
+		mcp.WithString("window_id",
+			mcp.Description("Window ID from list_windows"),
+		),
+		mcp.WithString("title",
+			mcp.Description("Window title to match (alternative to window_id)"),
+		),
+	)
+	m.mcpServer.AddTool(minimizeWindowTool, m.handleMinimizeWindow)
+
 	// tile_window - Tile a window left or right
 	tileWindowTool := mcp.NewTool("tile_window",
 		mcp.WithDescription("Tile a window to the left or right half of the screen."),
@@ -583,6 +595,78 @@ func (m *MCPServer) handleMaximizeWindow(ctx context.Context, request mcp.CallTo
 			}
 		}
 		return mcp.NewToolResultText("Window maximized"), nil
+
+	default:
+		return mcp.NewToolResultError("unsupported desktop environment"), nil
+	}
+}
+
+// handleMinimizeWindow minimizes a window
+func (m *MCPServer) handleMinimizeWindow(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	windowID, _ := request.RequireString("window_id")
+	title, _ := request.RequireString("title")
+
+	m.logger.Info("minimizing window via MCP", "window_id", windowID, "title", title)
+
+	de := m.detectDesktopEnvironment()
+
+	switch de {
+	case "sway":
+		// In Sway, we can move windows to scratchpad (similar to minimize)
+		var cmd *exec.Cmd
+		if windowID != "" {
+			cmd = exec.CommandContext(ctx, "swaymsg", fmt.Sprintf("[con_id=%s]", windowID), "move", "scratchpad")
+		} else if title != "" {
+			cmd = exec.CommandContext(ctx, "swaymsg", fmt.Sprintf("[title=\"%s\"]", title), "move", "scratchpad")
+		} else {
+			cmd = exec.CommandContext(ctx, "swaymsg", "move", "scratchpad")
+		}
+		if err := cmd.Run(); err != nil {
+			return mcp.NewToolResultError("failed to minimize window: " + err.Error()), nil
+		}
+		return mcp.NewToolResultText("Window minimized (moved to scratchpad)"), nil
+
+	case "gnome":
+		// Use gdbus to execute JavaScript in GNOME Shell
+		var script string
+		if title != "" {
+			// Minimize by window title
+			script = fmt.Sprintf(`
+				global.get_window_actors().forEach(a => {
+					let w = a.meta_window;
+					if (w.get_title() && w.get_title().includes('%s')) {
+						w.minimize();
+					}
+				});
+			`, title)
+		} else if windowID != "" {
+			// Minimize by window ID (convert to integer for comparison)
+			script = fmt.Sprintf(`
+				global.get_window_actors().forEach(a => {
+					let w = a.meta_window;
+					if (w.get_id().toString() === '%s') {
+						w.minimize();
+					}
+				});
+			`, windowID)
+		} else {
+			// Minimize focused window
+			script = `
+				let w = global.display.get_focus_window();
+				if (w) { w.minimize(); }
+			`
+		}
+
+		cmd := exec.CommandContext(ctx, "gdbus", "call", "--session",
+			"--dest=org.gnome.Shell",
+			"--object-path=/org/gnome/Shell",
+			"--method=org.gnome.Shell.Eval",
+			script)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return mcp.NewToolResultError("failed to minimize window: " + err.Error() + " - " + string(output)), nil
+		}
+		return mcp.NewToolResultText("Window minimized"), nil
 
 	default:
 		return mcp.NewToolResultError("unsupported desktop environment"), nil
