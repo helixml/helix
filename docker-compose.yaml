@@ -91,6 +91,7 @@ services:
     #   - 5433:5432
     command: >
       postgres
+      -c shared_preload_libraries=vchord,vchord_bm25,vector
       -c shared_buffers=32MB
       -c work_mem=2MB
       -c max_connections=50
@@ -142,9 +143,7 @@ services:
     environment:
       - PGVECTOR_DSN=postgresql://postgres:${PGVECTOR_PASSWORD-pgvector}@pgvector:5432/postgres
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - VLLM_BASE_URL=${RAG_HAYSTACK_EMBEDDINGS_BASE_URL:-}
-      - VLLM_API_KEY=${RAG_HAYSTACK_EMBEDDINGS_API_KEY:-EMPTY}
-      - RAG_HAYSTACK_EMBEDDINGS_MODEL=${RAG_HAYSTACK_EMBEDDINGS_MODEL:-MrLight/dse-qwen2-2b-mrl-v1}
+      - RAG_HAYSTACK_EMBEDDINGS_MODEL=${RAG_HAYSTACK_EMBEDDINGS_MODEL:-rag-embedding}
       - RAG_HAYSTACK_EMBEDDINGS_DIM=${RAG_HAYSTACK_EMBEDDINGS_DIM:-1536}
       - RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS=${RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS:-32768}
       - RAG_HAYSTACK_CHUNK_SIZE=${RAG_HAYSTACK_CHUNK_SIZE:-1000}

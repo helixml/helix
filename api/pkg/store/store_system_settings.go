@@ -70,6 +70,12 @@ func (s *PostgresStore) UpdateSystemSettings(ctx context.Context, req *types.Sys
 	if req.KoditEnrichmentModel != nil {
 		settings.KoditEnrichmentModel = *req.KoditEnrichmentModel
 	}
+	if req.RAGEmbeddingsProvider != nil {
+		settings.RAGEmbeddingsProvider = *req.RAGEmbeddingsProvider
+	}
+	if req.RAGEmbeddingsModel != nil {
+		settings.RAGEmbeddingsModel = *req.RAGEmbeddingsModel
+	}
 	if req.MaxConcurrentDesktops != nil {
 		settings.MaxConcurrentDesktops = *req.MaxConcurrentDesktops
 	}

@@ -165,6 +165,34 @@ const SystemSettingsTable: FC = () => {
     }
   }
 
+  const handleSelectRAGEmbeddingsModel = async (provider: string, model: string) => {
+    try {
+      await updateSettings.mutateAsync({
+        rag_embeddings_provider: provider,
+        rag_embeddings_model: model,
+      })
+      snackbar.success(`RAG Embedding model set to ${provider}/${model}`)
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        snackbar.error('Access denied: Admin privileges required')
+      } else {
+        snackbar.error(`Failed to update settings: ${err.message}`)
+      }
+    }
+  }
+
+  const handleClearRAGEmbeddingsSettings = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        rag_embeddings_provider: '',
+        rag_embeddings_model: '',
+      })
+      snackbar.success('RAG Embedding model configuration cleared')
+    } catch (err: any) {
+      snackbar.error(`Failed to clear settings: ${err.message}`)
+    }
+  }
+
   const getTokenSourceColor = (source: string) => {
     switch (source) {
       case 'database': return 'primary'
@@ -337,6 +365,66 @@ const SystemSettingsTable: FC = () => {
                         <Button
                           startIcon={<ClearIcon />}
                           onClick={handleClearKoditSettings}
+                          size="small"
+                          color="warning"
+                          disabled={saving}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                {/* RAG Embedding Model Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      RAG Embedding Model
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Embedding model used by Haystack for knowledge source indexing and retrieval
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={settings?.rag_embeddings_model_set ? 'Configured' : 'Not Set'}
+                      color={settings?.rag_embeddings_model_set ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {settings?.rag_embeddings_model_set ? (
+                      <>
+                        <Typography variant="body2" fontFamily="monospace">
+                          {settings.rag_embeddings_provider}/{settings.rag_embeddings_model}
+                        </Typography>
+                        <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>
+                          Provider: {settings.rag_embeddings_provider}
+                        </Typography>
+                      </>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Not configured - knowledge source indexing will fail
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      <AdvancedModelPicker
+                        selectedProvider={settings?.rag_embeddings_provider}
+                        selectedModelId={settings?.rag_embeddings_model}
+                        onSelectModel={handleSelectRAGEmbeddingsModel}
+                        currentType="embed"
+                        buttonVariant="outlined"
+                        disabled={saving}
+                        hint="Select the embedding model that Haystack will use for indexing and querying knowledge sources."
+                        autoSelectFirst={false}
+                      />
+                      {settings?.rag_embeddings_model_set && (
+                        <Button
+                          startIcon={<ClearIcon />}
+                          onClick={handleClearRAGEmbeddingsSettings}
                           size="small"
                           color="warning"
                           disabled={saving}

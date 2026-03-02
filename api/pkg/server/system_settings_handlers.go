@@ -74,6 +74,7 @@ func (apiServer *HelixAPIServer) updateSystemSettings(rw http.ResponseWriter, r 
 		Str("admin_user", user.ID).
 		Bool("hf_token_updated", req.HuggingFaceToken != nil).
 		Bool("kodit_model_updated", req.KoditEnrichmentProvider != nil || req.KoditEnrichmentModel != nil).
+		Bool("rag_embeddings_model_updated", req.RAGEmbeddingsProvider != nil || req.RAGEmbeddingsModel != nil).
 		Bool("max_concurrent_desktops_updated", req.MaxConcurrentDesktops != nil).
 		Bool("providers_management_enabled_updated", req.ProvidersManagementEnabled != nil).
 		Bool("enforce_quotas_updated", req.EnforceQuotas != nil).
