@@ -184,8 +184,12 @@ func (s *OpenAIEmbeddingsSuite) TestRAGEmbeddingPlaceholderSubstitution() {
 
 	s.openAiClient.EXPECT().CreateFlexibleEmbeddings(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, req types.FlexibleEmbeddingRequest) (types.FlexibleEmbeddingResponse, error) {
-			// Model should be substituted to provider/model format
-			s.Equal("openai/text-embedding-3-small", req.Model)
+			// Model should be the model name WITHOUT provider prefix
+			// (provider is resolved separately via GetClient)
+			s.Equal("text-embedding-3-small", req.Model)
+			// encoding_format must be forced to "float" so the response contains []float32
+			// (the OpenAI Python SDK used by haystack defaults to "base64")
+			s.Equal("float", req.EncodingFormat)
 
 			return types.FlexibleEmbeddingResponse{
 				Object: "list",

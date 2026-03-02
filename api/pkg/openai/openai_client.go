@@ -362,12 +362,14 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 		}
 	}
 
-	// If there's a GPT model, filter out non-GPT models
+	// If there's a GPT model, filter out non-GPT models (but keep embedding models)
 	if hasGPTModel {
 		filteredModels := make([]types.OpenAIModel, 0)
 		for _, m := range models {
-			// gpt, o3, o1, etc
-			if strings.HasPrefix(m.ID, "gpt-") || strings.HasPrefix(m.ID, "o3") || strings.HasPrefix(m.ID, "o1") || strings.HasPrefix(m.ID, "o4") {
+			if strings.HasPrefix(m.ID, "text-embedding-") {
+				m.Type = "embed"
+				filteredModels = append(filteredModels, m)
+			} else if strings.HasPrefix(m.ID, "gpt-") || strings.HasPrefix(m.ID, "o3") || strings.HasPrefix(m.ID, "o1") || strings.HasPrefix(m.ID, "o4") {
 				// Add the type chat. This is needed
 				// for UI to correctly allow filtering
 				m.Type = "chat"
@@ -506,10 +508,15 @@ func (c *RetryableClient) CreateEmbeddings(ctx context.Context, request openai.E
 }
 
 func (c *RetryableClient) CreateFlexibleEmbeddings(ctx context.Context, request types.FlexibleEmbeddingRequest) (types.FlexibleEmbeddingResponse, error) {
-	url := c.baseURL + "/v1/embeddings"
+	url := c.baseURL + "/embeddings"
 
 	var responseBody types.FlexibleEmbeddingResponse
 	var err error
+
+	// Ensure encoding_format is "float" so we get []float32 back (not base64 strings)
+	if request.EncodingFormat == "" {
+		request.EncodingFormat = "float"
+	}
 
 	// Marshal the request to JSON
 	requestBody, err := json.Marshal(request)
