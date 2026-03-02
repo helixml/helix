@@ -9,19 +9,12 @@ Error observed:
 [rejected] feature/001036-we-badly-need-to -> feature/001036-we-badly-need-to (non-fast-forward)
 ```
 
-Additionally, if an agent gets into this state, there's no automatic recovery - the branch remains stuck until manual intervention.
-
 ## User Stories
 
 ### US-1: Agent Force Push
 **As an** agent working on a feature branch  
 **I want to** be able to force-push after rebasing or amending commits  
 **So that** I can keep my branch up-to-date with the latest base branch changes
-
-### US-2: Automatic Recovery
-**As a** Helix operator  
-**I want** the system to automatically recover diverged feature branches on startup  
-**So that** agents stuck in this state can resume work without manual intervention
 
 ## Acceptance Criteria
 
@@ -37,19 +30,12 @@ Additionally, if an agent gets into this state, there's no automatic recovery - 
 - [ ] `helix-specs` branch remains protected from force push (existing pre-receive hook behavior preserved)
 - [ ] Default/main branch remains protected (agents already can't push to it via `HELIX_ALLOWED_BRANCHES`)
 
-### AC-4: Startup Recovery
-- [ ] On startup, detect branches that have diverged from upstream (local and remote both have unique commits)
-- [ ] For diverged feature branches, automatically force-push to upstream to recover
-- [ ] Skip recovery for protected branches (`helix-specs`, default branch) - log warning instead
-- [ ] Recovery should sync from upstream first to ensure we have latest remote state
-
-### AC-5: Logging
+### AC-4: Logging
 - [ ] Force push events are logged with appropriate context (branch, old commit, new commit)
-- [ ] Startup recovery actions are logged (which branches recovered, which skipped)
 
 ## Out of Scope
 
 - Force push on `helix-specs` branch (intentionally blocked)
 - Force push on default branch (agents can't push there anyway)
+- Automatic startup recovery for diverged branches
 - UI changes
-- Notification to users when recovery happens
