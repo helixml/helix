@@ -5,6 +5,15 @@ set -e
 REPO_URL="https://charts.helixml.tech"
 
 function gen_packages() {
+  # Stamp appVersion from release tag if available
+  RELEASE_TAG="${DRONE_TAG:-${TAG_NAME:-}}"
+  if [ -n "${RELEASE_TAG}" ]; then
+    echo "Stamping appVersion=${RELEASE_TAG} into all Chart.yaml files"
+    for chart in charts/*/Chart.yaml; do
+      sed -i "s/^appVersion:.*/appVersion: \"${RELEASE_TAG}\"/" "$chart"
+    done
+  fi
+
   echo "Packaging charts from source code"
   mkdir -p temp
   for d in charts/*
