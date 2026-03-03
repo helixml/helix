@@ -541,6 +541,8 @@ github.com/helixml/kodit v0.0.0-20260302191333-0837e18946f8 h1:Hb7oN3nDm4TsyMhpD
 github.com/helixml/kodit v0.0.0-20260302191333-0837e18946f8/go.mod h1:/fTTGB0NmFtDmzRiOzLrPxeZD7+tD0u/JiqBtLXhXos=
 github.com/helixml/kodit v0.0.0-20260303113212-431377aca5b5 h1:ARWy32BuAgzXnPkvelJz1WcGJvZZivDeJmDl0pQ+ZlQ=
 github.com/helixml/kodit v0.0.0-20260303113212-431377aca5b5/go.mod h1:/fTTGB0NmFtDmzRiOzLrPxeZD7+tD0u/JiqBtLXhXos=
+github.com/helixml/kodit v1.1.0 h1:KqJIwMKvwJ2lL+1hhtY7yLjoExR5MxhrbL3qKOGVCNg=
+github.com/helixml/kodit v1.1.0/go.mod h1:/fTTGB0NmFtDmzRiOzLrPxeZD7+tD0u/JiqBtLXhXos=
 github.com/helixml/langchaingo v0.1.15 h1:6cEwRQgEri4aDrvDnSESmsMY9H35UUoWuOEukSP3lJw=
 github.com/helixml/langchaingo v0.1.15/go.mod h1:EeervIv/DNYhSfQSMaql20wMFvhgF7lDaVaatp8lVPw=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
