@@ -2,9 +2,9 @@
 
 ## Backend Changes
 
-- [~] Add `OnGracePeriodExpired` callback field to `ConnectionManager` struct in `api/pkg/connman/connman.go`
-- [ ] Add `SetOnGracePeriodExpired(fn func(key string))` method to `ConnectionManager`
-- [ ] Call the callback in `cleanupExpired()` when grace period expires for a key
+- [x] Add `OnGracePeriodExpired` callback field to `ConnectionManager` struct in `api/pkg/connman/connman.go`
+- [x] Add `SetOnGracePeriodExpired(fn func(key string))` method to `ConnectionManager`
+- [x] Call the callback in `cleanupExpired()` when grace period expires for a key
 - [ ] Add `ListSessionsBySandbox(ctx, sandboxID)` method to store interface and PostgresStore
 - [ ] Add `OnSandboxDisconnected(sandboxID string)` method to `HydraExecutor` that clears session metadata
 - [ ] Add `clearSessionsBySandbox(sandboxID string)` method to clear in-memory sessions map in `HydraExecutor`
