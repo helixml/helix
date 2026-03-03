@@ -11,7 +11,8 @@ global:
 image:
   repository: registry.helixml.tech/helix/controlplane
   pullPolicy: Always
-  tag: "latest"
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
 
 tika:
   enabled: false

@@ -11,7 +11,7 @@ type: application
 version: 0.2.0
 
 # Application version - matches helix-sandbox container version
-appVersion: "1.0.0"
+appVersion: "2.7.10"
 
 keywords:
   - helix
