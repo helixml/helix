@@ -76,9 +76,10 @@ const Layout: FC<{
     );
   }, [account.serverConfig]);
 
-  // Start 5-minute timer when license is required
+  // Start 5-minute timer when license is required AND user is logged in
+  // (we don't disable UI until they're logged in, so they have a chance to log in as admin)
   useEffect(() => {
-    if (licenseRequired && !licenseGracePeriodExpired) {
+    if (licenseRequired && account.user && !licenseGracePeriodExpired) {
       // Start 5-second grace period timer (for testing - change to 5 * 60 * 1000 for production)
       licenseTimerRef.current = setTimeout(() => {
         setLicenseGracePeriodExpired(true);
@@ -96,7 +97,7 @@ const Layout: FC<{
         clearTimeout(licenseTimerRef.current);
       }
     }
-  }, [licenseRequired, licenseGracePeriodExpired]);
+  }, [licenseRequired, account.user, licenseGracePeriodExpired]);
 
   const hasNewVersion = useMemo(() => {
     if (
@@ -306,8 +307,9 @@ const Layout: FC<{
           height: "100%",
           display: "flex",
           backgroundColor: lightTheme.backgroundColor, // Extend background behind iOS safe area
-          // Grey out UI when license grace period expires
+          // Grey out UI when license grace period expires (only when logged in)
           ...(licenseRequired &&
+            account.user &&
             licenseGracePeriodExpired && {
               filter: "grayscale(100%) brightness(0.5)",
               pointerEvents: "none",

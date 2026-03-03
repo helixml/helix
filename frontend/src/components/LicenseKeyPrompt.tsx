@@ -44,7 +44,24 @@ export const LicenseKeyPrompt: React.FC<LicenseKeyPromptProps> = ({
   const isLoggedIn = !!account.user;
 
   return (
-    <Box sx={{ maxWidth: 600, mx: "auto", mt: 4, p: 3 }}>
+    <Box
+      sx={{
+        position: "fixed",
+        top: 0,
+        right: 0,
+        bottom: 0,
+        width: 500,
+        maxWidth: "100vw",
+        zIndex: 9999,
+        backgroundColor: "background.paper",
+        borderLeft: "1px solid",
+        borderColor: "divider",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "auto",
+        p: 3,
+      }}
+    >
       {gracePeriodExpired && (
         <Alert severity="error" sx={{ mb: 2 }}>
           <strong>License required:</strong> The application has been disabled
@@ -54,6 +71,9 @@ export const LicenseKeyPrompt: React.FC<LicenseKeyPromptProps> = ({
       )}
       <Typography variant="h5" gutterBottom>
         Get a License Key to use Helix ✨
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        From $199/year for individual developer licenses
       </Typography>
       {account.serverConfig?.license && (
         <Alert severity="warning" sx={{ mb: 2 }}>
@@ -67,7 +87,7 @@ export const LicenseKeyPrompt: React.FC<LicenseKeyPromptProps> = ({
         </Alert>
       )}
       <Typography paragraph>
-        Get your license key from{" "}
+        Buy licenses:{" "}
         <Link
           href="https://helix.ml/account/licenses"
           target="_blank"
