@@ -14,15 +14,34 @@ The current rendering pipeline:
 
 The problem: The blinker span is appended to raw markdown, then `react-markdown` + `rehype-raw` processes it. When a code block precedes the blinker, the `rehype-raw` plugin may incorrectly nest the span inside the generated `<pre><code>` tags.
 
-## Solution: Add Blinker After Markdown Rendering
+## Solution Options
 
-Instead of appending the blinker to raw markdown (before parsing), inject it after the markdown-to-HTML conversion is complete.
+### Option A: Inline Blinker (Keep Current UX, Fix Bug)
 
-### Option A: Move Blinker to React Component Layer
+Keep the inline cursor behavior but ensure it renders correctly by adding a newline or delimiter before the blinker span to prevent `rehype-raw` from nesting it in code blocks:
 
-The cleanest fix is to render the blinker as a separate React element, not as raw HTML injected into markdown.
+```typescript
+private addBlinker(message: string): string {
+  const openCodeBlockCount = (message.match(/```/g) || []).length;
+  if (openCodeBlockCount % 2 !== 0) {
+    return message;
+  }
 
-In `InteractionMarkdown` or `MemoizedMarkdownRenderer`:
+  // Add newline after code blocks to separate blinker from pre/code context
+  if (message.trimEnd().endsWith('```')) {
+    return message + '\n\n<span class="blinker-class">┃</span>';
+  }
+
+  return message + '<span class="blinker-class">┃</span>';
+}
+```
+
+**Pros**: Keeps inline cursor after regular text
+**Cons**: May still have edge cases; blinker on new line after code blocks
+
+### Option B: Replace with Streaming Spinner (Better UX)
+
+Replace the inline blinker with a spinner/loading indicator on its own line. Render as a sibling React element after the Markdown component:
 
 ```tsx
 return (
@@ -35,62 +54,46 @@ return (
       components={markdownComponents}
     />
     {showBlinker && isStreaming && (
-      <span className="blinker-class">┃</span>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+        <CircularProgress size={16} />
+      </Box>
     )}
   </>
 );
 ```
 
-This ensures the blinker is always a sibling element after the rendered markdown, never inside it.
+**Pros**: 
+- Eliminates the bug entirely (blinker never in markdown)
+- Modern UX (similar to ChatGPT's pulsing dots)
+- Cleaner separation of concerns
 
-### Option B: Use CSS ::after Pseudo-element
+**Cons**: 
+- Visual change from inline cursor to below-content spinner
+- Spinner always on its own line, not inline after text
 
-Add the blinker via CSS on a wrapper element when streaming:
+### Recommended: Option B (Spinner)
 
-```tsx
-<Box className={isStreaming ? 'streaming-content' : ''}>
-  <Markdown ... />
-</Box>
-```
-
-```css
-.streaming-content::after {
-  content: '┃';
-  animation: blink 1.2s step-end infinite;
-}
-```
-
-### Recommended: Option A
-
-Option A is simpler and maintains the existing blinker styling. It requires minimal changes to the component structure.
+The spinner approach is cleaner and completely eliminates the parsing issue. The current inline blinker is a nice touch but causes rendering bugs. A spinner below content is a well-established pattern for streaming AI responses.
 
 ## Changes Required
 
 1. **Remove** `addBlinker()` call from `MessageProcessor.process()`
-2. **Remove** the `addBlinker()` method (or keep for reference)
-3. **Add** blinker rendering in `MemoizedMarkdownRenderer` as a sibling element
+2. **Remove** the `addBlinker()` method 
+3. **Add** spinner/loading indicator as sibling element after `<Markdown>` in `MemoizedMarkdownRenderer`
 4. **Pass** `showBlinker` and `isStreaming` props to the renderer component
+5. **Choose spinner style**: MUI `CircularProgress`, pulsing dots, or similar
 
-## Alternatives Considered
+## Spinner Style Options
 
-| Alternative | Why Rejected |
-|-------------|--------------|
-| Close unclosed tags before adding blinker | Doesn't fix the core issue - `rehype-raw` interaction with code blocks |
-| Escape blinker HTML in code blocks | Complex regex, fragile |
-| Use different blinker character | Doesn't solve the rendering context issue |
-
-## Key Decisions
-
-| Decision | Rationale |
-|----------|-----------|
-| Render blinker in React, not raw HTML | Avoids markdown parser interference entirely |
-| Place blinker as sibling after Markdown | Guarantees it's never inside code/pre blocks |
-| Keep existing blinker CSS | No visual changes to users |
+| Style | Description |
+|-------|-------------|
+| `CircularProgress` (small) | Simple spinning circle |
+| Pulsing dots (●●●) | Three dots that pulse in sequence (ChatGPT style) |
+| Typing indicator | "AI is typing..." text with animation |
 
 ## Testing Strategy
 
-- Unit test: Blinker appears after code block (not inside)
-- Unit test: Blinker appears during streaming, disappears when done
-- Unit test: Multiple code blocks don't affect blinker position
-- Manual test: Verify blinker animation works correctly
-- Manual test: Verify blinker positioning at end of various content types
+- Unit test: Spinner appears during streaming, disappears when done
+- Unit test: No blinker HTML in rendered markdown output
+- Manual test: Spinner animation works correctly
+- Manual test: Spinner positioning looks good after various content types (text, code, lists)
