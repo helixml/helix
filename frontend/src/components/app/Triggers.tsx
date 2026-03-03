@@ -10,6 +10,7 @@ import TriggerSlack from './TriggerSlack'
 import TriggerTeams from './TriggerTeams'
 import TriggerAzureDevOps from './TriggerAzureDevOps'
 import TriggerCrisp from './TriggerCrisp'
+import TriggerTelegram from './TriggerTelegram'
 import { IAppFlatState } from '../../types'
 
 interface TriggersProps {
@@ -104,6 +105,17 @@ const Triggers: FC<TriggersProps> = ({
       {/* Crisp Trigger */}
       <TriggerCrisp
         app={app}
+        appId={appId}
+        triggers={triggers}
+        onUpdate={onUpdate}
+        readOnly={readOnly}
+      />
+
+      {/* Add spacing between triggers */}
+      <Box sx={{ my: 3 }} />
+
+      {/* Telegram Trigger */}
+      <TriggerTelegram
         appId={appId}
         triggers={triggers}
         onUpdate={onUpdate}

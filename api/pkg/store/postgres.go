@@ -175,6 +175,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.SlackThread{},
 		&types.TeamsThread{},
 		&types.CrispThread{},
+		&types.TelegramThread{},
 		&types.TriggerConfiguration{},
 		&types.TriggerExecution{},
 		&types.SystemSettings{},

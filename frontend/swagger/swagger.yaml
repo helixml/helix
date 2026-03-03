@@ -8351,6 +8351,19 @@ definitions:
         description: 'Optional: restrict to specific tenant'
         type: string
     type: object
+  types.TelegramTrigger:
+    properties:
+      allowed_users:
+        description: Telegram user IDs allowed to interact (empty = allow all)
+        items:
+          type: integer
+        type: array
+      bot_token:
+        description: Per-app token (empty = use global TELEGRAM_BOT_TOKEN)
+        type: string
+      enabled:
+        type: boolean
+    type: object
   types.TestStep:
     properties:
       expected_output:
@@ -8652,6 +8665,8 @@ definitions:
         $ref: '#/definitions/types.SlackTrigger'
       teams:
         $ref: '#/definitions/types.TeamsTrigger'
+      telegram:
+        $ref: '#/definitions/types.TelegramTrigger'
     type: object
   types.TriggerConfiguration:
     properties:
@@ -8754,6 +8769,7 @@ definitions:
     - crisp
     - azure_devops
     - cron
+    - telegram
     type: string
     x-enum-varnames:
     - TriggerTypeSlack
@@ -8761,6 +8777,7 @@ definitions:
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeTelegram
   types.UnifiedSearchResponse:
     properties:
       query:

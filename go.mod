@@ -32,6 +32,7 @@ require (
 	github.com/go-gst/go-gst v1.4.0
 	github.com/go-rod/rod v0.116.2
 	github.com/go-shiori/go-readability v0.0.0-20240701094332-1070de7e32ef
+	github.com/go-telegram/bot v1.19.0
 	github.com/gocolly/colly/v2 v2.1.0
 	github.com/godbus/dbus/v5 v5.2.1
 	github.com/golang-jwt/jwt/v5 v5.3.1

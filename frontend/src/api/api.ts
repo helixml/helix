@@ -5047,6 +5047,14 @@ export interface TypesTeamsTrigger {
   tenant_id?: string;
 }
 
+export interface TypesTelegramTrigger {
+  /** Telegram user IDs allowed to interact (empty = allow all) */
+  allowed_users?: number[];
+  /** Per-app token (empty = use global TELEGRAM_BOT_TOKEN) */
+  bot_token?: string;
+  enabled?: boolean;
+}
+
 export interface TypesTestStep {
   expected_output?: string;
   prompt?: string;
@@ -5228,6 +5236,7 @@ export interface TypesTrigger {
   discord?: TypesDiscordTrigger;
   slack?: TypesSlackTrigger;
   teams?: TypesTeamsTrigger;
+  telegram?: TypesTelegramTrigger;
 }
 
 export interface TypesTriggerConfiguration {
@@ -5292,6 +5301,7 @@ export enum TypesTriggerType {
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeTelegram = "telegram",
 }
 
 export interface TypesUnifiedSearchResponse {

@@ -871,6 +871,21 @@ func (mr *MockStoreMockRecorder) CreateTeamsThread(ctx, thread any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTeamsThread", reflect.TypeOf((*MockStore)(nil).CreateTeamsThread), ctx, thread)
 }
 
+// CreateTelegramThread mocks base method.
+func (m *MockStore) CreateTelegramThread(ctx context.Context, thread *types.TelegramThread) (*types.TelegramThread, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateTelegramThread", ctx, thread)
+	ret0, _ := ret[0].(*types.TelegramThread)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateTelegramThread indicates an expected call of CreateTelegramThread.
+func (mr *MockStoreMockRecorder) CreateTelegramThread(ctx, thread any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTelegramThread", reflect.TypeOf((*MockStore)(nil).CreateTelegramThread), ctx, thread)
+}
+
 // CreateTriggerConfiguration mocks base method.
 func (m *MockStore) CreateTriggerConfiguration(ctx context.Context, triggerConfig *types.TriggerConfiguration) (*types.TriggerConfiguration, error) {
 	m.ctrl.T.Helper()
@@ -1648,6 +1663,20 @@ func (m *MockStore) DeleteTeamsThread(ctx context.Context, olderThan time.Time) 
 func (mr *MockStoreMockRecorder) DeleteTeamsThread(ctx, olderThan any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTeamsThread", reflect.TypeOf((*MockStore)(nil).DeleteTeamsThread), ctx, olderThan)
+}
+
+// DeleteTelegramThread mocks base method.
+func (m *MockStore) DeleteTelegramThread(ctx context.Context, olderThan time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteTelegramThread", ctx, olderThan)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteTelegramThread indicates an expected call of DeleteTelegramThread.
+func (mr *MockStoreMockRecorder) DeleteTelegramThread(ctx, olderThan any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTelegramThread", reflect.TypeOf((*MockStore)(nil).DeleteTelegramThread), ctx, olderThan)
 }
 
 // DeleteTriggerConfiguration mocks base method.
@@ -3171,6 +3200,36 @@ func (mr *MockStoreMockRecorder) GetTeamsThread(ctx, appID, conversationID any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTeamsThread", reflect.TypeOf((*MockStore)(nil).GetTeamsThread), ctx, appID, conversationID)
 }
 
+// GetTelegramThread mocks base method.
+func (m *MockStore) GetTelegramThread(ctx context.Context, appID string, telegramChatID int64) (*types.TelegramThread, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTelegramThread", ctx, appID, telegramChatID)
+	ret0, _ := ret[0].(*types.TelegramThread)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetTelegramThread indicates an expected call of GetTelegramThread.
+func (mr *MockStoreMockRecorder) GetTelegramThread(ctx, appID, telegramChatID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTelegramThread", reflect.TypeOf((*MockStore)(nil).GetTelegramThread), ctx, appID, telegramChatID)
+}
+
+// GetTelegramThreadByChatID mocks base method.
+func (m *MockStore) GetTelegramThreadByChatID(ctx context.Context, telegramChatID int64) (*types.TelegramThread, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTelegramThreadByChatID", ctx, telegramChatID)
+	ret0, _ := ret[0].(*types.TelegramThread)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetTelegramThreadByChatID indicates an expected call of GetTelegramThreadByChatID.
+func (mr *MockStoreMockRecorder) GetTelegramThreadByChatID(ctx, telegramChatID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTelegramThreadByChatID", reflect.TypeOf((*MockStore)(nil).GetTelegramThreadByChatID), ctx, telegramChatID)
+}
+
 // GetTriggerConfiguration mocks base method.
 func (m *MockStore) GetTriggerConfiguration(ctx context.Context, q *GetTriggerConfigurationQuery) (*types.TriggerConfiguration, error) {
 	m.ctrl.T.Helper()
@@ -4283,6 +4342,21 @@ func (mr *MockStoreMockRecorder) ListTeams(ctx, query any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTeams", reflect.TypeOf((*MockStore)(nil).ListTeams), ctx, query)
 }
 
+// ListTelegramThreadsWithUpdates mocks base method.
+func (m *MockStore) ListTelegramThreadsWithUpdates(ctx context.Context, projectID string) ([]*types.TelegramThread, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListTelegramThreadsWithUpdates", ctx, projectID)
+	ret0, _ := ret[0].([]*types.TelegramThread)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListTelegramThreadsWithUpdates indicates an expected call of ListTelegramThreadsWithUpdates.
+func (mr *MockStoreMockRecorder) ListTelegramThreadsWithUpdates(ctx, projectID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTelegramThreadsWithUpdates", reflect.TypeOf((*MockStore)(nil).ListTelegramThreadsWithUpdates), ctx, projectID)
+}
+
 // ListTopUps mocks base method.
 func (m *MockStore) ListTopUps(ctx context.Context, q *ListTopUpsQuery) ([]*types.TopUp, error) {
 	m.ctrl.T.Helper()
@@ -5388,6 +5462,21 @@ func (m *MockStore) UpdateTeam(ctx context.Context, team *types.Team) (*types.Te
 func (mr *MockStoreMockRecorder) UpdateTeam(ctx, team any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateTeam", reflect.TypeOf((*MockStore)(nil).UpdateTeam), ctx, team)
+}
+
+// UpdateTelegramThread mocks base method.
+func (m *MockStore) UpdateTelegramThread(ctx context.Context, thread *types.TelegramThread) (*types.TelegramThread, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateTelegramThread", ctx, thread)
+	ret0, _ := ret[0].(*types.TelegramThread)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateTelegramThread indicates an expected call of UpdateTelegramThread.
+func (mr *MockStoreMockRecorder) UpdateTelegramThread(ctx, thread any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateTelegramThread", reflect.TypeOf((*MockStore)(nil).UpdateTelegramThread), ctx, thread)
 }
 
 // UpdateTriggerConfiguration mocks base method.

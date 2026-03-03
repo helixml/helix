@@ -26282,6 +26282,25 @@ const docTemplate = `{
                 }
             }
         },
+        "types.TelegramTrigger": {
+            "type": "object",
+            "properties": {
+                "allowed_users": {
+                    "description": "Telegram user IDs allowed to interact (empty = allow all)",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "bot_token": {
+                    "description": "Per-app token (empty = use global TELEGRAM_BOT_TOKEN)",
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                }
+            }
+        },
         "types.TestStep": {
             "type": "object",
             "properties": {
@@ -26704,6 +26723,9 @@ const docTemplate = `{
                 },
                 "teams": {
                     "$ref": "#/definitions/types.TeamsTrigger"
+                },
+                "telegram": {
+                    "$ref": "#/definitions/types.TelegramTrigger"
                 }
             }
         },
@@ -26850,14 +26872,16 @@ const docTemplate = `{
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "telegram"
             ],
             "x-enum-varnames": [
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeTelegram"
             ]
         },
         "types.UnifiedSearchResponse": {

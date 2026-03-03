@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/trigger/project"
 	"github.com/helixml/helix/api/pkg/trigger/slack"
 	"github.com/helixml/helix/api/pkg/trigger/teams"
+	"github.com/helixml/helix/api/pkg/trigger/telegram"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/rs/zerolog/log"
@@ -85,6 +86,14 @@ func (t *Manager) Start(ctx context.Context) {
 		go func() {
 			defer t.wg.Done()
 			t.runTeams(ctx)
+		}()
+	}
+
+	if t.cfg.Triggers.Telegram.Enabled {
+		t.wg.Add(1)
+		go func() {
+			defer t.wg.Done()
+			t.runTelegram(ctx)
 		}()
 	}
 
@@ -182,6 +191,23 @@ func (t *Manager) runTeams(ctx context.Context) {
 		err := t.teams.Start(ctx)
 		if err != nil {
 			log.Err(err).Msg("failed to start teams trigger, retrying in 10 seconds")
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+		}
+	}
+}
+
+func (t *Manager) runTelegram(ctx context.Context) {
+	telegramTrigger := telegram.New(t.cfg, t.store, t.controller)
+
+	for {
+		err := telegramTrigger.Start(ctx)
+		if err != nil {
+			log.Err(err).Msg("failed to start Telegram trigger, retrying in 10 seconds")
 		}
 
 		select {

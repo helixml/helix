@@ -418,6 +418,13 @@ type Store interface {
 	GetTeamsThread(ctx context.Context, appID, conversationID string) (*types.TeamsThread, error)
 	DeleteTeamsThread(ctx context.Context, olderThan time.Time) error
 
+	CreateTelegramThread(ctx context.Context, thread *types.TelegramThread) (*types.TelegramThread, error)
+	GetTelegramThread(ctx context.Context, appID string, telegramChatID int64) (*types.TelegramThread, error)
+	GetTelegramThreadByChatID(ctx context.Context, telegramChatID int64) (*types.TelegramThread, error)
+	UpdateTelegramThread(ctx context.Context, thread *types.TelegramThread) (*types.TelegramThread, error)
+	ListTelegramThreadsWithUpdates(ctx context.Context, projectID string) ([]*types.TelegramThread, error)
+	DeleteTelegramThread(ctx context.Context, olderThan time.Time) error
+
 	// wallet methods
 	CreateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error)
 	GetWallet(ctx context.Context, id string) (*types.Wallet, error)

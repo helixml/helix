@@ -1796,6 +1796,19 @@ type DiscordTrigger struct {
 	ServerName string `json:"server_name" yaml:"server_name"`
 }
 
+// Done! Congratulations on your new bot. You will find it at t.me/HelixMLBot. You can now add a description, about section and profile picture for your bot, see /help for a list of commands. By the way, when you've finished creating your cool bot, ping our Bot Support if you want a better username for it. Just make sure the bot is fully operational before you do this.
+
+// Use this token to access the HTTP API:
+// 8259415687:AAFin7eu4m0POfXzazodRUeXAHdR2__PwAY
+// Keep your token secure and store it safely, it can be used by anyone to control your bot.
+
+// For a description of the Bot API, see this page: https://core.telegram.org/bots/api
+type TelegramTrigger struct {
+	Enabled      bool    `json:"enabled,omitempty"`
+	BotToken     string  `json:"bot_token" yaml:"bot_token"`                 // Per-app token (empty = use global TELEGRAM_BOT_TOKEN)
+	AllowedUsers []int64 `json:"allowed_users,omitempty" yaml:"allowed_users"` // Telegram user IDs allowed to interact (empty = allow all)
+}
+
 type SlackTrigger struct {
 	Enabled  bool     `json:"enabled,omitempty"`
 	AppToken string   `json:"app_token" yaml:"app_token"`
@@ -1841,6 +1854,7 @@ type AzureDevOpsTrigger struct {
 
 type Trigger struct {
 	Discord     *DiscordTrigger     `json:"discord,omitempty" yaml:"discord,omitempty"`
+	Telegram    *TelegramTrigger    `json:"telegram,omitempty" yaml:"telegram,omitempty"`
 	Slack       *SlackTrigger       `json:"slack,omitempty" yaml:"slack,omitempty"`
 	Teams       *TeamsTrigger       `json:"teams,omitempty" yaml:"teams,omitempty"`
 	Cron        *CronTrigger        `json:"cron,omitempty" yaml:"cron,omitempty"`
@@ -2778,6 +2792,17 @@ type CrispThread struct {
 	SessionID string `json:"session_id"` // Helix session ID
 }
 
+type TelegramThread struct {
+	TelegramChatID int64     `json:"telegram_chat_id" gorm:"primaryKey"`
+	AppID          string    `json:"app_id" gorm:"primaryKey"`
+	Created        time.Time `json:"created"`
+	Updated        time.Time `json:"updated"`
+
+	SessionID string `json:"session_id"`             // Helix session ID
+	ProjectID string `json:"project_id,omitempty"`    // Optional linked project
+	Updates   bool   `json:"updates,omitempty"`       // Opt-in spec task notifications
+}
+
 type TriggerType string
 
 func (t TriggerType) String() string {
@@ -2790,6 +2815,7 @@ const (
 	TriggerTypeCrisp       TriggerType = "crisp"
 	TriggerTypeAzureDevOps TriggerType = "azure_devops"
 	TriggerTypeCron        TriggerType = "cron"
+	TriggerTypeTelegram    TriggerType = "telegram"
 	// TODO: discord
 )
 

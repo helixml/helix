@@ -545,11 +545,12 @@ type Apps struct {
 }
 
 type Triggers struct {
-	Discord Discord
-	Cron    Cron
-	Slack   Slack
-	Teams   Teams
-	Crisp   Crisp
+	Discord  Discord
+	Cron     Cron
+	Slack    Slack
+	Teams    Teams
+	Crisp    Crisp
+	Telegram Telegram
 }
 
 type Discord struct {
@@ -569,6 +570,11 @@ type Teams struct {
 
 type Crisp struct {
 	Enabled bool `envconfig:"CRISP_ENABLED" default:"true"`
+}
+
+type Telegram struct {
+	Enabled  bool   `envconfig:"TELEGRAM_ENABLED" default:"true"`
+	BotToken string `envconfig:"TELEGRAM_BOT_TOKEN"` // Global bot token shared across apps
 }
 
 type Cron struct {
