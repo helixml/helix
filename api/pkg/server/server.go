@@ -241,6 +241,19 @@ func NewServer(
 		sandboxAPIURL = cfg.WebServer.URL
 	}
 
+	// Get license key for nested Helix instances (Helix-in-Helix)
+	// Priority: 1) LICENSE_KEY env, 2) database
+	licenseKeyForHydra := cfg.LicenseKey
+	if licenseKeyForHydra == "" {
+		// Try loading from database (user may have set it via API/UI)
+		if dbLicense, err := store.GetLicenseKey(context.Background()); err != nil {
+			log.Warn().Err(err).Msg("Failed to load license key from database for Hydra")
+		} else if dbLicense != nil && dbLicense.LicenseKey != "" {
+			licenseKeyForHydra = dbLicense.LicenseKey
+			log.Info().Msg("Loaded license key from database for nested Helix instances")
+		}
+	}
+
 	// Create Hydra executor for container lifecycle management
 	log.Info().Msg("Initializing Hydra executor for container management")
 	externalAgentExecutor := external_agent.NewHydraExecutor(external_agent.HydraExecutorConfig{
@@ -251,7 +264,7 @@ func NewServer(
 		WorkspaceBasePathForCloning:   "/data/workspaces", // Path on sandbox filesystem (not API - Hydra creates dirs)
 		Connman:                       connectionManager,
 		GPUVendor:                     os.Getenv("GPU_VENDOR"), // "nvidia", "amd", "intel", or ""
-		LicenseKey:                    cfg.LicenseKey,          // Pass to nested Helix instances
+		LicenseKey:                    licenseKeyForHydra,      // Pass to nested Helix instances
 	})
 	appController.Options.ExternalAgentExecutor = externalAgentExecutor
 
