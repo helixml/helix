@@ -158,6 +158,15 @@ if [ ! -f "$HELIX_DIR/.env" ]; then
 # Use outer Helix as OpenAI-compatible provider
 OPENAI_API_KEY=${OUTER_API_KEY}
 OPENAI_BASE_URL=${OUTER_API_URL}/v1
+
+# Use outer Helix as Anthropic-compatible provider
+# Note: No /v1 suffix - Anthropic SDK appends /v1/messages
+ANTHROPIC_API_KEY=${OUTER_API_KEY}
+ANTHROPIC_BASE_URL=${OUTER_API_URL}
+
+# Use the outer Helix's license (hides "Get your free Community License Key" banner)
+# HELIX_LICENSE_KEY is passed from the outer Helix via HydraExecutor
+LICENSE_KEY=${HELIX_LICENSE_KEY:-}
 EOF
         echo "  ✅ .env created - inner Helix will use outer Helix for inference"
     else
