@@ -24,9 +24,11 @@
 - [x] Verify list item height is at least 44px for touch accessibility
 - [x] Increase `py` padding if needed on ListItemButton
 
-## Testing
+## Testing (Manual Verification Required)
 
 - [ ] Test on mobile viewport (375px width)
 - [ ] Test file selection flow: tap file → view diff → tap back → file list
 - [ ] Test desktop layout remains unchanged
 - [ ] Verify line numbers display correctly on both layouts
+
+> **Note:** Build verified with `yarn build`. Manual testing recommended in browser with DevTools mobile viewport.

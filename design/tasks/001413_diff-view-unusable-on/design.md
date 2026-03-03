@@ -89,3 +89,43 @@ interface DiffContentProps {
 | `DiffViewer.tsx` | Add responsive layout logic, mobile view state |
 | `DiffContent.tsx` | Add back button, responsive line numbers |
 | `DiffFileList.tsx` | Minor: ensure touch targets are 44px+ |
+
+## Implementation Notes
+
+### What Was Implemented
+
+1. **DiffViewer.tsx changes:**
+   - Added `useIsBigScreen` hook with `sm` breakpoint (600px)
+   - Added `mobileView` state toggling between `'files'` and `'diff'`
+   - Added ToggleButtonGroup with Files/Diff buttons using lucide icons
+   - Separate rendering paths for desktop (side-by-side) and mobile (stacked)
+   - Auto-switch to diff view on file selection (`handleSelectFile`)
+   - Reset to files view when switching workspace tabs
+   - Hidden branch info on mobile header to save space
+
+2. **DiffContent.tsx changes:**
+   - Added `onBack` and `isMobile` props to interface
+   - Added back arrow button in header when `onBack` is provided
+   - Responsive line number column: 32px on mobile, 44px on desktop
+   - Hide old line number column on mobile (show combined line number)
+   - Smaller font sizes on mobile (0.65rem vs 0.72rem)
+   - File path truncation with text-overflow ellipsis
+   - Hide copy path button on mobile to save space
+   - Reduced padding on mobile for more content space
+
+3. **DiffFileList.tsx changes:**
+   - Added `minHeight: 44` to ListItemButton for touch accessibility
+   - Increased vertical padding (`py: 1` instead of `py: 0.75`)
+
+### Patterns Used
+
+- Used existing `useIsBigScreen` hook pattern from `SpecTaskDetailContent.tsx`
+- Used `ToggleButtonGroup` pattern consistent with mobile view toggles elsewhere
+- Followed existing responsive styling conventions with MUI sx prop
+
+### Testing Notes
+
+- Build verified with `yarn build` - compiles successfully
+- Manual testing recommended on mobile viewport (375px width)
+- Test flow: tap file → view diff → tap back → file list
+- Desktop layout should remain unchanged
