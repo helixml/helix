@@ -15,12 +15,12 @@
 - [x] Remove blinker CSS from `index.html` if present
 
 ## Add New Indicator
-- [~] Pass `isStreaming` prop through to `MemoizedMarkdownRenderer`
-- [ ] Add `StreamingIndicator` as sibling React element after `<Markdown>` component
-- [ ] Style with appropriate spacing
+- [x] Pass `isStreaming` prop through to `MemoizedMarkdownRenderer`
+- [x] Add `StreamingIndicator` as sibling React element after `<Markdown>` component
+- [x] Style with appropriate spacing
 
 ## Testing
-- [ ] Update existing blinker unit tests to test new indicator behavior
+- [~] Update existing blinker unit tests to test new indicator behavior
 - [ ] Run `yarn build` to check for TypeScript errors
 - [ ] Manual test: streaming response with code blocks shows indicator correctly
 - [ ] Manual test: indicator appears during streaming, disappears when done
