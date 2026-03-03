@@ -40,7 +40,7 @@ export const LicenseKeyPrompt: React.FC = () => {
   return (
     <Box sx={{ maxWidth: 600, mx: "auto", mt: 4, p: 3 }}>
       <Typography variant="h5" gutterBottom>
-        Get a License Key to use Helix 🕺🏽
+        Get a License Key to use Helix ✨
       </Typography>
       {account.serverConfig?.license && (
         <Alert severity="warning" sx={{ mb: 2 }}>
