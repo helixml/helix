@@ -2,13 +2,13 @@
 
 ## DiffViewer.tsx - Mobile Layout
 
-- [ ] Import `useIsBigScreen` hook from `../../hooks/useIsBigScreen`
-- [ ] Add `isMobile` state using `useIsBigScreen({ breakpoint: 'sm' })`
-- [ ] Add `mobileView` state: `useState<'files' | 'diff'>('files')`
-- [ ] Add mobile view toggle UI (ToggleButtonGroup with Files/Diff buttons)
-- [ ] Conditionally render file list OR diff content on mobile (not both)
-- [ ] Auto-switch to 'diff' view when `handleSelectFile` is called on mobile
-- [ ] Pass `onBack` callback to DiffContent on mobile to return to file list
+- [~] Import `useIsBigScreen` hook from `../../hooks/useIsBigScreen`
+- [~] Add `isMobile` state using `useIsBigScreen({ breakpoint: 'sm' })`
+- [~] Add `mobileView` state: `useState<'files' | 'diff'>('files')`
+- [~] Add mobile view toggle UI (ToggleButtonGroup with Files/Diff buttons)
+- [~] Conditionally render file list OR diff content on mobile (not both)
+- [~] Auto-switch to 'diff' view when `handleSelectFile` is called on mobile
+- [~] Pass `onBack` callback to DiffContent on mobile to return to file list
 
 ## DiffContent.tsx - Responsive Styling
 
