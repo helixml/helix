@@ -1,4 +1,4 @@
-import React, { FC, useMemo } from 'react'
+import React, { FC, useMemo } from "react";
 import {
   Box,
   Typography,
@@ -7,140 +7,199 @@ import {
   Tooltip,
   Paper,
   useTheme,
-} from '@mui/material'
-import { Copy } from 'lucide-react'
-import { FileDiff } from '../../hooks/useLiveFileDiff'
-import useThemeConfig from '../../hooks/useThemeConfig'
-import { ITheme } from '../../themes'
+  Button,
+} from "@mui/material";
+import { Copy, ArrowLeft } from "lucide-react";
+import { FileDiff } from "../../hooks/useLiveFileDiff";
+import useThemeConfig from "../../hooks/useThemeConfig";
+import { ITheme } from "../../themes";
 
 interface DiffContentProps {
-  file: FileDiff | null
-  isLoading?: boolean
-  onCopyPath?: () => void
+  file: FileDiff | null;
+  isLoading?: boolean;
+  onCopyPath?: () => void;
+  /** Callback to return to file list (mobile only) */
+  onBack?: () => void;
+  /** Enable mobile-specific styling */
+  isMobile?: boolean;
 }
 
 interface DiffLine {
-  type: 'header' | 'hunk' | 'add' | 'remove' | 'context' | 'empty'
-  content: string
-  oldLineNo?: number
-  newLineNo?: number
+  type: "header" | "hunk" | "add" | "remove" | "context" | "empty";
+  content: string;
+  oldLineNo?: number;
+  newLineNo?: number;
 }
 
 function parseDiff(diffContent: string): DiffLine[] {
-  if (!diffContent) return []
+  if (!diffContent) return [];
 
-  const lines = diffContent.split('\n')
-  const result: DiffLine[] = []
+  const lines = diffContent.split("\n");
+  const result: DiffLine[] = [];
 
-  let oldLine = 0
-  let newLine = 0
+  let oldLine = 0;
+  let newLine = 0;
 
   for (const line of lines) {
-    if (line.startsWith('---') || line.startsWith('+++')) {
-      result.push({ type: 'header', content: line })
-    } else if (line.startsWith('@@')) {
-      const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
+    if (line.startsWith("---") || line.startsWith("+++")) {
+      result.push({ type: "header", content: line });
+    } else if (line.startsWith("@@")) {
+      const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
       if (match) {
-        oldLine = parseInt(match[1], 10)
-        newLine = parseInt(match[2], 10)
+        oldLine = parseInt(match[1], 10);
+        newLine = parseInt(match[2], 10);
       }
-      result.push({ type: 'hunk', content: line })
-    } else if (line.startsWith('+')) {
+      result.push({ type: "hunk", content: line });
+    } else if (line.startsWith("+")) {
       result.push({
-        type: 'add',
+        type: "add",
         content: line.substring(1),
         newLineNo: newLine++,
-      })
-    } else if (line.startsWith('-')) {
+      });
+    } else if (line.startsWith("-")) {
       result.push({
-        type: 'remove',
+        type: "remove",
         content: line.substring(1),
         oldLineNo: oldLine++,
-      })
-    } else if (line.startsWith(' ') || line === '') {
-      const content = line.startsWith(' ') ? line.substring(1) : line
+      });
+    } else if (line.startsWith(" ") || line === "") {
+      const content = line.startsWith(" ") ? line.substring(1) : line;
       result.push({
-        type: line === '' ? 'empty' : 'context',
+        type: line === "" ? "empty" : "context",
         content,
         oldLineNo: oldLine++,
         newLineNo: newLine++,
-      })
+      });
     } else {
-      result.push({ type: 'context', content: line })
+      result.push({ type: "context", content: line });
     }
   }
 
-  return result
+  return result;
 }
 
-function getLineBackground(type: DiffLine['type'], themeConfig: ITheme): string {
+function getLineBackground(
+  type: DiffLine["type"],
+  themeConfig: ITheme,
+): string {
   switch (type) {
-    case 'add':
-      return `${themeConfig.greenRoot}1A`
-    case 'remove':
-      return `${themeConfig.redRoot}1A`
-    case 'hunk':
-      return `${themeConfig.tealRoot}0F`
-    case 'header':
-      return 'rgba(128, 128, 128, 0.06)'
+    case "add":
+      return `${themeConfig.greenRoot}1A`;
+    case "remove":
+      return `${themeConfig.redRoot}1A`;
+    case "hunk":
+      return `${themeConfig.tealRoot}0F`;
+    case "header":
+      return "rgba(128, 128, 128, 0.06)";
     default:
-      return 'transparent'
+      return "transparent";
   }
 }
 
-function getLineColor(type: DiffLine['type'], themeConfig: ITheme): string {
+function getLineColor(type: DiffLine["type"], themeConfig: ITheme): string {
   switch (type) {
-    case 'add':
-      return themeConfig.greenRoot
-    case 'remove':
-      return themeConfig.redRoot
-    case 'hunk':
-      return themeConfig.tealRoot
-    case 'header':
-      return themeConfig.neutral400
+    case "add":
+      return themeConfig.greenRoot;
+    case "remove":
+      return themeConfig.redRoot;
+    case "hunk":
+      return themeConfig.tealRoot;
+    case "header":
+      return themeConfig.neutral400;
     default:
-      return themeConfig.darkText
+      return themeConfig.darkText;
   }
 }
 
-const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
-  const theme = useTheme()
-  const themeConfig = useThemeConfig()
-  const monoFont = theme.typography.fontFamilyMono
+const DiffContent: FC<DiffContentProps> = ({
+  file,
+  isLoading,
+  onCopyPath,
+  onBack,
+  isMobile = false,
+}) => {
+  const theme = useTheme();
+  const themeConfig = useThemeConfig();
+  const monoFont = theme.typography.fontFamilyMono;
 
   const parsedDiff = useMemo(() => {
-    if (!file?.diff) return []
-    return parseDiff(file.diff)
-  }, [file?.diff])
+    if (!file?.diff) return [];
+    return parseDiff(file.diff);
+  }, [file?.diff]);
 
   if (isLoading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', p: 4 }}>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100%",
+          p: 4,
+        }}
+      >
         <CircularProgress size={24} sx={{ color: themeConfig.tealRoot }} />
       </Box>
-    )
+    );
   }
 
   if (!file) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', p: 4 }}>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100%",
+          p: 4,
+          flexDirection: "column",
+          gap: 2,
+        }}
+      >
         <Typography variant="body2" sx={{ color: themeConfig.neutral400 }}>
           Select a file to view changes
         </Typography>
+        {onBack && (
+          <Button
+            size="small"
+            startIcon={<ArrowLeft size={16} />}
+            onClick={onBack}
+            sx={{
+              color: themeConfig.tealRoot,
+              textTransform: "none",
+            }}
+          >
+            Back to files
+          </Button>
+        )}
       </Box>
-    )
+    );
   }
 
   if (file.is_binary) {
     return (
       <Box sx={{ p: 3 }}>
+        {onBack && (
+          <Button
+            size="small"
+            startIcon={<ArrowLeft size={16} />}
+            onClick={onBack}
+            sx={{
+              color: themeConfig.tealRoot,
+              textTransform: "none",
+              mb: 2,
+            }}
+          >
+            Back to files
+          </Button>
+        )}
         <Paper
           elevation={0}
           sx={{
             p: 2.5,
-            bgcolor: 'rgba(255, 255, 255, 0.02)',
+            bgcolor: "rgba(255, 255, 255, 0.02)",
             borderRadius: 1,
-            border: '1px solid rgba(255, 255, 255, 0.06)',
+            border: "1px solid rgba(255, 255, 255, 0.06)",
           }}
         >
           <Typography variant="body2" sx={{ color: themeConfig.darkTextFaded }}>
@@ -157,19 +216,36 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
           </Typography>
         </Paper>
       </Box>
-    )
+    );
   }
 
   if (!file.diff) {
     return (
       <Box sx={{ p: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+        {onBack && (
+          <Button
+            size="small"
+            startIcon={<ArrowLeft size={16} />}
+            onClick={onBack}
+            sx={{
+              color: themeConfig.tealRoot,
+              textTransform: "none",
+              mb: 2,
+            }}
+          >
+            Back to files
+          </Button>
+        )}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
           <Typography
             variant="subtitle2"
             sx={{
               fontFamily: monoFont,
               flex: 1,
               color: themeConfig.darkText,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
             }}
           >
             {file.path}
@@ -181,7 +257,10 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
                 onClick={onCopyPath}
                 sx={{
                   color: themeConfig.neutral400,
-                  '&:hover': { color: themeConfig.tealRoot, bgcolor: `${themeConfig.tealRoot}1A` },
+                  "&:hover": {
+                    color: themeConfig.tealRoot,
+                    bgcolor: `${themeConfig.tealRoot}1A`,
+                  },
                 }}
               >
                 <Copy size={14} strokeWidth={1.5} />
@@ -193,15 +272,15 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
           elevation={0}
           sx={{
             p: 2.5,
-            bgcolor: 'rgba(255, 255, 255, 0.02)',
+            bgcolor: "rgba(255, 255, 255, 0.02)",
             borderRadius: 1,
-            border: '1px solid rgba(255, 255, 255, 0.06)',
+            border: "1px solid rgba(255, 255, 255, 0.06)",
           }}
         >
           <Typography variant="body2" sx={{ color: themeConfig.darkTextFaded }}>
-            {file.status === 'added' ? 'New file' : 'No diff content available'}
+            {file.status === "added" ? "New file" : "No diff content available"}
           </Typography>
-          <Box sx={{ display: 'flex', gap: 2, mt: 1.5 }}>
+          <Box sx={{ display: "flex", gap: 2, mt: 1.5 }}>
             {file.additions > 0 && (
               <Typography
                 variant="caption"
@@ -229,39 +308,75 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
           </Box>
         </Paper>
       </Box>
-    )
+    );
   }
 
   return (
-    <Box sx={{ height: '100%', overflow: 'auto', bgcolor: themeConfig.darkBackgroundColor }}>
+    <Box
+      sx={{
+        height: "100%",
+        overflow: "auto",
+        bgcolor: themeConfig.darkBackgroundColor,
+      }}
+    >
       <Box
         sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1.5,
-          px: 2,
+          display: "flex",
+          alignItems: "center",
+          gap: isMobile ? 1 : 1.5,
+          px: isMobile ? 1 : 2,
           py: 1.25,
-          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-          bgcolor: 'rgba(255, 255, 255, 0.02)',
-          position: 'sticky',
+          borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
+          bgcolor: "rgba(255, 255, 255, 0.02)",
+          position: "sticky",
           top: 0,
           zIndex: 1,
-          backdropFilter: 'blur(8px)',
+          backdropFilter: "blur(8px)",
         }}
       >
+        {onBack && (
+          <Tooltip title="Back to files">
+            <IconButton
+              size="small"
+              onClick={onBack}
+              sx={{
+                color: themeConfig.neutral400,
+                p: 0.5,
+                flexShrink: 0,
+                "&:hover": {
+                  color: themeConfig.tealRoot,
+                  bgcolor: `${themeConfig.tealRoot}1A`,
+                },
+              }}
+            >
+              <ArrowLeft size={16} strokeWidth={1.5} />
+            </IconButton>
+          </Tooltip>
+        )}
         <Typography
           variant="subtitle2"
           sx={{
             fontFamily: monoFont,
             flex: 1,
-            fontSize: '0.8rem',
+            fontSize: isMobile ? "0.7rem" : "0.8rem",
             fontWeight: 500,
             color: themeConfig.darkText,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            minWidth: 0,
           }}
         >
           {file.path}
         </Typography>
-        <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+        <Box
+          sx={{
+            display: "flex",
+            gap: isMobile ? 1 : 1.5,
+            alignItems: "center",
+            flexShrink: 0,
+          }}
+        >
           {file.additions > 0 && (
             <Typography
               variant="caption"
@@ -269,7 +384,7 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
                 color: themeConfig.greenRoot,
                 fontFamily: monoFont,
                 fontWeight: 600,
-                fontSize: '0.75rem',
+                fontSize: "0.75rem",
               }}
             >
               +{file.additions}
@@ -282,13 +397,13 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
                 color: themeConfig.redRoot,
                 fontFamily: monoFont,
                 fontWeight: 600,
-                fontSize: '0.75rem',
+                fontSize: "0.75rem",
               }}
             >
               -{file.deletions}
             </Typography>
           )}
-          {onCopyPath && (
+          {onCopyPath && !isMobile && (
             <Tooltip title="Copy path">
               <IconButton
                 size="small"
@@ -296,7 +411,10 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
                 sx={{
                   color: themeConfig.neutral400,
                   p: 0.5,
-                  '&:hover': { color: themeConfig.tealRoot, bgcolor: `${themeConfig.tealRoot}1A` },
+                  "&:hover": {
+                    color: themeConfig.tealRoot,
+                    bgcolor: `${themeConfig.tealRoot}1A`,
+                  },
                 }}
               >
                 <Copy size={14} strokeWidth={1.5} />
@@ -312,7 +430,7 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
           m: 0,
           p: 0,
           fontFamily: monoFont,
-          fontSize: '0.72rem',
+          fontSize: isMobile ? "0.65rem" : "0.72rem",
           lineHeight: 1.6,
         }}
       >
@@ -320,65 +438,70 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
           <Box
             key={idx}
             sx={{
-              display: 'flex',
+              display: "flex",
               backgroundColor: getLineBackground(line.type, themeConfig),
-              transition: 'background-color 0.1s ease',
-              '&:hover': {
-                backgroundColor: line.type === 'context' || line.type === 'empty'
-                  ? 'rgba(255, 255, 255, 0.03)'
-                  : undefined,
+              transition: "background-color 0.1s ease",
+              "&:hover": {
+                backgroundColor:
+                  line.type === "context" || line.type === "empty"
+                    ? "rgba(255, 255, 255, 0.03)"
+                    : undefined,
               },
             }}
           >
             <Box
               sx={{
-                display: 'flex',
+                display: "flex",
                 flexShrink: 0,
-                userSelect: 'none',
-                borderRight: '1px solid rgba(255, 255, 255, 0.06)',
+                userSelect: "none",
+                borderRight: "1px solid rgba(255, 255, 255, 0.06)",
               }}
             >
-            <Typography
-              component="span"
-              sx={{
-                width: 44,
-                px: 1,
-                textAlign: 'right',
-                color: themeConfig.neutral500,
-                fontSize: '0.65rem',
-                fontFamily: monoFont,
-              }}
-            >
-              {line.oldLineNo ?? ''}
-            </Typography>
-            <Typography
-              component="span"
-              sx={{
-                width: 44,
-                px: 1,
-                textAlign: 'right',
-                color: themeConfig.neutral500,
-                fontSize: '0.65rem',
-                fontFamily: monoFont,
-              }}
-            >
-              {line.newLineNo ?? ''}
+              {/* Old line number - hidden on mobile */}
+              {!isMobile && (
+                <Typography
+                  component="span"
+                  sx={{
+                    width: 44,
+                    px: 1,
+                    textAlign: "right",
+                    color: themeConfig.neutral500,
+                    fontSize: "0.65rem",
+                    fontFamily: monoFont,
+                  }}
+                >
+                  {line.oldLineNo ?? ""}
+                </Typography>
+              )}
+              {/* New line number - narrower on mobile */}
+              <Typography
+                component="span"
+                sx={{
+                  width: isMobile ? 32 : 44,
+                  px: isMobile ? 0.5 : 1,
+                  textAlign: "right",
+                  color: themeConfig.neutral500,
+                  fontSize: isMobile ? "0.6rem" : "0.65rem",
+                  fontFamily: monoFont,
+                }}
+              >
+                {line.newLineNo ?? line.oldLineNo ?? ""}
               </Typography>
             </Box>
 
             <Typography
               component="span"
               sx={{
-                width: 20,
-                textAlign: 'center',
+                width: isMobile ? 16 : 20,
+                textAlign: "center",
                 color: getLineColor(line.type, themeConfig),
                 fontFamily: monoFont,
                 fontWeight: 600,
-                fontSize: '0.72rem',
+                fontSize: isMobile ? "0.65rem" : "0.72rem",
                 flexShrink: 0,
               }}
             >
-              {line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' '}
+              {line.type === "add" ? "+" : line.type === "remove" ? "-" : " "}
             </Typography>
 
             <Typography
@@ -386,14 +509,14 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
               sx={{
                 flex: 1,
                 minWidth: 0,
-                pl: 1,
-                pr: 2,
+                pl: isMobile ? 0.5 : 1,
+                pr: isMobile ? 1 : 2,
                 color: getLineColor(line.type, themeConfig),
                 fontFamily: monoFont,
-                fontSize: '0.72rem',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                overflowWrap: 'anywhere',
+                fontSize: isMobile ? "0.65rem" : "0.72rem",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                overflowWrap: "anywhere",
               }}
             >
               {line.content}
@@ -402,7 +525,7 @@ const DiffContent: FC<DiffContentProps> = ({ file, isLoading, onCopyPath }) => {
         ))}
       </Box>
     </Box>
-  )
-}
+  );
+};
 
-export default DiffContent
+export default DiffContent;
