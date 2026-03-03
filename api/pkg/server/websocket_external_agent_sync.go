@@ -27,6 +27,8 @@ import (
 type streamingContext struct {
 	session     *types.Session
 	interaction *types.Interaction
+	// Track which interaction this context is for - used to detect transitions
+	interactionID string
 	// Request ID for commenter notification (design review comments)
 	requestID string
 	// DB write throttling
@@ -1108,15 +1110,58 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 // getOrCreateStreamingContext returns a cached streaming context for the given
 // helix session, or creates one by querying the DB on the first call. This avoids
 // redundant GetSession + ListInteractions queries on every streaming token.
+//
+// IMPORTANT: Also detects interaction transitions (follow-up messages) and resets
+// previousContent when the target interaction changes. This prevents patch computation
+// from using stale previousContent from the old interaction.
 func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context, helixSessionID string) *streamingContext {
+	// Check what interaction we SHOULD be targeting (from sessionToWaitingInteraction mapping)
+	apiServer.contextMappingsMutex.RLock()
+	expectedInteractionID, hasMapping := apiServer.sessionToWaitingInteraction[helixSessionID]
+	apiServer.contextMappingsMutex.RUnlock()
+
 	apiServer.streamingContextsMu.RLock()
 	sctx, exists := apiServer.streamingContexts[helixSessionID]
 	apiServer.streamingContextsMu.RUnlock()
+
 	if exists {
-		return sctx
+		// Check if interaction has changed (follow-up message scenario)
+		sctx.mu.Lock()
+		if hasMapping && sctx.interactionID != "" && sctx.interactionID != expectedInteractionID {
+			log.Info().
+				Str("session_id", helixSessionID).
+				Str("old_interaction_id", sctx.interactionID).
+				Str("new_interaction_id", expectedInteractionID).
+				Msg("🔄 [PERF] Interaction transition detected! Resetting streaming context for new interaction")
+
+			// Flush any dirty state for the old interaction before switching
+			if sctx.dirty && sctx.interaction != nil {
+				_, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, sctx.interaction)
+				if err != nil {
+					log.Error().Err(err).
+						Str("interaction_id", sctx.interactionID).
+						Msg("Failed to flush old interaction during transition")
+				}
+			}
+
+			// Reset for new interaction - will be populated below
+			sctx.interaction = nil
+			sctx.interactionID = ""
+			sctx.previousContent = ""
+			sctx.dirty = false
+			sctx.lastDBWrite = time.Time{}
+			sctx.lastPublish = time.Time{}
+		}
+		sctx.mu.Unlock()
+
+		// If context still has valid interaction, return it
+		if sctx.interaction != nil {
+			return sctx
+		}
+		// Otherwise fall through to re-query and UPDATE the existing context
 	}
 
-	// First token for this session — do the DB lookups and cache results
+	// First token for this session (or transition) — do the DB lookups
 	helixSession, err := apiServer.Controller.Options.Store.GetSession(ctx, helixSessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", helixSessionID).
@@ -1138,11 +1183,11 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 	// Find the target interaction (same logic as before)
 	var targetInteraction *types.Interaction
 	apiServer.contextMappingsMutex.RLock()
-	interactionID, hasMapping := apiServer.sessionToWaitingInteraction[helixSessionID]
+	mappedInteractionID, hasMappingForLookup := apiServer.sessionToWaitingInteraction[helixSessionID]
 	apiServer.contextMappingsMutex.RUnlock()
-	if hasMapping {
+	if hasMappingForLookup {
 		for i := range interactions {
-			if interactions[i].ID == interactionID {
+			if interactions[i].ID == mappedInteractionID {
 				targetInteraction = interactions[i]
 				break
 			}
@@ -1158,9 +1203,33 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 		}
 	}
 
+	// Set interactionID for tracking transitions
+	var newInteractionID string
+	if targetInteraction != nil {
+		newInteractionID = targetInteraction.ID
+	}
+
+	// If we have an existing context (from a transition), update it instead of creating new
+	if exists && sctx != nil {
+		sctx.mu.Lock()
+		sctx.session = helixSession
+		sctx.interaction = targetInteraction
+		sctx.interactionID = newInteractionID
+		sctx.mu.Unlock()
+
+		log.Info().
+			Str("session_id", helixSessionID).
+			Str("interaction_id", newInteractionID).
+			Msg("📦 [PERF] Updated streaming context for new interaction (transition)")
+
+		return sctx
+	}
+
+	// Create new context
 	sctx = &streamingContext{
-		session:     helixSession,
-		interaction: targetInteraction,
+		session:       helixSession,
+		interaction:   targetInteraction,
+		interactionID: newInteractionID,
 	}
 
 	apiServer.streamingContextsMu.Lock()
@@ -1174,6 +1243,7 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 
 	log.Info().
 		Str("session_id", helixSessionID).
+		Str("interaction_id", newInteractionID).
 		Bool("has_interaction", targetInteraction != nil).
 		Msg("📦 [PERF] Created streaming context cache (will skip DB queries on subsequent tokens)")
 

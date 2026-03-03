@@ -69,12 +69,12 @@ type Search struct {
 
 type Kodit struct {
 	Enabled      bool   `envconfig:"KODIT_ENABLED" default:"false"`
-	DatabaseURL  string `envconfig:"KODIT_DB_URL" default:""`          // PostgreSQL+VectorChord DSN (required)
-	DataDir      string `envconfig:"KODIT_DATA_DIR" default:""`        // For cloned repos, defaults to {filestore}/kodit
-	ModelDir     string `envconfig:"KODIT_MODEL_DIR" default:""`       // ONNX embedding model directory, defaults to {dataDir}/models
-	WorkerCount  int    `envconfig:"KODIT_WORKER_COUNT" default:"1"`   // Number of background enrichment workers
-	LLMBaseURL   string `envconfig:"KODIT_LLM_BASE_URL" default:""`   // OpenAI-compatible endpoint for enrichments
-	LLMAPIKey    string `envconfig:"KODIT_LLM_API_KEY" default:""`    // API key for LLM endpoint
+	DatabaseURL  string `envconfig:"KODIT_DB_URL" default:""`                    // PostgreSQL+VectorChord DSN (required)
+	DataDir      string `envconfig:"KODIT_DATA_DIR" default:""`                  // For cloned repos, defaults to {filestore}/kodit
+	ModelDir     string `envconfig:"KODIT_MODEL_DIR" default:""`                 // ONNX embedding model directory, defaults to {dataDir}/models
+	WorkerCount  int    `envconfig:"KODIT_WORKER_COUNT" default:"1"`             // Number of background enrichment workers
+	LLMBaseURL   string `envconfig:"KODIT_LLM_BASE_URL" default:""`              // OpenAI-compatible endpoint for enrichments
+	LLMAPIKey    string `envconfig:"KODIT_LLM_API_KEY" default:""`               // API key for LLM endpoint
 	LLMChatModel string `envconfig:"KODIT_LLM_CHAT_MODEL" default:"kodit-model"` // LLM model name
 	// GitURL is the URL Kodit uses to access the git server (for cloning local repos)
 	// Defaults to http://api:8080 for Docker Compose, but may differ in Kubernetes or local dev
