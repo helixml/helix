@@ -336,6 +336,21 @@ func (c *RevDialClient) GetSystemStats(ctx context.Context) (*SystemStatsRespons
 	return &result, nil
 }
 
+// GetVersion returns the Hydra version and registered routes via RevDial
+func (c *RevDialClient) GetVersion(ctx context.Context) (*VersionResponse, error) {
+	respBody, err := c.doRequest(ctx, "GET", "/api/v1/version", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result VersionResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
 // DevContainerClientsResponse is the response from the /clients endpoint
 type DevContainerClientsResponse struct {
 	SessionID string            `json:"session_id"`
