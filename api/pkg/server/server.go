@@ -118,8 +118,8 @@ type HelixAPIServer struct {
 	specDrivenTaskService     *services.SpecDrivenTaskService
 	sampleProjectCodeService  *services.SampleProjectCodeService
 	gitRepositoryService      *services.GitRepositoryService
-	koditService services.KoditServicer
-	kodit        *koditResult
+	koditService              services.KoditServicer
+	kodit                     *koditResult
 	mcpGateway                *MCPGateway
 	gitHTTPServer             *services.GitHTTPServer
 	// Streaming context cache - avoids redundant DB queries during token streaming
@@ -251,6 +251,7 @@ func NewServer(
 		WorkspaceBasePathForCloning:   "/data/workspaces", // Path on sandbox filesystem (not API - Hydra creates dirs)
 		Connman:                       connectionManager,
 		GPUVendor:                     os.Getenv("GPU_VENDOR"), // "nvidia", "amd", "intel", or ""
+		LicenseKey:                    cfg.LicenseKey,          // Pass to nested Helix instances
 	})
 	appController.Options.ExternalAgentExecutor = externalAgentExecutor
 
@@ -282,7 +283,7 @@ func NewServer(
 		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
 		requestToCommenterMapping:   make(map[string]string),
-		streamingContexts:          make(map[string]*streamingContext),
+		streamingContexts:           make(map[string]*streamingContext),
 		streamingRateLimiter:        make(map[string]time.Time),
 		inferenceServer:             inferenceServer,
 		sessionManager:              auth.NewSessionManager(store, oidcClient, cfg),
