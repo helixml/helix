@@ -9,13 +9,13 @@
   - 2s animation cycle
 
 ## Remove Old Blinker
-- [ ] Remove `addBlinker()` call from `MessageProcessor.process()` method
-- [ ] Remove `addBlinker()` method from `MessageProcessor` class
-- [ ] Remove old blinker CSS styles from component (`.blinker-class` rules)
-- [ ] Remove blinker CSS from `index.html` if present
+- [x] Remove `addBlinker()` call from `MessageProcessor.process()` method
+- [x] Remove `addBlinker()` method from `MessageProcessor` class
+- [x] Remove old blinker CSS styles from component (`.blinker-class` rules)
+- [x] Remove blinker CSS from `index.html` if present
 
 ## Add New Indicator
-- [ ] Pass `isStreaming` prop through to `MemoizedMarkdownRenderer`
+- [~] Pass `isStreaming` prop through to `MemoizedMarkdownRenderer`
 - [ ] Add `StreamingIndicator` as sibling React element after `<Markdown>` component
 - [ ] Style with appropriate spacing
 
