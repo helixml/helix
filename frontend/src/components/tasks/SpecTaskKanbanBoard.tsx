@@ -753,11 +753,18 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   ): SpecTaskWithExtras[] => {
     if (!filter.trim()) return taskList;
     const lowerFilter = filter.toLowerCase();
+    // Check if filter is purely numeric (e.g., "1412") for task_number matching
+    const trimmedFilter = filter.trim();
+    const numericFilter = /^\d+$/.test(trimmedFilter)
+      ? parseInt(trimmedFilter, 10)
+      : null;
+
     return taskList.filter(
       (task) =>
         task.name?.toLowerCase().includes(lowerFilter) ||
         task.description?.toLowerCase().includes(lowerFilter) ||
-        task.implementation_plan?.toLowerCase().includes(lowerFilter),
+        task.implementation_plan?.toLowerCase().includes(lowerFilter) ||
+        (numericFilter !== null && task.task_number === numericFilter),
     );
   };
 
