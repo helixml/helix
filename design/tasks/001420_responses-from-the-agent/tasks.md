@@ -3,8 +3,8 @@
 ## Backend (Go)
 
 - [x] Add `requestID string` field to `streamingContext` struct in `websocket_external_agent_sync.go`
-- [~] In `handleMessageAdded`, extract `request_id` from `syncMsg.Data` and store in streaming context on creation
-- [ ] Update `publishInteractionPatchToFrontend` signature to accept optional `requestID ...string` parameter
+- [x] In `handleMessageAdded`, extract `request_id` from `syncMsg.Data` and store in streaming context on creation
+- [~] Update `publishInteractionPatchToFrontend` signature to accept optional `requestID ...string` parameter
 - [ ] In `publishInteractionPatchToFrontend`, if `requestID` provided, look up commenter from `requestToCommenterMapping` and publish patch to commenter's queue
 - [ ] Pass `sctx.requestID` when calling `publishInteractionPatchToFrontend` from `handleMessageAdded`
 
