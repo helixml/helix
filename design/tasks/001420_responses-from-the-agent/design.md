@@ -6,6 +6,17 @@ Restore streaming of agent responses to design review comments by passing `reque
 
 ## Architecture Context
 
+### WebSocket Pub/Sub Model
+
+The system uses **per-user queues**, not broadcast. Each user subscribes to their own queue:
+- Queue name: `session-updates.<userID>.<sessionID>`
+- Users only receive messages explicitly published to their queue
+- This is NOT a broadcast to all users with read permission on the project
+
+When streaming, the server must explicitly publish to each user who should receive updates:
+1. **Session owner**: Always receives updates (primary recipient)
+2. **Commenter**: Only receives updates if we explicitly publish to their queue via `requestToCommenterMapping`
+
 ### Current Data Flow (Broken)
 ```
 Agent (Zed) → message_added → handleMessageAdded → streamingContext
@@ -19,7 +30,7 @@ Agent (Zed) → message_added → handleMessageAdded → streamingContext
 Agent (Zed) → message_added → handleMessageAdded → streamingContext (with requestID)
     → publishInteractionPatchToFrontend(sessionID, owner, interaction, previousContent, requestID)
     → pubsub.Publish(owner's queue)
-    → pubsub.Publish(commenter's queue via requestToCommenterMapping)
+    → pubsub.Publish(commenter's queue via requestToCommenterMapping lookup)
     ✓ Both owner and commenter receive patches
 ```
 
