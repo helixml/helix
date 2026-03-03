@@ -325,6 +325,22 @@ func (s *PostgresStore) ListSessionsWithDesiredState(ctx context.Context, desire
 	return sessions, nil
 }
 
+// ListSessionsBySandbox returns all sessions associated with a specific sandbox
+// Used to clean up session metadata when a sandbox disconnects
+func (s *PostgresStore) ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error) {
+	var sessions []*types.Session
+
+	err := s.gdb.WithContext(ctx).
+		Where("sandbox_id = ?", sandboxID).
+		Find(&sessions).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return sessions, nil
+}
+
 func (s *PostgresStore) notifySessionUpdates(ctx context.Context, operation StoreEventOperation, session *types.Session) error {
 	return s.publishStoreEvent(ctx, operation, session)
 }

@@ -4088,6 +4088,21 @@ func (mr *MockStoreMockRecorder) ListSessionsWithDesiredState(ctx, desiredState 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessionsWithDesiredState", reflect.TypeOf((*MockStore)(nil).ListSessionsWithDesiredState), ctx, desiredState)
 }
 
+// ListSessionsBySandbox mocks base method.
+func (m *MockStore) ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSessionsBySandbox", ctx, sandboxID)
+	ret0, _ := ret[0].([]*types.Session)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSessionsBySandbox indicates an expected call of ListSessionsBySandbox.
+func (mr *MockStoreMockRecorder) ListSessionsBySandbox(ctx, sandboxID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessionsBySandbox", reflect.TypeOf((*MockStore)(nil).ListSessionsBySandbox), ctx, sandboxID)
+}
+
 // ListSlots mocks base method.
 func (m *MockStore) ListSlots(ctx context.Context, runnerID string) ([]*types.RunnerSlot, error) {
 	m.ctrl.T.Helper()

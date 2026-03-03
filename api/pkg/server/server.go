@@ -260,6 +260,15 @@ func NewServer(
 	// Set it after initializing it as it depends on the external agent executor
 	externalAgentExecutor.SetQuotaManager(quotaManager)
 
+	// Wire up callback to clear session metadata when sandbox disconnects
+	// The key format is "hydra-{sandboxID}" - we strip the prefix to get the sandbox ID
+	connectionManager.SetOnGracePeriodExpired(func(key string) {
+		if strings.HasPrefix(key, "hydra-") {
+			sandboxID := strings.TrimPrefix(key, "hydra-")
+			externalAgentExecutor.OnSandboxDisconnected(sandboxID)
+		}
+	})
+
 	// Initialize external agent runner connection manager
 	externalAgentRunnerManager := NewExternalAgentRunnerManager()
 
