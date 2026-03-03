@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Streaming Indicator Options - Helix</title>
+        <style>
+            * {
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family:
+                    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                    sans-serif;
+                background: #1a1a2e;
+                color: #fff;
+                padding: 40px;
+                margin: 0;
+            }
+
+            h1 {
+                text-align: center;
+                margin-bottom: 40px;
+                color: #00d4ff;
+            }
+
+            .demo-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 30px;
+                max-width: 1200px;
+                margin: 0 auto;
+            }
+
+            .demo-card {
+                background: #252540;
+                border-radius: 12px;
+                padding: 30px;
+                border: 1px solid #333;
+            }
+
+            .demo-card h2 {
+                margin: 0 0 10px 0;
+                font-size: 18px;
+                color: #fff;
+            }
+
+            .demo-card .tag {
+                display: inline-block;
+                font-size: 12px;
+                padding: 2px 8px;
+                border-radius: 4px;
+                margin-bottom: 20px;
+            }
+
+            .tag.recommended {
+                background: #7c3aed;
+            }
+            .tag.user-pick {
+                background: #00d4ff;
+                color: #000;
+            }
+            .tag.on-brand {
+                background: #10b981;
+            }
+            .tag.modern {
+                background: #f59e0b;
+                color: #000;
+            }
+            .tag.playful {
+                background: #ec4899;
+            }
+
+            .indicator-container {
+                background: #1a1a2e;
+                border-radius: 8px;
+                padding: 30px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 80px;
+            }
+
+            .description {
+                margin-top: 15px;
+                font-size: 14px;
+                color: #999;
+                line-height: 1.5;
+            }
+
+            /* 1. Pulsing Dots */
+            .pulsing-dots {
+                display: flex;
+                gap: 6px;
+            }
+
+            .pulsing-dots .dot {
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                background: #999;
+                animation: bounce 1.4s ease-in-out infinite;
+            }
+
+            .pulsing-dots .dot:nth-child(1) {
+                animation-delay: 0s;
+            }
+            .pulsing-dots .dot:nth-child(2) {
+                animation-delay: 0.2s;
+            }
+            .pulsing-dots .dot:nth-child(3) {
+                animation-delay: 0.4s;
+            }
+
+            @keyframes bounce {
+                0%,
+                80%,
+                100% {
+                    transform: scale(0.8);
+                    opacity: 0.5;
+                }
+                40% {
+                    transform: scale(1.2);
+                    opacity: 1;
+                }
+            }
+
+            /* 2. Gradient Wave Bar */
+            .gradient-wave {
+                height: 4px;
+                width: 80px;
+                border-radius: 4px;
+                background: linear-gradient(
+                    90deg,
+                    transparent 0%,
+                    #00d4ff 25%,
+                    #7c3aed 50%,
+                    #00d4ff 75%,
+                    transparent 100%
+                );
+                background-size: 200% 100%;
+                animation: shimmer 1.5s ease-in-out infinite;
+            }
+
+            @keyframes shimmer {
+                0% {
+                    background-position: 200% center;
+                }
+                100% {
+                    background-position: -200% center;
+                }
+            }
+
+            /* 3. Infinity Spinner with Trails - using CSS variables for simplicity */
+            .helix-spinner {
+                --duration: 2s;
+                --cyan: #00d4ff;
+                --purple-head: #d8b4fe;
+                --purple-trail: #a855f7;
+                --offset: -0.67s; /* 33% offset - more separation without collision */
+                width: 44px;
+                height: 20px;
+                position: relative;
+            }
+
+            .helix-spinner span {
+                position: absolute;
+                border-radius: 50%;
+                top: 50%;
+                left: 50%;
+                animation: infinityPath var(--duration) linear infinite;
+            }
+
+            /* Cyan dot and trails */
+            .helix-spinner .cyan {
+                --color: var(--cyan);
+                --base-delay: 0s;
+            }
+            /* Purple dot and trails - offset by 33% of cycle */
+            .helix-spinner .purple.dot {
+                --color: var(--purple-head);
+                --base-delay: var(--offset);
+            }
+            .helix-spinner .trails.purple {
+                --color: var(--purple-trail);
+                --base-delay: var(--offset);
+            }
+
+            .helix-spinner .dot {
+                width: 5px;
+                height: 5px;
+                background: var(--color);
+                border-radius: 50%;
+                box-shadow:
+                    0 0 2px var(--color),
+                    0 0 5px var(--color),
+                    0 0 10px var(--color),
+                    0 0 15px var(--color);
+                animation-delay: var(--base-delay);
+            }
+
+            /* Trails: 24 elements - sharp comet tail effect */
+            .helix-spinner .trails span {
+                background: var(--color);
+                animation-delay: calc(
+                    var(--base-delay) - 2s + var(--i) * 0.025s
+                );
+                opacity: calc(0.5 - var(--i) * 0.018);
+                --size: max(2px, calc(5px - var(--i) * 0.1px));
+                width: var(--size);
+                height: var(--size);
+            }
+
+            .helix-spinner .trails span:nth-child(1) {
+                --i: 1;
+            }
+            .helix-spinner .trails span:nth-child(2) {
+                --i: 2;
+            }
+            .helix-spinner .trails span:nth-child(3) {
+                --i: 3;
+            }
+            .helix-spinner .trails span:nth-child(4) {
+                --i: 4;
+            }
+            .helix-spinner .trails span:nth-child(5) {
+                --i: 5;
+            }
+            .helix-spinner .trails span:nth-child(6) {
+                --i: 6;
+            }
+            .helix-spinner .trails span:nth-child(7) {
+                --i: 7;
+            }
+            .helix-spinner .trails span:nth-child(8) {
+                --i: 8;
+            }
+            .helix-spinner .trails span:nth-child(9) {
+                --i: 9;
+            }
+            .helix-spinner .trails span:nth-child(10) {
+                --i: 10;
+            }
+            .helix-spinner .trails span:nth-child(11) {
+                --i: 11;
+            }
+            .helix-spinner .trails span:nth-child(12) {
+                --i: 12;
+            }
+            .helix-spinner .trails span:nth-child(13) {
+                --i: 13;
+            }
+            .helix-spinner .trails span:nth-child(14) {
+                --i: 14;
+            }
+            .helix-spinner .trails span:nth-child(15) {
+                --i: 15;
+            }
+            .helix-spinner .trails span:nth-child(16) {
+                --i: 16;
+            }
+            .helix-spinner .trails span:nth-child(17) {
+                --i: 17;
+            }
+            .helix-spinner .trails span:nth-child(18) {
+                --i: 18;
+            }
+            .helix-spinner .trails span:nth-child(19) {
+                --i: 19;
+            }
+            .helix-spinner .trails span:nth-child(20) {
+                --i: 20;
+            }
+            .helix-spinner .trails span:nth-child(21) {
+                --i: 21;
+            }
+            .helix-spinner .trails span:nth-child(22) {
+                --i: 22;
+            }
+            .helix-spinner .trails span:nth-child(23) {
+                --i: 23;
+            }
+            .helix-spinner .trails span:nth-child(24) {
+                --i: 24;
+            }
+
+            /* Smooth lemniscate path: x = 25*cos(t), y = 13*sin(2t)/2 */
+            /* Smooth lemniscate path: x = 18*cos(t), y = 8*sin(2t) - reduced size */
+            @keyframes infinityPath {
+                0% {
+                    transform: translate(18px, 0);
+                }
+                2.08% {
+                    transform: translate(17.9px, 2px);
+                }
+                4.17% {
+                    transform: translate(17.4px, 3.9px);
+                }
+                6.25% {
+                    transform: translate(16.6px, 5.6px);
+                }
+                8.33% {
+                    transform: translate(15.4px, 7px);
+                }
+                10.42% {
+                    transform: translate(14px, 7.9px);
+                }
+                12.5% {
+                    transform: translate(12.2px, 8.3px);
+                }
+                14.58% {
+                    transform: translate(10.3px, 8.1px);
+                }
+                16.67% {
+                    transform: translate(8.3px, 7.4px);
+                }
+                18.75% {
+                    transform: translate(6.1px, 6.2px);
+                }
+                20.83% {
+                    transform: translate(3.9px, 4.6px);
+                }
+                22.92% {
+                    transform: translate(1.7px, 2.6px);
+                }
+                25% {
+                    transform: translate(0, 0);
+                }
+                27.08% {
+                    transform: translate(-1.7px, -2.6px);
+                }
+                29.17% {
+                    transform: translate(-3.9px, -4.6px);
+                }
+                31.25% {
+                    transform: translate(-6.1px, -6.2px);
+                }
+                33.33% {
+                    transform: translate(-8.3px, -7.4px);
+                }
+                35.42% {
+                    transform: translate(-10.3px, -8.1px);
+                }
+                37.5% {
+                    transform: translate(-12.2px, -8.3px);
+                }
+                39.58% {
+                    transform: translate(-14px, -7.9px);
+                }
+                41.67% {
+                    transform: translate(-15.4px, -7px);
+                }
+                43.75% {
+                    transform: translate(-16.6px, -5.6px);
+                }
+                45.83% {
+                    transform: translate(-17.4px, -3.9px);
+                }
+                47.92% {
+                    transform: translate(-17.9px, -2px);
+                }
+                50% {
+                    transform: translate(-18px, 0);
+                }
+                52.08% {
+                    transform: translate(-17.9px, 2px);
+                }
+                54.17% {
+                    transform: translate(-17.4px, 3.9px);
+                }
+                56.25% {
+                    transform: translate(-16.6px, 5.6px);
+                }
+                58.33% {
+                    transform: translate(-15.4px, 7px);
+                }
+                60.42% {
+                    transform: translate(-14px, 7.9px);
+                }
+                62.5% {
+                    transform: translate(-12.2px, 8.3px);
+                }
+                64.58% {
+                    transform: translate(-10.3px, 8.1px);
+                }
+                66.67% {
+                    transform: translate(-8.3px, 7.4px);
+                }
+                68.75% {
+                    transform: translate(-6.1px, 6.2px);
+                }
+                70.83% {
+                    transform: translate(-3.9px, 4.6px);
+                }
+                72.92% {
+                    transform: translate(-1.7px, 2.6px);
+                }
+                75% {
+                    transform: translate(0, 0);
+                }
+                77.08% {
+                    transform: translate(1.7px, -2.6px);
+                }
+                79.17% {
+                    transform: translate(3.9px, -4.6px);
+                }
+                81.25% {
+                    transform: translate(6.1px, -6.2px);
+                }
+                83.33% {
+                    transform: translate(8.3px, -7.4px);
+                }
+                85.42% {
+                    transform: translate(10.3px, -8.1px);
+                }
+                87.5% {
+                    transform: translate(12.2px, -8.3px);
+                }
+                89.58% {
+                    transform: translate(14px, -7.9px);
+                }
+                91.67% {
+                    transform: translate(15.4px, -7px);
+                }
+                93.75% {
+                    transform: translate(16.6px, -5.6px);
+                }
+                95.83% {
+                    transform: translate(17.4px, -3.9px);
+                }
+                97.92% {
+                    transform: translate(17.9px, -2px);
+                }
+                100% {
+                    transform: translate(18px, 0);
+                }
+            }
+
+            /* 4. Typing Cursor with Gradient Glow */
+            .glow-cursor {
+                width: 3px;
+                height: 24px;
+                border-radius: 2px;
+                background: linear-gradient(180deg, #00d4ff, #7c3aed);
+                animation:
+                    glowPulse 1s ease-in-out infinite,
+                    cursorBlink 1s step-end infinite;
+            }
+
+            @keyframes glowPulse {
+                0%,
+                100% {
+                    box-shadow: 0 0 8px 2px rgba(0, 212, 255, 0.6);
+                }
+                50% {
+                    box-shadow: 0 0 20px 6px rgba(124, 58, 237, 0.8);
+                }
+            }
+
+            @keyframes cursorBlink {
+                0%,
+                100% {
+                    opacity: 1;
+                }
+                50% {
+                    opacity: 0.3;
+                }
+            }
+
+            /* 5. Audio Waveform Bars */
+            .waveform {
+                display: flex;
+                align-items: flex-end;
+                gap: 3px;
+                height: 20px;
+            }
+
+            .waveform .bar {
+                width: 4px;
+                background: linear-gradient(180deg, #00d4ff, #7c3aed);
+                border-radius: 2px;
+                animation: wave 0.8s ease-in-out infinite;
+            }
+
+            .waveform .bar:nth-child(1) {
+                animation-delay: 0s;
+            }
+            .waveform .bar:nth-child(2) {
+                animation-delay: 0.15s;
+            }
+            .waveform .bar:nth-child(3) {
+                animation-delay: 0.3s;
+            }
+            .waveform .bar:nth-child(4) {
+                animation-delay: 0.45s;
+            }
+            .waveform .bar:nth-child(5) {
+                animation-delay: 0.6s;
+            }
+
+            @keyframes wave {
+                0%,
+                100% {
+                    height: 6px;
+                }
+                50% {
+                    height: 20px;
+                }
+            }
+
+            /* 6. Orbiting Dots */
+            .orbit {
+                width: 24px;
+                height: 24px;
+                position: relative;
+                animation: orbitSpin 1.5s linear infinite;
+            }
+
+            .orbit .dot {
+                position: absolute;
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+            }
+
+            .orbit .dot:nth-child(1) {
+                top: 0;
+                left: 50%;
+                transform: translateX(-50%);
+                background: #00d4ff;
+                box-shadow: 0 0 8px #00d4ff;
+            }
+
+            .orbit .dot:nth-child(2) {
+                bottom: 0;
+                left: 50%;
+                transform: translateX(-50%);
+                background: #7c3aed;
+                box-shadow: 0 0 8px #7c3aed;
+            }
+
+            @keyframes orbitSpin {
+                0% {
+                    transform: rotate(360deg);
+                }
+                100% {
+                    transform: rotate(0deg);
+                }
+            }
+
+            /* Light theme toggle */
+            .theme-toggle {
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: #333;
+                border: none;
+                color: #fff;
+                padding: 10px 20px;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 14px;
+            }
+
+            body.light {
+                background: #f5f5f5;
+                color: #333;
+            }
+
+            body.light .demo-card {
+                background: #fff;
+                border-color: #ddd;
+            }
+
+            body.light .indicator-container {
+                background: #f9f9f9;
+            }
+
+            body.light .pulsing-dots .dot {
+                background: #666;
+            }
+
+            body.light .theme-toggle {
+                background: #333;
+            }
+
+            /* Simulated message context */
+            .message-context {
+                background: #1e1e30;
+                border-radius: 8px;
+                padding: 20px;
+                margin-top: 40px;
+                max-width: 600px;
+                margin-left: auto;
+                margin-right: auto;
+            }
+
+            body.light .message-context {
+                background: #fff;
+                border: 1px solid #ddd;
+            }
+
+            .message-context h3 {
+                margin: 0 0 15px 0;
+                font-size: 14px;
+                color: #666;
+            }
+
+            .message-text {
+                font-size: 15px;
+                line-height: 1.6;
+                margin-bottom: 15px;
+            }
+
+            .message-text code {
+                background: #333;
+                padding: 2px 6px;
+                border-radius: 4px;
+                font-size: 13px;
+            }
+
+            body.light .message-text code {
+                background: #f0f0f0;
+            }
+        </style>
+    </head>
+    <body>
+        <button
+            class="theme-toggle"
+            onclick="document.body.classList.toggle('light')"
+        >
+            Toggle Light/Dark
+        </button>
+
+        <h1>🎨 Streaming Indicator Options</h1>
+
+        <div class="demo-grid">
+            <div class="demo-card">
+                <h2>1. Pulsing Dots</h2>
+                <span class="tag user-pick">⭐ User's Pick</span>
+                <div class="indicator-container">
+                    <div class="pulsing-dots">
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                    </div>
+                </div>
+                <p class="description">
+                    Classic ChatGPT-style bouncing dots. Already exists in
+                    codebase as ThinkingBox. Proven pattern, familiar to users.
+                </p>
+            </div>
+
+            <div class="demo-card">
+                <h2>2. Gradient Wave Bar</h2>
+                <span class="tag recommended">✨ Recommended</span>
+                <div class="indicator-container">
+                    <div class="gradient-wave"></div>
+                </div>
+                <p class="description">
+                    Sleek shimmer effect with Helix brand colors. Hypnotic and
+                    modern. Matches existing citation loading style.
+                </p>
+            </div>
+
+            <div class="demo-card">
+                <h2>3. Infinity Spinner</h2>
+                <span class="tag on-brand">∞ On-Brand</span>
+                <div class="indicator-container">
+                    <div class="helix-spinner">
+                        <div class="trails cyan">
+                            <span></span><span></span><span></span><span></span
+                            ><span></span><span></span><span></span><span></span
+                            ><span></span><span></span><span></span><span></span
+                            ><span></span><span></span><span></span><span></span
+                            ><span></span><span></span><span></span><span></span
+                            ><span></span><span></span><span></span
+                            ><span></span>
+                        </div>
+                        <div class="trails purple">
+                            <span></span><span></span><span></span><span></span
+                            ><span></span><span></span><span></span><span></span
+                            ><span></span><span></span><span></span><span></span
+                            ><span></span><span></span><span></span><span></span
+                            ><span></span><span></span><span></span><span></span
+                            ><span></span><span></span><span></span
+                            ><span></span>
+                        </div>
+                        <span class="dot cyan"></span>
+                        <span class="dot purple"></span>
+                    </div>
+                </div>
+                <p class="description">
+                    Two dots tracing an infinity symbol with glowing trails.
+                    Elegant, hypnotic, and ties into the Helix brand.
+                </p>
+            </div>
+
+            <div class="demo-card">
+                <h2>4. Glow Cursor</h2>
+                <span class="tag modern">💫 Modern</span>
+                <div class="indicator-container">
+                    <div class="glow-cursor"></div>
+                </div>
+                <p class="description">
+                    Vertical cursor with animated gradient glow. Modern take on
+                    the original blinker concept.
+                </p>
+            </div>
+
+            <div class="demo-card">
+                <h2>5. Audio Waveform</h2>
+                <span class="tag playful">🎵 Playful</span>
+                <div class="indicator-container">
+                    <div class="waveform">
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                    </div>
+                </div>
+                <p class="description">
+                    Equalizer-style bars that suggest active processing. Fun and
+                    energetic.
+                </p>
+            </div>
+
+            <div class="demo-card">
+                <h2>6. Orbiting Dots</h2>
+                <span class="tag modern">🌀 Minimal</span>
+                <div class="indicator-container">
+                    <div class="orbit">
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                    </div>
+                </div>
+                <p class="description">
+                    Two dots orbiting each other. Simple, elegant, uses brand
+                    colors.
+                </p>
+            </div>
+        </div>
+
+        <div class="message-context">
+            <h3>Preview in message context:</h3>
+            <div class="message-text">
+                Here's an example of how to use the <code>useState</code> hook
+                in React:
+            </div>
+            <div
+                style="
+                    display: flex;
+                    gap: 30px;
+                    flex-wrap: wrap;
+                    margin-top: 20px;
+                "
+            >
+                <div style="text-align: center">
+                    <div
+                        style="font-size: 11px; color: #666; margin-bottom: 8px"
+                    >
+                        Dots
+                    </div>
+                    <div class="pulsing-dots">
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                    </div>
+                </div>
+                <div style="text-align: center">
+                    <div
+                        style="font-size: 11px; color: #666; margin-bottom: 8px"
+                    >
+                        Wave
+                    </div>
+                    <div class="gradient-wave"></div>
+                </div>
+                <div style="text-align: center">
+                    <div
+                        style="font-size: 11px; color: #666; margin-bottom: 8px"
+                    >
+                        Cursor
+                    </div>
+                    <div class="glow-cursor"></div>
+                </div>
+                <div style="text-align: center">
+                    <div
+                        style="font-size: 11px; color: #666; margin-bottom: 8px"
+                    >
+                        Waveform
+                    </div>
+                    <div class="waveform">
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

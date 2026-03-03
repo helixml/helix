@@ -1,9 +1,12 @@
 # Implementation Tasks
 
 ## Streaming Indicator Implementation
-- [ ] Choose indicator style (gradient wave bar, pulsing dots, or glow cursor)
-- [ ] Create `StreamingIndicator` component with chosen animation
-- [ ] Use Helix brand colors (#00D4FF cyan, #7C3AED purple) if using gradient
+- [~] Create `StreamingIndicator` component with infinity/figure-8 animation
+  - Two dots (cyan #00d4ff, purple #d8b4fe head / #a855f7 trail)
+  - Figure-8 lemniscate path with 48 keyframes
+  - 24 trail elements per dot with fading opacity
+  - 33% offset between dots to avoid collision
+  - 2s animation cycle
 
 ## Remove Old Blinker
 - [ ] Remove `addBlinker()` call from `MessageProcessor.process()` method
@@ -14,7 +17,7 @@
 ## Add New Indicator
 - [ ] Pass `isStreaming` prop through to `MemoizedMarkdownRenderer`
 - [ ] Add `StreamingIndicator` as sibling React element after `<Markdown>` component
-- [ ] Style with appropriate spacing (`mt: 1` or similar)
+- [ ] Style with appropriate spacing
 
 ## Testing
 - [ ] Update existing blinker unit tests to test new indicator behavior
