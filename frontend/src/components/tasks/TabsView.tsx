@@ -19,6 +19,7 @@ import {
   CircularProgress,
   Chip,
   Alert,
+  InputAdornment,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -34,6 +35,7 @@ import {
   Launch as LaunchIcon,
   Computer as DesktopIcon,
   RateReview as ReviewIcon,
+  Search as SearchIcon,
 } from "@mui/icons-material";
 import {
   Panel,
@@ -759,6 +761,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   const account = useAccount();
   const streaming = useStreaming();
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+  const [taskSearchQuery, setTaskSearchQuery] = useState("");
   const [isActioning, setIsActioning] = useState(false);
   const [dragOverEdge, setDragOverEdge] = useState<
     "left" | "right" | "top" | "bottom" | null
@@ -778,6 +781,17 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   const unopenedTasks = tasks.filter(
     (t) => !panel.tabs.some((tab) => tab.id === t.id),
   );
+
+  // Filter tasks by search query
+  const filteredTasks = useMemo(() => {
+    if (!taskSearchQuery.trim()) return unopenedTasks;
+    const query = taskSearchQuery.toLowerCase();
+    return unopenedTasks.filter((task) => {
+      const title =
+        task.user_short_title || task.short_title || task.name || "";
+      return title.toLowerCase().includes(query);
+    });
+  }, [unopenedTasks, taskSearchQuery]);
 
   // Get refreshed task data for the active tab (from the tasks prop which is periodically refetched)
   const activeTask = activeTab
@@ -1192,9 +1206,39 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
         <Menu
           anchorEl={menuAnchor}
           open={Boolean(menuAnchor)}
-          onClose={() => setMenuAnchor(null)}
+          onClose={() => {
+            setMenuAnchor(null);
+            setTaskSearchQuery("");
+          }}
           slotProps={{ paper: { sx: { maxHeight: 400, width: 280 } } }}
         >
+          {/* Search bar */}
+          <Box sx={{ px: 1.5, py: 1 }}>
+            <TextField
+              size="small"
+              fullWidth
+              placeholder="Search tasks..."
+              value={taskSearchQuery}
+              onChange={(e) => setTaskSearchQuery(e.target.value)}
+              autoFocus
+              onKeyDown={(e) => e.stopPropagation()}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon
+                      sx={{ fontSize: 18, color: "text.secondary" }}
+                    />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  fontSize: "0.875rem",
+                },
+              }}
+            />
+          </Box>
+          <Divider />
           {/* Create new task option */}
           {projectId && (
             <>
@@ -1267,15 +1311,19 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
           >
             Tasks
           </Typography>
-          {unopenedTasks.length === 0 ? (
+          {filteredTasks.length === 0 ? (
             <MenuItem disabled>
               <ListItemText
-                primary="All tasks are open"
+                primary={
+                  unopenedTasks.length === 0
+                    ? "All tasks are open"
+                    : "No matching tasks"
+                }
                 primaryTypographyProps={{ fontSize: "0.875rem" }}
               />
             </MenuItem>
           ) : (
-            unopenedTasks.slice(0, 15).map((task) => (
+            filteredTasks.slice(0, 15).map((task) => (
               <React.Fragment key={task.id}>
                 <MenuItem
                   onClick={() => {
