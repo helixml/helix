@@ -114,7 +114,14 @@ Zed -> Helix:  message_added { acp_thread_id: "thread-1", message_id: "msg-2", c
 Zed -> Helix:  message_completed { acp_thread_id: "thread-1", message_id: "msg-2", request_id: "req-2" }
 ```
 
-**Important architecture note:** Zed sends **full accumulated content** in each `message_added` event (not deltas). The Helix Go backend then computes patches using `computePatch(previousContent, newContent)` before forwarding to the frontend. This is bandwidth-inefficient on the Zed→Helix link but was the existing design.
+**Important architecture note:** Zed sends **full accumulated content** in each `message_added` event (not deltas). The Helix Go backend then computes patches using `computePatch(previousContent, newContent)` before forwarding to the frontend. This is bandwidth-inefficient on the Zed→Helix link.
+
+**DISCOVERY: Unmerged Zed branch `fix/zed-streaming-speedup`** contains 10 commits not on main, including:
+- `9fcab9c009 perf(agent_ui): boundary-based WebSocket updates for streaming` - reduces updates from ~1000/turn to ~7
+- `06002c07a5 feat(agent): enable session loading for native zed-agent via WebSocket`
+- Several other fixes for WebSocket sync
+
+This branch modifies `crates/agent_ui/src/acp/thread_view.rs` (not external_websocket_sync) to send updates only at boundaries (NewEntry, tool call status change, Stopped) instead of every token. **This should be merged or the approach adopted.**
 
 ## Constraints
 
