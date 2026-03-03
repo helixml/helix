@@ -5,6 +5,7 @@ package server
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"path/filepath"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -69,6 +70,11 @@ func initKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 	if cfg.Kodit.WorkerCount > 0 {
 		koditOpts = append(koditOpts, kodit.WithWorkerCount(cfg.Kodit.WorkerCount))
 	}
+
+	// Pass helix's zerolog logger to kodit so log output is consistent.
+	koditOpts = append(koditOpts, kodit.WithLogger(
+		slog.New(newZerologHandler(log.Logger)),
+	))
 
 	koditClient, err := kodit.New(koditOpts...)
 	if err != nil {
