@@ -14,9 +14,9 @@
 
 - [x] Add unit test for `ConnectionManager` callback invocation on grace period expiry
 - [x] Skip HydraExecutor unit test (complex mock setup, behavior verified by connman tests + manual testing)
-- [ ] Manual test: Start session → restart sandbox → verify UI shows "Paused" not spinner
-- [ ] Manual test: After sandbox restart → click Resume → verify session restarts
+- [ ] Manual test: Start session → restart sandbox → verify UI shows "Paused" not spinner (pending user verification)
+- [ ] Manual test: After sandbox restart → click Resume → verify session restarts (pending user verification)
 
 ## Documentation
 
-- [ ] Update CLAUDE.md if any new patterns are introduced
+- [x] Update design.md with implementation notes

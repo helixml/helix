@@ -132,3 +132,29 @@ connman.SetOnGracePeriodExpired(func(key string) {
 | Grace period too short (sandbox rebooting) | 30s grace period is sufficient for most restarts |
 | Race condition with reconnection | Check if sandbox reconnected before clearing |
 | Multiple sandboxes | Use `sandbox_id` field to target correct sessions |
+
+## Implementation Notes
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `api/pkg/connman/connman.go` | Added `onGracePeriodExpired` callback field, `SetOnGracePeriodExpired()` method, callback invocation in `cleanupExpired()` |
+| `api/pkg/connman/connman_test.go` | Added 3 unit tests for callback behavior |
+| `api/pkg/store/store.go` | Added `ListSessionsBySandbox()` to Store interface |
+| `api/pkg/store/store_sessions.go` | Implemented `ListSessionsBySandbox()` for PostgresStore |
+| `api/pkg/store/store_mocks.go` | Added mock for `ListSessionsBySandbox()` |
+| `api/pkg/external-agent/hydra_executor.go` | Added `OnSandboxDisconnected()` and `clearSessionsBySandbox()` methods |
+| `api/pkg/server/server.go` | Wired up callback in `NewServer()` initialization |
+
+### Key Patterns Used
+
+- **Callback outside lock**: The `cleanupExpired()` method releases the lock before calling the callback to avoid deadlocks
+- **Background context**: `OnSandboxDisconnected()` creates its own context since the callback may be invoked from a goroutine
+- **Graceful cleanup**: `SandboxID` is cleared along with container metadata so sessions aren't re-associated with the wrong sandbox
+
+### Gotchas
+
+- The callback key format is `hydra-{sandboxID}` - must strip prefix to get actual sandbox ID
+- Must clear both database metadata AND in-memory sessions map
+- `DesiredState` is intentionally NOT cleared so the reconciler can restart sessions when sandbox returns
