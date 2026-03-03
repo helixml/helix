@@ -23,10 +23,11 @@ The kanban board filter should support searching by task number without requirin
 - When the filter is applied
 - Then task #001412 should appear in results
 
-### AC-3: Mixed Results
-- Given a task name contains "1412" as text AND another task has task_number 1412
+### AC-3: Text Search Still Works
+- Given a task name or description contains "1412" as text (e.g., "Fix bug 1412")
 - When the user searches "1412"
-- Then both tasks should appear in results
+- Then that task should appear in results (via text matching)
+- And task #001412 should also appear (via numeric matching)
 
 ## Out of Scope
 - Changing how task numbers are displayed
