@@ -323,7 +323,7 @@ func (c *RevDialClient) ListDevContainers(ctx context.Context) (*ListDevContaine
 
 // GetSystemStats gets system statistics (GPU info, container counts) via RevDial
 func (c *RevDialClient) GetSystemStats(ctx context.Context) (*SystemStatsResponse, error) {
-	respBody, err := c.doRequest(ctx, "GET", "/api/v1/system-stats", nil)
+	respBody, err := c.doRequest(ctx, "GET", "/api/v1/system/stats", nil)
 	if err != nil {
 		return nil, err
 	}
