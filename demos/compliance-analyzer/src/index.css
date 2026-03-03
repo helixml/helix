@@ -1,0 +1,111 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-surface-500 text-gray-100 antialiased;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-surface-400;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-surface-100 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-500;
+  }
+}
+
+@layer components {
+  /* Compliance status badges */
+  .badge-compliant {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+           bg-compliance-green/15 text-compliance-green border border-compliance-green/30;
+  }
+
+  .badge-partial {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+           bg-compliance-amber/15 text-compliance-amber border border-compliance-amber/30;
+  }
+
+  .badge-non-compliant {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+           bg-compliance-red/15 text-compliance-red border border-compliance-red/30;
+  }
+
+  /* Card surfaces */
+  .card {
+    @apply bg-surface-300 border border-surface-100/20 rounded-xl p-6 shadow-lg;
+  }
+
+  .card-hover {
+    @apply card transition-all duration-200 hover:border-surface-100/40 hover:shadow-xl;
+  }
+
+  /* Progress bar backgrounds */
+  .progress-track {
+    @apply w-full h-2 bg-surface-400 rounded-full overflow-hidden;
+  }
+
+  .progress-fill-green {
+    @apply h-full bg-gradient-to-r from-compliance-green-dark to-compliance-green rounded-full transition-all duration-500;
+  }
+
+  .progress-fill-amber {
+    @apply h-full bg-gradient-to-r from-compliance-amber-dark to-compliance-amber rounded-full transition-all duration-500;
+  }
+
+  .progress-fill-red {
+    @apply h-full bg-gradient-to-r from-compliance-red-dark to-compliance-red rounded-full transition-all duration-500;
+  }
+
+  /* Glow effects for status indicators */
+  .glow-green {
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.3);
+  }
+
+  .glow-amber {
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.3);
+  }
+
+  .glow-red {
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.3);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in-right 0.25s ease-out;
+}
