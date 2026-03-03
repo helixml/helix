@@ -31,7 +31,7 @@ type disabledKoditService struct{}
 
 func (d *disabledKoditService) IsEnabled() bool { return false }
 func (d *disabledKoditService) RegisterRepository(context.Context, string) (int64, bool, error) {
-	return 0, false, nil
+	return 0, false, errors.New("kodit service not enabled")
 }
 func (d *disabledKoditService) GetRepositoryEnrichments(context.Context, int64, string, string) ([]enrichment.Enrichment, error) {
 	return nil, errors.New("kodit service not enabled")
