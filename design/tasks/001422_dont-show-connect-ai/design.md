@@ -2,7 +2,7 @@
 
 ## Overview
 
-Modify the Onboarding component to dynamically filter out the "Connect an AI provider" step when the system already has providers with enabled chat models.
+Modify the Onboarding component to dynamically filter out the "Connect an AI provider" step when the system already has usable providers with enabled chat models.
 
 ## Current Architecture
 
@@ -28,7 +28,7 @@ Step indices are used throughout the component for:
 
 **Approach: Dynamic steps array with index mapping**
 
-Create a `visibleSteps` array filtered based on `hasAnyEnabledModels`. Use a mapping to translate between "original step index" (used in content rendering) and "visible step index" (used in UI).
+Create a `visibleSteps` array filtered based on whether usable providers exist. Use a mapping to translate between "original step index" (used in content rendering) and "visible step index" (used in UI).
 
 This approach:
 - Minimizes changes to existing step content logic
@@ -37,51 +37,74 @@ This approach:
 
 ## Key Changes
 
-### 1. Create filtered steps array
+### 1. Determine if usable providers exist
+
+The current `hasAnyEnabledModels` logic needs refinement to exclude Helix models when no runners are connected:
+
+```typescript
+const { data: dashboardData } = useGetDashboardData();
+const hasConnectedRunners = (dashboardData?.runners?.length ?? 0) > 0;
+
+const hasUsableProviders = useMemo(() => {
+  if (!providers) return false;
+  return providers.some((p) =>
+    (p.available_models || []).some((m) => {
+      if (!m.enabled || m.type !== "chat") return false;
+      // Helix models require a connected runner to be usable
+      if (m.owned_by === "helix") return hasConnectedRunners;
+      return true;
+    })
+  );
+}, [providers, hasConnectedRunners]);
+```
+
+### 2. Create filtered steps array
 
 ```typescript
 const visibleSteps = useMemo(() => {
-  if (hasAnyEnabledModels) {
+  if (hasUsableProviders) {
     // Skip step 2 (provider step)
     return STEPS.filter((_, index) => index !== 2);
   }
   return STEPS;
-}, [hasAnyEnabledModels]);
+}, [hasUsableProviders]);
 ```
 
-### 2. Map visible index to original index
+### 3. Map visible index to original index
 
 ```typescript
 const getOriginalStepIndex = (visibleIndex: number): number => {
-  if (!hasAnyEnabledModels) return visibleIndex;
+  if (!hasUsableProviders) return visibleIndex;
   // If providers exist, step 2+ needs +1 offset (skipping original index 2)
   return visibleIndex >= 2 ? visibleIndex + 1 : visibleIndex;
 };
 ```
 
-### 3. Update step rendering loop
+### 4. Update step rendering loop
 
 Change from iterating `STEPS` to iterating `visibleSteps`, using `getOriginalStepIndex` when calling `renderStepContent`, `markComplete`, etc.
 
-### 4. Update initial completed steps
+### 5. Update initial completed steps
 
-When `hasAnyEnabledModels` is true on load:
+When `hasUsableProviders` is true on load:
 - Don't add step 2 to completedSteps (it's hidden, not completed)
 - Don't try to skip from step 2 to step 3
 
-### 5. Update completion check
+### 6. Update completion check
 
-Change completion check from `completedSteps.size === STEPS.length` to `completedSteps.size === visibleSteps.length` (or use a more explicit check of required steps).
+Change completion check from `completedSteps.size === STEPS.length` to check against required visible steps.
 
 ## Files Changed
 
 | File | Change |
 |------|--------|
-| `frontend/src/pages/Onboarding.tsx` | Filter steps, add index mapping, update completion logic |
+| `frontend/src/pages/Onboarding.tsx` | Add dashboard data hook, refine provider check, filter steps, add index mapping, update completion logic |
 
 ## Testing
 
-1. Mock `useListProviders` to return providers with enabled models → verify step 2 is hidden
-2. Mock `useListProviders` to return empty → verify all 5 steps shown
-3. Verify step completion works correctly in both scenarios
-4. Verify "Go to your workspace" button appears after completing all visible steps
+1. Mock providers with Helix models only, no runners → verify step 2 is shown
+2. Mock providers with Helix models only, with runners → verify step 2 is hidden
+3. Mock providers with external providers (OpenAI/Anthropic) → verify step 2 is hidden
+4. Mock empty providers → verify all 5 steps shown
+5. Verify step completion works correctly in all scenarios
+6. Verify "Go to your workspace" button appears after completing all visible steps
