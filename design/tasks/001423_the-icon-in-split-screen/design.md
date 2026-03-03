@@ -77,3 +77,22 @@ Use MUI `TextField` with `SearchIcon` startAdornment (existing pattern from `Ski
 ## Existing Patterns
 
 This follows the established pattern in `Skills.tsx` lines 1215-1235 for search bars in list views.
+
+## Implementation Notes
+
+### Files Modified
+- `helix/frontend/src/components/tasks/TabsView.tsx` - Single file change in `TaskPanel` component
+
+### Key Implementation Details
+
+1. **Added imports**: `InputAdornment` from MUI, `Search as SearchIcon` from MUI icons
+2. **State added at line ~764**: `const [taskSearchQuery, setTaskSearchQuery] = useState("")`
+3. **Filter memo at line ~784**: `filteredTasks` useMemo filters `unopenedTasks` by search query
+4. **Search TextField**: Added after `<Menu>` open, before "Create New Task" option
+5. **onKeyDown handler**: Added `e.stopPropagation()` to prevent Menu keyboard navigation from interfering with typing
+
+### Gotcha: Menu Keyboard Navigation
+MUI Menu has built-in keyboard navigation that interferes with typing in a TextField. Added `onKeyDown={(e) => e.stopPropagation()}` to the TextField to prevent this.
+
+### Code Location
+The `TaskPanel` component starts around line 736. The Menu component is rendered around line 1192. Search bar was inserted at line 1212 (after Menu opens, before content).
