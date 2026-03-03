@@ -8,6 +8,8 @@ Example scenario:
 1. User: "say hello" → Agent: "Hello" (streams correctly, displays in UI)
 2. User: "list the contents of /tmp" → Agent uses tool call → **"Hello" disappears, new response never appears**
 
+**Additional bug observed:** Interactions are not being marked as complete. Even after the agent finishes responding, the UI shows the interaction as still in progress (e.g., text gets truncated, spinner keeps showing).
+
 ## User Stories
 
 ### US-1: Follow-up messages preserve previous content
@@ -33,6 +35,15 @@ As a developer, I expect the patch-based streaming optimization to correctly han
 - `previousContent` on backend is reset for each new interaction
 - `patchContentRef` on frontend is properly scoped per interaction
 - React Query cache is correctly updated on interaction completion
+
+### US-4: Interactions are marked complete correctly
+As a user, when the agent finishes responding, I expect the interaction to be marked as complete so the UI reflects the final state.
+
+**Acceptance Criteria:**
+- `message_completed` event is received and processed by Helix backend
+- Interaction state is updated to `complete` in the database
+- `interaction_update` with `state=complete` is published to frontend
+- UI stops showing "in progress" indicators after completion
 
 ## Root Cause Analysis
 
@@ -79,6 +90,18 @@ When `interaction_update` or `session_update` arrives:
 1. See interaction 2's patches in `currentResponses`
 2. But still be rendering interaction 1 (which now shows empty because its patches are gone from `patchContentRef`)
 
+### Issue 5: `message_completed` not marking interaction as complete
+
+**Location:** `helix/api/pkg/server/websocket_external_agent_sync.go` - `handleMessageCompleted()`
+
+Several failure modes can cause `message_completed` to not mark the interaction complete:
+
+1. **No session mapping found:** If `contextMappings[acpThreadID]` is empty AND database fallback fails, the function logs a warning and returns early without marking complete.
+
+2. **No waiting interaction found:** If no interaction has `state=waiting`, the function logs a warning and returns early. This can happen if there's a race where the interaction was already marked complete or never created.
+
+3. **Streaming context not flushed:** The `flushAndClearStreamingContext()` should write final content to DB, but if the streaming context doesn't exist (already cleared), content may be lost.
+
 ## Protocol Flow (from PROTOCOL_SPEC.md)
 
 ```
@@ -89,7 +112,7 @@ Zed -> Helix:  message_added { acp_thread_id: "thread-1", message_id: "msg-2", c
 Zed -> Helix:  message_completed { acp_thread_id: "thread-1", message_id: "msg-2", request_id: "req-2" }
 ```
 
-Note: `message_added` events contain **accumulated** content, not deltas. The Helix backend then computes patches from this accumulated content.
+**Important architecture note:** Zed sends **full accumulated content** in each `message_added` event (not deltas). The Helix Go backend then computes patches using `computePatch(previousContent, newContent)` before forwarding to the frontend. This is bandwidth-inefficient on the Zed→Helix link but was the existing design.
 
 ## Constraints
 

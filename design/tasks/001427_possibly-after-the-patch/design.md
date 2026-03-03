@@ -132,6 +132,55 @@ const message = hasNewInteractionContent
     || "";
 ```
 
+### Fix 5: Backend - Ensure `message_completed` always marks interaction complete
+
+**File:** `api/pkg/server/websocket_external_agent_sync.go`
+
+The `handleMessageCompleted()` function has several early-return paths that silently skip marking the interaction as complete:
+
+```go
+// Problem 1: No session mapping found → returns early
+if !ok {
+    // ... database fallback ...
+    if err != nil || foundSession == nil {
+        log.Warn()...
+        return nil  // <-- SILENT FAILURE
+    }
+}
+
+// Problem 2: No waiting interaction found → returns early  
+if targetInteractionID == "" {
+    log.Warn()...
+    return nil  // <-- SILENT FAILURE
+}
+```
+
+**Fix:** Make these failures more robust:
+
+1. For "no session mapping": Instead of just warning, try harder to find the session. The interaction may exist even if the in-memory mapping is stale.
+
+2. For "no waiting interaction": Check for interactions in ANY non-complete state, not just `waiting`. An interaction might be in a transitional state.
+
+3. Add error returns instead of silent `return nil` so callers know completion failed.
+
+4. Send a final `interaction_update` even if we can't find the "right" interaction - at least mark whatever we have as complete.
+
+```go
+// If no waiting interaction, try finding any non-complete interaction
+if targetInteractionID == "" {
+    for i := len(interactions) - 1; i >= 0; i-- {
+        if interactions[i].State != types.InteractionStateComplete {
+            targetInteractionID = interactions[i].ID
+            log.Warn().
+                Str("interaction_id", targetInteractionID).
+                Str("state", string(interactions[i].State)).
+                Msg("⚠️ [HELIX] Found non-complete interaction (not waiting) to mark complete")
+            break
+        }
+    }
+}
+```
+
 ## Testing Strategy
 
 ### Unit Tests (Backend)
@@ -179,6 +228,7 @@ This is a safe fallback because `interaction_update` was the previous behavior a
 
 ## Discovered Patterns
 
-- **Zed sends accumulated content**: Each `message_added` from Zed contains the **full** accumulated message so far, not a delta. Helix backend computes patches from this.
+- **Zed sends accumulated content**: Each `message_added` from Zed contains the **full** accumulated message so far, not a delta. Helix backend computes patches from this. (Future optimization: have Zed compute patches to reduce Zed→Helix bandwidth)
 - **Frontend keying matters**: `patchContentRef` is keyed by interactionId (correct), but `currentResponses` is keyed by sessionId (potential issue during transitions).
 - **Streaming throttle in Zed**: Zed throttles `message_added` events and flushes before `message_completed`. Helix must handle the final content correctly.
+- **Silent failures in message_completed**: The handler returns `nil` (success) even when it fails to find/mark the interaction, making debugging difficult. These should be explicit errors or at least logged at ERROR level.
