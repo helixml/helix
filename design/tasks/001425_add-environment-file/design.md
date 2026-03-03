@@ -30,15 +30,16 @@ Session Start → GetProjectSecretFiles() → Write to workspaceDir
 ```go
 // api/pkg/types/types.go
 type SecretFile struct {
-    ID        string    `json:"id" gorm:"primaryKey"`
-    ProjectID string    `json:"project_id" gorm:"index"`
-    Path      string    `json:"path"`              // e.g., ".env", "config/secrets.json"
-    Content   []byte    `json:"content" gorm:"-"`  // Decrypted (never persisted)
-    Value     []byte    `json:"-" gorm:"type:bytea"` // Encrypted
-    Owner     string    `json:"-"`
-    OwnerType OwnerType `json:"-"`
-    Created   time.Time `json:"created"`
-    Updated   time.Time `json:"updated"`
+    ID           string    `json:"id" gorm:"primaryKey"`
+    ProjectID    string    `json:"project_id" gorm:"index"`
+    RepositoryID string    `json:"repository_id" gorm:"index"` // Which repo this file belongs to
+    Path         string    `json:"path"`              // e.g., ".env", "config/secrets.json"
+    Content      []byte    `json:"content" gorm:"-"`  // Decrypted (never persisted)
+    Value        []byte    `json:"-" gorm:"type:bytea"` // Encrypted
+    Owner        string    `json:"-"`
+    OwnerType    OwnerType `json:"-"`
+    Created      time.Time `json:"created"`
+    Updated      time.Time `json:"updated"`
 }
 ```
 
@@ -62,10 +63,13 @@ In `hydra_executor.go` `StartDesktop()`, after workspace directory is created:
 
 ```go
 // Write secret files to workspace (before startup script runs)
-if err := h.writeSecretFiles(ctx, agent.ProjectID, workspaceDir); err != nil {
+// Files are written to their associated repository's checkout directory
+if err := h.writeSecretFiles(ctx, agent.ProjectID, agent.RepositoryIDs, workspaceDir); err != nil {
     log.Warn().Err(err).Msg("Failed to write secret files")
 }
 ```
+
+The `writeSecretFiles` function maps each `SecretFile.RepositoryID` to the corresponding checkout directory within the workspace (e.g., `workspaceDir/repo-name/.env`).
 
 ### 2. Auto-Gitignore
 
@@ -81,8 +85,8 @@ func updateGitignore(workspaceDir string, paths []string) error {
 ### 3. Frontend Integration
 
 Add "Secret Files" section to `ProjectSettings.tsx` below existing "Secrets" section:
-- List with file path, "encrypted" chip, delete button
-- Add dialog with path input + multiline content editor
+- List with repository name, file path, "encrypted" chip, edit/delete buttons
+- Add dialog with repository dropdown (project repos) + path input + multiline content editor
 - Edit dialog (loads decrypted content)
 
 ## Security Considerations

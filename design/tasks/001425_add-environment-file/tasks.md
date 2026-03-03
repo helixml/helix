@@ -2,8 +2,8 @@
 
 ## Backend - Data Model
 
-- [ ] Add `SecretFile` struct to `api/pkg/types/types.go` (ID, ProjectID, Path, Content, Value, Owner, OwnerType, Created, Updated)
-- [ ] Add `CreateSecretFileRequest` struct (Path, Content)
+- [ ] Add `SecretFile` struct to `api/pkg/types/types.go` (ID, ProjectID, RepositoryID, Path, Content, Value, Owner, OwnerType, Created, Updated)
+- [ ] Add `CreateSecretFileRequest` struct (RepositoryID, Path, Content)
 
 ## Backend - Store Layer
 
@@ -35,10 +35,11 @@
 
 - [ ] Add "Secret Files" section to `frontend/src/pages/ProjectSettings.tsx` (below Secrets)
 - [ ] Add query for `v1ProjectsSecretFilesDetail` (list files)
+- [ ] Add query for project repositories (for dropdown)
 - [ ] Add mutation for create, update, delete
-- [ ] Add "Add Secret File" dialog with path input + multiline content editor
+- [ ] Add "Add Secret File" dialog with repository dropdown + path input + multiline content editor
 - [ ] Add "Edit Secret File" dialog (loads decrypted content via `getProjectSecretFile`)
-- [ ] List display: file path, "encrypted" chip, edit/delete buttons
+- [ ] List display: repository name, file path, "encrypted" chip, edit/delete buttons
 
 ## Testing
 
