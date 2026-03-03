@@ -1,7 +1,7 @@
 # Implementation Tasks
 
 ## Streaming Indicator Implementation
-- [~] Create `StreamingIndicator` component with infinity/figure-8 animation
+- [x] Create `StreamingIndicator` component with infinity/figure-8 animation
   - Two dots (cyan #00d4ff, purple #d8b4fe head / #a855f7 trail)
   - Figure-8 lemniscate path with 48 keyframes
   - 24 trail elements per dot with fading opacity
