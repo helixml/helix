@@ -2,99 +2,95 @@
 
 ## Overview
 
-The blinker span (`<span class="blinker-class">┃</span>`) occasionally renders as literal text during streaming when content contains unclosed HTML tags. We need to ensure the blinker always renders properly regardless of the content state.
+The blinker span (`<span class="blinker-class">┃</span>`) renders as literal text in monospace font during streaming, indicating it's being incorrectly placed inside `<pre><code>` context when adjacent to code blocks.
 
 ## Architecture
 
 The current rendering pipeline:
-1. `MessageProcessor.process()` transforms raw markdown/HTML content
+1. `MessageProcessor.process()` transforms raw markdown content
 2. `sanitizeHtml()` uses DOMPurify to clean content
-3. `addBlinker()` appends blinker span (if streaming)
-4. `react-markdown` with `rehype-raw` renders final HTML
+3. `addBlinker()` appends blinker span to raw markdown (if streaming)
+4. `react-markdown` with `rehype-raw` converts markdown + raw HTML to rendered output
 
-The problem: `addBlinker()` runs **after** sanitization, so unclosed tags in the output can "swallow" the blinker span.
+The problem: The blinker span is appended to raw markdown, then `react-markdown` + `rehype-raw` processes it. When a code block precedes the blinker, the `rehype-raw` plugin may incorrectly nest the span inside the generated `<pre><code>` tags.
 
-## Solution: Close Unclosed HTML Tags Before Adding Blinker
+## Solution: Add Blinker After Markdown Rendering
 
-Add a tag-closing step before appending the blinker. This ensures the blinker is always appended to valid HTML.
+Instead of appending the blinker to raw markdown (before parsing), inject it after the markdown-to-HTML conversion is complete.
 
-### Implementation
+### Option A: Move Blinker to React Component Layer
 
-In `Markdown.tsx`, modify `addBlinker()`:
+The cleanest fix is to render the blinker as a separate React element, not as raw HTML injected into markdown.
 
-```typescript
-private addBlinker(message: string): string {
-  // Existing code block check
-  const openCodeBlockCount = (message.match(/```/g) || []).length;
-  if (openCodeBlockCount % 2 !== 0) {
-    return message;
-  }
+In `InteractionMarkdown` or `MemoizedMarkdownRenderer`:
 
-  // NEW: Close any unclosed HTML tags before adding blinker
-  message = this.closeUnclosedTags(message);
+```tsx
+return (
+  <>
+    <Markdown
+      children={processedContent}
+      remarkPlugins={remarkPluginsArray}
+      rehypePlugins={rehypePluginsArray}
+      className="interactionMessage"
+      components={markdownComponents}
+    />
+    {showBlinker && isStreaming && (
+      <span className="blinker-class">┃</span>
+    )}
+  </>
+);
+```
 
-  return message + '<span class="blinker-class">┃</span>';
-}
+This ensures the blinker is always a sibling element after the rendered markdown, never inside it.
 
-private closeUnclosedTags(html: string): string {
-  // Track opened tags (only self-closing-optional tags that matter for streaming)
-  const tagStack: string[] = [];
-  const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9]*)[^>]*>/g;
-  const selfClosingTags = new Set(['br', 'hr', 'img', 'input', 'meta', 'link']);
-  
-  let match;
-  while ((match = tagRegex.exec(html)) !== null) {
-    const [fullMatch, tagName] = match;
-    const tag = tagName.toLowerCase();
-    
-    if (selfClosingTags.has(tag)) continue;
-    
-    if (fullMatch.startsWith('</')) {
-      // Closing tag - pop from stack if matching
-      const lastIndex = tagStack.lastIndexOf(tag);
-      if (lastIndex !== -1) {
-        tagStack.splice(lastIndex, 1);
-      }
-    } else if (!fullMatch.endsWith('/>')) {
-      // Opening tag
-      tagStack.push(tag);
-    }
-  }
-  
-  // Check for partial/unclosed tag at end (e.g., "<div" or "<span class=")
-  const partialTagMatch = html.match(/<([a-zA-Z][a-zA-Z0-9]*)[^>]*$/);
-  if (partialTagMatch) {
-    // Remove the partial tag - it will be completed in next streaming chunk
-    html = html.replace(/<([a-zA-Z][a-zA-Z0-9]*)[^>]*$/, '');
-  }
-  
-  // Close remaining open tags in reverse order
-  for (let i = tagStack.length - 1; i >= 0; i--) {
-    html += `</${tagStack[i]}>`;
-  }
-  
-  return html;
+### Option B: Use CSS ::after Pseudo-element
+
+Add the blinker via CSS on a wrapper element when streaming:
+
+```tsx
+<Box className={isStreaming ? 'streaming-content' : ''}>
+  <Markdown ... />
+</Box>
+```
+
+```css
+.streaming-content::after {
+  content: '┃';
+  animation: blink 1.2s step-end infinite;
 }
 ```
 
+### Recommended: Option A
+
+Option A is simpler and maintains the existing blinker styling. It requires minimal changes to the component structure.
+
+## Changes Required
+
+1. **Remove** `addBlinker()` call from `MessageProcessor.process()`
+2. **Remove** the `addBlinker()` method (or keep for reference)
+3. **Add** blinker rendering in `MemoizedMarkdownRenderer` as a sibling element
+4. **Pass** `showBlinker` and `isStreaming` props to the renderer component
+
 ## Alternatives Considered
 
-1. **Move blinker before sanitization**: Rejected - DOMPurify might strip or modify the blinker
-2. **Use CSS ::after pseudo-element**: Rejected - requires DOM structure changes, harder to position
-3. **Add blinker via React state**: Rejected - would require significant refactor of MessageProcessor
+| Alternative | Why Rejected |
+|-------------|--------------|
+| Close unclosed tags before adding blinker | Doesn't fix the core issue - `rehype-raw` interaction with code blocks |
+| Escape blinker HTML in code blocks | Complex regex, fragile |
+| Use different blinker character | Doesn't solve the rendering context issue |
 
 ## Key Decisions
 
 | Decision | Rationale |
 |----------|-----------|
-| Close tags in `addBlinker()` | Minimal change, fixes problem at source |
-| Remove partial tags at end | Prevents malformed HTML, chunk will complete it |
-| Only track non-self-closing tags | Self-closing tags don't affect blinker rendering |
+| Render blinker in React, not raw HTML | Avoids markdown parser interference entirely |
+| Place blinker as sibling after Markdown | Guarantees it's never inside code/pre blocks |
+| Keep existing blinker CSS | No visual changes to users |
 
 ## Testing Strategy
 
-- Unit test: Streaming with unclosed `<div>` tag
-- Unit test: Streaming with partial tag `<span class="`
-- Unit test: Streaming with unclosed `<pre>` block
-- Unit test: Verify existing code block handling unchanged
-- Unit test: Multiple unclosed tags at different nesting levels
+- Unit test: Blinker appears after code block (not inside)
+- Unit test: Blinker appears during streaming, disappears when done
+- Unit test: Multiple code blocks don't affect blinker position
+- Manual test: Verify blinker animation works correctly
+- Manual test: Verify blinker positioning at end of various content types

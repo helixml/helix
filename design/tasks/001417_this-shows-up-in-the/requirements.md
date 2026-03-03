@@ -2,7 +2,7 @@
 
 ## Problem Statement
 
-When rendering streaming markdown content, the blinker cursor HTML (`<span class="blinker-class">┃</span>`) is sometimes displayed as literal text instead of rendering as a styled blinking cursor. This happens when the streaming content has unclosed/partial HTML tags.
+When rendering streaming markdown content, the blinker cursor HTML (`<span class="blinker-class">┃</span>`) is sometimes displayed as literal text in monospace font instead of rendering as a styled blinking cursor. This primarily happens when the blinker appears inside or adjacent to code blocks during streaming.
 
 ## User Stories
 
@@ -12,22 +12,23 @@ As a user watching an AI response stream, I should see a clean blinking cursor a
 ## Acceptance Criteria
 
 - [ ] Blinker renders as a styled cursor, not literal HTML text, during all streaming scenarios
+- [ ] Blinker adjacent to code blocks does not get rendered inside `<pre><code>` context
 - [ ] Partial/unclosed HTML tags in streaming content don't cause blinker to render as text
-- [ ] Blinker inside unclosed `<pre>` blocks renders correctly (not as literal text)
 - [ ] Existing blinker behavior (appears during streaming, disappears when done) is preserved
-- [ ] No regression in code block handling (blinker already skipped inside incomplete code blocks)
 - [ ] No regression in thinking tag handling
 
 ## Root Cause Analysis
 
-The `addBlinker()` method in `MessageProcessor` appends the blinker span after content:
+The `addBlinker()` method in `MessageProcessor` appends the blinker span to raw markdown:
 ```
 return message + '<span class="blinker-class">┃</span>';
 ```
 
-When streaming content has an unclosed HTML tag (e.g., `<div` without `>`), the blinker span gets interpreted as part of that partial tag, causing it to render as escaped text rather than HTML.
+The code already skips adding the blinker when *inside* an incomplete code block (odd count of triple backticks). However, the blinker is still appearing in monospace font, indicating it's being rendered inside `<pre><code>` context.
 
-Additionally, if the blinker is added inside an unclosed `<pre>` block, it may render as literal text since preformatted blocks treat content literally. Note: The code already handles markdown code blocks (triple backticks) but not raw `<pre>` tags that might appear in streamed content.
+**Primary cause**: When `react-markdown` with `rehype-raw` processes the content, the blinker span appended after a code block may be incorrectly interpreted as part of the code block's HTML output. The `rehype-raw` plugin processes raw HTML embedded in markdown, and the interaction between markdown code fences and the raw HTML blinker span appears to cause the span to end up inside the `<pre><code>` tags.
+
+**Secondary cause**: Unclosed HTML tags (e.g., `<div` without `>`) could also cause the blinker to be misinterpreted.
 
 ## Scope
 
