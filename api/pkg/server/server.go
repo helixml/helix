@@ -734,8 +734,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/prompt-history/{id}/tags", system.Wrapper(apiServer.updatePromptTags)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/prompt-history/{id}/use", system.Wrapper(apiServer.incrementPromptUsage)).Methods(http.MethodPost)
 
-	// Unified search endpoint
-	authRouter.HandleFunc("/search", system.Wrapper(apiServer.unifiedSearch)).Methods(http.MethodGet)
+	// Unified search endpoint (q= param)
+	authRouter.HandleFunc("/search", system.Wrapper(apiServer.unifiedSearch)).Methods(http.MethodGet).Queries("q", "{q}")
 
 	// Zed config endpoints
 	authRouter.HandleFunc("/sessions/{id}/zed-config", system.Wrapper(apiServer.getZedConfig)).Methods(http.MethodGet)
@@ -793,7 +793,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Trigger status routes
 	authRouter.HandleFunc("/apps/{id}/trigger-status", apiServer.getAppTriggerStatus).Methods(http.MethodGet)
 
-	authRouter.HandleFunc("/search", system.Wrapper(apiServer.knowledgeSearch)).Methods(http.MethodGet)
+	// Knowledge search endpoint (prompt= param)
+	authRouter.HandleFunc("/search", system.Wrapper(apiServer.knowledgeSearch)).Methods(http.MethodGet).Queries("prompt", "{prompt}")
 	authRouter.HandleFunc("/resource-search", system.Wrapper(apiServer.resourceSearch)).Methods(http.MethodPost)
 
 	authRouter.HandleFunc("/knowledge", system.Wrapper(apiServer.listKnowledge)).Methods(http.MethodGet)
