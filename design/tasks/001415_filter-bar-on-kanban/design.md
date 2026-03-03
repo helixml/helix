@@ -64,3 +64,22 @@ const filterTasks = (taskList, filter) => {
 3. Search by full padded format → should find matching task
 4. Search by text that contains digits → should match via text search
 5. Verify existing text search still works
+
+## Implementation Notes
+
+**Change made:** Updated `filterTasks` function at line ~753 in `SpecTaskKanbanBoard.tsx`
+
+```typescript
+// Added these lines:
+const trimmedFilter = filter.trim();
+const numericFilter = /^\d+$/.test(trimmedFilter)
+  ? parseInt(trimmedFilter, 10)
+  : null;
+
+// Added to filter condition:
+(numericFilter !== null && task.task_number === numericFilter)
+```
+
+**Build verification:** `cd frontend && yarn build` - completed successfully with no errors.
+
+**Pattern discovered:** The codebase uses `task.task_number` (number type) for storage and displays it with `String(task.task_number).padStart(6, "0")` for UI. The filter needed to compare against the raw integer, not the padded string.
