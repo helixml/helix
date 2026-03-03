@@ -1,19 +1,19 @@
-import React, { useState } from 'react';
-import { Box, Button, TextField, Typography, Link, Alert } from '@mui/material';
-import { useAccount } from '../hooks/useAccount';
-import useApi from '../hooks/useApi';
+import React, { useState } from "react";
+import { Box, Button, TextField, Typography, Link, Alert } from "@mui/material";
+import { useAccount } from "../hooks/useAccount";
+import useApi from "../hooks/useApi";
 
 export const LicenseKeyPrompt: React.FC = () => {
   const account = useAccount();
   const api = useApi();
-  const [licenseKey, setLicenseKey] = useState('');
+  const [licenseKey, setLicenseKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Add debug logging
-  console.log('LicenseKeyPrompt:', {
+  console.log("LicenseKeyPrompt:", {
     deploymentId: account.serverConfig?.deployment_id,
-    serverConfig: account.serverConfig
+    serverConfig: account.serverConfig,
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -21,13 +21,15 @@ export const LicenseKeyPrompt: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      await api.post('/api/v1/license', {
-        license_key: licenseKey
+      await api.post("/api/v1/license", {
+        license_key: licenseKey,
       });
       window.location.reload(); // Reload to update config
     } catch (error: any) {
-      console.error('Error setting license key:', error);
-      setError(error?.response?.data || error?.message || 'Failed to set license key');
+      console.error("Error setting license key:", error);
+      setError(
+        error?.response?.data || error?.message || "Failed to set license key",
+      );
     } finally {
       setLoading(false);
     }
@@ -36,22 +38,28 @@ export const LicenseKeyPrompt: React.FC = () => {
   const isLoggedIn = !!account.user;
 
   return (
-    <Box sx={{ maxWidth: 600, mx: 'auto', mt: 4, p: 3 }}>
+    <Box sx={{ maxWidth: 600, mx: "auto", mt: 4, p: 3 }}>
       <Typography variant="h5" gutterBottom>
-        Get your free Community License Key! 🕺🏽
+        Get a License Key to use Helix 🕺🏽
       </Typography>
       {account.serverConfig?.license && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          License Expired!
-          Organization: {account.serverConfig.license.organization} |
-          Valid Until: {new Date(account.serverConfig.license.valid_until).toLocaleDateString()} |
-          Users: {account.serverConfig.license.limits.users} |
-          Machines: {account.serverConfig.license.limits.machines}
+          License Expired! Organization:{" "}
+          {account.serverConfig.license.organization} | Valid Until:{" "}
+          {new Date(
+            account.serverConfig.license.valid_until,
+          ).toLocaleDateString()}{" "}
+          | Users: {account.serverConfig.license.limits.users} | Machines:{" "}
+          {account.serverConfig.license.limits.machines}
         </Alert>
       )}
       <Typography paragraph>
-        Get your free Community license key from{' '}
-        <Link href="https://helix.ml/account/licenses" target="_blank" rel="noopener">
+        Get your license key from{" "}
+        <Link
+          href="https://helix.ml/account/licenses"
+          target="_blank"
+          rel="noopener"
+        >
           helix.ml/account/licenses
         </Link>
       </Typography>
@@ -83,9 +91,9 @@ export const LicenseKeyPrompt: React.FC = () => {
           disabled={loading || !isLoggedIn}
           sx={{ mt: 2 }}
         >
-          {loading ? 'Saving...' : 'Save License Key'}
+          {loading ? "Saving..." : "Save License Key"}
         </Button>
       </form>
     </Box>
   );
-}; 
+};
