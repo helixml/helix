@@ -102,7 +102,9 @@ Several failure modes can cause `message_completed` to not mark the interaction 
 
 3. **Streaming context not flushed:** The `flushAndClearStreamingContext()` should write final content to DB, but if the streaming context doesn't exist (already cleared), content may be lost.
 
-## Protocol Flow (from PROTOCOL_SPEC.md)
+## Protocol Flow (from code analysis)
+
+**Note:** `zed/crates/external_websocket_sync/PROTOCOL_SPEC.md` is out of date - it's missing `simulate_user_input`, `query_ui_state`, and `ui_state_response`. The actual protocol is documented here based on code inspection.
 
 ```
 Flow 2: Follow-up Message to Existing Thread
