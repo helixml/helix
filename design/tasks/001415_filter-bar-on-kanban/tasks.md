@@ -1,7 +1,7 @@
 # Implementation Tasks
 
-- [~] Update `filterTasks` function in `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx` to detect numeric-only filters
-- [~] Add `task_number` matching when filter is a valid integer
+- [x] Update `filterTasks` function in `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx` to detect numeric-only filters
+- [x] Add `task_number` matching when filter is a valid integer
 - [ ] Test: search "1412" finds task #001412
 - [ ] Test: search "001412" finds task #001412
 - [ ] Test: existing text search (name, description, implementation_plan) still works
