@@ -721,6 +721,9 @@ func (d *SettingsDaemon) syncFromHelix() error {
 
 	d.helixSettings = map[string]interface{}{
 		"context_servers": config.ContextServers,
+		// Use grayscale text rendering - subpixel antialiasing doesn't work well
+		// over video streaming since the client display's subpixel layout is unknown
+		"text_rendering_mode": "grayscale",
 		// Disable dev container suggestions - Helix runs Zed inside its own containers
 		// Note: remote settings use #[serde(flatten)] in Zed, so fields go at the top level
 		"suggest_dev_container": false,
