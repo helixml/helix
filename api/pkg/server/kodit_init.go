@@ -40,6 +40,9 @@ func initKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 	var koditOpts []kodit.Option
 	koditOpts = append(koditOpts, kodit.WithPostgresVectorchord(cfg.Kodit.DatabaseURL))
 
+	// Default to the new Chunking implementation
+	koditOpts = append(koditOpts, kodit.WithChunking(true))
+
 	// Data directory (for cloned repos, model cache, etc.)
 	dataDir := cfg.Kodit.DataDir
 	if dataDir == "" {
