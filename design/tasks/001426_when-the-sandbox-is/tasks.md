@@ -2,7 +2,7 @@
 
 ## Backend Changes
 
-- [ ] Add `OnGracePeriodExpired` callback field to `ConnectionManager` struct in `api/pkg/connman/connman.go`
+- [~] Add `OnGracePeriodExpired` callback field to `ConnectionManager` struct in `api/pkg/connman/connman.go`
 - [ ] Add `SetOnGracePeriodExpired(fn func(key string))` method to `ConnectionManager`
 - [ ] Call the callback in `cleanupExpired()` when grace period expires for a key
 - [ ] Add `ListSessionsBySandbox(ctx, sandboxID)` method to store interface and PostgresStore
