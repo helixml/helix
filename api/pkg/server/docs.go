@@ -19279,6 +19279,12 @@ const docTemplate = `{
         "types.CronTrigger": {
             "type": "object",
             "properties": {
+                "emails": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "enabled": {
                     "type": "boolean"
                 },
@@ -26130,6 +26136,13 @@ const docTemplate = `{
                 },
                 "providers_management_enabled": {
                     "type": "boolean"
+                },
+                "rag_embeddings_model": {
+                    "type": "string"
+                },
+                "rag_embeddings_provider": {
+                    "description": "RAG embedding model configuration",
+                    "type": "string"
                 }
             }
         },
@@ -26170,6 +26183,17 @@ const docTemplate = `{
                 },
                 "providers_management_enabled": {
                     "type": "boolean"
+                },
+                "rag_embeddings_model": {
+                    "type": "string"
+                },
+                "rag_embeddings_model_set": {
+                    "description": "true if both provider and model are configured",
+                    "type": "boolean"
+                },
+                "rag_embeddings_provider": {
+                    "description": "RAG embedding model configuration (not sensitive, returned as-is)",
+                    "type": "string"
                 },
                 "updated": {
                     "type": "string"

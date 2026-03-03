@@ -53,6 +53,25 @@ func (n *NotificationsProvider) Notify(ctx context.Context, notification *Notifi
 		return nil
 	}
 
+	// If multiple emails are specified, send to each one
+	if len(notification.Emails) > 0 {
+		for _, email := range notification.Emails {
+			perRecipient := &Notification{
+				Event:          notification.Event,
+				Session:        notification.Session,
+				Message:        notification.Message,
+				RenderMarkdown: notification.RenderMarkdown,
+				Email:          email,
+			}
+			log.Debug().
+				Str("email", email).Str("notification", perRecipient.Event.String()).Msg("sending notification")
+			if err := n.email.Notify(ctx, perRecipient); err != nil {
+				log.Error().Err(err).Str("email", email).Msg("failed to send notification")
+			}
+		}
+		return nil
+	}
+
 	// If email is not pre-populated, look up from session owner
 	if notification.Email == "" && notification.Session != nil {
 		user, err := n.store.GetUser(ctx, &store.GetUserQuery{ID: notification.Session.Owner})

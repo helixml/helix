@@ -2102,6 +2102,7 @@ export interface TypesCrispTrigger {
 }
 
 export interface TypesCronTrigger {
+  emails?: string[];
   enabled?: boolean;
   input?: string;
   schedule?: string;
