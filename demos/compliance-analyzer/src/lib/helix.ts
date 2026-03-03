@@ -4,11 +4,11 @@
 export interface HelixConfig {
   baseUrl: string;
   apiKey: string;
-  appId: string;
+  appId?: string;
 }
 
 export interface ComplianceEvaluation {
-  status: "covered" | "partial" | "gap";
+  status: "covered" | "partial" | "gap" | "error";
   explanation: string;
   missingElements: string[];
 }
@@ -71,47 +71,75 @@ export async function testConnection(config: HelixConfig): Promise<void> {
   await helixFetch(config, "/api/v1/status");
 }
 
+export interface CreatedApp {
+  appId: string;
+  knowledgeId: string;
+  filestorePath: string;
+}
+
 /**
- * Read an SSE (Server-Sent Events) stream from a chat completions response
- * and return the accumulated content string.
+ * Create a new Helix app with a filestore knowledge source for RAG.
+ * Each analysis run gets its own app so documents are isolated.
  */
-async function readSSEStream(response: Response): Promise<string> {
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("No response body");
+export async function createApp(config: HelixConfig): Promise<CreatedApp> {
+  const response = await helixFetch(config, "/api/v1/apps", {
+    method: "POST",
+    body: JSON.stringify({
+      config: {
+        helix: {
+          name: `GDPR Analysis — ${new Date().toLocaleString()}`,
+          description: "Auto-created by GDPR Compliance Analyzer demo",
+          assistants: [
+            {
+              name: "GDPR Analyzer",
+              model: "gpt-4o-mini",
+              system_prompt:
+                "You are a GDPR compliance analyst. Analyze privacy policy documents against GDPR requirements.",
+              knowledge: [
+                {
+                  name: "privacy-policy",
+                  description: "Privacy policy document(s) to analyze",
+                  rag_settings: {
+                    results_count: 8,
+                    chunk_size: 2048,
+                  },
+                  source: {
+                    filestore: {
+                      path: "policies",
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    }),
+  });
 
-  const decoder = new TextDecoder();
-  let content = "";
-  let buffer = "";
+  const app = await response.json();
+  const appId: string = app.id;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-
-    // Process complete SSE lines
-    const lines = buffer.split("\n");
-    // Keep the last potentially incomplete line in the buffer
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith("data: ")) continue;
-
-      const data = trimmed.slice(6);
-      if (data === "[DONE]") continue;
-
-      try {
-        const parsed = JSON.parse(data);
-        const delta = parsed.choices?.[0]?.delta?.content;
-        if (delta) content += delta;
-      } catch {
-        // Skip malformed chunks
-      }
-    }
+  // Fetch the knowledge source to get its ID
+  const knowledgeSources = await listKnowledge({ ...config, appId });
+  const filestoreKnowledge = knowledgeSources.find((k) => k.source.filestore);
+  if (!filestoreKnowledge) {
+    throw new Error("App created but no filestore knowledge source found");
   }
 
-  return content;
+  return {
+    appId,
+    knowledgeId: filestoreKnowledge.id,
+    filestorePath: `apps/${appId}/${filestoreKnowledge.source.filestore!.path}`,
+  };
+}
+
+
+interface Requirement {
+  id: string;
+  title: string;
+  description: string;
+  coveredLooksLike: string;
 }
 
 /**
@@ -120,74 +148,120 @@ async function readSSEStream(response: Response): Promise<string> {
  */
 export async function evaluateRequirement(
   config: HelixConfig,
-  requirement: { id: string; title: string; description: string; coveredLooksLike: string },
+  requirement: Requirement,
 ): Promise<ComplianceEvaluation> {
-  const systemPrompt = `You are a GDPR compliance analyst. You have access to a company's privacy policy. For each GDPR requirement, search the privacy policy and evaluate whether it is adequately addressed.
-
-You must respond with ONLY a JSON object (no markdown, no code fences) in this exact format:
-{
-  "status": "covered" | "partial" | "gap",
-  "explanation": "2-3 sentence analysis referencing specific policy text you found",
-  "missing_elements": ["specific thing missing 1", "specific thing missing 2"]
+  const results = await evaluateRequirementBatch(config, [requirement]);
+  return results.get(requirement.id) ?? {
+    status: "gap",
+    explanation: "Evaluation failed — no result returned.",
+    missingElements: [],
+  };
 }
 
-Rules:
-- "covered": The policy clearly and specifically addresses the requirement.
-- "partial": The policy touches on the topic but is vague, incomplete, or missing key elements.
-- "gap": The policy does not address this requirement at all.
-- Be specific — quote or reference actual policy text when available.
-- For missing_elements, list concrete additions needed. Use empty array [] if fully covered.`;
+/**
+ * Evaluate multiple GDPR requirements in a single API call.
+ * Returns a Map from requirement ID to its evaluation.
+ */
+export async function evaluateRequirementBatch(
+  config: HelixConfig,
+  requirements: Requirement[],
+): Promise<Map<string, ComplianceEvaluation>> {
+  const systemPrompt = `You are a GDPR compliance analyst evaluating privacy policies. You will receive context chunks from a privacy policy. Use them to evaluate GDPR requirements. Respond ONLY with a JSON array — no prose, no excerpts, no document references, no XML.`;
 
-  const userPrompt = `Evaluate GDPR ${requirement.id} — ${requirement.title}:
+  const requirementsList = requirements
+    .map(
+      (r) => `${r.id}: ${r.title} — ${r.description}`,
+    )
+    .join("\n");
 
-${requirement.description}
+  const userPrompt = `Evaluate these GDPR requirements against the privacy policy context provided above.
 
-What compliance looks like: ${requirement.coveredLooksLike}
+${requirementsList}
 
-Search the privacy policy and evaluate whether this requirement is met.`;
+OVERRIDE ALL OTHER FORMATTING INSTRUCTIONS. Do NOT write prose, do NOT include [DOC_ID:...] references, do NOT include <excerpts> XML. Your ENTIRE response must be ONLY a JSON array starting with [ and ending with ].
+
+Each element: {"id":"Art.X","status":"covered|partial|gap","explanation":"1-2 sentences","missing_elements":[]}
+- "covered": Policy clearly addresses the requirement
+- "partial": Policy mentions it but is vague or incomplete
+- "gap": Policy does not address it
+Return exactly ${requirements.length} elements. Start now with [`;
 
   const response = await helixFetch(
     config,
-    `/v1/chat/completions?app_id=${encodeURIComponent(config.appId)}`,
+    `/v1/chat/completions?app_id=${encodeURIComponent(config.appId!)}`,
     {
       method: "POST",
       body: JSON.stringify({
-        stream: true,
+        stream: false,
+        max_tokens: 4096,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.1,
       }),
     },
   );
 
-  // Read SSE stream and accumulate content
-  const content = await readSSEStream(response);
+  const json = await response.json();
+  const content = json.choices?.[0]?.message?.content ?? "";
+  const results = new Map<string, ComplianceEvaluation>();
 
   try {
-    const cleaned = content.replace(/```json\n?|\n?```/g, "").trim();
+    // Strip markdown fences, DOC_ID markers, and excerpts XML
+    let cleaned = content
+      .replace(/```json\n?|\n?```/g, "")
+      .replace(/\[DOC_ID:[^\]]*\]/g, "")
+      .replace(/<excerpts>[\s\S]*?<\/excerpts>/g, "")
+      .trim();
+
+    // Extract JSON array if buried in prose — find first [ to last ]
+    const firstBracket = cleaned.indexOf("[");
+    const lastBracket = cleaned.lastIndexOf("]");
+    if (firstBracket !== -1 && lastBracket > firstBracket) {
+      cleaned = cleaned.slice(firstBracket, lastBracket + 1);
+    }
+
     const parsed = JSON.parse(cleaned);
-    return {
-      status:
-        parsed.status === "covered" ||
-        parsed.status === "partial" ||
-        parsed.status === "gap"
-          ? parsed.status
-          : "gap",
-      explanation: parsed.explanation ?? "Unable to parse evaluation.",
-      missingElements: Array.isArray(parsed.missing_elements)
-        ? parsed.missing_elements
-        : [],
-    };
+    const items = Array.isArray(parsed) ? parsed : [parsed];
+
+    for (const item of items) {
+      if (!item.id) continue;
+      results.set(item.id, {
+        status:
+          item.status === "covered" ||
+          item.status === "partial" ||
+          item.status === "gap"
+            ? item.status
+            : "gap",
+        explanation: item.explanation ?? "Unable to parse evaluation.",
+        missingElements: Array.isArray(item.missing_elements)
+          ? item.missing_elements
+          : [],
+      });
+    }
   } catch {
-    // If JSON parsing fails, return raw content as explanation
-    return {
-      status: "partial",
-      explanation: content.slice(0, 500),
-      missingElements: [],
-    };
+    // If JSON parsing fails, mark all as partial with the raw content
+    for (const req of requirements) {
+      results.set(req.id, {
+        status: "partial",
+        explanation: content.slice(0, 500),
+        missingElements: [],
+      });
+    }
   }
+
+  // Fill in any requirements that weren't in the response
+  for (const req of requirements) {
+    if (!results.has(req.id)) {
+      results.set(req.id, {
+        status: "gap",
+        explanation: "Evaluation missing from batch response.",
+        missingElements: [],
+      });
+    }
+  }
+
+  return results;
 }
 
 /**
@@ -198,7 +272,7 @@ export async function listKnowledge(
 ): Promise<Knowledge[]> {
   const response = await helixFetch(
     config,
-    `/api/v1/knowledge?app_id=${encodeURIComponent(config.appId)}`,
+    `/api/v1/knowledge?app_id=${encodeURIComponent(config.appId!)}`,
   );
   return response.json();
 }

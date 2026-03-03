@@ -11,20 +11,32 @@ type Phase = "setup" | "upload" | "analyzing" | "results";
 
 export interface AnalysisResult {
   controlId: string;
-  status: "covered" | "partial" | "gap";
+  status: "covered" | "partial" | "gap" | "error";
   evaluation?: ComplianceEvaluation;
 }
 
+function loadSavedConfig(): { config: HelixConfig; valid: boolean } {
+  const baseUrl = localStorage.getItem("helix_base_url") ?? "";
+  const apiKey = localStorage.getItem("helix_api_key") ?? "";
+  return {
+    config: { baseUrl, apiKey },
+    valid: !!apiKey,
+  };
+}
+
 export default function App() {
-  const [phase, setPhase] = useState<Phase>("setup");
-  const [helixConfig, setHelixConfig] = useState<HelixConfig>({
-    baseUrl: "",
-    apiKey: "",
-    appId: "",
+  const [phase, setPhase] = useState<Phase>(() => {
+    const { valid } = loadSavedConfig();
+    return valid ? "upload" : "setup";
+  });
+  const [helixConfig, setHelixConfig] = useState<HelixConfig>(() => {
+    const { config, valid } = loadSavedConfig();
+    return valid ? config : { baseUrl: "", apiKey: "" };
   });
   const [analysisResults, setAnalysisResults] = useState<
     Map<string, AnalysisResult>
   >(new Map());
+  const [documentName, setDocumentName] = useState("");
   const [selectedControlId, setSelectedControlId] = useState<string | null>(
     null,
   );
@@ -34,9 +46,14 @@ export default function App() {
     setPhase("upload");
   }, []);
 
-  const handleUploadComplete = useCallback(() => {
-    setPhase("analyzing");
-  }, []);
+  const handleUploadComplete = useCallback(
+    (appId: string, fileName: string) => {
+      setHelixConfig((prev) => ({ ...prev, appId }));
+      setDocumentName(fileName);
+      setPhase("analyzing");
+    },
+    [],
+  );
 
   const handleAnalysisComplete = useCallback(
     (results: Map<string, AnalysisResult>) => {
@@ -45,6 +62,17 @@ export default function App() {
     },
     [],
   );
+
+  const handleStartOver = useCallback(() => {
+    setAnalysisResults(new Map());
+    setSelectedControlId(null);
+    setDocumentName("");
+    setPhase("upload");
+  }, []);
+
+  const handleShowSettings = useCallback(() => {
+    setPhase("setup");
+  }, []);
 
   const handleSelectControl = useCallback((controlId: string) => {
     setSelectedControlId(controlId);
@@ -75,6 +103,15 @@ export default function App() {
             </h1>
           </div>
           <div className="flex items-center gap-4 text-sm text-gray-400">
+            {phase !== "setup" && (
+              <button
+                onClick={handleShowSettings}
+                className="text-gray-500 hover:text-gray-300 transition-colors mr-2"
+                title="Change settings"
+              >
+                Settings
+              </button>
+            )}
             <span
               className={
                 phase === "setup"
@@ -140,7 +177,9 @@ export default function App() {
           <ComplianceMatrix
             controls={complianceControls}
             results={analysisResults}
+            documentName={documentName}
             onSelectControl={handleSelectControl}
+            onStartOver={handleStartOver}
           />
         )}
       </main>

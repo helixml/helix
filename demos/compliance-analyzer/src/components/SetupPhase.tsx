@@ -7,9 +7,13 @@ interface SetupPhaseProps {
 }
 
 export function SetupPhase({ onComplete }: SetupPhaseProps) {
-  const [baseUrl, setBaseUrl] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [appId, setAppId] = useState("");
+  const [baseUrl, setBaseUrl] = useState(
+    () => localStorage.getItem("helix_base_url") ?? "",
+  );
+  const [apiKey, setApiKey] = useState(
+    () => localStorage.getItem("helix_api_key") ?? "",
+  );
+  const hasSavedCredentials = !!localStorage.getItem("helix_api_key");
   const [connectionStatus, setConnectionStatus] = useState<
     "idle" | "testing" | "connected" | "error"
   >("idle");
@@ -22,7 +26,6 @@ export function SetupPhase({ onComplete }: SetupPhaseProps) {
       const config: HelixConfig = {
         baseUrl: baseUrl.replace(/\/+$/, ""),
         apiKey,
-        appId,
       };
       await testConnection(config);
       setConnectionStatus("connected");
@@ -32,15 +35,24 @@ export function SetupPhase({ onComplete }: SetupPhaseProps) {
         err instanceof Error ? err.message : "Connection failed",
       );
     }
-  }, [baseUrl, apiKey, appId]);
+  }, [baseUrl, apiKey]);
 
-  const handleRunAnalysis = useCallback(() => {
+  const handleNext = useCallback(() => {
+    localStorage.setItem("helix_base_url", baseUrl.replace(/\/+$/, ""));
+    localStorage.setItem("helix_api_key", apiKey);
     onComplete({
       baseUrl: baseUrl.replace(/\/+$/, ""),
       apiKey,
-      appId,
     });
-  }, [onComplete, baseUrl, apiKey, appId]);
+  }, [onComplete, baseUrl, apiKey]);
+
+  const handleClearCredentials = useCallback(() => {
+    localStorage.removeItem("helix_base_url");
+    localStorage.removeItem("helix_api_key");
+    setBaseUrl("");
+    setApiKey("");
+    setConnectionStatus("idle");
+  }, []);
 
   const isConnected = connectionStatus === "connected";
 
@@ -51,9 +63,8 @@ export function SetupPhase({ onComplete }: SetupPhaseProps) {
           Connect to Helix
         </h2>
         <p className="text-sm text-gray-400 mb-6">
-          Enter your Helix instance details and the App ID of your
-          compliance analyzer agent. You'll upload privacy policy documents
-          in the next step.
+          Enter your Helix instance details. A new app will be created
+          automatically for each analysis to keep documents isolated.
         </p>
 
         <div className="space-y-4">
@@ -81,27 +92,11 @@ export function SetupPhase({ onComplete }: SetupPhaseProps) {
               placeholder="hl-..."
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              App ID
-            </label>
-            <input
-              type="text"
-              value={appId}
-              onChange={(e) => setAppId(e.target.value)}
-              className="w-full px-3 py-2 bg-surface-400 border border-surface-100/20 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50"
-              placeholder="app_xxxxxxxxxxxx"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Create an app in Helix with a filestore knowledge source.
-              Copy the App ID from the app settings.
-            </p>
-          </div>
 
           <div className="flex items-center gap-3 pt-2">
             <button
               onClick={handleTestConnection}
-              disabled={!apiKey || !appId}
+              disabled={!apiKey}
               className="px-4 py-2 bg-surface-100 hover:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {connectionStatus === "testing"
@@ -121,10 +116,19 @@ export function SetupPhase({ onComplete }: SetupPhaseProps) {
 
           {isConnected && (
             <button
-              onClick={handleRunAnalysis}
+              onClick={handleNext}
               className="w-full px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-lg transition-colors mt-4"
             >
               Next: Upload Documents
+            </button>
+          )}
+
+          {hasSavedCredentials && (
+            <button
+              onClick={handleClearCredentials}
+              className="text-xs text-gray-500 hover:text-gray-300 transition-colors mt-2"
+            >
+              Clear saved credentials
             </button>
           )}
         </div>

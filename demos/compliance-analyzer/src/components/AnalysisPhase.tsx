@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import type { HelixConfig, ComplianceEvaluation } from "../lib/helix";
-import { evaluateRequirement } from "../lib/helix";
+import type { HelixConfig } from "../lib/helix";
+import { evaluateRequirementBatch } from "../lib/helix";
 import type { ComplianceControl } from "../data/compliance-controls";
 import type { AnalysisResult } from "../App";
 
@@ -18,8 +18,6 @@ interface ControlProgress {
   result?: AnalysisResult;
 }
 
-const BATCH_SIZE = 2;
-
 export function AnalysisPhase({
   config,
   controls,
@@ -31,79 +29,95 @@ export function AnalysisPhase({
   const [completedCount, setCompletedCount] = useState(0);
   const startedRef = useRef(false);
 
+  // Group controls by category for batch evaluation
+  const categoryBatches = useRef(() => {
+    const groups = new Map<string, ComplianceControl[]>();
+    for (const control of controls) {
+      const existing = groups.get(control.category) ?? [];
+      existing.push(control);
+      groups.set(control.category, existing);
+    }
+    return Array.from(groups.values());
+  });
+
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
 
-    async function analyzeControl(
-      control: ComplianceControl,
-    ): Promise<AnalysisResult> {
-      setProgress((prev) =>
-        prev.map((p) =>
-          p.controlId === control.id ? { ...p, status: "running" } : p,
-        ),
-      );
-
-      let evaluation: ComplianceEvaluation;
-      try {
-        const timeout = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Request timed out after 120s")), 120_000),
-        );
-        evaluation = await Promise.race([
-          evaluateRequirement(config, control),
-          timeout,
-        ]);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`Evaluation failed for ${control.id}:`, msg);
-        evaluation = {
-          status: "gap",
-          explanation: `Evaluation failed: ${msg}`,
-          missingElements: [],
-        };
-      }
-
-      return {
-        controlId: control.id,
-        status: evaluation.status,
-        evaluation,
-      };
-    }
+    const batches = categoryBatches.current();
 
     async function runAnalysis() {
       const allResults = new Map<string, AnalysisResult>();
       let completed = 0;
 
-      for (let i = 0; i < controls.length; i += BATCH_SIZE) {
-        const batch = controls.slice(i, i + BATCH_SIZE);
+      // Mark all controls as running immediately
+      setProgress((prev) =>
+        prev.map((p) => ({ ...p, status: "running" })),
+      );
 
-        setProgress((prev) =>
-          prev.map((p) =>
-            batch.some((c) => c.id === p.controlId)
-              ? { ...p, status: "running" }
-              : p,
-          ),
-        );
-
-        const batchResults = await Promise.all(
-          batch.map((control) => analyzeControl(control)),
-        );
-
-        for (const result of batchResults) {
-          allResults.set(result.controlId, result);
+      // Fire category batches with max 4 concurrent
+      const MAX_CONCURRENT = 4;
+      const pending = batches.map((batch) => async () => {
+        let batchResults: Map<string, { status: "covered" | "partial" | "gap" | "error"; explanation: string; missingElements: string[] }>;
+        try {
+          const timeout = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("Request timed out after 120s")), 120_000),
+          );
+          batchResults = await Promise.race([
+            evaluateRequirementBatch(config, batch),
+            timeout,
+          ]);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`Batch evaluation failed for ${batch[0].category}:`, msg);
+          batchResults = new Map();
+          for (const control of batch) {
+            batchResults.set(control.id, {
+              status: "error",
+              explanation: `Evaluation failed: ${msg}`,
+              missingElements: [],
+            });
+          }
         }
-        completed += batchResults.length;
+
+        // Convert to AnalysisResult and store
+        const analysisResults: AnalysisResult[] = [];
+        for (const control of batch) {
+          const evaluation = batchResults.get(control.id);
+          if (evaluation) {
+            const result: AnalysisResult = {
+              controlId: control.id,
+              status: evaluation.status,
+              evaluation,
+            };
+            allResults.set(control.id, result);
+            analysisResults.push(result);
+          }
+        }
+
+        completed += batch.length;
         setCompletedCount(completed);
 
         setProgress((prev) =>
           prev.map((p) => {
-            const result = batchResults.find(
+            const result = analysisResults.find(
               (r) => r.controlId === p.controlId,
             );
             return result ? { ...p, status: "done", result } : p;
           }),
         );
+      });
+
+      // Run with concurrency limit
+      const executing = new Set<Promise<void>>();
+      for (const task of pending) {
+        const p = task().then(() => { executing.delete(p); });
+        executing.add(p);
+        if (executing.size >= MAX_CONCURRENT) {
+          await Promise.race(executing);
+        }
       }
+      await Promise.all(executing);
 
       await new Promise((r) => setTimeout(r, 500));
       onComplete(allResults);
@@ -211,6 +225,21 @@ export function AnalysisPhase({
                       />
                     </svg>
                   )}
+                  {p.status === "done" && p.result?.status === "error" && (
+                    <svg
+                      className="w-4 h-4 text-gray-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                  )}
                 </div>
 
                 {/* Control info */}
@@ -234,14 +263,18 @@ export function AnalysisPhase({
                         ? "badge-compliant"
                         : p.result.status === "partial"
                           ? "badge-partial"
-                          : "badge-non-compliant"
+                          : p.result.status === "error"
+                            ? "text-xs text-gray-400"
+                            : "badge-non-compliant"
                     }
                   >
                     {p.result.status === "covered"
                       ? "Covered"
                       : p.result.status === "partial"
                         ? "Partial"
-                        : "Gap"}
+                        : p.result.status === "error"
+                          ? "Error"
+                          : "Gap"}
                   </span>
                 )}
               </div>

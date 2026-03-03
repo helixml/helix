@@ -13,14 +13,18 @@ export function DetailPanel({ control, result, onClose }: DetailPanelProps) {
       ? "Covered"
       : result.status === "partial"
         ? "Partial"
-        : "Gap";
+        : result.status === "error"
+          ? "Error"
+          : "Gap";
 
   const badgeClass =
     result.status === "covered"
       ? "badge-compliant"
       : result.status === "partial"
         ? "badge-partial"
-        : "badge-non-compliant";
+        : result.status === "error"
+          ? "text-xs text-gray-400 bg-gray-500/10 border border-gray-500/20 px-2 py-0.5 rounded-full"
+          : "badge-non-compliant";
 
   return (
     <>

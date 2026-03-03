@@ -5,28 +5,35 @@ import type { AnalysisResult } from "../App";
 interface ComplianceMatrixProps {
   controls: ComplianceControl[];
   results: Map<string, AnalysisResult>;
+  documentName?: string;
   onSelectControl: (controlId: string) => void;
+  onStartOver?: () => void;
 }
 
 export function ComplianceMatrix({
   controls,
   results,
+  documentName,
   onSelectControl,
+  onStartOver,
 }: ComplianceMatrixProps) {
   const summary = useMemo(() => {
     let covered = 0;
     let partial = 0;
     let gap = 0;
+    let errors = 0;
     for (const result of results.values()) {
       if (result.status === "covered") covered++;
       else if (result.status === "partial") partial++;
+      else if (result.status === "error") errors++;
       else gap++;
     }
-    const total = covered + partial + gap;
+    const total = covered + partial + gap + errors;
     return {
       covered,
       partial,
       gap,
+      errors,
       total,
       coveredPct: total ? Math.round((covered / total) * 100) : 0,
       partialPct: total ? Math.round((partial / total) * 100) : 0,
@@ -55,7 +62,8 @@ export function ComplianceMatrix({
               GDPR Compliance Results
             </h2>
             <p className="text-sm text-gray-400 mt-1">
-              {summary.total} GDPR requirements checked against your privacy policy
+              {summary.total} GDPR requirements checked
+              {documentName ? ` against ${documentName}` : ""}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -68,6 +76,19 @@ export function ComplianceMatrix({
             <span className="badge-non-compliant">
               {summary.gapPct}% Gaps ({summary.gap})
             </span>
+            {summary.errors > 0 && (
+              <span className="text-xs text-gray-400 bg-gray-500/10 border border-gray-500/20 px-2 py-0.5 rounded-full">
+                {summary.errors} Error{summary.errors > 1 ? "s" : ""}
+              </span>
+            )}
+            {onStartOver && (
+              <button
+                onClick={onStartOver}
+                className="ml-2 px-3 py-1.5 bg-surface-100 hover:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                Analyze Another Document
+              </button>
+            )}
           </div>
         </div>
 
@@ -92,6 +113,32 @@ export function ComplianceMatrix({
             />
           )}
         </div>
+
+        {/* Classification legend */}
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-gray-400">
+          <div className="flex items-start gap-2">
+            <span className="w-2 h-2 rounded-full bg-compliance-green mt-0.5 flex-shrink-0" />
+            <span>
+              <span className="text-gray-300 font-medium">Covered</span> — The
+              policy clearly and specifically addresses the requirement.
+            </span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="w-2 h-2 rounded-full bg-compliance-amber mt-0.5 flex-shrink-0" />
+            <span>
+              <span className="text-gray-300 font-medium">Partial</span> — The
+              policy touches on the topic but is vague, incomplete, or missing
+              key elements.
+            </span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="w-2 h-2 rounded-full bg-compliance-red mt-0.5 flex-shrink-0" />
+            <span>
+              <span className="text-gray-300 font-medium">Gap</span> — The
+              policy does not address this requirement at all.
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Grid grouped by category */}
@@ -106,32 +153,40 @@ export function ComplianceMatrix({
               const status = result?.status ?? "gap";
 
               const borderColor =
-                status === "covered"
-                  ? "border-compliance-green/40 hover:border-compliance-green/70"
-                  : status === "partial"
-                    ? "border-compliance-amber/40 hover:border-compliance-amber/70"
-                    : "border-compliance-red/40 hover:border-compliance-red/70";
+                status === "error"
+                  ? "border-gray-500/40 hover:border-gray-400/70"
+                  : status === "covered"
+                    ? "border-compliance-green/40 hover:border-compliance-green/70"
+                    : status === "partial"
+                      ? "border-compliance-amber/40 hover:border-compliance-amber/70"
+                      : "border-compliance-red/40 hover:border-compliance-red/70";
 
               const bgColor =
-                status === "covered"
-                  ? "bg-compliance-green/5"
-                  : status === "partial"
-                    ? "bg-compliance-amber/5"
-                    : "bg-compliance-red/5";
+                status === "error"
+                  ? "bg-gray-500/5"
+                  : status === "covered"
+                    ? "bg-compliance-green/5"
+                    : status === "partial"
+                      ? "bg-compliance-amber/5"
+                      : "bg-compliance-red/5";
 
               const glowClass =
-                status === "covered"
-                  ? "hover:glow-green"
-                  : status === "partial"
-                    ? "hover:glow-amber"
-                    : "hover:glow-red";
+                status === "error"
+                  ? ""
+                  : status === "covered"
+                    ? "hover:glow-green"
+                    : status === "partial"
+                      ? "hover:glow-amber"
+                      : "hover:glow-red";
 
               const dotColor =
-                status === "covered"
-                  ? "bg-compliance-green"
-                  : status === "partial"
-                    ? "bg-compliance-amber"
-                    : "bg-compliance-red";
+                status === "error"
+                  ? "bg-gray-500"
+                  : status === "covered"
+                    ? "bg-compliance-green"
+                    : status === "partial"
+                      ? "bg-compliance-amber"
+                      : "bg-compliance-red";
 
               return (
                 <button

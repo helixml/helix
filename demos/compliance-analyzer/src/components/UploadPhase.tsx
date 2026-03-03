@@ -1,20 +1,19 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { HelixConfig, Knowledge, KnowledgeState } from "../lib/helix";
+import type { HelixConfig } from "../lib/helix";
 import {
-  listKnowledge,
+  createApp,
   getKnowledge,
   uploadFiles,
   completeKnowledge,
-  refreshKnowledge,
 } from "../lib/helix";
 
 interface UploadPhaseProps {
   config: HelixConfig;
-  onComplete: () => void;
+  onComplete: (appId: string, documentName: string) => void;
 }
 
 type UploadState =
-  | "loading" // fetching knowledge sources
+  | "creating" // creating app + knowledge source
   | "ready" // ready for file selection
   | "uploading" // files being uploaded
   | "indexing" // waiting for indexing to complete
@@ -22,48 +21,39 @@ type UploadState =
   | "error";
 
 export function UploadPhase({ config, onComplete }: UploadPhaseProps) {
-  const [state, setState] = useState<UploadState>("loading");
+  const [state, setState] = useState<UploadState>("creating");
   const [error, setError] = useState("");
-  const [knowledge, setKnowledge] = useState<Knowledge | null>(null);
+  const [appId, setAppId] = useState("");
+  const [knowledgeId, setKnowledgeId] = useState("");
   const [filestorePath, setFilestorePath] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [uploadedFileName, setUploadedFileName] = useState("");
   const [indexProgress, setIndexProgress] = useState(0);
   const [indexStep, setIndexStep] = useState("");
-  const [knowledgeState, setKnowledgeState] = useState<KnowledgeState | "">("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval>>();
+  const createdRef = useRef(false);
 
-  // Load knowledge sources on mount
+  // Create a new app on mount
   useEffect(() => {
-    async function loadKnowledge() {
-      try {
-        const sources = await listKnowledge(config);
-        const filestoreSource = sources.find((k) => k.source.filestore);
-        if (!filestoreSource) {
-          setError(
-            "No filestore knowledge source found on this app. Create one in the Helix dashboard first.",
-          );
-          setState("error");
-          return;
-        }
-        setKnowledge(filestoreSource);
-        setFilestorePath(
-          `apps/${config.appId}/${filestoreSource.source.filestore!.path}`,
-        );
+    if (createdRef.current) return;
+    createdRef.current = true;
 
-        // If knowledge is already ready, allow skipping upload
-        if (filestoreSource.state === "ready") {
-          setKnowledgeState("ready");
-        }
+    async function init() {
+      try {
+        const result = await createApp(config);
+        setAppId(result.appId);
+        setKnowledgeId(result.knowledgeId);
+        setFilestorePath(result.filestorePath);
         setState("ready");
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : "Failed to load knowledge sources",
+          err instanceof Error ? err.message : "Failed to create app",
         );
         setState("error");
       }
     }
-    loadKnowledge();
+    init();
   }, [config]);
 
   // Clean up polling on unmount
@@ -87,30 +77,27 @@ export function UploadPhase({ config, onComplete }: UploadPhaseProps) {
   }, []);
 
   const handleUpload = useCallback(async () => {
-    if (!knowledge || selectedFiles.length === 0) return;
+    if (!knowledgeId || selectedFiles.length === 0) return;
 
     setState("uploading");
     setError("");
+    const fileNames = selectedFiles.map((f) => f.name).join(", ");
+    setUploadedFileName(fileNames);
 
     try {
       await uploadFiles(config, filestorePath, selectedFiles);
 
-      // Trigger indexing — use /complete for first-time upload, /refresh for re-index
+      // Trigger indexing — new apps always start in "preparing" state
       setState("indexing");
       setIndexProgress(0);
       setIndexStep("Queued for indexing...");
 
-      if (knowledge.state === "preparing") {
-        await completeKnowledge(config, knowledge.id);
-      } else {
-        await refreshKnowledge(config, knowledge.id);
-      }
+      await completeKnowledge(config, knowledgeId);
 
       // Poll for indexing completion
       pollRef.current = setInterval(async () => {
         try {
-          const k = await getKnowledge(config, knowledge.id);
-          setKnowledgeState(k.state);
+          const k = await getKnowledge(config, knowledgeId);
 
           if (k.progress) {
             setIndexProgress(k.progress.progress);
@@ -140,7 +127,7 @@ export function UploadPhase({ config, onComplete }: UploadPhaseProps) {
       setError(err instanceof Error ? err.message : "Upload failed");
       setState("error");
     }
-  }, [config, knowledge, filestorePath, selectedFiles]);
+  }, [config, knowledgeId, filestorePath, selectedFiles]);
 
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
@@ -159,7 +146,7 @@ export function UploadPhase({ config, onComplete }: UploadPhaseProps) {
           compliance. Supported formats: PDF, Markdown, plain text.
         </p>
 
-        {state === "loading" && (
+        {state === "creating" && (
           <div className="flex items-center gap-3 text-gray-400">
             <svg
               className="w-5 h-5 animate-spin"
@@ -180,7 +167,7 @@ export function UploadPhase({ config, onComplete }: UploadPhaseProps) {
                 d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
               />
             </svg>
-            <span className="text-sm">Loading knowledge sources...</span>
+            <span className="text-sm">Creating analysis workspace...</span>
           </div>
         )}
 
@@ -300,22 +287,6 @@ export function UploadPhase({ config, onComplete }: UploadPhaseProps) {
                 </button>
               </div>
             )}
-
-            {/* Skip to analysis if already indexed */}
-            {knowledgeState === "ready" && (
-              <div className="mt-4 pt-4 border-t border-surface-100/20">
-                <p className="text-sm text-gray-400 mb-3">
-                  Knowledge is already indexed. You can upload new documents or
-                  proceed with the existing ones.
-                </p>
-                <button
-                  onClick={onComplete}
-                  className="w-full px-4 py-3 bg-surface-100 hover:bg-gray-600 text-white font-medium rounded-lg transition-colors"
-                >
-                  Skip — Use Existing Documents
-                </button>
-              </div>
-            )}
           </>
         )}
 
@@ -409,7 +380,7 @@ export function UploadPhase({ config, onComplete }: UploadPhaseProps) {
               </span>
             </div>
             <button
-              onClick={onComplete}
+              onClick={() => onComplete(appId, uploadedFileName)}
               className="w-full px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-lg transition-colors"
             >
               Run GDPR Analysis

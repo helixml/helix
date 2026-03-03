@@ -14,13 +14,6 @@
     "coveredLooksLike": "Description of how users give consent (e.g., opt-in checkbox), a statement that consent can be withdrawn at any time, and clear instructions on how to withdraw (e.g., 'Click unsubscribe or email privacy@company.com')."
   },
   {
-    "id": "Art.9",
-    "category": "Lawful Basis for Processing",
-    "title": "Special Categories of Data",
-    "description": "If the organisation processes sensitive data (health, biometric, racial/ethnic origin, political opinions, religious beliefs, sexual orientation), the policy must disclose this and state the additional legal basis.",
-    "coveredLooksLike": "Explicit disclosure of any sensitive data collected, the specific legal basis for processing it (e.g., explicit consent), and any additional safeguards applied."
-  },
-  {
     "id": "Art.13.1a",
     "category": "Transparency and Information",
     "title": "Identity and Contact Details of Controller",
@@ -28,32 +21,11 @@
     "coveredLooksLike": "Company legal name, registered address, and a contact email or phone number for data protection enquiries, e.g., 'Acme Ltd, 123 High Street, London. Contact: privacy@acme.com.'"
   },
   {
-    "id": "Art.13.1b",
-    "category": "Transparency and Information",
-    "title": "Data Protection Officer Contact",
-    "description": "If a Data Protection Officer (DPO) has been appointed, their contact details must be provided in the privacy policy.",
-    "coveredLooksLike": "Name or title and contact details of the DPO, e.g., 'Our Data Protection Officer can be reached at dpo@company.com.'"
-  },
-  {
     "id": "Art.13.1c",
     "category": "Transparency and Information",
     "title": "Purposes of Processing",
     "description": "The privacy policy must clearly describe all purposes for which personal data is collected and processed.",
     "coveredLooksLike": "A list or table explaining each processing purpose, such as 'to process your orders,' 'to personalise your experience,' 'to send marketing communications,' 'to detect fraud.'"
-  },
-  {
-    "id": "Art.13.1d",
-    "category": "Transparency and Information",
-    "title": "Legitimate Interest Details",
-    "description": "Where legitimate interest is the lawful basis, the specific interest pursued must be described.",
-    "coveredLooksLike": "Specific description of the legitimate interest, e.g., 'We have a legitimate interest in preventing fraud on our platform' or 'improving our services based on usage patterns.'"
-  },
-  {
-    "id": "Art.13.1e",
-    "category": "Data Sharing and Transfers",
-    "title": "Recipients of Personal Data",
-    "description": "The policy must identify the categories of recipients with whom personal data is shared (e.g., payment processors, cloud providers, analytics services).",
-    "coveredLooksLike": "A list of third-party categories such as 'payment processors (Stripe),' 'cloud hosting (AWS),' 'analytics (Google Analytics),' 'customer support tools.'"
   },
   {
     "id": "Art.13.1f",
@@ -77,60 +49,11 @@
     "coveredLooksLike": "Statement that users can request access to their data, how to make the request, expected response time (within 30 days), and that the first copy is provided free of charge."
   },
   {
-    "id": "Art.16",
-    "category": "Data Subject Rights",
-    "title": "Right to Rectification",
-    "description": "The policy must inform individuals of their right to have inaccurate personal data corrected or incomplete data completed.",
-    "coveredLooksLike": "Statement that users can request correction of inaccurate data, with instructions on how to submit rectification requests (e.g., through account settings or by contacting support)."
-  },
-  {
     "id": "Art.17",
     "category": "Data Subject Rights",
     "title": "Right to Erasure (Right to be Forgotten)",
     "description": "The policy must inform individuals of their right to request deletion of their personal data, and the circumstances under which this right applies.",
     "coveredLooksLike": "Explanation that users can request deletion of their data, circumstances where this applies (e.g., data no longer necessary, consent withdrawn), and any exceptions (e.g., legal retention obligations)."
-  },
-  {
-    "id": "Art.18",
-    "category": "Data Subject Rights",
-    "title": "Right to Restriction of Processing",
-    "description": "The policy must inform individuals of their right to request restriction of processing in certain circumstances.",
-    "coveredLooksLike": "Statement that users can request processing be restricted while accuracy is contested, processing is unlawful, or the controller no longer needs the data but the user requires it for legal claims."
-  },
-  {
-    "id": "Art.20",
-    "category": "Data Subject Rights",
-    "title": "Right to Data Portability",
-    "description": "The policy must inform individuals of their right to receive their personal data in a structured, commonly used, machine-readable format, and to transmit it to another controller.",
-    "coveredLooksLike": "Statement that users can request their data in a portable format (e.g., CSV or JSON), and that they can request direct transfer to another service provider where technically feasible."
-  },
-  {
-    "id": "Art.21",
-    "category": "Data Subject Rights",
-    "title": "Right to Object",
-    "description": "The policy must inform individuals of their right to object to processing based on legitimate interests or for direct marketing purposes.",
-    "coveredLooksLike": "Clear statement that users can object to processing based on legitimate interests, and that they have an absolute right to opt out of direct marketing at any time."
-  },
-  {
-    "id": "Art.22",
-    "category": "Data Subject Rights",
-    "title": "Automated Decision-Making and Profiling",
-    "description": "If the organisation uses automated decision-making or profiling that significantly affects individuals, the policy must disclose this, explain the logic involved, and the consequences.",
-    "coveredLooksLike": "Disclosure of any automated decisions (e.g., credit scoring, content recommendations), explanation of the logic used, its significance and consequences, and the right to request human review."
-  },
-  {
-    "id": "Art.77",
-    "category": "Data Subject Rights",
-    "title": "Right to Lodge a Complaint",
-    "description": "The policy must inform individuals of their right to lodge a complaint with a supervisory authority (data protection regulator).",
-    "coveredLooksLike": "Name and contact details of the relevant supervisory authority, e.g., 'You have the right to complain to the Information Commissioner's Office (ICO) at ico.org.uk if you are unhappy with how we handle your data.'"
-  },
-  {
-    "id": "Art.25",
-    "category": "Security and Privacy by Design",
-    "title": "Data Protection by Design and Default",
-    "description": "The policy should describe measures taken to implement data protection by design and by default, such as data minimisation and purpose limitation.",
-    "coveredLooksLike": "Statement about collecting only necessary data, privacy-friendly default settings, pseudonymisation where possible, and regular privacy impact assessments."
   },
   {
     "id": "Art.32",
@@ -145,33 +68,5 @@
     "title": "Data Breach Notification",
     "description": "The policy should explain what happens in the event of a personal data breach, including notification to authorities and affected individuals.",
     "coveredLooksLike": "Statement that the organisation will notify the supervisory authority within 72 hours of becoming aware of a breach, and will notify affected individuals without undue delay if the breach poses a high risk."
-  },
-  {
-    "id": "Art.8",
-    "category": "Children's Data",
-    "title": "Children's Data and Parental Consent",
-    "description": "If the service is offered to children, the policy must explain the age threshold for consent and how parental/guardian consent is obtained and verified.",
-    "coveredLooksLike": "Statement of the minimum age for consent (e.g., 13 or 16 depending on member state), how the organisation verifies age, and the process for obtaining parental consent for younger users."
-  },
-  {
-    "id": "Art.12",
-    "category": "Transparency and Information",
-    "title": "Clear and Plain Language",
-    "description": "The privacy policy must be written in clear, plain language that is easy to understand, especially when addressed to children.",
-    "coveredLooksLike": "Policy avoids legal jargon, uses short sentences, provides examples, and is structured with clear headings. If applicable, a simplified version is available for younger audiences."
-  },
-  {
-    "id": "Art.13.2c",
-    "category": "Transparency and Information",
-    "title": "Right to Withdraw Consent",
-    "description": "The policy must explicitly state the right to withdraw consent at any time and explain that withdrawal does not affect the lawfulness of prior processing.",
-    "coveredLooksLike": "Clear statement such as 'You can withdraw your consent at any time by contacting us or changing your preferences. This will not affect the lawfulness of processing carried out before withdrawal.'"
-  },
-  {
-    "id": "Art.14",
-    "category": "Transparency and Information",
-    "title": "Data Not Obtained from the Individual",
-    "description": "If personal data is collected from sources other than the individual (e.g., third parties, public records), the policy must disclose the source and categories of data obtained.",
-    "coveredLooksLike": "Disclosure such as 'We may receive your contact details from business partners' or 'We collect publicly available data from Companies House.' Categories of data and their sources must be listed."
   }
 ]
