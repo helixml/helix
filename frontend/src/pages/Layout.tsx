@@ -522,9 +522,7 @@ const Layout: FC<{
               </DialogActions>
             </DarkDialog>
           ))}
-        {licenseRequired && (
-          <LicenseKeyPrompt gracePeriodExpired={licenseGracePeriodExpired} />
-        )}
+
         {/* Floating runner state disabled
           account.admin && floatingRunnerState.isVisible && (
             <FloatingRunnerState onClose={floatingRunnerState.hideFloatingRunnerState} />
@@ -579,6 +577,9 @@ const Layout: FC<{
           )
         */}
       </Box>
+      {licenseRequired && (
+        <LicenseKeyPrompt gracePeriodExpired={licenseGracePeriodExpired} />
+      )}
     </>
   );
 };
