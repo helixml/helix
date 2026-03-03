@@ -92,3 +92,27 @@ Sending patches to commenters (rather than falling back to full `session_update`
 2. Verify streaming response appears in real-time in the comment bubble
 3. Verify chat streaming in main session view still works
 4. Verify multiple comments in queue still process sequentially
+
+## Implementation Notes
+
+### Changes Made
+
+Single file modified: `api/pkg/server/websocket_external_agent_sync.go`
+
+1. Added `requestID string` field to `streamingContext` struct (line 29)
+2. In `handleMessageAdded`, extract `request_id` from `syncMsg.Data` when role is "assistant" (line 959)
+3. Store `requestID` in streaming context on first message_added (lines 975-982)
+4. Updated `publishInteractionPatchToFrontend` signature to accept `requestID ...string` (variadic for backward compat)
+5. Added commenter publishing logic using existing `requestToCommenterMapping` pattern (lines 2601-2618)
+
+### Key Discovery
+
+The `requestToCommenterMapping` already existed and was used by `publishInteractionUpdateToFrontend` and `publishSessionUpdateToFrontend` - the patch function just wasn't using it because it didn't have access to the requestID.
+
+### Build Note
+
+Local Go build fails due to pre-existing tree-sitter dependency issue on main branch (not related to this change). Verified no syntax errors via diagnostics tool.
+
+### No Frontend Changes Needed
+
+The frontend `DesignReviewContent.tsx` already handles `session_update` events with interaction data. The `interaction_patch` events are published to the same queue format, and the frontend's streaming context reconstructs patches into full content.
