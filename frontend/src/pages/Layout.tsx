@@ -79,13 +79,10 @@ const Layout: FC<{
   // Start 5-minute timer when license is required
   useEffect(() => {
     if (licenseRequired && !licenseGracePeriodExpired) {
-      // Start 5-minute grace period timer
-      licenseTimerRef.current = setTimeout(
-        () => {
-          setLicenseGracePeriodExpired(true);
-        },
-        5 * 60 * 1000,
-      ); // 5 minutes
+      // Start 5-second grace period timer (for testing - change to 5 * 60 * 1000 for production)
+      licenseTimerRef.current = setTimeout(() => {
+        setLicenseGracePeriodExpired(true);
+      }, 5 * 1000); // 5 seconds for testing
 
       return () => {
         if (licenseTimerRef.current) {
@@ -271,7 +268,9 @@ const Layout: FC<{
         {children}
         <Snackbar />
         <GlobalLoading />
-        {licenseRequired && <LicenseKeyPrompt />}
+        {licenseRequired && (
+          <LicenseKeyPrompt gracePeriodExpired={licenseGracePeriodExpired} />
+        )}
       </>
     );
   }
@@ -523,7 +522,9 @@ const Layout: FC<{
               </DialogActions>
             </DarkDialog>
           ))}
-        {licenseRequired && <LicenseKeyPrompt />}
+        {licenseRequired && (
+          <LicenseKeyPrompt gracePeriodExpired={licenseGracePeriodExpired} />
+        )}
         {/* Floating runner state disabled
           account.admin && floatingRunnerState.isVisible && (
             <FloatingRunnerState onClose={floatingRunnerState.hideFloatingRunnerState} />

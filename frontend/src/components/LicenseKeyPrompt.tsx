@@ -3,7 +3,13 @@ import { Box, Button, TextField, Typography, Link, Alert } from "@mui/material";
 import { useAccount } from "../hooks/useAccount";
 import useApi from "../hooks/useApi";
 
-export const LicenseKeyPrompt: React.FC = () => {
+interface LicenseKeyPromptProps {
+  gracePeriodExpired?: boolean;
+}
+
+export const LicenseKeyPrompt: React.FC<LicenseKeyPromptProps> = ({
+  gracePeriodExpired = false,
+}) => {
   const account = useAccount();
   const api = useApi();
   const [licenseKey, setLicenseKey] = useState("");
@@ -39,6 +45,13 @@ export const LicenseKeyPrompt: React.FC = () => {
 
   return (
     <Box sx={{ maxWidth: 600, mx: "auto", mt: 4, p: 3 }}>
+      {gracePeriodExpired && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          <strong>License required:</strong> The application has been disabled
+          because no valid license key was entered. Please enter a license key
+          below to continue using Helix.
+        </Alert>
+      )}
       <Typography variant="h5" gutterBottom>
         Get a License Key to use Helix ✨
       </Typography>
