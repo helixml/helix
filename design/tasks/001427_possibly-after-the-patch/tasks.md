@@ -2,7 +2,7 @@
 
 ## Investigation & Debugging
 
-- [ ] Add debug logging to backend `getOrCreateStreamingContext()` to log interaction ID transitions
+- [~] Add debug logging to backend `getOrCreateStreamingContext()` to log interaction ID transitions
 - [ ] Add debug logging to frontend patch handler to log when interaction ID changes
 - [ ] Reproduce bug with browser DevTools Network tab open to capture WebSocket messages
 - [ ] Capture exact sequence of events: `interaction_patch` vs `interaction_update` timing
