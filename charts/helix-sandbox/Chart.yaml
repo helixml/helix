@@ -8,7 +8,7 @@ description: |
 type: application
 
 # Chart version - increment on changes to chart templates
-version: 0.2.0
+version: 0.2.1
 
 # Application version - matches helix-sandbox container version
 appVersion: "2.7.10"
