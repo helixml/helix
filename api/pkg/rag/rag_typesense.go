@@ -177,12 +177,14 @@ func (t *Typesense) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*typ
 	ragResults := make([]*types.SessionRAGResult, 0, len(*results.Hits))
 	for _, hit := range *results.Hits {
 		ragResult := &types.SessionRAGResult{
-			// DataEntityID:    hit.Document["data_entity_id"].(string),
 			DocumentGroupID: getStrVariable(&hit, "document_group_id"),
 			DocumentID:      getStrVariable(&hit, "document_id"),
 			Source:          getStrVariable(&hit, "source"),
 			Content:         getStrVariable(&hit, "content"),
 			ContentOffset:   getIntVariable(&hit, "content_offset"),
+		}
+		if hit.VectorDistance != nil {
+			ragResult.Distance = float64(*hit.VectorDistance)
 		}
 		ragResults = append(ragResults, ragResult)
 	}
