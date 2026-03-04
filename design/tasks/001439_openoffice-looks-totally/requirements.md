@@ -2,65 +2,56 @@
 
 ## Problem Statement
 
-OnlyOffice Desktop Editors renders incorrectly in the Helix desktop environment:
-1. **Duplicate mouse cursors** - Multiple cursor sprites visible
-2. **Partial rendering** - Only top quarter of screen shows content
-3. **Visual corruption** - Generally broken appearance
+OnlyOffice Desktop Editors has two issues in the Helix desktop environment:
+1. **Broken at 4K resolution** - Only top quarter of screen renders; works fine at 1080p
+2. **Renders its own cursor** - Doesn't use system cursor theme (Helix-Invisible), causing duplicate cursors
 
 ## User Stories
 
-### US-1: Office Document Editing
-**As** an AI agent or user working with documents,
-**I want** OnlyOffice to render correctly in the Helix desktop,
-**So that** I can edit Word, Excel, and PowerPoint files.
+### US-1: 4K Resolution Support
+**As** an AI agent or user with a high-resolution display,
+**I want** OnlyOffice to render correctly at 4K resolution,
+**So that** I can use the full screen for document editing.
 
 **Acceptance Criteria:**
-- [ ] OnlyOffice Document Editor renders full window content
-- [ ] OnlyOffice Spreadsheet Editor renders full spreadsheet area
-- [ ] OnlyOffice Presentation Editor renders full presentation
-- [ ] Single cursor visible (no duplicates)
-- [ ] Window resizing works correctly
-- [ ] Menus and dialogs render properly
+- [ ] OnlyOffice renders full window at 3840x2160 resolution
+- [ ] OnlyOffice renders full window at 2560x1440 resolution
+- [ ] Window resizing works at all resolutions
+- [ ] No partial rendering or visual corruption at high DPI
 
-### US-2: Cursor Consistency
+### US-2: System Cursor Theme
 **As** a user viewing the desktop stream,
-**I want** to see only one cursor,
-**So that** I can track mouse position accurately.
+**I want** OnlyOffice to use the system cursor theme (Helix-Invisible),
+**So that** only the client-side rendered cursor is visible (no duplicates).
 
 **Acceptance Criteria:**
-- [ ] No duplicate cursors from OnlyOffice's internal cursor rendering
-- [ ] Cursor shape changes correctly (pointer, text, resize handles)
-- [ ] Helix invisible cursor theme works with OnlyOffice
+- [ ] OnlyOffice uses Helix-Invisible cursor theme
+- [ ] No application-rendered cursor visible in OnlyOffice
+- [ ] Cursor shape changes are captured by Helix cursor tracking system
 
 ## Technical Context
 
 ### Environment
 - **Desktop**: Ubuntu 25.10 with GNOME 49 in headless mode
 - **Display**: Pure Wayland (no XWayland)
-- **Architecture**: AMD64 (OnlyOffice is AMD64-only; ARM64 uses LibreOffice)
-- **Cursor**: Helix-Invisible theme with client-side rendering
+- **Architecture**: AMD64 (OnlyOffice is AMD64-only)
+- **Cursor Theme**: Helix-Invisible (transparent cursors with hotspot fingerprinting)
 - **App Type**: Electron-based application
 
+### Observed Behavior
+- **1080p**: Works correctly
+- **4K**: Only top quarter renders (geometry/scaling issue)
+- **Cursor**: OnlyOffice ignores system cursor theme, renders its own
+
 ### Likely Root Causes
-1. **Electron/Wayland Misconfiguration**: OnlyOffice (Electron) may need `--ozone-platform=wayland` flag
-2. **Missing Electron Wayland flags**: Similar to Chrome wrapper needing special flags
-3. **Headless Mode Incompatibility**: Electron apps may not properly detect virtual monitor geometry
-4. **Cursor Theme Conflict**: OnlyOffice's internal cursor may conflict with Helix-Invisible theme
-
-### Reference: Chrome Wrapper Pattern
-Chrome already has a wrapper script with Wayland-compatible flags:
-```bash
-exec /usr/bin/google-chrome-stable.real --password-store=basic --disable-dev-shm-usage --enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL --disable-features=UseChromeOSDirectVideoDecoder "$@"
-```
-
-OnlyOffice likely needs similar treatment.
+1. **4K Issue**: Electron/Chromium HiDPI scaling misconfiguration in headless Wayland
+2. **Cursor Issue**: OnlyOffice not respecting `XCURSOR_THEME` or GTK cursor settings
 
 ## Out of Scope
 - LibreOffice issues (ARM64 only, separate problem)
-- Non-Electron office suites
-- ARM64 platform (uses LibreOffice instead)
+- 1080p resolution (already working)
 
 ## Dependencies
 - GNOME headless mode working correctly
-- PipeWire video capture functional
-- Client-side cursor rendering working
+- Helix-Invisible cursor theme installed
+- Client-side cursor rendering functional

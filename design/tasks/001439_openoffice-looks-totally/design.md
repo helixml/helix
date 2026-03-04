@@ -1,149 +1,108 @@
-# Design: OnlyOffice Rendering Fix for GNOME Headless Wayland
+# Design: OnlyOffice 4K Rendering + Cursor Theme Fix
 
 ## Summary
 
-Fix OnlyOffice Desktop Editors rendering issues (partial screen, duplicate cursors) in the Helix AMD64 desktop environment running GNOME headless mode with pure Wayland.
+Fix two OnlyOffice issues in GNOME headless Wayland:
+1. **4K rendering broken** - Only top quarter renders at high resolutions (works at 1080p)
+2. **Ignores system cursor theme** - Renders its own cursor instead of using Helix-Invisible
 
 ## Root Cause Analysis
 
-### Issue 1: Partial Screen Rendering (Top Quarter Only)
+### Issue 1: 4K Resolution Renders Only Top Quarter
 
-OnlyOffice is an **Electron-based application**. Electron apps on Linux can use either X11 or Wayland backends via the Ozone platform abstraction layer.
+OnlyOffice is Electron-based. At 4K (3840x2160), Electron/Chromium's HiDPI scaling logic may:
+- Misdetect the scale factor in headless Wayland
+- Create a 1080p-sized buffer but render to a 4K surface
+- Result: content appears in top-left quarter only
 
-**Problem**: Without explicit configuration, Electron apps may:
-- Default to X11 backend but find no X server (no XWayland in GNOME headless)
-- Attempt Wayland but misconfigure the surface geometry
-- Use software rendering fallback with incorrect buffer sizes
+**Evidence**: Works at 1080p, breaks at 4K. Classic DPI scaling mismatch.
 
-**Evidence**: Chrome (also Electron-based) already has a wrapper script with special flags. OnlyOffice has no such wrapper.
+### Issue 2: OnlyOffice Renders Its Own Cursor
 
-### Issue 2: Duplicate Mouse Cursors
-
-**Problem**: OnlyOffice renders its own cursor sprites for:
-- Text editing (I-beam cursor)
+OnlyOffice doesn't respect the system cursor theme (`Helix-Invisible`). It renders:
+- I-beam for text editing
 - Resize handles
-- Cell selection in spreadsheets
+- Custom spreadsheet cursors
 
-These conflict with:
-1. Helix-Invisible cursor theme (transparent at compositor level)
-2. Client-side cursor rendering in the browser
-
-Result: OnlyOffice's internal cursor + Helix's overlay cursor = duplicate cursors.
-
-### Issue 3: General Visual Corruption
-
-Likely caused by:
-- Incorrect Ozone platform selection
-- Missing GPU acceleration flags
-- Buffer format mismatch with PipeWire capture
+This conflicts with Helix's client-side cursor rendering, causing duplicate cursors.
 
 ## Solution Design
 
-### Approach: OnlyOffice Wrapper Script (like Chrome)
+### Fix 1: Force Correct Scaling for 4K
 
-Create a wrapper script that forces correct Electron/Wayland configuration:
+Add Electron flags to disable automatic DPI scaling and force correct geometry:
 
 ```bash
-#!/bin/bash
-# /usr/bin/onlyoffice-wrapper.sh
-exec /usr/bin/desktopeditors \
-    --ozone-platform=wayland \
-    --enable-features=UseOzonePlatform,WaylandWindowDecorations \
-    --disable-gpu-sandbox \
-    "$@"
+--force-device-scale-factor=1
+--high-dpi-support=1
 ```
 
-### Implementation in Dockerfile
+### Fix 2: Force System Cursor Theme
+
+Set cursor-related environment variables before launching:
+
+```bash
+export XCURSOR_THEME=Helix-Invisible
+export XCURSOR_SIZE=48
+export GTK_CURSOR_THEME_NAME=Helix-Invisible
+```
+
+### Implementation: Wrapper Script
+
+Add to `Dockerfile.ubuntu-helix` after OnlyOffice installation:
 
 ```dockerfile
-# After OnlyOffice installation, create wrapper
+# OnlyOffice wrapper for 4K support + system cursor theme
 RUN if [ "${TARGETARCH}" != "arm64" ]; then \
     mv /usr/bin/desktopeditors /usr/bin/desktopeditors.real && \
-    printf '#!/bin/bash\nexec /usr/bin/desktopeditors.real --ozone-platform=wayland --enable-features=UseOzonePlatform,WaylandWindowDecorations "$@"\n' > /usr/bin/desktopeditors && \
-    chmod +x /usr/bin/desktopeditors && \
-    # Also patch .desktop file
-    sed -i 's|Exec=/usr/bin/desktopeditors|Exec=/usr/bin/desktopeditors --ozone-platform=wayland --enable-features=UseOzonePlatform,WaylandWindowDecorations|g' /usr/share/applications/onlyoffice-desktopeditors.desktop; \
+    printf '#!/bin/bash\n\
+export XCURSOR_THEME=Helix-Invisible\n\
+export XCURSOR_SIZE=48\n\
+export GTK_CURSOR_THEME_NAME=Helix-Invisible\n\
+exec /usr/bin/desktopeditors.real \
+--force-device-scale-factor=1 \
+--high-dpi-support=1 \
+--ozone-platform=wayland \
+--enable-features=UseOzonePlatform \
+"$@"\n' > /usr/bin/desktopeditors && \
+    chmod +x /usr/bin/desktopeditors; \
 fi
 ```
 
-### Key Electron Flags
+### Key Flags
 
 | Flag | Purpose |
 |------|---------|
-| `--ozone-platform=wayland` | Force Wayland backend instead of X11 |
-| `--enable-features=UseOzonePlatform` | Enable Ozone platform abstraction |
-| `--enable-features=WaylandWindowDecorations` | Use Wayland-native window decorations |
-| `--disable-gpu-sandbox` | May help with GPU access in containers |
-
-### Cursor Conflict Mitigation
-
-OnlyOffice's internal cursor rendering cannot be fully disabled. Options:
-
-1. **Accept dual cursors** - Document that OnlyOffice shows its own cursor for text editing
-2. **Test with Wayland backend** - Wayland-native Electron may integrate better with cursor protocol
-3. **Hide Helix cursor over OnlyOffice** - Frontend could detect OnlyOffice window and hide overlay
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Helix Desktop Container                  │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌─────────────────┐     ┌──────────────────────────────┐  │
-│  │  GNOME Shell    │────▶│  Virtual Monitor             │  │
-│  │  (headless)     │     │  1920x1080@60                 │  │
-│  └─────────────────┘     └──────────────────────────────┘  │
-│           │                         │                       │
-│           ▼                         ▼                       │
-│  ┌─────────────────┐     ┌──────────────────────────────┐  │
-│  │  OnlyOffice     │     │  PipeWire ScreenCast         │  │
-│  │  (Electron)     │     │  (captures full screen)      │  │
-│  │                 │     └──────────────────────────────┘  │
-│  │ --ozone-platform=wayland                               │ │
-│  │ --enable-features=UseOzonePlatform                     │ │
-│  └─────────────────┘                                       │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
+| `--force-device-scale-factor=1` | Prevent DPI auto-detection issues at 4K |
+| `--high-dpi-support=1` | Enable HiDPI but with explicit scale |
+| `--ozone-platform=wayland` | Use native Wayland (already needed) |
+| `XCURSOR_THEME=Helix-Invisible` | Force system cursor theme |
+| `XCURSOR_SIZE=48` | Match Helix cursor size for hotspot fingerprinting |
 
 ## Files to Modify
 
 | File | Change |
 |------|--------|
-| `Dockerfile.ubuntu-helix` | Add OnlyOffice wrapper script after installation |
-| `Dockerfile.sway-helix` | Same wrapper pattern (if Sway also affected) |
+| `Dockerfile.ubuntu-helix` | Add wrapper script after OnlyOffice install (~line 365) |
 
 ## Testing
 
-1. Build image: `./stack build-ubuntu`
-2. Start new AMD64 session
-3. Launch OnlyOffice from app menu or command line
+1. `./stack build-ubuntu`
+2. Start session at 4K resolution (3840x2160)
+3. Launch OnlyOffice
 4. Verify:
-   - Full window renders (not just top quarter)
-   - Window resize works
-   - Menus open correctly
-   - Document editing works
-   - Note cursor behavior (document any expected dual-cursor situation)
-5. Screenshot working state
+   - [ ] Full window renders at 4K
+   - [ ] No partial/quarter-screen rendering
+   - [ ] OnlyOffice cursor is invisible (using Helix-Invisible theme)
+   - [ ] Client-side cursor renders correctly over OnlyOffice
 
 ## Risks
 
-- **Flag compatibility**: OnlyOffice's Electron version may not support all flags
-- **GPU acceleration**: May need additional flags for hardware rendering
-- **Older Electron**: OnlyOffice may use older Electron without full Wayland support
+- **Cursor theme may not work**: Electron apps sometimes ignore GTK cursor settings
+- **Scale factor=1 at 4K**: UI elements may be small; may need `=2` instead
 
-## Fallback Options
+## Fallback
 
-If Wayland flags don't work:
-
-1. **Add XWayland**: Install and configure XWayland for OnlyOffice specifically
-2. **Environment variable**: Try `ELECTRON_OZONE_PLATFORM_HINT=wayland`
-3. **Disable GPU**: `--disable-gpu` for software rendering (slower but may work)
-
-## References
-
-- [Electron Wayland Support](https://www.electronjs.org/docs/latest/api/environment-variables#electron_ozone_platform_hint-linux)
-- [Chromium Ozone Platform](https://chromium.googlesource.com/chromium/src/+/HEAD/docs/ozone_overview.md)
-- Chrome wrapper in `Dockerfile.ubuntu-helix` (lines 783-786)
-- GNOME headless mode: `design/2025-01-18-cursor-go-pipewire.md`
+If cursor theme still ignored:
+- Accept dual cursors for OnlyOffice (document as known limitation)
+- Or investigate Electron `--cursor-theme` flag if it exists
