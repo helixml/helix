@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback } from 'react'
+import React, { FC, useState, useCallback, useMemo } from 'react'
 import {
   Box,
   Typography,
@@ -18,10 +18,14 @@ import {
   TableHead,
   TableRow,
   LinearProgress,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import SyncIcon from '@mui/icons-material/Sync'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 
 import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -131,6 +135,28 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId }) =>
     setActiveSearch(searchQuery)
   }, [searchQuery])
 
+  const taskSummary = useMemo(() => {
+    const statuses = tasksData?.statuses || []
+    const pendingCount = tasksData?.pending_tasks?.length || 0
+    if (statuses.length === 0 && pendingCount === 0) return ''
+
+    // Count statuses by state, using raw state values
+    const counts: Record<string, number> = {}
+    for (const s of statuses) {
+      const state = s.state || 'unknown'
+      counts[state] = (counts[state] || 0) + 1
+    }
+
+    const parts: string[] = []
+    for (const [state, count] of Object.entries(counts)) {
+      parts.push(`${count} ${state}`)
+    }
+    if (pendingCount > 0) {
+      parts.push(`${pendingCount} pending in queue`)
+    }
+    return parts.join(', ')
+  }, [tasksData])
+
   if (isLoading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
@@ -183,119 +209,6 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId }) =>
             {attrs.status_message}
           </Typography>
         </Paper>
-      )}
-
-      {/* Task Activity */}
-      {tasksData && ((tasksData.statuses && tasksData.statuses.length > 0) || (tasksData.pending_tasks && tasksData.pending_tasks.length > 0)) && (
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" gutterBottom>Task Activity</Typography>
-
-          {/* Tracking statuses — show what operations have run/are running */}
-          {tasksData.statuses && tasksData.statuses.length > 0 && (
-            <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Operation</TableCell>
-                    <TableCell>State</TableCell>
-                    <TableCell>Progress</TableCell>
-                    <TableCell>Updated</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {tasksData.statuses.map((status, i) => (
-                    <TableRow key={`${status.operation}-${i}`}>
-                      <TableCell>
-                        <Typography variant="body2">{formatOperation(status.operation || '')}</Typography>
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                          {status.operation}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={status.state}
-                          size="small"
-                          color={stateColor[status.state || ''] || 'default'}
-                        />
-                        {status.error && (
-                          <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
-                            {status.error}
-                          </Typography>
-                        )}
-                        {status.message && !status.error && (
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                            {status.message}
-                          </Typography>
-                        )}
-                      </TableCell>
-                      <TableCell sx={{ minWidth: 120 }}>
-                        {(status.total ?? 0) > 0 ? (
-                          <Box>
-                            <LinearProgress
-                              variant="determinate"
-                              value={Math.round(((status.current ?? 0) / status.total!) * 100)}
-                              sx={{ mb: 0.5 }}
-                            />
-                            <Typography variant="caption" color="text.secondary">
-                              {status.current} / {status.total}
-                            </Typography>
-                          </Box>
-                        ) : (
-                          <Typography variant="caption" color="text.secondary">-</Typography>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="caption">
-                          {status.updated_at ? new Date(status.updated_at).toLocaleTimeString() : '-'}
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          )}
-
-          {/* Pending queue tasks */}
-          {tasksData.pending_tasks && tasksData.pending_tasks.length > 0 && (
-            <Box>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Pending Tasks ({tasksData.pending_tasks.length})
-              </Typography>
-              <TableContainer component={Paper} variant="outlined">
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Operation</TableCell>
-                      <TableCell>Priority</TableCell>
-                      <TableCell>Queued</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {tasksData.pending_tasks.map((task) => (
-                      <TableRow key={task.id}>
-                        <TableCell>
-                          <Typography variant="body2">{formatOperation(task.operation || '')}</Typography>
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                            {task.operation}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2">{task.priority}</Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="caption">
-                            {task.created_at ? new Date(task.created_at).toLocaleTimeString() : '-'}
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Box>
-          )}
-        </Box>
       )}
 
       {/* Summary Stats */}
@@ -361,6 +274,125 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId }) =>
       </Box>
 
       <Divider sx={{ mb: 3 }} />
+
+      {/* Task Activity (collapsible) */}
+      {tasksData && taskSummary && (
+        <Accordion variant="outlined" sx={{ mb: 3 }}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Box>
+              <Typography variant="subtitle1">Task Activity</Typography>
+              <Typography variant="body2" color="text.secondary">{taskSummary}</Typography>
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails>
+            {/* Tracking statuses */}
+            {tasksData.statuses && tasksData.statuses.length > 0 && (
+              <TableContainer sx={{ mb: 2 }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Operation</TableCell>
+                      <TableCell>State</TableCell>
+                      <TableCell>Progress</TableCell>
+                      <TableCell>Updated</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {tasksData.statuses.map((status, i) => (
+                      <TableRow key={`${status.operation}-${i}`}>
+                        <TableCell>
+                          <Typography variant="body2">{formatOperation(status.operation || '')}</Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                            {status.operation}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={status.state}
+                            size="small"
+                            color={stateColor[status.state || ''] || 'default'}
+                          />
+                          {status.error && (
+                            <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
+                              {status.error}
+                            </Typography>
+                          )}
+                          {status.message && !status.error && (
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                              {status.message}
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell sx={{ minWidth: 120 }}>
+                          {(status.total ?? 0) > 0 ? (
+                            <Box>
+                              <LinearProgress
+                                variant="determinate"
+                                value={Math.round(((status.current ?? 0) / status.total!) * 100)}
+                                sx={{ mb: 0.5 }}
+                              />
+                              <Typography variant="caption" color="text.secondary">
+                                {status.current} / {status.total}
+                              </Typography>
+                            </Box>
+                          ) : (
+                            <Typography variant="caption" color="text.secondary">-</Typography>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="caption">
+                            {status.updated_at ? new Date(status.updated_at).toLocaleTimeString() : '-'}
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+
+            {/* Pending queue tasks */}
+            {tasksData.pending_tasks && tasksData.pending_tasks.length > 0 && (
+              <Box>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Pending Tasks ({tasksData.pending_tasks.length})
+                </Typography>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Operation</TableCell>
+                        <TableCell>Priority</TableCell>
+                        <TableCell>Queued</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {tasksData.pending_tasks.map((task) => (
+                        <TableRow key={task.id}>
+                          <TableCell>
+                            <Typography variant="body2">{formatOperation(task.operation || '')}</Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                              {task.operation}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2">{task.priority}</Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="caption">
+                              {task.created_at ? new Date(task.created_at).toLocaleTimeString() : '-'}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+            )}
+          </AccordionDetails>
+        </Accordion>
+      )}
 
       {/* Search Test Panel */}
       {helixRepoId && (
