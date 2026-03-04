@@ -18,7 +18,7 @@ const Paywall: FC<PaywallProps> = ({ active, onBillingClick, children }) => {
   return (
     <Box sx={{ position: 'relative' }}>
       {children}
-      {/* Dark overlay covering content */}
+      {/* Gradient overlay: visible at top, quickly fading to heavy */}
       <Box
         sx={{
           position: 'absolute',
@@ -26,8 +26,7 @@ const Paywall: FC<PaywallProps> = ({ active, onBillingClick, children }) => {
           left: 0,
           right: 0,
           bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          backdropFilter: 'blur(2px)',
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.7) 30%, rgba(0,0,0,0.85) 100%)',
           zIndex: 10,
           borderRadius: 1,
         }}
@@ -50,14 +49,14 @@ const Paywall: FC<PaywallProps> = ({ active, onBillingClick, children }) => {
           sx={{
             backgroundColor: 'rgba(30, 30, 30, 0.95)',
             borderRadius: 3,
-            px: 5,
-            py: 4,
+            px: 8,
+            py: 6,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
             border: '1px solid rgba(255,255,255,0.1)',
-            maxWidth: 400,
+            maxWidth: 520,
           }}
         >
           <Box
@@ -65,14 +64,14 @@ const Paywall: FC<PaywallProps> = ({ active, onBillingClick, children }) => {
               width: 56,
               height: 56,
               borderRadius: '50%',
-              backgroundColor: 'rgba(99, 102, 241, 0.15)',
+              backgroundColor: 'rgba(0, 213, 255, 0.15)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               mb: 2,
             }}
           >
-            <CreditCard size={28} color="#818cf8" />
+            <CreditCard size={28} color="#00d5ff" />
           </Box>
           <Typography
             variant="h6"
@@ -97,6 +96,7 @@ const Paywall: FC<PaywallProps> = ({ active, onBillingClick, children }) => {
           </Typography>
           <Button
             variant="contained"
+            color="secondary"
             onClick={onBillingClick}
             size="large"
             startIcon={<CreditCard size={18} />}
@@ -107,12 +107,6 @@ const Paywall: FC<PaywallProps> = ({ active, onBillingClick, children }) => {
               textTransform: 'none',
               fontSize: '0.95rem',
               fontWeight: 600,
-              background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-              boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)',
-              '&:hover': {
-                background: 'linear-gradient(135deg, #5558e6 0%, #7c4feb 100%)',
-                boxShadow: '0 6px 20px rgba(99, 102, 241, 0.5)',
-              },
             }}
           >
             Go to Billing
