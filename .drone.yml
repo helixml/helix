@@ -789,7 +789,7 @@ steps:
       GITHUB_TOKEN:
         from_secret: github_token
     commands:
-      - cd operator && go build ./...
+      - cd operator && go mod tidy && go build ./...
     depends_on: []
 
   - name: run-linter-operator
@@ -800,7 +800,7 @@ steps:
       - name: go-mod-cache
         path: /go/pkg/mod
     commands:
-      - cd operator && golangci-lint run ./...
+      - cd operator && go mod tidy && golangci-lint run ./...
     when:
       event:
         - push
