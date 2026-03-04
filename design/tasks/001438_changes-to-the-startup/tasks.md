@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Update `helix/desktop/shared/helix-workspace-setup.sh` - add git pull to existing worktree case (lines 460-470)
+- [~] Update `helix/desktop/shared/helix-workspace-setup.sh` - add git pull to existing worktree case (lines 460-470)
   - Add stash check for uncommitted changes
   - Fetch and pull from `origin helix-specs`
   - Restore stash after pull
