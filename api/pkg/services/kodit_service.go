@@ -221,18 +221,197 @@ func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID int6
 	return summary, nil
 }
 
-// DeleteRepository removes a repository from Kodit.
+// ListRepositories returns all Kodit repositories with pagination.
+func (s *KoditService) ListRepositories(ctx context.Context, limit, offset int) ([]repository.Repository, int64, error) {
+	if !s.enabled {
+		return nil, 0, fmt.Errorf("kodit service not enabled")
+	}
+
+	opts := []repository.Option{
+		repository.WithLimit(limit),
+		repository.WithOffset(offset),
+		repository.WithOrderDesc("created_at"),
+	}
+
+	repos, err := s.client.Repositories.Find(ctx, opts...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list repositories: %w", err)
+	}
+
+	total, err := s.client.Repositories.Count(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count repositories: %w", err)
+	}
+
+	return repos, total, nil
+}
+
+// RepositorySummary returns a detailed summary for a repository.
+func (s *KoditService) RepositorySummary(ctx context.Context, koditRepoID int64) (repository.RepositorySummary, error) {
+	if !s.enabled {
+		return repository.RepositorySummary{}, fmt.Errorf("kodit service not enabled")
+	}
+
+	summary, err := s.client.Repositories.SummaryByID(ctx, koditRepoID)
+	if err != nil {
+		return repository.RepositorySummary{}, wrapNotFound(err)
+	}
+
+	return summary, nil
+}
+
+// SyncRepository triggers a full sync (git fetch + branch scan + re-index).
+func (s *KoditService) SyncRepository(ctx context.Context, koditRepoID int64) error {
+	if !s.enabled {
+		return fmt.Errorf("kodit service not enabled")
+	}
+
+	if err := s.client.Repositories.Sync(ctx, koditRepoID); err != nil {
+		return fmt.Errorf("failed to sync repository: %w", wrapNotFound(err))
+	}
+
+	log.Info().Int64("kodit_repo_id", koditRepoID).Msg("Triggered repository sync in Kodit")
+	return nil
+}
+
+// DeleteRepository queues a repository for deletion.
 func (s *KoditService) DeleteRepository(ctx context.Context, koditRepoID int64) error {
 	if !s.enabled {
 		return fmt.Errorf("kodit service not enabled")
 	}
 
 	if err := s.client.Repositories.Delete(ctx, koditRepoID); err != nil {
-		return fmt.Errorf("failed to delete repository from kodit: %w", err)
+		return fmt.Errorf("failed to delete repository from kodit: %w", wrapNotFound(err))
 	}
 
 	log.Info().Int64("kodit_repo_id", koditRepoID).Msg("Deleted repository from Kodit")
 	return nil
+}
+
+// EnrichmentCount returns the total number of enrichments for a repository.
+func (s *KoditService) EnrichmentCount(ctx context.Context, koditRepoID int64) (int64, error) {
+	if !s.enabled {
+		return 0, fmt.Errorf("kodit service not enabled")
+	}
+
+	commits, err := s.client.Commits.Find(ctx, repository.WithRepoID(koditRepoID))
+	if err != nil {
+		return 0, fmt.Errorf("failed to list commits for repo: %w", err)
+	}
+	if len(commits) == 0 {
+		return 0, nil
+	}
+
+	shas := make([]string, len(commits))
+	for i, c := range commits {
+		shas[i] = c.SHA()
+	}
+
+	count, err := s.client.Enrichments.Count(ctx, &service.EnrichmentListParams{
+		CommitSHAs: shas,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to count enrichments: %w", err)
+	}
+
+	return count, nil
+}
+
+// RepositoryTasks returns tracking statuses and pending queue tasks for a repository.
+func (s *KoditService) RepositoryTasks(ctx context.Context, koditRepoID int64) (KoditRepositoryTasks, error) {
+	if !s.enabled {
+		return KoditRepositoryTasks{}, fmt.Errorf("kodit service not enabled")
+	}
+
+	// Get tracking statuses (operation-level status for this repo)
+	trackingStatuses, err := s.client.Tracking.Statuses(ctx, koditRepoID)
+	if err != nil {
+		return KoditRepositoryTasks{}, fmt.Errorf("failed to get tracking statuses: %w", err)
+	}
+
+	statuses := make([]KoditTaskStatus, 0, len(trackingStatuses))
+	for _, ts := range trackingStatuses {
+		statuses = append(statuses, KoditTaskStatus{
+			Operation: string(ts.Operation()),
+			State:     string(ts.State()),
+			Message:   ts.Message(),
+			Error:     ts.Error(),
+			Current:   ts.Current(),
+			Total:     ts.Total(),
+			UpdatedAt: ts.UpdatedAt(),
+		})
+	}
+
+	// Get pending queue tasks and filter by this repo
+	allPending, err := s.client.Tasks.List(ctx, &service.TaskListParams{Limit: 500})
+	if err != nil {
+		return KoditRepositoryTasks{}, fmt.Errorf("failed to list pending tasks: %w", err)
+	}
+
+	pending := make([]KoditPendingTask, 0)
+	for _, t := range allPending {
+		payload := t.Payload()
+		if payload == nil {
+			continue
+		}
+		// repository_id in payload can be int64, int, or float64 (JSON round-trip)
+		var taskRepoID int64
+		switch v := payload["repository_id"].(type) {
+		case int64:
+			taskRepoID = v
+		case int:
+			taskRepoID = int64(v)
+		case float64:
+			taskRepoID = int64(v)
+		}
+		if taskRepoID == koditRepoID {
+			pending = append(pending, KoditPendingTask{
+				ID:        t.ID(),
+				Operation: string(t.Operation()),
+				Priority:  t.Priority(),
+				CreatedAt: t.CreatedAt(),
+			})
+		}
+	}
+
+	return KoditRepositoryTasks{
+		Statuses:     statuses,
+		PendingTasks: pending,
+	}, nil
+}
+
+// SystemStats returns aggregate counts for the Kodit system.
+func (s *KoditService) SystemStats(ctx context.Context) (KoditSystemStats, error) {
+	if !s.enabled {
+		return KoditSystemStats{}, fmt.Errorf("kodit service not enabled")
+	}
+
+	repos, err := s.client.Repositories.Count(ctx)
+	if err != nil {
+		return KoditSystemStats{}, fmt.Errorf("failed to count repositories: %w", err)
+	}
+
+	enrichments, err := s.client.Enrichments.Count(ctx, &service.EnrichmentListParams{})
+	if err != nil {
+		return KoditSystemStats{}, fmt.Errorf("failed to count enrichments: %w", err)
+	}
+
+	commits, err := s.client.Commits.Count(ctx)
+	if err != nil {
+		return KoditSystemStats{}, fmt.Errorf("failed to count commits: %w", err)
+	}
+
+	pendingTasks, err := s.client.Tasks.Count(ctx)
+	if err != nil {
+		return KoditSystemStats{}, fmt.Errorf("failed to count pending tasks: %w", err)
+	}
+
+	return KoditSystemStats{
+		Repositories: repos,
+		Enrichments:  enrichments,
+		Commits:      commits,
+		PendingTasks: pendingTasks,
+	}, nil
 }
 
 // RescanCommit triggers a rescan of a specific commit in Kodit

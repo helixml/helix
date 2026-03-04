@@ -1266,6 +1266,180 @@ definitions:
       turn:
         type: integer
     type: object
+  server.KoditAdminBatchRequest:
+    properties:
+      ids:
+        items:
+          type: integer
+        type: array
+    type: object
+  server.KoditAdminBatchResponse:
+    properties:
+      failed:
+        items:
+          $ref: '#/definitions/server.KoditBatchError'
+        type: array
+      succeeded:
+        items:
+          type: integer
+        type: array
+    type: object
+  server.KoditAdminPaginationMeta:
+    properties:
+      page:
+        type: integer
+      per_page:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
+  server.KoditAdminPendingTaskDTO:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      operation:
+        type: string
+      priority:
+        type: integer
+    type: object
+  server.KoditAdminRepoAttributes:
+    properties:
+      created_at:
+        type: string
+      helix_repo_id:
+        type: string
+      helix_repo_name:
+        type: string
+      remote_url:
+        type: string
+      status:
+        type: string
+      status_message:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  server.KoditAdminRepoDTO:
+    properties:
+      attributes:
+        $ref: '#/definitions/server.KoditAdminRepoAttributes'
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  server.KoditAdminRepoDetailAttributes:
+    properties:
+      branch_count:
+        type: integer
+      commit_count:
+        type: integer
+      created_at:
+        type: string
+      default_branch:
+        type: string
+      enrichment_count:
+        type: integer
+      helix_repo_id:
+        type: string
+      helix_repo_name:
+        type: string
+      last_scanned_at:
+        description: Last time Kodit scanned this repository
+        type: string
+      latest_commit_author:
+        type: string
+      latest_commit_date:
+        type: string
+      latest_commit_message:
+        type: string
+      latest_commit_sha:
+        description: Latest commit tracked by Kodit
+        type: string
+      remote_url:
+        type: string
+      status:
+        type: string
+      status_message:
+        type: string
+      tag_count:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  server.KoditAdminRepoDetailDTO:
+    properties:
+      attributes:
+        $ref: '#/definitions/server.KoditAdminRepoDetailAttributes'
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  server.KoditAdminRepoDetailResponse:
+    properties:
+      data:
+        $ref: '#/definitions/server.KoditAdminRepoDetailDTO'
+    type: object
+  server.KoditAdminRepoListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditAdminRepoDTO'
+        type: array
+      meta:
+        $ref: '#/definitions/server.KoditAdminPaginationMeta'
+    type: object
+  server.KoditAdminRepositoryTasksResponse:
+    properties:
+      pending_tasks:
+        items:
+          $ref: '#/definitions/server.KoditAdminPendingTaskDTO'
+        type: array
+      statuses:
+        items:
+          $ref: '#/definitions/server.KoditAdminTaskStatusDTO'
+        type: array
+    type: object
+  server.KoditAdminStatsResponse:
+    properties:
+      commits:
+        type: integer
+      enrichments:
+        type: integer
+      pending_tasks:
+        type: integer
+      repositories:
+        type: integer
+    type: object
+  server.KoditAdminTaskStatusDTO:
+    properties:
+      current:
+        type: integer
+      error:
+        type: string
+      message:
+        type: string
+      operation:
+        type: string
+      state:
+        type: string
+      total:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  server.KoditBatchError:
+    properties:
+      id:
+        type: integer
+      message:
+        type: string
+    type: object
   server.KoditCommitAttributes:
     properties:
       authored_at:
@@ -9236,6 +9410,273 @@ paths:
       summary: Get sandbox real-time events (SSE)
       tags:
       - Admin
+  /api/v1/admin/kodit/repositories:
+    get:
+      description: List all Kodit-indexed repositories with pagination. Admin only.
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 25, max 100)
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminRepoListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List Kodit repositories (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/{koditRepoId}:
+    delete:
+      description: Queue a Kodit repository for deletion. Admin only.
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Delete Kodit repository (admin)
+      tags:
+      - admin
+    get:
+      description: Get detailed information about a Kodit repository including summary
+        stats. Admin only.
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminRepoDetailResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get Kodit repository detail (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/{koditRepoId}/rescan:
+    post:
+      description: Trigger a rescan of the HEAD commit for a Kodit repository. Admin
+        only.
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Rescan Kodit repository HEAD (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/{koditRepoId}/sync:
+    post:
+      description: Trigger a full sync (git fetch + branch scan + re-index) for a
+        Kodit repository. Admin only.
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Sync Kodit repository (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/{koditRepoId}/tasks:
+    get:
+      description: Returns tracking statuses and pending queue tasks for a Kodit repository.
+        Admin only.
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminRepositoryTasksResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get Kodit repository tasks (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/batch/delete:
+    post:
+      consumes:
+      - application/json
+      description: Queue multiple Kodit repositories for deletion. Admin only.
+      parameters:
+      - description: Repository IDs to delete
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.KoditAdminBatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminBatchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Batch delete Kodit repositories (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/batch/rescan:
+    post:
+      consumes:
+      - application/json
+      description: Trigger a HEAD commit rescan for multiple Kodit repositories. Admin
+        only.
+      parameters:
+      - description: Repository IDs to rescan
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.KoditAdminBatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminBatchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Batch rescan Kodit repositories (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/stats:
+    get:
+      description: 'Returns aggregate counts: repositories, enrichments, commits,
+        pending tasks. Admin only.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminStatsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get Kodit system stats (admin)
+      tags:
+      - admin
   /api/v1/admin/organization-domains:
     get:
       description: List all organizations that have auto-join domains configured
