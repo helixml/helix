@@ -1,144 +1,133 @@
-# Design: OnlyOffice 4K Rendering Fix for GNOME Headless Wayland
+# Design: OnlyOffice 4K Rendering + Cursor Theme Fix
 
 ## Summary
 
-Fix OnlyOffice Desktop Editors rendering issues at 4K resolution in GNOME headless Wayland. The app only renders in the top-left quarter of the screen at high resolutions.
+Fix two OnlyOffice issues in GNOME headless Wayland:
+1. **4K rendering broken** - Only top quarter renders at high resolutions (works at 1080p)
+2. **Ignores system cursor theme** - Renders its own cursor instead of using Helix-Invisible
 
 ## Investigation Findings
 
-### Root Cause: XWayland + GNOME Scaling Mismatch
+### Root Cause Confirmed
 
 OnlyOffice is a **Qt5 + CEF (Chromium Embedded Framework)** application that:
-- Uses Qt 5.9 (bundled, not system Qt)
-- Only has X11/XCB platform plugin (no Wayland support)
-- Runs via XWayland on GNOME Wayland
+- Bundles Qt 5.9.9 (old version)
+- Only includes X11/XCB platform plugins - **NO Wayland support**
+- Runs via XWayland on Wayland compositors
 
-**The Problem:**
-1. GNOME is running at 4K (3840x2160) with scale factor 2.0
-2. XWayland reports **logical resolution** (1920x1080) to X11 apps
+The 4K rendering issue is caused by:
+1. GNOME headless runs at 3840x2160 with `scaling-factor=2` (for 200% zoom)
+2. This makes XWayland report **logical resolution** (1920x1080) to X11 apps
 3. OnlyOffice creates a 1920x1080 window
-4. But the actual surface is 3840x2160 (physical)
-5. Result: Content renders in top-left quarter only
+4. But the actual surface is 3840x2160
+5. Result: OnlyOffice renders to top-left quarter only
 
-**Evidence:**
+### Verified via Testing
+
 ```bash
-# XWayland reports logical resolution, not physical
+# GNOME virtual monitor is 4K
+$ ps aux | grep gnome-shell
+gnome-shell --headless --unsafe-mode --virtual-monitor 3840x2160@60
+
+# But XWayland reports 1080p due to scale factor 2
 $ DISPLAY=:0 xdpyinfo | grep dimensions
 dimensions:    1920x1080 pixels (508x286 millimeters)
 
-# But GNOME is actually at 4K with scale 2
-$ gdbus call ... GetCurrentState
-# Shows: 3840x2160@60.000 with scale 2.0
+# GNOME scaling factor
+$ gsettings get org.gnome.desktop.interface scaling-factor
+uint32 2
 ```
 
-### Why Qt Scaling Env Vars Don't Help
+### OnlyOffice Qt Analysis
 
-Tried these approaches - none fixed the window geometry issue:
-- `QT_SCALE_FACTOR=2` - Makes content render at 2x but window is still 1920x1080
-- `QT_SCREEN_SCALE_FACTORS="2"` - Same result
-- `QT_AUTO_SCREEN_SCALE_FACTOR=0` - No effect
+```bash
+# OnlyOffice bundles old Qt 5.9
+$ strings /opt/onlyoffice/desktopeditors/libQt5Core.so.5 | grep "^5\." | head -1
+5.9.9
 
-The problem is the **window size** is wrong, not just the content scaling. OnlyOffice asks XWayland for screen size, gets 1920x1080, and creates a window that size.
+# Only X11 platform plugins available
+$ ls /opt/onlyoffice/desktopeditors/platforms/
+libqlinuxfb.so  libqminimal.so  libqoffscreen.so  libqvnc.so  libqxcb.so
 
-### OnlyOffice Architecture
-
-OnlyOffice bundles Qt 5.9.9 with only X11 support:
-```
-/opt/onlyoffice/desktopeditors/
-├── DesktopEditors          # Main binary
-├── libQt5Core.so.5         # Qt 5.9.9 (bundled)
-├── libQt5Gui.so.5
-├── libQt5XcbQpa.so.5       # X11 platform
-├── libcef.so               # Chromium Embedded Framework
-└── platforms/
-    ├── libqxcb.so          # Only X11 plugin!
-    ├── libqlinuxfb.so
-    ├── libqminimal.so
-    ├── libqoffscreen.so
-    └── libqvnc.so
+# No Wayland plugin - would need libqwayland-*.so
 ```
 
-No `libqwayland*.so` plugins exist - native Wayland is not an option without rebuilding OnlyOffice.
+### Why QT_SCALE_FACTOR Doesn't Work
+
+Tried `QT_SCALE_FACTOR=2` - this makes OnlyOffice render at 2x scale but the window geometry is still 1920x1080, so it just renders larger content in the same quarter of the screen.
 
 ## Solution Options
 
-### Option 1: Enable XWayland Native Scaling (Preferred)
+### Option 1: Build OnlyOffice with Qt Wayland Support (Best)
 
-GNOME/Mutter has an experimental feature `xwayland-native-scaling` that makes XWayland report physical resolution instead of logical.
+Build OnlyOffice from source with modern Qt that includes Wayland plugins:
+- Requires Qt 5.15+ with qtwayland5
+- Significant build effort (multiple repos: desktop-apps, desktop-sdk, core, sdkjs, web-apps)
+- Would provide native Wayland rendering at correct resolution
 
-```bash
-gsettings set org.gnome.mutter experimental-features \
-  "['scale-monitor-framebuffer', 'xwayland-native-scaling']"
-```
+**Complexity**: High (multi-day effort)
+**Effectiveness**: Would fully solve both issues
 
-**Issue:** Requires Mutter restart. Need to add this to `startup-app.sh` before gnome-shell starts.
+### Option 2: Enable xwayland-native-scaling (Mutter Feature)
 
-### Option 2: Don't Use Compositor Scaling at 4K
-
-Instead of `scaling-factor=2`, use only client-side scaling:
-- Set compositor scale to 1.0
-- Use `GDK_SCALE=2` and `QT_SCALE_FACTOR=2` for native Wayland apps
-- X11 apps via XWayland will see true 4K resolution
-
-**Downside:** All X11 apps will have tiny UI unless they respect Qt/GDK scale vars.
-
-### Option 3: Run OnlyOffice at 1080p Explicitly
-
-Force OnlyOffice to run in a 1080p window and let Mutter upscale:
-```bash
-# In wrapper script
-export QT_SCREEN_SCALE_FACTORS="1"
-# Plus force window geometry somehow
-```
-
-**Issue:** Qt5 XCB doesn't have good programmatic geometry control.
-
-### Option 4: Build OnlyOffice with Wayland Support
-
-Build from source with Qt 5.15+ including QtWayland.
-
-**Issue:** Complex build system, many dependencies. Not practical short-term.
-
-## Recommended Fix
-
-**Implement Option 1** - Enable `xwayland-native-scaling` in `startup-app.sh`:
+GNOME/Mutter has experimental `xwayland-native-scaling` feature that makes XWayland report physical resolution instead of logical:
 
 ```bash
-# In desktop/ubuntu-config/startup-app.sh, before gnome-shell starts:
-gsettings set org.gnome.mutter experimental-features \
-  "['scale-monitor-framebuffer', 'xwayland-native-scaling']"
+gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer', 'xwayland-native-scaling']"
 ```
 
-This makes XWayland report 3840x2160 to X11 apps. OnlyOffice will create a proper 4K window, and Qt's scaling will handle HiDPI rendering.
+**Issue**: Requires Mutter restart and may not work in headless mode.
 
-## Files to Modify
+**Complexity**: Low
+**Effectiveness**: Uncertain in headless mode
+
+### Option 3: Don't Use GNOME Scaling for 4K
+
+Instead of `scaling-factor=2`, use 4K at 1x scale and let individual apps handle scaling via `GDK_SCALE`/`QT_SCALE_FACTOR` for native Wayland apps only.
+
+This would make XWayland report 3840x2160 and OnlyOffice would work correctly, but UI would be tiny unless apps scale themselves.
+
+**Complexity**: Medium (changes to startup-app.sh)
+**Effectiveness**: Would fix OnlyOffice but may break other things
+
+### Option 4: Use Flatpak OnlyOffice (May Have Wayland)
+
+The Flatpak version might be built with Wayland support:
+
+```bash
+flatpak install flathub org.onlyoffice.desktopeditors
+```
+
+**Complexity**: Low
+**Effectiveness**: Unknown - needs testing
+
+## Recommended Approach
+
+1. **Short term**: Test Flatpak version to see if it has Wayland support
+2. **Medium term**: Investigate building OnlyOffice with Qt Wayland
+3. **Long term**: File upstream issue requesting native Wayland support (already exists: #2105)
+
+## Files That Would Need Changes
 
 | File | Change |
 |------|--------|
-| `desktop/ubuntu-config/startup-app.sh` | Add `xwayland-native-scaling` to experimental features |
-| `Dockerfile.ubuntu-helix` | Ensure `qtwayland5` package is installed (already done) |
+| `Dockerfile.ubuntu-helix` | Install flatpak OnlyOffice OR build from source with Qt Wayland |
+| `desktop/ubuntu-config/startup-app.sh` | Possibly adjust scaling logic |
 
 ## Cursor Issue
 
-Separate from the 4K rendering issue. OnlyOffice renders its own cursor via Qt/CEF. To use the system cursor theme:
+Secondary to the rendering issue. Once OnlyOffice renders correctly, we can address cursor theme with:
 
 ```bash
 export XCURSOR_THEME=Helix-Invisible
 export XCURSOR_SIZE=48
 ```
 
-Add to the OnlyOffice wrapper script in Dockerfile.
-
-## Testing
-
-1. Rebuild: `./stack build-ubuntu`
-2. Start 4K session (3840x2160 with HELIX_ZOOM_LEVEL=200)
-3. Launch OnlyOffice
-4. Verify full window renders (not just top quarter)
-5. Verify cursor uses system theme
+However, OnlyOffice (like many apps) may render its own cursors for text editing regardless of system theme.
 
 ## References
 
-- [GNOME XWayland Native Scaling](https://blogs.gnome.org/shell/2022/11/04/gnome-43-updates/)
-- OnlyOffice GitHub issue #2105 - Wayland support request
-- OnlyOffice uses Qt 5.9 + CEF, X11 only
+- OnlyOffice Wayland issue: https://github.com/ONLYOFFICE/DesktopEditors/issues/2105
+- OnlyOffice source: https://github.com/ONLYOFFICE/DesktopEditors
+- OnlyOffice build tools: https://github.com/nicotine-plus/nicotine-plus/issues/2105
+- Qt Wayland: https://doc.qt.io/qt-5/qtwaylandcompositor-index.html
