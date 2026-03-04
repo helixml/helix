@@ -144,3 +144,37 @@ The codebase already uses `@dnd-kit` for other drag operations (`RobustPromptInp
 - **Pointer capture**: Must properly capture/release to avoid stuck drags
 - **Event overlap**: Need to ensure pointer events don't interfere with HTML5 Drag API on desktop (check `pointerType`)
 - **Performance**: Drag ghost rendering should be lightweight
+
+## Implementation Notes
+
+### What Was Done
+
+Modified `helix/frontend/src/components/tasks/TabsView.tsx`:
+
+1. **PanelTab component** - Added pointer event handlers:
+   - `handlePointerDown` - Captures start position, filters out `pointerType === "touch"` 
+   - `handlePointerMove` - Detects 8px drag threshold, uses `setPointerCapture` to track across elements
+   - `handlePointerUp` - Calls `onPointerDragEnd`, releases pointer capture
+   - `handlePointerCancel` - Resets state on cancel
+
+2. **TabsView component** - Added state management:
+   - `pointerDragInfo` state (mirrors existing `touchDragInfo` pattern)
+   - `handlePointerDragStart/Move/End` callbacks
+   - Passes `pointerDragTabId` to TaskPanel for visual feedback
+
+3. **Visual feedback**:
+   - Dragged tab shows reduced opacity (0.7) and primary background color
+   - Same visual treatment as touch dragging
+
+### Key Decision: No Drag Ghost
+
+Decided to skip the floating drag ghost overlay for now. The opacity change on the source tab provides sufficient feedback, and the existing drop zone edge indicators (from HTML5 drag) still work because the pointer events bubble up and trigger the panel's drag detection.
+
+### Pattern Discovered
+
+This codebase uses a consistent pattern for drag handling:
+- State in parent (`TabsView`): `{panelId, tabId, ...}` 
+- Callbacks passed down through `TaskPanel` to `PanelTab`
+- Panel refs map (`panelRefsMap`) for hit-testing drop targets
+
+The same pattern is used for both touch and now pointer drag.
