@@ -4059,6 +4059,8 @@ export interface TypesServerConfigForFrontend {
    * can be the prefix to the bucket
    */
   registration_enabled?: boolean;
+  /** Require an active subscription before allowing to use the product */
+  require_active_subscription?: boolean;
   rudderstack_data_plane_url?: string;
   rudderstack_write_key?: string;
   sentry_dsn_frontend?: string;
@@ -5473,6 +5475,7 @@ export interface TypesWallet {
   org_id?: string;
   stripe_customer_id?: string;
   stripe_subscription_id?: string;
+  subscription_cancel_at_period_end?: boolean;
   subscription_created?: number;
   subscription_current_period_end?: number;
   subscription_current_period_start?: number;

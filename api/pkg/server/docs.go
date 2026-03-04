@@ -23969,6 +23969,10 @@ const docTemplate = `{
                     "description": "used to prepend onto raw filestore paths to download files\nthe filestore path will have the user info in it - i.e.\nit's a low level filestore path\nif we are using an object storage thing - then this URL\ncan be the prefix to the bucket",
                     "type": "boolean"
                 },
+                "require_active_subscription": {
+                    "description": "Require an active subscription before allowing to use the product",
+                    "type": "boolean"
+                },
                 "rudderstack_data_plane_url": {
                     "type": "string"
                 },
@@ -27285,6 +27289,9 @@ const docTemplate = `{
                 },
                 "stripe_subscription_id": {
                     "type": "string"
+                },
+                "subscription_cancel_at_period_end": {
+                    "type": "boolean"
                 },
                 "subscription_created": {
                     "type": "integer"

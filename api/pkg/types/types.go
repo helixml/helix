@@ -1015,8 +1015,9 @@ type ServerConfigForFrontend struct {
 	RegistrationEnabled                    bool                 `json:"registration_enabled"`
 	AuthProvider                           AuthProvider         `json:"auth_provider"`
 	FilestorePrefix                        string               `json:"filestore_prefix"`
-	StripeEnabled                          bool                 `json:"stripe_enabled"`  // Stripe top-ups enabled
-	BillingEnabled                         bool                 `json:"billing_enabled"` // Charging for usage
+	StripeEnabled                          bool                 `json:"stripe_enabled"`              // Stripe top-ups enabled
+	BillingEnabled                         bool                 `json:"billing_enabled"`             // Charging for usage
+	RequireActiveSubscription              bool                 `json:"require_active_subscription"` // Require an active subscription before allowing to use the product
 	SentryDSNFrontend                      string               `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend                string               `json:"google_analytics_frontend"`
 	EvalUserID                             string               `json:"eval_user_id"`

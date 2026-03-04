@@ -148,6 +148,7 @@ func (s *Stripe) handleSubscriptionEvent(event stripe.Event) error {
 	wallet.SubscriptionCurrentPeriodStart = subscription.CurrentPeriodStart
 	wallet.SubscriptionCurrentPeriodEnd = subscription.CurrentPeriodEnd
 	wallet.SubscriptionCreated = subscription.Created
+	wallet.SubscriptionCancelAtPeriodEnd = subscription.CancelAtPeriodEnd
 
 	if eventType == types.SubscriptionEventTypeDeleted {
 		wallet.SubscriptionStatus = stripe.SubscriptionStatusCanceled

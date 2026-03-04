@@ -28,6 +28,8 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useApps from '../hooks/useApps'
+import useSubscriptionGate from '../hooks/useSubscriptionGate'
+import Paywall from '../components/subscription/Paywall'
 import {
   useListProjects,
   useListSampleProjects,
@@ -44,6 +46,7 @@ const Projects: FC = () => {
   const queryClient = useQueryClient()
   const api = useApi()
   const apps = useApps()
+  const { paywallActive, navigateToBilling } = useSubscriptionGate()
 
   const isLoggedIn = !!account.user
 
@@ -563,7 +566,7 @@ const Projects: FC = () => {
       globalSearch={true}
       notifications={true}
       organizationId={account.organizationTools.organization?.id}
-      topbarContent={currentView === 'projects' ? (
+      topbarContent={currentView === 'projects' && projects.length > 0 ? (
         <CreateProjectButton
           onCreateEmpty={handleNewProject}
           onCreateFromSample={handleInstantiateSample}
@@ -611,6 +614,7 @@ const Projects: FC = () => {
       ) : null}
     >
       <Container maxWidth="lg" sx={{ mt: 4 }}>
+       <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
         {/* Projects View */}
         {currentView === 'projects' && (
           <ProjectsListView
@@ -666,6 +670,7 @@ const Projects: FC = () => {
         {currentView === 'prompts' && (
           <PromptsListView />
         )}
+       </Paywall>
       </Container>
 
       {/* Project Menu */}

@@ -15,6 +15,8 @@ import { useListQuestionSets, useDeleteQuestionSet } from '../services/questionS
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
 import useApps from '../hooks/useApps'
+import useSubscriptionGate from '../hooks/useSubscriptionGate'
+import Paywall from '../components/subscription/Paywall'
 
 import { TypesQuestionSet } from '../api/api'
 
@@ -22,6 +24,7 @@ const QuestionSets: FC = () => {
   const account = useAccount()
   const snackbar = useSnackbar()
   const apps = useApps()
+  const { paywallActive, navigateToBilling } = useSubscriptionGate()
   const { route } = useRoute()
   const [deletingQuestionSet, setDeletingQuestionSet] = useState<TypesQuestionSet | undefined>()
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -178,7 +181,9 @@ const QuestionSets: FC = () => {
       )}
     >
       <Container maxWidth="xl" sx={{ mb: 4 }}>
-        {renderContent()}
+        <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
+          {renderContent()}
+        </Paywall>
       </Container>
 
       <QuestionSetDialog

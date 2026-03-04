@@ -92,6 +92,33 @@ func (s *Stripe) ListSubscriptions(stripeCustomerID string) ([]*stripe.Subscript
 	return subs, nil
 }
 
+// SyncSubscription fetches the current subscription state from Stripe and updates the wallet.
+// This ensures the wallet always reflects the latest Stripe state (e.g. cancel_at_period_end)
+// even if a webhook was missed or the field was added after the webhook fired.
+func (s *Stripe) SyncSubscription(wallet *types.Wallet) {
+	if wallet.StripeSubscriptionID == "" {
+		return
+	}
+
+	if s.cfg.SecretKey == "" {
+		return
+	}
+
+	sub, err := subscription.Get(wallet.StripeSubscriptionID, nil)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("subscription_id", wallet.StripeSubscriptionID).
+			Str("wallet_id", wallet.ID).
+			Msg("failed to fetch subscription from Stripe for sync")
+		return
+	}
+
+	wallet.SubscriptionStatus = sub.Status
+	wallet.SubscriptionCurrentPeriodStart = sub.CurrentPeriodStart
+	wallet.SubscriptionCurrentPeriodEnd = sub.CurrentPeriodEnd
+	wallet.SubscriptionCancelAtPeriodEnd = sub.CancelAtPeriodEnd
+}
+
 var eventMap = map[stripe.EventType]types.SubscriptionEventType{
 	"customer.subscription.deleted": types.SubscriptionEventTypeDeleted,
 	"customer.subscription.updated": types.SubscriptionEventTypeUpdated,

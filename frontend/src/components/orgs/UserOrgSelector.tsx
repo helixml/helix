@@ -36,6 +36,7 @@ import useThemeConfig from '../../hooks/useThemeConfig'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 import TokenUsageDisplay from '../system/TokenUsageDisplay'
 import LowCreditsDisplay from '../system/LowCreditsDisplay'
+import SubscriptionStatusBanner from '../subscription/SubscriptionStatusBanner'
 import { useGetConfig } from '../../services/userService'
 import { styled, keyframes } from '@mui/material/styles'
 import LoginRegisterDialog from './LoginRegisterDialog'
@@ -782,6 +783,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       >
         {/* Token Usage Display */}
         {account.user && <TokenUsageDisplay />}
+        {/* Subscription status banner */}
+        {account.user && <SubscriptionStatusBanner />}
         {/* Low balance display */}
         {account.user && <LowCreditsDisplay />}
 

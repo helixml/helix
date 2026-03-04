@@ -19,6 +19,7 @@ type Wallet struct {
 	SubscriptionCurrentPeriodStart int64                     `json:"subscription_current_period_start"`
 	SubscriptionCurrentPeriodEnd   int64                     `json:"subscription_current_period_end"`
 	SubscriptionCreated            int64                     `json:"subscription_created"`
+	SubscriptionCancelAtPeriodEnd  bool                      `json:"subscription_cancel_at_period_end"`
 
 	UserID  string  `json:"user_id" gorm:"index"`
 	OrgID   string  `json:"org_id" gorm:"index"` // If belongs to an organization
