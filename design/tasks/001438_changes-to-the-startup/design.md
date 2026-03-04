@@ -99,3 +99,21 @@ fi
 
 - **Merge conflicts**: If agent made local changes to helix-specs that conflict with remote, pull will fail. Mitigated by stash + warning log.
 - **Network latency**: Pull adds ~1-2 seconds to restart. Acceptable for correctness.
+
+## Implementation Notes
+
+**File modified**: `helix/desktop/shared/helix-workspace-setup.sh`
+
+**Lines changed**: 462-479 (inserted 18 new lines after "Current branch" echo)
+
+**Key implementation details**:
+- Used `git -C "$WORKTREE_PATH"` to operate on worktree without cd
+- Check for uncommitted changes with `git diff --quiet` before stashing
+- Stash uses named message "helix-workspace-setup" for clarity
+- Pull targets explicit branch `origin helix-specs` (not just `git pull`)
+- Non-fatal: uses `||` to log warning but continue on failure
+- Stash pop also non-fatal to avoid blocking startup
+
+**Golden build unaffected**: Golden build mode (lines 648-740) exits early after running startup script, never reaching the "worktree already exists" code path.
+
+**Commit**: `49b0491b6` on branch `feature/001438-changes-to-the-startup`
