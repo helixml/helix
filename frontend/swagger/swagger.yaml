@@ -6684,6 +6684,9 @@ definitions:
           if we are using an object storage thing - then this URL
           can be the prefix to the bucket
         type: boolean
+      require_active_subscription:
+        description: Require an active subscription before allowing to use the product
+        type: boolean
       rudderstack_data_plane_url:
         type: string
       rudderstack_write_key:
@@ -9049,6 +9052,8 @@ definitions:
         type: string
       stripe_subscription_id:
         type: string
+      subscription_cancel_at_period_end:
+        type: boolean
       subscription_created:
         type: integer
       subscription_current_period_end:
