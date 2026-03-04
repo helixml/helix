@@ -307,6 +307,10 @@ interface PanelTabProps {
   onDragStart: (e: React.DragEvent, tabId: string) => void;
   onTouchDragStart: (tabId: string) => void;
   onTouchDragEnd: (tabId: string, clientX: number, clientY: number) => void;
+  onPointerDragStart: (tabId: string, clientX: number, clientY: number) => void;
+  onPointerDragMove: (clientX: number, clientY: number) => void;
+  onPointerDragEnd: (tabId: string, clientX: number, clientY: number) => void;
+  isPointerDragging?: boolean;
 }
 
 const PanelTab: React.FC<PanelTabProps> = ({
@@ -318,6 +322,10 @@ const PanelTab: React.FC<PanelTabProps> = ({
   onDragStart,
   onTouchDragStart,
   onTouchDragEnd,
+  onPointerDragStart,
+  onPointerDragMove,
+  onPointerDragEnd,
+  isPointerDragging = false,
 }) => {
   const api = useApi();
   const [isEditing, setIsEditing] = useState(false);
@@ -325,6 +333,14 @@ const PanelTab: React.FC<PanelTabProps> = ({
   const [isHovered, setIsHovered] = useState(false);
   const [isTouchDragging, setIsTouchDragging] = useState(false);
   const touchStartRef = React.useRef<{
+    x: number;
+    y: number;
+    time: number;
+  } | null>(null);
+
+  // Pointer drag state for iPad trackpad support
+  const [isLocalPointerDragging, setIsLocalPointerDragging] = useState(false);
+  const pointerStartRef = React.useRef<{
     x: number;
     y: number;
     time: number;
@@ -516,6 +532,63 @@ const PanelTab: React.FC<PanelTabProps> = ({
     touchStartRef.current = null;
   };
 
+  // Pointer drag handlers for iPad trackpad/mouse (when HTML5 drag doesn't work)
+  const handlePointerDown = (e: React.PointerEvent) => {
+    // Only handle mouse/pen pointer types - touch is handled by touch events
+    if (e.pointerType === "touch") return;
+
+    pointerStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      time: Date.now(),
+    };
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!pointerStartRef.current) return;
+    if (e.pointerType === "touch") return;
+
+    const dx = e.clientX - pointerStartRef.current.x;
+    const dy = e.clientY - pointerStartRef.current.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    // Start drag after moving 8px
+    if (distance > 8 && !isLocalPointerDragging) {
+      setIsLocalPointerDragging(true);
+      onPointerDragStart(tab.id, e.clientX, e.clientY);
+      // Capture pointer to track movement outside element
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } else if (isLocalPointerDragging) {
+      onPointerDragMove(e.clientX, e.clientY);
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (e.pointerType === "touch") {
+      pointerStartRef.current = null;
+      return;
+    }
+
+    if (isLocalPointerDragging) {
+      onPointerDragEnd(tab.id, e.clientX, e.clientY);
+      setIsLocalPointerDragging(false);
+      // Release pointer capture
+      try {
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {
+        // Ignore if already released
+      }
+    }
+    pointerStartRef.current = null;
+  };
+
+  const handlePointerCancel = (e: React.PointerEvent) => {
+    if (isLocalPointerDragging) {
+      setIsLocalPointerDragging(false);
+    }
+    pointerStartRef.current = null;
+  };
+
   return (
     <Tooltip
       title={tooltipContent}
@@ -555,6 +628,10 @@ const PanelTab: React.FC<PanelTabProps> = ({
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
         sx={{
           display: "flex",
           alignItems: "center",
@@ -565,14 +642,15 @@ const PanelTab: React.FC<PanelTabProps> = ({
           maxWidth: 280,
           flexShrink: 1,
           cursor: "grab",
-          backgroundColor: isTouchDragging
-            ? "primary.main"
-            : isActive
-              ? "background.paper"
-              : "transparent",
+          backgroundColor:
+            isTouchDragging || isPointerDragging
+              ? "primary.main"
+              : isActive
+                ? "background.paper"
+                : "transparent",
           borderBottom: isActive ? "2px solid" : "2px solid transparent",
           borderBottomColor: isActive ? "primary.main" : "transparent",
-          opacity: isTouchDragging ? 0.7 : 1,
+          opacity: isTouchDragging || isPointerDragging ? 0.7 : 1,
           transition: "all 0.15s ease",
           userSelect: "none",
           WebkitUserSelect: "none",
@@ -730,6 +808,20 @@ interface TaskPanelProps {
     clientX: number,
     clientY: number,
   ) => void;
+  onPointerDragStart: (
+    panelId: string,
+    tabId: string,
+    clientX: number,
+    clientY: number,
+  ) => void;
+  onPointerDragMove: (clientX: number, clientY: number) => void;
+  onPointerDragEnd: (
+    panelId: string,
+    tabId: string,
+    clientX: number,
+    clientY: number,
+  ) => void;
+  pointerDragTabId: string | null;
   panelCount: number;
   panelRef: (el: HTMLDivElement | null) => void;
 }
@@ -753,6 +845,10 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   onTaskArchived,
   onTouchDragStart,
   onTouchDragEnd,
+  onPointerDragStart,
+  onPointerDragMove,
+  onPointerDragEnd,
+  pointerDragTabId,
   panelCount,
   panelRef,
 }) => {
@@ -1156,6 +1252,14 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
               onTouchDragEnd={(tabId, clientX, clientY) =>
                 onTouchDragEnd(panel.id, tabId, clientX, clientY)
               }
+              onPointerDragStart={(tabId, clientX, clientY) =>
+                onPointerDragStart(panel.id, tabId, clientX, clientY)
+              }
+              onPointerDragMove={onPointerDragMove}
+              onPointerDragEnd={(tabId, clientX, clientY) =>
+                onPointerDragEnd(panel.id, tabId, clientX, clientY)
+              }
+              isPointerDragging={pointerDragTabId === tab.id}
             />
           ))}
         </Box>
@@ -1692,6 +1796,14 @@ const TabsView: React.FC<TabsViewProps> = ({
   const [touchDragInfo, setTouchDragInfo] = useState<{
     panelId: string;
     tabId: string;
+  } | null>(null);
+
+  // Pointer drag state for iPad trackpad support
+  const [pointerDragInfo, setPointerDragInfo] = useState<{
+    panelId: string;
+    tabId: string;
+    currentX: number;
+    currentY: number;
   } | null>(null);
 
   // Save workspace state to localStorage whenever rootNode changes (per-project)
@@ -2541,6 +2653,55 @@ const TabsView: React.FC<TabsViewProps> = ({
     [touchDragInfo, handleDropTab],
   );
 
+  // Pointer drag handlers for iPad trackpad
+  const handlePointerDragStart = useCallback(
+    (panelId: string, tabId: string, clientX: number, clientY: number) => {
+      setPointerDragInfo({
+        panelId,
+        tabId,
+        currentX: clientX,
+        currentY: clientY,
+      });
+    },
+    [],
+  );
+
+  const handlePointerDragMove = useCallback(
+    (clientX: number, clientY: number) => {
+      setPointerDragInfo((prev) =>
+        prev ? { ...prev, currentX: clientX, currentY: clientY } : null,
+      );
+    },
+    [],
+  );
+
+  const handlePointerDragEnd = useCallback(
+    (fromPanelId: string, tabId: string, clientX: number, clientY: number) => {
+      if (!pointerDragInfo) return;
+      setPointerDragInfo(null);
+
+      // Find which panel the pointer ended on
+      let targetPanelId: string | null = null;
+      panelRefsMap.current.forEach((el, panelId) => {
+        const rect = el.getBoundingClientRect();
+        if (
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom
+        ) {
+          targetPanelId = panelId;
+        }
+      });
+
+      // If dropped on a different panel, move the tab
+      if (targetPanelId && targetPanelId !== fromPanelId) {
+        handleDropTab(targetPanelId, tabId, fromPanelId);
+      }
+    },
+    [pointerDragInfo, handleDropTab],
+  );
+
   // Create a stable ref callback for each panel
   const getPanelRef = useCallback((panelId: string) => {
     return (el: HTMLDivElement | null) => {
@@ -2584,6 +2745,10 @@ const TabsView: React.FC<TabsViewProps> = ({
           onTaskArchived={handleTaskArchived}
           onTouchDragStart={handleTouchDragStart}
           onTouchDragEnd={handleTouchDragEnd}
+          onPointerDragStart={handlePointerDragStart}
+          onPointerDragMove={handlePointerDragMove}
+          onPointerDragEnd={handlePointerDragEnd}
+          pointerDragTabId={pointerDragInfo?.tabId || null}
           panelCount={totalPanelCount}
           panelRef={getPanelRef(node.id)}
         />
