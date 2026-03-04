@@ -28,4 +28,4 @@
 ## Documentation
 
 - [x] Update design.md with actual root cause findings
-- [ ] Document 4K scaling as known limitation (XWayland reports logical resolution)
+- [x] Document 4K scaling as known limitation (XWayland reports logical resolution)
