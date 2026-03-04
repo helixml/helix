@@ -462,6 +462,24 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
                 CURRENT_BRANCH=$(git -C "$WORKTREE_PATH" branch --show-current 2>/dev/null || echo "unknown")
                 echo "  Current branch: $CURRENT_BRANCH"
 
+                # Pull latest changes from remote to get updated startup script
+                echo "  Pulling latest changes from remote..."
+                HELIX_SPECS_STASHED=false
+                if ! git -C "$WORKTREE_PATH" diff --quiet 2>/dev/null; then
+                    echo "  Stashing local changes..."
+                    git -C "$WORKTREE_PATH" stash push -m "helix-workspace-setup" 2>&1 && HELIX_SPECS_STASHED=true
+                fi
+
+                if git -C "$WORKTREE_PATH" pull origin helix-specs 2>&1; then
+                    echo "  ✅ helix-specs updated"
+                else
+                    echo "  ⚠️ Failed to pull helix-specs (continuing with local version)"
+                fi
+
+                if [ "$HELIX_SPECS_STASHED" = true ]; then
+                    git -C "$WORKTREE_PATH" stash pop 2>&1 || echo "  ⚠️ Failed to restore stashed changes"
+                fi
+
                 # Pre-create task directory if specified (prevents "parent directory doesn't exist" errors)
                 if [ -n "$HELIX_SPEC_DIR_NAME" ]; then
                     TASK_DIR="$WORKTREE_PATH/design/tasks/$HELIX_SPEC_DIR_NAME"
