@@ -6,78 +6,85 @@ Fix two OnlyOffice issues in GNOME headless Wayland:
 1. **4K rendering broken** - Only top quarter renders at high resolutions (works at 1080p)
 2. **Ignores system cursor theme** - Renders its own cursor instead of using Helix-Invisible
 
-## Root Cause Analysis
+## Root Cause Analysis (Verified via Testing)
 
 ### Issue 1: 4K Resolution Renders Only Top Quarter
 
-OnlyOffice is Electron-based. At 4K (3840x2160), Electron/Chromium's HiDPI scaling logic may:
-- Misdetect the scale factor in headless Wayland
-- Create a 1080p-sized buffer but render to a 4K surface
-- Result: content appears in top-left quarter only
+**OnlyOffice is NOT Electron-based. It's Qt5 + CEF (Chromium Embedded Framework).**
 
-**Evidence**: Works at 1080p, breaks at 4K. Classic DPI scaling mismatch.
+OnlyOffice bundles its own Qt5 libraries WITHOUT the Wayland plugin. Available plugins:
+- `libqxcb.so` (X11) ✅
+- `libqlinuxfb.so`, `libqminimal.so`, `libqoffscreen.so`, `libqvnc.so`
+- NO `libqwayland.so` ❌
 
-### Issue 2: OnlyOffice Renders Its Own Cursor
+**This means OnlyOffice REQUIRES XWayland to run - it cannot use native Wayland.**
 
-OnlyOffice doesn't respect the system cursor theme (`Helix-Invisible`). It renders:
-- I-beam for text editing
-- Resize handles
-- Custom spreadsheet cursors
+The 4K issue is caused by GNOME's 2x scaling:
+1. GNOME virtual monitor: 3840x2160 @ 2x scale
+2. XWayland reports **logical resolution** (1920x1080) to X11 apps
+3. OnlyOffice thinks screen is 1920x1080, renders at that size
+4. On 4K physical display, this fills only the top-left quarter
 
-This conflicts with Helix's client-side cursor rendering, causing duplicate cursors.
+**Evidence from `xdpyinfo`:**
+```
+dimensions:    1920x1080 pixels (508x286 millimeters)
+```
+
+### Issue 2: OnlyOffice Cursor
+
+**The cursor theme DOES work!** When `XCURSOR_THEME=Helix-Invisible` is set, the OnlyOffice cursor becomes invisible as expected. The duplicate cursor issue was the Helix client-side cursor rendering on top.
 
 ## Solution Design
 
-### Fix 1: Force Correct Scaling for 4K
+### Fix 1: XWayland Environment Setup
 
-Add Electron flags to disable automatic DPI scaling and force correct geometry:
+OnlyOffice needs these environment variables to run via XWayland:
 
 ```bash
---force-device-scale-factor=1
---high-dpi-support=1
+export DISPLAY=:0
+export XAUTHORITY=/run/user/1000/.mutter-Xwaylandauth.*  # Dynamic file
+export LD_LIBRARY_PATH=/opt/onlyoffice/desktopeditors
 ```
 
-### Fix 2: Force System Cursor Theme
-
-Set cursor-related environment variables before launching:
+### Fix 2: Cursor Theme
 
 ```bash
 export XCURSOR_THEME=Helix-Invisible
 export XCURSOR_SIZE=48
-export GTK_CURSOR_THEME_NAME=Helix-Invisible
 ```
+
+### Fix 3: 4K Scaling Issue
+
+This is NOT fixable at the OnlyOffice level. Options:
+1. **Run at 1x scale** - Set GNOME scaling to 1x for full 4K resolution
+2. **Accept the limitation** - X11 apps see logical resolution when scaling > 1x
+3. **Use GDK_SCALE** - May help some GTK parts but not the CEF webview
 
 ### Implementation: Wrapper Script
 
-Add to `Dockerfile.ubuntu-helix` after OnlyOffice installation:
+Update `/usr/bin/onlyoffice-desktopeditors` or create wrapper in Dockerfile:
 
-```dockerfile
-# OnlyOffice wrapper for 4K support + system cursor theme
-RUN if [ "${TARGETARCH}" != "arm64" ]; then \
-    mv /usr/bin/desktopeditors /usr/bin/desktopeditors.real && \
-    printf '#!/bin/bash\n\
-export XCURSOR_THEME=Helix-Invisible\n\
-export XCURSOR_SIZE=48\n\
-export GTK_CURSOR_THEME_NAME=Helix-Invisible\n\
-exec /usr/bin/desktopeditors.real \
---force-device-scale-factor=1 \
---high-dpi-support=1 \
---ozone-platform=wayland \
---enable-features=UseOzonePlatform \
-"$@"\n' > /usr/bin/desktopeditors && \
-    chmod +x /usr/bin/desktopeditors; \
+```bash
+#!/bin/bash
+# OnlyOffice requires X11 via XWayland (Qt5 without Wayland plugin)
+export DISPLAY=:0
+
+# Find the Mutter XWayland auth file (name changes on each session)
+XAUTH_FILE=$(ls /run/user/1000/.mutter-Xwaylandauth.* 2>/dev/null | tail -1)
+if [ -n "$XAUTH_FILE" ]; then
+    export XAUTHORITY="$XAUTH_FILE"
 fi
+
+# Cursor theme for X11 apps
+export XCURSOR_THEME=Helix-Invisible
+export XCURSOR_SIZE=48
+
+# Required library path
+APP_PATH=/opt/onlyoffice/desktopeditors
+export LD_LIBRARY_PATH=$APP_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+
+exec $APP_PATH/DesktopEditors "$@"
 ```
-
-### Key Flags
-
-| Flag | Purpose |
-|------|---------|
-| `--force-device-scale-factor=1` | Prevent DPI auto-detection issues at 4K |
-| `--high-dpi-support=1` | Enable HiDPI but with explicit scale |
-| `--ozone-platform=wayland` | Use native Wayland (already needed) |
-| `XCURSOR_THEME=Helix-Invisible` | Force system cursor theme |
-| `XCURSOR_SIZE=48` | Match Helix cursor size for hotspot fingerprinting |
 
 ## Files to Modify
 
@@ -85,24 +92,22 @@ fi
 |------|--------|
 | `Dockerfile.ubuntu-helix` | Add wrapper script after OnlyOffice install (~line 365) |
 
-## Testing
+## Testing Results
 
-1. `./stack build-ubuntu`
-2. Start session at 4K resolution (3840x2160)
-3. Launch OnlyOffice
-4. Verify:
-   - [ ] Full window renders at 4K
-   - [ ] No partial/quarter-screen rendering
-   - [ ] OnlyOffice cursor is invisible (using Helix-Invisible theme)
-   - [ ] Client-side cursor renders correctly over OnlyOffice
+### Working Configuration
+- OnlyOffice launches successfully with XWayland
+- Cursor theme (Helix-Invisible) is respected
+- Full UI renders correctly
 
-## Risks
+### 4K Scaling Limitation
+- At 2x GNOME scaling, OnlyOffice sees 1920x1080 logical resolution
+- This is XWayland behavior, not an OnlyOffice bug
+- **Recommendation**: Document as known limitation or run at 1x scale for 4K
 
-- **Cursor theme may not work**: Electron apps sometimes ignore GTK cursor settings
-- **Scale factor=1 at 4K**: UI elements may be small; may need `=2` instead
+## Implementation Notes
 
-## Fallback
-
-If cursor theme still ignored:
-- Accept dual cursors for OnlyOffice (document as known limitation)
-- Or investigate Electron `--cursor-theme` flag if it exists
+1. OnlyOffice bundles Qt5 at `/opt/onlyoffice/desktopeditors/libQt5*.so`
+2. Platform plugins at `/opt/onlyoffice/desktopeditors/platforms/`
+3. The existing `/usr/bin/onlyoffice-desktopeditors` script sets LD_LIBRARY_PATH but not DISPLAY/XAUTHORITY
+4. XWayland auth file has dynamic suffix (e.g., `.NZGDL3`) that changes per session
+5. Created `~/.icons/default` symlink to help X11 apps find cursor theme
