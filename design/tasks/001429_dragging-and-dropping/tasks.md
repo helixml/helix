@@ -2,8 +2,8 @@
 
 ## Core Pointer Event Support
 
-- [ ] Add pointer event state to `PanelTab` component (`isPointerDragging`, `pointerStartRef`)
-- [ ] Implement `handlePointerDown` - capture start position, filter out touch pointerType
+- [~] Add pointer event state to `PanelTab` component (`isPointerDragging`, `pointerStartRef`)
+- [~] Implement `handlePointerDown` - capture start position, filter out touch pointerType
 - [ ] Implement `handlePointerMove` - detect drag threshold (8px), call `onPointerDragStart`/`onPointerDragMove`
 - [ ] Implement `handlePointerUp` - call `onPointerDragEnd`, reset state
 - [ ] Add pointer event props to `PanelTab` JSX (`onPointerDown`, `onPointerMove`, `onPointerUp`, `onPointerCancel`)
