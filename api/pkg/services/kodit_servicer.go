@@ -25,6 +25,12 @@ type KoditServicer interface {
 	GetRepositoryStatus(ctx context.Context, koditRepoID int64) (tracking.RepositoryStatusSummary, error)
 	RescanCommit(ctx context.Context, koditRepoID int64, commitSHA string) error
 	DeleteRepository(ctx context.Context, koditRepoID int64) error
+
+	// Admin operations
+	ListRepositories(ctx context.Context, limit, offset int) ([]repository.Repository, int64, error)
+	RepositorySummary(ctx context.Context, koditRepoID int64) (repository.RepositorySummary, error)
+	SyncRepository(ctx context.Context, koditRepoID int64) error
+	EnrichmentCount(ctx context.Context, koditRepoID int64) (int64, error)
 }
 
 // disabledKoditService is a KoditServicer that is always disabled.
@@ -54,6 +60,18 @@ func (d *disabledKoditService) RescanCommit(context.Context, int64, string) erro
 }
 func (d *disabledKoditService) DeleteRepository(context.Context, int64) error {
 	return errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) ListRepositories(context.Context, int, int) ([]repository.Repository, int64, error) {
+	return nil, 0, errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) RepositorySummary(context.Context, int64) (repository.RepositorySummary, error) {
+	return repository.RepositorySummary{}, errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) SyncRepository(context.Context, int64) error {
+	return errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) EnrichmentCount(context.Context, int64) (int64, error) {
+	return 0, errors.New("kodit service not enabled")
 }
 
 // NewDisabledKoditService returns a KoditServicer that reports as disabled.

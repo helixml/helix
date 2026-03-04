@@ -818,6 +818,75 @@ export interface ServerInteractionWithContext {
   turn?: number;
 }
 
+export interface ServerKoditAdminBatchRequest {
+  ids?: number[];
+}
+
+export interface ServerKoditAdminBatchResponse {
+  failed?: ServerKoditBatchError[];
+  succeeded?: number[];
+}
+
+export interface ServerKoditAdminPaginationMeta {
+  page?: number;
+  per_page?: number;
+  total?: number;
+  total_pages?: number;
+}
+
+export interface ServerKoditAdminRepoAttributes {
+  created_at?: string;
+  helix_repo_id?: string;
+  helix_repo_name?: string;
+  last_error?: string;
+  remote_url?: string;
+  status?: string;
+  updated_at?: string;
+}
+
+export interface ServerKoditAdminRepoDTO {
+  attributes?: ServerKoditAdminRepoAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ServerKoditAdminRepoDetailAttributes {
+  branch_count?: number;
+  commit_count?: number;
+  created_at?: string;
+  default_branch?: string;
+  enrichment_count?: number;
+  helix_repo_id?: string;
+  helix_repo_name?: string;
+  indexing_message?: string;
+  indexing_status?: string;
+  last_error?: string;
+  remote_url?: string;
+  status?: string;
+  tag_count?: number;
+  updated_at?: string;
+}
+
+export interface ServerKoditAdminRepoDetailDTO {
+  attributes?: ServerKoditAdminRepoDetailAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ServerKoditAdminRepoDetailResponse {
+  data?: ServerKoditAdminRepoDetailDTO;
+}
+
+export interface ServerKoditAdminRepoListResponse {
+  data?: ServerKoditAdminRepoDTO[];
+  meta?: ServerKoditAdminPaginationMeta;
+}
+
+export interface ServerKoditBatchError {
+  id?: number;
+  message?: string;
+}
+
 export interface ServerKoditCommitAttributes {
   authored_at?: string;
   committed_at?: string;
@@ -5725,6 +5794,145 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description List all Kodit-indexed repositories with pagination. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesList
+     * @summary List Kodit repositories (admin)
+     * @request GET:/api/v1/admin/kodit/repositories
+     * @secure
+     */
+    v1AdminKoditRepositoriesList: (
+      query?: {
+        /** Page number (default 1) */
+        page?: number;
+        /** Items per page (default 25, max 100) */
+        per_page?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditAdminRepoListResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Queue a Kodit repository for deletion. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesDelete
+     * @summary Delete Kodit repository (admin)
+     * @request DELETE:/api/v1/admin/kodit/repositories/{koditRepoId}
+     * @secure
+     */
+    v1AdminKoditRepositoriesDelete: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get detailed information about a Kodit repository including summary stats. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesDetail
+     * @summary Get Kodit repository detail (admin)
+     * @request GET:/api/v1/admin/kodit/repositories/{koditRepoId}
+     * @secure
+     */
+    v1AdminKoditRepositoriesDetail: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<ServerKoditAdminRepoDetailResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Trigger a rescan of the HEAD commit for a Kodit repository. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesRescanCreate
+     * @summary Rescan Kodit repository HEAD (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/{koditRepoId}/rescan
+     * @secure
+     */
+    v1AdminKoditRepositoriesRescanCreate: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/rescan`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Trigger a full sync (git fetch + branch scan + re-index) for a Kodit repository. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesSyncCreate
+     * @summary Sync Kodit repository (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/{koditRepoId}/sync
+     * @secure
+     */
+    v1AdminKoditRepositoriesSyncCreate: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/sync`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Queue multiple Kodit repositories for deletion. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesBatchDeleteCreate
+     * @summary Batch delete Kodit repositories (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/batch/delete
+     * @secure
+     */
+    v1AdminKoditRepositoriesBatchDeleteCreate: (body: ServerKoditAdminBatchRequest, params: RequestParams = {}) =>
+      this.request<ServerKoditAdminBatchResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/batch/delete`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Trigger a HEAD commit rescan for multiple Kodit repositories. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesBatchRescanCreate
+     * @summary Batch rescan Kodit repositories (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/batch/rescan
+     * @secure
+     */
+    v1AdminKoditRepositoriesBatchRescanCreate: (body: ServerKoditAdminBatchRequest, params: RequestParams = {}) =>
+      this.request<ServerKoditAdminBatchResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/batch/rescan`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

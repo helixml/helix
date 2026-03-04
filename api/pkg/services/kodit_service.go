@@ -221,18 +221,100 @@ func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID int6
 	return summary, nil
 }
 
-// DeleteRepository removes a repository from Kodit.
+// ListRepositories returns all Kodit repositories with pagination.
+func (s *KoditService) ListRepositories(ctx context.Context, limit, offset int) ([]repository.Repository, int64, error) {
+	if !s.enabled {
+		return nil, 0, fmt.Errorf("kodit service not enabled")
+	}
+
+	opts := []repository.Option{
+		repository.WithLimit(limit),
+		repository.WithOffset(offset),
+		repository.WithOrderDesc("created_at"),
+	}
+
+	repos, err := s.client.Repositories.Find(ctx, opts...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list repositories: %w", err)
+	}
+
+	total, err := s.client.Repositories.Count(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count repositories: %w", err)
+	}
+
+	return repos, total, nil
+}
+
+// RepositorySummary returns a detailed summary for a repository.
+func (s *KoditService) RepositorySummary(ctx context.Context, koditRepoID int64) (repository.RepositorySummary, error) {
+	if !s.enabled {
+		return repository.RepositorySummary{}, fmt.Errorf("kodit service not enabled")
+	}
+
+	summary, err := s.client.Repositories.SummaryByID(ctx, koditRepoID)
+	if err != nil {
+		return repository.RepositorySummary{}, wrapNotFound(err)
+	}
+
+	return summary, nil
+}
+
+// SyncRepository triggers a full sync (git fetch + branch scan + re-index).
+func (s *KoditService) SyncRepository(ctx context.Context, koditRepoID int64) error {
+	if !s.enabled {
+		return fmt.Errorf("kodit service not enabled")
+	}
+
+	if err := s.client.Repositories.Sync(ctx, koditRepoID); err != nil {
+		return fmt.Errorf("failed to sync repository: %w", wrapNotFound(err))
+	}
+
+	log.Info().Int64("kodit_repo_id", koditRepoID).Msg("Triggered repository sync in Kodit")
+	return nil
+}
+
+// DeleteRepository queues a repository for deletion.
 func (s *KoditService) DeleteRepository(ctx context.Context, koditRepoID int64) error {
 	if !s.enabled {
 		return fmt.Errorf("kodit service not enabled")
 	}
 
 	if err := s.client.Repositories.Delete(ctx, koditRepoID); err != nil {
-		return fmt.Errorf("failed to delete repository from kodit: %w", err)
+		return fmt.Errorf("failed to delete repository from kodit: %w", wrapNotFound(err))
 	}
 
 	log.Info().Int64("kodit_repo_id", koditRepoID).Msg("Deleted repository from Kodit")
 	return nil
+}
+
+// EnrichmentCount returns the total number of enrichments for a repository.
+func (s *KoditService) EnrichmentCount(ctx context.Context, koditRepoID int64) (int64, error) {
+	if !s.enabled {
+		return 0, fmt.Errorf("kodit service not enabled")
+	}
+
+	commits, err := s.client.Commits.Find(ctx, repository.WithRepoID(koditRepoID))
+	if err != nil {
+		return 0, fmt.Errorf("failed to list commits for repo: %w", err)
+	}
+	if len(commits) == 0 {
+		return 0, nil
+	}
+
+	shas := make([]string, len(commits))
+	for i, c := range commits {
+		shas[i] = c.SHA()
+	}
+
+	count, err := s.client.Enrichments.Count(ctx, &service.EnrichmentListParams{
+		CommitSHAs: shas,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to count enrichments: %w", err)
+	}
+
+	return count, nil
 }
 
 // RescanCommit triggers a rescan of a specific commit in Kodit
