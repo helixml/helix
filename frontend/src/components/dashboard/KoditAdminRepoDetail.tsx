@@ -26,7 +26,9 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import SyncIcon from '@mui/icons-material/Sync'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 
+import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
 import {
@@ -88,6 +90,7 @@ interface KoditAdminRepoDetailProps {
 }
 
 const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId }) => {
+  const account = useAccount()
   const router = useRouter()
   const snackbar = useSnackbar()
   const [searchQuery, setSearchQuery] = useState('')
@@ -197,10 +200,21 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId }) =>
         />
       </Box>
 
-      {/* Remote URL */}
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        {attrs.remote_url}
-      </Typography>
+      {/* Link to Helix repo page */}
+      {helixRepoId ? (
+        <Button
+          size="small"
+          startIcon={<OpenInNewIcon />}
+          onClick={() => account.orgNavigate('git-repo-detail', { repoId: helixRepoId })}
+          sx={{ mb: 3, textTransform: 'none' }}
+        >
+          View in Repository
+        </Button>
+      ) : (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          No linked Helix repository
+        </Typography>
+      )}
 
       {/* Status message from Kodit tracking */}
       {attrs.status_message && (

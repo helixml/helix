@@ -334,9 +334,6 @@ const KoditAdminTable: FC = () => {
                     <Typography variant="body2" fontWeight={500}>
                       {repoName(repo)}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                      {repo.attributes?.remote_url}
-                    </Typography>
                   </TableCell>
                   <TableCell>
                     <Chip

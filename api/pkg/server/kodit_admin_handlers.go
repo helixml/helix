@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -149,10 +152,23 @@ type helixRepoRef struct {
 	name string
 }
 
-// buildHelixRepoMap creates a map from kodit_repo_id → helix repo reference.
-func buildHelixRepoMap(helixRepos []*types.GitRepository) map[int64]helixRepoRef {
-	m := make(map[int64]helixRepoRef, len(helixRepos))
+// helixRepoIndex provides bidirectional lookup between Kodit and Helix repositories.
+// It first tries the fast path (kodit_repo_id in metadata), then falls back to
+// extracting the Helix repo ID from the Kodit remote URL. When a fallback match
+// is found, it writes kodit_repo_id to the Helix repo's metadata so future
+// lookups use the fast path.
+type helixRepoIndex struct {
+	byKoditID map[int64]helixRepoRef
+	byHelixID map[string]*types.GitRepository
+}
+
+func newHelixRepoIndex(helixRepos []*types.GitRepository) helixRepoIndex {
+	idx := helixRepoIndex{
+		byKoditID: make(map[int64]helixRepoRef, len(helixRepos)),
+		byHelixID: make(map[string]*types.GitRepository, len(helixRepos)),
+	}
 	for _, r := range helixRepos {
+		idx.byHelixID[r.ID] = r
 		if r.Metadata == nil {
 			continue
 		}
@@ -160,9 +176,70 @@ func buildHelixRepoMap(helixRepos []*types.GitRepository) map[int64]helixRepoRef
 		if koditID == 0 {
 			continue
 		}
-		m[koditID] = helixRepoRef{id: r.ID, name: r.Name}
+		idx.byKoditID[koditID] = helixRepoRef{id: r.ID, name: r.Name}
 	}
-	return m
+	return idx
+}
+
+// lookup returns the Helix repo ref for a Kodit repo ID, falling back to
+// URL-based matching. When a fallback match is found, it writes the kodit_repo_id
+// into the Helix repo's metadata via the store so it sticks for next time.
+func (idx helixRepoIndex) lookup(koditRepoID int64, remoteURL string, db store.Store, r *http.Request) helixRepoRef {
+	if ref, ok := idx.byKoditID[koditRepoID]; ok {
+		return ref
+	}
+
+	// Fallback: extract helix repo ID from the Kodit remote URL path (/git/{id})
+	helixID := extractHelixRepoIDFromKoditURL(remoteURL)
+	if helixID == "" {
+		return helixRepoRef{}
+	}
+
+	helixRepo, ok := idx.byHelixID[helixID]
+	if !ok {
+		return helixRepoRef{}
+	}
+
+	// Write kodit_repo_id to metadata so we don't need the fallback next time
+	if helixRepo.Metadata == nil {
+		helixRepo.Metadata = make(map[string]interface{})
+	}
+	helixRepo.Metadata["kodit_repo_id"] = koditRepoID
+	if err := db.UpdateGitRepository(r.Context(), helixRepo); err != nil {
+		log.Warn().Err(err).Str("helix_repo_id", helixID).Int64("kodit_repo_id", koditRepoID).
+			Msg("Failed to write kodit_repo_id to Helix repo metadata")
+	} else {
+		log.Info().Str("helix_repo_id", helixID).Int64("kodit_repo_id", koditRepoID).
+			Msg("Linked Kodit repo to Helix repo via URL match")
+	}
+
+	ref := helixRepoRef{id: helixRepo.ID, name: helixRepo.Name}
+	idx.byKoditID[koditRepoID] = ref
+	return ref
+}
+
+// extractHelixRepoIDFromKoditURL extracts the Helix repo ID from a Kodit clone
+// URL like http://api:apikey@api:8080/git/{helixRepoID}.
+func extractHelixRepoIDFromKoditURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	segments := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(segments) >= 2 && segments[0] == "git" {
+		return segments[1]
+	}
+	return ""
+}
+
+// sanitizeRemoteURL strips credentials from a URL for safe display.
+func sanitizeRemoteURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	u.User = nil
+	return u.String()
 }
 
 // =============================================================================
@@ -206,12 +283,12 @@ func (apiServer *HelixAPIServer) adminListKoditRepositories(w http.ResponseWrite
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to cross-reference Helix repositories")
 	}
-	helixMap := buildHelixRepoMap(helixRepos)
+	idx := newHelixRepoIndex(helixRepos)
 
 	// Fetch real tracking status from Kodit for each repo
 	data := make([]KoditAdminRepoDTO, 0, len(repos))
 	for _, repo := range repos {
-		ref := helixMap[repo.ID()]
+		ref := idx.lookup(repo.ID(), repo.RemoteURL(), apiServer.Store, r)
 
 		var status, statusMessage string
 		trackingStatus, err := apiServer.koditService.GetRepositoryStatus(r.Context(), repo.ID())
@@ -226,7 +303,7 @@ func (apiServer *HelixAPIServer) adminListKoditRepositories(w http.ResponseWrite
 			ID:   strconv.FormatInt(repo.ID(), 10),
 			Type: "kodit_repository",
 			Attributes: KoditAdminRepoAttributes{
-				RemoteURL:     repo.RemoteURL(),
+				RemoteURL:     sanitizeRemoteURL(repo.RemoteURL()),
 				Status:        status,
 				StatusMessage: statusMessage,
 				CreatedAt:     repo.CreatedAt(),
@@ -317,8 +394,8 @@ func (apiServer *HelixAPIServer) adminGetKoditRepository(w http.ResponseWriter, 
 
 	// Cross-reference
 	helixRepos, _ := apiServer.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{})
-	helixMap := buildHelixRepoMap(helixRepos)
-	ref := helixMap[koditRepoID]
+	idx := newHelixRepoIndex(helixRepos)
+	ref := idx.lookup(koditRepoID, repo.RemoteURL(), apiServer.Store, r)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(KoditAdminRepoDetailResponse{
@@ -326,7 +403,7 @@ func (apiServer *HelixAPIServer) adminGetKoditRepository(w http.ResponseWriter, 
 			ID:   strconv.FormatInt(repo.ID(), 10),
 			Type: "kodit_repository",
 			Attributes: KoditAdminRepoDetailAttributes{
-				RemoteURL:          repo.RemoteURL(),
+				RemoteURL:          sanitizeRemoteURL(repo.RemoteURL()),
 				Status:             status,
 				StatusMessage:      statusMessage,
 				CreatedAt:          repo.CreatedAt(),
