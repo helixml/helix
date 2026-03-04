@@ -11,6 +11,16 @@ curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scrip
 chmod 700 get_helm.sh
 ./get_helm.sh
 
+# Stamp appVersion from release tag if available
+# Supports Drone CI (DRONE_TAG) and Google Cloud Build (TAG_NAME)
+RELEASE_TAG="${DRONE_TAG:-${TAG_NAME:-}}"
+if [ -n "${RELEASE_TAG}" ]; then
+  echo "Stamping appVersion=${RELEASE_TAG} into all Chart.yaml files"
+  for chart in charts/*/Chart.yaml; do
+    sed -i "s/^appVersion:.*/appVersion: \"${RELEASE_TAG}\"/" "$chart"
+  done
+fi
+
 echo "Packaging charts from source code"
 mkdir -p temp
 for d in charts/*
