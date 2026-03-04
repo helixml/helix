@@ -18,23 +18,24 @@ OnlyOffice bundles Qt 5.9 with only X11 support. When GNOME runs at 4K with 2x s
 - Window surface is actually 3840x2160
 - Result: content in top-left quarter only
 
-## Fix: Enable XWayland Native Scaling
+## Fix: Enable XWayland Native Scaling (Complete)
 
-- [ ] Update `desktop/ubuntu-config/startup-app.sh` to add `xwayland-native-scaling` to experimental features BEFORE gnome-shell starts
-- [ ] Add to the gsettings line around line 230:
+- [x] Update `desktop/ubuntu-config/startup-app.sh` to add `xwayland-native-scaling` to experimental features BEFORE gnome-shell starts
+- [x] Changed gsettings line around line 230:
   ```bash
   gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer', 'xwayland-native-scaling']"
   ```
+- [x] Commit and push to feature branch
 
-## Fix: OnlyOffice Wrapper Script
+## Fix: OnlyOffice Wrapper Script (Already Exists)
 
-- [ ] Update Dockerfile.ubuntu-helix to add cursor theme env vars to OnlyOffice wrapper:
+- [x] Verified Dockerfile.ubuntu-helix already has wrapper script with cursor theme env vars:
   ```bash
   export XCURSOR_THEME=Helix-Invisible
   export XCURSOR_SIZE=48
   ```
 
-## Testing
+## Testing (Requires Rebuild)
 
 - [ ] Rebuild image: `./stack build-ubuntu`
 - [ ] Start new 4K session
@@ -47,4 +48,4 @@ OnlyOffice bundles Qt 5.9 with only X11 support. When GNOME runs at 4K with 2x s
 
 - [x] Update design.md with actual root cause (Qt5+CEF, not Electron)
 - [x] Document XWayland scaling behavior
-- [ ] Commit and push changes to helix-specs
+- [x] Commit and push changes to helix-specs
