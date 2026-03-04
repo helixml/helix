@@ -1,23 +1,23 @@
-# Requirements: LibreOffice Rendering Issues on GNOME Headless Wayland
+# Requirements: OnlyOffice Rendering Issues on GNOME Headless Wayland
 
 ## Problem Statement
 
-LibreOffice renders incorrectly in the Helix desktop environment:
+OnlyOffice Desktop Editors renders incorrectly in the Helix desktop environment:
 1. **Duplicate mouse cursors** - Multiple cursor sprites visible
 2. **Partial rendering** - Only top quarter of screen shows content
-3. **Visual corruption** - Generally "totally fucked" appearance
+3. **Visual corruption** - Generally broken appearance
 
 ## User Stories
 
 ### US-1: Office Document Editing
 **As** an AI agent or user working with documents,
-**I want** LibreOffice to render correctly in the Helix desktop,
-**So that** I can edit Word, Excel, and PowerPoint files on ARM64 systems.
+**I want** OnlyOffice to render correctly in the Helix desktop,
+**So that** I can edit Word, Excel, and PowerPoint files.
 
 **Acceptance Criteria:**
-- [ ] LibreOffice Writer renders full window content
-- [ ] LibreOffice Calc renders full spreadsheet area
-- [ ] LibreOffice Impress renders full presentation
+- [ ] OnlyOffice Document Editor renders full window content
+- [ ] OnlyOffice Spreadsheet Editor renders full spreadsheet area
+- [ ] OnlyOffice Presentation Editor renders full presentation
 - [ ] Single cursor visible (no duplicates)
 - [ ] Window resizing works correctly
 - [ ] Menus and dialogs render properly
@@ -28,28 +28,37 @@ LibreOffice renders incorrectly in the Helix desktop environment:
 **So that** I can track mouse position accurately.
 
 **Acceptance Criteria:**
-- [ ] No duplicate cursors from LibreOffice's internal cursor rendering
+- [ ] No duplicate cursors from OnlyOffice's internal cursor rendering
 - [ ] Cursor shape changes correctly (pointer, text, resize handles)
-- [ ] Helix invisible cursor theme works with LibreOffice
+- [ ] Helix invisible cursor theme works with OnlyOffice
 
 ## Technical Context
 
 ### Environment
 - **Desktop**: Ubuntu 25.10 with GNOME 49 in headless mode
 - **Display**: Pure Wayland (no XWayland)
-- **Architecture**: ARM64 (LibreOffice used instead of OnlyOffice)
+- **Architecture**: AMD64 (OnlyOffice is AMD64-only; ARM64 uses LibreOffice)
 - **Cursor**: Helix-Invisible theme with client-side rendering
+- **App Type**: Electron-based application
 
 ### Likely Root Causes
-1. **VCL Backend Mismatch**: LibreOffice may be using X11/GTK backend expecting XWayland
-2. **Missing SAL_USE_VCLPLUGIN**: LibreOffice environment variable not set for Wayland
-3. **Headless Mode Incompatibility**: LibreOffice may not support GNOME headless virtual monitor
-4. **Cursor Theme Conflict**: LibreOffice's internal cursor may conflict with Helix-Invisible theme
+1. **Electron/Wayland Misconfiguration**: OnlyOffice (Electron) may need `--ozone-platform=wayland` flag
+2. **Missing Electron Wayland flags**: Similar to Chrome wrapper needing special flags
+3. **Headless Mode Incompatibility**: Electron apps may not properly detect virtual monitor geometry
+4. **Cursor Theme Conflict**: OnlyOffice's internal cursor may conflict with Helix-Invisible theme
+
+### Reference: Chrome Wrapper Pattern
+Chrome already has a wrapper script with Wayland-compatible flags:
+```bash
+exec /usr/bin/google-chrome-stable.real --password-store=basic --disable-dev-shm-usage --enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL --disable-features=UseChromeOSDirectVideoDecoder "$@"
+```
+
+OnlyOffice likely needs similar treatment.
 
 ## Out of Scope
-- OnlyOffice issues (AMD64 only, not affected)
-- Other office suites
-- Non-ARM64 platforms
+- LibreOffice issues (ARM64 only, separate problem)
+- Non-Electron office suites
+- ARM64 platform (uses LibreOffice instead)
 
 ## Dependencies
 - GNOME headless mode working correctly

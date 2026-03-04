@@ -2,36 +2,42 @@
 
 ## Investigation
 
-- [ ] SSH into ARM64 VM and launch LibreOffice manually to reproduce issue
-- [ ] Check current VCL backend: `libreoffice --version` and environment inspection
-- [ ] Verify `GDK_BACKEND=wayland` is set when LibreOffice launches
-- [ ] Check if `libreoffice-gtk4` package is installed in ARM64 image
+- [ ] Launch OnlyOffice in AMD64 session to reproduce issue
+- [ ] Check if OnlyOffice is using X11 or Wayland: `cat /proc/$(pgrep -f desktopeditors)/environ | tr '\0' '\n' | grep -E 'DISPLAY|WAYLAND'`
 - [ ] Screenshot the broken rendering for documentation
+- [ ] Check OnlyOffice's Electron version: `strings /opt/onlyoffice/desktopeditors/DesktopEditors | grep -i electron`
 
-## Fix: Environment Variables
+## Fix: Wrapper Script
 
-- [ ] Add `SAL_USE_VCLPLUGIN=gtk4` to Dockerfile.ubuntu-helix ENV block
-- [ ] Add `SAL_DISABLE_CURSOR_ANIMATION=1` to same ENV block
-- [ ] Export same variables in `desktop/ubuntu-config/startup-app.sh`
+- [ ] Create wrapper script in Dockerfile.ubuntu-helix after OnlyOffice install:
+  ```bash
+  mv /usr/bin/desktopeditors /usr/bin/desktopeditors.real
+  printf '#!/bin/bash\nexec /usr/bin/desktopeditors.real --ozone-platform=wayland --enable-features=UseOzonePlatform,WaylandWindowDecorations "$@"\n' > /usr/bin/desktopeditors
+  chmod +x /usr/bin/desktopeditors
+  ```
+- [ ] Patch .desktop file to include same flags
+- [ ] Apply same fix to Dockerfile.sway-helix if needed
 
-## Fix: Package Dependencies (if needed)
+## Alternative Flags to Try (if above doesn't work)
 
-- [ ] Check if `libreoffice-gtk4` exists in Ubuntu 25.10 repos
-- [ ] Add package to Dockerfile.ubuntu-helix ARM64 LibreOffice install section
-- [ ] If gtk4 unavailable, try `gtk3` backend instead
+- [ ] Try `ELECTRON_OZONE_PLATFORM_HINT=wayland` environment variable
+- [ ] Try `--disable-gpu-sandbox` flag
+- [ ] Try `--use-gl=egl` for GPU rendering
+- [ ] Try `--disable-gpu` as last resort (software rendering)
 
 ## Testing
 
 - [ ] Rebuild image: `./stack build-ubuntu`
-- [ ] Start new ARM64 session
-- [ ] Launch LibreOffice Writer and verify full window renders
+- [ ] Start new AMD64 session
+- [ ] Launch OnlyOffice and verify full window renders
 - [ ] Test window resize
-- [ ] Test menu opening
-- [ ] Verify cursor behavior (document any expected dual-cursor situation)
+- [ ] Test opening a .docx file
+- [ ] Test opening a .xlsx file
+- [ ] Document cursor behavior (may still have dual cursors - this is expected)
 - [ ] Screenshot working state
 
-## Fallback (if VCL fix doesn't work)
+## Fallback (if Electron flags don't work)
 
-- [ ] Try forcing specific geometry: `SAL_WINDOW_SIZE=1920x1080`
-- [ ] Consider adding XWayland for LibreOffice specifically
-- [ ] Test alternative: `GDK_BACKEND=x11` just for LibreOffice (requires Xwayland)
+- [ ] Consider adding XWayland to GNOME headless for OnlyOffice specifically
+- [ ] Check if newer OnlyOffice .deb has better Wayland support
+- [ ] File upstream issue with OnlyOffice if needed
