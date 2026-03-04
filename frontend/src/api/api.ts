@@ -834,6 +834,13 @@ export interface ServerKoditAdminPaginationMeta {
   total_pages?: number;
 }
 
+export interface ServerKoditAdminPendingTaskDTO {
+  created_at?: string;
+  id?: number;
+  operation?: string;
+  priority?: number;
+}
+
 export interface ServerKoditAdminRepoAttributes {
   created_at?: string;
   helix_repo_id?: string;
@@ -880,11 +887,26 @@ export interface ServerKoditAdminRepoListResponse {
   meta?: ServerKoditAdminPaginationMeta;
 }
 
+export interface ServerKoditAdminRepositoryTasksResponse {
+  pending_tasks?: ServerKoditAdminPendingTaskDTO[];
+  statuses?: ServerKoditAdminTaskStatusDTO[];
+}
+
 export interface ServerKoditAdminStatsResponse {
   commits?: number;
   enrichments?: number;
   pending_tasks?: number;
   repositories?: number;
+}
+
+export interface ServerKoditAdminTaskStatusDTO {
+  current?: number;
+  error?: string;
+  message?: string;
+  operation?: string;
+  state?: string;
+  total?: number;
+  updated_at?: string;
 }
 
 export interface ServerKoditBatchError {
@@ -5896,6 +5918,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<Record<string, string>, TypesAPIError>({
         path: `/api/v1/admin/kodit/repositories/${koditRepoId}/sync`,
         method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns tracking statuses and pending queue tasks for a Kodit repository. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesTasksDetail
+     * @summary Get Kodit repository tasks (admin)
+     * @request GET:/api/v1/admin/kodit/repositories/{koditRepoId}/tasks
+     * @secure
+     */
+    v1AdminKoditRepositoriesTasksDetail: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<ServerKoditAdminRepositoryTasksResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/tasks`,
+        method: "GET",
         secure: true,
         format: "json",
         ...params,

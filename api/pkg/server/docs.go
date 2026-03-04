@@ -449,6 +449,52 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/kodit/repositories/{koditRepoId}/tasks": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns tracking statuses and pending queue tasks for a Kodit repository. Admin only.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get Kodit repository tasks (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Kodit Repository ID",
+                        "name": "koditRepoId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.KoditAdminRepositoryTasksResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/kodit/stats": {
             "get": {
                 "security": [
@@ -16688,6 +16734,23 @@ const docTemplate = `{
                 }
             }
         },
+        "server.KoditAdminPendingTaskDTO": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "operation": {
+                    "type": "string"
+                },
+                "priority": {
+                    "type": "integer"
+                }
+            }
+        },
         "server.KoditAdminRepoAttributes": {
             "type": "object",
             "properties": {
@@ -16805,6 +16868,23 @@ const docTemplate = `{
                 }
             }
         },
+        "server.KoditAdminRepositoryTasksResponse": {
+            "type": "object",
+            "properties": {
+                "pending_tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.KoditAdminPendingTaskDTO"
+                    }
+                },
+                "statuses": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.KoditAdminTaskStatusDTO"
+                    }
+                }
+            }
+        },
         "server.KoditAdminStatsResponse": {
             "type": "object",
             "properties": {
@@ -16819,6 +16899,32 @@ const docTemplate = `{
                 },
                 "repositories": {
                     "type": "integer"
+                }
+            }
+        },
+        "server.KoditAdminTaskStatusDTO": {
+            "type": "object",
+            "properties": {
+                "current": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "operation": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
                 }
             }
         },

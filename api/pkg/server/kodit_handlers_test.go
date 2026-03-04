@@ -66,6 +66,9 @@ func (f *fakeKoditService) EnrichmentCount(_ context.Context, _ int64) (int64, e
 func (f *fakeKoditService) SystemStats(_ context.Context) (services.KoditSystemStats, error) {
 	return services.KoditSystemStats{}, f.err
 }
+func (f *fakeKoditService) RepositoryTasks(_ context.Context, _ int64) (services.KoditRepositoryTasks, error) {
+	return services.KoditRepositoryTasks{}, f.err
+}
 
 type fakeGitRepositoryStore struct {
 	store.Store

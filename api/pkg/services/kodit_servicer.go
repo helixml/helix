@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/helixml/kodit/domain/enrichment"
 	"github.com/helixml/kodit/domain/repository"
@@ -19,6 +20,31 @@ type KoditSystemStats struct {
 	Enrichments  int64
 	Commits      int64
 	PendingTasks int64
+}
+
+// KoditTaskStatus represents the status of a tracked operation for a repository.
+type KoditTaskStatus struct {
+	Operation string
+	State     string // started, in_progress, completed, failed, skipped
+	Message   string
+	Error     string
+	Current   int
+	Total     int
+	UpdatedAt time.Time
+}
+
+// KoditPendingTask represents a queued task waiting to be processed.
+type KoditPendingTask struct {
+	ID        int64
+	Operation string
+	Priority  int
+	CreatedAt time.Time
+}
+
+// KoditRepositoryTasks combines tracking statuses and pending queue tasks for a repository.
+type KoditRepositoryTasks struct {
+	Statuses     []KoditTaskStatus
+	PendingTasks []KoditPendingTask
 }
 
 // KoditServicer is the interface for Kodit code intelligence operations.
@@ -40,6 +66,7 @@ type KoditServicer interface {
 	SyncRepository(ctx context.Context, koditRepoID int64) error
 	EnrichmentCount(ctx context.Context, koditRepoID int64) (int64, error)
 	SystemStats(ctx context.Context) (KoditSystemStats, error)
+	RepositoryTasks(ctx context.Context, koditRepoID int64) (KoditRepositoryTasks, error)
 }
 
 // disabledKoditService is a KoditServicer that is always disabled.
@@ -84,6 +111,9 @@ func (d *disabledKoditService) EnrichmentCount(context.Context, int64) (int64, e
 }
 func (d *disabledKoditService) SystemStats(context.Context) (KoditSystemStats, error) {
 	return KoditSystemStats{}, errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) RepositoryTasks(context.Context, int64) (KoditRepositoryTasks, error) {
+	return KoditRepositoryTasks{}, errors.New("kodit service not enabled")
 }
 
 // NewDisabledKoditService returns a KoditServicer that reports as disabled.

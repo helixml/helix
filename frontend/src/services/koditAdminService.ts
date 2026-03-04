@@ -3,15 +3,21 @@ import useApi from '../hooks/useApi'
 import {
   ServerKoditAdminRepoListResponse,
   ServerKoditAdminRepoDetailResponse,
+  ServerKoditAdminRepositoryTasksResponse,
   ServerKoditAdminStatsResponse,
   ServerKoditAdminBatchResponse,
 } from '../api/api'
+
+const POLL_INTERVAL = 5000
 
 export const koditAdminReposQueryKey = (page: number, perPage: number) =>
   ['admin', 'kodit', 'repositories', page, perPage]
 
 export const koditAdminRepoDetailQueryKey = (koditRepoId: string) =>
   ['admin', 'kodit', 'repositories', koditRepoId]
+
+export const koditAdminRepoTasksQueryKey = (koditRepoId: string) =>
+  ['admin', 'kodit', 'repositories', koditRepoId, 'tasks']
 
 export const koditAdminStatsQueryKey = () => ['admin', 'kodit', 'stats']
 
@@ -25,7 +31,7 @@ export function useAdminKoditStats() {
       const response = await apiClient.v1AdminKoditStatsList()
       return response.data
     },
-    staleTime: 30 * 1000,
+    refetchInterval: POLL_INTERVAL,
   })
 }
 
@@ -42,7 +48,7 @@ export function useAdminKoditRepositories(page: number, perPage: number) {
       })
       return response.data
     },
-    staleTime: 30 * 1000,
+    refetchInterval: POLL_INTERVAL,
   })
 }
 
@@ -57,7 +63,22 @@ export function useAdminKoditRepositoryDetail(koditRepoId: string) {
       return response.data
     },
     enabled: !!koditRepoId,
-    staleTime: 30 * 1000,
+    refetchInterval: POLL_INTERVAL,
+  })
+}
+
+export function useAdminKoditRepositoryTasks(koditRepoId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery<ServerKoditAdminRepositoryTasksResponse>({
+    queryKey: koditAdminRepoTasksQueryKey(koditRepoId),
+    queryFn: async () => {
+      const response = await apiClient.v1AdminKoditRepositoriesTasksDetail(Number(koditRepoId))
+      return response.data
+    },
+    enabled: !!koditRepoId,
+    refetchInterval: POLL_INTERVAL,
   })
 }
 

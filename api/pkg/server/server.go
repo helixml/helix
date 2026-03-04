@@ -954,6 +954,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}", apiServer.adminGetKoditRepository).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}/sync", apiServer.adminSyncKoditRepository).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}/rescan", apiServer.adminRescanKoditRepository).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}/tasks", apiServer.adminGetKoditRepositoryTasks).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}", apiServer.adminDeleteKoditRepository).Methods(http.MethodDelete)
 	adminRouter.HandleFunc("/admin/kodit/repositories/batch/delete", apiServer.adminBatchDeleteKoditRepositories).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/kodit/repositories/batch/rescan", apiServer.adminBatchRescanKoditRepositories).Methods(http.MethodPost)

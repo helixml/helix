@@ -317,6 +317,69 @@ func (s *KoditService) EnrichmentCount(ctx context.Context, koditRepoID int64) (
 	return count, nil
 }
 
+// RepositoryTasks returns tracking statuses and pending queue tasks for a repository.
+func (s *KoditService) RepositoryTasks(ctx context.Context, koditRepoID int64) (KoditRepositoryTasks, error) {
+	if !s.enabled {
+		return KoditRepositoryTasks{}, fmt.Errorf("kodit service not enabled")
+	}
+
+	// Get tracking statuses (operation-level status for this repo)
+	trackingStatuses, err := s.client.Tracking.Statuses(ctx, koditRepoID)
+	if err != nil {
+		return KoditRepositoryTasks{}, fmt.Errorf("failed to get tracking statuses: %w", err)
+	}
+
+	statuses := make([]KoditTaskStatus, 0, len(trackingStatuses))
+	for _, ts := range trackingStatuses {
+		statuses = append(statuses, KoditTaskStatus{
+			Operation: string(ts.Operation()),
+			State:     string(ts.State()),
+			Message:   ts.Message(),
+			Error:     ts.Error(),
+			Current:   ts.Current(),
+			Total:     ts.Total(),
+			UpdatedAt: ts.UpdatedAt(),
+		})
+	}
+
+	// Get pending queue tasks and filter by this repo
+	allPending, err := s.client.Tasks.List(ctx, &service.TaskListParams{Limit: 500})
+	if err != nil {
+		return KoditRepositoryTasks{}, fmt.Errorf("failed to list pending tasks: %w", err)
+	}
+
+	pending := make([]KoditPendingTask, 0)
+	for _, t := range allPending {
+		payload := t.Payload()
+		if payload == nil {
+			continue
+		}
+		// repository_id in payload can be int64, int, or float64 (JSON round-trip)
+		var taskRepoID int64
+		switch v := payload["repository_id"].(type) {
+		case int64:
+			taskRepoID = v
+		case int:
+			taskRepoID = int64(v)
+		case float64:
+			taskRepoID = int64(v)
+		}
+		if taskRepoID == koditRepoID {
+			pending = append(pending, KoditPendingTask{
+				ID:        t.ID(),
+				Operation: string(t.Operation()),
+				Priority:  t.Priority(),
+				CreatedAt: t.CreatedAt(),
+			})
+		}
+	}
+
+	return KoditRepositoryTasks{
+		Statuses:     statuses,
+		PendingTasks: pending,
+	}, nil
+}
+
 // SystemStats returns aggregate counts for the Kodit system.
 func (s *KoditService) SystemStats(ctx context.Context) (KoditSystemStats, error) {
 	if !s.enabled {

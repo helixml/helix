@@ -1295,6 +1295,17 @@ definitions:
       total_pages:
         type: integer
     type: object
+  server.KoditAdminPendingTaskDTO:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      operation:
+        type: string
+      priority:
+        type: integer
+    type: object
   server.KoditAdminRepoAttributes:
     properties:
       created_at:
@@ -1371,6 +1382,17 @@ definitions:
       meta:
         $ref: '#/definitions/server.KoditAdminPaginationMeta'
     type: object
+  server.KoditAdminRepositoryTasksResponse:
+    properties:
+      pending_tasks:
+        items:
+          $ref: '#/definitions/server.KoditAdminPendingTaskDTO'
+        type: array
+      statuses:
+        items:
+          $ref: '#/definitions/server.KoditAdminTaskStatusDTO'
+        type: array
+    type: object
   server.KoditAdminStatsResponse:
     properties:
       commits:
@@ -1381,6 +1403,23 @@ definitions:
         type: integer
       repositories:
         type: integer
+    type: object
+  server.KoditAdminTaskStatusDTO:
+    properties:
+      current:
+        type: integer
+      error:
+        type: string
+      message:
+        type: string
+      operation:
+        type: string
+      state:
+        type: string
+      total:
+        type: integer
+      updated_at:
+        type: string
     type: object
   server.KoditBatchError:
     properties:
@@ -9509,6 +9548,36 @@ paths:
       security:
       - BearerAuth: []
       summary: Sync Kodit repository (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/{koditRepoId}/tasks:
+    get:
+      description: Returns tracking statuses and pending queue tasks for a Kodit repository.
+        Admin only.
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminRepositoryTasksResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get Kodit repository tasks (admin)
       tags:
       - admin
   /api/v1/admin/kodit/repositories/batch/delete:

@@ -88,6 +88,31 @@ type KoditAdminStatsResponse struct {
 	PendingTasks int64 `json:"pending_tasks"`
 }
 
+// KoditAdminRepositoryTasksResponse holds tracking statuses and pending tasks for a repository.
+type KoditAdminRepositoryTasksResponse struct {
+	Statuses     []KoditAdminTaskStatusDTO  `json:"statuses"`
+	PendingTasks []KoditAdminPendingTaskDTO `json:"pending_tasks"`
+}
+
+// KoditAdminTaskStatusDTO represents the status of a tracked operation.
+type KoditAdminTaskStatusDTO struct {
+	Operation string    `json:"operation"`
+	State     string    `json:"state"`
+	Message   string    `json:"message,omitempty"`
+	Error     string    `json:"error,omitempty"`
+	Current   int       `json:"current"`
+	Total     int       `json:"total"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// KoditAdminPendingTaskDTO represents a queued task waiting to be processed.
+type KoditAdminPendingTaskDTO struct {
+	ID        int64     `json:"id"`
+	Operation string    `json:"operation"`
+	Priority  int       `json:"priority"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // KoditAdminBatchRequest is the request body for batch operations.
 type KoditAdminBatchRequest struct {
 	IDs []int64 `json:"ids"`
@@ -493,6 +518,68 @@ func (apiServer *HelixAPIServer) adminBatchRescanKoditRepositories(w http.Respon
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// adminGetKoditRepositoryTasks returns tracking statuses and pending tasks for a repository.
+// @Summary Get Kodit repository tasks (admin)
+// @Description Returns tracking statuses and pending queue tasks for a Kodit repository. Admin only.
+// @Tags admin
+// @Produce json
+// @Param koditRepoId path int true "Kodit Repository ID"
+// @Success 200 {object} KoditAdminRepositoryTasksResponse
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/admin/kodit/repositories/{koditRepoId}/tasks [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) adminGetKoditRepositoryTasks(w http.ResponseWriter, r *http.Request) {
+	if apiServer.koditService == nil || !apiServer.koditService.IsEnabled() {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(KoditAdminRepositoryTasksResponse{
+			Statuses:     []KoditAdminTaskStatusDTO{},
+			PendingTasks: []KoditAdminPendingTaskDTO{},
+		})
+		return
+	}
+
+	koditRepoID, ok := parseKoditRepoID(w, r)
+	if !ok {
+		return
+	}
+
+	tasks, err := apiServer.koditService.RepositoryTasks(r.Context(), koditRepoID)
+	if err != nil {
+		handleKoditError(w, err, "Failed to get repository tasks")
+		return
+	}
+
+	statuses := make([]KoditAdminTaskStatusDTO, 0, len(tasks.Statuses))
+	for _, s := range tasks.Statuses {
+		statuses = append(statuses, KoditAdminTaskStatusDTO{
+			Operation: s.Operation,
+			State:     s.State,
+			Message:   s.Message,
+			Error:     s.Error,
+			Current:   s.Current,
+			Total:     s.Total,
+			UpdatedAt: s.UpdatedAt,
+		})
+	}
+
+	pending := make([]KoditAdminPendingTaskDTO, 0, len(tasks.PendingTasks))
+	for _, t := range tasks.PendingTasks {
+		pending = append(pending, KoditAdminPendingTaskDTO{
+			ID:        t.ID,
+			Operation: t.Operation,
+			Priority:  t.Priority,
+			CreatedAt: t.CreatedAt,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(KoditAdminRepositoryTasksResponse{
+		Statuses:     statuses,
+		PendingTasks: pending,
+	})
 }
 
 // adminGetKoditStats returns aggregate system statistics for Kodit.

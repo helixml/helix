@@ -520,6 +520,63 @@
                 }
             }
         },
+        "/api/v1/admin/kodit/repositories/{koditRepoId}/tasks": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns tracking statuses and pending queue tasks for a Kodit repository. Admin only.",
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get Kodit repository tasks (admin)",
+                "parameters": [
+                    {
+                        "description": "Kodit Repository ID",
+                        "name": "koditRepoId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.KoditAdminRepositoryTasksResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/kodit/stats": {
             "get": {
                 "security": [
@@ -19801,6 +19858,23 @@
                     }
                 }
             },
+            "server.KoditAdminPendingTaskDTO": {
+                "type": "object",
+                "properties": {
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "integer"
+                    },
+                    "operation": {
+                        "type": "string"
+                    },
+                    "priority": {
+                        "type": "integer"
+                    }
+                }
+            },
             "server.KoditAdminRepoAttributes": {
                 "type": "object",
                 "properties": {
@@ -19918,6 +19992,23 @@
                     }
                 }
             },
+            "server.KoditAdminRepositoryTasksResponse": {
+                "type": "object",
+                "properties": {
+                    "pending_tasks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/server.KoditAdminPendingTaskDTO"
+                        }
+                    },
+                    "statuses": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/server.KoditAdminTaskStatusDTO"
+                        }
+                    }
+                }
+            },
             "server.KoditAdminStatsResponse": {
                 "type": "object",
                 "properties": {
@@ -19932,6 +20023,32 @@
                     },
                     "repositories": {
                         "type": "integer"
+                    }
+                }
+            },
+            "server.KoditAdminTaskStatusDTO": {
+                "type": "object",
+                "properties": {
+                    "current": {
+                        "type": "integer"
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "operation": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "type": "string"
+                    },
+                    "total": {
+                        "type": "integer"
+                    },
+                    "updated_at": {
+                        "type": "string"
                     }
                 }
             },
