@@ -17,13 +17,19 @@
 
 - [x] Add wrapper script to `Dockerfile.ubuntu-helix` after OnlyOffice install (~line 365)
 
-## Testing
+## Local Testing (Complete)
+
+- [x] Test wrapper script manually with correct environment variables
+- [x] Verify OnlyOffice launches without errors via XWayland
+- [x] Verify cursor is invisible (using Helix-Invisible theme)
+- [x] Screenshot working state
+
+## Image Rebuild Testing (Pending)
 
 - [ ] Rebuild image: `./stack build-ubuntu`
 - [ ] Start new session
 - [ ] Launch OnlyOffice via menu or `desktopeditors` command
-- [ ] Verify OnlyOffice launches without errors
-- [ ] Verify cursor is invisible (using Helix-Invisible theme)
+- [ ] Verify wrapper is used automatically
 
 ## Documentation
 
