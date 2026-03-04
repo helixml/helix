@@ -17647,6 +17647,10 @@ paths:
         in: query
         name: org_id
         type: string
+      - description: Custom return URL path (e.g. /onboarding)
+        in: query
+        name: return_url
+        type: string
       responses:
         "200":
           description: Subscription session URL

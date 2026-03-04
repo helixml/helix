@@ -13243,6 +13243,12 @@ const docTemplate = `{
                         "description": "Organization ID",
                         "name": "org_id",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Custom return URL path (e.g. /onboarding)",
+                        "name": "return_url",
+                        "in": "query"
                     }
                 ],
                 "responses": {
