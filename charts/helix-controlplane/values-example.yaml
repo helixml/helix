@@ -507,17 +507,10 @@ typesense:
     #     app: typesense
 
 ## Kodit configuration - Code indexing service
-# Kodit provides code search and analysis capabilities for Helix.
-# It uses its own PostgreSQL + pgvector database (vectorchord) for code embeddings.
+# Kodit is compiled into the controlplane binary as a Go library (not a separate container).
+# It still requires a Vectorchord (PostgreSQL + pgvector) database for storing code embeddings.
 kodit:
   enabled: true
-
-  # Kodit application image
-  image:
-    repository: registry.helixml.tech/helix/kodit
-    tag: "1.0.0" # Pin to specific version
-    # Use custom registry if needed
-    # repository: "my-registry.example.com/helix/kodit"
 
   # Database authentication (for kodit's vectorchord database)
   auth:
@@ -531,8 +524,8 @@ kodit:
     # passwordKey: "password"  # defaults to "password" if not specified
     # databaseKey: "database"  # defaults to "database" if not specified
 
-  # Enrichment endpoint configuration (Kodit uses Helix as LLM proxy)
-  # This allows kodit to generate code enrichments using the Helix inference API
+  # Enrichment endpoint configuration
+  # Kodit uses the controlplane's own API as an LLM proxy for code enrichment
   enrichment:
     # Base URL defaults to http://<release-name>:80/v1 (Helix controlplane)
     # baseUrl: "http://custom-llm-service:8080/v1"
@@ -549,26 +542,6 @@ kodit:
     #   kubectl create secret generic kodit-enrichment --from-literal=api-key="your-runner-token"
     # existingSecret: "kodit-enrichment"
     # existingSecretKey: "api-key"
-
-  # Persistence for kodit data
-  persistence:
-    enabled: true
-    size: 50Gi
-    storageClass: "" # Use default storage class
-    annotations: {}
-    accessModes:
-      - ReadWriteOnce
-    # Use existing PVC
-    # existingClaim: "my-kodit-pvc"
-    # PVC selector
-    # selector:
-    #   matchLabels:
-    #     app: kodit
-    # Custom data source
-    # dataSource:
-    #   name: "my-snapshot"
-    #   kind: "VolumeSnapshot"
-    #   apiGroup: "snapshot.storage.k8s.io"
 
   # Vectorchord (PostgreSQL + pgvector) configuration for kodit
   # This is kodit's dedicated vector database, separate from helix's pgvector
