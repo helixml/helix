@@ -315,19 +315,21 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
         </Alert>
       )}
 
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" sx={{ 
-          fontWeight: 700, 
-          mb: 1,
-          color: 'rgba(255,255,255,0.95)',
-          letterSpacing: '-0.02em',
-        }}>
-          Projects
-        </Typography>
-        <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)' }}>
-          Each Project has a Team of Agents working in parallel to perform tasks, collaborate, or build software.
-        </Typography>
-      </Box>
+      {!(projects.length === 0 && !isLoading) && (
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h4" sx={{ 
+            fontWeight: 700, 
+            mb: 1,
+            color: 'rgba(255,255,255,0.95)',
+            letterSpacing: '-0.02em',
+          }}>
+            Projects
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)' }}>
+            Each Project has a Team of Agents working in parallel to perform tasks, collaborate, or build software.
+          </Typography>
+        </Box>
+      )}
 
 
       {projects.length === 0 && !isLoading ? (
@@ -339,7 +341,8 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
             No projects yet
           </Typography>
           <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.4)', mb: 3 }}>
-            Create your first project to get started
+            Project has a Team of Agents working in parallel to perform tasks, collaborate, or build software.
+            
           </Typography>
           <CreateProjectButton
             onCreateEmpty={onCreateEmpty}
@@ -347,7 +350,7 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
             sampleProjects={sampleProjects}
             isCreating={isCreating}
             variant="contained"
-            color="primary"
+            color="secondary"
           />
         </Box>
       ) : (
