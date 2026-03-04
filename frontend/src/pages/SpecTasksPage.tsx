@@ -489,7 +489,7 @@ const SpecTasksPage: FC = () => {
 
   // Fetch last 5 sessions for this project (filtered by project manager app)
   const { data: projectSessionsData } = useListSessions(
-    undefined,
+    project?.organization_id,
     undefined,
     undefined,
     projectId,
