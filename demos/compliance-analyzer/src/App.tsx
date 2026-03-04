@@ -15,7 +15,17 @@ export interface AnalysisResult {
   evaluation?: ComplianceEvaluation;
 }
 
-function loadSavedConfig(): { config: HelixConfig; valid: boolean } {
+function loadConfig(): { config: HelixConfig; valid: boolean } {
+  // Env vars take priority (set via .env / VITE_HELIX_URL, VITE_HELIX_API_KEY)
+  const envUrl = import.meta.env.VITE_HELIX_URL ?? "";
+  const envKey = import.meta.env.VITE_HELIX_API_KEY ?? "";
+  if (envKey) {
+    return {
+      config: { baseUrl: envUrl, apiKey: envKey },
+      valid: true,
+    };
+  }
+  // Fall back to localStorage
   const baseUrl = localStorage.getItem("helix_base_url") ?? "";
   const apiKey = localStorage.getItem("helix_api_key") ?? "";
   return {
@@ -26,11 +36,11 @@ function loadSavedConfig(): { config: HelixConfig; valid: boolean } {
 
 export default function App() {
   const [phase, setPhase] = useState<Phase>(() => {
-    const { valid } = loadSavedConfig();
+    const { valid } = loadConfig();
     return valid ? "upload" : "setup";
   });
   const [helixConfig, setHelixConfig] = useState<HelixConfig>(() => {
-    const { config, valid } = loadSavedConfig();
+    const { config, valid } = loadConfig();
     return valid ? config : { baseUrl: "", apiKey: "" };
   });
   const [analysisResults, setAnalysisResults] = useState<
