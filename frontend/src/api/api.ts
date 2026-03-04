@@ -838,9 +838,9 @@ export interface ServerKoditAdminRepoAttributes {
   created_at?: string;
   helix_repo_id?: string;
   helix_repo_name?: string;
-  last_error?: string;
   remote_url?: string;
   status?: string;
+  status_message?: string;
   updated_at?: string;
 }
 
@@ -858,11 +858,9 @@ export interface ServerKoditAdminRepoDetailAttributes {
   enrichment_count?: number;
   helix_repo_id?: string;
   helix_repo_name?: string;
-  indexing_message?: string;
-  indexing_status?: string;
-  last_error?: string;
   remote_url?: string;
   status?: string;
+  status_message?: string;
   tag_count?: number;
   updated_at?: string;
 }

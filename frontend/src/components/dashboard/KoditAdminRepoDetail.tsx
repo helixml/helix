@@ -150,30 +150,12 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId }) =>
         {attrs.remote_url}
       </Typography>
 
-      {/* Indexing Status */}
-      {attrs.indexing_status && (
+      {/* Status message from Kodit tracking */}
+      {attrs.status_message && (
         <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Typography variant="subtitle2">Indexing Status:</Typography>
-            <Chip
-              label={attrs.indexing_status}
-              size="small"
-              color={statusColor[attrs.indexing_status] || 'default'}
-            />
-            {attrs.indexing_message && (
-              <Typography variant="body2" color="text.secondary">
-                {attrs.indexing_message}
-              </Typography>
-            )}
-          </Box>
-        </Paper>
-      )}
-
-      {/* Last error */}
-      {attrs.last_error && (
-        <Paper variant="outlined" sx={{ p: 2, mb: 3, borderColor: 'error.main' }}>
-          <Typography variant="subtitle2" color="error" gutterBottom>Last Error</Typography>
-          <Typography variant="body2">{attrs.last_error}</Typography>
+          <Typography variant="body2" color="text.secondary">
+            {attrs.status_message}
+          </Typography>
         </Paper>
       )}
 

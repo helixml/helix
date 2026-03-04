@@ -302,9 +302,9 @@ const KoditAdminTable: FC = () => {
                       size="small"
                       color={statusColor[repo.attributes?.status || ''] || 'default'}
                     />
-                    {repo.attributes?.last_error && (
-                      <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
-                        {repo.attributes.last_error}
+                    {repo.attributes?.status_message && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                        {repo.attributes.status_message}
                       </Typography>
                     )}
                   </TableCell>

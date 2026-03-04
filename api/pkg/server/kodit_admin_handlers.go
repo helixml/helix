@@ -10,7 +10,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/helixml/kodit/domain/repository"
 	"github.com/rs/zerolog/log"
 )
 
@@ -40,10 +39,12 @@ type KoditAdminRepoDTO struct {
 }
 
 // KoditAdminRepoAttributes holds list-level fields.
+// Status and message come from Kodit's tracking service (the real indexing
+// pipeline state), not from any derived/interpreted value.
 type KoditAdminRepoAttributes struct {
 	RemoteURL     string    `json:"remote_url"`
 	Status        string    `json:"status"`
-	LastError     string    `json:"last_error"`
+	StatusMessage string    `json:"status_message"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 	HelixRepoID   string    `json:"helix_repo_id,omitempty"`
@@ -63,10 +64,11 @@ type KoditAdminRepoDetailDTO struct {
 }
 
 // KoditAdminRepoDetailAttributes holds detail-level fields.
+// Status and message come directly from Kodit's tracking service.
 type KoditAdminRepoDetailAttributes struct {
 	RemoteURL       string    `json:"remote_url"`
 	Status          string    `json:"status"`
-	LastError       string    `json:"last_error"`
+	StatusMessage   string    `json:"status_message"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 	DefaultBranch   string    `json:"default_branch"`
@@ -74,8 +76,6 @@ type KoditAdminRepoDetailAttributes struct {
 	TagCount        int       `json:"tag_count"`
 	CommitCount     int       `json:"commit_count"`
 	EnrichmentCount int64     `json:"enrichment_count"`
-	IndexingStatus  string    `json:"indexing_status"`
-	IndexingMessage string    `json:"indexing_message"`
 	HelixRepoID     string    `json:"helix_repo_id,omitempty"`
 	HelixRepoName   string    `json:"helix_repo_name,omitempty"`
 }
@@ -87,8 +87,8 @@ type KoditAdminBatchRequest struct {
 
 // KoditAdminBatchResponse reports results of a batch operation.
 type KoditAdminBatchResponse struct {
-	Succeeded []int64            `json:"succeeded"`
-	Failed    []KoditBatchError  `json:"failed"`
+	Succeeded []int64           `json:"succeeded"`
+	Failed    []KoditBatchError `json:"failed"`
 }
 
 // KoditBatchError pairs a repository ID with its error message.
@@ -100,24 +100,6 @@ type KoditBatchError struct {
 // =============================================================================
 // Domain → DTO conversion
 // =============================================================================
-
-func repoToAdminDTO(repo repository.Repository, helixMap map[int64]helixRepoRef) KoditAdminRepoDTO {
-	src := repository.NewSource(repo)
-	ref := helixMap[repo.ID()]
-	return KoditAdminRepoDTO{
-		ID:   strconv.FormatInt(repo.ID(), 10),
-		Type: "kodit_repository",
-		Attributes: KoditAdminRepoAttributes{
-			RemoteURL:     repo.RemoteURL(),
-			Status:        src.Status().String(),
-			LastError:     src.LastError(),
-			CreatedAt:     repo.CreatedAt(),
-			UpdatedAt:     repo.UpdatedAt(),
-			HelixRepoID:   ref.id,
-			HelixRepoName: ref.name,
-		},
-	}
-}
 
 // helixRepoRef is a lightweight cross-reference to a Helix GitRepository.
 type helixRepoRef struct {
@@ -139,20 +121,6 @@ func buildHelixRepoMap(helixRepos []*types.GitRepository) map[int64]helixRepoRef
 		m[koditID] = helixRepoRef{id: r.ID, name: r.Name}
 	}
 	return m
-}
-
-// =============================================================================
-// Route registration
-// =============================================================================
-
-func (apiServer *HelixAPIServer) registerKoditAdminRoutes(adminRouter *mux.Router) {
-	adminRouter.HandleFunc("/admin/kodit/repositories", apiServer.adminListKoditRepositories).Methods(http.MethodGet)
-	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}", apiServer.adminGetKoditRepository).Methods(http.MethodGet)
-	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}/sync", apiServer.adminSyncKoditRepository).Methods(http.MethodPost)
-	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}/rescan", apiServer.adminRescanKoditRepository).Methods(http.MethodPost)
-	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}", apiServer.adminDeleteKoditRepository).Methods(http.MethodDelete)
-	adminRouter.HandleFunc("/admin/kodit/repositories/batch/delete", apiServer.adminBatchDeleteKoditRepositories).Methods(http.MethodPost)
-	adminRouter.HandleFunc("/admin/kodit/repositories/batch/rescan", apiServer.adminBatchRescanKoditRepositories).Methods(http.MethodPost)
 }
 
 // =============================================================================
@@ -198,9 +166,33 @@ func (apiServer *HelixAPIServer) adminListKoditRepositories(w http.ResponseWrite
 	}
 	helixMap := buildHelixRepoMap(helixRepos)
 
+	// Fetch real tracking status from Kodit for each repo
 	data := make([]KoditAdminRepoDTO, 0, len(repos))
 	for _, repo := range repos {
-		data = append(data, repoToAdminDTO(repo, helixMap))
+		ref := helixMap[repo.ID()]
+
+		var status, statusMessage string
+		trackingStatus, err := apiServer.koditService.GetRepositoryStatus(r.Context(), repo.ID())
+		if err != nil {
+			log.Warn().Err(err).Int64("kodit_repo_id", repo.ID()).Msg("Failed to get tracking status for list")
+		} else {
+			status = string(trackingStatus.Status())
+			statusMessage = trackingStatus.Message()
+		}
+
+		data = append(data, KoditAdminRepoDTO{
+			ID:   strconv.FormatInt(repo.ID(), 10),
+			Type: "kodit_repository",
+			Attributes: KoditAdminRepoAttributes{
+				RemoteURL:     repo.RemoteURL(),
+				Status:        status,
+				StatusMessage: statusMessage,
+				CreatedAt:     repo.CreatedAt(),
+				UpdatedAt:     repo.UpdatedAt(),
+				HelixRepoID:   ref.id,
+				HelixRepoName: ref.name,
+			},
+		})
 	}
 
 	totalPages := int64(math.Ceil(float64(total) / float64(perPage)))
@@ -250,9 +242,13 @@ func (apiServer *HelixAPIServer) adminGetKoditRepository(w http.ResponseWriter, 
 		log.Warn().Err(err).Int64("kodit_repo_id", koditRepoID).Msg("Failed to get enrichment count")
 	}
 
+	var status, statusMessage string
 	trackingStatus, err := apiServer.koditService.GetRepositoryStatus(r.Context(), koditRepoID)
 	if err != nil {
 		log.Warn().Err(err).Int64("kodit_repo_id", koditRepoID).Msg("Failed to get tracking status")
+	} else {
+		status = string(trackingStatus.Status())
+		statusMessage = trackingStatus.Message()
 	}
 
 	// Cross-reference
@@ -260,26 +256,24 @@ func (apiServer *HelixAPIServer) adminGetKoditRepository(w http.ResponseWriter, 
 	helixMap := buildHelixRepoMap(helixRepos)
 	ref := helixMap[koditRepoID]
 
-	src := summary.Source()
+	repo := summary.Source().Repository()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(KoditAdminRepoDetailResponse{
 		Data: KoditAdminRepoDetailDTO{
-			ID:   strconv.FormatInt(src.ID(), 10),
+			ID:   strconv.FormatInt(repo.ID(), 10),
 			Type: "kodit_repository",
 			Attributes: KoditAdminRepoDetailAttributes{
-				RemoteURL:       src.RemoteURL(),
-				Status:          src.Status().String(),
-				LastError:       src.LastError(),
-				CreatedAt:       src.Repository().CreatedAt(),
-				UpdatedAt:       src.Repository().UpdatedAt(),
+				RemoteURL:       repo.RemoteURL(),
+				Status:          status,
+				StatusMessage:   statusMessage,
+				CreatedAt:       repo.CreatedAt(),
+				UpdatedAt:       repo.UpdatedAt(),
 				DefaultBranch:   summary.DefaultBranch(),
 				BranchCount:     summary.BranchCount(),
 				TagCount:        summary.TagCount(),
 				CommitCount:     summary.CommitCount(),
 				EnrichmentCount: enrichmentCount,
-				IndexingStatus:  string(trackingStatus.Status()),
-				IndexingMessage: trackingStatus.Message(),
 				HelixRepoID:     ref.id,
 				HelixRepoName:   ref.name,
 			},

@@ -16669,13 +16669,13 @@ const docTemplate = `{
                 "helix_repo_name": {
                     "type": "string"
                 },
-                "last_error": {
-                    "type": "string"
-                },
                 "remote_url": {
                     "type": "string"
                 },
                 "status": {
+                    "type": "string"
+                },
+                "status_message": {
                     "type": "string"
                 },
                 "updated_at": {
@@ -16721,19 +16721,13 @@ const docTemplate = `{
                 "helix_repo_name": {
                     "type": "string"
                 },
-                "indexing_message": {
-                    "type": "string"
-                },
-                "indexing_status": {
-                    "type": "string"
-                },
-                "last_error": {
-                    "type": "string"
-                },
                 "remote_url": {
                     "type": "string"
                 },
                 "status": {
+                    "type": "string"
+                },
+                "status_message": {
                     "type": "string"
                 },
                 "tag_count": {
