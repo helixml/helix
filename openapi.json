@@ -16009,6 +16009,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "description": "Custom return URL path (e.g. /onboarding)",
+                        "name": "return_url",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "responses": {
