@@ -2,8 +2,8 @@
 
 ## Investigation
 
-- [ ] Start session at 4K resolution (3840x2160)
-- [ ] Launch OnlyOffice and confirm only top quarter renders
+- [~] Start session at 4K resolution (3840x2160)
+- [~] Launch OnlyOffice and confirm only top quarter renders
 - [ ] Screenshot the broken 4K rendering for documentation
 - [ ] Verify it works correctly at 1080p (baseline)
 
