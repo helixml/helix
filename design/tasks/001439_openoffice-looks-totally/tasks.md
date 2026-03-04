@@ -1,53 +1,50 @@
 # Implementation Tasks
 
-## Investigation
+## Investigation (Complete)
 
-- [~] Start session at 4K resolution (3840x2160)
-- [~] Launch OnlyOffice and confirm only top quarter renders
-- [ ] Screenshot the broken 4K rendering for documentation
-- [ ] Verify it works correctly at 1080p (baseline)
+- [x] Start session at 4K resolution (3840x2160)
+- [x] Launch OnlyOffice and confirm only top quarter renders
+- [x] Screenshot the broken 4K rendering for documentation
+- [x] Identify root cause: OnlyOffice is Qt5+CEF (not Electron), X11 only, no Wayland support
+- [x] Confirm XWayland reports logical resolution (1920x1080) not physical (3840x2160)
+- [x] Test QT_SCALE_FACTOR - doesn't fix window geometry issue
+- [x] Test QT_SCREEN_SCALE_FACTORS - doesn't fix window geometry issue
 
-## Fix: Wrapper Script
+## Root Cause
 
-- [ ] Add wrapper script to `Dockerfile.ubuntu-helix` after OnlyOffice install (~line 365):
+OnlyOffice bundles Qt 5.9 with only X11 support. When GNOME runs at 4K with 2x scaling:
+- XWayland reports 1920x1080 (logical) to X11 apps
+- OnlyOffice creates 1920x1080 window
+- Window surface is actually 3840x2160
+- Result: content in top-left quarter only
+
+## Fix: Enable XWayland Native Scaling
+
+- [ ] Update `desktop/ubuntu-config/startup-app.sh` to add `xwayland-native-scaling` to experimental features BEFORE gnome-shell starts
+- [ ] Add to the gsettings line around line 230:
   ```bash
-  mv /usr/bin/desktopeditors /usr/bin/desktopeditors.real
-  cat > /usr/bin/desktopeditors << 'EOF'
-  #!/bin/bash
-  export XCURSOR_THEME=Helix-Invisible
-  export XCURSOR_SIZE=48
-  export GTK_CURSOR_THEME_NAME=Helix-Invisible
-  exec /usr/bin/desktopeditors.real \
-      --force-device-scale-factor=1 \
-      --high-dpi-support=1 \
-      --ozone-platform=wayland \
-      "$@"
-  EOF
-  chmod +x /usr/bin/desktopeditors
+  gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer', 'xwayland-native-scaling']"
   ```
 
-## Testing: 4K Resolution
+## Fix: OnlyOffice Wrapper Script
+
+- [ ] Update Dockerfile.ubuntu-helix to add cursor theme env vars to OnlyOffice wrapper:
+  ```bash
+  export XCURSOR_THEME=Helix-Invisible
+  export XCURSOR_SIZE=48
+  ```
+
+## Testing
 
 - [ ] Rebuild image: `./stack build-ubuntu`
-- [ ] Start new session at 4K (3840x2160)
+- [ ] Start new 4K session
 - [ ] Launch OnlyOffice
 - [ ] Verify full window renders (not just top quarter)
-- [ ] Test window maximize/resize at 4K
+- [ ] Verify cursor uses Helix-Invisible theme
+- [ ] Screenshot working state
 
-## Testing: Cursor Theme
+## Documentation
 
-- [ ] Verify OnlyOffice cursor is invisible (using Helix-Invisible)
-- [ ] Verify client-side cursor renders correctly over OnlyOffice
-- [ ] Test cursor shape changes (text I-beam, resize handles)
-
-## Alternative Flags (if scale factor=1 doesn't work)
-
-- [ ] Try `--force-device-scale-factor=2` for 4K
-- [ ] Try without `--high-dpi-support=1`
-- [ ] Try `--enable-features=WaylandWindowDecorations`
-
-## Cursor Fallback (if theme not respected)
-
-- [ ] Check if `--gtk-version=4` helps with cursor theme
-- [ ] Try `GDK_BACKEND=wayland` in wrapper
-- [ ] Accept dual cursors as known limitation if nothing works
+- [x] Update design.md with actual root cause (Qt5+CEF, not Electron)
+- [x] Document XWayland scaling behavior
+- [ ] Commit and push changes to helix-specs
