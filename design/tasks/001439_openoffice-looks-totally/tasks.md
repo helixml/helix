@@ -15,28 +15,7 @@
 
 ## Fix: Wrapper Script
 
-- [~] Add wrapper script to `Dockerfile.ubuntu-helix` after OnlyOffice install (~line 365):
-  ```bash
-  #!/bin/bash
-  # OnlyOffice requires X11 via XWayland (Qt5 without Wayland plugin)
-  export DISPLAY=:0
-  
-  # Find the Mutter XWayland auth file (name changes on each session)
-  XAUTH_FILE=$(ls /run/user/1000/.mutter-Xwaylandauth.* 2>/dev/null | tail -1)
-  if [ -n "$XAUTH_FILE" ]; then
-      export XAUTHORITY="$XAUTH_FILE"
-  fi
-  
-  # Cursor theme for X11 apps
-  export XCURSOR_THEME=Helix-Invisible
-  export XCURSOR_SIZE=48
-  
-  # Required library path
-  APP_PATH=/opt/onlyoffice/desktopeditors
-  export LD_LIBRARY_PATH=$APP_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
-  
-  exec $APP_PATH/DesktopEditors "$@"
-  ```
+- [x] Add wrapper script to `Dockerfile.ubuntu-helix` after OnlyOffice install (~line 365)
 
 ## Testing
 
