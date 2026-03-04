@@ -3,6 +3,7 @@ import useApi from '../hooks/useApi'
 import {
   ServerKoditAdminRepoListResponse,
   ServerKoditAdminRepoDetailResponse,
+  ServerKoditAdminStatsResponse,
   ServerKoditAdminBatchResponse,
 } from '../api/api'
 
@@ -11,6 +12,22 @@ export const koditAdminReposQueryKey = (page: number, perPage: number) =>
 
 export const koditAdminRepoDetailQueryKey = (koditRepoId: string) =>
   ['admin', 'kodit', 'repositories', koditRepoId]
+
+export const koditAdminStatsQueryKey = () => ['admin', 'kodit', 'stats']
+
+export function useAdminKoditStats() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery<ServerKoditAdminStatsResponse>({
+    queryKey: koditAdminStatsQueryKey(),
+    queryFn: async () => {
+      const response = await apiClient.v1AdminKoditStatsList()
+      return response.data
+    },
+    staleTime: 30 * 1000,
+  })
+}
 
 export function useAdminKoditRepositories(page: number, perPage: number) {
   const api = useApi()

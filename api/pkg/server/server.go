@@ -949,6 +949,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/system/settings", apiServer.updateSystemSettings).Methods(http.MethodPut)
 
 	// Kodit admin routes
+	adminRouter.HandleFunc("/admin/kodit/stats", apiServer.adminGetKoditStats).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/admin/kodit/repositories", apiServer.adminListKoditRepositories).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}", apiServer.adminGetKoditRepository).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}/sync", apiServer.adminSyncKoditRepository).Methods(http.MethodPost)

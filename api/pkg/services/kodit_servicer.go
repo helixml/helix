@@ -13,6 +13,14 @@ import (
 // Handlers use this instead of importing the root kodit package.
 var ErrKoditNotFound = errors.New("kodit: not found")
 
+// KoditSystemStats holds aggregate counts for the Kodit system.
+type KoditSystemStats struct {
+	Repositories int64
+	Enrichments  int64
+	Commits      int64
+	PendingTasks int64
+}
+
 // KoditServicer is the interface for Kodit code intelligence operations.
 // Used by handlers and other services; allows faking in tests.
 type KoditServicer interface {
@@ -31,6 +39,7 @@ type KoditServicer interface {
 	RepositorySummary(ctx context.Context, koditRepoID int64) (repository.RepositorySummary, error)
 	SyncRepository(ctx context.Context, koditRepoID int64) error
 	EnrichmentCount(ctx context.Context, koditRepoID int64) (int64, error)
+	SystemStats(ctx context.Context) (KoditSystemStats, error)
 }
 
 // disabledKoditService is a KoditServicer that is always disabled.
@@ -72,6 +81,9 @@ func (d *disabledKoditService) SyncRepository(context.Context, int64) error {
 }
 func (d *disabledKoditService) EnrichmentCount(context.Context, int64) (int64, error) {
 	return 0, errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) SystemStats(context.Context) (KoditSystemStats, error) {
+	return KoditSystemStats{}, errors.New("kodit service not enabled")
 }
 
 // NewDisabledKoditService returns a KoditServicer that reports as disabled.

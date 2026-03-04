@@ -80,6 +80,14 @@ type KoditAdminRepoDetailAttributes struct {
 	HelixRepoName   string    `json:"helix_repo_name,omitempty"`
 }
 
+// KoditAdminStatsResponse holds aggregate system statistics.
+type KoditAdminStatsResponse struct {
+	Repositories int64 `json:"repositories"`
+	Enrichments  int64 `json:"enrichments"`
+	Commits      int64 `json:"commits"`
+	PendingTasks int64 `json:"pending_tasks"`
+}
+
 // KoditAdminBatchRequest is the request body for batch operations.
 type KoditAdminBatchRequest struct {
 	IDs []int64 `json:"ids"`
@@ -485,6 +493,38 @@ func (apiServer *HelixAPIServer) adminBatchRescanKoditRepositories(w http.Respon
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// adminGetKoditStats returns aggregate system statistics for Kodit.
+// @Summary Get Kodit system stats (admin)
+// @Description Returns aggregate counts: repositories, enrichments, commits, pending tasks. Admin only.
+// @Tags admin
+// @Produce json
+// @Success 200 {object} KoditAdminStatsResponse
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/admin/kodit/stats [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) adminGetKoditStats(w http.ResponseWriter, r *http.Request) {
+	if apiServer.koditService == nil || !apiServer.koditService.IsEnabled() {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(KoditAdminStatsResponse{})
+		return
+	}
+
+	stats, err := apiServer.koditService.SystemStats(r.Context())
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get Kodit system stats")
+		http.Error(w, fmt.Sprintf("Failed to get system stats: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(KoditAdminStatsResponse{
+		Repositories: stats.Repositories,
+		Enrichments:  stats.Enrichments,
+		Commits:      stats.Commits,
+		PendingTasks: stats.PendingTasks,
+	})
 }
 
 // =============================================================================

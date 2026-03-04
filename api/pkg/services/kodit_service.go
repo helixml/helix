@@ -317,6 +317,40 @@ func (s *KoditService) EnrichmentCount(ctx context.Context, koditRepoID int64) (
 	return count, nil
 }
 
+// SystemStats returns aggregate counts for the Kodit system.
+func (s *KoditService) SystemStats(ctx context.Context) (KoditSystemStats, error) {
+	if !s.enabled {
+		return KoditSystemStats{}, fmt.Errorf("kodit service not enabled")
+	}
+
+	repos, err := s.client.Repositories.Count(ctx)
+	if err != nil {
+		return KoditSystemStats{}, fmt.Errorf("failed to count repositories: %w", err)
+	}
+
+	enrichments, err := s.client.Enrichments.Count(ctx, &service.EnrichmentListParams{})
+	if err != nil {
+		return KoditSystemStats{}, fmt.Errorf("failed to count enrichments: %w", err)
+	}
+
+	commits, err := s.client.Commits.Count(ctx)
+	if err != nil {
+		return KoditSystemStats{}, fmt.Errorf("failed to count commits: %w", err)
+	}
+
+	pendingTasks, err := s.client.Tasks.Count(ctx)
+	if err != nil {
+		return KoditSystemStats{}, fmt.Errorf("failed to count pending tasks: %w", err)
+	}
+
+	return KoditSystemStats{
+		Repositories: repos,
+		Enrichments:  enrichments,
+		Commits:      commits,
+		PendingTasks: pendingTasks,
+	}, nil
+}
+
 // RescanCommit triggers a rescan of a specific commit in Kodit
 func (s *KoditService) RescanCommit(ctx context.Context, koditRepoID int64, commitSHA string) error {
 	if !s.enabled {

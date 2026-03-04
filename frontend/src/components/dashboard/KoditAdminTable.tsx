@@ -24,6 +24,9 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
+  Card,
+  CardContent,
+  Grid,
 } from '@mui/material'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import SyncIcon from '@mui/icons-material/Sync'
@@ -35,6 +38,7 @@ import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
 import {
   useAdminKoditRepositories,
+  useAdminKoditStats,
   useAdminSyncKoditRepository,
   useAdminRescanKoditRepository,
   useAdminDeleteKoditRepository,
@@ -78,6 +82,7 @@ const KoditAdminTable: FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<{ ids: number[], label: string } | null>(null)
 
   const { data, isLoading, error } = useAdminKoditRepositories(page + 1, rowsPerPage)
+  const { data: stats } = useAdminKoditStats()
   const syncMutation = useAdminSyncKoditRepository()
   const rescanMutation = useAdminRescanKoditRepository()
   const deleteMutation = useAdminDeleteKoditRepository()
@@ -242,6 +247,43 @@ const KoditAdminTable: FC = () => {
           </Box>
         )}
       </Box>
+
+      {stats && (
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Grid item xs={6} sm={3}>
+            <Card variant="outlined">
+              <CardContent sx={{ textAlign: 'center', py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                <Typography variant="h5" fontWeight={600}>{stats.repositories ?? 0}</Typography>
+                <Typography variant="caption" color="text.secondary">Repositories</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={6} sm={3}>
+            <Card variant="outlined">
+              <CardContent sx={{ textAlign: 'center', py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                <Typography variant="h5" fontWeight={600}>{stats.enrichments ?? 0}</Typography>
+                <Typography variant="caption" color="text.secondary">Enrichments</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={6} sm={3}>
+            <Card variant="outlined">
+              <CardContent sx={{ textAlign: 'center', py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                <Typography variant="h5" fontWeight={600}>{stats.commits ?? 0}</Typography>
+                <Typography variant="caption" color="text.secondary">Commits</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={6} sm={3}>
+            <Card variant="outlined">
+              <CardContent sx={{ textAlign: 'center', py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                <Typography variant="h5" fontWeight={600}>{stats.pending_tasks ?? 0}</Typography>
+                <Typography variant="caption" color="text.secondary">Pending Tasks</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      )}
 
       <TableContainer component={Paper} variant="outlined">
         <Table stickyHeader size="small">

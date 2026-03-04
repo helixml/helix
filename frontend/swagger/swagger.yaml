@@ -1371,6 +1371,17 @@ definitions:
       meta:
         $ref: '#/definitions/server.KoditAdminPaginationMeta'
     type: object
+  server.KoditAdminStatsResponse:
+    properties:
+      commits:
+        type: integer
+      enrichments:
+        type: integer
+      pending_tasks:
+        type: integer
+      repositories:
+        type: integer
+    type: object
   server.KoditBatchError:
     properties:
       id:
@@ -9563,6 +9574,26 @@ paths:
       security:
       - BearerAuth: []
       summary: Batch rescan Kodit repositories (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/stats:
+    get:
+      description: 'Returns aggregate counts: repositories, enrichments, commits,
+        pending tasks. Admin only.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminStatsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get Kodit system stats (admin)
       tags:
       - admin
   /api/v1/admin/organization-domains:

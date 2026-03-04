@@ -880,6 +880,13 @@ export interface ServerKoditAdminRepoListResponse {
   meta?: ServerKoditAdminPaginationMeta;
 }
 
+export interface ServerKoditAdminStatsResponse {
+  commits?: number;
+  enrichments?: number;
+  pending_tasks?: number;
+  repositories?: number;
+}
+
 export interface ServerKoditBatchError {
   id?: number;
   message?: string;
@@ -5930,6 +5937,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: body,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns aggregate counts: repositories, enrichments, commits, pending tasks. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditStatsList
+     * @summary Get Kodit system stats (admin)
+     * @request GET:/api/v1/admin/kodit/stats
+     * @secure
+     */
+    v1AdminKoditStatsList: (params: RequestParams = {}) =>
+      this.request<ServerKoditAdminStatsResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/stats`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),

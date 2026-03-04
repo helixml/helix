@@ -449,6 +449,37 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/kodit/stats": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns aggregate counts: repositories, enrichments, commits, pending tasks. Admin only.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get Kodit system stats (admin)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.KoditAdminStatsResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/organization-domains": {
             "get": {
                 "security": [
@@ -16771,6 +16802,23 @@ const docTemplate = `{
                 },
                 "meta": {
                     "$ref": "#/definitions/server.KoditAdminPaginationMeta"
+                }
+            }
+        },
+        "server.KoditAdminStatsResponse": {
+            "type": "object",
+            "properties": {
+                "commits": {
+                    "type": "integer"
+                },
+                "enrichments": {
+                    "type": "integer"
+                },
+                "pending_tasks": {
+                    "type": "integer"
+                },
+                "repositories": {
+                    "type": "integer"
                 }
             }
         },
