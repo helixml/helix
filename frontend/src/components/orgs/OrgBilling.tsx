@@ -30,6 +30,7 @@ interface ExtendedWallet {
   subscription_current_period_end?: number
   subscription_current_period_start?: number
   subscription_created?: number
+  subscription_cancel_at_period_end?: boolean
   stripe_subscription_id?: string
   balance?: number
   created_at?: string
@@ -129,10 +130,12 @@ const OrgBilling: FC = () => {
   // Check if user has admin permissions for this org
   const isReadOnly = !account.isOrgAdmin
 
-  // Check if subscription is active based on wallet status from backend
-  // The wallet contains subscription information from Stripe stored in the database
+  // Check subscription state from wallet
   const extendedWallet = wallet as ExtendedWallet
   const isSubscriptionActive = extendedWallet?.subscription_status === 'active'
+  const isPastDue = extendedWallet?.subscription_status === 'past_due'
+  const isCancelling = isSubscriptionActive && !!extendedWallet?.subscription_cancel_at_period_end
+  const hasSubscription = isSubscriptionActive || isPastDue
 
   return (
     <Page
@@ -179,7 +182,7 @@ const OrgBilling: FC = () => {
                           ${extendedWallet?.balance?.toFixed(2) || '0.00'} credits
                         </Typography>
                         <Typography variant="body2" color="text.secondary" gutterBottom>
-                          Available credits for {organization.display_name || organization.name}
+                          Available credits to use in inference, RAG and coding.
                         </Typography>
                       </Box>
 
@@ -219,23 +222,50 @@ const OrgBilling: FC = () => {
                 </Grid>
                 
                 <Grid item xs={12} md={colSize}>
-                  <Box sx={{ p: 2, height: 250, display: 'flex', flexDirection: 'column', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                  <Box sx={{ p: 2, height: 250, display: 'flex', flexDirection: 'column', borderRadius: 1, border: '1px solid', borderColor: isCancelling ? 'warning.main' : isPastDue ? 'error.main' : 'divider' }}>
                     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                      {isSubscriptionActive ? (
+                      {hasSubscription ? (
                         <>
                           <Box sx={{ flex: 1 }}>
-                            <Typography variant="h6" gutterBottom>Subscription</Typography>
-                            <Typography variant="h4" gutterBottom color="primary">Helix Business</Typography>
-                            <Typography variant="body2" gutterBottom>
-                              Enhanced quotas, priority support, and advanced organization features for teams.
-                            </Typography>
-                            {extendedWallet?.subscription_current_period_end && (
-                              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                Next billing: {new Date(extendedWallet.subscription_current_period_end * 1000).toLocaleDateString()}
+                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                              <Typography variant="h6">Subscription</Typography>
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  px: 1.5,
+                                  py: 0.5,
+                                  borderRadius: 1,
+                                  fontWeight: 'bold',
+                                  backgroundColor: isCancelling ? 'warning.main' : isPastDue ? 'error.main' : 'success.main',
+                                  color: '#fff',
+                                }}
+                              >
+                                {isCancelling ? 'Cancelled' : isPastDue ? 'Past Due' : 'Active'}
                               </Typography>
+                            </Box>
+                            <Typography variant="h4" gutterBottom color="primary">Helix Business</Typography>
+                            {isCancelling ? (
+                              <Typography variant="body2" color="warning.main" gutterBottom>
+                                Your subscription will not renew. You can continue using the service until {extendedWallet?.subscription_current_period_end ? new Date(extendedWallet.subscription_current_period_end * 1000).toLocaleDateString() : 'the end of the current period'}.
+                              </Typography>
+                            ) : isPastDue ? (
+                              <Typography variant="body2" color="error.main" gutterBottom>
+                                Your last payment failed. Please update your payment method to avoid service interruption.
+                              </Typography>
+                            ) : (
+                              <>
+                                <Typography variant="body2" gutterBottom>
+                                  Enhanced quotas, priority support, and advanced organization features for teams.
+                                </Typography>
+                                {extendedWallet?.subscription_current_period_end && (
+                                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                                    Next billing: {new Date(extendedWallet.subscription_current_period_end * 1000).toLocaleDateString()}
+                                  </Typography>
+                                )}
+                              </>
                             )}
                           </Box>
-                          
+
                           {!isReadOnly && (
                             <Box sx={{ display: 'flex', mb: 1, justifyContent: 'flex-end' }}>
                               <Button variant="contained" color="secondary" sx={{ minWidth: 140 }} onClick={handleManage}>
@@ -248,18 +278,18 @@ const OrgBilling: FC = () => {
                         <>
                           <Box sx={{ flex: 1 }}>
                             <Typography variant="h6" gutterBottom>Subscription</Typography>
-                            <Typography variant="h4" gutterBottom color="text.secondary">Free</Typography>
+                            <Typography variant="h4" gutterBottom color="text.secondary">Not Subscribed</Typography>
                             <Typography variant="body2" color="text.secondary"  gutterBottom>
-                              Subscribe to Helix Business for enhanced quotas, priority support, and advanced organization features.
+                              Subscribe to Helix Business to enable product features.
                               Monthly fee is converted to credits and added to your balance.
                             </Typography>
                           </Box>
-                          
+
                           {!isReadOnly && (
                             <Box sx={{ display: 'flex', mb: 1, justifyContent: 'flex-end' }}>
-                              <Button 
-                                variant="contained" 
-                                color="secondary" 
+                              <Button
+                                variant="contained"
+                                color="secondary"
                                 onClick={handleSubscribe}
                                 disabled={isSubscribing}
                                 startIcon={isSubscribing ? <CircularProgress size={16} color="inherit" /> : undefined}
