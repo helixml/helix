@@ -13,6 +13,7 @@ type OptimusConfig struct {
 	OwnerID        string
 	OwnerType      types.OwnerType
 	DefaultApp     *types.App
+	SystemSettings *types.SystemSettings
 }
 
 func NewOptimusAgentApp(cfg OptimusConfig) *types.App {
@@ -25,19 +26,19 @@ func NewOptimusAgentApp(cfg OptimusConfig) *types.App {
 		Provider: defaultAssistant.Provider,
 		Model:    defaultAssistant.Model,
 
-		ReasoningModelProvider: defaultAssistant.ReasoningModelProvider,
-		ReasoningModel:         defaultAssistant.ReasoningModel,
-		ReasoningModelEffort:   defaultAssistant.ReasoningModelEffort,
+		ReasoningModelProvider: cfg.SystemSettings.OptimusReasoningModelProvider,
+		ReasoningModel:         cfg.SystemSettings.OptimusReasoningModel,
+		ReasoningModelEffort:   cfg.SystemSettings.OptimusReasoningModelEffort,
 
-		GenerationModelProvider: defaultAssistant.GenerationModelProvider,
-		GenerationModel:         defaultAssistant.GenerationModel,
+		GenerationModelProvider: cfg.SystemSettings.OptimusGenerationModelProvider,
+		GenerationModel:         cfg.SystemSettings.OptimusGenerationModel,
 
-		SmallReasoningModelProvider: defaultAssistant.SmallReasoningModelProvider,
-		SmallReasoningModel:         defaultAssistant.SmallReasoningModel,
-		SmallReasoningModelEffort:   defaultAssistant.SmallReasoningModelEffort,
+		SmallReasoningModelProvider: cfg.SystemSettings.OptimusSmallReasoningModelProvider,
+		SmallReasoningModel:         cfg.SystemSettings.OptimusSmallReasoningModel,
+		SmallReasoningModelEffort:   cfg.SystemSettings.OptimusSmallReasoningModelEffort,
 
-		SmallGenerationModelProvider: defaultAssistant.SmallGenerationModelProvider,
-		SmallGenerationModel:         defaultAssistant.SmallGenerationModel,
+		SmallGenerationModelProvider: cfg.SystemSettings.OptimusSmallGenerationModelProvider,
+		SmallGenerationModel:         cfg.SystemSettings.OptimusSmallGenerationModel,
 
 		AgentType:    types.AgentTypeHelixAgent,
 		SystemPrompt: templates.OptimusTemplate,

@@ -26820,6 +26820,36 @@ const docTemplate = `{
                 "max_concurrent_desktops": {
                     "type": "integer"
                 },
+                "optimus_generation_model": {
+                    "type": "string"
+                },
+                "optimus_generation_model_provider": {
+                    "type": "string"
+                },
+                "optimus_reasoning_model": {
+                    "type": "string"
+                },
+                "optimus_reasoning_model_effort": {
+                    "type": "string"
+                },
+                "optimus_reasoning_model_provider": {
+                    "type": "string"
+                },
+                "optimus_small_generation_model": {
+                    "type": "string"
+                },
+                "optimus_small_generation_model_provider": {
+                    "type": "string"
+                },
+                "optimus_small_reasoning_model": {
+                    "type": "string"
+                },
+                "optimus_small_reasoning_model_effort": {
+                    "type": "string"
+                },
+                "optimus_small_reasoning_model_provider": {
+                    "type": "string"
+                },
                 "providers_management_enabled": {
                     "type": "boolean"
                 },
@@ -26866,6 +26896,37 @@ const docTemplate = `{
                 "max_concurrent_desktops": {
                     "description": "Per user",
                     "type": "integer"
+                },
+                "optimus_generation_model": {
+                    "type": "string"
+                },
+                "optimus_generation_model_provider": {
+                    "type": "string"
+                },
+                "optimus_reasoning_model": {
+                    "type": "string"
+                },
+                "optimus_reasoning_model_effort": {
+                    "type": "string"
+                },
+                "optimus_reasoning_model_provider": {
+                    "description": "Optimus configuration",
+                    "type": "string"
+                },
+                "optimus_small_generation_model": {
+                    "type": "string"
+                },
+                "optimus_small_generation_model_provider": {
+                    "type": "string"
+                },
+                "optimus_small_reasoning_model": {
+                    "type": "string"
+                },
+                "optimus_small_reasoning_model_effort": {
+                    "type": "string"
+                },
+                "optimus_small_reasoning_model_provider": {
+                    "type": "string"
                 },
                 "providers_management_enabled": {
                     "type": "boolean"
