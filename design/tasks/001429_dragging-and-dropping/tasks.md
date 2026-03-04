@@ -2,32 +2,32 @@
 
 ## Core Pointer Event Support
 
-- [~] Add pointer event state to `PanelTab` component (`isPointerDragging`, `pointerStartRef`)
-- [~] Implement `handlePointerDown` - capture start position, filter out touch pointerType
-- [ ] Implement `handlePointerMove` - detect drag threshold (8px), call `onPointerDragStart`/`onPointerDragMove`
-- [ ] Implement `handlePointerUp` - call `onPointerDragEnd`, reset state
-- [ ] Add pointer event props to `PanelTab` JSX (`onPointerDown`, `onPointerMove`, `onPointerUp`, `onPointerCancel`)
-- [ ] Use `setPointerCapture`/`releasePointerCapture` to track drag across elements
+- [x] Add pointer event state to `PanelTab` component (`isPointerDragging`, `pointerStartRef`)
+- [x] Implement `handlePointerDown` - capture start position, filter out touch pointerType
+- [x] Implement `handlePointerMove` - detect drag threshold (8px), call `onPointerDragStart`/`onPointerDragMove`
+- [x] Implement `handlePointerUp` - call `onPointerDragEnd`, reset state
+- [x] Add pointer event props to `PanelTab` JSX (`onPointerDown`, `onPointerMove`, `onPointerUp`, `onPointerCancel`)
+- [x] Use `setPointerCapture`/`releasePointerCapture` to track drag across elements
 
 ## Parent Component State (TabsView)
 
-- [ ] Add `pointerDragInfo` state to `TabsView` (similar to existing `touchDragInfo`)
-- [ ] Add `handlePointerDragStart` callback - set drag info with panelId, tabId, position
-- [ ] Add `handlePointerDragMove` callback - update current position in state
-- [ ] Add `handlePointerDragEnd` callback - find target panel at drop position, call `handleDropTab`
-- [ ] Pass pointer drag callbacks through `TaskPanel` to `PanelTab`
+- [x] Add `pointerDragInfo` state to `TabsView` (similar to existing `touchDragInfo`)
+- [x] Add `handlePointerDragStart` callback - set drag info with panelId, tabId, position
+- [x] Add `handlePointerDragMove` callback - update current position in state
+- [x] Add `handlePointerDragEnd` callback - find target panel at drop position, call `handleDropTab`
+- [x] Pass pointer drag callbacks through `TaskPanel` to `PanelTab`
 
 ## Visual Feedback
 
-- [ ] Add drag ghost overlay to `TabsView` render when `pointerDragInfo` is set
-- [ ] Style ghost to match tab appearance (position: fixed, follows cursor)
-- [ ] Add opacity to dragged tab while dragging
-- [ ] Ensure drop zone indicators work with pointer drag (reuse existing `dragOverEdge` logic)
+- [x] Add opacity to dragged tab while dragging
+- [x] Ensure drop zone indicators work with pointer drag (reuse existing `dragOverEdge` logic)
+- [ ] Add drag ghost overlay to `TabsView` render when `pointerDragInfo` is set (optional - basic functionality works without)
+- [ ] Style ghost to match tab appearance (position: fixed, follows cursor) (optional)
 
 ## Interface Updates
 
-- [ ] Update `PanelTabProps` interface with new pointer drag callbacks
-- [ ] Update `TaskPanelProps` interface to pass through pointer drag callbacks
+- [x] Update `PanelTabProps` interface with new pointer drag callbacks
+- [x] Update `TaskPanelProps` interface to pass through pointer drag callbacks
 
 ## Testing
 
