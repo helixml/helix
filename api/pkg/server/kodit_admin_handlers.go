@@ -172,7 +172,12 @@ func (apiServer *HelixAPIServer) registerKoditAdminRoutes(adminRouter *mux.Route
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) adminListKoditRepositories(w http.ResponseWriter, r *http.Request) {
 	if apiServer.koditService == nil || !apiServer.koditService.IsEnabled() {
-		http.Error(w, "Kodit service is not enabled", http.StatusNotFound)
+		// Return empty list instead of 404 so the admin page renders
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(KoditAdminRepoListResponse{
+			Data: []KoditAdminRepoDTO{},
+			Meta: KoditAdminPaginationMeta{Page: 1, PerPage: 25, Total: 0, TotalPages: 0},
+		})
 		return
 	}
 
