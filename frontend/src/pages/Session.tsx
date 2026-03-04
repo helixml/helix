@@ -49,6 +49,8 @@ import { getAssistant } from '../utils/apps'
 import useApps from '../hooks/useApps'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
+import useSubscriptionGate from '../hooks/useSubscriptionGate'
+import Paywall from '../components/subscription/Paywall'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import { useListSessionSteps } from '../services/sessionService'
 import PlayArrow from '@mui/icons-material/PlayArrow'
@@ -232,6 +234,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const api = useApi()
   const router = useRouter()
   const account = useAccount()
+  const { paywallActive, navigateToBilling } = useSubscriptionGate()
 
   let sessionID = router.params.session_id
 
@@ -1352,6 +1355,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   if (!session?.data) return null
 
   return (
+    <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
     <Box
       sx={{
         width: '100%',
@@ -1711,8 +1715,9 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             )}
           </Box>
         </Window>
-      )}    
+      )}
     </Box>
+    </Paywall>
   )
 }
 
