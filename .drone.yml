@@ -1928,6 +1928,7 @@ steps:
         WORKDIR /app
         RUN apk add --no-cache gcc g++ musl-dev && \
             sed -i 's|../../../../../helix|/helix|g' go.mod && \
+            go mod tidy && \
             CGO_ENABLED=1 go build -ldflags '-extldflags "-static"' -o /helix-ws-test-server .
 
         # Stage 2: Runtime
