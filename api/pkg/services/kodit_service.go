@@ -221,6 +221,20 @@ func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID int6
 	return summary, nil
 }
 
+// DeleteRepository removes a repository from Kodit.
+func (s *KoditService) DeleteRepository(ctx context.Context, koditRepoID int64) error {
+	if !s.enabled {
+		return fmt.Errorf("kodit service not enabled")
+	}
+
+	if err := s.client.Repositories.Delete(ctx, koditRepoID); err != nil {
+		return fmt.Errorf("failed to delete repository from kodit: %w", err)
+	}
+
+	log.Info().Int64("kodit_repo_id", koditRepoID).Msg("Deleted repository from Kodit")
+	return nil
+}
+
 // RescanCommit triggers a rescan of a specific commit in Kodit
 func (s *KoditService) RescanCommit(ctx context.Context, koditRepoID int64, commitSHA string) error {
 	if !s.enabled {
