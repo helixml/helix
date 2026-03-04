@@ -52,6 +52,7 @@ func (f *fakeKoditService) GetRepositoryStatus(_ context.Context, _ int64) (trac
 	return f.status, f.err
 }
 func (f *fakeKoditService) RescanCommit(_ context.Context, _ int64, _ string) error { return f.err }
+func (f *fakeKoditService) DeleteRepository(_ context.Context, _ int64) error              { return f.err }
 
 type fakeGitRepositoryStore struct {
 	store.Store

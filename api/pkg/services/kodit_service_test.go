@@ -40,6 +40,7 @@ func TestDisabledServiceMethods(t *testing.T) {
 		{"SearchSnippets", func() error { _, e := svc.SearchSnippets(ctx, 1, "test", 10); return e }},
 		{"GetRepositoryStatus", func() error { _, e := svc.GetRepositoryStatus(ctx, 1); return e }},
 		{"RescanCommit", func() error { return svc.RescanCommit(ctx, 1, "abc123") }},
+		{"DeleteRepository", func() error { return svc.DeleteRepository(ctx, 1) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.fn() == nil {
