@@ -52,6 +52,9 @@ func (s *HelixAPIServer) getWalletHandler(_ http.ResponseWriter, req *http.Reque
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get or create wallet for user %s, error: %s", user.ID, err))
 	}
 
+	// Sync latest subscription state from Stripe (cancel_at_period_end, status, etc.)
+	s.Stripe.SyncSubscription(wallet)
+
 	return wallet, nil
 }
 
