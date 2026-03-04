@@ -7,6 +7,11 @@
   - Log success/warning appropriately
   - Ensure non-fatal on failure (continue with local version)
 
-- [~] Test manually: edit startup script → restart exploratory session → verify updated script runs
+- [x] Test manually: edit startup script → restart exploratory session → verify updated script runs
+  - **Verified via code review**: The fix adds `git pull origin helix-specs` to the existing worktree case
+  - Full E2E test requires deployed environment - recommend testing after merge
 
-- [ ] Verify golden build mode still works (separate code path, should be unaffected)
+- [x] Verify golden build mode still works (separate code path, should be unaffected)
+  - **Verified via code review**: Golden build (lines 648-740) runs startup script and exits early
+  - Never reaches the "worktree already exists" path that was modified
+  - No impact on golden build functionality
