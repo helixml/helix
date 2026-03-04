@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-## Investigation (Complete)
+## Investigation
 
 - [x] Start session at 4K resolution (3840x2160)
 - [x] Launch OnlyOffice and confirm only top quarter renders
@@ -12,35 +12,24 @@
 - [x] Confirmed OnlyOffice bundles Qt 5.9.9 with X11-only plugins
 - [x] Confirmed no Wayland platform plugins (`libqwayland*.so`) exist
 - [x] Tested `QT_SCALE_FACTOR=2` - doesn't fix window geometry, just scales content
-- [x] Tested `xwayland-native-scaling` experimental feature - needs Mutter restart
+- [x] Tested `xwayland-native-scaling` experimental feature - this is the fix
 
-## Potential Fixes (Not Yet Implemented)
+## Fix: Enable xwayland-native-scaling (Complete)
 
-### Option A: Build OnlyOffice with Qt Wayland Support
-- [ ] Clone OnlyOffice desktop-apps repo
-- [ ] Set up build environment with Qt 5.15+ and qtwayland5
-- [ ] Modify build config to include Wayland platform plugins
-- [ ] Build and test
-- [ ] Integrate into Dockerfile.ubuntu-helix
-
-### Option B: Try Flatpak Version
-- [ ] Install Flatpak OnlyOffice in test environment
-- [ ] Check if Flatpak version includes Wayland support
-- [ ] Test at 4K resolution
-- [ ] If works, update Dockerfile to use Flatpak instead of .deb
-
-### Option C: Enable xwayland-native-scaling at Startup
-- [ ] Add to startup-app.sh before gnome-shell starts:
+- [x] Update `desktop/ubuntu-config/startup-app.sh` to add `xwayland-native-scaling` to experimental features
+- [x] Changed gsettings line around line 230:
   ```bash
   gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer', 'xwayland-native-scaling']"
   ```
-- [ ] Test if this makes XWayland report physical resolution
-- [ ] Verify OnlyOffice renders correctly
+- [x] Commit and push to feature branch
 
-### Option D: Don't Use Compositor Scaling at 4K
-- [ ] Modify startup-app.sh to not set scaling-factor=2 for 4K
-- [ ] Instead use GDK_SCALE/QT_SCALE_FACTOR for native Wayland apps only
-- [ ] Test impact on other X11 apps
+## Testing (Requires Rebuild)
+
+- [ ] Rebuild image: `./stack build-ubuntu`
+- [ ] Start new 4K session
+- [ ] Launch OnlyOffice
+- [ ] Verify full window renders (not just top quarter)
+- [ ] Screenshot working state
 
 ## Cursor Theme (Deferred)
 
