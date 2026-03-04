@@ -78,6 +78,15 @@ type KoditAdminRepoDetailAttributes struct {
 	EnrichmentCount int64     `json:"enrichment_count"`
 	HelixRepoID     string    `json:"helix_repo_id,omitempty"`
 	HelixRepoName   string    `json:"helix_repo_name,omitempty"`
+
+	// Latest commit tracked by Kodit
+	LatestCommitSHA    string `json:"latest_commit_sha,omitempty"`
+	LatestCommitMsg    string `json:"latest_commit_message,omitempty"`
+	LatestCommitAuthor string `json:"latest_commit_author,omitempty"`
+	LatestCommitDate   string `json:"latest_commit_date,omitempty"`
+
+	// Last time Kodit scanned this repository
+	LastScannedAt string `json:"last_scanned_at,omitempty"`
 }
 
 // KoditAdminStatsResponse holds aggregate system statistics.
@@ -284,12 +293,32 @@ func (apiServer *HelixAPIServer) adminGetKoditRepository(w http.ResponseWriter, 
 		statusMessage = trackingStatus.Message()
 	}
 
+	// Latest commit
+	var latestSHA, latestMsg, latestAuthor, latestDate string
+	commits, err := apiServer.koditService.GetRepositoryCommits(r.Context(), koditRepoID, 1)
+	if err != nil {
+		log.Warn().Err(err).Int64("kodit_repo_id", koditRepoID).Msg("Failed to get latest commit")
+	} else if len(commits) > 0 {
+		c := commits[0]
+		latestSHA = c.SHA()
+		latestMsg = c.ShortMessage()
+		latestAuthor = c.Author().Name()
+		if !c.AuthoredAt().IsZero() {
+			latestDate = c.AuthoredAt().Format(time.RFC3339)
+		}
+	}
+
+	// Last scanned time
+	repo := summary.Source().Repository()
+	var lastScanned string
+	if !repo.LastScannedAt().IsZero() {
+		lastScanned = repo.LastScannedAt().Format(time.RFC3339)
+	}
+
 	// Cross-reference
 	helixRepos, _ := apiServer.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{})
 	helixMap := buildHelixRepoMap(helixRepos)
 	ref := helixMap[koditRepoID]
-
-	repo := summary.Source().Repository()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(KoditAdminRepoDetailResponse{
@@ -297,18 +326,23 @@ func (apiServer *HelixAPIServer) adminGetKoditRepository(w http.ResponseWriter, 
 			ID:   strconv.FormatInt(repo.ID(), 10),
 			Type: "kodit_repository",
 			Attributes: KoditAdminRepoDetailAttributes{
-				RemoteURL:       repo.RemoteURL(),
-				Status:          status,
-				StatusMessage:   statusMessage,
-				CreatedAt:       repo.CreatedAt(),
-				UpdatedAt:       repo.UpdatedAt(),
-				DefaultBranch:   summary.DefaultBranch(),
-				BranchCount:     summary.BranchCount(),
-				TagCount:        summary.TagCount(),
-				CommitCount:     summary.CommitCount(),
-				EnrichmentCount: enrichmentCount,
-				HelixRepoID:     ref.id,
-				HelixRepoName:   ref.name,
+				RemoteURL:          repo.RemoteURL(),
+				Status:             status,
+				StatusMessage:      statusMessage,
+				CreatedAt:          repo.CreatedAt(),
+				UpdatedAt:          repo.UpdatedAt(),
+				DefaultBranch:      summary.DefaultBranch(),
+				BranchCount:        summary.BranchCount(),
+				TagCount:           summary.TagCount(),
+				CommitCount:        summary.CommitCount(),
+				EnrichmentCount:    enrichmentCount,
+				HelixRepoID:        ref.id,
+				HelixRepoName:      ref.name,
+				LatestCommitSHA:    latestSHA,
+				LatestCommitMsg:    latestMsg,
+				LatestCommitAuthor: latestAuthor,
+				LatestCommitDate:   latestDate,
+				LastScannedAt:      lastScanned,
 			},
 		},
 	})

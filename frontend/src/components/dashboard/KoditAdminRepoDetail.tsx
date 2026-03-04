@@ -231,12 +231,39 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId }) =>
       <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
         <Grid container spacing={2}>
           <Grid item xs={6}>
+            <Typography variant="caption" color="text.secondary">Kodit Repository ID</Typography>
+            <Typography variant="body2">{data?.data?.id || '-'}</Typography>
+          </Grid>
+          <Grid item xs={6}>
             <Typography variant="caption" color="text.secondary">Default Branch</Typography>
             <Typography variant="body2">{attrs.default_branch || '-'}</Typography>
           </Grid>
           <Grid item xs={6}>
             <Typography variant="caption" color="text.secondary">Helix Repository</Typography>
             <Typography variant="body2">{attrs.helix_repo_name || '-'}</Typography>
+          </Grid>
+          <Grid item xs={6}>
+            <Typography variant="caption" color="text.secondary">Helix Repository ID</Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+              {attrs.helix_repo_id || '-'}
+            </Typography>
+          </Grid>
+          <Grid item xs={12}>
+            <Typography variant="caption" color="text.secondary">Latest Commit</Typography>
+            {attrs.latest_commit_sha ? (
+              <Box>
+                <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                  {attrs.latest_commit_sha}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {attrs.latest_commit_message}
+                  {attrs.latest_commit_author && ` — ${attrs.latest_commit_author}`}
+                  {attrs.latest_commit_date && `, ${new Date(attrs.latest_commit_date).toLocaleString()}`}
+                </Typography>
+              </Box>
+            ) : (
+              <Typography variant="body2">-</Typography>
+            )}
           </Grid>
           <Grid item xs={6}>
             <Typography variant="caption" color="text.secondary">Created</Typography>
@@ -248,6 +275,12 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId }) =>
             <Typography variant="caption" color="text.secondary">Updated</Typography>
             <Typography variant="body2">
               {attrs.updated_at ? new Date(attrs.updated_at).toLocaleString() : '-'}
+            </Typography>
+          </Grid>
+          <Grid item xs={6}>
+            <Typography variant="caption" color="text.secondary">Last Scanned</Typography>
+            <Typography variant="body2">
+              {attrs.last_scanned_at ? new Date(attrs.last_scanned_at).toLocaleString() : '-'}
             </Typography>
           </Grid>
         </Grid>

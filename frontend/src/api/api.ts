@@ -865,6 +865,13 @@ export interface ServerKoditAdminRepoDetailAttributes {
   enrichment_count?: number;
   helix_repo_id?: string;
   helix_repo_name?: string;
+  /** Last time Kodit scanned this repository */
+  last_scanned_at?: string;
+  latest_commit_author?: string;
+  latest_commit_date?: string;
+  latest_commit_message?: string;
+  /** Latest commit tracked by Kodit */
+  latest_commit_sha?: string;
   remote_url?: string;
   status?: string;
   status_message?: string;

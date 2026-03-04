@@ -19939,6 +19939,23 @@
                     "helix_repo_name": {
                         "type": "string"
                     },
+                    "last_scanned_at": {
+                        "description": "Last time Kodit scanned this repository",
+                        "type": "string"
+                    },
+                    "latest_commit_author": {
+                        "type": "string"
+                    },
+                    "latest_commit_date": {
+                        "type": "string"
+                    },
+                    "latest_commit_message": {
+                        "type": "string"
+                    },
+                    "latest_commit_sha": {
+                        "description": "Latest commit tracked by Kodit",
+                        "type": "string"
+                    },
                     "remote_url": {
                         "type": "string"
                     },
