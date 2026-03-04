@@ -566,7 +566,7 @@ const Projects: FC = () => {
       globalSearch={true}
       notifications={true}
       organizationId={account.organizationTools.organization?.id}
-      topbarContent={currentView === 'projects' ? (
+      topbarContent={currentView === 'projects' && projects.length > 0 ? (
         <CreateProjectButton
           onCreateEmpty={handleNewProject}
           onCreateFromSample={handleInstantiateSample}
