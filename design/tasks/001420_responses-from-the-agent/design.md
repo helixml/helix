@@ -124,4 +124,17 @@ Added handling for:
 2. `interaction_update` events - handle completion state and invalidate queries
 3. Reset `patchContent` on completion for next streaming session
 
-This was the actual fix - the backend changes alone weren't enough because the frontend was ignoring the patch events.
+### Critical Fix: sessionToCommenterMapping (Second Discovery)
+
+The backend fix alone still didn't work because **Zed's `message_added` events don't include `request_id`**. The original code tried to extract `request_id` from `syncMsg.Data` but it wasn't there.
+
+**Root cause:** `requestToCommenterMapping` is keyed by `request_id`, but we only have `request_id` when we *send* the command to Zed, not when Zed streams back responses.
+
+**Solution:** Added `sessionToCommenterMapping` (keyed by `sessionID` instead of `requestID`):
+
+1. **server.go**: Added `sessionToCommenterMapping map[string]string` field
+2. **spec_task_design_review_handlers.go**: Set `sessionToCommenterMapping[sessionID] = notifyUserID` when sending comment
+3. **websocket_external_agent_sync.go**: Look up commenter by `helixSessionID` in `handleMessageAdded`
+4. **spec_task_design_review_handlers.go**: Clean up mapping in `finalizeCommentResponse`
+
+Changed `streamingContext.requestID` to `streamingContext.commenterID` since we now store the looked-up commenter directly.
