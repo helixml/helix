@@ -416,8 +416,8 @@ postgresql:
   image:
     registry: docker.io
     repository: bitnami/postgresql
-    tag: latest
-    pullPolicy: Always
+    tag: "17"
+    pullPolicy: IfNotPresent
 
   # For bundled PostgreSQL auth configuration (when enabled=true):
   auth:
