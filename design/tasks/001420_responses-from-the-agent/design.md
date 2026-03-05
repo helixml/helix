@@ -113,6 +113,15 @@ The `requestToCommenterMapping` already existed and was used by `publishInteract
 
 Local Go build fails due to pre-existing tree-sitter dependency issue on main branch (not related to this change). Verified no syntax errors via diagnostics tool.
 
-### No Frontend Changes Needed
+### Frontend Changes Were Needed (Discovery)
 
-The frontend `DesignReviewContent.tsx` already handles `session_update` events with interaction data. The `interaction_patch` events are published to the same queue format, and the frontend's streaming context reconstructs patches into full content.
+Initial assumption was wrong - the frontend `DesignReviewContent.tsx` only handled `session_update` events, NOT `interaction_patch` events. The main streaming context (`streaming.tsx`) handles patches, but the design review component had its own WebSocket handler that didn't.
+
+**Second file modified:** `frontend/src/components/spec-tasks/DesignReviewContent.tsx`
+
+Added handling for:
+1. `interaction_patch` events - reconstruct full content from delta patches (same algorithm as streaming.tsx)
+2. `interaction_update` events - handle completion state and invalidate queries
+3. Reset `patchContent` on completion for next streaming session
+
+This was the actual fix - the backend changes alone weren't enough because the frontend was ignoring the patch events.
