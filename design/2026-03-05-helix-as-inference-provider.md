@@ -1,7 +1,7 @@
 # Helix as OpenAI-Compatible Inference Provider
 
 **Date:** 2026-03-05
-**Status:** Draft
+**Status:** Implemented
 **Author:** Claude
 
 ## Problem Statement
@@ -79,61 +79,57 @@ func (s *HelixAPIServer) listModels(w http.ResponseWriter, r *http.Request) {
 
 ### 2. Anthropic model list handler
 
-When called with Anthropic headers, query the Anthropic provider's cached model list and return in Anthropic API format:
+When called with `anthropic-version` header, **proxy the request to the upstream Anthropic provider** (api.anthropic.com or configured ANTHROPIC_BASE_URL). This preserves exact API compatibility and ensures model lists are always up-to-date.
 
-```json
-{
-  "data": [
-    {"id": "claude-haiku-4-5-20251001", "type": "model", "display_name": "Claude Haiku 4.5", "created_at": "2025-10-01T00:00:00Z"},
-    {"id": "claude-opus-4-5-20251101", "type": "model", "display_name": "Claude Opus 4.5", "created_at": "2025-11-01T00:00:00Z"}
-  ],
-  "has_more": false,
-  "first_id": "claude-haiku-4-5-20251001",
-  "last_id": "claude-opus-4-5-20251101"
-}
-```
-
-Source: Use the existing provider model cache from `refreshAllProviderModels`. Filter to Anthropic provider only.
+Implementation: `listModelsAnthropic()` in `openai_model_handlers.go` uses the existing `anthropicProxy` reverse proxy infrastructure.
 
 ### 3. OpenAI model list includes provider-prefixed models
 
 When called without Anthropic headers, aggregate models from all providers:
 
-- Internal helix models: unprefixed (`Qwen/Qwen2.5-VL-3B-Instruct`)
+- Internal helix models: unprefixed (`Qwen/Qwen2.5-VL-3B-Instruct`) — **only if at least one runner is connected**
 - OpenAI models: prefixed (`openai/gpt-4o`, `openai/gpt-4o-mini`)
 - Nebius models: prefixed (`nebius/llama-3.3-70b`)
 - TogetherAI models: prefixed (`togetherai/...`)
 - **NOT Anthropic** — Anthropic models are served separately via the Anthropic-format endpoint
 
-Source: Use the existing provider model cache. The `refreshAllProviderModels` background job already fetches and caches all provider models every 60s.
+Implementation: `aggregateAllProviderModels()` in `openai_model_handlers.go` collects from all providers, `prefixModels()` adds provider prefixes, `hasConnectedRunners()` checks scheduler for active runners.
 
-### 4. Fix `isAnthropicProvider` and `listAnthropicModels`
+Source: Uses the existing provider model cache. The `refreshAllProviderModels` background job already fetches and caches all provider models every 60s.
 
-Currently hardcoded to `api.anthropic.com`:
+### 4. Fix `listAnthropicModels` to use `c.baseURL`
+
+Previously hardcoded to `api.anthropic.com`:
 
 ```go
-// Current (broken for proxy use)
-func isAnthropicProvider(baseURL string) bool {
-    return strings.Contains(baseURL, "https://api.anthropic.com")
-}
-
+// Before (broken for proxy use)
 func (c *RetryableClient) listAnthropicModels(ctx context.Context) ([]types.OpenAIModel, error) {
     url := "https://api.anthropic.com/v1/models"  // hardcoded!
     ...
 }
 ```
 
-Fix: Use `c.baseURL` and detect by provider type, not URL pattern. This allows the inner Helix to point its Anthropic provider at `http://outer-api:8080/v1` and have model listing work.
+Fixed to use `c.baseURL`:
 
-### Files to modify
+```go
+// After (works with any Anthropic-compatible endpoint)
+func (c *RetryableClient) listAnthropicModels(ctx context.Context) ([]types.OpenAIModel, error) {
+    baseURL := c.baseURL
+    if baseURL == "" {
+        baseURL = "https://api.anthropic.com/v1"
+    }
+    // ... normalize URL and append /models
+}
+```
+
+Also removed hardcoded 200K context length — model info provider fills this in via `getProviderModels()`.
+
+### Files modified
 
 | File | Change |
 |------|--------|
-| `api/pkg/server/server.go` | No route changes needed — `/v1/models` handler does detection |
-| `api/pkg/server/openai_chat_handlers.go` | Split `listModels` into dual-mode with header detection |
-| `api/pkg/openai/helix_openai_server.go` | `ListModels()` — aggregate provider-prefixed models |
-| `api/pkg/openai/openai_client_anthropic.go` | Fix `isAnthropicProvider()` and `listAnthropicModels()` to use `c.baseURL` |
-| `api/pkg/server/provider_handlers.go` | Expose cached provider models for the model list handlers |
+| `api/pkg/server/openai_model_handlers.go` | New dual-mode `listModels()` with `listModelsAnthropic()` and `listModelsOpenAI()`, `aggregateAllProviderModels()`, `hasConnectedRunners()`, `prefixModels()` |
+| `api/pkg/openai/openai_client_anthropic.go` | Fixed `listAnthropicModels()` to use `c.baseURL`, removed hardcoded context length |
 
 ## Helix-in-Helix Configuration
 
