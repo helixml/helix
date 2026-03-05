@@ -549,6 +549,155 @@ const SystemSettingsTable: FC = () => {
                   </TableCell>
                 </TableRow>
 
+                {/* Max Concurrent Desktops Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Max Concurrent Desktops
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Maximum number of concurrent desktop sessions per user (0 = unlimited)
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={settings?.max_concurrent_desktops ? `Limit: ${settings.max_concurrent_desktops}` : 'Unlimited'}
+                      color={settings?.max_concurrent_desktops ? 'primary' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontFamily="monospace">
+                      {settings?.max_concurrent_desktops ?? 0}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Box display="flex" gap={1} alignItems="center">
+                      {editingMaxDesktops ? (
+                        <>
+                          <TextField
+                            size="small"
+                            type="number"
+                            value={maxDesktopsValue}
+                            onChange={(e) => setMaxDesktopsValue(e.target.value)}
+                            inputProps={{ min: 0 }}
+                            sx={{ width: 100 }}
+                          />
+                          <Button
+                            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
+                            onClick={handleSaveMaxDesktops}
+                            size="small"
+                            variant="contained"
+                            disabled={saving}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            onClick={() => setEditingMaxDesktops(false)}
+                            size="small"
+                            disabled={saving}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          startIcon={<EditIcon />}
+                          onClick={() => {
+                            setMaxDesktopsValue(String(settings?.max_concurrent_desktops ?? 0))
+                            setEditingMaxDesktops(true)
+                          }}
+                          size="small"
+                        >
+                          Edit
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                {/* Providers Management Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Providers Management
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Allow users to manage their own model providers
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={settings?.providers_management_enabled ? 'Enabled' : 'Disabled'}
+                      color={settings?.providers_management_enabled ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2">
+                      {settings?.providers_management_enabled ? 'Enabled' : 'Disabled'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Switch
+                      checked={settings?.providers_management_enabled ?? false}
+                      onChange={(e) => handleToggleProvidersManagement(e.target.checked)}
+                      disabled={saving}
+                    />
+                  </TableCell>
+                </TableRow>
+
+                {/* Enforce Quotas Row */}
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      Enforce Quotas
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Enforce usage quotas and limits for users and organizations
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={settings?.enforce_quotas ? 'Enabled' : 'Disabled'}
+                      color={settings?.enforce_quotas ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2">
+                      {settings?.enforce_quotas ? 'Enabled' : 'Disabled'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Switch
+                      checked={settings?.enforce_quotas ?? false}
+                      onChange={(e) => handleToggleEnforceQuotas(e.target.checked)}
+                      disabled={saving}
+                    />
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </CardContent>
+      </Card>
+
+      {/* Optimus (Project Manager) Settings Card */}
+      <Card sx={{ mt: 3 }}>
+        <CardHeader title="Optimus (Project Manager) Settings" />
+        <CardContent>
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Setting</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Source</TableCell>
+                  <TableCell>Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {/* Optimus Reasoning Model Row */}
                 <TableRow>
                   <TableCell>
@@ -786,135 +935,6 @@ const SystemSettingsTable: FC = () => {
                         </Button>
                       )}
                     </Box>
-                  </TableCell>
-                </TableRow>
-
-                {/* Max Concurrent Desktops Row */}
-                <TableRow>
-                  <TableCell>
-                    <Typography variant="body2" fontWeight="medium">
-                      Max Concurrent Desktops
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Maximum number of concurrent desktop sessions per user (0 = unlimited)
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={settings?.max_concurrent_desktops ? `Limit: ${settings.max_concurrent_desktops}` : 'Unlimited'}
-                      color={settings?.max_concurrent_desktops ? 'primary' : 'default'}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" fontFamily="monospace">
-                      {settings?.max_concurrent_desktops ?? 0}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Box display="flex" gap={1} alignItems="center">
-                      {editingMaxDesktops ? (
-                        <>
-                          <TextField
-                            size="small"
-                            type="number"
-                            value={maxDesktopsValue}
-                            onChange={(e) => setMaxDesktopsValue(e.target.value)}
-                            inputProps={{ min: 0 }}
-                            sx={{ width: 100 }}
-                          />
-                          <Button
-                            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
-                            onClick={handleSaveMaxDesktops}
-                            size="small"
-                            variant="contained"
-                            disabled={saving}
-                          >
-                            Save
-                          </Button>
-                          <Button
-                            onClick={() => setEditingMaxDesktops(false)}
-                            size="small"
-                            disabled={saving}
-                          >
-                            Cancel
-                          </Button>
-                        </>
-                      ) : (
-                        <Button
-                          startIcon={<EditIcon />}
-                          onClick={() => {
-                            setMaxDesktopsValue(String(settings?.max_concurrent_desktops ?? 0))
-                            setEditingMaxDesktops(true)
-                          }}
-                          size="small"
-                        >
-                          Edit
-                        </Button>
-                      )}
-                    </Box>
-                  </TableCell>
-                </TableRow>
-
-                {/* Providers Management Row */}
-                <TableRow>
-                  <TableCell>
-                    <Typography variant="body2" fontWeight="medium">
-                      Providers Management
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Allow users to manage their own model providers
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={settings?.providers_management_enabled ? 'Enabled' : 'Disabled'}
-                      color={settings?.providers_management_enabled ? 'success' : 'default'}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">
-                      {settings?.providers_management_enabled ? 'Enabled' : 'Disabled'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Switch
-                      checked={settings?.providers_management_enabled ?? false}
-                      onChange={(e) => handleToggleProvidersManagement(e.target.checked)}
-                      disabled={saving}
-                    />
-                  </TableCell>
-                </TableRow>
-
-                {/* Enforce Quotas Row */}
-                <TableRow>
-                  <TableCell>
-                    <Typography variant="body2" fontWeight="medium">
-                      Enforce Quotas
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Enforce usage quotas and limits for users and organizations
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={settings?.enforce_quotas ? 'Enabled' : 'Disabled'}
-                      color={settings?.enforce_quotas ? 'success' : 'default'}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">
-                      {settings?.enforce_quotas ? 'Enabled' : 'Disabled'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Switch
-                      checked={settings?.enforce_quotas ?? false}
-                      onChange={(e) => handleToggleEnforceQuotas(e.target.checked)}
-                      disabled={saving}
-                    />
                   </TableCell>
                 </TableRow>
               </TableBody>
