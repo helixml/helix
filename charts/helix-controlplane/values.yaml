@@ -83,6 +83,12 @@ pgvector:
     dataSource: {}
 
 controlplane:
+  # Wait for PostgreSQL to be ready before starting the controlplane.
+  # Prevents race conditions where the controlplane starts before the
+  # database is fully initialized, causing migrations to fail silently.
+  waitForPostgres: true
+  # Timeout in seconds for waiting for PostgreSQL to be ready.
+  waitForPostgresTimeout: 300
   logLevel: "INFO"
   runnerToken: ""
   runnerTokenExistingSecret: ""
