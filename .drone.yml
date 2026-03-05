@@ -1135,28 +1135,26 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-  - name: publish-runner
-    image: plugins/docker
-    pull: always
-    settings:
-      dockerfile: Dockerfile.runner
-      auto_tag: true
-      daemon_off: true
-      pull_image: true
-      registry: registry.helixml.tech
-      repo: registry.helixml.tech/helix/runner
-      build_args:
-        # Runner with no baked models = empty
-        # See https://github.com/helixml/base-images
-        # and https://github.com/helixml/base-images/releases
-        - TAG=2025-11-22f-empty
-        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-      username: admin
-      password:
-        from_secret: helix_registry_password
+  # Retag 2.7.12 runner images instead of rebuilding.
+  # All runner tags after 2.7.12 are identical to 2.7.12.
+  - name: retag-runner
+    image: docker
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
+      - docker pull registry.helixml.tech/helix/runner:2.7.12
+      - |
+        if [ -n "$DRONE_TAG" ]; then
+          docker tag registry.helixml.tech/helix/runner:2.7.12 registry.helixml.tech/helix/runner:$DRONE_TAG
+          docker push registry.helixml.tech/helix/runner:$DRONE_TAG
+        fi
+      - docker tag registry.helixml.tech/helix/runner:2.7.12 registry.helixml.tech/helix/runner:latest
+      - docker push registry.helixml.tech/helix/runner:latest
     when:
       ref:
         include:
@@ -1180,59 +1178,44 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-  - name: publish-runner
-    image: plugins/docker
-    pull: always
-    settings:
-      dockerfile: Dockerfile.runner
-      tags:
-        - "${DRONE_TAG:-main}-small" # Default to branch
-        - "latest-small"
-      daemon_off: true
-      pull_image: true
-      registry: registry.helixml.tech
-      repo: registry.helixml.tech/helix/runner
-      build_args:
-        # Runner with small models = small
-        # See https://github.com/helixml/base-images
-        # and https://github.com/helixml/base-images/releases
-        - TAG=2025-11-22f-small
-        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-      username: admin
-      password:
-        from_secret: helix_registry_password
+  # Retag 2.7.12-small runner images instead of rebuilding.
+  - name: retag-runner
+    image: docker
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
+      - docker pull registry.helixml.tech/helix/runner:2.7.12-small
+      - |
+        if [ -n "$DRONE_TAG" ]; then
+          docker tag registry.helixml.tech/helix/runner:2.7.12-small registry.helixml.tech/helix/runner:${DRONE_TAG}-small
+          docker push registry.helixml.tech/helix/runner:${DRONE_TAG}-small
+        fi
+      - docker tag registry.helixml.tech/helix/runner:2.7.12-small registry.helixml.tech/helix/runner:latest-small
+      - docker push registry.helixml.tech/helix/runner:latest-small
     when:
       ref:
         include:
           - refs/heads/main
           - refs/tags/*
 
-  - name: publish-runner-branch
-    image: plugins/docker
-    pull: always
-    settings:
-      dockerfile: Dockerfile.runner
-      tags:
-        - "${DRONE_COMMIT_SHA:-main}-small" # Default to branch
-      daemon_off: true
-      pull_image: true
-      registry: registry.helixml.tech
-      repo: registry.helixml.tech/helix/runner
-      build_args:
-        # Runner with small models = small
-        # See https://github.com/helixml/base-images
-        # and https://github.com/helixml/base-images/releases
-        - TAG=2025-11-22f-small
-        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-      username: admin
-      password:
-        from_secret: helix_registry_password
+  - name: retag-runner-branch
+    image: docker
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
+      - docker pull registry.helixml.tech/helix/runner:2.7.12-small
+      - docker tag registry.helixml.tech/helix/runner:2.7.12-small registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-small
+      - docker push registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-small
     when:
       branch:
         exclude:
@@ -1255,59 +1238,44 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-  - name: publish-runner
-    image: plugins/docker
-    pull: always
-    settings:
-      dockerfile: Dockerfile.runner
-      tags:
-        - "${DRONE_TAG:-main}-large"
-        - "latest-large"
-      daemon_off: true
-      pull_image: true
-      registry: registry.helixml.tech
-      repo: registry.helixml.tech/helix/runner
-      build_args:
-        # Runner with large models = large
-        # See https://github.com/helixml/base-images
-        # and https://github.com/helixml/base-images/releases
-        - TAG=2025-11-22f-large
-        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-      username: admin
-      password:
-        from_secret: helix_registry_password
+  # Retag 2.7.12-large runner images instead of rebuilding.
+  - name: retag-runner
+    image: docker
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
+      - docker pull registry.helixml.tech/helix/runner:2.7.12-large
+      - |
+        if [ -n "$DRONE_TAG" ]; then
+          docker tag registry.helixml.tech/helix/runner:2.7.12-large registry.helixml.tech/helix/runner:${DRONE_TAG}-large
+          docker push registry.helixml.tech/helix/runner:${DRONE_TAG}-large
+        fi
+      - docker tag registry.helixml.tech/helix/runner:2.7.12-large registry.helixml.tech/helix/runner:latest-large
+      - docker push registry.helixml.tech/helix/runner:latest-large
     when:
       ref:
         include:
           - refs/heads/main
           - refs/tags/*
 
-  - name: publish-runner-branch
-    image: plugins/docker
-    pull: always
-    settings:
-      dockerfile: Dockerfile.runner
-      tags:
-        - "${DRONE_COMMIT_SHA:-main}-large"
-      daemon_off: true
-      pull_image: true
-      registry: registry.helixml.tech
-      repo: registry.helixml.tech/helix/runner
-      build_args:
-        # Runner with large models = large
-        # See https://github.com/helixml/base-images
-        # and https://github.com/helixml/base-images/releases
-        - TAG=2025-11-22f-large
-        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-      username: admin
-      password:
-        from_secret: helix_registry_password
+  - name: retag-runner-branch
+    image: docker
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
+      - docker pull registry.helixml.tech/helix/runner:2.7.12-large
+      - docker tag registry.helixml.tech/helix/runner:2.7.12-large registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-large
+      - docker push registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-large
     when:
       branch:
         exclude:
