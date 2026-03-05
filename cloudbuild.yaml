@@ -22,3 +22,8 @@ steps:
 - name: gcr.io/cloud-builders/gsutil
   args: ['rsync', 'temp/', 'gs://charts.helixml.tech']
   id: 'upload_charts'
+
+# Disable caching on index.yaml so helm clients see updates immediately
+- name: 'gcr.io/cloud-builders/gsutil'
+  args: ['setmeta', '-h', 'Cache-Control:no-cache,no-store,max-age=0', 'gs://charts.helixml.tech/index.yaml']
+  id: 'disable_index_cache'
