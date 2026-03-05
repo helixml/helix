@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/anthropic"
 	"github.com/helixml/helix/api/pkg/openai/manager"
@@ -272,13 +273,20 @@ func (apiServer *HelixAPIServer) getProviderModelsWithPrefix(ctx context.Context
 	return apiServer.prefixModels(models, providerName), nil
 }
 
-// prefixModels adds the provider name as a prefix to each model ID
+// prefixModels adds the provider name as a prefix to each model ID.
+// Models that already have a provider prefix (contain "/") are not double-prefixed.
+// This handles the Helix-as-inference-provider case where outer Helix already
+// returns prefixed models like "openai/gpt-4o", "togetherai/llama-3.3-70b".
 func (apiServer *HelixAPIServer) prefixModels(models []types.OpenAIModel, providerName string) []types.OpenAIModel {
 	prefixed := make([]types.OpenAIModel, len(models))
 	for i, m := range models {
 		prefixed[i] = m
-		prefixed[i].ID = providerName + "/" + m.ID
-		// Update OwnedBy to reflect the provider
+		// Don't double-prefix models that already have a provider prefix
+		// (indicated by containing a "/" in the model ID)
+		if !strings.Contains(m.ID, "/") {
+			prefixed[i].ID = providerName + "/" + m.ID
+		}
+		// Update OwnedBy to reflect the provider if not already set
 		if prefixed[i].OwnedBy == "" {
 			prefixed[i].OwnedBy = providerName
 		}
