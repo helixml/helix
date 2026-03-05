@@ -164,9 +164,12 @@ OPENAI_BASE_URL=${OUTER_API_URL}/v1
 ANTHROPIC_API_KEY=${OUTER_API_KEY}
 ANTHROPIC_BASE_URL=${OUTER_API_URL}
 
+# Outer API IP for the extra_hosts entry in docker-compose.dev.yaml
+OUTER_API_IP=${OUTER_API_IP}
+
 # Use the outer Helix's license (hides "Get your free Community License Key" banner)
-# HELIX_LICENSE_KEY is passed from the outer Helix via HydraExecutor
-LICENSE_KEY=${HELIX_LICENSE_KEY:-}
+# LICENSE_KEY is passed from the outer Helix via HydraExecutor
+LICENSE_KEY=${LICENSE_KEY:-}
 EOF
         echo "  ✅ .env created - inner Helix will use outer Helix for inference"
     else
