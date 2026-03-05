@@ -10,8 +10,8 @@
 
 ## Frontend (TypeScript/React)
 
-- [~] Update `DesignReviewContent.tsx` to handle `interaction_patch` events (currently only handles `session_update`)
-- [ ] Reconstruct full response content from patches in the comment streaming handler
+- [x] Update `DesignReviewContent.tsx` to handle `interaction_patch` events (currently only handles `session_update`)
+- [x] Reconstruct full response content from patches in the comment streaming handler
 
 ## Testing
 
