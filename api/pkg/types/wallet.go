@@ -26,6 +26,17 @@ type Wallet struct {
 	Balance float64 `json:"balance"`
 }
 
+func (w *Wallet) IsSubscriptionActive() bool {
+	switch w.SubscriptionStatus {
+	case stripe.SubscriptionStatusActive:
+		return true
+	case stripe.SubscriptionStatusTrialing:
+		return true
+
+	}
+	return false
+}
+
 type TransactionMetadata struct {
 	InteractionID         string          `json:"interaction_id"`
 	LLMCallID             string          `json:"llm_call_id"`

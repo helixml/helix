@@ -30,8 +30,6 @@ import CloseIcon from "@mui/icons-material/Close";
 import IconButton from "@mui/material/IconButton";
 import { Bot, Server } from "lucide-react";
 
-import Alert from "@mui/material/Alert";
-
 import useAccount from "../hooks/useAccount";
 import useApi from "../hooks/useApi";
 import useSnackbar from "../hooks/useSnackbar";
@@ -54,6 +52,10 @@ import ClaudeSubscriptionConnect, {
 import AnthropicLogo from "../components/providers/logos/anthropic";
 import CodingAgentForm from "../components/agent/CodingAgentForm";
 import type { CodingAgentFormHandle } from "../components/agent/CodingAgentForm";
+import { useGetConfig } from "../services/userService";
+import { useGetWallet } from "../services/useBilling";
+import CreditCardIcon from "@mui/icons-material/CreditCard";
+import type { TypesWallet } from "../api/api";
 
 const RECOMMENDED_MODELS = [
   "claude-opus-4-6",
@@ -99,6 +101,11 @@ const inputSx = {
 const labelSx = { color: "rgba(255,255,255,0.4)", fontSize: "0.82rem" };
 const helperSx = { color: "rgba(255,255,255,0.25)", fontSize: "0.72rem" };
 
+const formatUnixTimestamp = (unixTs?: number) => {
+  if (!unixTs || unixTs <= 0) return "—";
+  return new Date(unixTs * 1000).toLocaleString();
+};
+
 const btnSx = {
   bgcolor: ACCENT,
   color: "#000",
@@ -134,6 +141,11 @@ const STEPS: StepConfig[] = [
       "Organizations help you collaborate with your team and manage projects together.",
   },
   {
+    icon: <CreditCardIcon />,
+    title: "Activate subscription" ,
+    subtitle: "Add payment method to activate your organization subscription.",
+  },
+  {
     icon: <Server size={20} />,
     title: "Connect an AI provider",
     subtitle: "Add an API key so your agents can use AI models.",
@@ -163,6 +175,11 @@ export default function Onboarding() {
     new Set([0]),
   );
 
+  // Server config and wallet (for subscription check)
+  const { data: serverConfig, isLoading: isLoadingServerConfig } =
+    useGetConfig();
+  const [isSubscribing, setIsSubscribing] = useState(false);
+
   // Step 1: Provider
   const [selectedOnboardingProvider, setSelectedOnboardingProvider] =
     useState<Provider | null>(null);
@@ -172,7 +189,7 @@ export default function Onboarding() {
   const systemSettings = useGetSystemSettings();
   const updateSystemSettings = useUpdateSystemSettings();
 
-  // Step 2: Organization
+  // Step 1: Organization
   const [orgMode, setOrgMode] = useState<"select" | "create">("select");
   const [selectedOrgId, setSelectedOrgId] = useState<string>("");
   const [orgDisplayName, setOrgDisplayName] = useState("");
@@ -182,6 +199,17 @@ export default function Onboarding() {
     display_name?: string;
   } | null>(null);
   const createOrgMutation = useCreateOrg();
+
+  // Step 2: Subscription (conditional)
+  const {
+    data: wallet,
+    refetch: refetchWallet,
+    isFetching: isFetchingWallet,
+  } = useGetWallet(
+    createdOrg?.id,
+    !!createdOrg?.id && !isLoadingServerConfig && serverConfig?.billing_enabled,
+  );
+  const isSubscriptionActive = wallet?.subscription_status === "active";
 
   // Step 3: Project + Agent
   const [projectName, setProjectName] = useState("");
@@ -228,6 +256,7 @@ export default function Onboarding() {
   // Step 4: Task
   const [taskPrompt, setTaskPrompt] = useState("");
   const [creatingTask, setCreatingTask] = useState(false);
+  const [createdTaskId, setCreatedTaskId] = useState<string>("");
 
   const existingOrgs = account.organizationTools.organizations;
   const hasExistingOrgs = existingOrgs.length > 0;
@@ -270,18 +299,60 @@ export default function Onboarding() {
     );
   }, [providers]);
 
+  // Refetch wallet when organization is selected/created
+  useEffect(() => {
+    if (createdOrg?.id && serverConfig?.billing_enabled) {
+      refetchWallet();
+    }
+  }, [createdOrg?.id, serverConfig?.billing_enabled, refetchWallet]);
+
+  // Check for successful payment return from Stripe
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const success = url.searchParams.get("success");
+    if (success === "true") {
+      refetchWallet();
+      setActiveStep(2);
+      setCompletedSteps((prev) => {
+        const next = new Set(prev);
+        next.delete(2);
+        return next;
+      });
+      url.searchParams.delete("success");
+      const nextUrl = `${url.pathname}${url.searchParams.toString() ? `?${url.searchParams.toString()}` : ""}`;
+      window.history.replaceState({}, "", nextUrl);
+    }
+  }, [refetchWallet]);
+
+  useEffect(() => {
+    const orgIdFromUrl = new URLSearchParams(window.location.search).get("org_id");
+    if (!orgIdFromUrl || createdOrg || !existingOrgs.length) return;
+
+    const org = existingOrgs.find((candidate) => candidate.id === orgIdFromUrl);
+    if (!org?.id || !org?.name) return;
+
+    setSelectedOrgId(org.id);
+    setCreatedOrg({
+      id: org.id,
+      name: org.name,
+      display_name: org.display_name,
+    });
+    setCompletedSteps((prev) => new Set([...prev, 1]));
+    setActiveStep(2);
+  }, [createdOrg, existingOrgs]);
+
   // Auto-complete provider step if any providers already exist on initial load
   // (either user-configured or system/global providers)
-  // Provider step is now step 2 (after org setup at step 1)
+  // Provider step is now step 3 (after org setup at step 1, subscription at step 2)
   useEffect(() => {
     if (initialProvidersChecked.current || isLoadingProviders || !providers)
       return;
     initialProvidersChecked.current = true;
 
     if (hasAnyEnabledModels) {
-      setCompletedSteps((prev) => new Set([...prev, 2]));
-      if (activeStep === 2) {
-        setActiveStep(3);
+      setCompletedSteps((prev) => new Set([...prev, 3]));
+      if (activeStep === 3) {
+        setActiveStep(4);
       }
     }
   }, [isLoadingProviders]);
@@ -357,7 +428,7 @@ export default function Onboarding() {
   }, [zedExternalAgents, selectedAgentId]);
 
   useEffect(() => {
-    if (activeStep !== 3 || !createdOrg) return;
+    if (activeStep !== 4 || !createdOrg) return;
 
     api
       .get<IApp[]>(
@@ -444,26 +515,35 @@ export default function Onboarding() {
     setActiveStep(step + 1);
   }, []);
 
-  const handleComplete = useCallback(async () => {
-    try {
-      await api.getApiClient().v1UsersMeOnboardingCreate();
-    } catch (err) {
-      console.error("Failed to mark onboarding complete:", err);
-    }
-    if (createdOrg) {
+  const handleComplete = useCallback(
+    async (taskId?: string) => {
+      if (!createdOrg?.name) {
+        snackbar.error("No organization selected");
+        return;
+      }
+      if (!createdProjectId) {
+        snackbar.error("No project available");
+        return;
+      }
+
+      account.dismissOnboarding();
+
       localStorage.setItem(SELECTED_ORG_STORAGE_KEY, createdOrg.name);
-    }
-    if (createdProjectId && createdOrg) {
-      router.navigateReplace("org_project-specs", {
-        org_id: createdOrg.name,
+
+      account.orgNavigate("project-specs", {
         id: createdProjectId,
+        org_id: createdOrg.name,
+        highlight: taskId || createdTaskId || undefined,
       });
-    } else if (createdProjectId) {
-      router.navigateReplace("project-specs", { id: createdProjectId });
-    } else {
-      router.navigateReplace("projects");
-    }
-  }, [api, createdProjectId, createdOrg, router]);
+
+      try {
+        await api.getApiClient().v1UsersMeOnboardingCreate();
+      } catch (err) {
+        console.error("Failed to mark onboarding complete:", err);
+      }
+    },
+    [account, api, createdOrg?.name, createdProjectId, createdTaskId, snackbar],
+  );
 
   const handleSelectExistingOrg = useCallback(() => {
     if (!selectedOrgId) {
@@ -512,6 +592,31 @@ export default function Onboarding() {
     markComplete,
     snackbar,
   ]);
+
+  // Step 2: Activate subscription
+  const handleSubscribe = useCallback(async () => {
+    if (!createdOrg?.id) {
+      snackbar.error("Organization not found");
+      return;
+    }
+
+    try {
+      setIsSubscribing(true);
+
+      const resp = await api.getApiClient().v1SubscriptionNewCreate({
+        org_id: createdOrg.id,
+        return_url: `/onboarding?org_id=${createdOrg.id}`,
+      });
+      if (!resp.data) return;
+
+      document.location = resp.data;
+    } catch (error) {
+      console.error("Subscription error:", error);
+      snackbar.error("Failed to start subscription process");
+    } finally {
+      setIsSubscribing(false);
+    }
+  }, [api, createdOrg, snackbar]);
 
   const handleBrowseSelectRepository = useCallback(
     (
@@ -734,7 +839,7 @@ export default function Onboarding() {
         if (agentMode === "select") {
           setCreatedAgentId(selectedAgentId);
         }
-        markComplete(3);
+        markComplete(4);
       }
     } catch (err: any) {
       console.error("Failed to create project:", err);
@@ -780,11 +885,12 @@ export default function Onboarding() {
       });
 
       if (response.data) {
-        markComplete(4);
+        setCreatedTaskId(response.data.id || "");
+        markComplete(5);
         snackbar.success(
           "Task created! Your AI agent will start working on it.",
         );
-        setTimeout(() => handleComplete(), 1500);
+        setTimeout(() => handleComplete(response.data?.id || undefined), 1500);
       }
     } catch (err: any) {
       console.error("Failed to create task:", err);
@@ -797,6 +903,7 @@ export default function Onboarding() {
   }, [
     taskPrompt,
     createdProjectId,
+    createdTaskId,
     createdAgentId,
     api,
     markComplete,
@@ -1060,6 +1167,140 @@ export default function Onboarding() {
             <Box sx={{ mt: 2.5 }}>
               <Box
                 sx={{
+                  p: 2.5,
+                  borderRadius: 1.5,
+                  border: `1px solid ${CARD_BORDER}`,
+                  bgcolor: CARD_BG,
+                  mb: 2.5,
+                }}
+              >
+                <Typography
+                  sx={{
+                    color: "#fff",
+                    fontWeight: 600,
+                    fontSize: "0.9rem",
+                    mb: 1,
+                  }}
+                >
+                  Helix Business Subscription
+                </Typography>
+                <Typography
+                  sx={{
+                    color: "rgba(255,255,255,0.5)",
+                    fontSize: "0.8rem",
+                    mb: 1.5,
+                  }}
+                >
+                  Subscribe to activate your organization and unlock product
+                  features. The monthly fee is converted to credits and added to
+                  your balance.
+                </Typography>
+                {wallet && (
+                  <Box sx={{ mb: 2 }}>
+                    <Typography
+                      sx={{
+                        color: "rgba(255,255,255,0.3)",
+                        fontSize: "0.75rem",
+                        mb: 0.5,
+                      }}
+                    >
+                      Status: {wallet?.subscription_status || "not_subscribed"}
+                    </Typography>
+                    <Typography
+                      sx={{
+                        color: "rgba(255,255,255,0.3)",
+                        fontSize: "0.75rem",
+                        mb: 0.5,
+                      }}
+                    >
+                      Subscription started:{" "}
+                      {formatUnixTimestamp(wallet.subscription_created)}
+                    </Typography>
+                    <Typography
+                      sx={{
+                        color: "rgba(255,255,255,0.3)",
+                        fontSize: "0.75rem",
+                        mb: 0.5,
+                      }}
+                    >
+                      Current billing period started:{" "}
+                      {formatUnixTimestamp(wallet.subscription_current_period_start)}
+                    </Typography>
+                    <Typography
+                      sx={{
+                        color: "rgba(255,255,255,0.3)",
+                        fontSize: "0.75rem",
+                        mb: 0.5,
+                      }}
+                    >
+                      Next billing term:{" "}
+                      {formatUnixTimestamp(wallet.subscription_current_period_end)}
+                    </Typography>
+                    <Typography
+                      sx={{
+                        color: "rgba(255,255,255,0.3)",
+                        fontSize: "0.75rem",
+                      }}
+                    >
+                      Current balance: ${wallet.balance?.toFixed(2) || "0.00"}{" "}
+                      credits
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+
+              <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
+                {isSubscriptionActive ? (
+                  <Button
+                    variant="contained"
+                    onClick={() => markComplete(2)}
+                    sx={btnSx}
+                  >
+                    Continue
+                  </Button>
+                ) : (
+                  <Button
+                    variant="contained"
+                    onClick={handleSubscribe}
+                    disabled={isSubscribing}
+                    sx={btnSx}
+                    startIcon={
+                      isSubscribing ? (
+                        <CircularProgress size={14} sx={{ color: "#000" }} />
+                      ) : (
+                        <CreditCardIcon sx={{ fontSize: 16 }} />
+                      )
+                    }
+                  >
+                    {isSubscribing
+                      ? "Redirecting to payment..."
+                      : "Start Subscription ($399/m)"}
+                  </Button>
+                )}
+                <Button
+                  variant="text"
+                  onClick={() => refetchWallet()}
+                  disabled={isFetchingWallet}
+                  sx={{
+                    color: "rgba(255,255,255,0.3)",
+                    textTransform: "none",
+                    fontSize: "0.78rem",
+                    "&:hover": { color: "rgba(255,255,255,0.6)" },
+                  }}
+                >
+                  {isFetchingWallet ? "Refreshing..." : "Refresh status"}
+                </Button>
+              </Box>
+            </Box>
+          </Fade>
+        );
+
+      case 3:
+        return (
+          <Fade in={isStepActive(3)} timeout={400}>
+            <Box sx={{ mt: 2.5 }}>
+              <Box
+                sx={{
                   display: "grid",
                   gridTemplateColumns: "repeat(2, 1fr)",
                   gap: 1.5,
@@ -1250,7 +1491,7 @@ export default function Onboarding() {
               <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
                 <Button
                   variant="contained"
-                  onClick={() => markComplete(2)}
+                  onClick={() => markComplete(3)}
                   disabled={!hasUserProviders}
                   sx={btnSx}
                 >
@@ -1258,7 +1499,7 @@ export default function Onboarding() {
                 </Button>
                 <Button
                   variant="text"
-                  onClick={() => markComplete(2)}
+                  onClick={() => markComplete(3)}
                   sx={{
                     color: "rgba(255,255,255,0.3)",
                     textTransform: "none",
@@ -1273,9 +1514,9 @@ export default function Onboarding() {
           </Fade>
         );
 
-      case 3:
+      case 4:
         return (
-          <Fade in={isStepActive(3)} timeout={400}>
+          <Fade in={isStepActive(4)} timeout={400}>
             <Box sx={{ mt: 2.5 }}>
               <TextField
                 fullWidth
@@ -1829,9 +2070,9 @@ export default function Onboarding() {
           </Fade>
         );
 
-      case 4:
+      case 5:
         return (
-          <Fade in={isStepActive(4)} timeout={400}>
+          <Fade in={isStepActive(5)} timeout={400}>
             <Box sx={{ mt: 2.5 }}>
               <TextField
                 fullWidth
@@ -1953,6 +2194,10 @@ export default function Onboarding() {
             const completed = isStepCompleted(index);
             const active = isStepActive(index);
             const locked = isStepLocked(index);
+            const stepSubtitle =
+              index === 1 && createdOrg
+                ? `Selected organization: ${createdOrg.display_name || createdOrg.name}`
+                : step.subtitle;
 
             return (
               <Fade in timeout={600 + index * 150} key={index}>
@@ -1996,7 +2241,7 @@ export default function Onboarding() {
                           mt: 0.2,
                         }}
                       >
-                        {step.subtitle}
+                        {stepSubtitle}
                       </Typography>
                     </Box>
                   </Box>

@@ -12035,6 +12035,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** Organization ID */
         org_id?: string;
+        /** Custom return URL path (e.g. /onboarding) */
+        return_url?: string;
       },
       params: RequestParams = {},
     ) =>
