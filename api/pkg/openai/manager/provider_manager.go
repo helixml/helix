@@ -125,6 +125,9 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 			tlsOpts,
 			cfg.Providers.Anthropic.Models...)
 
+		// Mark as Anthropic provider so ListModels uses the correct API format
+		anthropicClient.SetIsAnthropic(true)
+
 		loggedClient := logger.Wrap(cfg, types.ProviderAnthropic, anthropicClient, modelInfoProvider, billingLogger, logStores...)
 
 		clients[types.ProviderAnthropic] = &providerClient{client: loggedClient}
