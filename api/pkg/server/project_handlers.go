@@ -374,6 +374,14 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		}
 	}
 
+	systemSettings, err := s.Store.GetSystemSettings(r.Context())
+	if err != nil {
+		log.Warn().
+			Err(err).
+			Msg("failed to get system settings (continuing)")
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
 	// Create project manager agent (Optimus)
 	optimusApp := optimus.NewOptimusAgentApp(optimus.OptimusConfig{
 		ProjectID:      created.ID,
@@ -382,6 +390,7 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		OwnerID:        user.ID,
 		OwnerType:      user.Type,
 		DefaultApp:     defaultApp,
+		SystemSettings: systemSettings,
 	})
 
 	createdOptimus, optimusErr := s.Store.CreateApp(r.Context(), optimusApp)

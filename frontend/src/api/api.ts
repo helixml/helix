@@ -5089,6 +5089,16 @@ export interface TypesSystemSettingsRequest {
   /** Kodit enrichment model configuration */
   kodit_enrichment_provider?: string;
   max_concurrent_desktops?: number;
+  optimus_generation_model?: string;
+  optimus_generation_model_provider?: string;
+  optimus_reasoning_model?: string;
+  optimus_reasoning_model_effort?: string;
+  optimus_reasoning_model_provider?: string;
+  optimus_small_generation_model?: string;
+  optimus_small_generation_model_provider?: string;
+  optimus_small_reasoning_model?: string;
+  optimus_small_reasoning_model_effort?: string;
+  optimus_small_reasoning_model_provider?: string;
   providers_management_enabled?: boolean;
   rag_embeddings_model?: string;
   /** RAG embedding model configuration */
@@ -5110,6 +5120,17 @@ export interface TypesSystemSettingsResponse {
   kodit_enrichment_provider?: string;
   /** Per user */
   max_concurrent_desktops?: number;
+  optimus_generation_model?: string;
+  optimus_generation_model_provider?: string;
+  optimus_reasoning_model?: string;
+  optimus_reasoning_model_effort?: string;
+  /** Optimus configuration */
+  optimus_reasoning_model_provider?: string;
+  optimus_small_generation_model?: string;
+  optimus_small_generation_model_provider?: string;
+  optimus_small_reasoning_model?: string;
+  optimus_small_reasoning_model_effort?: string;
+  optimus_small_reasoning_model_provider?: string;
   providers_management_enabled?: boolean;
   rag_embeddings_model?: string;
   /** true if both provider and model are configured */
