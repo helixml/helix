@@ -1009,6 +1009,14 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 	}
 	s.sessionCommentMutex.Unlock()
 
+	// Clean up sessionToCommenterMapping now that response is complete
+	s.contextMappingsMutex.Lock()
+	if s.sessionToCommenterMapping != nil {
+		delete(s.sessionToCommenterMapping, sessionID)
+		log.Debug().Str("session_id", sessionID).Msg("🧹 [HELIX] Cleaned up sessionToCommenterMapping")
+	}
+	s.contextMappingsMutex.Unlock()
+
 	log.Info().
 		Str("session_id", sessionID).
 		Str("completed_comment", comment.ID).
@@ -1243,6 +1251,12 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 			s.requestToCommenterMapping = make(map[string]string)
 		}
 		s.requestToCommenterMapping[requestID] = notifyUserID
+
+		// Also store session-based mapping for streaming (message_added events don't include request_id)
+		if s.sessionToCommenterMapping == nil {
+			s.sessionToCommenterMapping = make(map[string]string)
+		}
+		s.sessionToCommenterMapping[sessionID] = notifyUserID
 	}
 
 	// Send the message via WebSocket
