@@ -326,7 +326,12 @@ export default function DesignReviewContent({
           const totalLength = parsedData.total_length ?? 0;
 
           // Use shared utility for patch application
-          patchContent = applyPatch(patchContent, patchOffset, patch, totalLength);
+          patchContent = applyPatch(
+            patchContent,
+            patchOffset,
+            patch,
+            totalLength,
+          );
           accumulatedResponse = patchContent;
 
           console.log(
@@ -439,6 +444,8 @@ export default function DesignReviewContent({
               patchContent = "";
             }
           }
+        }
+
         // Handle interaction_update events (sent on completion)
         if (
           parsedData.type === "interaction_update" &&
