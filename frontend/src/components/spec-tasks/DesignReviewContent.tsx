@@ -42,6 +42,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { useQueryClient } from "@tanstack/react-query";
 import ReconnectingWebSocket from "reconnecting-websocket";
+import { applyPatch } from "../../utils/patchUtils";
 import {
   useDesignReview,
   useDesignReviewComments,
@@ -324,26 +325,9 @@ export default function DesignReviewContent({
           const patch = parsedData.patch ?? "";
           const totalLength = parsedData.total_length ?? 0;
 
-          // Reconstruct content from patch: content = content[:patchOffset] + patch
-          let newContent: string;
-          if (patchOffset === 0 && patchContent.length === 0) {
-            // First patch — just use the patch directly
-            newContent = patch;
-          } else if (patchOffset >= patchContent.length) {
-            // Pure append — most common case during streaming
-            newContent = patchContent + patch;
-          } else {
-            // Backwards edit — tool call status change, etc.
-            newContent = patchContent.slice(0, patchOffset) + patch;
-          }
-
-          // Truncate if totalLength indicates content got shorter
-          if (totalLength < newContent.length) {
-            newContent = newContent.slice(0, totalLength);
-          }
-
-          patchContent = newContent;
-          accumulatedResponse = newContent;
+          // Use shared utility for patch application
+          patchContent = applyPatch(patchContent, patchOffset, patch, totalLength);
+          accumulatedResponse = patchContent;
 
           console.log(
             "[DRWS-DEBUG] interaction_patch received, reconstructed length:",
