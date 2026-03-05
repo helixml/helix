@@ -165,16 +165,67 @@ Both use the same outer Helix URL and API key. The outer Helix differentiates ba
 - `/v1/chat/completions` with `Qwen/Qwen2.5-VL-3B-Instruct` → routes to internal scheduler
 - Provider model cache (`refreshAllProviderModels`) → fetches all provider models every 60s
 
-## Testing
+## Testing Strategy
 
-1. **Dual-mode `/v1/models`:**
-   - `curl /v1/models -H "Authorization: Bearer ..."` → returns OpenAI-format list with prefixed models
-   - `curl /v1/models -H "x-api-key: ..." -H "anthropic-version: 2023-06-01"` → returns Anthropic-format list
-2. **Inner Helix discovery:**
-   - Inner Helix onboarding model picker shows Claude models AND OpenAI/Nebius models
-3. **Anthropic caching:**
-   - Create project with Claude model → verify requests go through `/v1/messages` (not `/v1/chat/completions`)
-   - Check outer Helix logs for Anthropic cache hit headers
-4. **No regression:**
-   - Existing direct Anthropic/OpenAI configurations still work
-   - Unprefixed internal models still work
+We are developing inside a Helix-in-Helix session: an inner Helix dev stack running inside a desktop container managed by the outer (production) Helix. This gives us a natural test setup.
+
+### What we can test before deploying to outer Helix
+
+These are inner-Helix-side changes only:
+
+1. **`isAnthropicProvider` / `listAnthropicModels` fix** — Verify the Anthropic client uses `c.baseURL` instead of hardcoded `api.anthropic.com`. Confirm Go compiles, unit test if feasible.
+2. **OpenAI model list aggregation** — Implement in `helix_openai_server.go`, verify it compiles and includes prefixed models from the provider cache.
+3. **Dual-mode `/v1/models` handler** — Implement header detection, verify it compiles.
+
+### What requires deploying to outer Helix first
+
+The outer Helix needs the dual-mode `/v1/models` and provider-prefixed model aggregation deployed before the inner Helix can discover models through it.
+
+**Deployment flow:**
+1. Implement all changes on this branch
+2. User merges/deploys to outer Helix (can be done while retaining this session)
+3. Restart inner Helix API (`docker compose -f docker-compose.dev.yaml up -d api`)
+
+### End-to-end verification (after outer Helix deploy)
+
+All run from inside this dev session:
+
+```bash
+# 1. Dual-mode /v1/models on outer Helix
+# OpenAI format — should include prefixed models from all OpenAI-compatible providers
+curl -s "http://outer-api:8080/v1/models" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" | jq '.data[].id'
+# Expected: "Qwen/Qwen2.5-VL-3B-Instruct", "openai/gpt-4o", "nebius/llama-3.3-70b", ...
+# NOT expected: any "anthropic/claude-*" (those go on the Anthropic endpoint)
+
+# Anthropic format — should return Anthropic models unprefixed
+curl -s "http://outer-api:8080/v1/models" \
+  -H "x-api-key: $ANTHROPIC_API_KEY" \
+  -H "anthropic-version: 2023-06-01" | jq '.data[].id'
+# Expected: "claude-haiku-4-5-20251001", "claude-opus-4-5-20251101", ...
+
+# 2. Inner Helix provider discovery
+# Should show both providers with models
+curl -s "http://localhost:8080/api/v1/provider-endpoints?with_models=true" \
+  -H "Cookie: access_token=..." | jq '.[].name, .[].status'
+# Expected: "openai" "ok", "anthropic" "ok"
+
+# 3. Anthropic native format preserved
+# Send a request through inner Helix that routes to outer Helix's /v1/messages
+# Check outer Helix API logs for:
+#   - Request going to /v1/messages (NOT /v1/chat/completions)
+#   - Anthropic cache headers in response
+
+# 4. UI verification
+# - Open http://localhost:8080/onboarding
+# - Model picker should show Claude AND OpenAI/Nebius models
+# - Create project with claude-haiku-4-5-20251001
+# - Start a task, verify agent completes planning phase
+```
+
+### Regression checks
+
+- Direct Anthropic/OpenAI configurations (not via outer Helix) still work
+- Unprefixed internal helix models still work via `/v1/chat/completions`
+- Frontend provider endpoints page unchanged
+- Existing Zed agent sessions unaffected
