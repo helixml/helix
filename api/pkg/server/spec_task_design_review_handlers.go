@@ -812,8 +812,18 @@ func (s *HelixAPIServer) sendCommentToAgentNow(
 		return err
 	}
 
-	// Store the requestID on the comment in the database for persistent linking
+	// Store the requestID on the comment in the database for persistent linking.
+	// Also capture the interaction ID so we can copy the response at finalization time.
 	comment.RequestID = requestID
+
+	// Look up the interaction that was just created for this session
+	sessionID := specTask.PlanningSessionID
+	s.contextMappingsMutex.Lock()
+	if interactionID, ok := s.sessionToWaitingInteraction[sessionID]; ok {
+		comment.InteractionID = interactionID
+	}
+	s.contextMappingsMutex.Unlock()
+
 	if err := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); err != nil {
 		log.Error().
 			Err(err).
@@ -956,6 +966,51 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 	if err != nil {
 		// Not all requests are linked to comments - this is normal
 		return fmt.Errorf("no comment found for request %s: %w", requestID, err)
+	}
+
+	// If the comment doesn't have an AgentResponse yet, try to populate it from the interaction.
+	// The message_added events update the interaction's ResponseMessage but not the comment's
+	// AgentResponse directly. We need to copy it over at finalization time.
+	if comment.AgentResponse == "" && comment.InteractionID != "" {
+		interaction, interactionErr := s.Store.GetInteraction(ctx, comment.InteractionID)
+		if interactionErr == nil && interaction.ResponseMessage != "" {
+			comment.AgentResponse = interaction.ResponseMessage
+			now := time.Now()
+			comment.AgentResponseAt = &now
+			log.Info().
+				Str("comment_id", comment.ID).
+				Str("interaction_id", comment.InteractionID).
+				Int("response_length", len(interaction.ResponseMessage)).
+				Msg("📝 [HELIX] Populated comment AgentResponse from interaction at finalization")
+		}
+	}
+
+	// If we still don't have a response AND we have a session, try the latest interaction
+	if comment.AgentResponse == "" {
+		review, reviewErr := s.Store.GetSpecTaskDesignReview(ctx, comment.ReviewID)
+		if reviewErr == nil {
+			specTask, taskErr := s.Store.GetSpecTask(ctx, review.SpecTaskID)
+			if taskErr == nil && specTask.PlanningSessionID != "" {
+				// Get the latest interaction for this session that has a response
+				session, sessErr := s.Store.GetSession(ctx, specTask.PlanningSessionID)
+				if sessErr == nil && len(session.Interactions) > 0 {
+					// Find the last interaction with a response (should be the one we just completed)
+					for i := len(session.Interactions) - 1; i >= 0; i-- {
+						if session.Interactions[i].ResponseMessage != "" {
+							comment.AgentResponse = session.Interactions[i].ResponseMessage
+							now := time.Now()
+							comment.AgentResponseAt = &now
+							log.Info().
+								Str("comment_id", comment.ID).
+								Str("interaction_id", session.Interactions[i].ID).
+								Int("response_length", len(session.Interactions[i].ResponseMessage)).
+								Msg("📝 [HELIX] Populated comment AgentResponse from latest session interaction")
+							break
+						}
+					}
+				}
+			}
+		}
 	}
 
 	// Clear both request_id and queued_at to mark as fully processed

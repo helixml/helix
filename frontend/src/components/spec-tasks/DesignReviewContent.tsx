@@ -506,7 +506,7 @@ export default function DesignReviewContent({
       rws.removeEventListener("message", messageHandler);
       rws.close();
     };
-  }, [planningSessionId, specTaskId, reviewId]);
+  }, [planningSessionId, specTaskId, reviewId, account.user]);
 
   // Keyboard shortcuts
   useEffect(() => {
