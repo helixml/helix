@@ -2,6 +2,8 @@ steps:
 
 # Generate Helm packages
 - name: 'ubuntu'
+  env:
+  - 'TAG_NAME=$TAG_NAME'
   args: ['bash', './scripts/gen_packages.sh']
   id: 'gen_packages'
 

@@ -11,7 +11,8 @@ global:
 image:
   repository: registry.helixml.tech/helix/controlplane
   pullPolicy: Always
-  tag: "latest"
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
 
 tika:
   enabled: false
@@ -252,8 +253,8 @@ postgresql:
   enabled: true
   image:
     registry: docker.io
-    repository: bitnamilegacy/postgresql
-    tag: "latest"
+    repository: bitnami/postgresql
+    tag: "17"
     pullPolicy: IfNotPresent
   auth:
     postgresPassword: ""

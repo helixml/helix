@@ -10,6 +10,7 @@ import ModelTrainingIcon from '@mui/icons-material/ModelTraining'
 import SettingsIcon from '@mui/icons-material/Settings'
 import DeveloperBoardIcon from '@mui/icons-material/DeveloperBoard'
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney'
+import CodeIcon from '@mui/icons-material/Code'
 
 import useRouter from '../../hooks/useRouter'
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
@@ -100,6 +101,18 @@ const AdminPanelSidebar: FC = () => {
           icon: <SettingsIcon />,
           isActive: currentTab === 'system_settings',
           onClick: () => handleNavigationClick('system_settings')
+        }
+      ]
+    },
+    {
+      title: 'Code Intelligence',
+      items: [
+        {
+          id: 'kodit',
+          label: 'Kodit Repositories',
+          icon: <CodeIcon />,
+          isActive: currentTab === 'kodit',
+          onClick: () => handleNavigationClick('kodit')
         }
       ]
     },

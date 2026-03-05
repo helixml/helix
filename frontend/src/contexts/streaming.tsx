@@ -411,11 +411,21 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
               ) {
                 return prev; // No change — skip re-render entirely
               }
-              const updated: Partial<TypesInteraction> = {
-                ...current,
-                id: interactionId,
-                response_message: latestContent,
-              };
+              // CRITICAL: Detect interaction transition (follow-up message scenario)
+              // If the interactionId differs from what's in current, DON'T spread old data
+              // Otherwise we'd pollute the new interaction with stale fields from the old one
+              const isSameInteraction = current.id === interactionId;
+              const updated: Partial<TypesInteraction> = isSameInteraction
+                ? {
+                    ...current,
+                    id: interactionId,
+                    response_message: latestContent,
+                  }
+                : {
+                    // New interaction - start with clean slate, only set id and response_message
+                    id: interactionId,
+                    response_message: latestContent,
+                  };
               return new Map(prev).set(currentSessionId!, updated);
             });
           });

@@ -22,6 +22,7 @@ type SubscriptionSessionParams struct {
 	OrgName          string // Used for redirect URL (for example 'acme-org' for 'orgs/acme-org/billing')
 	UserID           string
 	Amount           float64
+	ReturnURL        string // Optional custom return URL (overrides default success/cancel URLs)
 }
 
 func (s *Stripe) GetCheckoutSessionURL(
@@ -51,14 +52,22 @@ func (s *Stripe) GetCheckoutSessionURL(
 		return "", fmt.Errorf("price not found")
 	}
 
-	successURL := s.cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"
-	if params.OrgID != "" {
-		successURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?success=true&session_id={CHECKOUT_SESSION_ID}"
-	}
+	var successURL, cancelURL string
+	if params.ReturnURL != "" {
+		// Use custom return URL if provided
+		successURL = s.cfg.AppURL + params.ReturnURL + "?success=true&session_id={CHECKOUT_SESSION_ID}"
+		cancelURL = s.cfg.AppURL + params.ReturnURL + "?canceled=true"
+	} else {
+		// Use default return URLs
+		successURL = s.cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"
+		if params.OrgID != "" {
+			successURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?success=true&session_id={CHECKOUT_SESSION_ID}"
+		}
 
-	cancelURL := s.cfg.AppURL + "/account?canceled=true"
-	if params.OrgID != "" {
-		cancelURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?canceled=true"
+		cancelURL = s.cfg.AppURL + "/account?canceled=true"
+		if params.OrgID != "" {
+			cancelURL = s.cfg.AppURL + "/orgs/" + params.OrgName + "/billing?canceled=true"
+		}
 	}
 
 	checkoutParams := &stripe.CheckoutSessionParams{
@@ -148,6 +157,7 @@ func (s *Stripe) handleSubscriptionEvent(event stripe.Event) error {
 	wallet.SubscriptionCurrentPeriodStart = subscription.CurrentPeriodStart
 	wallet.SubscriptionCurrentPeriodEnd = subscription.CurrentPeriodEnd
 	wallet.SubscriptionCreated = subscription.Created
+	wallet.SubscriptionCancelAtPeriodEnd = subscription.CancelAtPeriodEnd
 
 	if eventType == types.SubscriptionEventTypeDeleted {
 		wallet.SubscriptionStatus = stripe.SubscriptionStatusCanceled

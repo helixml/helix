@@ -52,6 +52,23 @@ func (f *fakeKoditService) GetRepositoryStatus(_ context.Context, _ int64) (trac
 	return f.status, f.err
 }
 func (f *fakeKoditService) RescanCommit(_ context.Context, _ int64, _ string) error { return f.err }
+func (f *fakeKoditService) DeleteRepository(_ context.Context, _ int64) error       { return f.err }
+func (f *fakeKoditService) ListRepositories(_ context.Context, _, _ int) ([]repository.Repository, int64, error) {
+	return nil, 0, f.err
+}
+func (f *fakeKoditService) RepositorySummary(_ context.Context, _ int64) (repository.RepositorySummary, error) {
+	return repository.RepositorySummary{}, f.err
+}
+func (f *fakeKoditService) SyncRepository(_ context.Context, _ int64) error { return f.err }
+func (f *fakeKoditService) EnrichmentCount(_ context.Context, _ int64) (int64, error) {
+	return 0, f.err
+}
+func (f *fakeKoditService) SystemStats(_ context.Context) (services.KoditSystemStats, error) {
+	return services.KoditSystemStats{}, f.err
+}
+func (f *fakeKoditService) RepositoryTasks(_ context.Context, _ int64) (services.KoditRepositoryTasks, error) {
+	return services.KoditRepositoryTasks{}, f.err
+}
 
 type fakeGitRepositoryStore struct {
 	store.Store

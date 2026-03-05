@@ -117,6 +117,502 @@
                 }
             }
         },
+        "/api/v1/admin/kodit/repositories": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all Kodit-indexed repositories with pagination. Admin only.",
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List Kodit repositories (admin)",
+                "parameters": [
+                    {
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Items per page (default 25, max 100)",
+                        "name": "per_page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.KoditAdminRepoListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/kodit/repositories/batch/delete": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Queue multiple Kodit repositories for deletion. Admin only.",
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Batch delete Kodit repositories (admin)",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.KoditAdminBatchRequest"
+                            }
+                        }
+                    },
+                    "description": "Repository IDs to delete",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.KoditAdminBatchResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/kodit/repositories/batch/rescan": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Trigger a HEAD commit rescan for multiple Kodit repositories. Admin only.",
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Batch rescan Kodit repositories (admin)",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.KoditAdminBatchRequest"
+                            }
+                        }
+                    },
+                    "description": "Repository IDs to rescan",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.KoditAdminBatchResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/kodit/repositories/{koditRepoId}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get detailed information about a Kodit repository including summary stats. Admin only.",
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get Kodit repository detail (admin)",
+                "parameters": [
+                    {
+                        "description": "Kodit Repository ID",
+                        "name": "koditRepoId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.KoditAdminRepoDetailResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Queue a Kodit repository for deletion. Admin only.",
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Delete Kodit repository (admin)",
+                "parameters": [
+                    {
+                        "description": "Kodit Repository ID",
+                        "name": "koditRepoId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/kodit/repositories/{koditRepoId}/rescan": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Trigger a rescan of the HEAD commit for a Kodit repository. Admin only.",
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Rescan Kodit repository HEAD (admin)",
+                "parameters": [
+                    {
+                        "description": "Kodit Repository ID",
+                        "name": "koditRepoId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/kodit/repositories/{koditRepoId}/sync": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Trigger a full sync (git fetch + branch scan + re-index) for a Kodit repository. Admin only.",
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Sync Kodit repository (admin)",
+                "parameters": [
+                    {
+                        "description": "Kodit Repository ID",
+                        "name": "koditRepoId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/kodit/repositories/{koditRepoId}/tasks": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns tracking statuses and pending queue tasks for a Kodit repository. Admin only.",
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get Kodit repository tasks (admin)",
+                "parameters": [
+                    {
+                        "description": "Kodit Repository ID",
+                        "name": "koditRepoId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.KoditAdminRepositoryTasksResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/kodit/stats": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns aggregate counts: repositories, enrichments, commits, pending tasks. Admin only.",
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get Kodit system stats (admin)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.KoditAdminStatsResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/organization-domains": {
             "get": {
                 "security": [
@@ -16009,6 +16505,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "description": "Custom return URL path (e.g. /onboarding)",
+                        "name": "return_url",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "responses": {
@@ -19317,6 +19821,273 @@
                     }
                 }
             },
+            "server.KoditAdminBatchRequest": {
+                "type": "object",
+                "properties": {
+                    "ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                }
+            },
+            "server.KoditAdminBatchResponse": {
+                "type": "object",
+                "properties": {
+                    "failed": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/server.KoditBatchError"
+                        }
+                    },
+                    "succeeded": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                }
+            },
+            "server.KoditAdminPaginationMeta": {
+                "type": "object",
+                "properties": {
+                    "page": {
+                        "type": "integer"
+                    },
+                    "per_page": {
+                        "type": "integer"
+                    },
+                    "total": {
+                        "type": "integer"
+                    },
+                    "total_pages": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "server.KoditAdminPendingTaskDTO": {
+                "type": "object",
+                "properties": {
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "integer"
+                    },
+                    "operation": {
+                        "type": "string"
+                    },
+                    "priority": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "server.KoditAdminRepoAttributes": {
+                "type": "object",
+                "properties": {
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "helix_repo_id": {
+                        "type": "string"
+                    },
+                    "helix_repo_name": {
+                        "type": "string"
+                    },
+                    "remote_url": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "status_message": {
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.KoditAdminRepoDTO": {
+                "type": "object",
+                "properties": {
+                    "attributes": {
+                        "$ref": "#/components/schemas/server.KoditAdminRepoAttributes"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.KoditAdminRepoDetailAttributes": {
+                "type": "object",
+                "properties": {
+                    "branch_count": {
+                        "type": "integer"
+                    },
+                    "commit_count": {
+                        "type": "integer"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "default_branch": {
+                        "type": "string"
+                    },
+                    "enrichment_count": {
+                        "type": "integer"
+                    },
+                    "helix_repo_id": {
+                        "type": "string"
+                    },
+                    "helix_repo_name": {
+                        "type": "string"
+                    },
+                    "last_scanned_at": {
+                        "description": "Last time Kodit scanned this repository",
+                        "type": "string"
+                    },
+                    "latest_commit_author": {
+                        "type": "string"
+                    },
+                    "latest_commit_date": {
+                        "type": "string"
+                    },
+                    "latest_commit_message": {
+                        "type": "string"
+                    },
+                    "latest_commit_sha": {
+                        "description": "Latest commit tracked by Kodit",
+                        "type": "string"
+                    },
+                    "remote_url": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "status_message": {
+                        "type": "string"
+                    },
+                    "tag_count": {
+                        "type": "integer"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.KoditAdminRepoDetailDTO": {
+                "type": "object",
+                "properties": {
+                    "attributes": {
+                        "$ref": "#/components/schemas/server.KoditAdminRepoDetailAttributes"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.KoditAdminRepoDetailResponse": {
+                "type": "object",
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/server.KoditAdminRepoDetailDTO"
+                    }
+                }
+            },
+            "server.KoditAdminRepoListResponse": {
+                "type": "object",
+                "properties": {
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/server.KoditAdminRepoDTO"
+                        }
+                    },
+                    "meta": {
+                        "$ref": "#/components/schemas/server.KoditAdminPaginationMeta"
+                    }
+                }
+            },
+            "server.KoditAdminRepositoryTasksResponse": {
+                "type": "object",
+                "properties": {
+                    "pending_tasks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/server.KoditAdminPendingTaskDTO"
+                        }
+                    },
+                    "statuses": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/server.KoditAdminTaskStatusDTO"
+                        }
+                    }
+                }
+            },
+            "server.KoditAdminStatsResponse": {
+                "type": "object",
+                "properties": {
+                    "commits": {
+                        "type": "integer"
+                    },
+                    "enrichments": {
+                        "type": "integer"
+                    },
+                    "pending_tasks": {
+                        "type": "integer"
+                    },
+                    "repositories": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "server.KoditAdminTaskStatusDTO": {
+                "type": "object",
+                "properties": {
+                    "current": {
+                        "type": "integer"
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "operation": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "type": "string"
+                    },
+                    "total": {
+                        "type": "integer"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.KoditBatchError": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "message": {
+                        "type": "string"
+                    }
+                }
+            },
             "server.KoditCommitAttributes": {
                 "type": "object",
                 "properties": {
@@ -22322,6 +23093,12 @@
             "types.CronTrigger": {
                 "type": "object",
                 "properties": {
+                    "emails": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
                     "enabled": {
                         "type": "boolean"
                     },
@@ -27006,6 +27783,10 @@
                         "description": "used to prepend onto raw filestore paths to download files\nthe filestore path will have the user info in it - i.e.\nit's a low level filestore path\nif we are using an object storage thing - then this URL\ncan be the prefix to the bucket",
                         "type": "boolean"
                     },
+                    "require_active_subscription": {
+                        "description": "Require an active subscription before allowing to use the product",
+                        "type": "boolean"
+                    },
                     "rudderstack_data_plane_url": {
                         "type": "string"
                     },
@@ -29171,8 +29952,45 @@
                     "max_concurrent_desktops": {
                         "type": "integer"
                     },
+                    "optimus_generation_model": {
+                        "type": "string"
+                    },
+                    "optimus_generation_model_provider": {
+                        "type": "string"
+                    },
+                    "optimus_reasoning_model": {
+                        "type": "string"
+                    },
+                    "optimus_reasoning_model_effort": {
+                        "type": "string"
+                    },
+                    "optimus_reasoning_model_provider": {
+                        "type": "string"
+                    },
+                    "optimus_small_generation_model": {
+                        "type": "string"
+                    },
+                    "optimus_small_generation_model_provider": {
+                        "type": "string"
+                    },
+                    "optimus_small_reasoning_model": {
+                        "type": "string"
+                    },
+                    "optimus_small_reasoning_model_effort": {
+                        "type": "string"
+                    },
+                    "optimus_small_reasoning_model_provider": {
+                        "type": "string"
+                    },
                     "providers_management_enabled": {
                         "type": "boolean"
+                    },
+                    "rag_embeddings_model": {
+                        "type": "string"
+                    },
+                    "rag_embeddings_provider": {
+                        "description": "RAG embedding model configuration",
+                        "type": "string"
                     }
                 }
             },
@@ -29211,8 +30029,50 @@
                         "description": "Per user",
                         "type": "integer"
                     },
+                    "optimus_generation_model": {
+                        "type": "string"
+                    },
+                    "optimus_generation_model_provider": {
+                        "type": "string"
+                    },
+                    "optimus_reasoning_model": {
+                        "type": "string"
+                    },
+                    "optimus_reasoning_model_effort": {
+                        "type": "string"
+                    },
+                    "optimus_reasoning_model_provider": {
+                        "description": "Optimus configuration",
+                        "type": "string"
+                    },
+                    "optimus_small_generation_model": {
+                        "type": "string"
+                    },
+                    "optimus_small_generation_model_provider": {
+                        "type": "string"
+                    },
+                    "optimus_small_reasoning_model": {
+                        "type": "string"
+                    },
+                    "optimus_small_reasoning_model_effort": {
+                        "type": "string"
+                    },
+                    "optimus_small_reasoning_model_provider": {
+                        "type": "string"
+                    },
                     "providers_management_enabled": {
                         "type": "boolean"
+                    },
+                    "rag_embeddings_model": {
+                        "type": "string"
+                    },
+                    "rag_embeddings_model_set": {
+                        "description": "true if both provider and model are configured",
+                        "type": "boolean"
+                    },
+                    "rag_embeddings_provider": {
+                        "description": "RAG embedding model configuration (not sensitive, returned as-is)",
+                        "type": "string"
                     },
                     "updated": {
                         "type": "string"
@@ -30304,6 +31164,9 @@
                     },
                     "stripe_subscription_id": {
                         "type": "string"
+                    },
+                    "subscription_cancel_at_period_end": {
+                        "type": "boolean"
                     },
                     "subscription_created": {
                         "type": "integer"

@@ -48,6 +48,8 @@ import ServiceConnectionsTable from "../components/dashboard/ServiceConnectionsT
 import AgentSandboxes from "../components/admin/AgentSandboxes";
 import AdminOrgsTable from "../components/dashboard/AdminOrgsTable";
 import UsersTable from "../components/dashboard/UsersTable";
+import KoditAdminTable from "../components/dashboard/KoditAdminTable";
+import KoditAdminRepoDetail from "../components/dashboard/KoditAdminRepoDetail";
 import Chip from "@mui/material/Chip";
 import { useFloatingRunnerState } from "../contexts/floatingRunnerState";
 import LaunchIcon from "@mui/icons-material/Launch";
@@ -726,6 +728,18 @@ const Dashboard: FC = () => {
                         }}
                     >
                         <AdminOrgsTable />
+                    </Box>
+                )}
+
+                {tab === "kodit" && account.admin && !router.params.repo_id && (
+                    <Box sx={{ width: "100%", p: 2 }}>
+                        <KoditAdminTable />
+                    </Box>
+                )}
+
+                {tab === "kodit" && account.admin && router.params.repo_id && (
+                    <Box sx={{ width: "100%", p: 2 }}>
+                        <KoditAdminRepoDetail koditRepoId={router.params.repo_id} />
                     </Box>
                 )}
 

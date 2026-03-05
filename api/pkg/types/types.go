@@ -1015,8 +1015,9 @@ type ServerConfigForFrontend struct {
 	RegistrationEnabled                    bool                 `json:"registration_enabled"`
 	AuthProvider                           AuthProvider         `json:"auth_provider"`
 	FilestorePrefix                        string               `json:"filestore_prefix"`
-	StripeEnabled                          bool                 `json:"stripe_enabled"`  // Stripe top-ups enabled
-	BillingEnabled                         bool                 `json:"billing_enabled"` // Charging for usage
+	StripeEnabled                          bool                 `json:"stripe_enabled"`              // Stripe top-ups enabled
+	BillingEnabled                         bool                 `json:"billing_enabled"`             // Charging for usage
+	RequireActiveSubscription              bool                 `json:"require_active_subscription"` // Require an active subscription before allowing to use the product
 	SentryDSNFrontend                      string               `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend                string               `json:"google_analytics_frontend"`
 	EvalUserID                             string               `json:"eval_user_id"`
@@ -1825,9 +1826,10 @@ type CrispTrigger struct {
 }
 
 type CronTrigger struct {
-	Enabled  bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Schedule string `json:"schedule,omitempty" yaml:"schedule,omitempty"`
-	Input    string `json:"input,omitempty" yaml:"input,omitempty"`
+	Enabled  bool     `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Schedule string   `json:"schedule,omitempty" yaml:"schedule,omitempty"`
+	Input    string   `json:"input,omitempty" yaml:"input,omitempty"`
+	Emails   []string `json:"emails,omitempty" yaml:"emails,omitempty"`
 }
 
 // AzureDevOpsTrigger - once enabled, a trigger in the database will be created
@@ -2947,6 +2949,9 @@ type Notification struct {
 	// Populated by the provider
 	Email     string
 	FirstName string
+
+	// If set, send to these emails instead of the session owner
+	Emails []string
 }
 
 // StreamingTokenResponse contains token for accessing streaming session

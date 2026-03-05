@@ -23,10 +23,10 @@ func TestDisabledServiceMethods(t *testing.T) {
 	svc := NewKoditService(nil)
 	ctx := t.Context()
 
-	// RegisterRepository is special: returns zero values without error.
+	// RegisterRepository returns an error when disabled.
 	id, isNew, err := svc.RegisterRepository(ctx, "https://example.com/repo.git")
-	if err != nil || id != 0 || isNew {
-		t.Errorf("RegisterRepository: want (0, false, nil), got (%d, %v, %v)", id, isNew, err)
+	if err == nil || id != 0 || isNew {
+		t.Errorf("RegisterRepository: want (0, false, error), got (%d, %v, %v)", id, isNew, err)
 	}
 
 	// All other methods error when disabled.
@@ -40,6 +40,7 @@ func TestDisabledServiceMethods(t *testing.T) {
 		{"SearchSnippets", func() error { _, e := svc.SearchSnippets(ctx, 1, "test", 10); return e }},
 		{"GetRepositoryStatus", func() error { _, e := svc.GetRepositoryStatus(ctx, 1); return e }},
 		{"RescanCommit", func() error { return svc.RescanCommit(ctx, 1, "abc123") }},
+		{"DeleteRepository", func() error { return svc.DeleteRepository(ctx, 1) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.fn() == nil {

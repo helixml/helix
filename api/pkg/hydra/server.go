@@ -34,6 +34,7 @@ type Server struct {
 	socketPath          string
 	listener            net.Listener
 	server              *http.Server
+	router              *mux.Router
 }
 
 // NewServer creates a new Hydra server
@@ -77,6 +78,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Create router
 	router := mux.NewRouter()
+	s.router = router
 	s.registerRoutes(router)
 
 	// Create HTTP server
@@ -173,6 +175,31 @@ func (s *Server) registerRoutes(router *mux.Router) {
 
 	// System stats (GPU info, active sessions)
 	api.HandleFunc("/system/stats", s.handleSystemStats).Methods("GET")
+
+	// Version and route listing (for diagnosing version mismatches)
+	api.HandleFunc("/version", s.handleVersion).Methods("GET")
+}
+
+// handleVersion returns version info and registered routes for diagnosing mismatches
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	var routes []string
+	s.router.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
+		path, err := route.GetPathTemplate()
+		if err == nil {
+			methods, _ := route.GetMethods()
+			for _, m := range methods {
+				routes = append(routes, m+" "+path)
+			}
+		}
+		return nil
+	})
+
+	resp := &VersionResponse{
+		Version: Version,
+		Routes:  routes,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 // handleHealth returns server health status

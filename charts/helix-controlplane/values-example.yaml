@@ -3,8 +3,7 @@
 ## Global configuration
 global:
   # Set this to the public URL of your Helix deployment.
-  # This will be used for both SERVER_URL and APP_URL environment variables,
-  # and keycloak.frontendUrl will default to this + "/auth"
+  # This will be used for both SERVER_URL and APP_URL environment variables.
   #
   # By default we set this up to work with kubectl port-forward, but set this to
   # something like https://helix.mycorp.net if you have set up ingress and TLS
@@ -23,10 +22,10 @@ global:
 
 ## Image configuration
 image:
-  # It's good practice to pin the version of the software you're running!
-  # Get this from https://get.helixml.tech/latest.txt or check https://github.com/helixml/helix/releases
-  # YOU MUST SET THIS VALUE OR IT WILL NOT WORK
-  tag: "" # Replace with actual version
+  # Optionally pin to a specific version. If left empty, the chart's appVersion
+  # is used (which matches the chart version on release, e.g. chart 2.7.12 pulls
+  # images tagged 2.7.12). You can check the latest at https://get.helixml.tech/latest.txt
+  tag: ""
 
   # Use a custom registry if needed
   # repository: "my-registry.example.com/helix/controlplane"

@@ -52,6 +52,8 @@ import useApi from "../hooks/useApi";
 import useSnackbar from "../hooks/useSnackbar";
 import useRouter from "../hooks/useRouter";
 import useApps from "../hooks/useApps";
+import useSubscriptionGate from "../hooks/useSubscriptionGate";
+import Paywall from "../components/subscription/Paywall";
 import EditIcon from "@mui/icons-material/Edit";
 import {
   useGetProject,
@@ -81,6 +83,7 @@ const SpecTasksPage: FC = () => {
   const apps = useApps();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const { paywallActive, navigateToBilling } = useSubscriptionGate();
 
   // Get project ID from URL if in project context
   const projectId = router.params.id as string | undefined;
@@ -486,7 +489,7 @@ const SpecTasksPage: FC = () => {
 
   // Fetch last 5 sessions for this project (filtered by project manager app)
   const { data: projectSessionsData } = useListSessions(
-    undefined,
+    project?.organization_id,
     undefined,
     undefined,
     projectId,
@@ -1110,6 +1113,7 @@ const SpecTasksPage: FC = () => {
             )}
 
           {/* Main Content: Kanban Board, Tabs View, or Audit Trail */}
+          <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
           <Box
             sx={{
               flex: 1,
@@ -1171,6 +1175,7 @@ const SpecTasksPage: FC = () => {
               />
             )}
           </Box>
+          </Paywall>
         </Box>
 
         {/* RIGHT PANEL: New Spec Task - slides in from right, full screen on mobile */}

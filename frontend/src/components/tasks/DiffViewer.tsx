@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, useEffect, useMemo } from 'react'
+import React, { FC, useState, useCallback, useEffect, useMemo } from "react";
 import {
   Box,
   Typography,
@@ -7,62 +7,78 @@ import {
   Tooltip,
   Tabs,
   Tab,
-} from '@mui/material'
-import { RefreshCw, Circle, FileText, GitBranch } from 'lucide-react'
-import useLiveFileDiff, { FileDiff, useWorkspaces, WorkspaceInfo } from '../../hooks/useLiveFileDiff'
-import DiffFileList from './DiffFileList'
-import DiffContent from './DiffContent'
-import useSnackbar from '../../hooks/useSnackbar'
-import useThemeConfig from '../../hooks/useThemeConfig'
-import useRouter from '../../hooks/useRouter'
+  ToggleButtonGroup,
+  ToggleButton,
+} from "@mui/material";
+import {
+  RefreshCw,
+  Circle,
+  FileText,
+  GitBranch,
+  List,
+  FileCode,
+} from "lucide-react";
+import useLiveFileDiff, {
+  FileDiff,
+  useWorkspaces,
+} from "../../hooks/useLiveFileDiff";
+import DiffFileList from "./DiffFileList";
+import DiffContent from "./DiffContent";
+import useSnackbar from "../../hooks/useSnackbar";
+import useThemeConfig from "../../hooks/useThemeConfig";
+import useRouter from "../../hooks/useRouter";
+import useIsBigScreen from "../../hooks/useIsBigScreen";
 
 interface DiffViewerProps {
   /** Session ID to fetch diff from */
-  sessionId: string | undefined
+  sessionId: string | undefined;
   /** Base branch to compare against (default: main) */
-  baseBranch?: string
+  baseBranch?: string;
   /** Polling interval in ms (default: 3000) */
-  pollInterval?: number
+  pollInterval?: number;
 }
 
 /** Represents a tab in the diff viewer - either a workspace or helix-specs */
 interface DiffTab {
-  id: string
-  label: string
-  workspace?: string
-  isHelixSpecs?: boolean
-  icon: 'code' | 'docs'
+  id: string;
+  label: string;
+  workspace?: string;
+  isHelixSpecs?: boolean;
+  icon: "code" | "docs";
 }
 
 const DiffViewer: FC<DiffViewerProps> = ({
   sessionId,
-  baseBranch = 'main',
+  baseBranch = "main",
   pollInterval = 3000,
 }) => {
-  const themeConfig = useThemeConfig()
-  const snackbar = useSnackbar()
-  const router = useRouter()
+  const themeConfig = useThemeConfig();
+  const snackbar = useSnackbar();
+  const router = useRouter();
+  const isBigScreen = useIsBigScreen({ breakpoint: "sm" });
   const [selectedFile, setSelectedFile] = useState<string | null>(
-    router.params.file || null
-  )
-  const [fileContent, setFileContent] = useState<FileDiff | null>(null)
-  const [loadingFileContent, setLoadingFileContent] = useState(false)
-  const [selectedTabId, setSelectedTabId] = useState<string>('primary')
+    router.params.file || null,
+  );
+  const [fileContent, setFileContent] = useState<FileDiff | null>(null);
+  const [loadingFileContent, setLoadingFileContent] = useState(false);
+  const [selectedTabId, setSelectedTabId] = useState<string>("primary");
+  // Mobile view state: 'files' shows file list, 'diff' shows diff content
+  const [mobileView, setMobileView] = useState<"files" | "diff">("files");
 
   // Fetch available workspaces
-  const { data: workspacesData } = useWorkspaces(sessionId, !!sessionId)
+  const { data: workspacesData } = useWorkspaces(sessionId, !!sessionId);
 
   // Build tabs from workspaces
   const tabs = useMemo((): DiffTab[] => {
-    const result: DiffTab[] = []
-    const workspaces = workspacesData?.workspaces || []
+    const result: DiffTab[] = [];
+    const workspaces = workspacesData?.workspaces || [];
 
     // Sort: primary repo first, then alphabetically
     const sorted = [...workspaces].sort((a, b) => {
-      if (a.is_primary && !b.is_primary) return -1
-      if (!a.is_primary && b.is_primary) return 1
-      return a.name.localeCompare(b.name)
-    })
+      if (a.is_primary && !b.is_primary) return -1;
+      if (!a.is_primary && b.is_primary) return 1;
+      return a.name.localeCompare(b.name);
+    });
 
     for (const ws of sorted) {
       // Add workspace tab for code changes
@@ -70,140 +86,174 @@ const DiffViewer: FC<DiffViewerProps> = ({
         id: ws.name,
         label: ws.is_primary ? ws.name : ws.name,
         workspace: ws.name,
-        icon: 'code',
-      })
+        icon: "code",
+      });
 
       // Add helix-specs tab if the workspace has one
       if (ws.has_helix_specs && ws.is_primary) {
         result.push({
           id: `${ws.name}-specs`,
-          label: 'Design Docs',
+          label: "Design Docs",
           workspace: ws.name,
           isHelixSpecs: true,
-          icon: 'docs',
-        })
+          icon: "docs",
+        });
       }
     }
 
     // If no workspaces found, add a default tab
     if (result.length === 0) {
       result.push({
-        id: 'primary',
-        label: 'Changes',
-        icon: 'code',
-      })
+        id: "primary",
+        label: "Changes",
+        icon: "code",
+      });
     }
 
-    return result
-  }, [workspacesData?.workspaces])
+    return result;
+  }, [workspacesData?.workspaces]);
 
   // Get current tab config
   const currentTab = useMemo(() => {
-    return tabs.find(t => t.id === selectedTabId) || tabs[0]
-  }, [tabs, selectedTabId])
+    return tabs.find((t) => t.id === selectedTabId) || tabs[0];
+  }, [tabs, selectedTabId]);
 
   // Select first tab when tabs change
   useEffect(() => {
-    if (tabs.length > 0 && !tabs.find(t => t.id === selectedTabId)) {
-      setSelectedTabId(tabs[0].id)
+    if (tabs.length > 0 && !tabs.find((t) => t.id === selectedTabId)) {
+      setSelectedTabId(tabs[0].id);
     }
-  }, [tabs, selectedTabId])
+  }, [tabs, selectedTabId]);
 
-  const {
-    data,
-    isLoading,
-    isLive,
-    fetchFileDiff,
-    refresh,
-    fileCount,
-  } = useLiveFileDiff({
-    sessionId,
-    baseBranch,
-    includeContent: false,
-    pollInterval,
-    enabled: !!sessionId,
-    workspace: currentTab?.workspace,
-    helixSpecs: currentTab?.isHelixSpecs,
-  })
+  const { data, isLoading, isLive, fetchFileDiff, refresh, fileCount } =
+    useLiveFileDiff({
+      sessionId,
+      baseBranch,
+      includeContent: false,
+      pollInterval,
+      enabled: !!sessionId,
+      workspace: currentTab?.workspace,
+      helixSpecs: currentTab?.isHelixSpecs,
+    });
 
-  const handleSelectFile = useCallback((path: string) => {
-    setSelectedFile(path)
-    router.mergeParams({ file: path })
-  }, [router])
+  const handleSelectFile = useCallback(
+    (path: string) => {
+      setSelectedFile(path);
+      router.mergeParams({ file: path });
+      // On mobile, automatically switch to diff view when a file is selected
+      if (!isBigScreen) {
+        setMobileView("diff");
+      }
+    },
+    [router, isBigScreen],
+  );
+
+  // Handle back button on mobile diff view
+  const handleBackToFiles = useCallback(() => {
+    setMobileView("files");
+  }, []);
 
   useEffect(() => {
     if (data?.files.length && !selectedFile) {
-      const fileFromUrl = router.params.file
-      const matchingFile = fileFromUrl && data.files.find(f => f.path === fileFromUrl)
-      const firstFile = matchingFile ? matchingFile.path : data.files[0].path
-      setSelectedFile(firstFile)
+      const fileFromUrl = router.params.file;
+      const matchingFile =
+        fileFromUrl && data.files.find((f) => f.path === fileFromUrl);
+      const firstFile = matchingFile ? matchingFile.path : data.files[0].path;
+      setSelectedFile(firstFile);
       if (!matchingFile && firstFile) {
-        router.mergeParams({ file: firstFile })
+        router.mergeParams({ file: firstFile });
       }
     }
-  }, [data?.files, selectedFile, router])
+  }, [data?.files, selectedFile, router]);
 
   useEffect(() => {
     if (!selectedFile || !sessionId) {
-      setFileContent(null)
-      return
+      setFileContent(null);
+      return;
     }
 
     const loadContent = async () => {
-      setLoadingFileContent(true)
+      setLoadingFileContent(true);
       try {
-        const diff = await fetchFileDiff(selectedFile)
-        setFileContent(diff)
+        const diff = await fetchFileDiff(selectedFile);
+        setFileContent(diff);
       } catch (err) {
-        console.error('Failed to load file diff:', err)
+        console.error("Failed to load file diff:", err);
       } finally {
-        setLoadingFileContent(false)
+        setLoadingFileContent(false);
       }
-    }
+    };
 
-    loadContent()
-  }, [selectedFile, sessionId, fetchFileDiff])
+    loadContent();
+  }, [selectedFile, sessionId, fetchFileDiff]);
 
   const handleCopyPath = useCallback(() => {
     if (selectedFile) {
-      navigator.clipboard.writeText(selectedFile)
-      snackbar.success('Path copied to clipboard')
+      navigator.clipboard.writeText(selectedFile);
+      snackbar.success("Path copied to clipboard");
     }
-  }, [selectedFile, snackbar])
+  }, [selectedFile, snackbar]);
 
   if (!sessionId) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', p: 4 }}>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100%",
+          p: 4,
+        }}
+      >
         <Typography variant="body2" sx={{ color: themeConfig.neutral400 }}>
           No active session
         </Typography>
       </Box>
-    )
+    );
   }
 
   if (isLoading && !data) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', p: 4 }}>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100%",
+          p: 4,
+        }}
+      >
         <CircularProgress size={24} sx={{ color: themeConfig.tealRoot }} />
       </Box>
-    )
+    );
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', bgcolor: themeConfig.darkBackgroundColor }}>
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+        bgcolor: themeConfig.darkBackgroundColor,
+      }}
+    >
       <Box
         sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
           px: 2,
           py: 1.25,
-          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-          bgcolor: 'rgba(255, 255, 255, 0.02)',
+          borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
+          bgcolor: "rgba(255, 255, 255, 0.02)",
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 600, color: themeConfig.darkText }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+          <Typography
+            variant="subtitle2"
+            sx={{ fontWeight: 600, color: themeConfig.darkText }}
+          >
             Changes
           </Typography>
           {fileCount > 0 && (
@@ -211,10 +261,10 @@ const DiffViewer: FC<DiffViewerProps> = ({
               sx={{
                 px: 1,
                 py: 0.25,
-                borderRadius: '10px',
+                borderRadius: "10px",
                 bgcolor: `${themeConfig.tealRoot}26`,
                 color: themeConfig.tealRoot,
-                fontSize: '0.7rem',
+                fontSize: "0.7rem",
                 fontWeight: 600,
               }}
             >
@@ -223,12 +273,12 @@ const DiffViewer: FC<DiffViewerProps> = ({
           )}
           {isLive && (
             <Tooltip title="Receiving live updates from container">
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <Box sx={{ display: "flex", alignItems: "center" }}>
                 <Circle
                   size={8}
                   fill={themeConfig.greenRoot}
                   strokeWidth={0}
-                  style={{ animation: 'pulse 2s infinite' }}
+                  style={{ animation: "pulse 2s infinite" }}
                 />
               </Box>
             </Tooltip>
@@ -238,10 +288,10 @@ const DiffViewer: FC<DiffViewerProps> = ({
               sx={{
                 px: 1,
                 py: 0.25,
-                borderRadius: '4px',
+                borderRadius: "4px",
                 border: `1px solid ${themeConfig.yellowRoot}4D`,
                 color: themeConfig.yellowRoot,
-                fontSize: '0.65rem',
+                fontSize: "0.65rem",
                 fontWeight: 600,
               }}
             >
@@ -249,13 +299,14 @@ const DiffViewer: FC<DiffViewerProps> = ({
             </Box>
           )}
         </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
           {data?.branch && (
             <Typography
               variant="caption"
               sx={{
                 color: themeConfig.neutral400,
-                fontSize: '0.7rem',
+                fontSize: "0.7rem",
+                display: { xs: "none", sm: "block" },
               }}
             >
               {data.branch} ← {data.base_branch}
@@ -268,7 +319,10 @@ const DiffViewer: FC<DiffViewerProps> = ({
               sx={{
                 color: themeConfig.neutral400,
                 p: 0.5,
-                '&:hover': { color: themeConfig.tealRoot, bgcolor: `${themeConfig.tealRoot}1A` },
+                "&:hover": {
+                  color: themeConfig.tealRoot,
+                  bgcolor: `${themeConfig.tealRoot}1A`,
+                },
               }}
             >
               <RefreshCw size={14} strokeWidth={1.5} />
@@ -281,20 +335,24 @@ const DiffViewer: FC<DiffViewerProps> = ({
       {tabs.length > 1 && (
         <Box
           sx={{
-            borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-            bgcolor: 'rgba(255, 255, 255, 0.01)',
+            borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
+            bgcolor: "rgba(255, 255, 255, 0.01)",
           }}
         >
           <Tabs
             value={selectedTabId}
             onChange={(_, newValue) => {
-              setSelectedTabId(newValue)
-              setSelectedFile(null)
-              setFileContent(null)
+              setSelectedTabId(newValue);
+              setSelectedFile(null);
+              setFileContent(null);
+              // Reset to files view on mobile when switching tabs
+              if (!isBigScreen) {
+                setMobileView("files");
+              }
             }}
             sx={{
               minHeight: 36,
-              '& .MuiTabs-indicator': {
+              "& .MuiTabs-indicator": {
                 bgcolor: themeConfig.tealRoot,
                 height: 2,
               },
@@ -305,8 +363,10 @@ const DiffViewer: FC<DiffViewerProps> = ({
                 key={tab.id}
                 value={tab.id}
                 label={
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                    {tab.icon === 'docs' ? (
+                  <Box
+                    sx={{ display: "flex", alignItems: "center", gap: 0.75 }}
+                  >
+                    {tab.icon === "docs" ? (
                       <FileText size={14} strokeWidth={1.5} />
                     ) : (
                       <GitBranch size={14} strokeWidth={1.5} />
@@ -318,14 +378,14 @@ const DiffViewer: FC<DiffViewerProps> = ({
                   minHeight: 36,
                   py: 0.75,
                   px: 1.5,
-                  fontSize: '0.75rem',
+                  fontSize: "0.75rem",
                   fontWeight: 500,
-                  textTransform: 'none',
+                  textTransform: "none",
                   color: themeConfig.neutral400,
-                  '&.Mui-selected': {
+                  "&.Mui-selected": {
                     color: themeConfig.tealRoot,
                   },
-                  '&:hover': {
+                  "&:hover": {
                     color: themeConfig.darkText,
                   },
                 }}
@@ -335,14 +395,92 @@ const DiffViewer: FC<DiffViewerProps> = ({
         </Box>
       )}
 
+      {/* Mobile view toggle - only show on small screens when there are files */}
+      {!isBigScreen && data?.files && data.files.length > 0 && (
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            py: 0.75,
+            px: 1,
+            borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
+            bgcolor: "rgba(255, 255, 255, 0.02)",
+          }}
+        >
+          <ToggleButtonGroup
+            value={mobileView}
+            exclusive
+            onChange={(_, newView) => {
+              if (newView !== null) {
+                setMobileView(newView);
+              }
+            }}
+            size="small"
+            sx={{
+              "& .MuiToggleButton-root": {
+                py: 0.5,
+                px: 1.5,
+                border: "none",
+                borderRadius: "6px !important",
+                textTransform: "none",
+                fontSize: "0.75rem",
+                color: themeConfig.neutral400,
+                "&.Mui-selected": {
+                  bgcolor: `${themeConfig.tealRoot}20`,
+                  color: themeConfig.tealRoot,
+                  "&:hover": {
+                    bgcolor: `${themeConfig.tealRoot}30`,
+                  },
+                },
+                "&:hover": {
+                  bgcolor: "rgba(255, 255, 255, 0.05)",
+                },
+              },
+            }}
+          >
+            <ToggleButton value="files" aria-label="Files list">
+              <List size={14} strokeWidth={1.5} style={{ marginRight: 6 }} />
+              Files
+            </ToggleButton>
+            <ToggleButton value="diff" aria-label="Diff content">
+              <FileCode
+                size={14}
+                strokeWidth={1.5}
+                style={{ marginRight: 6 }}
+              />
+              Diff
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+      )}
+
       {data?.error && !data.files.length ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', p: 4 }}>
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            height: "100%",
+            p: 4,
+          }}
+        >
           <Typography variant="body2" sx={{ color: themeConfig.neutral400 }}>
             {data.error}
           </Typography>
         </Box>
       ) : data?.files.length === 0 ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', p: 4, flexDirection: 'column', gap: 1 }}>
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            height: "100%",
+            p: 4,
+            flexDirection: "column",
+            gap: 1,
+          }}
+        >
           <Typography variant="body2" sx={{ color: themeConfig.darkTextFaded }}>
             No changes detected
           </Typography>
@@ -350,43 +488,52 @@ const DiffViewer: FC<DiffViewerProps> = ({
             Changes will appear here when files are modified
           </Typography>
         </Box>
-      ) : (
-        <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      ) : isBigScreen ? (
+        /* Desktop layout: side-by-side file list and diff content */
+        <Box sx={{ display: "flex", flex: 1, overflow: "hidden" }}>
           <Box
             sx={{
               width: 280,
               flexShrink: 0,
-              borderRight: '1px solid rgba(255, 255, 255, 0.06)',
-              overflow: 'auto',
-              bgcolor: 'rgba(255, 255, 255, 0.01)',
+              borderRight: "1px solid rgba(255, 255, 255, 0.06)",
+              overflow: "auto",
+              bgcolor: "rgba(255, 255, 255, 0.01)",
             }}
           >
             <Box
               sx={{
                 px: 1.5,
                 py: 1,
-                borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
               }}
             >
               <Typography
                 variant="caption"
                 sx={{
-                  fontSize: '0.7rem',
+                  fontSize: "0.7rem",
                   color: themeConfig.neutral400,
                 }}
               >
                 {data?.total_additions !== undefined && (
-                  <Box component="span" sx={{ color: themeConfig.greenRoot, fontWeight: 600 }}>
+                  <Box
+                    component="span"
+                    sx={{ color: themeConfig.greenRoot, fontWeight: 600 }}
+                  >
                     +{data.total_additions}
                   </Box>
                 )}
-                {data?.total_additions !== undefined && data?.total_deletions !== undefined && ' / '}
+                {data?.total_additions !== undefined &&
+                  data?.total_deletions !== undefined &&
+                  " / "}
                 {data?.total_deletions !== undefined && (
-                  <Box component="span" sx={{ color: themeConfig.redRoot, fontWeight: 600 }}>
+                  <Box
+                    component="span"
+                    sx={{ color: themeConfig.redRoot, fontWeight: 600 }}
+                  >
                     -{data.total_deletions}
                   </Box>
                 )}
-                {' lines'}
+                {" lines"}
               </Typography>
             </Box>
             <DiffFileList
@@ -396,13 +543,87 @@ const DiffViewer: FC<DiffViewerProps> = ({
             />
           </Box>
 
-          <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+          <Box sx={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
             <DiffContent
               file={fileContent}
               isLoading={loadingFileContent}
               onCopyPath={handleCopyPath}
             />
           </Box>
+        </Box>
+      ) : (
+        /* Mobile layout: stacked views, show one at a time */
+        <Box
+          sx={{
+            flex: 1,
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          {mobileView === "files" ? (
+            /* Mobile file list view */
+            <Box
+              sx={{
+                flex: 1,
+                overflow: "auto",
+                bgcolor: "rgba(255, 255, 255, 0.01)",
+              }}
+            >
+              <Box
+                sx={{
+                  px: 1.5,
+                  py: 1,
+                  borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
+                }}
+              >
+                <Typography
+                  variant="caption"
+                  sx={{
+                    fontSize: "0.7rem",
+                    color: themeConfig.neutral400,
+                  }}
+                >
+                  {data?.total_additions !== undefined && (
+                    <Box
+                      component="span"
+                      sx={{ color: themeConfig.greenRoot, fontWeight: 600 }}
+                    >
+                      +{data.total_additions}
+                    </Box>
+                  )}
+                  {data?.total_additions !== undefined &&
+                    data?.total_deletions !== undefined &&
+                    " / "}
+                  {data?.total_deletions !== undefined && (
+                    <Box
+                      component="span"
+                      sx={{ color: themeConfig.redRoot, fontWeight: 600 }}
+                    >
+                      -{data.total_deletions}
+                    </Box>
+                  )}
+                  {" lines"}
+                </Typography>
+              </Box>
+              <DiffFileList
+                files={data?.files || []}
+                selectedFile={selectedFile}
+                onSelectFile={handleSelectFile}
+              />
+            </Box>
+          ) : (
+            /* Mobile diff content view */
+            <Box sx={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
+              <DiffContent
+                file={fileContent}
+                isLoading={loadingFileContent}
+                onCopyPath={handleCopyPath}
+                onBack={handleBackToFiles}
+                isMobile
+              />
+            </Box>
+          )}
         </Box>
       )}
 
@@ -413,7 +634,7 @@ const DiffViewer: FC<DiffViewerProps> = ({
         }
       `}</style>
     </Box>
-  )
-}
+  );
+};
 
-export default DiffViewer
+export default DiffViewer;

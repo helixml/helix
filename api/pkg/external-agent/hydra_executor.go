@@ -30,10 +30,12 @@ type QuotaManager interface {
 type HydraExecutor struct {
 	store        store.Store
 	quotaManager QuotaManager
-	sessions     map[string]*ZedSession
-	mutex        sync.RWMutex
 
-	// Configuration
+	// Active Zed sessions indexed by session ID
+	sessions map[string]*ZedSession
+	mutex    sync.RWMutex
+
+	// API configuration
 	helixAPIURL   string
 	helixAPIToken string
 
@@ -50,6 +52,9 @@ type HydraExecutor struct {
 
 	// GPU configuration
 	gpuVendor string // "nvidia", "amd", "intel", ""
+
+	// License key for nested Helix instances
+	licenseKey string
 }
 
 // connmanInterface abstracts the connection manager for RevDial connections to sandboxes
@@ -67,6 +72,7 @@ type HydraExecutorConfig struct {
 	WorkspaceBasePathForCloning   string
 	Connman                       connmanInterface
 	GPUVendor                     string
+	LicenseKey                    string // License key to pass to nested Helix instances
 }
 
 // NewHydraExecutor creates a new HydraExecutor instance
@@ -82,6 +88,7 @@ func NewHydraExecutor(cfg HydraExecutorConfig) *HydraExecutor {
 		connman:                       cfg.Connman,
 		creationLocks:                 make(map[string]*sync.Mutex),
 		gpuVendor:                     cfg.GPUVendor,
+		licenseKey:                    cfg.LicenseKey,
 	}
 }
 
@@ -848,6 +855,12 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 
 		// Keep desktop alive when Zed restarts
 		"SWAY_STOP_ON_APP_EXIT=no",
+	}
+
+	// Pass license key to nested Helix instances (Helix-in-Helix development)
+	// This hides the "Get your free Community License Key" banner
+	if h.licenseKey != "" {
+		env = append(env, fmt.Sprintf("LICENSE_KEY=%s", h.licenseKey))
 	}
 
 	// SECURITY: Runner token is NOT passed to containers - users must never see it

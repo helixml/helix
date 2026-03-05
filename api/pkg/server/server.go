@@ -242,6 +242,19 @@ func NewServer(
 		sandboxAPIURL = cfg.WebServer.URL
 	}
 
+	// Get license key for nested Helix instances (Helix-in-Helix)
+	// Priority: 1) LICENSE_KEY env, 2) database
+	licenseKeyForHydra := cfg.LicenseKey
+	if licenseKeyForHydra == "" {
+		// Try loading from database (user may have set it via API/UI)
+		if dbLicense, err := store.GetLicenseKey(context.Background()); err != nil {
+			log.Warn().Err(err).Msg("Failed to load license key from database for Hydra")
+		} else if dbLicense != nil && dbLicense.LicenseKey != "" {
+			licenseKeyForHydra = dbLicense.LicenseKey
+			log.Info().Msg("Loaded license key from database for nested Helix instances")
+		}
+	}
+
 	// Create Hydra executor for container lifecycle management
 	log.Info().Msg("Initializing Hydra executor for container management")
 	externalAgentExecutor := external_agent.NewHydraExecutor(external_agent.HydraExecutorConfig{
@@ -252,6 +265,7 @@ func NewServer(
 		WorkspaceBasePathForCloning:   "/data/workspaces", // Path on sandbox filesystem (not API - Hydra creates dirs)
 		Connman:                       connectionManager,
 		GPUVendor:                     os.Getenv("GPU_VENDOR"), // "nvidia", "amd", "intel", or ""
+		LicenseKey:                    licenseKeyForHydra,      // Pass to nested Helix instances
 	})
 	appController.Options.ExternalAgentExecutor = externalAgentExecutor
 
@@ -735,8 +749,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/prompt-history/{id}/tags", system.Wrapper(apiServer.updatePromptTags)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/prompt-history/{id}/use", system.Wrapper(apiServer.incrementPromptUsage)).Methods(http.MethodPost)
 
-	// Unified search endpoint
-	authRouter.HandleFunc("/search", system.Wrapper(apiServer.unifiedSearch)).Methods(http.MethodGet)
+	// Unified search endpoint (q= param)
+	authRouter.HandleFunc("/search", system.Wrapper(apiServer.unifiedSearch)).Methods(http.MethodGet).Queries("q", "{q}")
 
 	// Zed config endpoints
 	authRouter.HandleFunc("/sessions/{id}/zed-config", system.Wrapper(apiServer.getZedConfig)).Methods(http.MethodGet)
@@ -794,7 +808,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Trigger status routes
 	authRouter.HandleFunc("/apps/{id}/trigger-status", apiServer.getAppTriggerStatus).Methods(http.MethodGet)
 
-	authRouter.HandleFunc("/search", system.Wrapper(apiServer.knowledgeSearch)).Methods(http.MethodGet)
+	// Knowledge search endpoint (prompt= param)
+	authRouter.HandleFunc("/search", system.Wrapper(apiServer.knowledgeSearch)).Methods(http.MethodGet).Queries("prompt", "{prompt}")
 	authRouter.HandleFunc("/resource-search", system.Wrapper(apiServer.resourceSearch)).Methods(http.MethodPost)
 
 	authRouter.HandleFunc("/knowledge", system.Wrapper(apiServer.listKnowledge)).Methods(http.MethodGet)
@@ -933,6 +948,17 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// System settings - only admins can access
 	adminRouter.HandleFunc("/system/settings", apiServer.getSystemSettings).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/system/settings", apiServer.updateSystemSettings).Methods(http.MethodPut)
+
+	// Kodit admin routes
+	adminRouter.HandleFunc("/admin/kodit/stats", apiServer.adminGetKoditStats).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/admin/kodit/repositories", apiServer.adminListKoditRepositories).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}", apiServer.adminGetKoditRepository).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}/sync", apiServer.adminSyncKoditRepository).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}/rescan", apiServer.adminRescanKoditRepository).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}/tasks", apiServer.adminGetKoditRepositoryTasks).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}", apiServer.adminDeleteKoditRepository).Methods(http.MethodDelete)
+	adminRouter.HandleFunc("/admin/kodit/repositories/batch/delete", apiServer.adminBatchDeleteKoditRepositories).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/admin/kodit/repositories/batch/rescan", apiServer.adminBatchRescanKoditRepositories).Methods(http.MethodPost)
 
 	// all these routes are secured via runner tokens
 	insecureRouter.HandleFunc("/runner/{runner_id}/ws", func(w http.ResponseWriter, r *http.Request) {

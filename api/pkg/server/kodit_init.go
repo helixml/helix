@@ -39,6 +39,9 @@ func initKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 	var koditOpts []kodit.Option
 	koditOpts = append(koditOpts, kodit.WithPostgresVectorchord(cfg.Kodit.DatabaseURL))
 
+	// Default to the new Chunking implementation
+	koditOpts = append(koditOpts, kodit.WithSimpleChunking())
+
 	// Data directory (for cloned repos, model cache, etc.)
 	dataDir := cfg.Kodit.DataDir
 	if dataDir == "" {
@@ -69,6 +72,9 @@ func initKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 	if cfg.Kodit.WorkerCount > 0 {
 		koditOpts = append(koditOpts, kodit.WithWorkerCount(cfg.Kodit.WorkerCount))
 	}
+
+	// Pass helix's zerolog logger to kodit so log output is consistent.
+	koditOpts = append(koditOpts, kodit.WithLogger(log.Logger))
 
 	koditClient, err := kodit.New(koditOpts...)
 	if err != nil {

@@ -897,18 +897,32 @@ func (s *GitRepositoryService) UpdateRepository(
 	return existing, nil
 }
 
-// DeleteRepository deletes a repository
+// DeleteRepository deletes a repository from the filesystem, database, and Kodit.
 func (s *GitRepositoryService) DeleteRepository(ctx context.Context, repoID string) error {
-	repoPath := filepath.Join(s.gitRepoBase, repoID)
-
-	// Delete repository directory
-	if err := os.RemoveAll(repoPath); err != nil {
-		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository directory")
-		// Continue to delete metadata even if filesystem deletion fails
+	// Fetch the repo first so we can read kodit metadata before deleting.
+	repo, err := s.store.GetGitRepository(ctx, repoID)
+	if err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to fetch repository before deletion")
+		// Continue — we still want to clean up the filesystem and DB record.
 	}
 
-	err := s.store.DeleteGitRepository(ctx, repoID)
-	if err != nil {
+	// Delete from Kodit if the repo was indexed there.
+	if repo != nil && s.koditService != nil && s.koditService.IsEnabled() {
+		koditRepoID := koditRepoIDFromMetadata(repo.Metadata)
+		if koditRepoID != 0 {
+			if err := s.koditService.DeleteRepository(ctx, koditRepoID); err != nil {
+				log.Warn().Err(err).Str("repo_id", repoID).Int64("kodit_repo_id", koditRepoID).Msg("failed to delete repository from Kodit")
+			}
+		}
+	}
+
+	// Delete repository directory
+	repoPath := filepath.Join(s.gitRepoBase, repoID)
+	if err := os.RemoveAll(repoPath); err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository directory")
+	}
+
+	if err := s.store.DeleteGitRepository(ctx, repoID); err != nil {
 		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository metadata")
 	}
 
@@ -917,6 +931,34 @@ func (s *GitRepositoryService) DeleteRepository(ctx context.Context, repoID stri
 		Msg("deleted git repository")
 
 	return nil
+}
+
+// koditRepoIDFromMetadata extracts the kodit_repo_id from repository metadata,
+// handling int64, float64 (JSON), int, and string formats.
+func koditRepoIDFromMetadata(metadata map[string]any) int64 {
+	if metadata == nil {
+		return 0
+	}
+	raw, ok := metadata["kodit_repo_id"]
+	if !ok {
+		return 0
+	}
+	switch v := raw.(type) {
+	case int64:
+		return v
+	case float64:
+		return int64(v)
+	case int:
+		return int64(v)
+	case string:
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return 0
+		}
+		return id
+	default:
+		return 0
+	}
 }
 
 // incrementRepositoryName intelligently increments a repository name suffix

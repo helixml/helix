@@ -52,6 +52,9 @@ func (s *HelixAPIServer) getWalletHandler(_ http.ResponseWriter, req *http.Reque
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get or create wallet for user %s, error: %s", user.ID, err))
 	}
 
+	// Sync latest subscription state from Stripe (cancel_at_period_end, status, etc.)
+	s.Stripe.SyncSubscription(wallet)
+
 	return wallet, nil
 }
 
@@ -218,6 +221,7 @@ func (s *HelixAPIServer) lookupOrg(ctx context.Context, orgStr string) (*types.O
 // @Tags    wallets
 // @Success 200 {string} string "Subscription session URL"
 // @Param   org_id query string false "Organization ID"
+// @Param   return_url query string false "Custom return URL path (e.g. /onboarding)"
 // @Router /api/v1/subscription/new [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Request) (string, error) {
@@ -230,6 +234,8 @@ func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Req
 
 	var orgName string
 	orgID := req.URL.Query().Get("org_id")
+	returnURL := req.URL.Query().Get("return_url")
+
 	if orgID != "" {
 		org, err := s.lookupOrg(req.Context(), orgID)
 		if err != nil {
@@ -256,6 +262,7 @@ func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Req
 		OrgName:          orgName,
 		UserID:           user.ID,
 		Amount:           s.Cfg.Stripe.InitialBalance,
+		ReturnURL:        returnURL,
 	})
 }
 

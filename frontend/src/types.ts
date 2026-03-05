@@ -344,6 +344,8 @@ export interface IWebsocketEvent {
 export interface IServerConfig {
   filestore_prefix: string,
   stripe_enabled: boolean,
+  billing_enabled: boolean,
+  require_active_subscription: boolean,
   sentry_dsn_frontend: string,
   google_analytics_frontend: string,
   providers_management_enabled: boolean,
