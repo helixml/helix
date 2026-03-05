@@ -253,7 +253,7 @@ postgresql:
   enabled: true
   image:
     registry: docker.io
-    repository: bitnami/postgresql
+    repository: bitnamilegacy/postgresql
     tag: "17"
     pullPolicy: IfNotPresent
   auth:
