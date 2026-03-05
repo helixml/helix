@@ -415,7 +415,7 @@ postgresql:
   # PostgreSQL image configuration
   image:
     registry: docker.io
-    repository: bitnami/postgresql
+    repository: bitnamilegacy/postgresql
     tag: "17"
     pullPolicy: IfNotPresent
 
