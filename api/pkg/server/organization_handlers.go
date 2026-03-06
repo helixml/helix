@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -92,6 +93,8 @@ func (apiServer *HelixAPIServer) listOrganizations(rw http.ResponseWriter, r *ht
 				http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
+			org.Member = true
+
 			organizations = append(organizations, org)
 		}
 
@@ -106,6 +109,58 @@ func (apiServer *HelixAPIServer) listOrganizations(rw http.ResponseWriter, r *ht
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	memberships, err := apiServer.Store.ListOrganizationMemberships(r.Context(), &store.ListOrganizationMembershipsQuery{
+		UserID: user.ID,
+	})
+	if err != nil {
+		log.Err(err).Msg("error listing organization memberships")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	membershipByOrgID := make(map[string]struct{}, len(memberships))
+	for _, membership := range memberships {
+		membershipByOrgID[membership.OrganizationID] = struct{}{}
+	}
+
+	for _, organization := range organizations {
+		if organization == nil {
+			continue
+		}
+		_, isMember := membershipByOrgID[organization.ID]
+		organization.Member = isMember
+	}
+
+	sort.SliceStable(organizations, func(i, j int) bool {
+		iMember := organizations[i] != nil && organizations[i].Member
+		jMember := organizations[j] != nil && organizations[j].Member
+		if iMember != jMember {
+			return iMember
+		}
+
+		iDisplayName := ""
+		jDisplayName := ""
+		if organizations[i] != nil {
+			iDisplayName = strings.ToLower(organizations[i].DisplayName)
+		}
+		if organizations[j] != nil {
+			jDisplayName = strings.ToLower(organizations[j].DisplayName)
+		}
+		if iDisplayName != jDisplayName {
+			return iDisplayName < jDisplayName
+		}
+
+		iName := ""
+		jName := ""
+		if organizations[i] != nil {
+			iName = strings.ToLower(organizations[i].Name)
+		}
+		if organizations[j] != nil {
+			jName = strings.ToLower(organizations[j].Name)
+		}
+		return iName < jName
+	})
 
 	writeResponse(rw, organizations, http.StatusOK)
 }
