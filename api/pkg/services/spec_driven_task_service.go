@@ -47,6 +47,7 @@ type SpecDrivenTaskService struct {
 	ZedToHelixSessionService *ZedToHelixSessionService // Service for Zed→Helix session creation
 	SessionContextService    *SessionContextService    // Service for inter-session coordination
 	auditLogService          *AuditLogService          // Service for audit logging
+	koditService             KoditServicer             // Kodit code intelligence (for MCP documentation in prompts)
 	GetProjectSecrets        ProjectSecretsGetter      // Callback to get project secrets as env vars
 	wg                       sync.WaitGroup
 }
@@ -61,6 +62,7 @@ func NewSpecDrivenTaskService(
 	externalAgentExecutor external_agent.Executor,
 	gitRepositoryService *GitRepositoryService,
 	registerRequestMapping RequestMappingRegistrar,
+	koditService KoditServicer,
 ) *SpecDrivenTaskService {
 	service := &SpecDrivenTaskService{
 		store:                  store,
@@ -69,6 +71,7 @@ func NewSpecDrivenTaskService(
 		RegisterRequestMapping: registerRequestMapping,
 		helixAgentID:           helixAgentID,
 		zedAgentPool:           zedAgentPool,
+		koditService:           koditService,
 		testMode:               false,
 		auditLogService:        NewAuditLogService(store),
 	}
@@ -89,6 +92,11 @@ func NewSpecDrivenTaskService(
 	)
 
 	return service
+}
+
+// SetKoditService replaces the kodit service after late initialization.
+func (s *SpecDrivenTaskService) SetKoditService(svc KoditServicer) {
+	s.koditService = svc
 }
 
 // SetTestMode enables or disables test mode (prevents async operations)
@@ -335,7 +343,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
-	planningPrompt := BuildPlanningPrompt(task, guidelines)
+	planningPrompt := BuildPlanningPrompt(task, guidelines, s.koditService.MCPDocumentation())
 
 	// Get CodeAgentRuntime from the app config (needed for session resume to select correct agent)
 	codeAgentRuntime := s.getCodeAgentRuntimeForTask(ctx, task)
@@ -1141,7 +1149,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 
 		if sessionID != "" && !s.testMode {
 			// Create agent instruction service
-			agentInstructionService := NewAgentInstructionService(s.store, s.SendMessageToAgent)
+			agentInstructionService := NewAgentInstructionService(s.store, s.SendMessageToAgent, s.koditService)
 
 			err := agentInstructionService.SendApprovalInstruction(
 				context.Background(),
