@@ -147,17 +147,6 @@ git add -A && git commit -m "Progress update" && git push origin helix-specs
 3. For each task in tasks.md: mark [~], push helix-specs, do the work, mark [x], push again
 4. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
 
-## Kodit MCP Server - Discover Patterns
-
-You have access to **Kodit**, an MCP server for code intelligence. Use it during implementation:
-
-- Find how similar features are implemented in other repos
-- Discover existing utilities, helpers, or patterns to reuse
-- Search private/internal codebases the organization has indexed
-- Understand conventions before writing new code
-
-When you find useful patterns via Kodit, document them in design.md so future cloned tasks benefit.
-
 ## Visual Testing & Screenshots (For UI/Frontend Tasks)
 
 You can test your UI changes and capture screenshots as proof of work:
