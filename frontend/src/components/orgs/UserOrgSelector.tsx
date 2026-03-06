@@ -242,8 +242,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       id: org.id,
       name: org.name,
       display_name: org.display_name,
+      member: org.member,
     }))
-    return loadedOrgs
+    return loadedOrgs.sort((a, b) => Number(a.member === false) - Number(b.member === false))
   }, [organizations, account.user])
 
 
@@ -253,8 +254,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     if (listOrgs.length === 0) return
     const storedOrg = localStorage.getItem(SELECTED_ORG_STORAGE_KEY)
     if (storedOrg) return
-    // No stored org — select the first one
-    const firstOrgSlug = listOrgs[0].name
+    const firstAccessibleOrg = listOrgs.find((org) => org.member !== false)
+    if (!firstAccessibleOrg) return
+    const firstOrgSlug = firstAccessibleOrg.name
     localStorage.setItem(SELECTED_ORG_STORAGE_KEY, firstOrgSlug)
     const useRouteName = router.name.startsWith('org_') ? router.name : 'org_projects'
     const useParams = Object.assign({}, router.params, { org_id: firstOrgSlug })
@@ -786,7 +788,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                   lineHeight: 1.2,
                 }}
               >
-                Account & API key
+                Account Settings
               </Typography>
             </Box>
           )}
@@ -1139,9 +1141,18 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 display: 'flex',
                 alignItems: 'center',
                 gap: 2,
-                backgroundColor: currentOrgSlug === org.name ? 'rgba(0, 229, 255, 0.1)' : 'transparent',
+                opacity: org.member === false ? 0.55 : 1,
+                backgroundColor:
+                  currentOrgSlug === org.name && org.member !== false
+                    ? 'rgba(0, 229, 255, 0.1)'
+                    : 'transparent',
                 '&:hover': {
-                  backgroundColor: currentOrgSlug === org.name ? 'rgba(0, 229, 255, 0.15)' : '#2D3748',
+                  backgroundColor:
+                    org.member === false
+                      ? 'transparent'
+                      : currentOrgSlug === org.name
+                        ? 'rgba(0, 229, 255, 0.15)'
+                        : '#2D3748',
                 },
               }}
             >
@@ -1149,25 +1160,41 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 sx={{
                   width: 40,
                   height: 40,
-                  bgcolor: currentOrgSlug === org.name ? 'primary.main' : 'grey.600',
-                  color: currentOrgSlug === org.name ? '#fff' : '#ccc',
+                  bgcolor:
+                    org.member === false
+                      ? 'grey.800'
+                      : currentOrgSlug === org.name
+                        ? 'primary.main'
+                        : 'grey.600',
+                  color:
+                    org.member === false
+                      ? '#94A3B8'
+                      : currentOrgSlug === org.name
+                        ? '#fff'
+                        : '#ccc',
                   fontWeight: 'bold',
                   fontSize: '1.2rem',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderRadius: 1,
-                  border: currentOrgSlug === org.name ? '2px solid #00E5FF' : '2px solid transparent',
+                  border:
+                    currentOrgSlug === org.name && org.member !== false
+                      ? '2px solid #00E5FF'
+                      : '2px solid transparent',
                 }}
               >
                 {(org.display_name || org.name || '?').charAt(0).toUpperCase()}
               </Box>
               <Box sx={{ flex: 1 }}>
-                <Typography variant="body1" sx={{ color: '#F8FAFC', fontWeight: 500 }}>
+                <Typography
+                  variant="body1"
+                  sx={{ color: org.member === false ? '#CBD5E1' : '#F8FAFC', fontWeight: 500 }}
+                >
                   {org.display_name || org.name}
                 </Typography>
                 <Typography variant="body2" sx={{ color: '#A0AEC0' }}>
-                  Organization workspace
+                  {org.member === false ? 'Not a member' : 'Organization workspace'}
                 </Typography>
               </Box>
             </Box>
