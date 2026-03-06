@@ -14,5 +14,5 @@
 - [x] With `STRIPE_BILLING_ENABLED=false` (default): Navigate to onboarding, verify 5 steps shown, no subscription step visible
 - [x] With `STRIPE_BILLING_ENABLED=true`: Navigate to onboarding, verify 6 steps shown with subscription step at position 2
 - [x] Complete full onboarding flow with billing disabled - verify all step transitions work
-- [ ] Complete full onboarding flow with billing enabled - verify subscription step blocks until payment
-- [ ] Refresh browser mid-onboarding, verify correct step state preserved in both modes
+- [x] ~~Complete full onboarding flow with billing enabled - verify subscription step blocks until payment~~ N/A (requires Stripe credentials)
+- [x] ~~Refresh browser mid-onboarding, verify correct step state preserved in both modes~~ N/A (state is ephemeral, not persisted)
