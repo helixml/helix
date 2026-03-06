@@ -3,8 +3,8 @@
 - [x] Install QEMU and dependencies (`qemu-system-x86`, `qemu-utils`, `ovmf`, `libvirglrenderer1`)
 - [x] Fix `/dev/kvm` permissions (add user to kvm group or chmod)
 - [x] Download VirtIO drivers ISO from Fedora
-- [~] Download Windows 11 evaluation ISO from Microsoft
-- [ ] Create 80GB qcow2 disk image
+- [~] Download Windows 11 evaluation ISO from Microsoft (5.8GB, downloading in background)
+- [~] Create 80GB qcow2 disk image
 - [ ] Boot Windows installer with VirtIO-GPU and VirtIO disk
 - [ ] Load VirtIO storage driver during Windows install
 - [ ] Complete Windows 11 installation
