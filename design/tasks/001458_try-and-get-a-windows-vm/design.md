@@ -4,6 +4,84 @@
 
 Run a Windows VM inside the spectask container using QEMU/KVM with GPU-accelerated graphics. The container has `/dev/kvm`, an NVIDIA RTX 2000 Ada (16GB), and VFIO infrastructure available.
 
+## ✅ COMPLETED - Final Working Configuration
+
+**Status:** Successfully running Windows 11 Enterprise Evaluation (Build 22621) with VirtIO drivers installed.
+
+### Working QEMU Command
+
+```bash
+# Start TPM emulator first
+mkdir -p /tmp/windows-vm/tpm
+swtpm socket --tpmstate dir=/tmp/windows-vm/tpm \
+  --ctrl type=unixio,path=/tmp/windows-vm/tpm/swtpm-sock \
+  --tpm2 --daemon
+
+# Create OVMF vars copy
+cp /usr/share/OVMF/OVMF_VARS_4M.fd /tmp/windows-vm/OVMF_VARS.fd
+
+# Start Windows 11 VM
+qemu-system-x86_64 \
+  -enable-kvm \
+  -m 16G \
+  -smp 8 \
+  -cpu host \
+  -machine q35,accel=kvm \
+  -drive file=/tmp/windows-vm/windows11-prebuilt.qcow2,format=qcow2,if=none,id=hd0 \
+  -device ahci,id=ahci \
+  -device ide-hd,drive=hd0,bus=ahci.0 \
+  -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
+  -drive if=pflash,format=raw,file=/tmp/windows-vm/OVMF_VARS.fd \
+  -chardev socket,id=chrtpm,path=/tmp/windows-vm/tpm/swtpm-sock \
+  -tpmdev emulator,id=tpm0,chardev=chrtpm \
+  -device tpm-tis,tpmdev=tpm0 \
+  -device virtio-net,netdev=net0 \
+  -netdev user,id=net0 \
+  -device usb-ehci \
+  -device usb-tablet \
+  -cdrom /tmp/windows-vm/virtio-win.iso \
+  -vnc :0 \
+  -daemonize \
+  -monitor unix:/tmp/windows-vm/qemu-monitor.sock,server,nowait
+```
+
+### Key Configuration Details
+
+| Component | Configuration | Notes |
+|-----------|---------------|-------|
+| **Base Image** | Microsoft WinDev2407Eval.vhdx → qcow2 | Pre-built dev VM with VS2022 |
+| **Firmware** | OVMF UEFI (non-SecureBoot) | OVMF_CODE_4M.fd |
+| **TPM** | swtpm software emulator | TPM 2.0 required for Win11 |
+| **Storage** | AHCI/IDE-HD | VirtIO caused boot issues with VHDX |
+| **Network** | VirtIO-net | User-mode networking |
+| **Display** | VNC on :5900 | No GL acceleration yet |
+| **Drivers** | virtio-win-0.1.285 | All drivers installed |
+
+### Files Created
+
+| File | Size | Description |
+|------|------|-------------|
+| `/tmp/windows-vm/windows11-prebuilt.qcow2` | 43GB | Windows 11 disk (with drivers) |
+| `/tmp/windows-vm/virtio-win.iso` | 753MB | VirtIO drivers |
+| `/tmp/windows-vm/Win11_Eval.iso` | 5.8GB | Windows installer (unused) |
+| `/tmp/windows-vm/WinDev2407Eval.HyperV.zip` | 22GB | Original Microsoft VM |
+
+### Installed VirtIO Drivers
+
+All drivers installed via `virtio-win-guest-tools.exe`:
+- Balloon (memory management)
+- Network (VirtIO-net)
+- Pvpanic
+- Fwcfg
+- Qemupciserial
+- Vioinput
+- Viorng
+- Vioscsi
+- Vioserial
+- SPICE Guest Agent
+
+---
+
 ## Environment Discovery
 
 | Resource | Available |
@@ -13,6 +91,9 @@ Run a Windows VM inside the spectask container using QEMU/KVM with GPU-accelerat
 | VFIO | `/dev/vfio/vfio` ✅ |
 | IOMMU Groups | 82 groups, GPU in group 74 |
 | GPU binding | Currently `nvidia` driver (host using it) |
+| CPU | AMD EPYC 7443P 24-Core (48 threads) |
+| RAM | ~257GB available |
+| Disk | 779GB free |
 
 ## GPU Acceleration Options
 
@@ -65,19 +146,20 @@ qemu-system-x86_64 \
 - Still requires GPU passthrough (same problem as Option 2)
 - Complex setup
 
-### Option 4: Software Rendering (Fallback)
+### Option 4: Software Rendering (Fallback) ← Currently Used
 
-**How it works:** QXL/VGA with CPU-based rendering.
+**How it works:** Standard VGA/VESA with CPU-based rendering via VNC.
 
 **Pros:**
 - Always works
 - Simple setup
+- Remote access via VNC
 
 **Cons:**
 - No GPU acceleration
-- Slow for graphics-heavy tasks
+- Adequate for desktop use, slow for 3D
 
-## Architecture (VirtIO-GPU Approach)
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -86,136 +168,120 @@ qemu-system-x86_64 \
 │  ┌─────────────────────────────────────────────────┐    │
 │  │  QEMU/KVM                                       │    │
 │  │  ┌─────────────────────────────────────────┐    │    │
-│  │  │  Windows 11 VM                          │    │    │
+│  │  │  Windows 11 Enterprise Eval             │    │    │
 │  │  │  - 8 vCPUs, 16GB RAM                    │    │    │
-│  │  │  - 80GB qcow2 disk                      │    │    │
-│  │  │  - VirtIO-GPU (virgl OpenGL)            │    │    │
-│  │  │  - VirtIO disk/net                      │    │    │
+│  │  │  - 43GB qcow2 disk                      │    │    │
+│  │  │  - AHCI storage (SATA emulation)        │    │    │
+│  │  │  - VirtIO network                       │    │    │
+│  │  │  - TPM 2.0 (swtpm)                      │    │    │
+│  │  │  - UEFI firmware (OVMF)                 │    │    │
 │  │  └─────────────────────────────────────────┘    │    │
 │  │                                                 │    │
-│  │  virtio-vga-gl ──► virglrenderer ──► Host GPU  │    │
 │  │  VNC :5900 for remote access                    │    │
+│  │  QEMU Monitor socket for control                │    │
 │  └─────────────────────────────────────────────────┘    │
 │                                                         │
 │  NVIDIA RTX 2000 Ada (stays with host nvidia driver)    │
 └─────────────────────────────────────────────────────────┘
 ```
 
-## Implementation Approach
+## Implementation Steps Completed
 
-### Phase 1: Install Dependencies
+### ✅ Phase 1: Install Dependencies
 ```bash
 sudo apt update
 sudo apt install -y \
   qemu-system-x86 \
   qemu-utils \
   ovmf \
-  libvirglrenderer1 \
-  virtinst
+  swtpm \
+  socat \
+  imagemagick
 ```
 
-### Phase 2: Download Images
+### ✅ Phase 2: Download Images
 ```bash
-# VirtIO drivers for Windows
+# VirtIO drivers
 wget -O virtio-win.iso \
   https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso
 
-# Windows 11 evaluation ISO - manual download from Microsoft
-# https://www.microsoft.com/en-us/evalcenter/evaluate-windows-11-enterprise
+# Microsoft pre-built Windows 11 dev VM
+wget "https://aka.ms/windev_VM_hyperv" -O WinDev2407Eval.HyperV.zip
+unzip WinDev2407Eval.HyperV.zip
 ```
 
-### Phase 3: Create VM Disk
+### ✅ Phase 3: Convert VHDX to qcow2
 ```bash
-qemu-img create -f qcow2 /tmp/windows11.qcow2 80G
+qemu-img convert -f vhdx -O qcow2 WinDev2407Eval.vhdx windows11-prebuilt.qcow2
 ```
 
-### Phase 4: Install Windows (with VirtIO-GPU)
+### ✅ Phase 4: Boot Windows with TPM
+Key learnings:
+- Pre-built Hyper-V images use UEFI, not BIOS
+- Need AHCI storage controller (not VirtIO) for pre-built images
+- TPM 2.0 emulation via swtpm required for Windows 11
+- User networking works without bridge configuration
+
+### ✅ Phase 5: Install VirtIO Drivers
+1. Boot Windows
+2. Run `D:\virtio-win-guest-tools.exe` from CD-ROM
+3. Accept license, install all drivers
+4. Reboot (optional)
+
+## Display Access
+
+| Method | Command | Status |
+|--------|---------|--------|
+| VNC | `-vnc :0` | ✅ Working (port 5900) |
+| QEMU Monitor | `socat - UNIX-CONNECT:/tmp/windows-vm/qemu-monitor.sock` | ✅ Working |
+| SDL (local) | `-display sdl` | Requires X11 |
+| RDP | Port forward 3389 | Available after config |
+
+### Taking Screenshots via Monitor
 ```bash
-qemu-system-x86_64 \
-  -enable-kvm \
-  -m 16G \
-  -smp 8 \
-  -cpu host \
-  -machine q35 \
-  -device virtio-vga-gl \
-  -display sdl,gl=on \
-  -drive file=/tmp/windows11.qcow2,if=virtio,format=qcow2 \
-  -cdrom Win11_Eval.iso \
-  -drive file=virtio-win.iso,media=cdrom,index=1 \
-  -boot d \
-  -bios /usr/share/OVMF/OVMF_CODE.fd \
-  -device virtio-net,netdev=net0 \
-  -netdev user,id=net0 \
-  -usb \
-  -device usb-tablet
+echo "screendump /tmp/screenshot.ppm" | socat - UNIX-CONNECT:/tmp/windows-vm/qemu-monitor.sock
+convert /tmp/screenshot.ppm /tmp/screenshot.png
 ```
 
-**Note:** During Windows install, load VirtIO storage driver from the virtio-win.iso to detect the disk.
-
-### Phase 5: Run VM (Post-Install)
+### Sending Keys via Monitor
 ```bash
-qemu-system-x86_64 \
-  -enable-kvm \
-  -m 16G \
-  -smp 8 \
-  -cpu host \
-  -machine q35 \
-  -device virtio-vga-gl \
-  -display sdl,gl=on \
-  -drive file=/tmp/windows11.qcow2,if=virtio,format=qcow2 \
-  -device virtio-net,netdev=net0 \
-  -netdev user,id=net0,hostfwd=tcp::3389-:3389 \
-  -bios /usr/share/OVMF/OVMF_CODE.fd \
-  -usb \
-  -device usb-tablet
+echo "sendkey meta_l-e" | socat - UNIX-CONNECT:/tmp/windows-vm/qemu-monitor.sock  # Win+E
+echo "sendkey ret" | socat - UNIX-CONNECT:/tmp/windows-vm/qemu-monitor.sock       # Enter
+echo "sendkey ctrl-alt-del" | socat - UNIX-CONNECT:/tmp/windows-vm/qemu-monitor.sock
 ```
-
-### Phase 6: Install VirtIO GPU Driver in Windows
-
-After Windows boots:
-1. Open Device Manager
-2. Find "Microsoft Basic Display Adapter"
-3. Update driver → Browse → virtio-win.iso → `viogpudo` folder
-4. Install the VirtIO GPU DOD driver
-
-## Display Access Options
-
-| Method | Command | Use Case |
-|--------|---------|----------|
-| SDL (local) | `-display sdl,gl=on` | Best for virgl, needs X11 |
-| VNC | `-vnc :0` | Remote access, no GL |
-| SPICE | `-spice port=5930,disable-ticketing=on` | Remote + some GL |
-| RDP | Port forward 3389 | Native Windows remote |
 
 ## Resource Allocation
 
-| Resource | Value | Notes |
-|----------|-------|-------|
-| vCPUs | 8 | 48 available, leave headroom |
-| RAM | 16GB | 257GB available |
-| Disk | 80GB qcow2 | Windows needs ~50GB |
-| GPU | VirtIO-GPU (virgl) | Shared with host |
+| Resource | Allocated | Available | Notes |
+|----------|-----------|-----------|-------|
+| vCPUs | 8 | 48 | Leave headroom for host |
+| RAM | 16GB | 257GB | Windows 11 minimum 4GB |
+| Disk | 43GB actual | 779GB free | Dynamic qcow2 |
+| GPU | None (VNC) | RTX 2000 Ada | Future: VirtIO-GPU |
+
+## Known Issues & Solutions
+
+| Issue | Solution |
+|-------|----------|
+| "Press any key to boot from CD" times out | Spam keys immediately after boot |
+| Windows 11 TPM requirement | Use swtpm emulator |
+| Pre-built VM won't boot with VirtIO disk | Use AHCI controller |
+| OVMF_VARS.fd missing | Use OVMF_VARS_4M.fd |
+| sendkey space invalid | Use `sendkey spc` |
+
+## Future Improvements
+
+1. **Enable VirtIO-GPU with VirGL** for 3D acceleration
+2. **Add SPICE** for better remote experience
+3. **Port forward RDP** (3389) for native Windows remote desktop
+4. **Shared folders** via 9p or virtio-fs
+5. **Snapshot support** for quick restore
 
 ## Risks & Mitigations
 
 | Risk | Mitigation |
 |------|------------|
-| VirGL Windows driver immature | Fall back to QXL if broken |
-| Large ISO download | Use wget with resume |
-| Windows install slow | Run in tmux/background |
-| SDL display needs X11 | Use VNC as fallback |
-
-## Future: Full GPU Passthrough
-
-If exclusive GPU access is acceptable later:
-```bash
-# Unbind from nvidia
-echo 0000:01:00.0 | sudo tee /sys/bus/pci/devices/0000:01:00.0/driver/unbind
-# Bind to vfio-pci
-echo vfio-pci | sudo tee /sys/bus/pci/devices/0000:01:00.0/driver_override
-echo 0000:01:00.0 | sudo tee /sys/bus/pci/drivers/vfio-pci/bind
-# Pass to QEMU
-qemu-system-x86_64 ... -device vfio-pci,host=01:00.0
-```
-
-**Warning:** This would break `nvidia-smi` and any host GPU workloads.
+| VirGL Windows driver immature | Fall back to QXL/VNC |
+| Large image files | Use qcow2 compression |
+| Windows license expires | Microsoft eval VMs have 90-day limit |
+| VM state lost on container restart | Save qcow2 to persistent storage |
