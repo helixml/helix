@@ -73,13 +73,6 @@ func (s *SlackBot) setStatus(ok bool, message string) {
 }
 
 func (s *SlackBot) RunBot(ctx context.Context) error {
-	// Recover from panics
-	defer func() {
-		if r := recover(); r != nil {
-			log.Error().Msgf("panic: %v", r)
-		}
-	}()
-
 	log.Info().Str("app_id", s.app.ID).Msg("starting Slack bot")
 	defer log.Info().Str("app_id", s.app.ID).Msg("stopping Slack bot")
 
@@ -144,13 +137,10 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 	log.Info().Str("app_id", s.app.ID).Msg("running event loop")
 	defer log.Info().Str("app_id", s.app.ID).Msg("event loop stopped")
 
-	err = socketmodeHandler.RunEventLoop()
-	if err != nil {
+	err = socketmodeHandler.RunEventLoopContext(s.ctx)
+	if err != nil && s.ctx.Err() == nil {
 		log.Error().Err(err).Msg("failed to run event loop")
 	}
-
-	// Wait for the context to be cancelled
-	<-s.ctx.Done()
 
 	return nil
 }
@@ -925,6 +915,10 @@ type slackColumnSetting struct {
 
 func (b *slackTableBlock) BlockType() slack.MessageBlockType {
 	return b.Type
+}
+
+func (b *slackTableBlock) ID() string {
+	return b.BlockID
 }
 
 type slackFormattedMessage struct {
