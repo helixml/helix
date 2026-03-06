@@ -3355,6 +3355,8 @@ export interface TypesOrganization {
   /** Incremented on each update */
   guidelines_version?: number;
   id?: string;
+  /** Whether the current user is a member of the organization */
+  member?: boolean;
   /** Memberships in the organization */
   memberships?: TypesOrganizationMembership[];
   name?: string;

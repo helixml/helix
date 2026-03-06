@@ -918,7 +918,10 @@ export default function Onboarding() {
     } catch (err) {
       console.error("Failed to mark onboarding complete on dismiss:", err);
     }
-    router.navigateReplace("projects");
+    const org = account.organizationTools.organization;
+    if (org) {
+      router.navigateReplace("org_projects", { org_id: org.name });
+    }
   }, [api, router]);
 
   const userName =

@@ -44,6 +44,7 @@ import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
+import { useSettingsDialog } from '../../contexts/settingsDialog'
 import { matchesProviderType, mapProviderToRepoType, PROVIDER_TYPES } from '../../utils/oauthProviders'
 
 interface BrowseProvidersDialogProps {
@@ -92,6 +93,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   const snackbar = useSnackbar()
   const account = useAccount()
   const router = useRouter()
+  const settingsDialog = useSettingsDialog()
   const queryClient = useQueryClient()
   const oauthPopupRef = useRef<Window | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('providers')
@@ -659,7 +661,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                     size="small"
                     onClick={() => {
                       onClose()
-                      router.navigate('dashboard', { tab: 'oauth_providers' })
+                      settingsDialog.openDialog('admin', { tab: 'oauth_providers' })
                     }}
                     sx={{ textTransform: 'none', p: 0, minWidth: 'auto', verticalAlign: 'baseline' }}
                   >

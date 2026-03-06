@@ -384,39 +384,22 @@ export const useAccountContext = (): IAccountContext => {
   }, [])
 
   const orgNavigate = (routeName: string, params: Record<string, string | undefined> = {}, queryParams?: Record<string, string>) => {
-    // Current menu type for triggering animations
-    const currentResourceType = router.params.resource_type || 'chat'
-    const isOrgRoute = routeName.startsWith('org_')
-    const targetIsOrgRoute = isOrgRoute || params.org_id
-
-    // Determine if we're transitioning between org and non-org routes or vice versa
-    const isOrgTransition = (router.meta.menu === 'orgs' && !targetIsOrgRoute) ||
-                           (router.meta.menu !== 'orgs' && targetIsOrgRoute)
-
-    // Get the target route name and params
+    // All routes are now org-scoped, so always prepend org_ and include org_id
     let targetRouteName = routeName
-    let targetParams = {...params}
+    if (!routeName.startsWith('org_')) {
+      targetRouteName = `org_${routeName}`
+    }
 
-    if(organizationTools.organization || params.org_id) {
-      const useOrgID = params.org_id || organizationTools.organization?.name
-      // Only prepend org_ if not already present
-      if (!routeName.startsWith('org_')) {
-        targetRouteName = `org_${routeName}`
-      }
-      targetParams = {
-        ...params,
-        org_id: useOrgID,
-      }
+    const useOrgID = params.org_id || organizationTools.organization?.name
+    const targetParams = {
+      ...params,
+      org_id: useOrgID,
     }
 
     // Add query params if provided
     const finalParams = queryParams ? { ...targetParams, ...queryParams } : targetParams
 
-    // Navigate first, then trigger animations after a very small delay
-    // This ensures components are mounted before animations run
     router.navigate(targetRouteName, finalParams)
-
-
   }
 
   useEffect(() => {
@@ -436,6 +419,22 @@ export const useAccountContext = (): IAccountContext => {
       // Ensure any loading states are cleared even on error
     }
   }, [user])
+
+  // Redirect to login page if not authenticated
+  useEffect(() => {
+    if (!initialized) return
+    if (user) return
+    const publicRoutes = ['login', 'password-reset', 'password-reset-complete']
+    if (publicRoutes.includes(router.name)) return
+
+    // Save current URL for post-login redirect
+    const currentPath = window.location.pathname + window.location.search
+    if (currentPath !== '/' && currentPath !== '/notfound' && currentPath !== '/login') {
+      localStorage.setItem('login_redirect_url', currentPath)
+    }
+
+    router.navigateReplace('login')
+  }, [initialized, user, router.name])
 
   // Redirect to waitlist page immediately if user is waitlisted (before loading anything else)
   useEffect(() => {

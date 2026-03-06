@@ -18,20 +18,24 @@ import Sidebar from "../components/system/Sidebar";
 import SessionsSidebar from "../components/session/SessionsSidebar";
 import FilesSidebar from "../components/files/FilesSidebar";
 import AdminPanelSidebar from "../components/admin/AdminPanelSidebar";
+import AccountSidebar from "../components/account/AccountSidebar";
 import OrgSidebar from "../components/orgs/OrgSidebar";
 import AppSidebar from "../components/app/AppSidebar";
 import ProjectsSidebar from "../components/project/ProjectsSidebar";
+import FullScreenDialog from "../components/dialog/FullScreenDialog";
+import Dashboard from "./Dashboard";
+import Account from "./Account";
+import OAuthConnections from "../components/account/OAuthConnections";
+import { SettingsDialogProvider, useSettingsDialog } from "../contexts/settingsDialog";
 
 import Snackbar from "../components/system/Snackbar";
 import GlobalLoading from "../components/system/GlobalLoading";
 import InstallPWA from "../components/system/InstallPWA";
 import DarkDialog from "../components/dialog/DarkDialog";
-import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
-import DialogActions from "@mui/material/DialogActions";
-import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import CloseIcon from "@mui/icons-material/Close";
 import { LicenseKeyPrompt } from "../components/LicenseKeyPrompt";
-import LoginRegisterDialog from "../components/orgs/LoginRegisterDialog";
 
 import { useFloatingRunnerState } from "../contexts/floatingRunnerState";
 import FloatingModal from "../components/admin/FloatingModal";
@@ -45,8 +49,125 @@ import useThemeConfig from "../hooks/useThemeConfig";
 import useIsBigScreen from "../hooks/useIsBigScreen";
 import useApps from "../hooks/useApps";
 import useUserMenuHeight from "../hooks/useUserMenuHeight";
-import { useGetConfig } from "../services/userService";
-import { TypesAuthProvider } from "../api/api";
+
+// Admin and Connected Services are rendered as full-screen dialog overlays
+// so the user stays within their current org-scoped URL
+const SettingsDialogs: FC = () => {
+  const { activeDialog, dialogOptions, closeDialog } = useSettingsDialog()
+  const [adminTab, setAdminTab] = useState('llm_calls')
+  const [accountTab, setAccountTab] = useState('general')
+
+  // When opening the admin dialog with a specific tab, set it
+  React.useEffect(() => {
+    if (activeDialog === 'admin' && dialogOptions.tab) {
+      setAdminTab(dialogOptions.tab)
+    }
+  }, [activeDialog, dialogOptions.tab])
+
+  // Reset tabs when dialog closes
+  React.useEffect(() => {
+    if (!activeDialog) {
+      setAdminTab('llm_calls')
+      setAccountTab('general')
+    }
+  }, [activeDialog])
+
+  // Sync admin tab to URL so refresh preserves the current tab
+  const handleAdminTabChange = React.useCallback((tab: string) => {
+    setAdminTab(tab)
+    const url = new URL(window.location.href)
+    url.searchParams.set('dialog_tab', tab)
+    window.history.replaceState({}, '', url.toString())
+  }, [])
+
+  return (
+    <>
+      <FullScreenDialog
+        open={activeDialog === 'admin'}
+        onClose={closeDialog}
+        title="Admin Panel"
+      >
+        <Box sx={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+          <Box sx={{
+            width: 240,
+            flexShrink: 0,
+            borderRight: '1px solid rgba(255, 255, 255, 0.1)',
+            overflowY: 'auto',
+          }}>
+            <AdminPanelSidebar activeTab={adminTab} onTabChange={handleAdminTabChange} />
+          </Box>
+          <Box sx={{ flex: 1, overflow: 'auto' }}>
+            <Dashboard tab={adminTab} />
+          </Box>
+        </Box>
+      </FullScreenDialog>
+      <FullScreenDialog
+        open={activeDialog === 'connected-services'}
+        onClose={closeDialog}
+        title="Connected Services"
+      >
+        <Box sx={{ p: 3 }}>
+          <OAuthConnections />
+        </Box>
+      </FullScreenDialog>
+      <DarkDialog
+        open={activeDialog === 'account'}
+        onClose={closeDialog}
+        maxWidth="xl"
+        fullWidth
+        PaperProps={{
+          sx: {
+            height: '90vh',
+            maxHeight: '90vh',
+          },
+        }}
+      >
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            px: 3,
+            py: 1.5,
+            flexShrink: 0,
+          }}
+        >
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+            Account
+          </Typography>
+          <IconButton
+            onClick={closeDialog}
+            sx={{
+              color: '#A0AEC0',
+              '&:hover': {
+                color: '#F1F1F1',
+                backgroundColor: 'rgba(255, 255, 255, 0.08)',
+              },
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </Box>
+        <DialogContent sx={{ p: 0, display: 'flex', overflow: 'hidden' }}>
+          <Box sx={{ display: 'flex', height: '100%', width: '100%' }}>
+            <Box sx={{
+              width: 240,
+              flexShrink: 0,
+              borderRight: '1px solid rgba(255, 255, 255, 0.1)',
+              overflowY: 'auto',
+              pr: 1,
+            }}>
+              <AccountSidebar activeTab={accountTab} onTabChange={setAccountTab} />
+            </Box>
+            <Box sx={{ flex: 1, overflow: 'auto' }}>
+              <Account tab={accountTab} />
+            </Box>
+          </Box>
+        </DialogContent>
+      </DarkDialog>
+    </>
+  )
+}
 
 const Layout: FC<{
   children: ReactNode;
@@ -65,8 +186,6 @@ const Layout: FC<{
     useState(false);
   const licenseTimerRef = useRef<NodeJS.Timeout | null>(null);
   const userMenuHeight = useUserMenuHeight();
-  const { data: config } = useGetConfig();
-
   // Check if license is required (not mac-desktop AND (invalid license OR unknown deployment))
   const licenseRequired = useMemo(() => {
     return (
@@ -205,7 +324,6 @@ const Layout: FC<{
   // Hide sidebar on /new page when app_id is specified, otherwise use router.meta.drawer
   const shouldShowSidebar =
     router.meta.drawer &&
-    !(router.name === "new" && router.params.app_id) &&
     !(router.name === "org_new" && router.params.app_id);
 
   if (shouldShowSidebar) {
@@ -219,7 +337,6 @@ const Layout: FC<{
    * Helper function to determine sidebar component based on route
    *
    * This flexible sidebar system allows different routes to show different sidebar content:
-   * - 'dashboard': Shows AdminPanelSidebar with admin navigation
    * - 'app': Shows AppSidebar for agent navigation
    * - 'org_*': Shows OrgSidebar for organization management
    * - default: Shows SessionsSidebar for most routes
@@ -233,14 +350,9 @@ const Layout: FC<{
    */
   function getSidebarForRoute(routeName: string, onOpenSession: () => void) {
     switch (routeName) {
-      case "dashboard":
-        return <AdminPanelSidebar />;
-
-      case "projects":
       case "org_projects":
         return <ProjectsSidebar />;
 
-      case "app":
       case "org_app":
         // Individual app pages use the new context sidebar for agent navigation
         return <AppSidebar />;
@@ -445,33 +557,6 @@ const Layout: FC<{
               >
                 <Typography>Logging out...</Typography>
               </Box>
-            ) : !account.user && router.params.resource_type === "apps" ? (
-              <Box
-                sx={{
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  height: "100%",
-                  textAlign: "center",
-                  px: 3,
-                }}
-              >
-                <Typography
-                  variant="h4"
-                  gutterBottom
-                  sx={{ fontWeight: "bold", color: "#00E5FF" }}
-                >
-                  Please Login to View Agents
-                </Typography>
-                <Typography
-                  variant="body1"
-                  sx={{ mb: 4, maxWidth: 600, color: "text.secondary" }}
-                >
-                  You need to be logged in to view and manage agents. Please
-                  login or register to continue.
-                </Typography>
-              </Box>
             ) : (
               children
             )}
@@ -480,50 +565,6 @@ const Layout: FC<{
         <Snackbar />
         <GlobalLoading />
         <InstallPWA />
-        {account.showLoginWindow &&
-          (config?.auth_provider === TypesAuthProvider.AuthProviderRegular ? (
-            <LoginRegisterDialog
-              open
-              onClose={() => {
-                account.setShowLoginWindow(false);
-              }}
-            />
-          ) : (
-            <DarkDialog
-              open
-              maxWidth="md"
-              fullWidth
-              onClose={() => {
-                account.setShowLoginWindow(false);
-              }}
-            >
-              <DialogTitle>Please login to continue</DialogTitle>
-              <DialogContent>
-                <Typography>Sign in to access all features.</Typography>
-              </DialogContent>
-              <DialogActions>
-                <Button
-                  onClick={() => {
-                    account.setShowLoginWindow(false);
-                  }}
-                  color="primary"
-                  variant="outlined"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={() => {
-                    account.setShowLoginWindow(false);
-                    account.onLogin();
-                  }}
-                  variant="contained"
-                  color="secondary"
-                >
-                  Login
-                </Button>
-              </DialogActions>
-            </DarkDialog>
-          ))}
 
         {/* Floating runner state disabled
           account.admin && floatingRunnerState.isVisible && (
@@ -533,6 +574,7 @@ const Layout: FC<{
         {floatingModal.isVisible && account.admin && (
           <FloatingModal onClose={floatingModal.hideFloatingModal} />
         )}
+        <SettingsDialogs />
         {/* Floating runner state toggle button disabled
           account.admin && (
             <Box
@@ -586,4 +628,10 @@ const Layout: FC<{
   );
 };
 
-export default Layout;
+const LayoutWithDialogs: FC<{ children: ReactNode }> = ({ children }) => (
+  <SettingsDialogProvider>
+    <Layout>{children}</Layout>
+  </SettingsDialogProvider>
+)
+
+export default LayoutWithDialogs;

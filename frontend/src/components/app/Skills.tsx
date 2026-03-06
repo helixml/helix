@@ -32,6 +32,7 @@ import HubIcon from '@mui/icons-material/Hub';
 import useApi from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
 import useRouter from '../../hooks/useRouter';
+import { useSettingsDialog } from '../../contexts/settingsDialog';
 import { useSkills } from '../../hooks/useSkills';
 
 import { alphaVantageTool } from './examples/skillAlphaVantageApi';
@@ -397,6 +398,7 @@ const Skills: React.FC<SkillsProps> = ({
   const api = useApi();
   const account = useAccount();
   const router = useRouter();
+  const settingsDialog = useSettingsDialog();
 
   // Fetch backend skills using react-query
   const { data: backendSkillsResponse, isLoading: isBackendSkillsLoading } = useSkills();
@@ -1528,7 +1530,7 @@ const Skills: React.FC<SkillsProps> = ({
                   sx={{ textDecoration: 'underline', cursor: 'pointer' }}
                   onClick={(e) => {
                     e.preventDefault();
-                    router.navigate('dashboard', { tab: 'oauth_providers' });
+                    settingsDialog.openDialog('admin', { tab: 'oauth_providers' });
                   }}
                 >
                   Dashboard
@@ -1727,7 +1729,7 @@ const Skills: React.FC<SkillsProps> = ({
                           startIcon={<SettingsIcon />}
                           onClick={(e) => {
                             e.stopPropagation();
-                            router.navigate('dashboard', { tab: 'oauth_providers' });
+                            settingsDialog.openDialog('admin', { tab: 'oauth_providers' });
                           }}
                           sx={{ 
                             fontSize: '0.75rem',

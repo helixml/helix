@@ -40,6 +40,8 @@ type Organization struct {
 	Memberships []OrganizationMembership `json:"memberships" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // Memberships in the organization
 	Roles       []Role                   `json:"roles" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`       // Roles in the organization
 
+	Member bool `json:"member" gorm:"-"` // Whether the current user is a member of the organization
+
 	// AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members
 	// Note: Uniqueness is enforced in application code (updateOrganization handler) rather than DB constraint
 	// because empty strings would conflict with each other in a unique index

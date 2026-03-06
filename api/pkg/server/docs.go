@@ -22710,6 +22710,10 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "member": {
+                    "description": "Whether the current user is a member of the organization",
+                    "type": "boolean"
+                },
                 "memberships": {
                     "description": "Memberships in the organization",
                     "type": "array",
