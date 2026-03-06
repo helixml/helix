@@ -24,7 +24,7 @@ import (
 // is useful for all agents, not just desktop environments.
 type MCPServer struct {
 	mcpServer     *server.MCPServer
-	sseServer     *server.SSEServer
+	httpServer    *server.StreamableHTTPServer
 	helixAPIURL   string // Helix API URL for session endpoints
 	helixAPIToken string // Helix API token for authentication
 	sessionID     string // Current session ID (most likely to be relevant)
@@ -33,7 +33,7 @@ type MCPServer struct {
 
 // MCPConfig holds configuration for the session MCP server
 type MCPConfig struct {
-	// Port for the MCP SSE server (default: 9878)
+	// Port for the MCP server (default: 9878)
 	Port string
 	// HelixAPIURL is the Helix API endpoint (from HELIX_API_URL env)
 	HelixAPIURL string
@@ -225,9 +225,9 @@ Use this when you have an interaction ID (e.g., from title_history) and want to 
 	)
 	m.mcpServer.AddTool(getInteractionTool, m.handleGetInteraction)
 
-	// Create SSE server
-	m.sseServer = server.NewSSEServer(m.mcpServer,
-		server.WithBasePath("/mcp"),
+	// Create Streamable HTTP server for direct POST support (compatible with Zed's HttpTransport)
+	m.httpServer = server.NewStreamableHTTPServer(m.mcpServer,
+		server.WithStateLess(true),
 	)
 
 	return m
@@ -235,10 +235,10 @@ Use this when you have an interaction ID (e.g., from title_history) and want to 
 
 // ServeHTTP serves MCP requests
 func (m *MCPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	m.sseServer.ServeHTTP(w, r)
+	m.httpServer.ServeHTTP(w, r)
 }
 
-// Run starts the MCP SSE server
+// Run starts the MCP server
 func (m *MCPServer) Run(ctx context.Context, port string) error {
 	if port == "" {
 		port = "9878"
@@ -246,7 +246,7 @@ func (m *MCPServer) Run(ctx context.Context, port string) error {
 
 	httpServer := &http.Server{
 		Addr:    ":" + port,
-		Handler: m.sseServer,
+		Handler: m.httpServer,
 	}
 
 	m.logger.Info("Session MCP server starting", "port", port)
