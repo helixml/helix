@@ -71,16 +71,15 @@ spec:
               value: {{ .Values.global.serverUrl }}
             - name: LOG_LEVEL
               value: {{ .Values.controlplane.logLevel | quote }}
-            {{- if .Values.controlplane.runnerTokenExistingSecret }}
             - name: RUNNER_TOKEN
+              {{- if .Values.controlplane.runnerToken }}
+              value: {{ .Values.controlplane.runnerToken | quote }}
+              {{- else }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.controlplane.runnerTokenExistingSecret }}
-                  key: {{ .Values.controlplane.runnerTokenExistingSecretKey | default "token" }}
-            {{- else }}
-            - name: RUNNER_TOKEN
-              value: {{ .Values.controlplane.runnerToken | quote }}
-            {{- end }}
+                  name: {{ include "helix-controlplane.runner-token-secret-name" . }}
+                  key: {{ include "helix-controlplane.runner-token-secret-key" . }}
+              {{- end }}
             {{- if .Values.controlplane.encryptionKeyExistingSecret }}
             - name: HELIX_ENCRYPTION_KEY
               valueFrom:
@@ -340,13 +339,13 @@ spec:
                   key: {{ .Values.kodit.enrichment.existingSecretKey | default "api-token" }}
               {{- else if .Values.kodit.enrichment.apiKey }}
               value: {{ .Values.kodit.enrichment.apiKey | quote }}
-              {{- else if .Values.controlplane.runnerTokenExistingSecret }}
+              {{- else if .Values.controlplane.runnerToken }}
+              value: {{ .Values.controlplane.runnerToken | quote }}
+              {{- else }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.controlplane.runnerTokenExistingSecret }}
-                  key: {{ .Values.controlplane.runnerTokenExistingSecretKey | default "token" }}
-              {{- else }}
-              value: {{ .Values.controlplane.runnerToken | quote }}
+                  name: {{ include "helix-controlplane.runner-token-secret-name" . }}
+                  key: {{ include "helix-controlplane.runner-token-secret-key" . }}
               {{- end }}
             {{- else }}
             - name: KODIT_ENABLED

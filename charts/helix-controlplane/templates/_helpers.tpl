@@ -62,6 +62,29 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
+Runner token secret name.
+Returns the secret name containing the runner token, whether user-provided or auto-generated.
+*/}}
+{{- define "helix-controlplane.runner-token-secret-name" -}}
+{{- if .Values.controlplane.runnerTokenExistingSecret -}}
+{{ .Values.controlplane.runnerTokenExistingSecret }}
+{{- else -}}
+{{ include "helix-controlplane.fullname" . }}-runner-token
+{{- end -}}
+{{- end }}
+
+{{/*
+Runner token secret key.
+*/}}
+{{- define "helix-controlplane.runner-token-secret-key" -}}
+{{- if .Values.controlplane.runnerTokenExistingSecret -}}
+{{ .Values.controlplane.runnerTokenExistingSecretKey | default "token" }}
+{{- else -}}
+token
+{{- end -}}
+{{- end }}
+
+{{/*
 PostgreSQL connection environment variables.
 Used by both the init container and main controlplane container.
 */}}
