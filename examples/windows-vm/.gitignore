@@ -1,0 +1,16 @@
+# VM directory with large files
+vm/
+
+# Downloaded images (large)
+*.iso
+*.qcow2
+*.vhdx
+*.zip
+
+# QEMU runtime files
+*.sock
+*.pid
+*.ppm
+
+# Screenshots (can be regenerated)
+*.png
