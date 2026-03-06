@@ -430,6 +430,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     return baseButtons
   }, [isActive, currentOrgSlug, account.serverConfig.providers_management_enabled])
 
+  const isAccountSettingsActive = settingsDialog.activeDialog === 'account'
+
   // Create the collapsed icon with multiple tiles
   const renderCollapsedIcon = () => {
     const tiles = []
@@ -761,10 +763,10 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 borderRadius: 1,
                 cursor: 'pointer',
                 transition: 'all 0.2s ease-in-out',
-                backgroundColor: isActive(['org_settings', 'org_billing']) ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
-                border: isActive(['org_settings', 'org_billing']) ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
+                backgroundColor: isAccountSettingsActive ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                border: isAccountSettingsActive ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
                 '&:hover': {
-                  backgroundColor: isActive(['org_settings', 'org_billing']) ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.05)',
+                  backgroundColor: isAccountSettingsActive ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.05)',
                 },
               }}
             >
@@ -772,15 +774,15 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 size={16}
                 style={{
                   marginRight: '10px',
-                  color: isActive(['org_billing']) ? lightTheme.textColor : lightTheme.textColorFaded
+                  color: isAccountSettingsActive ? lightTheme.textColor : lightTheme.textColorFaded
                 }}
               />
               <Typography
                 variant="body2"
                 sx={{
-                  color: isActive(['org_billing']) ? lightTheme.textColor : lightTheme.textColor,
+                  color: isAccountSettingsActive ? lightTheme.textColor : lightTheme.textColor,
                   fontSize: '0.875rem',
-                  fontWeight: isActive(['org_billing']) ? 600 : 400,
+                  fontWeight: isAccountSettingsActive ? 600 : 400,
                   lineHeight: 1.2,
                 }}
               >
