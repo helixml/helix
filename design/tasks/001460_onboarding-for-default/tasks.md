@@ -9,9 +9,10 @@
 - [ ] Update `activeStep` initial value logic to account for filtered steps
 - [ ] Update `markComplete` to work with filtered step indexes
 
-## Testing
+## Testing (via Chrome MCP)
 
-- [ ] Test onboarding with `STRIPE_BILLING_ENABLED=false` (default) - should show 5 steps, no subscription
-- [ ] Test onboarding with `STRIPE_BILLING_ENABLED=true` - should show 6 steps with subscription required
-- [ ] Test step completion flow works correctly in both modes
-- [ ] Test browser refresh during onboarding preserves correct step state
+- [ ] With `STRIPE_BILLING_ENABLED=false` (default): Navigate to onboarding, verify 5 steps shown, no subscription step visible
+- [ ] With `STRIPE_BILLING_ENABLED=true`: Navigate to onboarding, verify 6 steps shown with subscription step at position 2
+- [ ] Complete full onboarding flow with billing disabled - verify all step transitions work
+- [ ] Complete full onboarding flow with billing enabled - verify subscription step blocks until payment
+- [ ] Refresh browser mid-onboarding, verify correct step state preserved in both modes
