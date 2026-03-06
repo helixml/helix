@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Install QEMU and dependencies (`qemu-system-x86`, `qemu-utils`, `ovmf`, `libvirglrenderer1`)
+- [~] Install QEMU and dependencies (`qemu-system-x86`, `qemu-utils`, `ovmf`, `libvirglrenderer1`)
 - [ ] Fix `/dev/kvm` permissions (add user to kvm group or chmod)
 - [ ] Download VirtIO drivers ISO from Fedora
 - [ ] Download Windows 11 evaluation ISO from Microsoft
