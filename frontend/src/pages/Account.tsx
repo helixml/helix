@@ -5,10 +5,6 @@ import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import IconButton from '@mui/material/IconButton'
 import Grid from '@mui/material/Grid'
-import FormControl from '@mui/material/FormControl'
-import InputLabel from '@mui/material/InputLabel'
-import Select from '@mui/material/Select'
-import MenuItem from '@mui/material/MenuItem'
 import TextField from '@mui/material/TextField'
 import InputAdornment from '@mui/material/InputAdornment'
 import VisibilityIcon from '@mui/icons-material/Visibility'
@@ -19,7 +15,6 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContentText from '@mui/material/DialogContentText'
 
-import Page from '../components/system/Page'
 import CopyIcon from '@mui/icons-material/CopyAll'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import DarkDialog from '../components/dialog/DarkDialog'
@@ -28,9 +23,7 @@ import CloseIcon from '@mui/icons-material/Close'
 import ClaudeSubscription from '../components/account/ClaudeSubscription'
 import useSnackbar from '../hooks/useSnackbar'
 import useAccount from '../hooks/useAccount'
-import useApi from '../hooks/useApi'
 
-import { useGetWallet } from '../services/useBilling'
 import { useGetUserUsage, useRegenerateUserAPIKey } from '../services/userService'
 import TokenUsage from '../components/usage/TokenUsage'
 import TotalCost from '../components/usage/TotalCost'
@@ -38,7 +31,6 @@ import TotalRequests from '../components/usage/TotalRequests'
 import useThemeConfig from '../hooks/useThemeConfig'
 import { Prism as SyntaxHighlighterPrism } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import SmallSpinner from '../components/system/SmallSpinner'
 
 import { useGetUserAPIKeys, useGetConfig, useUpdatePassword, useUpdateAccount } from '../services/userService'
 import { useGetQuota } from '../services/quotaService'
@@ -49,15 +41,11 @@ const SyntaxHighlighter = SyntaxHighlighterPrism as unknown as React.FC<any>;
 
 const Account: FC = () => {
   const account = useAccount()
-  const api = useApi()
   const snackbar = useSnackbar()
-  const themeConfig = useThemeConfig()  
-  const [topUpAmount, setTopUpAmount] = useState<number>(10)
+  const themeConfig = useThemeConfig()    
 
   const { data: usage } = useGetUserUsage()
-  const { data: serverConfig, isLoading: isLoadingServerConfig } = useGetConfig()
-
-  const { data: wallet, isLoading: isLoadingWallet } = useGetWallet(undefined, !isLoadingServerConfig && serverConfig?.billing_enabled)
+  const { data: serverConfig, isLoading: isLoadingServerConfig } = useGetConfig()  
 
   const [showApiKey, setShowApiKey] = useState(false)
   const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false)
@@ -129,41 +117,7 @@ const Account: FC = () => {
       console.error('Failed to update password:', error)
       snackbar.error('Failed to update password')
     }
-  }, [password, passwordConfirm, updatePassword, snackbar])
-
-  const handleSubscribe = useCallback(async () => {
-    const result = await api.post(`/api/v1/subscription/new`, undefined, {}, {
-      loading: true,
-      snackbar: true,
-    })
-    if (!result) return
-    document.location = result
-  }, [
-    account.user,
-  ])
-
-  const handleManage = useCallback(async () => {
-    const result = await api.post(`/api/v1/subscription/manage`, undefined, {}, {
-      loading: true,
-      snackbar: true,
-    })
-    if (!result) return
-    document.location = result
-  }, [
-    account.user,
-  ])
-
-  const handleTopUp = useCallback(async () => {
-    const result = await api.post(`/api/v1/top-ups/new`, { amount: topUpAmount }, {}, {
-      loading: true,
-      snackbar: true,
-    })
-    if (!result) return
-    document.location = result
-  }, [
-    account.user,
-    topUpAmount,
-  ])
+  }, [password, passwordConfirm, updatePassword, snackbar])  
 
   useEffect(() => {
     const query = new URLSearchParams(window.location.search)
@@ -201,10 +155,7 @@ const Account: FC = () => {
 
   if (!account.user || !apiKeys || !account.models || isLoadingServerConfig) {
     return null
-  }
-
-  const paymentsActive = serverConfig?.stripe_enabled && serverConfig?.billing_enabled
-  const colSize = paymentsActive ? 6 : 12
+  }  
 
   const apiKey = apiKeys.length > 0 ? apiKeys[0].key : ''
 
@@ -215,9 +166,7 @@ export HELIX_API_KEY=${apiKey}
 `
 
   return (
-    <Page
-      breadcrumbTitle="Account"
-    >
+    <>
       <Container maxWidth="lg" sx={{ mb: 4 }}>
         <Box sx={{ width: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
           <Box sx={{ width: '100%', flexGrow: 1, overflowY: 'auto', px: 2 }}>
@@ -235,88 +184,6 @@ export HELIX_API_KEY=${apiKey}
                 <TotalRequests usageData={usage ? [{ metrics: usage }] : []} isLoading={false} />
               </Grid>
             </Grid>
-
-            {paymentsActive && (
-              <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
-
-                <>
-                  <Grid item xs={12} md={colSize}>
-                    <Box sx={{ p: 2, height: 250, display: 'flex', flexDirection: 'column', backgroundColor: 'transparent', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
-                      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                        <Box sx={{ flex: 1 }}>
-                          <Typography variant="h6" gutterBottom>Personal Balance</Typography>
-                          {isLoadingWallet ? (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <SmallSpinner size={24} />
-                              <Typography variant="h4" color="text.secondary">
-                                Loading...
-                              </Typography>
-                            </Box>
-                          ) : (
-                            <Typography variant="h4" gutterBottom color="primary">
-                              ${wallet?.balance?.toFixed(2) || '0.00'} credits
-                            </Typography>
-                          )}
-                        </Box>
-
-                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <FormControl sx={{ minWidth: 120 }}>
-                            <InputLabel id="topup-amount-label">Amount</InputLabel>
-                            <Select
-                              labelId="topup-amount-label"
-                              value={topUpAmount}
-                              label="Amount"
-                              onChange={(e) => setTopUpAmount(e.target.value as number)}
-                            >
-                              <MenuItem value={5}>$5</MenuItem>
-                              <MenuItem value={10}>$10</MenuItem>
-                              <MenuItem value={20}>$20</MenuItem>
-                              <MenuItem value={50}>$50</MenuItem>
-                              <MenuItem value={100}>$100</MenuItem>
-                            </Select>
-                          </FormControl>
-                          <Button variant="contained" color="secondary" onClick={handleTopUp} sx={{ minWidth: 140 }}>
-                            Purchase Credits
-                          </Button>
-                        </Box>
-                      </Box>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={12} md={colSize}>
-                    <Box sx={{ p: 2, height: 250, display: 'flex', flexDirection: 'column', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
-                      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                        {wallet?.stripe_subscription_id !== '' && wallet?.subscription_status !== 'canceled' ? (
-                          <>
-                            <Box sx={{ flex: 1 }}>
-                              <Typography variant="h6" gutterBottom>Subscription {wallet?.subscription_status}</Typography>
-                              <Typography variant="h4" gutterBottom color="primary">Helix Premium</Typography>
-                              <Typography variant="body2" gutterBottom>You have priority access to the Helix GPU cloud</Typography>
-                            </Box>
-                            <Box sx={{ display: 'flex', mb: 1, justifyContent: 'flex-end' }}>
-                              <Button variant="outlined" color="secondary" sx={{ minWidth: 140 }} onClick={handleManage}>
-                                Manage Subscription
-                              </Button>
-                            </Box>
-                          </>
-                        ) : (
-                          <>
-                            <Box sx={{ flex: 1 }}>
-                              <Typography variant="h6" gutterBottom>Helix Premium</Typography>
-                              <Typography variant="h4" gutterBottom color="primary">$20.00 / month</Typography>
-                              <Typography variant="body2" gutterBottom>Get priority access to the Helix GPU cloud, increase quotas and priority support. Subscription payment will also top-up your Helix credits.</Typography>
-                            </Box>
-                            <Box sx={{ display: 'flex', mb: 1, justifyContent: 'flex-end' }}>
-                              <Button variant="contained" color="secondary" sx={{ minWidth: 140 }} onClick={handleSubscribe}>
-                                Start Subscription
-                              </Button>
-                            </Box>
-                          </>
-                        )}
-                      </Box>
-                    </Box>
-                  </Grid></>
-              </Grid>
-            )}
 
             {/* Claude Code Subscription */}
             <ClaudeSubscription />
@@ -519,26 +386,6 @@ export HELIX_API_KEY=${apiKey}
         </Box>
       </Container>
 
-      {/* Footer */}
-      <Box
-        component="footer"
-        sx={{
-          py: 2,
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          borderTop: (theme) => `1px solid ${theme.palette.divider}`,
-        }}
-      >
-        <Typography
-          sx={{
-            fontSize: '0.8rem',
-          }}
-        >
-          {/* TODO: Add footer text, maybe helix version */}
-        </Typography>
-      </Box>
-
       {/* Password Update Dialog */}
       <DarkDialog
         open={passwordDialogOpen}
@@ -663,7 +510,7 @@ export HELIX_API_KEY=${apiKey}
         </DialogActions>
       </Dialog>
 
-    </Page>
+    </>
   )
 }
 

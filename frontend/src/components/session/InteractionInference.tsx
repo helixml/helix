@@ -24,6 +24,7 @@ import ToPDF from "../export/ToPDF";
 import useAccount from "../../hooks/useAccount";
 import useRouter from "../../hooks/useRouter";
 import { useUpdateInteractionFeedback } from "../../services/interactionsService";
+import { useSettingsDialog } from "../../contexts/settingsDialog";
 
 import { emitEvent } from "../../utils/analytics";
 
@@ -91,6 +92,7 @@ export const InteractionInference: FC<{
 }) => {
   const account = useAccount();
   const router = useRouter();
+  const settingsDialog = useSettingsDialog();
   const [viewingError, setViewingError] = useState(false);
   const [viewingExport, setViewingExport] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -471,7 +473,7 @@ export const InteractionInference: FC<{
                   emitEvent({
                     name: "queue_upgrade_clicked",
                   });
-                  router.navigate("account");
+                  settingsDialog.openDialog('account');
                 }}
               >
                 Upgrade

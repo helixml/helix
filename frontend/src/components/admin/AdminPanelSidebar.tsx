@@ -12,17 +12,21 @@ import DeveloperBoardIcon from '@mui/icons-material/DeveloperBoard'
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney'
 import CodeIcon from '@mui/icons-material/Code'
 
-import useRouter from '../../hooks/useRouter'
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
 import { UsersIcon, BuildingIcon } from 'lucide-react'
 
-const AdminPanelSidebar: FC = () => {
-  const router = useRouter()
-  const { tab } = router.params
-  const currentTab = tab || 'llm_calls'
+interface AdminPanelSidebarProps {
+  activeTab?: string
+  onTabChange?: (tab: string) => void
+}
+
+const AdminPanelSidebar: FC<AdminPanelSidebarProps> = ({ activeTab = 'llm_calls', onTabChange }) => {
+  const currentTab = activeTab
 
   const handleNavigationClick = (tabValue: string) => {
-    router.setParams({ tab: tabValue })  
+    if (onTabChange) {
+      onTabChange(tabValue)
+    }
   }
 
   const sections: ContextSidebarSection[] = [

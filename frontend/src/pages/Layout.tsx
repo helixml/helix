@@ -21,6 +21,11 @@ import AdminPanelSidebar from "../components/admin/AdminPanelSidebar";
 import OrgSidebar from "../components/orgs/OrgSidebar";
 import AppSidebar from "../components/app/AppSidebar";
 import ProjectsSidebar from "../components/project/ProjectsSidebar";
+import FullScreenDialog from "../components/dialog/FullScreenDialog";
+import Dashboard from "./Dashboard";
+import Account from "./Account";
+import OAuthConnections from "../components/account/OAuthConnections";
+import { SettingsDialogProvider, useSettingsDialog } from "../contexts/settingsDialog";
 
 import Snackbar from "../components/system/Snackbar";
 import GlobalLoading from "../components/system/GlobalLoading";
@@ -47,6 +52,77 @@ import useApps from "../hooks/useApps";
 import useUserMenuHeight from "../hooks/useUserMenuHeight";
 import { useGetConfig } from "../services/userService";
 import { TypesAuthProvider } from "../api/api";
+
+// Admin and Connected Services are rendered as full-screen dialog overlays
+// so the user stays within their current org-scoped URL
+const SettingsDialogs: FC = () => {
+  const { activeDialog, dialogOptions, closeDialog } = useSettingsDialog()
+  const [adminTab, setAdminTab] = useState('llm_calls')
+
+  // When opening the admin dialog with a specific tab, set it
+  React.useEffect(() => {
+    if (activeDialog === 'admin' && dialogOptions.tab) {
+      setAdminTab(dialogOptions.tab)
+    }
+  }, [activeDialog, dialogOptions.tab])
+
+  // Reset tab when dialog closes
+  React.useEffect(() => {
+    if (!activeDialog) {
+      setAdminTab('llm_calls')
+    }
+  }, [activeDialog])
+
+  // Sync admin tab to URL so refresh preserves the current tab
+  const handleAdminTabChange = React.useCallback((tab: string) => {
+    setAdminTab(tab)
+    const url = new URL(window.location.href)
+    url.searchParams.set('dialog_tab', tab)
+    window.history.replaceState({}, '', url.toString())
+  }, [])
+
+  return (
+    <>
+      <FullScreenDialog
+        open={activeDialog === 'admin'}
+        onClose={closeDialog}
+        title="Admin Panel"
+      >
+        <Box sx={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+          <Box sx={{
+            width: 240,
+            flexShrink: 0,
+            borderRight: '1px solid rgba(255, 255, 255, 0.1)',
+            overflowY: 'auto',
+          }}>
+            <AdminPanelSidebar activeTab={adminTab} onTabChange={handleAdminTabChange} />
+          </Box>
+          <Box sx={{ flex: 1, overflow: 'auto' }}>
+            <Dashboard tab={adminTab} />
+          </Box>
+        </Box>
+      </FullScreenDialog>
+      <FullScreenDialog
+        open={activeDialog === 'connected-services'}
+        onClose={closeDialog}
+        title="Connected Services"
+      >
+        <Box sx={{ p: 3 }}>
+          <OAuthConnections />
+        </Box>
+      </FullScreenDialog>
+      <FullScreenDialog
+        open={activeDialog === 'account'}
+        onClose={closeDialog}
+        title="Account"
+      >
+        <Box sx={{ overflow: 'auto', height: '100%' }}>
+          <Account />
+        </Box>
+      </FullScreenDialog>
+    </>
+  )
+}
 
 const Layout: FC<{
   children: ReactNode;
@@ -205,7 +281,6 @@ const Layout: FC<{
   // Hide sidebar on /new page when app_id is specified, otherwise use router.meta.drawer
   const shouldShowSidebar =
     router.meta.drawer &&
-    !(router.name === "new" && router.params.app_id) &&
     !(router.name === "org_new" && router.params.app_id);
 
   if (shouldShowSidebar) {
@@ -219,7 +294,6 @@ const Layout: FC<{
    * Helper function to determine sidebar component based on route
    *
    * This flexible sidebar system allows different routes to show different sidebar content:
-   * - 'dashboard': Shows AdminPanelSidebar with admin navigation
    * - 'app': Shows AppSidebar for agent navigation
    * - 'org_*': Shows OrgSidebar for organization management
    * - default: Shows SessionsSidebar for most routes
@@ -233,14 +307,9 @@ const Layout: FC<{
    */
   function getSidebarForRoute(routeName: string, onOpenSession: () => void) {
     switch (routeName) {
-      case "dashboard":
-        return <AdminPanelSidebar />;
-
-      case "projects":
       case "org_projects":
         return <ProjectsSidebar />;
 
-      case "app":
       case "org_app":
         // Individual app pages use the new context sidebar for agent navigation
         return <AppSidebar />;
@@ -533,6 +602,7 @@ const Layout: FC<{
         {floatingModal.isVisible && account.admin && (
           <FloatingModal onClose={floatingModal.hideFloatingModal} />
         )}
+        <SettingsDialogs />
         {/* Floating runner state toggle button disabled
           account.admin && (
             <Box
@@ -586,4 +656,10 @@ const Layout: FC<{
   );
 };
 
-export default Layout;
+const LayoutWithDialogs: FC<{ children: ReactNode }> = ({ children }) => (
+  <SettingsDialogProvider>
+    <Layout>{children}</Layout>
+  </SettingsDialogProvider>
+)
+
+export default LayoutWithDialogs;
