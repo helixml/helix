@@ -5,8 +5,8 @@
 - [x] Download VirtIO drivers ISO from Fedora
 - [x] Download Windows 11 evaluation ISO from Microsoft (5.8GB)
 - [x] Create 80GB qcow2 disk image
-- [~] Boot Windows installer with VirtIO-GPU and VirtIO disk
-- [ ] Load VirtIO storage driver during Windows install
+- [x] Boot Windows installer with VirtIO-GPU and VirtIO disk
+- [~] Load VirtIO storage driver during Windows install
 - [ ] Complete Windows 11 installation
 - [ ] Install VirtIO GPU driver (viogpudo) in Windows Device Manager
 - [ ] Verify GPU acceleration working (check Device Manager shows VirtIO GPU)
