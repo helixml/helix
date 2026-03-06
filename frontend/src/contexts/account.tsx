@@ -420,6 +420,22 @@ export const useAccountContext = (): IAccountContext => {
     }
   }, [user])
 
+  // Redirect to login page if not authenticated
+  useEffect(() => {
+    if (!initialized) return
+    if (user) return
+    const publicRoutes = ['login', 'password-reset', 'password-reset-complete']
+    if (publicRoutes.includes(router.name)) return
+
+    // Save current URL for post-login redirect
+    const currentPath = window.location.pathname + window.location.search
+    if (currentPath !== '/' && currentPath !== '/notfound' && currentPath !== '/login') {
+      localStorage.setItem('login_redirect_url', currentPath)
+    }
+
+    router.navigateReplace('login')
+  }, [initialized, user, router.name])
+
   // Redirect to waitlist page immediately if user is waitlisted (before loading anything else)
   useEffect(() => {
     if (!initialized || !user) return

@@ -37,6 +37,7 @@ import PasswordResetComplete from './pages/PasswordResetComplete'
 import DesignDocPage from './pages/DesignDocPage'
 import Onboarding from './pages/Onboarding'
 import Waitlist from './pages/Waitlist'
+import Login from './pages/Login'
 import useRouter from './hooks/useRouter'
 
 // extend the base router5 route to add metadata and self rendering
@@ -394,6 +395,15 @@ const routes: IApplicationRoute[] = [
     title: 'Waitlist',
   },
   render: () => <Waitlist />,
+}, {
+  name: 'login',
+  path: '/login',
+  meta: {
+    drawer: false,
+    fullscreen: true,
+    title: 'Login',
+  },
+  render: () => <Login />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {

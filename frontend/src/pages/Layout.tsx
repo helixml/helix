@@ -32,14 +32,10 @@ import Snackbar from "../components/system/Snackbar";
 import GlobalLoading from "../components/system/GlobalLoading";
 import InstallPWA from "../components/system/InstallPWA";
 import DarkDialog from "../components/dialog/DarkDialog";
-import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
-import DialogActions from "@mui/material/DialogActions";
-import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import CloseIcon from "@mui/icons-material/Close";
 import { LicenseKeyPrompt } from "../components/LicenseKeyPrompt";
-import LoginRegisterDialog from "../components/orgs/LoginRegisterDialog";
 
 import { useFloatingRunnerState } from "../contexts/floatingRunnerState";
 import FloatingModal from "../components/admin/FloatingModal";
@@ -53,8 +49,6 @@ import useThemeConfig from "../hooks/useThemeConfig";
 import useIsBigScreen from "../hooks/useIsBigScreen";
 import useApps from "../hooks/useApps";
 import useUserMenuHeight from "../hooks/useUserMenuHeight";
-import { useGetConfig } from "../services/userService";
-import { TypesAuthProvider } from "../api/api";
 
 // Admin and Connected Services are rendered as full-screen dialog overlays
 // so the user stays within their current org-scoped URL
@@ -192,8 +186,6 @@ const Layout: FC<{
     useState(false);
   const licenseTimerRef = useRef<NodeJS.Timeout | null>(null);
   const userMenuHeight = useUserMenuHeight();
-  const { data: config } = useGetConfig();
-
   // Check if license is required (not mac-desktop AND (invalid license OR unknown deployment))
   const licenseRequired = useMemo(() => {
     return (
@@ -565,33 +557,6 @@ const Layout: FC<{
               >
                 <Typography>Logging out...</Typography>
               </Box>
-            ) : !account.user && router.params.resource_type === "apps" ? (
-              <Box
-                sx={{
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  height: "100%",
-                  textAlign: "center",
-                  px: 3,
-                }}
-              >
-                <Typography
-                  variant="h4"
-                  gutterBottom
-                  sx={{ fontWeight: "bold", color: "#00E5FF" }}
-                >
-                  Please Login to View Agents
-                </Typography>
-                <Typography
-                  variant="body1"
-                  sx={{ mb: 4, maxWidth: 600, color: "text.secondary" }}
-                >
-                  You need to be logged in to view and manage agents. Please
-                  login or register to continue.
-                </Typography>
-              </Box>
             ) : (
               children
             )}
@@ -600,50 +565,6 @@ const Layout: FC<{
         <Snackbar />
         <GlobalLoading />
         <InstallPWA />
-        {account.showLoginWindow &&
-          (config?.auth_provider === TypesAuthProvider.AuthProviderRegular ? (
-            <LoginRegisterDialog
-              open
-              onClose={() => {
-                account.setShowLoginWindow(false);
-              }}
-            />
-          ) : (
-            <DarkDialog
-              open
-              maxWidth="md"
-              fullWidth
-              onClose={() => {
-                account.setShowLoginWindow(false);
-              }}
-            >
-              <DialogTitle>Please login to continue</DialogTitle>
-              <DialogContent>
-                <Typography>Sign in to access all features.</Typography>
-              </DialogContent>
-              <DialogActions>
-                <Button
-                  onClick={() => {
-                    account.setShowLoginWindow(false);
-                  }}
-                  color="primary"
-                  variant="outlined"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={() => {
-                    account.setShowLoginWindow(false);
-                    account.onLogin();
-                  }}
-                  variant="contained"
-                  color="secondary"
-                >
-                  Login
-                </Button>
-              </DialogActions>
-            </DarkDialog>
-          ))}
 
         {/* Floating runner state disabled
           account.admin && floatingRunnerState.isVisible && (
