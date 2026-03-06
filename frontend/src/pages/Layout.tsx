@@ -18,6 +18,7 @@ import Sidebar from "../components/system/Sidebar";
 import SessionsSidebar from "../components/session/SessionsSidebar";
 import FilesSidebar from "../components/files/FilesSidebar";
 import AdminPanelSidebar from "../components/admin/AdminPanelSidebar";
+import AccountSidebar from "../components/account/AccountSidebar";
 import OrgSidebar from "../components/orgs/OrgSidebar";
 import AppSidebar from "../components/app/AppSidebar";
 import ProjectsSidebar from "../components/project/ProjectsSidebar";
@@ -35,6 +36,8 @@ import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
 import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import CloseIcon from "@mui/icons-material/Close";
 import { LicenseKeyPrompt } from "../components/LicenseKeyPrompt";
 import LoginRegisterDialog from "../components/orgs/LoginRegisterDialog";
 
@@ -58,6 +61,7 @@ import { TypesAuthProvider } from "../api/api";
 const SettingsDialogs: FC = () => {
   const { activeDialog, dialogOptions, closeDialog } = useSettingsDialog()
   const [adminTab, setAdminTab] = useState('llm_calls')
+  const [accountTab, setAccountTab] = useState('general')
 
   // When opening the admin dialog with a specific tab, set it
   React.useEffect(() => {
@@ -66,10 +70,11 @@ const SettingsDialogs: FC = () => {
     }
   }, [activeDialog, dialogOptions.tab])
 
-  // Reset tab when dialog closes
+  // Reset tabs when dialog closes
   React.useEffect(() => {
     if (!activeDialog) {
       setAdminTab('llm_calls')
+      setAccountTab('general')
     }
   }, [activeDialog])
 
@@ -111,15 +116,61 @@ const SettingsDialogs: FC = () => {
           <OAuthConnections />
         </Box>
       </FullScreenDialog>
-      <FullScreenDialog
+      <DarkDialog
         open={activeDialog === 'account'}
         onClose={closeDialog}
-        title="Account"
+        maxWidth="xl"
+        fullWidth
+        PaperProps={{
+          sx: {
+            height: '90vh',
+            maxHeight: '90vh',
+          },
+        }}
       >
-        <Box sx={{ overflow: 'auto', height: '100%' }}>
-          <Account />
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            px: 3,
+            py: 1.5,
+            flexShrink: 0,
+          }}
+        >
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+            Account
+          </Typography>
+          <IconButton
+            onClick={closeDialog}
+            sx={{
+              color: '#A0AEC0',
+              '&:hover': {
+                color: '#F1F1F1',
+                backgroundColor: 'rgba(255, 255, 255, 0.08)',
+              },
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
         </Box>
-      </FullScreenDialog>
+        <DialogContent sx={{ p: 0, display: 'flex', overflow: 'hidden' }}>
+          <Box sx={{ display: 'flex', height: '100%', width: '100%' }}>
+            <Box sx={{
+              width: 240,
+              flexShrink: 0,
+              borderRight: '1px solid rgba(255, 255, 255, 0.1)',
+              overflowY: 'auto',
+              pr: 1,
+            }}>
+              <AccountSidebar activeTab={accountTab} onTabChange={setAccountTab} />
+            </Box>
+            <Box sx={{ flex: 1, overflow: 'auto' }}>
+              <Account tab={accountTab} />
+            </Box>
+          </Box>
+        </DialogContent>
+      </DarkDialog>
     </>
   )
 }

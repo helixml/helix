@@ -145,6 +145,7 @@ const AdminPanelSidebar: FC<AdminPanelSidebarProps> = ({ activeTab = 'llm_calls'
     <ContextSidebar 
       menuType="admin"
       sections={sections}
+      density="compact"
     />
   )
 }
