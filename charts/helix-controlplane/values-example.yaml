@@ -151,8 +151,8 @@ controlplane:
   admin:
     # Where to source admin users from: "env" or "keycloak"
     userSource: "env"
-    # Admin user IDs: comma-separated list of OIDC provider user IDs (e.g. keycloak UUIDs) or "all"
-    userIds: ""
+    # Admin user IDs: comma-separated list of user IDs, or "all" for dev/self-hosted mode
+    userIds: "all"
 
   # Haystack configuration for production-ready RAG
   # If enabled, haystack will be deployed as a sidecar to the api pod
@@ -415,9 +415,9 @@ postgresql:
   # PostgreSQL image configuration
   image:
     registry: docker.io
-    repository: bitnami/postgresql
-    tag: latest
-    pullPolicy: Always
+    repository: bitnamilegacy/postgresql
+    tag: "17"
+    pullPolicy: IfNotPresent
 
   # For bundled PostgreSQL auth configuration (when enabled=true):
   auth:
