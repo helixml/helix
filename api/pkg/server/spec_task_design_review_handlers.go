@@ -1279,7 +1279,7 @@ func (s *HelixAPIServer) sendApprovalInstructionToAgent(
 	guidelines := s.getGuidelinesForSpecTask(ctx, specTask)
 
 	// Build the prompt using the shared function from services package
-	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines, primaryRepoName)
+	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines, primaryRepoName, s.koditService.MCPDocumentation())
 
 	_, err := s.sendMessageToSpecTaskAgent(ctx, specTask, message, "")
 	if err != nil {

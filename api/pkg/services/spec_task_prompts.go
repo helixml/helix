@@ -10,6 +10,7 @@ import (
 // PlanningPromptData contains all data needed for the planning prompt template
 type PlanningPromptData struct {
 	Guidelines         string // Formatted guidelines section (includes header if non-empty)
+	KoditSection       string // Dynamic MCP tool documentation from kodit (empty when disabled)
 	TaskDirName        string // Directory name for task (e.g., "0042-add-dark-mode")
 	ProjectID          string
 	TaskType           string
@@ -80,7 +81,9 @@ git pull origin helix-specs --rebase && git push origin helix-specs
 - [ ] Third task
 ` + "```" + `
 
-## Visual Testing (Optional - For UI/Frontend Tasks)
+{{if .KoditSection}}
+{{.KoditSection}}
+{{end}}## Visual Testing (Optional - For UI/Frontend Tasks)
 
 You have tools to explore and screenshot the application during planning:
 
@@ -129,7 +132,7 @@ Tell the user the design is ready for review. The backend detects your push and 
 // - SpecTaskOrchestrator.handleBacklog (auto-start when enabled)
 // guidelines contains concatenated organization + project guidelines (can be empty)
 // primaryRepoName is the name of the primary code repository (e.g., "my-app")
-func BuildPlanningPrompt(task *types.SpecTask, guidelines string) string {
+func BuildPlanningPrompt(task *types.SpecTask, guidelines, koditSection string) string {
 	// Use DesignDocPath if set (new human-readable format), fall back to task ID
 	taskDirName := task.DesignDocPath
 	if taskDirName == "" {
@@ -210,6 +213,7 @@ contain everything learned during the original implementation - use this knowled
 
 	data := PlanningPromptData{
 		Guidelines:         guidelinesSection,
+		KoditSection:       koditSection,
 		ClonedTaskPreamble: clonedTaskPreamble,
 		TaskDirName:        taskDirName,
 		ProjectID:          task.ProjectID,

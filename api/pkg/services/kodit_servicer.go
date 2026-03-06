@@ -60,6 +60,9 @@ type KoditServicer interface {
 	RescanCommit(ctx context.Context, koditRepoID int64, commitSHA string) error
 	DeleteRepository(ctx context.Context, koditRepoID int64) error
 
+	// MCP documentation for agent prompts
+	MCPDocumentation() string
+
 	// Admin operations
 	ListRepositories(ctx context.Context, limit, offset int) ([]repository.Repository, int64, error)
 	RepositorySummary(ctx context.Context, koditRepoID int64) (repository.RepositorySummary, error)
@@ -72,7 +75,8 @@ type KoditServicer interface {
 // disabledKoditService is a KoditServicer that is always disabled.
 type disabledKoditService struct{}
 
-func (d *disabledKoditService) IsEnabled() bool { return false }
+func (d *disabledKoditService) IsEnabled() bool          { return false }
+func (d *disabledKoditService) MCPDocumentation() string { return "" }
 func (d *disabledKoditService) RegisterRepository(context.Context, string) (int64, bool, error) {
 	return 0, false, errors.New("kodit service not enabled")
 }

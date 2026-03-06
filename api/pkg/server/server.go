@@ -327,6 +327,7 @@ func NewServer(
 			externalAgentExecutor,      // Hydra executor for launching external agents
 			gitRepositoryService,
 			nil, // Will set callback after apiServer is constructed
+			services.NewDisabledKoditService(), // Replaced after kodit init below
 		),
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 		connman:                  connectionManager,
@@ -379,6 +380,7 @@ func NewServer(
 	}
 	apiServer.kodit = kr
 	apiServer.koditService = kr.service
+	apiServer.specDrivenTaskService.SetKoditService(kr.service)
 
 	// Initialize MCP Gateway for authenticated MCP proxying
 	apiServer.mcpGateway = NewMCPGateway()
