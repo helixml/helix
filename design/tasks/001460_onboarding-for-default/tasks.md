@@ -2,8 +2,8 @@
 
 ## Frontend Changes
 
-- [ ] Add `visibleSteps` memo that filters `STEPS` array based on `serverConfig?.billing_enabled`
-- [ ] Create step type enum or constant identifiers (e.g., `STEP_ORG`, `STEP_SUBSCRIPTION`, `STEP_PROVIDER`) to replace raw indexes
+- [~] Add `visibleSteps` memo that filters `STEPS` array based on `serverConfig?.billing_enabled`
+- [~] Create step type enum or constant identifiers (e.g., `STEP_ORG`, `STEP_SUBSCRIPTION`, `STEP_PROVIDER`) to replace raw indexes
 - [ ] Update `renderStepContent` switch to use step identifiers instead of numeric indexes
 - [ ] Update step iteration in JSX to use `visibleSteps` instead of `STEPS`
 - [ ] Update `activeStep` initial value logic to account for filtered steps
