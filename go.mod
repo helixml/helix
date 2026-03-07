@@ -214,6 +214,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.39.0 // indirect
 	golang.org/x/image v0.36.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
+	google.golang.org/genai v1.49.0 // indirect
 	gopkg.in/ini.v1 v1.67.1 // indirect
 	gorm.io/driver/sqlite v1.6.0 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
