@@ -368,6 +368,24 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 		return
 	}
 
+	// Remove all repositories
+	repositories, err := apiServer.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
+		OrganizationID: orgID,
+	})
+	if err != nil {
+		log.Err(err).Msg("error listing repositories")
+		http.Error(rw, "Could not list repositories: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for _, repository := range repositories {
+		err := apiServer.gitRepositoryService.DeleteRepository(r.Context(), repository.ID)
+		if err != nil {
+			log.Err(err).Msg("error deleting repository")
+			http.Error(rw, "Could not delete repository: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
 	err = apiServer.Store.DeleteOrganization(r.Context(), orgID)
 	if err != nil {
 		log.Err(err).Msg("error deleting organization")
