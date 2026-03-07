@@ -106,7 +106,7 @@ func TestGeminiCalculatorToolCall_Integration(t *testing.T) {
 	finalContent := resp2.Choices[0].Message.Content
 	t.Logf("Step 2: final response: %s", finalContent)
 	assert.NotEmpty(t, finalContent, "Step 2: expected a text response after tool result")
-	assert.Contains(t, finalContent, "56154", "response should mention the calculation result")
+	assert.Contains(t, strings.ReplaceAll(finalContent, ",", ""), "56154", "response should mention the calculation result")
 }
 
 // TestGeminiCalculatorToolCallStream_Integration tests a full streaming
@@ -216,7 +216,7 @@ func TestGeminiCalculatorToolCallStream_Integration(t *testing.T) {
 	finalContent := contentBuilder.String()
 	t.Logf("Step 2 (stream): final response: %s", finalContent)
 	assert.NotEmpty(t, finalContent, "Step 2: expected streamed text after tool result")
-	assert.Contains(t, finalContent, "56154", "streamed response should mention the calculation result")
+	assert.Contains(t, strings.ReplaceAll(finalContent, ",", ""), "56154", "streamed response should mention the calculation result")
 }
 
 // TestGeminiSimpleStream_Integration tests basic streaming without tool calls
