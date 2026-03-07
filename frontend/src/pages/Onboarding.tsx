@@ -557,9 +557,18 @@ export default function Onboarding() {
   }, [selectedModel, codeAgentRuntime, userModifiedAgentName, agentMode]);
 
   const markComplete = useCallback((step: number) => {
+    if (step < 0) return;
     setCompletedSteps((prev) => new Set([...prev, step]));
     setActiveStep(step + 1);
   }, []);
+
+  const markStepCompleteByType = useCallback(
+    (stepType: StepType) => {
+      const stepIndex = getStepIndexByType(stepType);
+      markComplete(stepIndex);
+    },
+    [getStepIndexByType, markComplete],
+  );
 
   const handleComplete = useCallback(
     async (taskId?: string) => {
@@ -606,8 +615,8 @@ export default function Onboarding() {
       name: org.name!,
       display_name: org.display_name,
     });
-    markComplete(1);
-  }, [selectedOrgId, existingOrgs, markComplete, snackbar]);
+    markStepCompleteByType("organization");
+  }, [selectedOrgId, existingOrgs, markStepCompleteByType, snackbar]);
 
   const handleCreateOrg = useCallback(async () => {
     if (!orgDisplayName.trim()) {
@@ -625,7 +634,7 @@ export default function Onboarding() {
           display_name: newOrg.display_name,
         });
         await account.organizationTools.loadOrganizations();
-        markComplete(1);
+        markStepCompleteByType("organization");
       }
     } catch (err) {
       console.error("Failed to create org:", err);
@@ -635,7 +644,7 @@ export default function Onboarding() {
     orgDisplayName,
     createOrgMutation,
     account.organizationTools,
-    markComplete,
+    markStepCompleteByType,
     snackbar,
   ]);
 
@@ -885,7 +894,7 @@ export default function Onboarding() {
         if (agentMode === "select") {
           setCreatedAgentId(selectedAgentId);
         }
-        markComplete(4);
+        markStepCompleteByType("project");
       }
     } catch (err: any) {
       console.error("Failed to create project:", err);
@@ -905,7 +914,7 @@ export default function Onboarding() {
     createdOrg,
     account,
     api,
-    markComplete,
+    markStepCompleteByType,
     snackbar,
     agentMode,
     selectedAgentId,
@@ -932,7 +941,7 @@ export default function Onboarding() {
 
       if (response.data) {
         setCreatedTaskId(response.data.id || "");
-        markComplete(5);
+        markStepCompleteByType("task");
         snackbar.success(
           "Task created! Your AI agent will start working on it.",
         );
@@ -952,7 +961,7 @@ export default function Onboarding() {
     createdTaskId,
     createdAgentId,
     api,
-    markComplete,
+    markStepCompleteByType,
     snackbar,
     handleComplete,
   ]);
@@ -1309,7 +1318,7 @@ export default function Onboarding() {
                 {isSubscriptionActive ? (
                   <Button
                     variant="contained"
-                    onClick={() => markComplete(2)}
+                    onClick={() => markStepCompleteByType("subscription")}
                     sx={btnSx}
                   >
                     Continue
@@ -1547,7 +1556,7 @@ export default function Onboarding() {
               <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
                 <Button
                   variant="contained"
-                  onClick={() => markComplete(3)}
+                  onClick={() => markStepCompleteByType("provider")}
                   disabled={!hasUserProviders}
                   sx={btnSx}
                 >
@@ -1555,7 +1564,7 @@ export default function Onboarding() {
                 </Button>
                 <Button
                   variant="text"
-                  onClick={() => markComplete(3)}
+                  onClick={() => markStepCompleteByType("provider")}
                   sx={{
                     color: "rgba(255,255,255,0.3)",
                     textTransform: "none",
