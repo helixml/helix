@@ -22,7 +22,7 @@ var startSpecTaskParameters = jsonschema.Definition{
 			Description: "The ID of the task to start",
 		},
 	},
-	Required: []string{"task_id", "skip_planning"},
+	Required: []string{"task_id"},
 }
 
 type StartSpecTaskTool struct {

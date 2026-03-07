@@ -97,9 +97,9 @@ func NewWithOptions(apiKey string, baseURL string, billingEnabled bool, opts Cli
 	rateLimiter := NewUniversalRateLimiter(baseURL)
 
 	config.HTTPClient = &openAIClientInterceptor{
-		Client:      *httpClient,
-		rateLimiter: rateLimiter,
-		baseURL:     baseURL,
+		Client:            *httpClient,
+		rateLimiter:       rateLimiter,
+		baseURL: baseURL,
 	}
 
 	client := openai.NewClientWithConfig(config)
@@ -122,6 +122,7 @@ type RetryableClient struct {
 	apiKey         string
 	models         []string
 	billingEnabled bool
+
 }
 
 // APIKey - returns the API key used by the client, used for testing
@@ -180,6 +181,11 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	// Trim trailing whitespace from message content to prevent API errors
 	request = trimMessageContent(request)
 
+	// Use native genai SDK for Google providers
+	if isGoogleProvider(c.baseURL) {
+		return c.createGoogleChatCompletion(ctx, request)
+	}
+
 	// Perform request with retries
 	err = retry.Do(func() error {
 		resp, err = c.apiClient.CreateChatCompletion(ctx, request)
@@ -237,15 +243,20 @@ func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, reques
 		return nil, err
 	}
 
+	// Trim trailing whitespace from message content to prevent API errors
+	request = trimMessageContent(request)
+
+	// Use native genai SDK for Google providers
+	if isGoogleProvider(c.baseURL) {
+		return c.createGoogleChatCompletionStream(ctx, request)
+	}
+
 	// Always include usage
 	if request.StreamOptions == nil {
 		request.StreamOptions = &openai.StreamOptions{}
 	}
 
 	request.StreamOptions.IncludeUsage = true
-
-	// Trim trailing whitespace from message content to prevent API errors
-	request = trimMessageContent(request)
 
 	return c.apiClient.CreateChatCompletionStream(ctx, request)
 }

@@ -130,6 +130,8 @@ steps:
       DISABLE_AGENT_TESTS: "true"
       # Skip migrations - already run by run-migrations step
       HELIX_SKIP_AUTOMIGRATE: "1"
+      GEMINI_API_KEY:
+        from_secret: GEMINI_API_KEY
       OPENAI_API_KEY:
         from_secret: openai_tools
       TOGETHER_API_KEY:
