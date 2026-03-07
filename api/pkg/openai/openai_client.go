@@ -105,13 +105,12 @@ func NewWithOptions(apiKey string, baseURL string, billingEnabled bool, opts Cli
 	client := openai.NewClientWithConfig(config)
 
 	return &RetryableClient{
-		apiClient:       client,
-		httpClient:      httpClient,
-		baseURL:         baseURL,
-		apiKey:          apiKey,
-		models:          models,
-		billingEnabled:  billingEnabled,
-		thoughtSigCache: newThoughtSignatureCache(),
+		apiClient:      client,
+		httpClient:     httpClient,
+		baseURL:        baseURL,
+		apiKey:         apiKey,
+		models:         models,
+		billingEnabled: billingEnabled,
 	}
 }
 
@@ -124,9 +123,6 @@ type RetryableClient struct {
 	models         []string
 	billingEnabled bool
 
-	// thoughtSigCache stores thought signatures from Gemini responses for
-	// echoing back in subsequent requests (native genai SDK path).
-	thoughtSigCache *thoughtSignatureCache
 }
 
 // APIKey - returns the API key used by the client, used for testing

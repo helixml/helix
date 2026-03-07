@@ -13,7 +13,7 @@ import (
 )
 
 func TestThoughtSignatureCache_SetGet(t *testing.T) {
-	cache := newThoughtSignatureCache()
+	cache := &thoughtSignatureCache{store: make(map[string][]byte)}
 
 	cache.Set("call-1", []byte("signature-data"))
 
@@ -26,7 +26,7 @@ func TestThoughtSignatureCache_SetGet(t *testing.T) {
 }
 
 func TestStoreThoughtSignatures(t *testing.T) {
-	cache := newThoughtSignatureCache()
+	cache := &thoughtSignatureCache{store: make(map[string][]byte)}
 
 	resp := &genai.GenerateContentResponse{
 		Candidates: []*genai.Candidate{
@@ -67,7 +67,7 @@ func TestStoreThoughtSignatures(t *testing.T) {
 }
 
 func TestOpenaiToGenai_ToolCallsWithThoughtSignatures(t *testing.T) {
-	cache := newThoughtSignatureCache()
+	cache := &thoughtSignatureCache{store: make(map[string][]byte)}
 	cache.Set("call-1", []byte("sig-abc"))
 
 	req := openai.ChatCompletionRequest{

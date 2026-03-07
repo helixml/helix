@@ -93,6 +93,14 @@ func isGenerativeGoogleModel(model *GoogleModel) bool {
 	return slices.Contains(model.SupportedGenerationMethods, "generateContent")
 }
 
+// globalThoughtSigCache is a package-level cache for Gemini thought signatures.
+// It must be global because different RetryableClient instances (e.g. reasoning
+// vs generation models) may handle different turns of the same conversation.
+// Call IDs are UUIDs so there's no collision risk across conversations.
+var globalThoughtSigCache = &thoughtSignatureCache{
+	store: make(map[string][]byte),
+}
+
 // thoughtSignatureCache stores thought signatures from Gemini responses so they
 // can be echoed back when the conversation continues with tool results.
 // The native genai SDK includes ThoughtSignature on Part, but since we convert
@@ -100,12 +108,6 @@ func isGenerativeGoogleModel(model *GoogleModel) bool {
 type thoughtSignatureCache struct {
 	mu    sync.RWMutex
 	store map[string][]byte // FunctionCall.ID -> ThoughtSignature bytes
-}
-
-func newThoughtSignatureCache() *thoughtSignatureCache {
-	return &thoughtSignatureCache{
-		store: make(map[string][]byte),
-	}
 }
 
 func (c *thoughtSignatureCache) Set(id string, sig []byte) {
@@ -131,7 +133,7 @@ func (c *RetryableClient) createGoogleChatCompletion(ctx context.Context, reques
 		return openai.ChatCompletionResponse{}, fmt.Errorf("failed to create genai client: %w", err)
 	}
 
-	contents, config := openaiToGenai(request, c.thoughtSigCache)
+	contents, config := openaiToGenai(request, globalThoughtSigCache)
 
 	resp, err := client.Models.GenerateContent(ctx, request.Model, contents, config)
 	if err != nil {
@@ -139,7 +141,7 @@ func (c *RetryableClient) createGoogleChatCompletion(ctx context.Context, reques
 	}
 
 	// Store thought signatures from the response for future requests
-	assignIDsAndStoreSignatures(resp, c.thoughtSigCache)
+	assignIDsAndStoreSignatures(resp, globalThoughtSigCache)
 
 	return genaiToOpenaiResponse(resp, request.Model), nil
 }
@@ -156,7 +158,7 @@ func (c *RetryableClient) createGoogleChatCompletionStream(ctx context.Context, 
 		return nil, fmt.Errorf("failed to create genai client: %w", err)
 	}
 
-	contents, config := openaiToGenai(request, c.thoughtSigCache)
+	contents, config := openaiToGenai(request, globalThoughtSigCache)
 
 	// Create a pipe to feed the openai stream adapter
 	pr, pw := io.Pipe()
@@ -181,7 +183,7 @@ func (c *RetryableClient) createGoogleChatCompletionStream(ctx context.Context, 
 			}
 
 			// Store thought signatures from streaming chunks
-			assignIDsAndStoreSignatures(resp, c.thoughtSigCache)
+			assignIDsAndStoreSignatures(resp, globalThoughtSigCache)
 
 			chunk := genaiToOpenaiStreamChunk(resp, request.Model, chunkIndex)
 			chunkIndex++
