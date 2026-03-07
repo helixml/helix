@@ -266,10 +266,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   // Handle org select, also remember the last org user has been in
   const handleOrgSelect = (orgSlug: string) => {
     localStorage.setItem(SELECTED_ORG_STORAGE_KEY, orgSlug)
-    // If we're already on an org route, switch to the same route in the new org
-    const useRouteName = router.name.startsWith('org_') ? router.name : 'org_projects'
-    const useParams = Object.assign({}, router.params, { org_id: orgSlug })
-    router.navigate(useRouteName, useParams)
+    router.navigate('org_projects', { org_id: orgSlug })
     setDialogOpen(false)
   }
 
