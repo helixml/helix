@@ -56,7 +56,7 @@ func TestStoreThoughtSignatures(t *testing.T) {
 		},
 	}
 
-	storeThoughtSignatures(resp, cache)
+	assignIDsAndStoreSignatures(resp, cache)
 
 	sig, ok := cache.Get("call-1")
 	require.True(t, ok)

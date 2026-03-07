@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/google/uuid"
+
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
@@ -137,7 +139,7 @@ func (c *RetryableClient) createGoogleChatCompletion(ctx context.Context, reques
 	}
 
 	// Store thought signatures from the response for future requests
-	storeThoughtSignatures(resp, c.thoughtSigCache)
+	assignIDsAndStoreSignatures(resp, c.thoughtSigCache)
 
 	return genaiToOpenaiResponse(resp, request.Model), nil
 }
@@ -179,7 +181,7 @@ func (c *RetryableClient) createGoogleChatCompletionStream(ctx context.Context, 
 			}
 
 			// Store thought signatures from streaming chunks
-			storeThoughtSignatures(resp, c.thoughtSigCache)
+			assignIDsAndStoreSignatures(resp, c.thoughtSigCache)
 
 			chunk := genaiToOpenaiStreamChunk(resp, request.Model, chunkIndex)
 			chunkIndex++
@@ -421,8 +423,11 @@ func openaiToGenaiToolConfig(toolChoice any) *genai.ToolConfig {
 	return nil
 }
 
-// storeThoughtSignatures extracts and caches thought signatures from genai responses.
-func storeThoughtSignatures(resp *genai.GenerateContentResponse, cache *thoughtSignatureCache) {
+// assignIDsAndStoreSignatures generates synthetic IDs for FunctionCall parts
+// that lack them (Gemini native API doesn't use IDs) and caches any thought
+// signatures keyed by those IDs. This must be called before converting the
+// response to OpenAI types.
+func assignIDsAndStoreSignatures(resp *genai.GenerateContentResponse, cache *thoughtSignatureCache) {
 	if resp == nil || cache == nil {
 		return
 	}
@@ -431,7 +436,14 @@ func storeThoughtSignatures(resp *genai.GenerateContentResponse, cache *thoughtS
 			continue
 		}
 		for _, part := range candidate.Content.Parts {
-			if part.FunctionCall != nil && part.FunctionCall.ID != "" && len(part.ThoughtSignature) > 0 {
+			if part.FunctionCall == nil {
+				continue
+			}
+			// Generate a stable ID if the API didn't provide one
+			if part.FunctionCall.ID == "" {
+				part.FunctionCall.ID = "call_" + uuid.New().String()[:8]
+			}
+			if len(part.ThoughtSignature) > 0 {
 				log.Debug().
 					Str("tool_call_id", part.FunctionCall.ID).
 					Msg("Cached thought signature from genai response")
