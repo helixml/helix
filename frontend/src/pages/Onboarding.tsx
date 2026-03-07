@@ -279,7 +279,9 @@ export default function Onboarding() {
 
   const { data: providers, isLoading: isLoadingProviders } = useListProviders({
     loadModels: true,
-    enabled: true,
+    orgId: createdOrg?.id,
+    all: false,
+    enabled: !!createdOrg?.id,
   });
 
   // Claude subscription state
@@ -302,10 +304,27 @@ export default function Onboarding() {
     });
     return ids;
   }, [providers]);
+  const globalProviders = useMemo(() => {
+    if (!providers) return [];
+    return providers.filter(
+      (p) =>
+        p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeGlobal,
+    );
+  }, [providers]);
+  const providerLogoMap = useMemo(() => {
+    const map = new Map<string, Provider>();
+    PROVIDERS.forEach((provider) => {
+      map.set(provider.id, provider);
+      map.set(provider.id.replace(/^user\//, ""), provider);
+      provider.alias.forEach((alias) => map.set(alias, provider));
+    });
+    return map;
+  }, []);
   const hasAnthropicProvider = connectedProviderIds.has("anthropic");
   // Consider Claude subscription as a valid provider for the "Continue" button
   const hasUserProviders =
     connectedProviderIds.size > 0 || hasClaudeSubscription;
+  const hasProvidersForContinue = hasUserProviders || globalProviders.length > 0;
 
   // Check if any providers (including system/global) have enabled models
   const hasAnyEnabledModels = useMemo(() => {
@@ -1551,13 +1570,100 @@ export default function Onboarding() {
                     </Box>
                   );
                 })}
+                {globalProviders.length > 0 && (
+                  <>
+                    <Divider
+                      sx={{
+                        gridColumn: "1 / -1",
+                        borderColor: "rgba(255,255,255,0.06)",
+                        my: 0.5,
+                      }}
+                    />
+                    <Typography
+                      sx={{
+                        gridColumn: "1 / -1",
+                        color: "rgba(255,255,255,0.3)",
+                        fontSize: "0.72rem",
+                      }}
+                    >
+                      Globally configured providers
+                    </Typography>
+                    {globalProviders.map((providerEndpoint) => {
+                      const providerMeta = providerLogoMap.get(
+                        providerEndpoint.name || "",
+                      );
+                      const Logo = providerMeta?.logo;
+                      const providerName =
+                        providerMeta?.name || providerEndpoint.name || "Provider";
+                      return (
+                        <Box
+                          key={`global-provider-${providerEndpoint.name}-${providerEndpoint.id}`}
+                          sx={{
+                            p: 1.5,
+                            borderRadius: 1.5,
+                            border: `1px solid ${CARD_BORDER_ACTIVE}`,
+                            bgcolor: ACCENT_DIM,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 1.5,
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              width: 28,
+                              height: 28,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
+                              color: "#fff",
+                            }}
+                          >
+                            {Logo ? (
+                              typeof Logo === "string" ? (
+                                <img
+                                  src={Logo}
+                                  alt=""
+                                  style={{
+                                    width: 24,
+                                    height: 24,
+                                    background: "#fff",
+                                    borderRadius: 4,
+                                  }}
+                                />
+                              ) : (
+                                <Logo style={{ width: 24, height: 24 }} />
+                              )
+                            ) : (
+                              <Server size={20} />
+                            )}
+                          </Box>
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Typography
+                              sx={{
+                                color: "#fff",
+                                fontWeight: 500,
+                                fontSize: "0.78rem",
+                              }}
+                            >
+                              {providerName}
+                            </Typography>
+                          </Box>
+                          <CheckCircleIcon
+                            sx={{ fontSize: 16, color: ACCENT, flexShrink: 0 }}
+                          />
+                        </Box>
+                      );
+                    })}
+                  </>
+                )}
               </Box>
 
               <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
                 <Button
                   variant="contained"
                   onClick={() => markStepCompleteByType("provider")}
-                  disabled={!hasUserProviders}
+                  disabled={!hasProvidersForContinue}
                   sx={btnSx}
                 >
                   Continue
@@ -2330,7 +2436,7 @@ export default function Onboarding() {
             open={addProviderDialogOpen}
             onClose={() => setAddProviderDialogOpen(false)}
             onClosed={() => setSelectedOnboardingProvider(null)}
-            orgId=""
+            orgId={createdOrg?.id || ""}
             provider={selectedOnboardingProvider}
           />
         )}
