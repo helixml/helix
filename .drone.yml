@@ -1882,6 +1882,7 @@ steps:
         cp zed-build/zed "$${CONTEXT_DIR}/zed-binary"
         cp "$${ZED_SOURCE}/crates/external_websocket_sync/e2e-test/run_e2e.sh" "$${CONTEXT_DIR}/"
         cp -r "$${ZED_SOURCE}/crates/external_websocket_sync/e2e-test/helix-ws-test-server" "$${CONTEXT_DIR}/"
+        cp -r "$${ZED_SOURCE}/crates/external_websocket_sync/e2e-test/slow-mcp-server" "$${CONTEXT_DIR}/"
         # Copy helix Go source for the test server build (replace directive)
         cp /drone/src/go.mod "$${CONTEXT_DIR}/helix-go.mod"
         cp /drone/src/go.sum "$${CONTEXT_DIR}/helix-go.sum"
