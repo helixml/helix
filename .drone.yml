@@ -1877,33 +1877,28 @@ steps:
           exit 1
         fi
 
-        # Prepare Docker context with all needed files
-        CONTEXT_DIR=$$(mktemp -d)
-        cp zed-build/zed "$${CONTEXT_DIR}/zed-binary"
-        cp "$${ZED_SOURCE}/crates/external_websocket_sync/e2e-test/run_e2e.sh" "$${CONTEXT_DIR}/"
-        cp -r "$${ZED_SOURCE}/crates/external_websocket_sync/e2e-test/helix-ws-test-server" "$${CONTEXT_DIR}/"
-        cp -r "$${ZED_SOURCE}/crates/external_websocket_sync/e2e-test/slow-mcp-server" "$${CONTEXT_DIR}/"
-        # Copy helix Go source for the test server build (replace directive)
-        cp /drone/src/go.mod "$${CONTEXT_DIR}/helix-go.mod"
-        cp /drone/src/go.sum "$${CONTEXT_DIR}/helix-go.sum"
-        cp -r /drone/src/api "$${CONTEXT_DIR}/helix-api"
-
-        # Copy CI Dockerfile from Zed repo
-        cp "$${ZED_SOURCE}/crates/external_websocket_sync/e2e-test/Dockerfile.ci" "$${CONTEXT_DIR}/Dockerfile"
+        # Use the Zed e2e-test dir as Docker context — only external inputs
+        # are the pre-built zed binary and Helix Go source (for test server build)
+        E2E_DIR="$${ZED_SOURCE}/crates/external_websocket_sync/e2e-test"
+        cp zed-build/zed "$${E2E_DIR}/zed-binary"
+        cp /drone/src/go.mod "$${E2E_DIR}/helix-go.mod"
+        cp /drone/src/go.sum "$${E2E_DIR}/helix-go.sum"
+        cp -r /drone/src/api "$${E2E_DIR}/helix-api"
 
         echo "Building E2E runtime image (multi-stage: Go builder + runtime)..."
         docker build -t zed-ws-e2e:$${ZED_COMMIT} \
-          -f "$${CONTEXT_DIR}/Dockerfile" \
-          "$${CONTEXT_DIR}"
+          -f "$${E2E_DIR}/Dockerfile.ci" \
+          "$${E2E_DIR}"
+
+        # Clean up external files from cached Zed source
+        rm -f "$${E2E_DIR}/zed-binary" "$${E2E_DIR}/helix-go.mod" "$${E2E_DIR}/helix-go.sum"
+        rm -rf "$${E2E_DIR}/helix-api"
 
         echo "Running E2E test..."
         docker run --rm \
           -e ANTHROPIC_API_KEY="$${ANTHROPIC_API_KEY}" \
           -e TEST_TIMEOUT=240 \
           zed-ws-e2e:$${ZED_COMMIT}
-
-        # Clean up context dir
-        rm -rf "$${CONTEXT_DIR}"
 
         echo "Zed WebSocket E2E test passed"
     volumes:
