@@ -160,7 +160,7 @@ type User struct {
 	AuthProvider AuthProvider `json:"auth_provider"`
 
 	Password           string `json:"-" gorm:"-"`           // Temporary field for password input, not persisted
-	PasswordHash       []byte `json:"password_hash"`        // bcrypt hash of the password
+	PasswordHash       []byte `json:"-"`                    // bcrypt hash of the password
 	MustChangePassword bool   `json:"must_change_password"` // if the user must change their password
 
 	SB          bool `json:"sb"`
