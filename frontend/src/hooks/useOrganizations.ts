@@ -9,6 +9,7 @@ import bluebird from 'bluebird'
 export interface IOrganizationTools {
   organizations: TypesOrganization[],
   loading: boolean,
+  initialized: boolean,
   orgID: string,
   organization?: TypesOrganization,
   // Access grants state
@@ -45,6 +46,7 @@ export interface IOrganizationTools {
 export const defaultOrganizationTools: IOrganizationTools = {
   organizations: [],
   loading: false,
+  initialized: false,
   orgID: '',
   organization: undefined,
   appAccessGrants: [],
@@ -664,6 +666,7 @@ export default function useOrganizations(): IOrganizationTools {
   return {
     organizations,
     loading,
+    initialized,
     orgID,
     organization,
     // Access grants state
