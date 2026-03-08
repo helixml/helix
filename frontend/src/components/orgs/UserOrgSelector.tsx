@@ -213,8 +213,27 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
 
   // Get the current organization from the URL or context
   const currentOrg = account.organizationTools.organization
-  const currentOrgSlug = account.organizationTools.organization?.name
   const organizations = account.organizationTools.organizations
+
+  const listOrgs = useMemo(() => {
+    if (!account.user) return []
+    const loadedOrgs = organizations.map((org) => ({
+      id: org.id,
+      name: org.name,
+      display_name: org.display_name,
+      member: org.member,
+    }))
+    return loadedOrgs.sort((a, b) => Number(a.member === false) - Number(b.member === false))
+  }, [organizations, account.user])
+
+  // Fall back to localStorage or first accessible org when no org is selected via URL (e.g. /orgs page)
+  const currentOrgSlug = useMemo(() => {
+    if (currentOrg?.name) return currentOrg.name
+    const stored = localStorage.getItem(SELECTED_ORG_STORAGE_KEY)
+    if (stored && listOrgs.some(org => org.name === stored)) return stored
+    const firstAccessible = listOrgs.find(org => org.member !== false)
+    return firstAccessible?.name
+  }, [currentOrg?.name, listOrgs])
 
   // Add a minimum loading time to prevent flickering
   const [minLoadingComplete, setMinLoadingComplete] = useState(false)
@@ -235,17 +254,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       routeName.startsWith('org_' + p + '-')
     )
   }
-
-  const listOrgs = useMemo(() => {
-    if (!account.user) return []
-    const loadedOrgs = organizations.map((org) => ({
-      id: org.id,
-      name: org.name,
-      display_name: org.display_name,
-      member: org.member,
-    }))
-    return loadedOrgs.sort((a, b) => Number(a.member === false) - Number(b.member === false))
-  }, [organizations, account.user])
 
 
   // Auto-select first org when no org is saved in localStorage

@@ -98,6 +98,8 @@ func (apiServer *HelixAPIServer) listOrganizations(rw http.ResponseWriter, r *ht
 			organizations = append(organizations, org)
 		}
 
+		apiServer.populateOrgProjectCounts(r.Context(), organizations)
+
 		writeResponse(rw, organizations, http.StatusOK)
 		return
 	}
@@ -132,6 +134,8 @@ func (apiServer *HelixAPIServer) listOrganizations(rw http.ResponseWriter, r *ht
 		organization.Member = isMember
 	}
 
+	apiServer.populateOrgProjectCounts(r.Context(), organizations)
+
 	sort.SliceStable(organizations, func(i, j int) bool {
 		iMember := organizations[i] != nil && organizations[i].Member
 		jMember := organizations[j] != nil && organizations[j].Member
@@ -163,6 +167,22 @@ func (apiServer *HelixAPIServer) listOrganizations(rw http.ResponseWriter, r *ht
 	})
 
 	writeResponse(rw, organizations, http.StatusOK)
+}
+
+func (apiServer *HelixAPIServer) populateOrgProjectCounts(ctx context.Context, orgs []*types.Organization) {
+	for _, org := range orgs {
+		if org == nil {
+			continue
+		}
+		count, err := apiServer.Store.GetProjectsCount(ctx, &store.GetProjectsCountQuery{
+			OrganizationID: org.ID,
+		})
+		if err != nil {
+			log.Err(err).Str("org_id", org.ID).Msg("error getting project count for organization")
+			continue
+		}
+		org.ProjectCount = int(count)
+	}
 }
 
 // getOrganization godoc

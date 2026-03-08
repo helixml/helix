@@ -3362,6 +3362,8 @@ export interface TypesOrganization {
   name?: string;
   /** Who created the org */
   owner?: string;
+  /** Number of projects in the organization */
+  project_count?: number;
   /** Roles in the organization */
   roles?: TypesRole[];
   /** Teams in the organization */
@@ -5520,8 +5522,6 @@ export interface TypesUser {
   onboarding_completed_at?: string;
   /** Organization this API key is scoped to (ephemeral keys) */
   organization_id?: string;
-  /** bcrypt hash of the password */
-  password_hash?: number[];
   /** When running in Helix Code sandbox */
   project_id?: string;
   sb?: boolean;

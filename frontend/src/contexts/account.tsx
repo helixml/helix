@@ -462,13 +462,25 @@ export const useAccountContext = (): IAccountContext => {
     if (user.onboarding_completed) return
     // Don't redirect if user dismissed onboarding this session
     if (onboardingDismissedRef.current) return
+    // Wait for organizations to be loaded before deciding
+    if (!organizationTools.initialized) return
     // Don't redirect if user already has organizations (not a fresh account)
     if (organizationTools.organizations.length > 0) return
-    // Wait for organizations to be loaded before deciding
-    if (organizationTools.loading) return
 
     router.navigateReplace('onboarding')
-  }, [initialized, user, router.name, organizationTools.organizations.length, organizationTools.loading])
+  }, [initialized, user, router.name, organizationTools.organizations.length, organizationTools.initialized])
+
+  // Redirect to orgs page if user has no org memberships
+  useEffect(() => {
+    if (!initialized || !user) return
+    if (user.waitlisted) return
+    if (!organizationTools.initialized) return
+    if (router.name === 'orgs') return
+    const hasMembership = organizationTools.organizations.some(org => org.member !== false)
+    if (hasMembership) return
+
+    router.navigateReplace('orgs')
+  }, [initialized, user, router.name, organizationTools.organizations, organizationTools.initialized])
 
   return {
     initialized,
