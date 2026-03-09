@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"net"
@@ -16,7 +15,6 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// DesktopMCPBackendSuite tests the Desktop MCP backend
 type DesktopMCPBackendSuite struct {
 	suite.Suite
 	ctx       context.Context
@@ -40,207 +38,95 @@ func (s *DesktopMCPBackendSuite) SetupTest() {
 
 func (s *DesktopMCPBackendSuite) TearDownTest() {
 	s.ctrl.Finish()
+	if s.dialer.server != nil {
+		s.dialer.server.Close()
+	}
 }
 
-// =============================================================================
-// Fake Dialer — implements SandboxDialer using net.Pipe
-// =============================================================================
-
+// fakeDialer implements SandboxDialer by TCP-dialing an httptest.Server.
 type fakeDialer struct {
-	// conn is the server-side of the pipe, set by test to simulate desktop-bridge
-	conn net.Conn
-	err  error
+	server *httptest.Server
+	err    error
 }
 
 func (d *fakeDialer) Dial(_ context.Context, _ string) (net.Conn, error) {
 	if d.err != nil {
 		return nil, d.err
 	}
-	return d.conn, nil
+	addr := strings.TrimPrefix(d.server.URL, "http://")
+	return net.Dial("tcp", addr)
 }
 
-// startFakeDesktopBridge starts a goroutine that reads an HTTP request from
-// the server-side pipe and writes back a canned HTTP response.
-// It also records the request path so tests can verify which path the proxy used.
-func (s *DesktopMCPBackendSuite) startFakeDesktopBridge(responseBody string) *string {
-	clientConn, serverConn := net.Pipe()
-	s.dialer.conn = clientConn
-	var requestPath string
-
-	go func() {
-		defer serverConn.Close()
-		// Read the forwarded HTTP request
-		req, err := http.ReadRequest(bufio.NewReader(serverConn))
-		if err != nil {
-			return
-		}
-		requestPath = req.URL.Path
-
-		// Write an HTTP response
-		resp := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s",
-			len(responseBody), responseBody)
-		serverConn.Write([]byte(resp))
-	}()
-	return &requestPath
+// session returns a test session owned by user-1.
+func (s *DesktopMCPBackendSuite) session() *types.Session {
+	return &types.Session{ID: "ses-123", Owner: "user-1"}
 }
 
-// startFakeDesktopBridgeWithRoutes simulates the real desktop-bridge HTTP
-// server on port 9876 which serves specific routes (screenshot, health,
-// mcp, etc). Requests to unknown paths return 404.
-func (s *DesktopMCPBackendSuite) startFakeDesktopBridgeWithRoutes() *string {
-	clientConn, serverConn := net.Pipe()
-	s.dialer.conn = clientConn
-	var requestPath string
-
-	go func() {
-		defer serverConn.Close()
-		req, err := http.ReadRequest(bufio.NewReader(serverConn))
-		if err != nil {
-			return
-		}
-		requestPath = req.URL.Path
-
-		// The real desktop server (port 9876) serves /screenshot, /health,
-		// /clipboard, /mcp etc. If the proxy sends to the wrong path, it 404s.
-		knownRoutes := map[string]bool{
-			"/screenshot": true,
-			"/health":     true,
-			"/clipboard":  true,
-			"/mcp":        true,
-		}
-
-		if !knownRoutes[req.URL.Path] {
-			resp := "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nnot found"
-			serverConn.Write([]byte(resp))
-			return
-		}
-
-		body := `{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}`
-		resp := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s",
-			len(body), body)
-		serverConn.Write([]byte(resp))
-	}()
-	return &requestPath
+// mcpRequest builds a POST to the desktop MCP gateway with the given session.
+func (s *DesktopMCPBackendSuite) mcpRequest(sessionID string) (*httptest.ResponseRecorder, *http.Request) {
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/desktop?session_id="+sessionID, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	return httptest.NewRecorder(), req
 }
 
 // =============================================================================
 // Tests
 // =============================================================================
 
-func (s *DesktopMCPBackendSuite) TestServeHTTP_ProxiesToDesktopBridge() {
-	session := &types.Session{
-		ID:    "ses-123",
-		Owner: "user-1",
-	}
+func (s *DesktopMCPBackendSuite) TestProxy_ForwardsToMCPPath() {
+	s.mockStore.EXPECT().GetSession(gomock.Any(), "ses-123").Return(s.session(), nil)
 
-	s.mockStore.EXPECT().
-		GetSession(gomock.Any(), "ses-123").
-		Return(session, nil)
+	var receivedPath string
+	s.dialer.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}`)
+	}))
 
-	mcpResponse := `{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}`
-	s.startFakeDesktopBridge(mcpResponse)
+	w, req := s.mcpRequest("ses-123")
+	s.backend.ServeHTTP(w, req, &types.User{ID: "user-1"})
 
-	body := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/desktop?session_id=ses-123", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-
-	user := &types.User{ID: "user-1"}
-	s.backend.ServeHTTP(w, req, user)
-
+	s.Equal("/mcp", receivedPath)
 	s.Equal(http.StatusOK, w.Code)
 	s.Contains(w.Body.String(), `"tools":[]`)
 }
 
-// TestServeHTTP_ProxiesToCorrectPath verifies the proxy sends to /mcp on the
-// desktop HTTP server (port 9876, reached via RevDial).
-func (s *DesktopMCPBackendSuite) TestServeHTTP_ProxiesToCorrectPath() {
-	session := &types.Session{
-		ID:    "ses-123",
-		Owner: "user-1",
-	}
-
-	s.mockStore.EXPECT().
-		GetSession(gomock.Any(), "ses-123").
-		Return(session, nil)
-
-	// Simulate the real desktop-bridge: known routes return 200, unknown 404.
-	requestPath := s.startFakeDesktopBridgeWithRoutes()
-
-	body := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/desktop?session_id=ses-123", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-
-	user := &types.User{ID: "user-1"}
-	s.backend.ServeHTTP(w, req, user)
-
-	// The proxy must target /mcp (served by desktop HTTP server on port 9876)
-	s.Equal("/mcp", *requestPath, "proxy should target /mcp on port 9876, not some other path")
-	s.Equal(http.StatusOK, w.Code, "should get 200 from desktop server's /mcp route")
-}
-
-func (s *DesktopMCPBackendSuite) TestServeHTTP_MissingSessionID() {
+func (s *DesktopMCPBackendSuite) TestMissingSessionID() {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/desktop", strings.NewReader("{}"))
 	w := httptest.NewRecorder()
 
-	user := &types.User{ID: "user-1"}
-	s.backend.ServeHTTP(w, req, user)
+	s.backend.ServeHTTP(w, req, &types.User{ID: "user-1"})
 
 	s.Equal(http.StatusBadRequest, w.Code)
 	s.Contains(w.Body.String(), "session_id")
 }
 
-func (s *DesktopMCPBackendSuite) TestServeHTTP_SessionNotFound() {
-	s.mockStore.EXPECT().
-		GetSession(gomock.Any(), "ses-missing").
-		Return(nil, fmt.Errorf("not found"))
+func (s *DesktopMCPBackendSuite) TestSessionNotFound() {
+	s.mockStore.EXPECT().GetSession(gomock.Any(), "ses-missing").Return(nil, fmt.Errorf("not found"))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/desktop?session_id=ses-missing", strings.NewReader("{}"))
-	w := httptest.NewRecorder()
-
-	user := &types.User{ID: "user-1"}
-	s.backend.ServeHTTP(w, req, user)
+	w, req := s.mcpRequest("ses-missing")
+	s.backend.ServeHTTP(w, req, &types.User{ID: "user-1"})
 
 	s.Equal(http.StatusNotFound, w.Code)
 }
 
-func (s *DesktopMCPBackendSuite) TestServeHTTP_UserDoesNotOwnSession() {
-	session := &types.Session{
-		ID:    "ses-123",
-		Owner: "user-other",
-	}
+func (s *DesktopMCPBackendSuite) TestForbiddenWhenNotOwner() {
+	other := &types.Session{ID: "ses-123", Owner: "user-other"}
+	s.mockStore.EXPECT().GetSession(gomock.Any(), "ses-123").Return(other, nil)
 
-	s.mockStore.EXPECT().
-		GetSession(gomock.Any(), "ses-123").
-		Return(session, nil)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/desktop?session_id=ses-123", strings.NewReader("{}"))
-	w := httptest.NewRecorder()
-
-	user := &types.User{ID: "user-1"}
-	s.backend.ServeHTTP(w, req, user)
+	w, req := s.mcpRequest("ses-123")
+	s.backend.ServeHTTP(w, req, &types.User{ID: "user-1"})
 
 	s.Equal(http.StatusForbidden, w.Code)
 }
 
-func (s *DesktopMCPBackendSuite) TestServeHTTP_SandboxNotConnected() {
-	session := &types.Session{
-		ID:    "ses-123",
-		Owner: "user-1",
-	}
-
-	s.mockStore.EXPECT().
-		GetSession(gomock.Any(), "ses-123").
-		Return(session, nil)
-
+func (s *DesktopMCPBackendSuite) TestSandboxNotConnected() {
+	s.mockStore.EXPECT().GetSession(gomock.Any(), "ses-123").Return(s.session(), nil)
 	s.dialer.err = fmt.Errorf("no connection")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/desktop?session_id=ses-123", strings.NewReader("{}"))
-	w := httptest.NewRecorder()
-
-	user := &types.User{ID: "user-1"}
-	s.backend.ServeHTTP(w, req, user)
+	w, req := s.mcpRequest("ses-123")
+	s.backend.ServeHTTP(w, req, &types.User{ID: "user-1"})
 
 	s.Equal(http.StatusServiceUnavailable, w.Code)
 	s.Contains(w.Body.String(), "not connected")
