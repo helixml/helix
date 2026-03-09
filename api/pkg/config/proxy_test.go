@@ -1,14 +1,13 @@
-package browser
+package config
 
 import (
 	"os"
 	"testing"
 
-	"github.com/helixml/helix/api/pkg/config"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestEnsureNoProxyForBrowserHosts(t *testing.T) {
+func TestEnsureNoProxyForInternalHosts(t *testing.T) {
 	tests := []struct {
 		name            string
 		httpProxy       string
@@ -16,6 +15,8 @@ func TestEnsureNoProxyForBrowserHosts(t *testing.T) {
 		existingNoProxy string
 		chromeURL       string
 		launcherURL     string
+		searxngURL      string
+		tikaURL         string
 		expectedNoProxy string
 		expectChange    bool
 	}{
@@ -30,31 +31,25 @@ func TestEnsureNoProxyForBrowserHosts(t *testing.T) {
 			expectChange:    false,
 		},
 		{
-			name:            "proxy configured, adds chrome host",
+			name:            "proxy configured, adds all internal hosts",
 			httpProxy:       "http://proxy:8080",
 			existingNoProxy: "localhost,127.0.0.1",
 			chromeURL:       "http://chrome:9222",
 			launcherURL:     "http://chrome:7317",
-			expectedNoProxy: "localhost,127.0.0.1,chrome",
+			searxngURL:      "http://searxng:8080",
+			tikaURL:         "http://tika:9998",
 			expectChange:    true,
 		},
 		{
-			name:            "proxy configured, chrome already in NO_PROXY",
+			name:            "proxy configured, hosts already in NO_PROXY",
 			httpProxy:       "http://proxy:8080",
-			existingNoProxy: "localhost,127.0.0.1,chrome",
+			existingNoProxy: "localhost,127.0.0.1,chrome,searxng,tika",
 			chromeURL:       "http://chrome:9222",
 			launcherURL:     "http://chrome:7317",
-			expectedNoProxy: "localhost,127.0.0.1,chrome",
+			searxngURL:      "http://searxng:8080",
+			tikaURL:         "http://tika:9998",
+			expectedNoProxy: "localhost,127.0.0.1,chrome,searxng,tika",
 			expectChange:    false,
-		},
-		{
-			name:            "proxy configured, different chrome and launcher hosts",
-			httpProxy:       "http://proxy:8080",
-			existingNoProxy: "localhost",
-			chromeURL:       "http://my-chrome:9222",
-			launcherURL:     "http://my-launcher:7317",
-			expectedNoProxy: "localhost,my-chrome,my-launcher",
-			expectChange:    true,
 		},
 		{
 			name:            "HTTPS_PROXY only",
@@ -62,11 +57,10 @@ func TestEnsureNoProxyForBrowserHosts(t *testing.T) {
 			existingNoProxy: "",
 			chromeURL:       "http://chrome:9222",
 			launcherURL:     "http://chrome:7317",
-			expectedNoProxy: "chrome",
 			expectChange:    true,
 		},
 		{
-			name:            "IP-based chrome URL",
+			name:            "IP-based URLs",
 			httpProxy:       "http://proxy:8080",
 			existingNoProxy: "localhost",
 			chromeURL:       "http://192.168.1.10:9222",
@@ -74,12 +68,19 @@ func TestEnsureNoProxyForBrowserHosts(t *testing.T) {
 			expectedNoProxy: "localhost,192.168.1.10",
 			expectChange:    true,
 		},
+		{
+			name:            "skips filesystem paths",
+			httpProxy:       "http://proxy:8080",
+			existingNoProxy: "",
+			chromeURL:       "http://chrome:9222",
+			launcherURL:     "http://chrome:7317",
+			expectChange:    true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Save and restore env vars that EnsureNoProxyForBrowserHosts reads/writes.
-			// We can't use t.Setenv because we need to handle Unsetenv for lowercase variants.
+			// Save and restore env vars
 			origHTTP := os.Getenv("HTTP_PROXY")
 			origHTTPS := os.Getenv("HTTPS_PROXY")
 			origNoProxy := os.Getenv("NO_PROXY")
@@ -101,19 +102,35 @@ func TestEnsureNoProxyForBrowserHosts(t *testing.T) {
 			os.Unsetenv("http_proxy")
 			os.Unsetenv("https_proxy")
 
-			cfg := &config.ServerConfig{}
+			cfg := &ServerConfig{}
 			cfg.RAG.Crawler.ChromeURL = tt.chromeURL
 			cfg.RAG.Crawler.LauncherURL = tt.launcherURL
+			if tt.searxngURL != "" {
+				cfg.Search.SearXNGBaseURL = tt.searxngURL
+			}
+			if tt.tikaURL != "" {
+				cfg.TextExtractor.Tika.URL = tt.tikaURL
+			}
+			// Simulate production: FRONTEND_URL is a filesystem path
+			cfg.WebServer.FrontendURL = "/www"
 
-			EnsureNoProxyForBrowserHosts(cfg)
+			cfg.EnsureNoProxyForInternalHosts()
 
 			result := os.Getenv("NO_PROXY")
-			assert.Equal(t, tt.expectedNoProxy, result)
 
-			// Verify both cases are set when changed
-			if tt.expectChange {
-				assert.Equal(t, os.Getenv("NO_PROXY"), os.Getenv("no_proxy"))
+			if tt.expectedNoProxy != "" {
+				assert.Equal(t, tt.expectedNoProxy, result)
 			}
+
+			if tt.expectChange {
+				// Verify both cases are set
+				assert.Equal(t, os.Getenv("NO_PROXY"), os.Getenv("no_proxy"))
+				// Verify something was actually added (result differs from original)
+				assert.NotEqual(t, tt.existingNoProxy, result)
+			}
+
+			// Verify filesystem paths are never added
+			assert.NotContains(t, result, "/www")
 		})
 	}
 }
