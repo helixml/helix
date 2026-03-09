@@ -122,35 +122,13 @@ type RetryableClient struct {
 	apiKey         string
 	models         []string
 	billingEnabled bool
-	isAnthropic    bool   // true if this client is for an Anthropic-compatible provider
-	modelPrefix    string // prefix to prepend to model names in chat completion requests (e.g. "anthropic")
+	isAnthropic    bool // true if this client is for an Anthropic-compatible provider
 }
 
 // SetIsAnthropic marks this client as an Anthropic-compatible provider.
 // This is used to determine the correct API format for model listing.
 func (c *RetryableClient) SetIsAnthropic(isAnthropic bool) {
 	c.isAnthropic = isAnthropic
-}
-
-// SetModelPrefix sets a prefix that will be prepended to model names
-// in chat completion requests. This is needed when proxying through
-// an outer Helix instance that uses provider-prefixed model routing
-// (e.g., "anthropic/claude-haiku-4-5" on /v1/chat/completions).
-func (c *RetryableClient) SetModelPrefix(prefix string) {
-	c.modelPrefix = prefix
-}
-
-// prefixModel prepends the configured model prefix to a model name
-// if a prefix is set and the model doesn't already have it.
-func (c *RetryableClient) prefixModel(model string) string {
-	if c.modelPrefix == "" {
-		return model
-	}
-	prefix := c.modelPrefix + "/"
-	if strings.HasPrefix(model, prefix) {
-		return model
-	}
-	return prefix + model
 }
 
 // APIKey - returns the API key used by the client, used for testing
@@ -205,9 +183,6 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	if err := c.validateModel(request.Model); err != nil {
 		return openai.ChatCompletionResponse{}, err
 	}
-
-	// Add provider prefix for proxied providers (e.g., "anthropic/claude-haiku-4-5")
-	request.Model = c.prefixModel(request.Model)
 
 	// Trim trailing whitespace from message content to prevent API errors
 	request = trimMessageContent(request)
@@ -288,9 +263,6 @@ func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, reques
 	}
 
 	request.StreamOptions.IncludeUsage = true
-
-	// Add provider prefix for proxied providers (e.g., "anthropic/claude-haiku-4-5")
-	request.Model = c.prefixModel(request.Model)
 
 	return c.apiClient.CreateChatCompletionStream(ctx, request)
 }
