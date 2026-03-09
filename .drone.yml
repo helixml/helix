@@ -1880,10 +1880,25 @@ steps:
         # Use the Zed e2e-test dir as Docker context — only external inputs
         # are the pre-built zed binary and Helix Go source (for test server build)
         E2E_DIR="$${ZED_SOURCE}/crates/external_websocket_sync/e2e-test"
+
+        # Clean up stale files from previous builds BEFORE copying.
+        # Critical: if helix-api/ already exists from a failed build,
+        # cp -r nests api/ inside it (creating helix-api/api/) which
+        # breaks Go module resolution in the Docker build.
+        rm -rf "$${E2E_DIR}/helix-api" "$${E2E_DIR}/helix-go.mod" "$${E2E_DIR}/helix-go.sum" "$${E2E_DIR}/zed-binary"
+
         cp zed-build/zed "$${E2E_DIR}/zed-binary"
         cp /drone/src/go.mod "$${E2E_DIR}/helix-go.mod"
         cp /drone/src/go.sum "$${E2E_DIR}/helix-go.sum"
         cp -r /drone/src/api "$${E2E_DIR}/helix-api"
+
+        # Verify helix-api has expected structure (not nested from stale cp -r)
+        if [ ! -d "$${E2E_DIR}/helix-api/pkg" ]; then
+          echo "ERROR: helix-api structure is wrong — expected helix-api/pkg/ at top level"
+          echo "Contents of helix-api/:"
+          ls -la "$${E2E_DIR}/helix-api/" || true
+          exit 1
+        fi
 
         echo "Building E2E runtime image (multi-stage: Go builder + runtime)..."
         docker build -t zed-ws-e2e:$${ZED_COMMIT} \
