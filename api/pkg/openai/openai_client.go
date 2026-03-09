@@ -319,7 +319,7 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 			log.Error().Err(err).Msg("failed to list models from Google")
 			return nil, err
 		}
-	case c.isAnthropic || isAnthropicProvider(c.baseURL):
+	case c.isAnthropic:
 		models, err = c.listAnthropicModels(ctx)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to list models from Anthropic")

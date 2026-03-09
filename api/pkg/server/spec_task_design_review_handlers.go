@@ -987,30 +987,7 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 
 	// If we still don't have a response AND we have a session, try the latest interaction
 	if comment.AgentResponse == "" {
-		review, reviewErr := s.Store.GetSpecTaskDesignReview(ctx, comment.ReviewID)
-		if reviewErr == nil {
-			specTask, taskErr := s.Store.GetSpecTask(ctx, review.SpecTaskID)
-			if taskErr == nil && specTask.PlanningSessionID != "" {
-				// Get the latest interaction for this session that has a response
-				session, sessErr := s.Store.GetSession(ctx, specTask.PlanningSessionID)
-				if sessErr == nil && len(session.Interactions) > 0 {
-					// Find the last interaction with a response (should be the one we just completed)
-					for i := len(session.Interactions) - 1; i >= 0; i-- {
-						if session.Interactions[i].ResponseMessage != "" {
-							comment.AgentResponse = session.Interactions[i].ResponseMessage
-							now := time.Now()
-							comment.AgentResponseAt = &now
-							log.Info().
-								Str("comment_id", comment.ID).
-								Str("interaction_id", session.Interactions[i].ID).
-								Int("response_length", len(session.Interactions[i].ResponseMessage)).
-								Msg("📝 [HELIX] Populated comment AgentResponse from latest session interaction")
-							break
-						}
-					}
-				}
-			}
-		}
+		s.populateAgentResponseFromSession(ctx, comment)
 	}
 
 	// Clear both request_id and queued_at to mark as fully processed
@@ -1093,6 +1070,37 @@ func (s *HelixAPIServer) linkAgentResponseToCommentByRequestID(
 ) error {
 	// For backwards compatibility, this now just updates the streaming response
 	return s.updateCommentWithStreamingResponse(ctx, requestID, responseContent)
+}
+
+// populateAgentResponseFromSession is a fallback that finds the agent's response
+// from the session's latest interaction when streaming didn't populate it directly.
+func (s *HelixAPIServer) populateAgentResponseFromSession(ctx context.Context, comment *types.SpecTaskDesignReviewComment) {
+	review, err := s.Store.GetSpecTaskDesignReview(ctx, comment.ReviewID)
+	if err != nil {
+		return
+	}
+	specTask, err := s.Store.GetSpecTask(ctx, review.SpecTaskID)
+	if err != nil || specTask.PlanningSessionID == "" {
+		return
+	}
+	session, err := s.Store.GetSession(ctx, specTask.PlanningSessionID)
+	if err != nil || len(session.Interactions) == 0 {
+		return
+	}
+	// Walk backwards to find the most recent interaction with a response
+	for i := len(session.Interactions) - 1; i >= 0; i-- {
+		if session.Interactions[i].ResponseMessage != "" {
+			comment.AgentResponse = session.Interactions[i].ResponseMessage
+			now := time.Now()
+			comment.AgentResponseAt = &now
+			log.Info().
+				Str("comment_id", comment.ID).
+				Str("interaction_id", session.Interactions[i].ID).
+				Int("response_length", len(session.Interactions[i].ResponseMessage)).
+				Msg("📝 [HELIX] Populated comment AgentResponse from latest session interaction")
+			return
+		}
+	}
 }
 
 // backfillDesignReviewFromGit creates a design review from the current state of helix-specs branch

@@ -12,29 +12,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// isAnthropicProvider checks if a provider is Anthropic-compatible.
-// This returns true for both direct Anthropic API (api.anthropic.com) and
-// any proxy that implements the Anthropic API format (e.g., outer Helix's /v1/messages).
-// Detection is based on whether the client was configured with Anthropic credentials.
-func isAnthropicProvider(baseURL string) bool {
-	// Direct Anthropic API
-	if strings.Contains(baseURL, "api.anthropic.com") {
-		return true
-	}
-	// For proxy configurations, we detect Anthropic by checking if the URL
-	// looks like it could serve Anthropic format. Since Helix serves both
-	// OpenAI and Anthropic formats on the same base URL, the actual detection
-	// happens via the anthropic-version header in the request.
-	// This function is primarily used to decide whether to try the Anthropic
-	// model listing format, so we return true for known Anthropic-compatible URLs.
-	return false
-}
-
-// IsAnthropicBaseURL checks if the given base URL points to an Anthropic-compatible endpoint.
-// This is used by the provider manager to determine which API format to use.
-func IsAnthropicBaseURL(baseURL string) bool {
-	return strings.Contains(baseURL, "api.anthropic.com")
-}
+// DefaultAnthropicBaseURL is used when no ANTHROPIC_BASE_URL is configured.
+const DefaultAnthropicBaseURL = "https://api.anthropic.com"
 
 type ListAnthropicModelsResponse struct {
 	Data    []AnthropicModel `json:"data"`
@@ -56,7 +35,7 @@ func (c *RetryableClient) listAnthropicModels(ctx context.Context) ([]types.Open
 	// Use c.baseURL if set, otherwise default to Anthropic's API
 	baseURL := c.baseURL
 	if baseURL == "" {
-		baseURL = "https://api.anthropic.com/v1"
+		baseURL = DefaultAnthropicBaseURL + "/v1"
 	}
 
 	// Ensure baseURL ends with /v1 for the models endpoint

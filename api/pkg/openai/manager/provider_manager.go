@@ -137,11 +137,11 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 		// Mark as Anthropic provider so ListModels uses the correct API format
 		anthropicClient.SetIsAnthropic(true)
 
-		// When proxying through an outer Helix, the outer's /v1/chat/completions
-		// needs provider-prefixed model names (e.g., "anthropic/claude-haiku-4-5")
-		// to route to the correct provider. Direct Anthropic API doesn't need this
-		// because it only serves its own models.
-		if !openai.IsAnthropicBaseURL(cfg.Providers.Anthropic.BaseURL) {
+		// When proxying through an outer Helix (or any non-default endpoint),
+		// the outer's /v1/chat/completions needs provider-prefixed model names
+		// (e.g., "anthropic/claude-haiku-4-5") to route to the correct provider.
+		// Direct Anthropic API doesn't need this because it only serves its own models.
+		if cfg.Providers.Anthropic.BaseURL != "" && cfg.Providers.Anthropic.BaseURL != openai.DefaultAnthropicBaseURL {
 			anthropicClient.SetModelPrefix("anthropic")
 		}
 
