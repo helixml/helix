@@ -213,11 +213,17 @@ func GenerateZedMCPConfig(
 	}
 
 	// 3. Add desktop MCP server (screenshot, clipboard, input, window management tools)
-	// This runs locally in the sandbox container on port 9878 (desktop-bridge MCP server)
+	// Proxied through the Helix API gateway so it works in both local dev and SaaS (app.helix.ml).
+	// The gateway authenticates the request and forwards it via RevDial to the desktop-bridge
+	// MCP server (port 9878) inside the sandbox container.
 	// Provides take_screenshot, save_screenshot, type_text, mouse_click, get_clipboard, set_clipboard,
 	// list_windows, focus_window, maximize_window, tile_window, move_to_workspace, switch_to_workspace, get_workspaces
+	desktopMCPURL := fmt.Sprintf("%s/api/v1/mcp/desktop?session_id=%s", helixAPIURL, sessionID)
 	config.ContextServers["helix-desktop"] = ContextServerConfig{
-		URL:    "http://localhost:9878/mcp", // Desktop MCP server (desktop-bridge runs on 9878)
+		URL: desktopMCPURL,
+		Headers: map[string]string{
+			"Authorization": fmt.Sprintf("Bearer %s", helixToken),
+		},
 	}
 
 	// 4. Add session MCP server (session navigation and context tools)
