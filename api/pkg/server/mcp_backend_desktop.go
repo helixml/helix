@@ -20,9 +20,8 @@ type SandboxDialer interface {
 }
 
 // DesktopMCPBackend implements MCPBackend by proxying MCP requests over
-// RevDial to the desktop-bridge process (port 9878) inside the sandbox
-// container. This replaces the old hardcoded localhost:9878 URL that only
-// worked when Zed ran in the same container network.
+// RevDial to the desktop HTTP server (port 9876) inside the sandbox
+// container, which serves MCP at /mcp.
 type DesktopMCPBackend struct {
 	store  store.Store
 	dialer SandboxDialer
@@ -80,9 +79,8 @@ func (b *DesktopMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, us
 	defer conn.Close()
 
 	// Build the request to forward over the tunnel.
-	// RevDial tunnels to port 9876 (the desktop HTTP server), which mounts the
-	// MCP handler at /mcp. Port 9878 is the standalone MCP server but is NOT
-	// reachable through RevDial.
+	// RevDial tunnels to port 9876 (the desktop HTTP server), which mounts
+	// the MCP handler at /mcp.
 	targetURL := "http://localhost:9876/mcp"
 	if r.URL.RawQuery != "" {
 		// Strip our session_id param — desktop-bridge doesn't need it

@@ -42,11 +42,6 @@ func main() {
 	}
 
 	// Desktop MCP server config (screenshot, clipboard, input, window management)
-	// Note: settings-sync-daemon uses 9877, so MCP uses 9878
-	desktopMCPPort := os.Getenv("DESKTOP_MCP_PORT")
-	if desktopMCPPort == "" {
-		desktopMCPPort = "9878" // Desktop MCP on 9878, settings-sync uses 9877
-	}
 	mcpEnabled := os.Getenv("MCP_ENABLED") != "false" // Enabled by default
 
 	// RevDial configuration (for API communication through NAT)
@@ -69,26 +64,13 @@ func main() {
 
 	// Mount MCP handler on the desktop HTTP server so it's reachable via RevDial.
 	// RevDial tunnels to port 9876 (this server), so the API gateway proxy
-	// sends MCP requests to /mcp on this server rather than to port 9878.
-	// The standalone MCP server on port 9878 is kept for backward compatibility
-	// (direct localhost access from within the same container).
+	// sends MCP requests to /mcp on this server.
 	if mcpEnabled {
 		mcpCfg := desktop.MCPConfig{
-			Port:          desktopMCPPort,
 			ScreenshotURL: fmt.Sprintf("http://localhost:%s/screenshot", cfg.HTTPPort),
 		}
 		mcpServer := desktop.NewMCPServer(mcpCfg, logger)
 		server.SetMCPHandler(mcpServer)
-
-		// Also keep the standalone MCP server on port 9878 for direct access
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			logger.Info("starting Desktop MCP server", "port", desktopMCPPort)
-			if err := mcpServer.Run(ctx, desktopMCPPort); err != nil && err != context.Canceled {
-				logger.Error("Desktop MCP server error", "err", err)
-			}
-		}()
 	}
 
 	wg.Add(1)

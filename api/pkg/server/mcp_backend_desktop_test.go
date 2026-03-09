@@ -85,10 +85,8 @@ func (s *DesktopMCPBackendSuite) startFakeDesktopBridge(responseBody string) *st
 }
 
 // startFakeDesktopBridgeWithRoutes simulates the real desktop-bridge HTTP
-// server on port 9876 which only serves certain routes (screenshot, health,
-// etc). Requests to unknown paths return 404 — exactly like production where
-// RevDial tunnels to port 9876 (the desktop HTTP server), not port 9878
-// (the MCP server).
+// server on port 9876 which serves specific routes (screenshot, health,
+// mcp, etc). Requests to unknown paths return 404.
 func (s *DesktopMCPBackendSuite) startFakeDesktopBridgeWithRoutes() *string {
 	clientConn, serverConn := net.Pipe()
 	s.dialer.conn = clientConn
@@ -154,11 +152,8 @@ func (s *DesktopMCPBackendSuite) TestServeHTTP_ProxiesToDesktopBridge() {
 	s.Contains(w.Body.String(), `"tools":[]`)
 }
 
-// TestServeHTTP_ProxiesToCorrectPath verifies the proxy sends to /mcp on port
-// 9876 (the desktop HTTP server reached via RevDial), NOT port 9878.
-// RevDial tunnels to port 9876 — the desktop HTTP server. The MCP server on
-// port 9878 is unreachable through this tunnel. The desktop HTTP server must
-// serve /mcp, and the proxy must target that path.
+// TestServeHTTP_ProxiesToCorrectPath verifies the proxy sends to /mcp on the
+// desktop HTTP server (port 9876, reached via RevDial).
 func (s *DesktopMCPBackendSuite) TestServeHTTP_ProxiesToCorrectPath() {
 	session := &types.Session{
 		ID:    "ses-123",

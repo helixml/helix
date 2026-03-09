@@ -303,13 +303,10 @@ func TestMCPServer_ToolsList(t *testing.T) {
 
 // TestDesktopServer_ServesMCPRoute verifies that the desktop HTTP server
 // (port 9876, reached via RevDial) serves /mcp when an MCP handler is mounted.
-// This is required because RevDial tunnels to port 9876 — the desktop HTTP
-// server — not port 9878 where the MCP server previously ran standalone.
 // The API gateway proxy sends MCP requests through RevDial to /mcp.
 func TestDesktopServer_ServesMCPRoute(t *testing.T) {
 	logger := slog.Default()
 
-	// Create the MCP server (normally runs standalone on port 9878)
 	mcpSrv := NewMCPServer(MCPConfig{}, logger)
 
 	// Create the desktop server (port 9876, the RevDial target)
