@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,105 +13,84 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// hasConnectedRunners checks if at least one runner is connected to the scheduler.
-// This is used to determine whether to include internal Helix models in the model list.
-func (apiServer *HelixAPIServer) hasConnectedRunners() bool {
-	if apiServer.scheduler == nil {
-		return false
-	}
-	runnerStatuses, err := apiServer.scheduler.RunnerStatus()
-	if err != nil {
-		log.Debug().Err(err).Msg("failed to get runner status")
-		return false
-	}
-	return len(runnerStatuses) > 0
-}
-
 // listModels godoc
 // @Summary List models
-// @Description List models. Supports dual-mode: returns Anthropic format if anthropic-version header is present, otherwise returns OpenAI format with aggregated provider models.
+// @Description List models from a specific provider, or aggregate from all providers if none specified. If the request includes an anthropic-version header, proxies to the upstream Anthropic provider.
 // @Tags    models
 // @Success 200 {array} types.OpenAIModelsList
-// @Param provider query string false "Provider (for OpenAI format only)"
+// @Param provider query string false "Provider"
 // @Router /v1/models [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Request) {
-	// Dual-mode detection: if anthropic-version header is present, return Anthropic format
+	// Anthropic clients identify themselves with this header — proxy straight through
 	if r.Header.Get("anthropic-version") != "" {
 		apiServer.listModelsAnthropic(rw, r)
 		return
 	}
 
-	// OpenAI format - aggregate models from all providers
-	apiServer.listModelsOpenAI(rw, r)
-}
-
-// listModelsAnthropic forwards the /v1/models request to the upstream Anthropic provider.
-// This is used when an Anthropic client (like the inner Helix's Anthropic provider)
-// queries /v1/models with the anthropic-version header.
-// The request is proxied to the actual Anthropic API (or compatible endpoint like Vertex AI).
-func (apiServer *HelixAPIServer) listModelsAnthropic(rw http.ResponseWriter, r *http.Request) {
-	user := getRequestUser(r)
-	if user == nil {
-		http.Error(rw, "user is required", http.StatusUnauthorized)
+	// If a specific provider is requested, return just that provider's models (original behavior)
+	if provider := r.URL.Query().Get("provider"); provider != "" {
+		apiServer.listModelsForProvider(rw, r, provider)
 		return
 	}
 
-	// Get the Anthropic provider endpoint
-	endpoint, err := apiServer.getBuiltInProviderEndpoint(string(types.ProviderAnthropic))
+	// No provider specified — aggregate models from all configured providers
+	var allModels []types.OpenAIModel
+
+	// Global providers from env vars (openai, togetherai, anthropic, helix, vllm)
+	globalProviders, err := apiServer.providerManager.ListProviders(r.Context(), "")
 	if err != nil {
-		log.Err(err).Msg("failed to get Anthropic provider endpoint")
-		http.Error(rw, "Anthropic provider not configured: "+err.Error(), http.StatusInternalServerError)
-		return
+		log.Warn().Err(err).Msg("failed to list global providers for model aggregation")
+	} else {
+		for _, provider := range globalProviders {
+			// Anthropic models are served via the anthropic-version header path
+			if provider == types.ProviderAnthropic {
+				continue
+			}
+
+			cacheKey := fmt.Sprintf("%s:%s", provider, types.OwnerTypeSystem)
+			models := apiServer.getCachedModels(cacheKey)
+			if models == nil {
+				continue
+			}
+
+			// Prefix models with provider name so the caller knows where to route them,
+			// unless they already have a prefix (e.g. from a downstream Helix that already prefixed)
+			if provider != types.ProviderHelix {
+				models = prefixModels(models, string(provider))
+			}
+			allModels = append(allModels, models...)
+		}
 	}
 
-	// Set the endpoint in request context for the proxy director
-	r = anthropic.SetRequestProviderEndpoint(r, endpoint)
-
-	log.Debug().
-		Str("user_id", user.ID).
-		Str("base_url", endpoint.BaseURL).
-		Msg("proxying /v1/models request to Anthropic provider")
-
-	// Forward the request to the Anthropic proxy
-	apiServer.anthropicProxy.ServeHTTP(rw, r)
-}
-
-// listModelsOpenAI returns models in OpenAI API format.
-// If a specific provider is requested via query param, returns only that provider's models.
-// Otherwise, aggregates models from all configured providers with appropriate prefixes.
-func (apiServer *HelixAPIServer) listModelsOpenAI(rw http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	provider := r.URL.Query().Get("provider")
-
-	// If a specific provider is requested, use the original single-provider behavior
-	if provider != "" {
-		apiServer.listModelsFromProvider(rw, r, provider)
-		return
-	}
-
-	// Aggregate models from all providers
-	aggregatedModels, err := apiServer.aggregateAllProviderModels(ctx)
+	// Database-stored provider endpoints (user-created and admin global endpoints)
+	dbProviders, err := apiServer.Store.ListProviderEndpoints(r.Context(), &store.ListProviderEndpointsQuery{
+		Owner:      string(types.OwnerTypeSystem),
+		WithGlobal: true,
+	})
 	if err != nil {
-		log.Err(err).Msg("error aggregating models from providers")
-		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
-		return
+		log.Warn().Err(err).Msg("failed to list database providers for model aggregation")
+	} else {
+		for _, provider := range dbProviders {
+			if provider.Name == string(types.ProviderAnthropic) || provider.Name == string(types.ProviderHelix) {
+				continue
+			}
+			cacheKey := fmt.Sprintf("%s:%s", provider.Name, provider.Owner)
+			models := apiServer.getCachedModels(cacheKey)
+			if models == nil {
+				continue
+			}
+			allModels = append(allModels, prefixModels(models, provider.Name)...)
+		}
 	}
 
-	response := types.OpenAIModelsList{
-		Models: aggregatedModels,
-	}
-
-	writeResponse(rw, response, http.StatusOK)
+	writeResponse(rw, types.OpenAIModelsList{Models: allModels}, http.StatusOK)
 }
 
-// listModelsFromProvider returns models from a specific provider (original single-provider behavior)
-func (apiServer *HelixAPIServer) listModelsFromProvider(rw http.ResponseWriter, r *http.Request, provider string) {
+// listModelsForProvider returns models from a single provider.
+func (apiServer *HelixAPIServer) listModelsForProvider(rw http.ResponseWriter, r *http.Request, provider string) {
 	user := getRequestUser(r)
-
-	req := &manager.GetClientRequest{
-		Provider: provider,
-	}
+	req := &manager.GetClientRequest{Provider: provider}
 	if user != nil {
 		req.Owner = user.ID
 	}
@@ -131,165 +109,52 @@ func (apiServer *HelixAPIServer) listModelsFromProvider(rw http.ResponseWriter, 
 		return
 	}
 
-	response := types.OpenAIModelsList{
-		Models: models,
-	}
-
-	writeResponse(rw, response, http.StatusOK)
+	writeResponse(rw, types.OpenAIModelsList{Models: models}, http.StatusOK)
 }
 
-// aggregateAllProviderModels collects models from all configured providers.
-// - Internal Helix models: returned unprefixed (e.g., "Qwen/Qwen2.5-VL-3B-Instruct")
-// - OpenAI models: prefixed with "openai/" (e.g., "openai/gpt-4o")
-// - TogetherAI models: prefixed with "togetherai/" (e.g., "togetherai/meta-llama/...")
-// - Nebius models: prefixed with "nebius/" (e.g., "nebius/llama-3.3-70b")
-// - Anthropic models: NOT included here (served via Anthropic-format endpoint)
-// - VLLM models: prefixed with "vllm/" if configured
-func (apiServer *HelixAPIServer) aggregateAllProviderModels(ctx context.Context) ([]types.OpenAIModel, error) {
-	var allModels []types.OpenAIModel
-
-	// 1. Get internal Helix models (unprefixed) - only if runners are connected
-	if apiServer.hasConnectedRunners() {
-		helixModels, err := apiServer.getHelixInternalModels(ctx)
-		if err != nil {
-			log.Warn().Err(err).Msg("failed to get helix internal models")
-			// Continue - don't fail if helix models aren't available
-		} else {
-			allModels = append(allModels, helixModels...)
-		}
-	} else {
-		log.Debug().Msg("no runners connected, skipping internal Helix models")
+// listModelsAnthropic proxies the request to the upstream Anthropic provider.
+func (apiServer *HelixAPIServer) listModelsAnthropic(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(rw, "user is required", http.StatusUnauthorized)
+		return
 	}
 
-	// 2. Get models from global providers (from env vars)
-	globalProviders, err := apiServer.providerManager.ListProviders(ctx, "")
+	endpoint, err := apiServer.getBuiltInProviderEndpoint(string(types.ProviderAnthropic))
 	if err != nil {
-		log.Warn().Err(err).Msg("failed to list global providers")
-	} else {
-		for _, provider := range globalProviders {
-			// Skip helix provider - already handled above
-			if provider == types.ProviderHelix {
-				continue
-			}
-
-			// Skip Anthropic - those are served via the Anthropic-format endpoint
-			if provider == types.ProviderAnthropic {
-				continue
-			}
-
-			models, err := apiServer.getProviderModelsWithPrefix(ctx, string(provider), string(types.OwnerTypeSystem))
-			if err != nil {
-				log.Debug().
-					Err(err).
-					Str("provider", string(provider)).
-					Msg("failed to get models from global provider (provider may be unavailable)")
-				continue
-			}
-			allModels = append(allModels, models...)
-		}
+		log.Err(err).Msg("failed to get Anthropic provider endpoint")
+		http.Error(rw, "Anthropic provider not configured: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	// 3. Get models from database-stored providers (user and global from DB)
-	dbProviders, err := apiServer.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
-		Owner:      string(types.OwnerTypeSystem),
-		WithGlobal: true,
-	})
-	if err != nil {
-		log.Warn().Err(err).Msg("failed to list database providers")
-	} else {
-		for _, provider := range dbProviders {
-			// Skip Anthropic providers - served via Anthropic-format endpoint
-			if provider.Name == string(types.ProviderAnthropic) {
-				continue
-			}
-
-			// Skip helix provider
-			if provider.Name == string(types.ProviderHelix) {
-				continue
-			}
-
-			models, err := apiServer.getProviderModelsWithPrefix(ctx, provider.Name, provider.Owner)
-			if err != nil {
-				log.Debug().
-					Err(err).
-					Str("provider", provider.Name).
-					Str("owner", provider.Owner).
-					Msg("failed to get models from database provider")
-				continue
-			}
-			allModels = append(allModels, models...)
-		}
-	}
-
-	return allModels, nil
+	r = anthropic.SetRequestProviderEndpoint(r, endpoint)
+	apiServer.anthropicProxy.ServeHTTP(rw, r)
 }
 
-// getHelixInternalModels returns models from the internal Helix scheduler (unprefixed)
-func (apiServer *HelixAPIServer) getHelixInternalModels(ctx context.Context) ([]types.OpenAIModel, error) {
-	client, err := apiServer.providerManager.GetClient(ctx, &manager.GetClientRequest{
-		Provider: string(types.ProviderHelix),
-		Owner:    string(types.OwnerTypeSystem),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get helix client: %w", err)
+// getCachedModels returns cached models for a provider, or nil if not cached.
+func (apiServer *HelixAPIServer) getCachedModels(cacheKey string) []types.OpenAIModel {
+	cached, found := apiServer.cache.Get(cacheKey)
+	if !found {
+		return nil
 	}
-
-	models, err := client.ListModels(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list helix models: %w", err)
+	var models []types.OpenAIModel
+	if err := json.Unmarshal([]byte(cached), &models); err != nil {
+		return nil
 	}
-
-	// Helix internal models are returned unprefixed
-	return models, nil
+	return models
 }
 
-// getProviderModelsWithPrefix returns models from a provider with the provider name as prefix
-func (apiServer *HelixAPIServer) getProviderModelsWithPrefix(ctx context.Context, providerName, owner string) ([]types.OpenAIModel, error) {
-	// Check cache first
-	cacheKey := fmt.Sprintf("%s:%s", providerName, owner)
-	if cached, found := apiServer.cache.Get(cacheKey); found {
-		var models []types.OpenAIModel
-		if err := json.Unmarshal([]byte(cached), &models); err == nil {
-			// Add prefix to cached models
-			return apiServer.prefixModels(models, providerName), nil
-		}
-	}
-
-	// Fetch from provider
-	client, err := apiServer.providerManager.GetClient(ctx, &manager.GetClientRequest{
-		Provider: providerName,
-		Owner:    owner,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get client for %s: %w", providerName, err)
-	}
-
-	models, err := client.ListModels(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list models from %s: %w", providerName, err)
-	}
-
-	// Add prefix to models
-	return apiServer.prefixModels(models, providerName), nil
-}
-
-// prefixModels adds the provider name as a prefix to each model ID.
-// Models that already have a provider prefix (contain "/") are not double-prefixed.
-// This handles the Helix-as-inference-provider case where outer Helix already
-// returns prefixed models like "openai/gpt-4o", "togetherai/llama-3.3-70b".
-func (apiServer *HelixAPIServer) prefixModels(models []types.OpenAIModel, providerName string) []types.OpenAIModel {
-	prefixed := make([]types.OpenAIModel, len(models))
+// prefixModels prepends providerName/ to model IDs that don't already contain a slash.
+func prefixModels(models []types.OpenAIModel, providerName string) []types.OpenAIModel {
+	out := make([]types.OpenAIModel, len(models))
 	for i, m := range models {
-		prefixed[i] = m
-		// Don't double-prefix models that already have a provider prefix
-		// (indicated by containing a "/" in the model ID)
+		out[i] = m
 		if !strings.Contains(m.ID, "/") {
-			prefixed[i].ID = providerName + "/" + m.ID
+			out[i].ID = providerName + "/" + m.ID
 		}
-		// Update OwnedBy to reflect the provider if not already set
-		if prefixed[i].OwnedBy == "" {
-			prefixed[i].OwnedBy = providerName
+		if out[i].OwnedBy == "" {
+			out[i].OwnedBy = providerName
 		}
 	}
-	return prefixed
+	return out
 }
