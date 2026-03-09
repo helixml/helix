@@ -7,6 +7,17 @@ global:
   imagePullSecrets: []
   storageClass: ""
   serverUrl: http://localhost:8080
+  # Extra environment variables applied to all components (controlplane, chrome, searxng, haystack).
+  # Useful for proxy configuration in environments where all outbound traffic must go through a proxy.
+  # Example:
+  #   extraEnv:
+  #     - name: HTTPS_PROXY
+  #       value: "http://proxy:8080"
+  #     - name: HTTP_PROXY
+  #       value: "http://proxy:8080"
+  #     - name: NO_PROXY
+  #       value: "localhost,127.0.0.1,.svc,.cluster.local"
+  extraEnv: []
 
 image:
   repository: registry.helixml.tech/helix/controlplane
@@ -31,6 +42,8 @@ chrome:
   image:
     repository: ghcr.io/go-rod/rod
     tag: "v0.115.0"
+  # Extra environment variables for the Chrome container (in addition to global.extraEnv)
+  extraEnv: []
 
 typesense:
   enabled: false

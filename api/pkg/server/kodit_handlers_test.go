@@ -32,7 +32,8 @@ type fakeKoditService struct {
 	err         error
 }
 
-func (f *fakeKoditService) IsEnabled() bool { return f.enabled }
+func (f *fakeKoditService) IsEnabled() bool          { return f.enabled }
+func (f *fakeKoditService) MCPDocumentation() string { return "" }
 func (f *fakeKoditService) RegisterRepository(_ context.Context, _ string) (int64, bool, error) {
 	return f.repoID, f.isNew, f.err
 }

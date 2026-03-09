@@ -130,6 +130,8 @@ steps:
       DISABLE_AGENT_TESTS: "true"
       # Skip migrations - already run by run-migrations step
       HELIX_SKIP_AUTOMIGRATE: "1"
+      GEMINI_API_KEY:
+        from_secret: GEMINI_API_KEY
       OPENAI_API_KEY:
         from_secret: openai_tools
       TOGETHER_API_KEY:
@@ -1875,75 +1877,43 @@ steps:
           exit 1
         fi
 
-        # Prepare Docker context with all needed files
-        CONTEXT_DIR=$$(mktemp -d)
-        cp zed-build/zed "$${CONTEXT_DIR}/zed-binary"
-        cp "$${ZED_SOURCE}/crates/external_websocket_sync/e2e-test/run_e2e.sh" "$${CONTEXT_DIR}/"
-        cp -r "$${ZED_SOURCE}/crates/external_websocket_sync/e2e-test/helix-ws-test-server" "$${CONTEXT_DIR}/"
-        # Copy helix Go source for the test server build (replace directive)
-        cp /drone/src/go.mod "$${CONTEXT_DIR}/helix-go.mod"
-        cp /drone/src/go.sum "$${CONTEXT_DIR}/helix-go.sum"
-        cp -r /drone/src/api "$${CONTEXT_DIR}/helix-api"
+        # Use the Zed e2e-test dir as Docker context — only external inputs
+        # are the pre-built zed binary and Helix Go source (for test server build)
+        E2E_DIR="$${ZED_SOURCE}/crates/external_websocket_sync/e2e-test"
 
-        # Write multi-stage Dockerfile
-        cat > "$${CONTEXT_DIR}/Dockerfile" << 'DOCKERFILE'
-        # Stage 1: Build Go test server with real Helix server code
-        FROM golang:1.25-alpine AS go-builder
-        COPY helix-go.mod /helix/go.mod
-        COPY helix-go.sum /helix/go.sum
-        COPY helix-api /helix/api
-        COPY helix-ws-test-server /app
-        WORKDIR /app
-        RUN apk add --no-cache gcc g++ musl-dev && \
-            sed -i 's|../../../../../helix|/helix|g' go.mod && \
-            go mod tidy && \
-            CGO_ENABLED=1 go build -ldflags '-extldflags "-static"' -o /helix-ws-test-server .
+        # Clean up stale files from previous builds BEFORE copying.
+        # Critical: if helix-api/ already exists from a failed build,
+        # cp -r nests api/ inside it (creating helix-api/api/) which
+        # breaks Go module resolution in the Docker build.
+        rm -rf "$${E2E_DIR}/helix-api" "$${E2E_DIR}/helix-go.mod" "$${E2E_DIR}/helix-go.sum" "$${E2E_DIR}/zed-binary"
 
-        # Stage 2: Runtime
-        FROM ubuntu:25.10
-        ENV DEBIAN_FRONTEND=noninteractive
-        RUN apt-get update && apt-get install -y --no-install-recommends \
-            libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 libvulkan1 \
-            libx11-xcb1 libxcb-shape0 libxcb-xfixes0 \
-            libxcb-randr0 libxcb-render0 \
-            libxcb-shm0 libxcb-glx0 libxcb-xkb1 \
-            libxcb1 libx11-6 \
-            libfontconfig1 libfreetype6 \
-            libssl3t64 libsqlite3-0 libzstd1 ca-certificates \
-            libasound2t64 \
-            libatk1.0-0t64 libgtk-3-0t64 \
-            xvfb x11-utils dbus \
-            mesa-vulkan-drivers \
-            imagemagick \
-            && rm -rf /var/lib/apt/lists/*
-        COPY --from=go-builder /helix-ws-test-server /usr/local/bin/helix-ws-test-server
-        COPY zed-binary /usr/local/bin/zed
-        RUN chmod +x /usr/local/bin/zed /usr/local/bin/helix-ws-test-server
-        COPY run_e2e.sh /test/run_e2e.sh
-        RUN chmod +x /test/run_e2e.sh
-        ENV DISPLAY=:99
-        ENV VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
-        ENV LIBGL_ALWAYS_SOFTWARE=1
-        ENV ZED_ALLOW_EMULATED_GPU=1
-        ENV ZED_ALLOW_ROOT=true
-        WORKDIR /test
-        RUN mkdir -p /test/project && echo "# Test Project" > /test/project/README.md
-        ENTRYPOINT ["/test/run_e2e.sh"]
-        DOCKERFILE
+        cp zed-build/zed "$${E2E_DIR}/zed-binary"
+        cp /drone/src/go.mod "$${E2E_DIR}/helix-go.mod"
+        cp /drone/src/go.sum "$${E2E_DIR}/helix-go.sum"
+        cp -r /drone/src/api "$${E2E_DIR}/helix-api"
+
+        # Verify helix-api has expected structure (not nested from stale cp -r)
+        if [ ! -d "$${E2E_DIR}/helix-api/pkg" ]; then
+          echo "ERROR: helix-api structure is wrong — expected helix-api/pkg/ at top level"
+          echo "Contents of helix-api/:"
+          ls -la "$${E2E_DIR}/helix-api/" || true
+          exit 1
+        fi
 
         echo "Building E2E runtime image (multi-stage: Go builder + runtime)..."
         docker build -t zed-ws-e2e:$${ZED_COMMIT} \
-          -f "$${CONTEXT_DIR}/Dockerfile" \
-          "$${CONTEXT_DIR}"
+          -f "$${E2E_DIR}/Dockerfile.ci" \
+          "$${E2E_DIR}"
+
+        # Clean up external files from cached Zed source
+        rm -f "$${E2E_DIR}/zed-binary" "$${E2E_DIR}/helix-go.mod" "$${E2E_DIR}/helix-go.sum"
+        rm -rf "$${E2E_DIR}/helix-api"
 
         echo "Running E2E test..."
         docker run --rm \
           -e ANTHROPIC_API_KEY="$${ANTHROPIC_API_KEY}" \
           -e TEST_TIMEOUT=240 \
           zed-ws-e2e:$${ZED_COMMIT}
-
-        # Clean up context dir
-        rm -rf "$${CONTEXT_DIR}"
 
         echo "Zed WebSocket E2E test passed"
     volumes:

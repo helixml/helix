@@ -212,6 +212,11 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	// Trim trailing whitespace from message content to prevent API errors
 	request = trimMessageContent(request)
 
+	// Use native genai SDK for Google providers
+	if isGoogleProvider(c.baseURL) {
+		return c.createGoogleChatCompletion(ctx, request)
+	}
+
 	// Perform request with retries
 	err = retry.Do(func() error {
 		resp, err = c.apiClient.CreateChatCompletion(ctx, request)
@@ -269,6 +274,14 @@ func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, reques
 		return nil, err
 	}
 
+	// Trim trailing whitespace from message content to prevent API errors
+	request = trimMessageContent(request)
+
+	// Use native genai SDK for Google providers
+	if isGoogleProvider(c.baseURL) {
+		return c.createGoogleChatCompletionStream(ctx, request)
+	}
+
 	// Always include usage
 	if request.StreamOptions == nil {
 		request.StreamOptions = &openai.StreamOptions{}
@@ -278,9 +291,6 @@ func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, reques
 
 	// Add provider prefix for proxied providers (e.g., "anthropic/claude-haiku-4-5")
 	request.Model = c.prefixModel(request.Model)
-
-	// Trim trailing whitespace from message content to prevent API errors
-	request = trimMessageContent(request)
 
 	return c.apiClient.CreateChatCompletionStream(ctx, request)
 }

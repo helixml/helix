@@ -31,6 +31,7 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 		nil, // externalAgentExecutor not needed for tests
 		nil, // registerRequestMapping not needed for tests
 		nil, // gitRepositoryService not needed for tests
+		NewDisabledKoditService(),
 	)
 	service.SetTestMode(true)
 
@@ -104,6 +105,7 @@ func TestSpecDrivenTaskService_HandleSpecGenerationComplete(t *testing.T) {
 		nil, // externalAgentExecutor not needed for tests
 		nil, // registerRequestMapping not needed for tests
 		nil, // gitRepositoryService not needed for tests
+		NewDisabledKoditService(),
 	)
 	service.SetTestMode(true)
 
@@ -146,12 +148,12 @@ func TestSpecDrivenTaskService_HandleSpecGenerationComplete(t *testing.T) {
 
 func TestSpecDrivenTaskService_SelectZedAgent(t *testing.T) {
 	// Test with agents available
-	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"agent1", "agent2"}, nil, nil, nil, nil)
+	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"agent1", "agent2"}, nil, nil, nil, nil, NewDisabledKoditService())
 	agent := service.selectZedAgent()
 	assert.Equal(t, "agent1", agent)
 
 	// Test with no agents
-	serviceNoAgents := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{}, nil, nil, nil, nil)
+	serviceNoAgents := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{}, nil, nil, nil, nil, NewDisabledKoditService())
 	serviceNoAgents.SetTestMode(true)
 	agent = serviceNoAgents.selectZedAgent()
 	assert.Equal(t, "", agent)

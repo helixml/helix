@@ -10,6 +10,7 @@ import (
 // PlanningPromptData contains all data needed for the planning prompt template
 type PlanningPromptData struct {
 	Guidelines         string // Formatted guidelines section (includes header if non-empty)
+	KoditSection       string // Dynamic MCP tool documentation from kodit (empty when disabled)
 	TaskDirName        string // Directory name for task (e.g., "0042-add-dark-mode")
 	ProjectID          string
 	TaskType           string
@@ -80,20 +81,9 @@ git pull origin helix-specs --rebase && git push origin helix-specs
 - [ ] Third task
 ` + "```" + `
 
-## Kodit MCP Server - Discover Patterns
-
-You have access to **Kodit**, an MCP server for code intelligence. Use it to discover patterns
-in other repositories and libraries within the organization:
-
-- Find how similar features are implemented elsewhere
-- Discover existing utilities, helpers, or patterns to reuse
-- Understand architectural conventions used in related projects
-- Search private/internal codebases the organization has indexed
-
-This helps you design solutions that are consistent with existing patterns rather than
-reinventing approaches that already exist.
-
-## Visual Testing (Optional - For UI/Frontend Tasks)
+{{if .KoditSection}}
+{{.KoditSection}}
+{{end}}## Visual Testing (Optional - For UI/Frontend Tasks)
 
 You have tools to explore and screenshot the application during planning:
 
@@ -122,7 +112,7 @@ Screenshots are optional but valuable for UI tasks - save them in your task's sc
 
 - Patterns you found in the codebase ("This project uses X pattern for Y")
 - Decisions and rationale ("Chose A over B because...")
-- Things you learned from Kodit searches ("Found existing utility Z in repo W")
+- Things you learned from code searches ("Found existing utility Z in repo W")
 - Constraints or gotchas you identified ("Note: this codebase requires X")
 
 Future agents implementing similar tasks will read your notes and skip the discovery process.
@@ -142,7 +132,7 @@ Tell the user the design is ready for review. The backend detects your push and 
 // - SpecTaskOrchestrator.handleBacklog (auto-start when enabled)
 // guidelines contains concatenated organization + project guidelines (can be empty)
 // primaryRepoName is the name of the primary code repository (e.g., "my-app")
-func BuildPlanningPrompt(task *types.SpecTask, guidelines string) string {
+func BuildPlanningPrompt(task *types.SpecTask, guidelines, koditSection string) string {
 	// Use DesignDocPath if set (new human-readable format), fall back to task ID
 	taskDirName := task.DesignDocPath
 	if taskDirName == "" {
@@ -223,6 +213,7 @@ contain everything learned during the original implementation - use this knowled
 
 	data := PlanningPromptData{
 		Guidelines:         guidelinesSection,
+		KoditSection:       koditSection,
 		ClonedTaskPreamble: clonedTaskPreamble,
 		TaskDirName:        taskDirName,
 		ProjectID:          task.ProjectID,

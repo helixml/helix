@@ -22710,6 +22710,10 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "member": {
+                    "description": "Whether the current user is a member of the organization",
+                    "type": "boolean"
+                },
                 "memberships": {
                     "description": "Memberships in the organization",
                     "type": "array",
@@ -22723,6 +22727,10 @@ const docTemplate = `{
                 "owner": {
                     "description": "Who created the org",
                     "type": "string"
+                },
+                "project_count": {
+                    "description": "Number of projects in the organization",
+                    "type": "integer"
                 },
                 "roles": {
                     "description": "Roles in the organization",
@@ -27838,13 +27846,6 @@ const docTemplate = `{
                 "organization_id": {
                     "description": "Organization this API key is scoped to (ephemeral keys)",
                     "type": "string"
-                },
-                "password_hash": {
-                    "description": "bcrypt hash of the password",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
                 },
                 "project_id": {
                     "description": "When running in Helix Code sandbox",

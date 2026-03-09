@@ -142,6 +142,10 @@ func (apiServer *HelixAPIServer) configJS(res http.ResponseWriter, req *http.Req
 		return
 	}
 	res.Header().Set("Content-Type", "application/javascript")
+	// Never cache config - contains version and deployment-specific values
+	res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	res.Header().Set("Pragma", "no-cache")
+	res.Header().Set("Expires", "0")
 	content := fmt.Sprintf(`
 window.DISABLE_LLM_CALL_LOGGING = %t
 window.HELIX_SENTRY_DSN = "%s"

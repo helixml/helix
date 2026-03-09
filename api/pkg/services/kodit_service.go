@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/helixml/kodit"
 	"github.com/helixml/kodit/application/service"
@@ -35,6 +36,46 @@ func NewKoditService(client *kodit.Client) *KoditService {
 // IsEnabled returns whether the Kodit service is enabled
 func (s *KoditService) IsEnabled() bool {
 	return s != nil && s.enabled
+}
+
+// MCPDocumentation returns a markdown section describing the kodit MCP server
+// tools and their usage instructions, suitable for embedding in agent prompts.
+// Returns empty string when the service is disabled.
+func (s *KoditService) MCPDocumentation() string {
+	if !s.IsEnabled() {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Code Intelligence — Kodit MCP Server\n\n")
+	b.WriteString(s.client.MCPServer.Instructions())
+	b.WriteString("\n\n### Tool Reference\n\n")
+	b.WriteString("| Tool | Description | Required Params | Optional Params |\n")
+	b.WriteString("|------|-------------|-----------------|------------------|\n")
+
+	for _, tool := range s.client.MCPServer.Tools() {
+		var required, optional []string
+		for _, p := range tool.Parameters() {
+			entry := fmt.Sprintf("`%s` (%s)", p.Name(), p.Type())
+			if p.Required() {
+				required = append(required, entry)
+			} else {
+				optional = append(optional, entry)
+			}
+		}
+		reqStr := "—"
+		if len(required) > 0 {
+			reqStr = strings.Join(required, ", ")
+		}
+		optStr := "—"
+		if len(optional) > 0 {
+			optStr = strings.Join(optional, ", ")
+		}
+		b.WriteString(fmt.Sprintf("| `%s` | %s | %s | %s |\n",
+			tool.Name(), tool.Description(), reqStr, optStr))
+	}
+
+	return b.String()
 }
 
 // wrapNotFound converts kodit.ErrNotFound to ErrKoditNotFound so callers

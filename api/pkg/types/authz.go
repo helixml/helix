@@ -40,6 +40,9 @@ type Organization struct {
 	Memberships []OrganizationMembership `json:"memberships" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // Memberships in the organization
 	Roles       []Role                   `json:"roles" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`       // Roles in the organization
 
+	Member       bool `json:"member" gorm:"-"`        // Whether the current user is a member of the organization
+	ProjectCount int  `json:"project_count" gorm:"-"` // Number of projects in the organization
+
 	// AutoJoinDomain - if set, users logging in via OIDC with this email domain are automatically added as members
 	// Note: Uniqueness is enforced in application code (updateOrganization handler) rather than DB constraint
 	// because empty strings would conflict with each other in a unique index
@@ -158,7 +161,7 @@ type User struct {
 	AuthProvider AuthProvider `json:"auth_provider"`
 
 	Password           string `json:"-" gorm:"-"`           // Temporary field for password input, not persisted
-	PasswordHash       []byte `json:"password_hash"`        // bcrypt hash of the password
+	PasswordHash       []byte `json:"-"`                    // bcrypt hash of the password
 	MustChangePassword bool   `json:"must_change_password"` // if the user must change their password
 
 	SB          bool `json:"sb"`

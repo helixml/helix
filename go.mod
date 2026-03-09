@@ -43,7 +43,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/hashicorp/go-retryablehttp v0.7.8
-	github.com/helixml/kodit v1.1.2
+	github.com/helixml/kodit v1.1.3
 	github.com/infracloudio/msbotbuilder-go v0.2.5
 	github.com/inhies/go-bytesize v0.0.0-20220417184213-4913239db9cf
 	github.com/jfrog/froggit-go v1.20.1
@@ -215,6 +215,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.39.0 // indirect
 	golang.org/x/image v0.36.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
+	google.golang.org/genai v1.49.0 // indirect
 	gopkg.in/ini.v1 v1.67.1 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 )

@@ -20,20 +20,20 @@ import CheckIcon from '@mui/icons-material/Check';
 import { IAppFlatState, ITest, ITestStep } from '../../types';
 import { generateYamlFilename } from '../../utils/format';
 import useSnackbar from '../../hooks/useSnackbar';
+import { useSettingsDialog } from '../../contexts/settingsDialog';
 
 interface TestsEditorProps {
   app: IAppFlatState;
   onUpdate: (updates: Partial<IAppFlatState>) => void;
   appId: string;
-  navigate: (route: string) => void;
 }
 
 const TestsEditor: React.FC<TestsEditorProps> = ({
   app,
   onUpdate,
   appId,
-  navigate,
 }) => {
+  const settingsDialog = useSettingsDialog();
   const tests = app.tests || [];
   const yamlFilename = generateYamlFilename(app.name || 'app');
   const snackbar = useSnackbar();
@@ -355,7 +355,7 @@ comment_job:
         <Typography variant="body2" sx={{ mb: 2 }}>
           Don't have the CLI installed? 
           <Link 
-            onClick={() => navigate('account')}
+            onClick={() => settingsDialog.openDialog('account')}
             sx={{ ml: 1, textDecoration: 'underline', cursor: 'pointer' }}
           >
             Install it from your account page

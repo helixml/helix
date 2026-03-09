@@ -319,7 +319,7 @@ const OrgBilling: FC = () => {
             )}
 
             {/* Quotas Section */}
-            <Box sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+            <Box sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, py: 2, pr: 2, pl: 3, borderRadius: 2 }}>
               <Typography variant="h6" sx={{ mb: 2 }}>Quotas</Typography>
               <QuotaListView orgId={orgId} />
             </Box>

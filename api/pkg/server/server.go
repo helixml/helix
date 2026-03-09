@@ -328,6 +328,7 @@ func NewServer(
 			externalAgentExecutor,      // Hydra executor for launching external agents
 			gitRepositoryService,
 			nil, // Will set callback after apiServer is constructed
+			services.NewDisabledKoditService(), // Replaced after kodit init below
 		),
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 		connman:                  connectionManager,
@@ -380,6 +381,7 @@ func NewServer(
 	}
 	apiServer.kodit = kr
 	apiServer.koditService = kr.service
+	apiServer.specDrivenTaskService.SetKoditService(kr.service)
 
 	// Initialize MCP Gateway for authenticated MCP proxying
 	apiServer.mcpGateway = NewMCPGateway()
@@ -401,7 +403,12 @@ func NewServer(
 	// Route: /api/v1/mcp/external/{mcp_name}/{path...}
 	apiServer.mcpGateway.RegisterBackend("external", NewExternalMCPBackend(store))
 
-	log.Info().Msg("Initialized MCP Gateway with Kodit, Helix, Session, and External backends")
+	// Register Desktop MCP backend (screenshot, clipboard, input, window management)
+	// Proxies MCP requests via RevDial to desktop-bridge inside sandbox containers
+	// Route: /api/v1/mcp/desktop?session_id={sessionID}
+	apiServer.mcpGateway.RegisterBackend("desktop", NewDesktopMCPBackend(store, connectionManager))
+
+	log.Info().Msg("Initialized MCP Gateway with Kodit, Helix, Session, External, and Desktop backends")
 
 	// Initialize Git HTTP Server for clone/push operations (pure Go implementation)
 	gitHTTPConfig := &services.GitHTTPServerConfig{

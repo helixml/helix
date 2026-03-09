@@ -42,7 +42,6 @@ const App: FC = () => {
   const theme = useTheme()
   const {
     params,
-    navigate,
   } = useRouter()
 
   const appTools = useApp(params.app_id)
@@ -165,7 +164,6 @@ const App: FC = () => {
                             app={appTools.flatApp}
                             onUpdate={appTools.saveFlatApp}
                             appId={appTools.id}
-                            navigate={navigate}
                           />
                         )}
                       </Box>
@@ -190,7 +188,6 @@ const App: FC = () => {
                           showErrors={appTools.showErrors}
                           appId={appTools.id}
                           appName={appTools.flatApp?.name}
-                          navigate={navigate}
                         />
                       </Box>
                     </Grid>

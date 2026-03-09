@@ -122,40 +122,56 @@ const btnSx = {
   },
 };
 
+// Step type identifiers - used for conditional rendering and step content matching
+type StepType =
+  | "signin"
+  | "organization"
+  | "subscription"
+  | "provider"
+  | "project"
+  | "task";
+
 interface StepConfig {
+  type: StepType;
   icon: React.ReactNode;
   title: string;
   subtitle: string;
 }
 
-const STEPS: StepConfig[] = [
+const ALL_STEPS: StepConfig[] = [
   {
+    type: "signin",
     icon: <PersonIcon />,
     title: "Sign in with your account",
     subtitle: "To get started, please sign in with your account credentials.",
   },
   {
+    type: "organization",
     icon: <BusinessIcon />,
     title: "Set up your organization",
     subtitle:
       "Organizations help you collaborate with your team and manage projects together.",
   },
   {
+    type: "subscription",
     icon: <CreditCardIcon />,
-    title: "Activate subscription" ,
+    title: "Activate subscription",
     subtitle: "Add payment method to activate your organization subscription.",
   },
   {
+    type: "provider",
     icon: <Server size={20} />,
     title: "Connect an AI provider",
     subtitle: "Add an API key so your agents can use AI models.",
   },
   {
+    type: "project",
     icon: <FolderIcon />,
     title: "Create your first project",
     subtitle: "Set up your project with a repository and AI agent.",
   },
   {
+    type: "task",
     icon: <RocketLaunchIcon />,
     title: "Create your first task",
     subtitle:
@@ -263,7 +279,9 @@ export default function Onboarding() {
 
   const { data: providers, isLoading: isLoadingProviders } = useListProviders({
     loadModels: true,
-    enabled: true,
+    orgId: createdOrg?.id,
+    all: false,
+    enabled: !!createdOrg?.id,
   });
 
   // Claude subscription state
@@ -286,10 +304,27 @@ export default function Onboarding() {
     });
     return ids;
   }, [providers]);
+  const globalProviders = useMemo(() => {
+    if (!providers) return [];
+    return providers.filter(
+      (p) =>
+        p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeGlobal,
+    );
+  }, [providers]);
+  const providerLogoMap = useMemo(() => {
+    const map = new Map<string, Provider>();
+    PROVIDERS.forEach((provider) => {
+      map.set(provider.id, provider);
+      map.set(provider.id.replace(/^user\//, ""), provider);
+      provider.alias.forEach((alias) => map.set(alias, provider));
+    });
+    return map;
+  }, []);
   const hasAnthropicProvider = connectedProviderIds.has("anthropic");
   // Consider Claude subscription as a valid provider for the "Continue" button
   const hasUserProviders =
     connectedProviderIds.size > 0 || hasClaudeSubscription;
+  const hasProvidersForContinue = hasUserProviders || globalProviders.length > 0;
 
   // Check if any providers (including system/global) have enabled models
   const hasAnyEnabledModels = useMemo(() => {
@@ -298,6 +333,30 @@ export default function Onboarding() {
       (p.available_models || []).some((m) => m.enabled && m.type === "chat"),
     );
   }, [providers]);
+
+  // Filter steps based on billing_enabled - hide subscription step when billing is disabled
+  const visibleSteps = useMemo(() => {
+    if (!serverConfig?.billing_enabled) {
+      return ALL_STEPS.filter((step) => step.type !== "subscription");
+    }
+    return ALL_STEPS;
+  }, [serverConfig?.billing_enabled]);
+
+  // Helper to get step index by type (in the visible steps array)
+  const getStepIndexByType = useCallback(
+    (type: StepType): number => {
+      return visibleSteps.findIndex((step) => step.type === type);
+    },
+    [visibleSteps],
+  );
+
+  // Helper to get step type by index (in the visible steps array)
+  const getStepTypeByIndex = useCallback(
+    (index: number): StepType | undefined => {
+      return visibleSteps[index]?.type;
+    },
+    [visibleSteps],
+  );
 
   // Refetch wallet when organization is selected/created
   useEffect(() => {
@@ -312,20 +371,25 @@ export default function Onboarding() {
     const success = url.searchParams.get("success");
     if (success === "true") {
       refetchWallet();
-      setActiveStep(2);
-      setCompletedSteps((prev) => {
-        const next = new Set(prev);
-        next.delete(2);
-        return next;
-      });
+      const subscriptionStepIndex = getStepIndexByType("subscription");
+      if (subscriptionStepIndex >= 0) {
+        setActiveStep(subscriptionStepIndex);
+        setCompletedSteps((prev) => {
+          const next = new Set(prev);
+          next.delete(subscriptionStepIndex);
+          return next;
+        });
+      }
       url.searchParams.delete("success");
       const nextUrl = `${url.pathname}${url.searchParams.toString() ? `?${url.searchParams.toString()}` : ""}`;
       window.history.replaceState({}, "", nextUrl);
     }
-  }, [refetchWallet]);
+  }, [refetchWallet, getStepIndexByType]);
 
   useEffect(() => {
-    const orgIdFromUrl = new URLSearchParams(window.location.search).get("org_id");
+    const orgIdFromUrl = new URLSearchParams(window.location.search).get(
+      "org_id",
+    );
     if (!orgIdFromUrl || createdOrg || !existingOrgs.length) return;
 
     const org = existingOrgs.find((candidate) => candidate.id === orgIdFromUrl);
@@ -337,25 +401,26 @@ export default function Onboarding() {
       name: org.name,
       display_name: org.display_name,
     });
-    setCompletedSteps((prev) => new Set([...prev, 1]));
-    setActiveStep(2);
-  }, [createdOrg, existingOrgs]);
+    const orgStepIndex = getStepIndexByType("organization");
+    setCompletedSteps((prev) => new Set([...prev, orgStepIndex]));
+    setActiveStep(orgStepIndex + 1);
+  }, [createdOrg, existingOrgs, getStepIndexByType]);
 
   // Auto-complete provider step if any providers already exist on initial load
   // (either user-configured or system/global providers)
-  // Provider step is now step 3 (after org setup at step 1, subscription at step 2)
   useEffect(() => {
     if (initialProvidersChecked.current || isLoadingProviders || !providers)
       return;
     initialProvidersChecked.current = true;
 
     if (hasAnyEnabledModels) {
-      setCompletedSteps((prev) => new Set([...prev, 3]));
-      if (activeStep === 3) {
-        setActiveStep(4);
+      const providerStepIndex = getStepIndexByType("provider");
+      setCompletedSteps((prev) => new Set([...prev, providerStepIndex]));
+      if (activeStep === providerStepIndex) {
+        setActiveStep(providerStepIndex + 1);
       }
     }
-  }, [isLoadingProviders]);
+  }, [isLoadingProviders, getStepIndexByType, activeStep]);
 
   // Auto-set kodit enrichment model after first provider connection during onboarding
   useEffect(() => {
@@ -511,9 +576,18 @@ export default function Onboarding() {
   }, [selectedModel, codeAgentRuntime, userModifiedAgentName, agentMode]);
 
   const markComplete = useCallback((step: number) => {
+    if (step < 0) return;
     setCompletedSteps((prev) => new Set([...prev, step]));
     setActiveStep(step + 1);
   }, []);
+
+  const markStepCompleteByType = useCallback(
+    (stepType: StepType) => {
+      const stepIndex = getStepIndexByType(stepType);
+      markComplete(stepIndex);
+    },
+    [getStepIndexByType, markComplete],
+  );
 
   const handleComplete = useCallback(
     async (taskId?: string) => {
@@ -560,8 +634,8 @@ export default function Onboarding() {
       name: org.name!,
       display_name: org.display_name,
     });
-    markComplete(1);
-  }, [selectedOrgId, existingOrgs, markComplete, snackbar]);
+    markStepCompleteByType("organization");
+  }, [selectedOrgId, existingOrgs, markStepCompleteByType, snackbar]);
 
   const handleCreateOrg = useCallback(async () => {
     if (!orgDisplayName.trim()) {
@@ -579,7 +653,7 @@ export default function Onboarding() {
           display_name: newOrg.display_name,
         });
         await account.organizationTools.loadOrganizations();
-        markComplete(1);
+        markStepCompleteByType("organization");
       }
     } catch (err) {
       console.error("Failed to create org:", err);
@@ -589,7 +663,7 @@ export default function Onboarding() {
     orgDisplayName,
     createOrgMutation,
     account.organizationTools,
-    markComplete,
+    markStepCompleteByType,
     snackbar,
   ]);
 
@@ -839,7 +913,7 @@ export default function Onboarding() {
         if (agentMode === "select") {
           setCreatedAgentId(selectedAgentId);
         }
-        markComplete(4);
+        markStepCompleteByType("project");
       }
     } catch (err: any) {
       console.error("Failed to create project:", err);
@@ -859,7 +933,7 @@ export default function Onboarding() {
     createdOrg,
     account,
     api,
-    markComplete,
+    markStepCompleteByType,
     snackbar,
     agentMode,
     selectedAgentId,
@@ -886,7 +960,7 @@ export default function Onboarding() {
 
       if (response.data) {
         setCreatedTaskId(response.data.id || "");
-        markComplete(5);
+        markStepCompleteByType("task");
         snackbar.success(
           "Task created! Your AI agent will start working on it.",
         );
@@ -906,7 +980,7 @@ export default function Onboarding() {
     createdTaskId,
     createdAgentId,
     api,
-    markComplete,
+    markStepCompleteByType,
     snackbar,
     handleComplete,
   ]);
@@ -918,7 +992,10 @@ export default function Onboarding() {
     } catch (err) {
       console.error("Failed to mark onboarding complete on dismiss:", err);
     }
-    router.navigateReplace("projects");
+    const org = account.organizationTools.organization;
+    if (org) {
+      router.navigateReplace("org_projects", { org_id: org.name });
+    }
   }, [api, router]);
 
   const userName =
@@ -952,11 +1029,14 @@ export default function Onboarding() {
     );
   };
 
-  const renderStepContent = (step: number) => {
-    switch (step) {
-      case 1:
+  const renderStepContent = (stepIndex: number) => {
+    const stepType = getStepTypeByIndex(stepIndex);
+    if (!stepType) return null;
+
+    switch (stepType) {
+      case "organization":
         return (
-          <Fade in={isStepActive(1)} timeout={400}>
+          <Fade in={isStepActive(stepIndex)} timeout={400}>
             <Box sx={{ mt: 2.5 }}>
               {hasExistingOrgs && (
                 <Box sx={{ display: "flex", gap: 1.5, mb: 2.5 }}>
@@ -1161,9 +1241,9 @@ export default function Onboarding() {
           </Fade>
         );
 
-      case 2:
+      case "subscription":
         return (
-          <Fade in={isStepActive(2)} timeout={400}>
+          <Fade in={isStepActive(stepIndex)} timeout={400}>
             <Box sx={{ mt: 2.5 }}>
               <Box
                 sx={{
@@ -1224,7 +1304,9 @@ export default function Onboarding() {
                       }}
                     >
                       Current billing period started:{" "}
-                      {formatUnixTimestamp(wallet.subscription_current_period_start)}
+                      {formatUnixTimestamp(
+                        wallet.subscription_current_period_start,
+                      )}
                     </Typography>
                     <Typography
                       sx={{
@@ -1234,7 +1316,9 @@ export default function Onboarding() {
                       }}
                     >
                       Next billing term:{" "}
-                      {formatUnixTimestamp(wallet.subscription_current_period_end)}
+                      {formatUnixTimestamp(
+                        wallet.subscription_current_period_end,
+                      )}
                     </Typography>
                     <Typography
                       sx={{
@@ -1253,7 +1337,7 @@ export default function Onboarding() {
                 {isSubscriptionActive ? (
                   <Button
                     variant="contained"
-                    onClick={() => markComplete(2)}
+                    onClick={() => markStepCompleteByType("subscription")}
                     sx={btnSx}
                   >
                     Continue
@@ -1295,9 +1379,9 @@ export default function Onboarding() {
           </Fade>
         );
 
-      case 3:
+      case "provider":
         return (
-          <Fade in={isStepActive(3)} timeout={400}>
+          <Fade in={isStepActive(stepIndex)} timeout={400}>
             <Box sx={{ mt: 2.5 }}>
               <Box
                 sx={{
@@ -1486,20 +1570,107 @@ export default function Onboarding() {
                     </Box>
                   );
                 })}
+                {globalProviders.length > 0 && (
+                  <>
+                    <Divider
+                      sx={{
+                        gridColumn: "1 / -1",
+                        borderColor: "rgba(255,255,255,0.06)",
+                        my: 0.5,
+                      }}
+                    />
+                    <Typography
+                      sx={{
+                        gridColumn: "1 / -1",
+                        color: "rgba(255,255,255,0.3)",
+                        fontSize: "0.72rem",
+                      }}
+                    >
+                      Globally configured providers
+                    </Typography>
+                    {globalProviders.map((providerEndpoint) => {
+                      const providerMeta = providerLogoMap.get(
+                        providerEndpoint.name || "",
+                      );
+                      const Logo = providerMeta?.logo;
+                      const providerName =
+                        providerMeta?.name || providerEndpoint.name || "Provider";
+                      return (
+                        <Box
+                          key={`global-provider-${providerEndpoint.name}-${providerEndpoint.id}`}
+                          sx={{
+                            p: 1.5,
+                            borderRadius: 1.5,
+                            border: `1px solid ${CARD_BORDER_ACTIVE}`,
+                            bgcolor: ACCENT_DIM,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 1.5,
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              width: 28,
+                              height: 28,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
+                              color: "#fff",
+                            }}
+                          >
+                            {Logo ? (
+                              typeof Logo === "string" ? (
+                                <img
+                                  src={Logo}
+                                  alt=""
+                                  style={{
+                                    width: 24,
+                                    height: 24,
+                                    background: "#fff",
+                                    borderRadius: 4,
+                                  }}
+                                />
+                              ) : (
+                                <Logo style={{ width: 24, height: 24 }} />
+                              )
+                            ) : (
+                              <Server size={20} />
+                            )}
+                          </Box>
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Typography
+                              sx={{
+                                color: "#fff",
+                                fontWeight: 500,
+                                fontSize: "0.78rem",
+                              }}
+                            >
+                              {providerName}
+                            </Typography>
+                          </Box>
+                          <CheckCircleIcon
+                            sx={{ fontSize: 16, color: ACCENT, flexShrink: 0 }}
+                          />
+                        </Box>
+                      );
+                    })}
+                  </>
+                )}
               </Box>
 
               <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
                 <Button
                   variant="contained"
-                  onClick={() => markComplete(3)}
-                  disabled={!hasUserProviders}
+                  onClick={() => markStepCompleteByType("provider")}
+                  disabled={!hasProvidersForContinue}
                   sx={btnSx}
                 >
                   Continue
                 </Button>
                 <Button
                   variant="text"
-                  onClick={() => markComplete(3)}
+                  onClick={() => markStepCompleteByType("provider")}
                   sx={{
                     color: "rgba(255,255,255,0.3)",
                     textTransform: "none",
@@ -1514,9 +1685,9 @@ export default function Onboarding() {
           </Fade>
         );
 
-      case 4:
+      case "project":
         return (
-          <Fade in={isStepActive(4)} timeout={400}>
+          <Fade in={isStepActive(stepIndex)} timeout={400}>
             <Box sx={{ mt: 2.5 }}>
               <TextField
                 fullWidth
@@ -2070,9 +2241,9 @@ export default function Onboarding() {
           </Fade>
         );
 
-      case 5:
+      case "task":
         return (
-          <Fade in={isStepActive(5)} timeout={400}>
+          <Fade in={isStepActive(stepIndex)} timeout={400}>
             <Box sx={{ mt: 2.5 }}>
               <TextField
                 fullWidth
@@ -2190,12 +2361,12 @@ export default function Onboarding() {
 
         {/* Steps */}
         <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-          {STEPS.map((step, index) => {
+          {visibleSteps.map((step, index) => {
             const completed = isStepCompleted(index);
             const active = isStepActive(index);
             const locked = isStepLocked(index);
             const stepSubtitle =
-              index === 1 && createdOrg
+              step.type === "organization" && createdOrg
                 ? `Selected organization: ${createdOrg.display_name || createdOrg.name}`
                 : step.subtitle;
 
@@ -2246,7 +2417,7 @@ export default function Onboarding() {
                     </Box>
                   </Box>
 
-                  {active && index > 0 && renderStepContent(index)}
+                  {active && step.type !== "signin" && renderStepContent(index)}
                 </Box>
               </Fade>
             );
@@ -2265,13 +2436,13 @@ export default function Onboarding() {
             open={addProviderDialogOpen}
             onClose={() => setAddProviderDialogOpen(false)}
             onClosed={() => setSelectedOnboardingProvider(null)}
-            orgId=""
+            orgId={createdOrg?.id || ""}
             provider={selectedOnboardingProvider}
           />
         )}
 
         {/* All done message */}
-        {completedSteps.size === STEPS.length && (
+        {completedSteps.size === visibleSteps.length && (
           <Fade in timeout={600}>
             <Box sx={{ mt: 4, textAlign: "center" }}>
               <Typography
