@@ -2,11 +2,13 @@ package browser
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/go-rod/rod"
@@ -34,6 +36,80 @@ type Browser struct {
 	browser *rod.Browser
 
 	pagePool rod.Pool[rod.Page]
+}
+
+// EnsureNoProxyForBrowserHosts adds the Chrome and launcher service hostnames
+// to the NO_PROXY environment variable so that internal service connections
+// bypass any configured HTTP proxy. This must be called before any HTTP requests
+// are made (including by third-party libraries like go-rod) to ensure Go's
+// cached proxy configuration includes these hosts.
+func EnsureNoProxyForBrowserHosts(cfg *config.ServerConfig) {
+	// Only relevant if a proxy is configured
+	if os.Getenv("HTTP_PROXY") == "" && os.Getenv("http_proxy") == "" &&
+		os.Getenv("HTTPS_PROXY") == "" && os.Getenv("https_proxy") == "" {
+		return
+	}
+
+	seen := make(map[string]bool)
+	var bypassHosts []string
+	for _, rawURL := range []string{cfg.RAG.Crawler.ChromeURL, cfg.RAG.Crawler.LauncherURL} {
+		if rawURL == "" {
+			continue
+		}
+		parsed, err := url.Parse(rawURL)
+		if err != nil {
+			log.Warn().Err(err).Str("url", rawURL).Msg("Failed to parse browser service URL for NO_PROXY configuration")
+			continue
+		}
+		host := strings.ToLower(parsed.Hostname())
+		if host != "" && !seen[host] {
+			seen[host] = true
+			bypassHosts = append(bypassHosts, host)
+		}
+	}
+
+	if len(bypassHosts) == 0 {
+		return
+	}
+
+	// Read existing NO_PROXY value (check both cases)
+	noProxy := os.Getenv("NO_PROXY")
+	if noProxy == "" {
+		noProxy = os.Getenv("no_proxy")
+	}
+
+	var toAdd []string
+	for _, host := range bypassHosts {
+		found := false
+		for _, existing := range strings.Split(strings.ToLower(noProxy), ",") {
+			if strings.TrimSpace(existing) == host {
+				found = true
+				break
+			}
+		}
+		if !found {
+			toAdd = append(toAdd, host)
+		}
+	}
+
+	if len(toAdd) == 0 {
+		return
+	}
+
+	newNoProxy := noProxy
+	if newNoProxy != "" {
+		newNoProxy += ","
+	}
+	newNoProxy += strings.Join(toAdd, ",")
+
+	// Set both cases so Go's httpproxy.FromEnvironment() picks it up
+	os.Setenv("NO_PROXY", newNoProxy)
+	os.Setenv("no_proxy", newNoProxy)
+
+	log.Info().
+		Strs("hosts", toAdd).
+		Str("NO_PROXY", newNoProxy).
+		Msg("Added browser service hosts to NO_PROXY to bypass HTTP proxy")
 }
 
 func New(cfg *config.ServerConfig) (*Browser, error) {
@@ -189,6 +265,22 @@ func (b *Browser) PutBrowser(browser *rod.Browser) error {
 	return nil
 }
 
+// noProxyHTTPClient returns an HTTP client that bypasses any configured proxy.
+// This is used for internal service communication (e.g., Chrome browser) where
+// requests should never go through an external HTTP proxy.
+func noProxyHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			Proxy: nil, // explicitly bypass proxy
+		},
+	}
+}
+
+// chromeVersionResponse is the JSON structure returned by Chrome's /json/version endpoint.
+type chromeVersionResponse struct {
+	WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
+}
+
 func (b *Browser) getChromeURL() (string, error) {
 	chromeURL := b.cfg.RAG.Crawler.ChromeURL
 
@@ -215,31 +307,53 @@ func (b *Browser) getChromeURL() (string, error) {
 	// Replace the hostname with the IP address in the original URL
 	resolvedURL := strings.Replace(chromeURL, parsedURL.Hostname(), ip, 1)
 
-	// Use the resolved URL for the request
+	// Use a no-proxy HTTP client for internal Chrome service communication.
+	// This also replaces the previous launcher.ResolveURL() call which used
+	// http.Get() (affected by HTTP_PROXY) and made a redundant second request
+	// to the same /json/version endpoint.
 	req, err := http.NewRequest("GET", resolvedURL+"/json/version", nil)
 	if err != nil {
 		return "", fmt.Errorf("error creating request for Chrome URL (%s): %w", resolvedURL, err)
 	}
 	req.Header.Set("Host", parsedURL.Hostname()) // Set the original hostname in the Host header
 
-	resp, err := http.DefaultClient.Do(req)
+	client := noProxyHTTPClient()
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("error checking Chrome URL (%s): %w", resolvedURL, err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		bts, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return "", fmt.Errorf("error reading Chrome URL (%s) response: %w", resolvedURL, err)
-		}
-		return "", fmt.Errorf("error checking Chrome URL (%s): %s", resolvedURL, string(bts))
-	}
-
-	u, err := launcher.ResolveURL(resolvedURL)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("error resolving Chrome URL (%s): %w", resolvedURL, err)
+		return "", fmt.Errorf("error reading Chrome URL (%s) response: %w", resolvedURL, err)
 	}
 
-	return u, nil
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("error checking Chrome URL (%s): %s", resolvedURL, string(body))
+	}
+
+	// Extract the WebSocket debugger URL from the /json/version response
+	var versionInfo chromeVersionResponse
+	if err := json.Unmarshal(body, &versionInfo); err != nil {
+		return "", fmt.Errorf("error parsing Chrome version response from %s: %w", resolvedURL, err)
+	}
+
+	if versionInfo.WebSocketDebuggerURL == "" {
+		return "", fmt.Errorf("Chrome at %s returned empty webSocketDebuggerUrl", resolvedURL)
+	}
+
+	// Replace the host in the WebSocket URL with our resolved host
+	wsURL, err := url.Parse(versionInfo.WebSocketDebuggerURL)
+	if err != nil {
+		return "", fmt.Errorf("error parsing webSocketDebuggerUrl (%s): %w", versionInfo.WebSocketDebuggerURL, err)
+	}
+
+	resolvedParsed, err := url.Parse(resolvedURL)
+	if err != nil {
+		return "", fmt.Errorf("error parsing resolved URL (%s): %w", resolvedURL, err)
+	}
+	wsURL.Host = resolvedParsed.Host
+
+	return wsURL.String(), nil
 }
