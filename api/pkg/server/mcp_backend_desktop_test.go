@@ -61,23 +61,68 @@ func (d *fakeDialer) Dial(_ context.Context, _ string) (net.Conn, error) {
 
 // startFakeDesktopBridge starts a goroutine that reads an HTTP request from
 // the server-side pipe and writes back a canned HTTP response.
-func (s *DesktopMCPBackendSuite) startFakeDesktopBridge(responseBody string) {
+// It also records the request path so tests can verify which path the proxy used.
+func (s *DesktopMCPBackendSuite) startFakeDesktopBridge(responseBody string) *string {
 	clientConn, serverConn := net.Pipe()
 	s.dialer.conn = clientConn
+	var requestPath string
 
 	go func() {
 		defer serverConn.Close()
 		// Read the forwarded HTTP request
-		_, err := http.ReadRequest(bufio.NewReader(serverConn))
+		req, err := http.ReadRequest(bufio.NewReader(serverConn))
 		if err != nil {
 			return
 		}
+		requestPath = req.URL.Path
 
 		// Write an HTTP response
 		resp := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s",
 			len(responseBody), responseBody)
 		serverConn.Write([]byte(resp))
 	}()
+	return &requestPath
+}
+
+// startFakeDesktopBridgeWithRoutes simulates the real desktop-bridge HTTP
+// server on port 9876 which only serves certain routes (screenshot, health,
+// etc). Requests to unknown paths return 404 — exactly like production where
+// RevDial tunnels to port 9876 (the desktop HTTP server), not port 9878
+// (the MCP server).
+func (s *DesktopMCPBackendSuite) startFakeDesktopBridgeWithRoutes() *string {
+	clientConn, serverConn := net.Pipe()
+	s.dialer.conn = clientConn
+	var requestPath string
+
+	go func() {
+		defer serverConn.Close()
+		req, err := http.ReadRequest(bufio.NewReader(serverConn))
+		if err != nil {
+			return
+		}
+		requestPath = req.URL.Path
+
+		// The real desktop server (port 9876) serves /screenshot, /health,
+		// /clipboard, /mcp etc. If the proxy sends to the wrong path, it 404s.
+		knownRoutes := map[string]bool{
+			"/screenshot": true,
+			"/health":     true,
+			"/clipboard":  true,
+			"/mcp":        true,
+		}
+
+		if !knownRoutes[req.URL.Path] {
+			resp := "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nnot found"
+			serverConn.Write([]byte(resp))
+			return
+		}
+
+		body := `{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}`
+		resp := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s",
+			len(body), body)
+		serverConn.Write([]byte(resp))
+	}()
+	return &requestPath
 }
 
 // =============================================================================
@@ -107,6 +152,37 @@ func (s *DesktopMCPBackendSuite) TestServeHTTP_ProxiesToDesktopBridge() {
 
 	s.Equal(http.StatusOK, w.Code)
 	s.Contains(w.Body.String(), `"tools":[]`)
+}
+
+// TestServeHTTP_ProxiesToCorrectPath verifies the proxy sends to /mcp on port
+// 9876 (the desktop HTTP server reached via RevDial), NOT port 9878.
+// RevDial tunnels to port 9876 — the desktop HTTP server. The MCP server on
+// port 9878 is unreachable through this tunnel. The desktop HTTP server must
+// serve /mcp, and the proxy must target that path.
+func (s *DesktopMCPBackendSuite) TestServeHTTP_ProxiesToCorrectPath() {
+	session := &types.Session{
+		ID:    "ses-123",
+		Owner: "user-1",
+	}
+
+	s.mockStore.EXPECT().
+		GetSession(gomock.Any(), "ses-123").
+		Return(session, nil)
+
+	// Simulate the real desktop-bridge: known routes return 200, unknown 404.
+	requestPath := s.startFakeDesktopBridgeWithRoutes()
+
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/desktop?session_id=ses-123", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	user := &types.User{ID: "user-1"}
+	s.backend.ServeHTTP(w, req, user)
+
+	// The proxy must target /mcp (served by desktop HTTP server on port 9876)
+	s.Equal("/mcp", *requestPath, "proxy should target /mcp on port 9876, not some other path")
+	s.Equal(http.StatusOK, w.Code, "should get 200 from desktop server's /mcp route")
 }
 
 func (s *DesktopMCPBackendSuite) TestServeHTTP_MissingSessionID() {

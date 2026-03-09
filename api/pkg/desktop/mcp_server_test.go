@@ -301,6 +301,59 @@ func TestMCPServer_ToolsList(t *testing.T) {
 	}
 }
 
+// TestDesktopServer_ServesMCPRoute verifies that the desktop HTTP server
+// (port 9876, reached via RevDial) serves /mcp when an MCP handler is mounted.
+// This is required because RevDial tunnels to port 9876 — the desktop HTTP
+// server — not port 9878 where the MCP server previously ran standalone.
+// The API gateway proxy sends MCP requests through RevDial to /mcp.
+func TestDesktopServer_ServesMCPRoute(t *testing.T) {
+	logger := slog.Default()
+
+	// Create the MCP server (normally runs standalone on port 9878)
+	mcpSrv := NewMCPServer(MCPConfig{}, logger)
+
+	// Create the desktop server (port 9876, the RevDial target)
+	desktopSrv := NewServer(Config{HTTPPort: "9876"}, logger)
+	desktopSrv.SetMCPHandler(mcpSrv)
+
+	// Get the HTTP handler (same one used by the real server)
+	handler := desktopSrv.httpHandler()
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	// Send an MCP initialize request to /mcp — exactly as the gateway proxy does
+	initPayload := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}`
+	resp, err := http.Post(ts.URL+"/mcp", "application/json", strings.NewReader(initPayload))
+	if err != nil {
+		t.Fatalf("POST /mcp failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200 from /mcp on desktop server, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, string(body))
+	}
+
+	// Verify it's the MCP server responding
+	resultField, ok := result["result"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected result field, got: %s", string(body))
+	}
+	serverInfo, ok := resultField["serverInfo"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected serverInfo, got: %+v", resultField)
+	}
+	if serverInfo["name"] != "Helix Desktop" {
+		t.Errorf("expected 'Helix Desktop', got %q", serverInfo["name"])
+	}
+}
+
 func TestNewMCPServer(t *testing.T) {
 	// Test default config
 	t.Run("default config", func(t *testing.T) {

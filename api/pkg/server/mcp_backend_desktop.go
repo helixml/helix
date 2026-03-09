@@ -79,8 +79,11 @@ func (b *DesktopMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, us
 	}
 	defer conn.Close()
 
-	// Build the request to forward over the tunnel
-	targetURL := "http://localhost:9878/mcp"
+	// Build the request to forward over the tunnel.
+	// RevDial tunnels to port 9876 (the desktop HTTP server), which mounts the
+	// MCP handler at /mcp. Port 9878 is the standalone MCP server but is NOT
+	// reachable through RevDial.
+	targetURL := "http://localhost:9876/mcp"
 	if r.URL.RawQuery != "" {
 		// Strip our session_id param — desktop-bridge doesn't need it
 		targetURL += "?" + stripParam(r.URL.RawQuery, "session_id")
