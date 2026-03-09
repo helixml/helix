@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/go-rod/rod"
@@ -36,80 +35,6 @@ type Browser struct {
 	browser *rod.Browser
 
 	pagePool rod.Pool[rod.Page]
-}
-
-// EnsureNoProxyForBrowserHosts adds the Chrome and launcher service hostnames
-// to the NO_PROXY environment variable so that internal service connections
-// bypass any configured HTTP proxy. This must be called before any HTTP requests
-// are made (including by third-party libraries like go-rod) to ensure Go's
-// cached proxy configuration includes these hosts.
-func EnsureNoProxyForBrowserHosts(cfg *config.ServerConfig) {
-	// Only relevant if a proxy is configured
-	if os.Getenv("HTTP_PROXY") == "" && os.Getenv("http_proxy") == "" &&
-		os.Getenv("HTTPS_PROXY") == "" && os.Getenv("https_proxy") == "" {
-		return
-	}
-
-	seen := make(map[string]bool)
-	var bypassHosts []string
-	for _, rawURL := range []string{cfg.RAG.Crawler.ChromeURL, cfg.RAG.Crawler.LauncherURL} {
-		if rawURL == "" {
-			continue
-		}
-		parsed, err := url.Parse(rawURL)
-		if err != nil {
-			log.Warn().Err(err).Str("url", rawURL).Msg("Failed to parse browser service URL for NO_PROXY configuration")
-			continue
-		}
-		host := strings.ToLower(parsed.Hostname())
-		if host != "" && !seen[host] {
-			seen[host] = true
-			bypassHosts = append(bypassHosts, host)
-		}
-	}
-
-	if len(bypassHosts) == 0 {
-		return
-	}
-
-	// Read existing NO_PROXY value (check both cases)
-	noProxy := os.Getenv("NO_PROXY")
-	if noProxy == "" {
-		noProxy = os.Getenv("no_proxy")
-	}
-
-	var toAdd []string
-	for _, host := range bypassHosts {
-		found := false
-		for _, existing := range strings.Split(strings.ToLower(noProxy), ",") {
-			if strings.TrimSpace(existing) == host {
-				found = true
-				break
-			}
-		}
-		if !found {
-			toAdd = append(toAdd, host)
-		}
-	}
-
-	if len(toAdd) == 0 {
-		return
-	}
-
-	newNoProxy := noProxy
-	if newNoProxy != "" {
-		newNoProxy += ","
-	}
-	newNoProxy += strings.Join(toAdd, ",")
-
-	// Set both cases so Go's httpproxy.FromEnvironment() picks it up
-	os.Setenv("NO_PROXY", newNoProxy)
-	os.Setenv("no_proxy", newNoProxy)
-
-	log.Info().
-		Strs("hosts", toAdd).
-		Str("NO_PROXY", newNoProxy).
-		Msg("Added browser service hosts to NO_PROXY to bypass HTTP proxy")
 }
 
 func New(cfg *config.ServerConfig) (*Browser, error) {
@@ -265,15 +190,13 @@ func (b *Browser) PutBrowser(browser *rod.Browser) error {
 	return nil
 }
 
-// noProxyHTTPClient returns an HTTP client that bypasses any configured proxy.
-// This is used for internal service communication (e.g., Chrome browser) where
+// noProxyClient is a shared HTTP client that bypasses any configured proxy.
+// Used for internal service communication (e.g., Chrome browser) where
 // requests should never go through an external HTTP proxy.
-func noProxyHTTPClient() *http.Client {
-	return &http.Client{
-		Transport: &http.Transport{
-			Proxy: nil, // explicitly bypass proxy
-		},
-	}
+var noProxyClient = &http.Client{
+	Transport: &http.Transport{
+		Proxy: nil, // explicitly bypass proxy
+	},
 }
 
 // chromeVersionResponse is the JSON structure returned by Chrome's /json/version endpoint.
@@ -311,14 +234,17 @@ func (b *Browser) getChromeURL() (string, error) {
 	// This also replaces the previous launcher.ResolveURL() call which used
 	// http.Get() (affected by HTTP_PROXY) and made a redundant second request
 	// to the same /json/version endpoint.
-	req, err := http.NewRequest("GET", resolvedURL+"/json/version", nil)
+	versionURL, err := url.JoinPath(resolvedURL, "/json/version")
+	if err != nil {
+		return "", fmt.Errorf("error building version URL for Chrome (%s): %w", resolvedURL, err)
+	}
+	req, err := http.NewRequest("GET", versionURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("error creating request for Chrome URL (%s): %w", resolvedURL, err)
 	}
 	req.Header.Set("Host", parsedURL.Hostname()) // Set the original hostname in the Host header
 
-	client := noProxyHTTPClient()
-	resp, err := client.Do(req)
+	resp, err := noProxyClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("error checking Chrome URL (%s): %w", resolvedURL, err)
 	}
