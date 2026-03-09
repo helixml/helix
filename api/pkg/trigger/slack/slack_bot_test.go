@@ -317,9 +317,9 @@ func TestBuildProjectUpdateAttachment(t *testing.T) {
 	assert.Len(t, attachment.Fields, 5)
 	assert.Equal(t, "Status", attachment.Fields[0].Title)
 	assert.Contains(t, attachment.Fields[0].Value, "Implementation")
-	assert.Contains(t, attachment.Fields[2].Value, "https://app.helix.ml/projects/proj_123/tasks/task_123?view=details")
+	assert.Contains(t, attachment.Fields[2].Value, "https://app.helix.ml/orgs/my-org/projects/proj_123/tasks/task_123?view=details")
 	assert.Equal(t, "Project", attachment.Fields[4].Title)
-	assert.Contains(t, attachment.Fields[4].Value, "https://app.helix.ml/org/my-org/projects/proj_123/specs")
+	assert.Contains(t, attachment.Fields[4].Value, "https://app.helix.ml/orgs/my-org/projects/proj_123/specs")
 }
 
 func TestBuildProjectUpdateReplyAttachment(t *testing.T) {
@@ -352,8 +352,8 @@ func TestBuildProjectUpdateReplyAttachment(t *testing.T) {
 	assert.Contains(t, attachment.Text, "🔀")
 	assert.Contains(t, attachment.Text, "Implement light mode")
 	assert.Contains(t, attachment.Text, "Pull Request")
-	assert.Contains(t, attachment.Text, "https://app.helix.ml/projects/proj_123/tasks/task_123?view=details")
-	assert.Contains(t, attachment.Text, "https://app.helix.ml/org/my-org/projects/proj_123/specs")
+	assert.Contains(t, attachment.Text, "https://app.helix.ml/orgs/my-org/projects/proj_123/tasks/task_123?view=details")
+	assert.Contains(t, attachment.Text, "https://app.helix.ml/orgs/my-org/projects/proj_123/specs")
 }
 
 func TestSpecTaskStatusColor(t *testing.T) {
