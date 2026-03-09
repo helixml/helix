@@ -203,6 +203,11 @@ func getFilestore(ctx context.Context, cfg *config.ServerConfig) (filestore.File
 }
 
 func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
+	// Ensure internal browser service hosts bypass any configured HTTP proxy.
+	// This covers go-rod's internal http.Get() calls which use http.DefaultClient.
+	// The non-launcher code path uses a dedicated no-proxy HTTP client instead.
+	browser.EnsureNoProxyForBrowserHosts(cfg)
+
 	// Validate license key if provided
 	var userLicense *license.License
 	if cfg.LicenseKey != "" {
