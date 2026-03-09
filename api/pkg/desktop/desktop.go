@@ -121,6 +121,18 @@ type Server struct {
 	cursorName string // CSS cursor name (e.g., "default", "pointer", "text")
 
 	// macOS keyboard remapping state
+
+	// Optional MCP handler mounted at /mcp on the desktop HTTP server.
+	// This allows the API gateway to reach the MCP server through the existing
+	// RevDial tunnel (which targets port 9876, this server's port).
+	mcpHandler http.Handler
+}
+
+// SetMCPHandler mounts an MCP handler at /mcp on the desktop HTTP server.
+// This makes the MCP server reachable through the RevDial tunnel without
+// needing a separate port or tunnel.
+func (s *Server) SetMCPHandler(handler http.Handler) {
+	s.mcpHandler = handler
 }
 
 // NewServer creates a new desktop server with the given config.
@@ -456,6 +468,11 @@ func (s *Server) httpHandler() http.Handler {
 	})
 	mux.HandleFunc("/clients", s.handleClients)
 	mux.HandleFunc("/video/stats", s.handleVideoStats)
+
+	// Mount MCP handler if set (allows API gateway to reach MCP via RevDial)
+	if s.mcpHandler != nil {
+		mux.Handle("/mcp", s.mcpHandler)
+	}
 
 	return mux
 }
