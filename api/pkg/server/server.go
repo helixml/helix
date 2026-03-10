@@ -971,6 +971,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/admin/kodit/repositories/{koditRepoId}", apiServer.adminDeleteKoditRepository).Methods(http.MethodDelete)
 	adminRouter.HandleFunc("/admin/kodit/repositories/batch/delete", apiServer.adminBatchDeleteKoditRepositories).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/kodit/repositories/batch/rescan", apiServer.adminBatchRescanKoditRepositories).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/admin/kodit/queue", apiServer.adminListKoditQueue).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/admin/kodit/queue/{taskId}", apiServer.adminDeleteKoditTask).Methods(http.MethodDelete)
+	adminRouter.HandleFunc("/admin/kodit/queue/{taskId}/priority", apiServer.adminUpdateKoditTaskPriority).Methods(http.MethodPut)
 
 	// all these routes are secured via runner tokens
 	insecureRouter.HandleFunc("/runner/{runner_id}/ws", func(w http.ResponseWriter, r *http.Request) {

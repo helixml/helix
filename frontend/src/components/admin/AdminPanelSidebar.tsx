@@ -11,6 +11,7 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import DeveloperBoardIcon from '@mui/icons-material/DeveloperBoard'
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney'
 import CodeIcon from '@mui/icons-material/Code'
+import QueueIcon from '@mui/icons-material/Queue'
 
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
 import { UsersIcon, BuildingIcon } from 'lucide-react'
@@ -117,6 +118,13 @@ const AdminPanelSidebar: FC<AdminPanelSidebarProps> = ({ activeTab = 'llm_calls'
           icon: <CodeIcon />,
           isActive: currentTab === 'kodit',
           onClick: () => handleNavigationClick('kodit')
+        },
+        {
+          id: 'kodit_queue',
+          label: 'Kodit Queue',
+          icon: <QueueIcon />,
+          isActive: currentTab === 'kodit_queue',
+          onClick: () => handleNavigationClick('kodit_queue')
         }
       ]
     },

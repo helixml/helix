@@ -407,10 +407,11 @@ func (s *KoditService) RepositoryTasks(ctx context.Context, koditRepoID int64) (
 		}
 		if taskRepoID == koditRepoID {
 			pending = append(pending, KoditPendingTask{
-				ID:        t.ID(),
-				Operation: string(t.Operation()),
-				Priority:  t.Priority(),
-				CreatedAt: t.CreatedAt(),
+				ID:           t.ID(),
+				Operation:    string(t.Operation()),
+				Priority:     t.Priority(),
+				CreatedAt:    t.CreatedAt(),
+				RepositoryID: taskRepoID,
 			})
 		}
 	}
@@ -453,6 +454,89 @@ func (s *KoditService) SystemStats(ctx context.Context) (KoditSystemStats, error
 		Commits:      commits,
 		PendingTasks: pendingTasks,
 	}, nil
+}
+
+// ListAllTasks returns a paginated list of all pending tasks across all repositories.
+func (s *KoditService) ListAllTasks(ctx context.Context, limit, offset int) ([]KoditPendingTask, int64, error) {
+	if !s.enabled {
+		return nil, 0, fmt.Errorf("kodit service not enabled")
+	}
+
+	tasks, err := s.client.Tasks.List(ctx, &service.TaskListParams{Limit: limit, Offset: offset})
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list tasks: %w", err)
+	}
+
+	total, err := s.client.Tasks.Count(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count tasks: %w", err)
+	}
+
+	result := make([]KoditPendingTask, 0, len(tasks))
+	for _, t := range tasks {
+		var repoID int64
+		if payload := t.Payload(); payload != nil {
+			switch v := payload["repository_id"].(type) {
+			case int64:
+				repoID = v
+			case int:
+				repoID = int64(v)
+			case float64:
+				repoID = int64(v)
+			}
+		}
+		result = append(result, KoditPendingTask{
+			ID:           t.ID(),
+			Operation:    string(t.Operation()),
+			Priority:     t.Priority(),
+			CreatedAt:    t.CreatedAt(),
+			RepositoryID: repoID,
+		})
+	}
+
+	return result, total, nil
+}
+
+// ActiveTasks returns all tasks currently being worked on (started or in_progress).
+func (s *KoditService) ActiveTasks(ctx context.Context) ([]KoditActiveTask, error) {
+	if !s.enabled {
+		return nil, fmt.Errorf("kodit service not enabled")
+	}
+
+	statuses, err := s.client.Tracking.ActiveStatuses(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active statuses: %w", err)
+	}
+
+	result := make([]KoditActiveTask, 0, len(statuses))
+	for _, st := range statuses {
+		result = append(result, KoditActiveTask{
+			Operation:    string(st.Operation()),
+			State:        string(st.State()),
+			Message:      st.Message(),
+			Current:      st.Current(),
+			Total:        st.Total(),
+			RepositoryID: st.TrackableID(),
+			UpdatedAt:    st.UpdatedAt(),
+		})
+	}
+	return result, nil
+}
+
+// DeleteTask removes a specific task from the queue by ID.
+func (s *KoditService) DeleteTask(ctx context.Context, taskID int64) error {
+	if !s.enabled {
+		return fmt.Errorf("kodit service not enabled")
+	}
+	return s.client.Tasks.Remove(ctx, taskID)
+}
+
+// UpdateTaskPriority updates the priority of a specific task by ID.
+func (s *KoditService) UpdateTaskPriority(ctx context.Context, taskID int64, priority int) error {
+	if !s.enabled {
+		return fmt.Errorf("kodit service not enabled")
+	}
+	return s.client.Tasks.Reprioritize(ctx, taskID, priority)
 }
 
 // RescanCommit triggers a rescan of a specific commit in Kodit

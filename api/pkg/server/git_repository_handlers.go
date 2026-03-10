@@ -61,9 +61,8 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 		request.RepoType = types.GitRepositoryTypeCode
 	}
 
-	// Pass API key for Kodit to clone local repos (non-external repos)
-	if request.KoditIndexing && request.ExternalURL == "" {
-		// User authenticated via session - look up or create an API key
+	// Pass API key for Kodit to clone repos via Helix's internal git server
+	if request.KoditIndexing {
 		apiKey, err := s.getOrCreateUserAPIKey(r.Context(), user)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to get/create API key for Kodit indexing: %s", err.Error()), http.StatusInternalServerError)

@@ -70,6 +70,16 @@ func (f *fakeKoditService) SystemStats(_ context.Context) (services.KoditSystemS
 func (f *fakeKoditService) RepositoryTasks(_ context.Context, _ int64) (services.KoditRepositoryTasks, error) {
 	return services.KoditRepositoryTasks{}, f.err
 }
+func (f *fakeKoditService) ListAllTasks(_ context.Context, _, _ int) ([]services.KoditPendingTask, int64, error) {
+	return nil, 0, f.err
+}
+func (f *fakeKoditService) ActiveTasks(_ context.Context) ([]services.KoditActiveTask, error) {
+	return nil, f.err
+}
+func (f *fakeKoditService) DeleteTask(_ context.Context, _ int64) error { return f.err }
+func (f *fakeKoditService) UpdateTaskPriority(_ context.Context, _ int64, _ int) error {
+	return f.err
+}
 
 type fakeGitRepositoryStore struct {
 	store.Store

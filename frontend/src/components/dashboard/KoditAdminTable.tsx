@@ -34,7 +34,6 @@ import RefreshIcon from '@mui/icons-material/Refresh'
 import DeleteIcon from '@mui/icons-material/Delete'
 import InfoIcon from '@mui/icons-material/Info'
 
-import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
 import {
   useAdminKoditRepositories,
@@ -70,8 +69,11 @@ const repoName = (repo: ServerKoditAdminRepoDTO): string => {
   return parts[parts.length - 1] || url
 }
 
-const KoditAdminTable: FC = () => {
-  const router = useRouter()
+interface KoditAdminTableProps {
+  onViewDetail?: (repoId: string) => void
+}
+
+const KoditAdminTable: FC<KoditAdminTableProps> = ({ onViewDetail }) => {
   const snackbar = useSnackbar()
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(25)
@@ -115,8 +117,10 @@ const KoditAdminTable: FC = () => {
 
   const handleViewDetail = useCallback((repoId: string) => {
     handleMenuClose()
-    router.setParams({ tab: 'kodit', repo_id: repoId })
-  }, [router])
+    if (onViewDetail) {
+      onViewDetail(repoId)
+    }
+  }, [onViewDetail])
 
   const handleSync = useCallback((repoId: string) => {
     handleMenuClose()

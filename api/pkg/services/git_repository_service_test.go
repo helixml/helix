@@ -80,6 +80,14 @@ func (f *fakeKodit) SystemStats(_ context.Context) (KoditSystemStats, error) {
 func (f *fakeKodit) RepositoryTasks(_ context.Context, _ int64) (KoditRepositoryTasks, error) {
 	return KoditRepositoryTasks{}, f.err
 }
+func (f *fakeKodit) ListAllTasks(_ context.Context, _, _ int) ([]KoditPendingTask, int64, error) {
+	return nil, 0, f.err
+}
+func (f *fakeKodit) ActiveTasks(_ context.Context) ([]KoditActiveTask, error) {
+	return nil, f.err
+}
+func (f *fakeKodit) DeleteTask(_ context.Context, _ int64) error { return f.err }
+func (f *fakeKodit) UpdateTaskPriority(_ context.Context, _ int64, _ int) error { return f.err }
 
 func TestDeleteRepository_DeletesFromKodit(t *testing.T) {
 	kodit := &fakeKodit{enabled: true}
