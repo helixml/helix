@@ -818,6 +818,17 @@ export interface ServerInteractionWithContext {
   turn?: number;
 }
 
+export interface ServerKoditAdminActiveTaskDTO {
+  current?: number;
+  message?: string;
+  operation?: string;
+  repo_name?: string;
+  repository_id?: number;
+  state?: string;
+  total?: number;
+  updated_at?: string;
+}
+
 export interface ServerKoditAdminBatchRequest {
   ids?: number[];
 }
@@ -839,6 +850,31 @@ export interface ServerKoditAdminPendingTaskDTO {
   id?: number;
   operation?: string;
   priority?: number;
+}
+
+export interface ServerKoditAdminQueueListResponse {
+  active_tasks?: ServerKoditAdminActiveTaskDTO[];
+  data?: ServerKoditAdminQueueTaskDTO[];
+  meta?: ServerKoditAdminPaginationMeta;
+  stats?: ServerKoditAdminQueueStats;
+}
+
+export interface ServerKoditAdminQueueStats {
+  by_operation?: Record<string, number>;
+  by_priority_level?: Record<string, number>;
+  newest_task_time?: string;
+  oldest_task_age?: string;
+  oldest_task_time?: string;
+  total?: number;
+}
+
+export interface ServerKoditAdminQueueTaskDTO {
+  created_at?: string;
+  id?: number;
+  operation?: string;
+  priority?: number;
+  repo_name?: string;
+  repository_id?: number;
 }
 
 export interface ServerKoditAdminRepoAttributes {
@@ -914,6 +950,10 @@ export interface ServerKoditAdminTaskStatusDTO {
   state?: string;
   total?: number;
   updated_at?: string;
+}
+
+export interface ServerKoditAdminUpdatePriorityRequest {
+  priority?: number;
 }
 
 export interface ServerKoditBatchError {
@@ -1235,6 +1275,12 @@ export interface ServerVideoStreamingStats {
   client_count?: number;
   frames_received?: number;
   gop_buffer_size?: number;
+}
+
+export interface ServicesKoditWikiPage {
+  content?: string;
+  slug?: string;
+  title?: string;
 }
 
 export interface ServicesSampleProjectCode {
@@ -5855,6 +5901,75 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List all pending tasks across all repositories with pagination. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditQueueList
+     * @summary List Kodit task queue (admin)
+     * @request GET:/api/v1/admin/kodit/queue
+     * @secure
+     */
+    v1AdminKoditQueueList: (
+      query?: {
+        /** Page number (default 1) */
+        page?: number;
+        /** Items per page (default 25, max 100) */
+        per_page?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditAdminQueueListResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/queue`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a specific task from the Kodit task queue by ID. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditQueueDelete
+     * @summary Delete Kodit queue task (admin)
+     * @request DELETE:/api/v1/admin/kodit/queue/{taskId}
+     * @secure
+     */
+    v1AdminKoditQueueDelete: (taskId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/queue/${taskId}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the priority of a specific task in the Kodit task queue. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditQueuePriorityPartialUpdate
+     * @summary Update Kodit queue task priority (admin)
+     * @request PATCH:/api/v1/admin/kodit/queue/{taskId}/priority
+     * @secure
+     */
+    v1AdminKoditQueuePriorityPartialUpdate: (
+      taskId: number,
+      body: ServerKoditAdminUpdatePriorityRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/queue/${taskId}/priority`,
+        method: "PATCH",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List all Kodit-indexed repositories with pagination. Admin only.
      *
      * @tags admin
@@ -8216,6 +8331,50 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesGitRepositoryTreeResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/tree`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the wiki navigation tree (titles and paths, no content) for a repository
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesWikiDetail
+     * @summary Get repository wiki tree
+     * @request GET:/api/v1/git/repositories/{id}/wiki
+     * @secure
+     */
+    v1GitRepositoriesWikiDetail: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/wiki`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get a wiki page by hierarchical path as markdown content
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesWikiPageDetail
+     * @summary Get wiki page
+     * @request GET:/api/v1/git/repositories/{id}/wiki-page
+     * @secure
+     */
+    v1GitRepositoriesWikiPageDetail: (
+      id: string,
+      query: {
+        /** Wiki page path (e.g. architecture/database-layer.md) */
+        path: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServicesKoditWikiPage, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/wiki-page`,
         method: "GET",
         query: query,
         secure: true,
@@ -12724,9 +12883,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * No description
+     * @description List models from a specific provider, or aggregate from all providers if none specified. If the request includes an anthropic-version header, proxies to the upstream Anthropic provider.
      *
+     * @tags models
      * @name ModelsList
+     * @summary List models
      * @request GET:/v1/models
      * @secure
      */

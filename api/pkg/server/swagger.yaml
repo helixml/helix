@@ -1266,6 +1266,25 @@ definitions:
       turn:
         type: integer
     type: object
+  server.KoditAdminActiveTaskDTO:
+    properties:
+      current:
+        type: integer
+      message:
+        type: string
+      operation:
+        type: string
+      repo_name:
+        type: string
+      repository_id:
+        type: integer
+      state:
+        type: string
+      total:
+        type: integer
+      updated_at:
+        type: string
+    type: object
   server.KoditAdminBatchRequest:
     properties:
       ids:
@@ -1304,6 +1323,55 @@ definitions:
       operation:
         type: string
       priority:
+        type: integer
+    type: object
+  server.KoditAdminQueueListResponse:
+    properties:
+      active_tasks:
+        items:
+          $ref: '#/definitions/server.KoditAdminActiveTaskDTO'
+        type: array
+      data:
+        items:
+          $ref: '#/definitions/server.KoditAdminQueueTaskDTO'
+        type: array
+      meta:
+        $ref: '#/definitions/server.KoditAdminPaginationMeta'
+      stats:
+        $ref: '#/definitions/server.KoditAdminQueueStats'
+    type: object
+  server.KoditAdminQueueStats:
+    properties:
+      by_operation:
+        additionalProperties:
+          type: integer
+        type: object
+      by_priority_level:
+        additionalProperties:
+          type: integer
+        type: object
+      newest_task_time:
+        type: string
+      oldest_task_age:
+        type: string
+      oldest_task_time:
+        type: string
+      total:
+        type: integer
+    type: object
+  server.KoditAdminQueueTaskDTO:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      operation:
+        type: string
+      priority:
+        type: integer
+      repo_name:
+        type: string
+      repository_id:
         type: integer
     type: object
   server.KoditAdminRepoAttributes:
@@ -1432,6 +1500,11 @@ definitions:
         type: integer
       updated_at:
         type: string
+    type: object
+  server.KoditAdminUpdatePriorityRequest:
+    properties:
+      priority:
+        type: integer
     type: object
   server.KoditBatchError:
     properties:
@@ -1949,6 +2022,15 @@ definitions:
         type: integer
       gop_buffer_size:
         type: integer
+    type: object
+  services.KoditWikiPage:
+    properties:
+      content:
+        type: string
+      slug:
+        type: string
+      title:
+        type: string
     type: object
   services.SampleProjectCode:
     properties:
@@ -9452,6 +9534,114 @@ paths:
       summary: Get sandbox real-time events (SSE)
       tags:
       - Admin
+  /api/v1/admin/kodit/queue:
+    get:
+      description: List all pending tasks across all repositories with pagination.
+        Admin only.
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 25, max 100)
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminQueueListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List Kodit task queue (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/queue/{taskId}:
+    delete:
+      description: Delete a specific task from the Kodit task queue by ID. Admin only.
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Delete Kodit queue task (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/queue/{taskId}/priority:
+    patch:
+      consumes:
+      - application/json
+      description: Update the priority of a specific task in the Kodit task queue.
+        Admin only.
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: integer
+      - description: New priority
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.KoditAdminUpdatePriorityRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update Kodit queue task priority (admin)
+      tags:
+      - admin
   /api/v1/admin/kodit/repositories:
     get:
       description: List all Kodit-indexed repositories with pagination. Admin only.
@@ -12669,6 +12859,79 @@ paths:
       security:
       - BearerAuth: []
       summary: Browse repository tree
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/wiki:
+    get:
+      description: Get the wiki navigation tree (titles and paths, no content) for
+        a repository
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get repository wiki tree
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/wiki-page:
+    get:
+      description: Get a wiki page by hierarchical path as markdown content
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Wiki page path (e.g. architecture/database-layer.md)
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/services.KoditWikiPage'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get wiki page
       tags:
       - git-repositories
   /api/v1/helix-models:
@@ -19011,6 +19274,9 @@ paths:
       - embeddings
   /v1/models:
     get:
+      description: List models from a specific provider, or aggregate from all providers
+        if none specified. If the request includes an anthropic-version header, proxies
+        to the upstream Anthropic provider.
       parameters:
       - description: Provider
         in: query
@@ -19025,6 +19291,9 @@ paths:
             type: array
       security:
       - BearerAuth: []
+      summary: List models
+      tags:
+      - models
 schemes:
 - https
 securityDefinitions:
