@@ -183,14 +183,18 @@ export HELIX_API_KEY=`grep HELIX_API_KEY .env.usercreds | cut -d= -f2-`
 - Design docs: `design/YYYY-MM-DD-name.md`
 
 ## CI (Drone)
-Credentials in `.env` (`DRONE_SERVER_URL`, `DRONE_ACCESS_TOKEN`).
+**ALWAYS use the Drone MCP tools** (`drone_build_info`, `drone_fetch_logs`, `drone_search_logs`, `drone_tail_logs`, `drone_read_logs`) when they are available. Do NOT try to extract credentials from `.env` files or use raw `curl` — the MCP tools handle authentication automatically.
+
+Workflow for investigating CI failures:
+1. `drone_build_info` — get build overview, see which steps failed
+2. `drone_fetch_logs` — download logs for the failing step
+3. `drone_search_logs` — search for `FAIL:`, `panic:`, `error` patterns
+4. `drone_tail_logs` / `drone_read_logs` — read specific sections around failures
+
+Fallback (only if Drone MCP tools are unavailable): credentials are in `.env` (`DRONE_SERVER_URL`, `DRONE_ACCESS_TOKEN`).
 ```bash
-# Check build status
 curl -s -H "Authorization: Bearer $DRONE_ACCESS_TOKEN" \
   "$DRONE_SERVER_URL/api/repos/helixml/helix/builds?branch=BRANCH&limit=3" | jq -r '.[] | "\(.number): \(.status)"'
-# Get failing step logs
-curl -s -H "Authorization: Bearer $DRONE_ACCESS_TOKEN" \
-  "$DRONE_SERVER_URL/api/repos/helixml/helix/builds/BUILD/logs/1/STEP" | jq -r '.[].out' | grep -E "FAIL|Error|panic"
 ```
 
 ## Database
