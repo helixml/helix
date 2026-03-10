@@ -1308,8 +1308,9 @@ func generateTaskNameFromPrompt(prompt string) string {
 	}
 	name = strings.TrimSpace(name)
 
-	if len(name) > 60 {
-		return name[:57] + "..."
+	runes := []rune(name)
+	if len(runes) > 60 {
+		return string(runes[:57]) + "..."
 	}
 	return name
 }
