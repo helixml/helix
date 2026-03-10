@@ -88,6 +88,27 @@ func (f *fakeKodit) ActiveTasks(_ context.Context) ([]KoditActiveTask, error) {
 }
 func (f *fakeKodit) DeleteTask(_ context.Context, _ int64) error { return f.err }
 func (f *fakeKodit) UpdateTaskPriority(_ context.Context, _ int64, _ int) error { return f.err }
+func (f *fakeKodit) GetWikiTree(_ context.Context, _ int64) ([]KoditWikiTreeNode, error) {
+	return nil, f.err
+}
+func (f *fakeKodit) GetWikiPage(_ context.Context, _ int64, _ string) (*KoditWikiPage, error) {
+	return nil, f.err
+}
+func (f *fakeKodit) SemanticSearch(_ context.Context, _ int64, _ string, _ int, _ string) ([]KoditFileResult, error) {
+	return nil, f.err
+}
+func (f *fakeKodit) KeywordSearch(_ context.Context, _ int64, _ string, _ int, _ string) ([]KoditFileResult, error) {
+	return nil, f.err
+}
+func (f *fakeKodit) GrepSearch(_ context.Context, _ int64, _ string, _ string, _ int) ([]KoditGrepResult, error) {
+	return nil, f.err
+}
+func (f *fakeKodit) ListFiles(_ context.Context, _ int64, _ string) ([]KoditFileEntry, error) {
+	return nil, f.err
+}
+func (f *fakeKodit) ReadFile(_ context.Context, _ int64, _ string, _, _ int) (*KoditFileContent, error) {
+	return nil, f.err
+}
 
 func TestDeleteRepository_DeletesFromKodit(t *testing.T) {
 	kodit := &fakeKodit{enabled: true}
