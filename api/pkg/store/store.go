@@ -59,10 +59,11 @@ type ListSessionsQuery struct {
 }
 
 type ListAPIKeysQuery struct {
-	Owner     string           `json:"owner"`
-	OwnerType types.OwnerType  `json:"owner_type"`
-	Type      types.APIKeyType `json:"type"`
-	AppID     string           `json:"app_id"`
+	Owner          string           `json:"owner"`
+	OwnerType      types.OwnerType  `json:"owner_type"`
+	Type           types.APIKeyType `json:"type"`
+	AppID          string           `json:"app_id"`
+	OrganizationID string           `json:"organization_id"`
 }
 
 type ListToolsQuery struct {

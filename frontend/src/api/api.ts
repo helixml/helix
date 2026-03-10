@@ -8912,6 +8912,59 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List API keys for an organization. Owners see all keys, members see only their own.
+     *
+     * @tags organizations
+     * @name V1OrganizationsApiKeysDetail
+     * @summary List organization API keys
+     * @request GET:/api/v1/organizations/{id}/api_keys
+     * @secure
+     */
+    v1OrganizationsApiKeysDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesApiKey[], any>({
+        path: `/api/v1/organizations/${id}/api_keys`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a new API key scoped to the organization. Any member can create keys.
+     *
+     * @tags organizations
+     * @name V1OrganizationsApiKeysCreate
+     * @summary Create an organization API key
+     * @request POST:/api/v1/organizations/{id}/api_keys
+     * @secure
+     */
+    v1OrganizationsApiKeysCreate: (id: string, request: object, params: RequestParams = {}) =>
+      this.request<TypesApiKey, any>({
+        path: `/api/v1/organizations/${id}/api_keys`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Delete an API key. Owners can delete any org key, members only their own.
+     *
+     * @tags organizations
+     * @name V1OrganizationsApiKeysDelete
+     * @summary Delete an organization API key
+     * @request DELETE:/api/v1/organizations/{id}/api_keys/{key}
+     * @secure
+     */
+    v1OrganizationsApiKeysDelete: (id: string, key: string, params: RequestParams = {}) =>
+      this.request<string, any>({
+        path: `/api/v1/organizations/${id}/api_keys/${key}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get the version history of guidelines for an organization
      *
      * @tags Organizations
