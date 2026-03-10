@@ -29,8 +29,8 @@ type streamingContext struct {
 	interaction *types.Interaction
 	// Track which interaction this context is for - used to detect transitions
 	interactionID string
-	// Request ID for commenter notification (design review comments)
-	requestID string
+	// Commenter ID for design review comment streaming (looked up from sessionToCommenterMapping)
+	commenterID string
 	// DB write throttling
 	lastDBWrite time.Time
 	dirty       bool // true if interaction has been updated since last DB write
@@ -958,10 +958,6 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 	}
 
 	if role == "assistant" {
-		// Extract request_id for commenter notification (design review comments)
-		// This is set when sendMessageToSpecTaskAgent sends a comment to the agent
-		requestID, _ := syncMsg.Data["request_id"].(string)
-
 		// PERFORMANCE OPTIMIZATION: Use streaming context cache to avoid
 		// redundant DB queries during token streaming. GetSession and
 		// ListInteractions are called once on the first token, then cached
@@ -974,14 +970,18 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		sctx.mu.Lock()
 		defer sctx.mu.Unlock()
 
-		// Store requestID in streaming context for commenter notification
-		// Only set if not already set (first message_added for this streaming context)
-		if sctx.requestID == "" && requestID != "" {
-			sctx.requestID = requestID
-			log.Debug().
-				Str("session_id", helixSessionID).
-				Str("request_id", requestID).
-				Msg("📝 [HELIX] Stored requestID in streaming context for commenter notification")
+		// Look up commenter by session ID (sessionToCommenterMapping is set when comment is sent to agent)
+		// message_added events from Zed don't include request_id, so we use session-based lookup
+		if sctx.commenterID == "" {
+			if apiServer.sessionToCommenterMapping != nil {
+				if commenterID, exists := apiServer.sessionToCommenterMapping[helixSessionID]; exists {
+					sctx.commenterID = commenterID
+					log.Debug().
+						Str("session_id", helixSessionID).
+						Str("commenter_id", commenterID).
+						Msg("📝 [HELIX] Found commenter for session via sessionToCommenterMapping")
+				}
+			}
 		}
 
 		helixSession := sctx.session
@@ -1040,7 +1040,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			// THROTTLED FRONTEND PUBLISH: Only publish if enough time has passed.
 			// Uses patch-based delta to reduce wire traffic from O(N) to O(delta).
 			if now.Sub(sctx.lastPublish) >= publishInterval {
-				err := apiServer.publishInteractionPatchToFrontend(helixSessionID, helixSession.Owner, targetInteraction, sctx.previousContent, sctx.requestID)
+				err := apiServer.publishInteractionPatchToFrontend(helixSessionID, helixSession.Owner, targetInteraction, sctx.previousContent, sctx.commenterID)
 				if err != nil {
 					log.Error().Err(err).
 						Str("session_id", helixSessionID).
@@ -2630,12 +2630,12 @@ func computePatch(previousContent, newContent string) (patchOffset int, patch st
 // publishInteractionPatchToFrontend sends a delta patch instead of the full interaction.
 // This reduces per-update wire traffic from O(N) to O(delta). The frontend applies the
 // patch to reconstruct the full content: content = content[:patchOffset] + patch.
-// If requestID is provided, also publishes to the commenter's queue (for design review comments).
+// If commenterID is provided, also publishes to the commenter's queue (for design review comments).
 func (apiServer *HelixAPIServer) publishInteractionPatchToFrontend(
 	sessionID, owner string,
 	interaction *types.Interaction,
 	previousContent string,
-	requestID ...string,
+	commenterID ...string,
 ) (err error) {
 	patchOffset, patch, totalLength := computePatch(previousContent, interaction.ResponseMessage)
 
@@ -2669,25 +2669,22 @@ func (apiServer *HelixAPIServer) publishInteractionPatchToFrontend(
 		Msg("📤 [HELIX] Published interaction patch to frontend")
 
 	// Also publish to commenter if applicable (for design review comments)
-	if len(requestID) > 0 && requestID[0] != "" {
-		if apiServer.requestToCommenterMapping != nil {
-			if commenterID, exists := apiServer.requestToCommenterMapping[requestID[0]]; exists && commenterID != owner {
-				// Publish to commenter's queue as well
-				err = apiServer.pubsub.Publish(context.Background(), pubsub.GetSessionQueue(commenterID, sessionID), messageBytes)
-				if err != nil {
-					log.Warn().
-						Err(err).
-						Str("session_id", sessionID).
-						Str("commenter_id", commenterID).
-						Msg("Failed to publish interaction patch to commenter")
-				} else {
-					log.Debug().
-						Str("session_id", sessionID).
-						Str("interaction_id", interaction.ID).
-						Str("commenter_id", commenterID).
-						Msg("📤 [HELIX] Published interaction patch to commenter")
-				}
-			}
+	// commenterID is passed directly from streamingContext (looked up from sessionToCommenterMapping)
+	if len(commenterID) > 0 && commenterID[0] != "" && commenterID[0] != owner {
+		// Publish to commenter's queue as well
+		err = apiServer.pubsub.Publish(context.Background(), pubsub.GetSessionQueue(commenterID[0], sessionID), messageBytes)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("session_id", sessionID).
+				Str("commenter_id", commenterID[0]).
+				Msg("Failed to publish interaction patch to commenter")
+		} else {
+			log.Debug().
+				Str("session_id", sessionID).
+				Str("interaction_id", interaction.ID).
+				Str("commenter_id", commenterID[0]).
+				Msg("📤 [HELIX] Published interaction patch to commenter")
 		}
 	}
 

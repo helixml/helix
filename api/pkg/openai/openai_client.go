@@ -97,9 +97,9 @@ func NewWithOptions(apiKey string, baseURL string, billingEnabled bool, opts Cli
 	rateLimiter := NewUniversalRateLimiter(baseURL)
 
 	config.HTTPClient = &openAIClientInterceptor{
-		Client:            *httpClient,
-		rateLimiter:       rateLimiter,
-		baseURL: baseURL,
+		Client:      *httpClient,
+		rateLimiter: rateLimiter,
+		baseURL:     baseURL,
 	}
 
 	client := openai.NewClientWithConfig(config)
@@ -122,7 +122,13 @@ type RetryableClient struct {
 	apiKey         string
 	models         []string
 	billingEnabled bool
+	isAnthropic    bool // true if this client is for an Anthropic-compatible provider
+}
 
+// SetIsAnthropic marks this client as an Anthropic-compatible provider.
+// This is used to determine the correct API format for model listing.
+func (c *RetryableClient) SetIsAnthropic(isAnthropic bool) {
+	c.isAnthropic = isAnthropic
 }
 
 // APIKey - returns the API key used by the client, used for testing
@@ -285,7 +291,7 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 			log.Error().Err(err).Msg("failed to list models from Google")
 			return nil, err
 		}
-	case isAnthropicProvider(c.baseURL):
+	case c.isAnthropic:
 		models, err = c.listAnthropicModels(ctx)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to list models from Anthropic")

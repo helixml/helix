@@ -17,6 +17,7 @@ import {
   ISessionType,
   IAgentType,
 } from "../types";
+import { applyPatch } from "../utils/patchUtils";
 import { TypesInteraction, TypesMessage, TypesSession } from "../api/api";
 import {
   GET_SESSION_QUERY_KEY,
@@ -381,25 +382,14 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
         const patch = parsedData.patch ?? "";
         const totalLength = parsedData.total_length ?? 0;
 
-        // Reconstruct content from patch: content = content[:patchOffset] + patch
+        // Use shared utility for patch application
         const currentContent = patchContentRef.current.get(interactionId) || "";
-        let newContent: string;
-        if (patchOffset === 0 && currentContent.length === 0) {
-          // First patch — just use the patch directly
-          newContent = patch;
-        } else if (patchOffset >= currentContent.length) {
-          // Pure append — most common case during streaming
-          newContent = currentContent + patch;
-        } else {
-          // Backwards edit — tool call status change, etc.
-          newContent = currentContent.slice(0, patchOffset) + patch;
-        }
-
-        // Truncate if totalLength indicates content got shorter
-        if (totalLength < newContent.length) {
-          newContent = newContent.slice(0, totalLength);
-        }
-
+        const newContent = applyPatch(
+          currentContent,
+          patchOffset,
+          patch,
+          totalLength,
+        );
         patchContentRef.current.set(interactionId, newContent);
 
         // Batch state update via RAF to avoid per-patch re-renders
@@ -421,7 +411,6 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
               ) {
                 return prev; // No change — skip re-render entirely
               }
-
               // CRITICAL: Detect interaction transition (follow-up message scenario)
               // If the interactionId differs from what's in current, DON'T spread old data
               // Otherwise we'd pollute the new interaction with stale fields from the old one

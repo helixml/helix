@@ -101,6 +101,7 @@ type HelixAPIServer struct {
 	sessionCommentTimeout     map[string]*time.Timer // planning_session_id -> timeout timer for current comment
 	sessionCommentMutex       sync.RWMutex           // Mutex for timeout operations
 	requestToCommenterMapping map[string]string      // request_id -> commenter user_id (for design review streaming)
+	sessionToCommenterMapping map[string]string      // session_id -> commenter user_id (for streaming when request_id unavailable)
 	inferenceServer           *openai.InternalHelixServer
 	knowledgeManager          knowledge.Manager
 	skillManager              *api_skill.Manager

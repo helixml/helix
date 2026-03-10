@@ -58,7 +58,7 @@ func (s *WebSocketSyncSuite) SetupTest() {
 		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
 		requestToCommenterMapping:   make(map[string]string),
-		streamingContexts:          make(map[string]*streamingContext),
+		streamingContexts:           make(map[string]*streamingContext),
 		streamingRateLimiter:        make(map[string]time.Time),
 	}
 }
@@ -1120,18 +1120,26 @@ func (s *WebSocketSyncSuite) TestFinalizeComment_CommentExists() {
 		},
 	)
 
-	// finalizeCommentResponse tries to process next comment
 	review := &types.SpecTaskDesignReview{
 		ID:         "review-fin",
 		SpecTaskID: "spec-fin",
 	}
-	s.store.EXPECT().GetSpecTaskDesignReview(gomock.Any(), "review-fin").Return(review, nil)
+	// Called twice: once from populateAgentResponseFromSession, once from processNextCommentInQueue
+	s.store.EXPECT().GetSpecTaskDesignReview(gomock.Any(), "review-fin").Return(review, nil).Times(2)
 
 	specTask := &types.SpecTask{
 		ID:                "spec-fin",
 		PlanningSessionID: "ses_planning",
 	}
-	s.store.EXPECT().GetSpecTask(gomock.Any(), "spec-fin").Return(specTask, nil)
+	// Called twice: once from populateAgentResponseFromSession, once from processNextCommentInQueue
+	s.store.EXPECT().GetSpecTask(gomock.Any(), "spec-fin").Return(specTask, nil).Times(2)
+
+	// populateAgentResponseFromSession tries to get the session to find a response
+	// (comment has no AgentResponse, so this fallback fires)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_planning").Return(&types.Session{
+		ID:           "ses_planning",
+		Interactions: []*types.Interaction{},
+	}, nil)
 
 	// processNextCommentInQueue
 	s.store.EXPECT().IsCommentBeingProcessedForSession(gomock.Any(), "ses_planning").Return(false, nil)
@@ -1828,8 +1836,8 @@ func (s *WebSocketSyncSuite) TestStreamingPatch_PreviousContentTracked() {
 	s.Equal("Hello earth", sctx.previousContent)
 	// Verify patch computation would have produced the right delta
 	offset, patch, totalLen := computePatch("Hello world", "Hello earth")
-	s.Equal(6, offset)            // "Hello " is common prefix
-	s.Equal("earth", patch)       // Changed portion
+	s.Equal(6, offset)      // "Hello " is common prefix
+	s.Equal("earth", patch) // Changed portion
 	s.Equal(11, totalLen)
 	sctx.mu.Unlock()
 }

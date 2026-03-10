@@ -42,6 +42,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { useQueryClient } from "@tanstack/react-query";
 import ReconnectingWebSocket from "reconnecting-websocket";
+import { applyPatch } from "../../utils/patchUtils";
 import {
   useDesignReview,
   useDesignReviewComments,
@@ -303,6 +304,8 @@ export default function DesignReviewContent({
     });
 
     let accumulatedResponse = "";
+    // Track patch-based streaming content (same pattern as streaming.tsx)
+    let patchContent = "";
 
     const messageHandler = (event: MessageEvent) => {
       try {
@@ -313,6 +316,50 @@ export default function DesignReviewContent({
           parsedData.type,
         );
 
+        // Handle interaction_patch events (patch-based streaming from Go server)
+        if (
+          parsedData.type === "interaction_patch" &&
+          parsedData.patch !== undefined
+        ) {
+          const patchOffset = parsedData.patch_offset ?? 0;
+          const patch = parsedData.patch ?? "";
+          const totalLength = parsedData.total_length ?? 0;
+
+          // Use shared utility for patch application
+          patchContent = applyPatch(
+            patchContent,
+            patchOffset,
+            patch,
+            totalLength,
+          );
+          accumulatedResponse = patchContent;
+
+          console.log(
+            "[DRWS-DEBUG] interaction_patch received, reconstructed length:",
+            accumulatedResponse.length,
+          );
+
+          // Find the comment that's currently being processed
+          const currentQueueStatus = queueStatusRef.current;
+          const currentComments = allCommentsRef.current;
+
+          const targetCommentId =
+            currentQueueStatus?.current_comment_id ||
+            currentComments.find((c) => c.request_id && !c.agent_response)
+              ?.id ||
+            [...currentComments]
+              .reverse()
+              .find((c) => !c.agent_response && !c.resolved)?.id;
+
+          if (targetCommentId) {
+            setStreamingResponse({
+              commentId: targetCommentId,
+              content: accumulatedResponse,
+            });
+          }
+        }
+
+        // Handle session_update events (full interaction updates)
         if (
           parsedData.type === "session_update" &&
           parsedData.session?.interactions
@@ -393,12 +440,59 @@ export default function DesignReviewContent({
                 queryKey: designReviewKeys.detail(specTaskId, reviewId),
               });
               setStreamingResponse(null);
+              // Reset patch content for next streaming response
+              patchContent = "";
             }
           }
-        } else {
-          console.log(
-            "[DRWS-DEBUG] Ignoring message - not a session_update with interactions",
-          );
+        }
+
+        // Handle interaction_update events (sent on completion)
+        if (
+          parsedData.type === "interaction_update" &&
+          parsedData.interaction
+        ) {
+          const interaction = parsedData.interaction;
+          console.log("[DRWS-DEBUG] interaction_update received:", {
+            state: interaction.state,
+            responseLength: interaction.response_message?.length,
+          });
+
+          if (interaction.response_message) {
+            accumulatedResponse = interaction.response_message;
+            patchContent = interaction.response_message;
+
+            const currentQueueStatus = queueStatusRef.current;
+            const currentComments = allCommentsRef.current;
+
+            const targetCommentId =
+              currentQueueStatus?.current_comment_id ||
+              currentComments.find((c) => c.request_id && !c.agent_response)
+                ?.id ||
+              [...currentComments]
+                .reverse()
+                .find((c) => !c.agent_response && !c.resolved)?.id;
+
+            if (targetCommentId) {
+              setStreamingResponse({
+                commentId: targetCommentId,
+                content: accumulatedResponse,
+              });
+            }
+          }
+
+          if (interaction.state === "complete") {
+            console.log(
+              "[DRWS-DEBUG] interaction_update complete - invalidating queries",
+            );
+            queryClient.invalidateQueries({
+              queryKey: designReviewKeys.comments(specTaskId, reviewId),
+            });
+            queryClient.invalidateQueries({
+              queryKey: designReviewKeys.detail(specTaskId, reviewId),
+            });
+            setStreamingResponse(null);
+            patchContent = "";
+          }
         }
       } catch (error) {
         console.error("[DRWS-DEBUG] Error parsing WebSocket message:", error);
@@ -412,7 +506,7 @@ export default function DesignReviewContent({
       rws.removeEventListener("message", messageHandler);
       rws.close();
     };
-  }, [planningSessionId, specTaskId, reviewId]);
+  }, [planningSessionId, specTaskId, reviewId, account.user]);
 
   // Keyboard shortcuts
   useEffect(() => {

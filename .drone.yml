@@ -1515,6 +1515,7 @@ services:
       - name: integration-test
         path: /integration-test
 
+
 # ---
 # Spectask/Sandbox Integration Tests
 # These tests can run with software rendering (no GPU required).
@@ -1906,8 +1907,10 @@ steps:
           "$${E2E_DIR}"
 
         # Clean up external files from cached Zed source
-        rm -f "$${E2E_DIR}/zed-binary" "$${E2E_DIR}/helix-go.mod" "$${E2E_DIR}/helix-go.sum"
-        rm -rf "$${E2E_DIR}/helix-api"
+        # Use || true because stale files from previous builds on the shared
+        # Docker volume cache may fail to remove (root-owned from docker build)
+        rm -f "$${E2E_DIR}/zed-binary" "$${E2E_DIR}/helix-go.mod" "$${E2E_DIR}/helix-go.sum" || true
+        rm -rf "$${E2E_DIR}/helix-api" || true
 
         echo "Running E2E test..."
         docker run --rm \
@@ -2440,6 +2443,7 @@ steps:
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
+
 
 # ====================================================================
 # macOS DMG Build Pipeline

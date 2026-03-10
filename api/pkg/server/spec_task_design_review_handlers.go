@@ -812,8 +812,18 @@ func (s *HelixAPIServer) sendCommentToAgentNow(
 		return err
 	}
 
-	// Store the requestID on the comment in the database for persistent linking
+	// Store the requestID on the comment in the database for persistent linking.
+	// Also capture the interaction ID so we can copy the response at finalization time.
 	comment.RequestID = requestID
+
+	// Look up the interaction that was just created for this session
+	sessionID := specTask.PlanningSessionID
+	s.contextMappingsMutex.Lock()
+	if interactionID, ok := s.sessionToWaitingInteraction[sessionID]; ok {
+		comment.InteractionID = interactionID
+	}
+	s.contextMappingsMutex.Unlock()
+
 	if err := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); err != nil {
 		log.Error().
 			Err(err).
@@ -958,6 +968,28 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 		return fmt.Errorf("no comment found for request %s: %w", requestID, err)
 	}
 
+	// If the comment doesn't have an AgentResponse yet, try to populate it from the interaction.
+	// The message_added events update the interaction's ResponseMessage but not the comment's
+	// AgentResponse directly. We need to copy it over at finalization time.
+	if comment.AgentResponse == "" && comment.InteractionID != "" {
+		interaction, interactionErr := s.Store.GetInteraction(ctx, comment.InteractionID)
+		if interactionErr == nil && interaction.ResponseMessage != "" {
+			comment.AgentResponse = interaction.ResponseMessage
+			now := time.Now()
+			comment.AgentResponseAt = &now
+			log.Info().
+				Str("comment_id", comment.ID).
+				Str("interaction_id", comment.InteractionID).
+				Int("response_length", len(interaction.ResponseMessage)).
+				Msg("📝 [HELIX] Populated comment AgentResponse from interaction at finalization")
+		}
+	}
+
+	// If we still don't have a response AND we have a session, try the latest interaction
+	if comment.AgentResponse == "" {
+		s.populateAgentResponseFromSession(ctx, comment)
+	}
+
 	// Clear both request_id and queued_at to mark as fully processed
 	comment.RequestID = ""
 	comment.QueuedAt = nil
@@ -1009,6 +1041,14 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 	}
 	s.sessionCommentMutex.Unlock()
 
+	// Clean up sessionToCommenterMapping now that response is complete
+	s.contextMappingsMutex.Lock()
+	if s.sessionToCommenterMapping != nil {
+		delete(s.sessionToCommenterMapping, sessionID)
+		log.Debug().Str("session_id", sessionID).Msg("🧹 [HELIX] Cleaned up sessionToCommenterMapping")
+	}
+	s.contextMappingsMutex.Unlock()
+
 	log.Info().
 		Str("session_id", sessionID).
 		Str("completed_comment", comment.ID).
@@ -1030,6 +1070,37 @@ func (s *HelixAPIServer) linkAgentResponseToCommentByRequestID(
 ) error {
 	// For backwards compatibility, this now just updates the streaming response
 	return s.updateCommentWithStreamingResponse(ctx, requestID, responseContent)
+}
+
+// populateAgentResponseFromSession is a fallback that finds the agent's response
+// from the session's latest interaction when streaming didn't populate it directly.
+func (s *HelixAPIServer) populateAgentResponseFromSession(ctx context.Context, comment *types.SpecTaskDesignReviewComment) {
+	review, err := s.Store.GetSpecTaskDesignReview(ctx, comment.ReviewID)
+	if err != nil {
+		return
+	}
+	specTask, err := s.Store.GetSpecTask(ctx, review.SpecTaskID)
+	if err != nil || specTask.PlanningSessionID == "" {
+		return
+	}
+	session, err := s.Store.GetSession(ctx, specTask.PlanningSessionID)
+	if err != nil || len(session.Interactions) == 0 {
+		return
+	}
+	// Walk backwards to find the most recent interaction with a response
+	for i := len(session.Interactions) - 1; i >= 0; i-- {
+		if session.Interactions[i].ResponseMessage != "" {
+			comment.AgentResponse = session.Interactions[i].ResponseMessage
+			now := time.Now()
+			comment.AgentResponseAt = &now
+			log.Info().
+				Str("comment_id", comment.ID).
+				Str("interaction_id", session.Interactions[i].ID).
+				Int("response_length", len(session.Interactions[i].ResponseMessage)).
+				Msg("📝 [HELIX] Populated comment AgentResponse from latest session interaction")
+			return
+		}
+	}
 }
 
 // backfillDesignReviewFromGit creates a design review from the current state of helix-specs branch
@@ -1243,6 +1314,12 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 			s.requestToCommenterMapping = make(map[string]string)
 		}
 		s.requestToCommenterMapping[requestID] = notifyUserID
+
+		// Also store session-based mapping for streaming (message_added events don't include request_id)
+		if s.sessionToCommenterMapping == nil {
+			s.sessionToCommenterMapping = make(map[string]string)
+		}
+		s.sessionToCommenterMapping[sessionID] = notifyUserID
 	}
 
 	// Send the message via WebSocket
