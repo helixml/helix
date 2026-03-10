@@ -49,6 +49,7 @@ import AdminOrgsTable from "../components/dashboard/AdminOrgsTable";
 import UsersTable from "../components/dashboard/UsersTable";
 import KoditAdminTable from "../components/dashboard/KoditAdminTable";
 import KoditAdminRepoDetail from "../components/dashboard/KoditAdminRepoDetail";
+import KoditAdminQueue from "../components/dashboard/KoditAdminQueue";
 import Chip from "@mui/material/Chip";
 import { useFloatingRunnerState } from "../contexts/floatingRunnerState";
 import LaunchIcon from "@mui/icons-material/Launch";
@@ -720,13 +721,19 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
 
                 {tab === "kodit" && account.admin && !repoId && (
                     <Box sx={{ width: "100%", p: 2 }}>
-                        <KoditAdminTable />
+                        <KoditAdminTable onViewDetail={(id) => setRepoId(id)} />
                     </Box>
                 )}
 
                 {tab === "kodit" && account.admin && repoId && (
                     <Box sx={{ width: "100%", p: 2 }}>
-                        <KoditAdminRepoDetail koditRepoId={repoId} />
+                        <KoditAdminRepoDetail koditRepoId={repoId} onBack={() => setRepoId("")} />
+                    </Box>
+                )}
+
+                {tab === "kodit_queue" && account.admin && (
+                    <Box sx={{ width: "100%", p: 2 }}>
+                        <KoditAdminQueue />
                     </Box>
                 )}
 

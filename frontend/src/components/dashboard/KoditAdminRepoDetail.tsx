@@ -29,7 +29,6 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 
 import useAccount from '../../hooks/useAccount'
-import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
 import {
   useAdminKoditRepositoryDetail,
@@ -87,11 +86,11 @@ const StatCard: FC<StatCardProps> = ({ label, value }) => (
 
 interface KoditAdminRepoDetailProps {
   koditRepoId: string
+  onBack?: () => void
 }
 
-const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId }) => {
+const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId, onBack }) => {
   const account = useAccount()
-  const router = useRouter()
   const snackbar = useSnackbar()
   const [searchQuery, setSearchQuery] = useState('')
   const [activeSearch, setActiveSearch] = useState('')
@@ -116,9 +115,10 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId }) =>
   })
 
   const handleBack = useCallback(() => {
-    router.setParams({ tab: 'kodit' })
-    router.removeParams(['repo_id'])
-  }, [router])
+    if (onBack) {
+      onBack()
+    }
+  }, [onBack])
 
   const handleSync = useCallback(() => {
     syncMutation.mutate(Number(koditRepoId), {

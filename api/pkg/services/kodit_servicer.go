@@ -35,10 +35,22 @@ type KoditTaskStatus struct {
 
 // KoditPendingTask represents a queued task waiting to be processed.
 type KoditPendingTask struct {
-	ID        int64
-	Operation string
-	Priority  int
-	CreatedAt time.Time
+	ID           int64
+	Operation    string
+	Priority     int
+	CreatedAt    time.Time
+	RepositoryID int64
+}
+
+// KoditActiveTask represents a task currently being worked on.
+type KoditActiveTask struct {
+	Operation    string
+	State        string // started or in_progress
+	Message      string
+	Current      int
+	Total        int
+	RepositoryID int64
+	UpdatedAt    time.Time
 }
 
 // KoditRepositoryTasks combines tracking statuses and pending queue tasks for a repository.
@@ -70,6 +82,12 @@ type KoditServicer interface {
 	EnrichmentCount(ctx context.Context, koditRepoID int64) (int64, error)
 	SystemStats(ctx context.Context) (KoditSystemStats, error)
 	RepositoryTasks(ctx context.Context, koditRepoID int64) (KoditRepositoryTasks, error)
+
+	// Global task queue management
+	ListAllTasks(ctx context.Context, limit, offset int) ([]KoditPendingTask, int64, error)
+	ActiveTasks(ctx context.Context) ([]KoditActiveTask, error)
+	DeleteTask(ctx context.Context, taskID int64) error
+	UpdateTaskPriority(ctx context.Context, taskID int64, priority int) error
 }
 
 // disabledKoditService is a KoditServicer that is always disabled.
@@ -118,6 +136,18 @@ func (d *disabledKoditService) SystemStats(context.Context) (KoditSystemStats, e
 }
 func (d *disabledKoditService) RepositoryTasks(context.Context, int64) (KoditRepositoryTasks, error) {
 	return KoditRepositoryTasks{}, errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) ListAllTasks(context.Context, int, int) ([]KoditPendingTask, int64, error) {
+	return nil, 0, errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) ActiveTasks(context.Context) ([]KoditActiveTask, error) {
+	return nil, errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) DeleteTask(context.Context, int64) error {
+	return errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) UpdateTaskPriority(context.Context, int64, int) error {
+	return errors.New("kodit service not enabled")
 }
 
 // NewDisabledKoditService returns a KoditServicer that reports as disabled.
