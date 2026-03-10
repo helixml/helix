@@ -25,6 +25,7 @@ import {
 } from '../../api/api'
 
 import useRouter from '../../hooks/useRouter'
+import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
 
 const formatDate = (dateStr?: string): string => {
   if (!dateStr) return '-'
@@ -103,7 +104,10 @@ const OrgCard: FC<{
           display: 'flex',
           flexDirection: 'column',
         }}
-        onClick={() => router.navigate('org_people', { org_id: org.name })}
+        onClick={() => {
+          localStorage.setItem(SELECTED_ORG_STORAGE_KEY, org.name || '')
+          router.navigate('org_projects', { org_id: org.name })
+        }}
       >
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>

@@ -66,7 +66,7 @@ require (
 	github.com/rs/zerolog v1.34.0
 	github.com/russross/blackfriday/v2 v2.1.0
 	github.com/sashabaranov/go-openai v1.41.2
-	github.com/slack-go/slack v0.12.2
+	github.com/slack-go/slack v0.19.0
 	github.com/sourcegraph/conc v0.3.0
 	github.com/sourcegraph/go-diff v0.7.0
 	github.com/spf13/cobra v1.10.2

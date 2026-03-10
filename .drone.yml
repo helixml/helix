@@ -138,10 +138,11 @@ steps:
         from_secret: openai_api_key
       TOGETHER_BASE_URL:
         from_secret: openai_base_url
-      CI_ADO_TOKEN:
-        from_secret: ci_ado_token
-      CI_ADO_REPO:
-        from_secret: ci_ado_repo
+      # TODO: reenable
+      # CI_ADO_TOKEN:
+      #   from_secret: ci_ado_token
+      # CI_ADO_REPO:
+      #   from_secret: ci_ado_repo
       # Database config (running in a sidecar)
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
@@ -1515,6 +1516,7 @@ services:
       - name: integration-test
         path: /integration-test
 
+
 # ---
 # Spectask/Sandbox Integration Tests
 # These tests can run with software rendering (no GPU required).
@@ -1906,8 +1908,10 @@ steps:
           "$${E2E_DIR}"
 
         # Clean up external files from cached Zed source
-        rm -f "$${E2E_DIR}/zed-binary" "$${E2E_DIR}/helix-go.mod" "$${E2E_DIR}/helix-go.sum"
-        rm -rf "$${E2E_DIR}/helix-api"
+        # Use || true because stale files from previous builds on the shared
+        # Docker volume cache may fail to remove (root-owned from docker build)
+        rm -f "$${E2E_DIR}/zed-binary" "$${E2E_DIR}/helix-go.mod" "$${E2E_DIR}/helix-go.sum" || true
+        rm -rf "$${E2E_DIR}/helix-api" || true
 
         echo "Running E2E test..."
         docker run --rm \
@@ -2440,6 +2444,7 @@ steps:
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
+
 
 # ====================================================================
 # macOS DMG Build Pipeline

@@ -102,9 +102,8 @@ func (s *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Body == nil {
-		return
-	}
+	// Note: Don't check r.Body == nil here - GET requests (like /v1/models) have no body
+	// but still need to be proxied
 
 	r = setStartTime(r, time.Now())
 
@@ -118,9 +117,7 @@ func (s *Proxy) anthropicAPIProxyDirector(r *http.Request) {
 		return
 	}
 
-	if r.Body == nil {
-		return
-	}
+	// Note: Don't check r.Body == nil here - GET requests (like /v1/models) have no body
 
 	u, err := url.Parse(endpoint.BaseURL)
 	if err != nil {

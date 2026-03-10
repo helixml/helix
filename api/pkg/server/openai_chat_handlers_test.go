@@ -725,6 +725,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_CustomProvider() {
 		Provider: "custom-endpoint",
 		Owner:    suite.userID,
 	}).Return(suite.openAiClient, nil).AnyTimes()
+	// findProviderWithModel calls ListProviders to search cached model lists
+	providerManager.EXPECT().ListProviders(gomock.Any(), gomock.Any()).Return([]types.Provider{}, nil).AnyTimes()
 
 	suite.server.providerManager = providerManager
 

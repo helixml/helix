@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/model"
@@ -98,26 +97,21 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		chatCompletionRequest.Model = resolvedModel
 	}
 
-	// Parse provider prefix from model name (e.g., "openrouter/gpt-4" -> provider="openrouter", model="gpt-4")
-	// But first, check if the full model name (with slash) exists in any provider's model list.
-	// This handles HuggingFace-style model IDs like "Qwen/Qwen3-Coder" that might be incorrectly
-	// parsed as provider prefixes when there's also a provider named "Qwen".
+	// Find which provider owns this model by checking all providers' cached model lists.
+	// This handles both unprefixed models (e.g., "claude-haiku-4-5-20251001" → anthropic)
+	// and HuggingFace-style IDs (e.g., "Qwen/Qwen3-Coder") that might be incorrectly
+	// parsed as provider prefixes.
 	var validatedProvider string
-	if strings.Contains(chatCompletionRequest.Model, "/") {
-		// Model name contains a slash - could be a HuggingFace model ID
-		// Check if any provider has this exact full model name in their model list
-		foundProvider := s.findProviderWithModel(r.Context(), chatCompletionRequest.Model, ownerID)
-		if foundProvider != "" {
-			// Found a provider with this exact model - use it and keep the full model name
-			validatedProvider = foundProvider
-			log.Debug().
-				Str("model", chatCompletionRequest.Model).
-				Str("provider", foundProvider).
-				Msg("using full model name match (avoiding HF prefix collision)")
-		}
+	foundProvider := s.findProviderWithModel(r.Context(), chatCompletionRequest.Model, ownerID)
+	if foundProvider != "" {
+		validatedProvider = foundProvider
+		log.Debug().
+			Str("model", chatCompletionRequest.Model).
+			Str("provider", foundProvider).
+			Msg("found provider via model list lookup")
 	}
 
-	// If we didn't find a full model match, fall back to prefix parsing
+	// If no provider found by model name, fall back to prefix parsing
 	if validatedProvider == "" {
 		providerFromModel, modelWithoutPrefix := model.ParseProviderFromModel(chatCompletionRequest.Model)
 		if providerFromModel != "" {
@@ -155,10 +149,11 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	})
 
 	options := &controller.ChatCompletionOptions{
-		AppID:       r.URL.Query().Get("app_id"),
-		AssistantID: r.URL.Query().Get("assistant_id"),
-		RAGSourceID: r.URL.Query().Get("rag_source_id"),
-		Provider:    validatedProvider,
+		OrganizationID: user.OrganizationID,
+		AppID:          r.URL.Query().Get("app_id"),
+		AssistantID:    r.URL.Query().Get("assistant_id"),
+		RAGSourceID:    r.URL.Query().Get("rag_source_id"),
+		Provider:       validatedProvider,
 		QueryParams: func() map[string]string {
 			params := make(map[string]string)
 			for key, values := range r.URL.Query() {

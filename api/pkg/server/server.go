@@ -101,6 +101,7 @@ type HelixAPIServer struct {
 	sessionCommentTimeout     map[string]*time.Timer // planning_session_id -> timeout timer for current comment
 	sessionCommentMutex       sync.RWMutex           // Mutex for timeout operations
 	requestToCommenterMapping map[string]string      // request_id -> commenter user_id (for design review streaming)
+	sessionToCommenterMapping map[string]string      // session_id -> commenter user_id (for streaming when request_id unavailable)
 	inferenceServer           *openai.InternalHelixServer
 	knowledgeManager          knowledge.Manager
 	skillManager              *api_skill.Manager
@@ -905,6 +906,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	authRouter.HandleFunc("/organizations/{id}/roles", apiServer.listOrganizationRoles).Methods(http.MethodGet)
 	authRouter.HandleFunc("/organizations/{id}/guidelines-history", apiServer.getOrganizationGuidelinesHistory).Methods(http.MethodGet)
+
+	// Org API Keys
+	authRouter.HandleFunc("/organizations/{id}/api_keys", apiServer.listOrgAPIKeys).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{id}/api_keys", apiServer.createOrgAPIKey).Methods(http.MethodPost)
+	authRouter.HandleFunc("/organizations/{id}/api_keys/{key}", apiServer.deleteOrgAPIKey).Methods(http.MethodDelete)
 
 	// Teams
 	authRouter.HandleFunc("/organizations/{id}/teams", apiServer.listTeams).Methods(http.MethodGet)

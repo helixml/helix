@@ -292,11 +292,16 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	existingTask.SpecApprovedBy = user.ID
-	existingTask.SpecApprovedAt = &now
-	existingTask.Status = types.TaskStatusSpecApproved
-	existingTask.StatusUpdatedAt = &now
 	existingTask.SpecApproval = &req
+	existingTask.StatusUpdatedAt = &now
+	if req.Approved {
+		existingTask.SpecApprovedBy = user.ID
+		existingTask.SpecApprovedAt = &now
+		existingTask.Status = types.TaskStatusSpecApproved
+	} else {
+		// Rejection — don't set approval tracking fields, go straight to revision
+		existingTask.Status = types.TaskStatusSpecRevision
+	}
 
 	err = s.Store.UpdateSpecTask(ctx, existingTask)
 	if err != nil {
