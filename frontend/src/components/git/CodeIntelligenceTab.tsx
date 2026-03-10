@@ -61,6 +61,9 @@ import {
   KoditFileResult,
   KoditGrepResult,
   KoditFileEntry,
+  KoditSearchMeta,
+  KoditGrepMeta,
+  KoditFilesMeta,
 } from '../../services/koditService'
 import useDebounce from '../../hooks/useDebounce'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -171,8 +174,20 @@ const WikiSubTab: FC<{ repoId: string; enabled: boolean }> = ({ repoId, enabled 
   const { data: wikiTree, isLoading: treeLoading, error: treeError } = useKoditWikiTree(repoId, { enabled })
   const [selectedPath, setSelectedPath] = useState<string>('')
 
-  // Auto-select first page when tree loads
+  // Auto-select first page when tree loads, using the link from the API if available
   const effectivePath = selectedPath || findFirstPagePath(wikiTree || [])
+
+  // Extract wiki page path from a links.page URL (e.g. "/api/v1/.../wiki-page?path=foo.md" -> "foo")
+  const extractWikiPath = useCallback((node: KoditWikiTreeNode): string => {
+    if (node.links?.page) {
+      try {
+        const url = new URL(node.links.page, window.location.origin)
+        const p = url.searchParams.get('path')
+        if (p) return p.replace(/\.md$/, '')
+      } catch { /* fall through */ }
+    }
+    return node.path?.replace(/\.md$/, '') || node.slug
+  }, [])
 
   const { data: wikiPage, isLoading: pageLoading } = useKoditWikiPage(repoId, effectivePath, {
     enabled: enabled && !!effectivePath,
@@ -229,14 +244,14 @@ const WikiSubTab: FC<{ repoId: string; enabled: boolean }> = ({ repoId, enabled 
     const result: { path: string; title: string; depth: number }[] = []
     function walk(nodes: KoditWikiTreeNode[], depth: number) {
       for (const node of nodes) {
-        const path = node.path?.replace(/\.md$/, '') || node.slug
+        const path = extractWikiPath(node)
         result.push({ path, title: node.title, depth })
         if (node.children) walk(node.children, depth + 1)
       }
     }
     walk(wikiTree || [], 0)
     return result
-  }, [wikiTree])
+  }, [wikiTree, extractWikiPath])
 
   if (treeLoading) {
     return (
@@ -301,6 +316,7 @@ const WikiSubTab: FC<{ repoId: string; enabled: boolean }> = ({ repoId, enabled 
               nodes={wikiTree}
               selectedPath={effectivePath}
               onSelect={setSelectedPath}
+              extractPath={extractWikiPath}
               depth={0}
             />
           </Box>
@@ -335,19 +351,29 @@ const WikiSubTab: FC<{ repoId: string; enabled: boolean }> = ({ repoId, enabled 
 
 function findFirstPagePath(nodes: KoditWikiTreeNode[]): string {
   if (nodes.length === 0) return ''
-  return nodes[0].path?.replace(/\.md$/, '') || nodes[0].slug
+  // Prefer to extract from the API link if available
+  const first = nodes[0]
+  if (first.links?.page) {
+    try {
+      const url = new URL(first.links.page, window.location.origin)
+      const p = url.searchParams.get('path')
+      if (p) return p.replace(/\.md$/, '')
+    } catch { /* fall through */ }
+  }
+  return first.path?.replace(/\.md$/, '') || first.slug
 }
 
 const WikiTreeNav: FC<{
   nodes: KoditWikiTreeNode[]
   selectedPath: string
   onSelect: (path: string) => void
+  extractPath: (node: KoditWikiTreeNode) => string
   depth: number
-}> = ({ nodes, selectedPath, onSelect, depth }) => {
+}> = ({ nodes, selectedPath, onSelect, extractPath, depth }) => {
   return (
     <List dense disablePadding>
       {nodes.map((node) => {
-        const pagePath = node.path?.replace(/\.md$/, '') || node.slug
+        const pagePath = extractPath(node)
         const isSelected = selectedPath === pagePath
         const hasChildren = node.children && node.children.length > 0
 
@@ -382,6 +408,7 @@ const WikiTreeNav: FC<{
                 nodes={node.children!}
                 selectedPath={selectedPath}
                 onSelect={onSelect}
+                extractPath={extractPath}
                 depth={depth + 1}
               />
             )}
@@ -404,6 +431,18 @@ const searchTools: { id: SearchTool; label: string; icon: typeof SearchIcon; des
   { id: 'read', label: 'Read File', icon: FileText, description: 'Read the contents of a file', placeholder: 'e.g. cmd/main.go' },
 ]
 
+// Extract a file path from a links.file_content URL. Falls back to the given path if
+// the URL doesn't contain a recognisable `path=` query parameter.
+function extractPathFromLink(link: string | undefined, fallback: string): string {
+  if (!link) return fallback
+  try {
+    const url = new URL(link, window.location.origin)
+    return url.searchParams.get('path') || fallback
+  } catch {
+    return fallback
+  }
+}
+
 const SearchSubTab: FC<{ repoId: string; enabled: boolean }> = ({ repoId, enabled }) => {
   const [activeTool, setActiveTool] = useState<SearchTool>('semantic')
   const [searchInput, setSearchInput] = useState('')
@@ -414,19 +453,19 @@ const SearchSubTab: FC<{ repoId: string; enabled: boolean }> = ({ repoId, enable
 
   const hasQuery = debouncedInput.trim().length > 0
 
-  const { data: semanticResults = [], isLoading: semanticLoading } = useKoditSemanticSearch(
+  const { data: semanticResponse, isLoading: semanticLoading } = useKoditSemanticSearch(
     repoId, debouncedInput, 20, undefined,
     { enabled: enabled && activeTool === 'semantic' && hasQuery }
   )
-  const { data: keywordResults = [], isLoading: keywordLoading } = useKoditKeywordSearch(
+  const { data: keywordResponse, isLoading: keywordLoading } = useKoditKeywordSearch(
     repoId, debouncedInput, 20, undefined,
     { enabled: enabled && activeTool === 'keyword' && hasQuery }
   )
-  const { data: grepResults = [], isLoading: grepLoading } = useKoditGrep(
+  const { data: grepResponse, isLoading: grepLoading } = useKoditGrep(
     repoId, debouncedInput, debouncedGlob || undefined, 50,
     { enabled: enabled && activeTool === 'grep' && hasQuery }
   )
-  const { data: fileList = [], isLoading: filesLoading } = useKoditFiles(
+  const { data: filesResponse, isLoading: filesLoading } = useKoditFiles(
     repoId, debouncedInput || '**/*',
     { enabled: enabled && activeTool === 'ls' && hasQuery }
   )
@@ -434,6 +473,15 @@ const SearchSubTab: FC<{ repoId: string; enabled: boolean }> = ({ repoId, enable
     repoId, selectedFile || debouncedInput,
     { enabled: enabled && activeTool === 'read' && (!!selectedFile || hasQuery) }
   )
+
+  const semanticResults = semanticResponse?.data ?? []
+  const semanticMeta = semanticResponse?.meta
+  const keywordResults = keywordResponse?.data ?? []
+  const keywordMeta = keywordResponse?.meta
+  const grepResults = grepResponse?.data ?? []
+  const grepMeta = grepResponse?.meta
+  const fileList = filesResponse?.data ?? []
+  const filesMeta = filesResponse?.meta
 
   const activeToolDef = searchTools.find(t => t.id === activeTool)!
   const isLoading = activeTool === 'semantic' ? semanticLoading
@@ -532,16 +580,16 @@ const SearchSubTab: FC<{ repoId: string; enabled: boolean }> = ({ repoId, enable
 
       {/* Results */}
       {activeTool === 'semantic' && hasQuery && !semanticLoading && (
-        <SearchResultsList results={semanticResults} />
+        <SearchResultsList results={semanticResults} meta={semanticMeta} onFileClick={(path) => { setActiveTool('read'); setSearchInput(path); setSelectedFile(path) }} />
       )}
       {activeTool === 'keyword' && hasQuery && !keywordLoading && (
-        <SearchResultsList results={keywordResults} />
+        <SearchResultsList results={keywordResults} meta={keywordMeta} onFileClick={(path) => { setActiveTool('read'); setSearchInput(path); setSelectedFile(path) }} />
       )}
       {activeTool === 'grep' && hasQuery && !grepLoading && (
-        <GrepResultsList results={grepResults} repoId={repoId} onFileClick={(path) => { setActiveTool('read'); setSearchInput(path); setSelectedFile(path) }} />
+        <GrepResultsList results={grepResults} meta={grepMeta} onFileClick={(path) => { setActiveTool('read'); setSearchInput(path); setSelectedFile(path) }} />
       )}
       {activeTool === 'ls' && hasQuery && !filesLoading && (
-        <FileListResults files={fileList} onFileClick={(path) => { setActiveTool('read'); setSearchInput(path); setSelectedFile(path) }} />
+        <FileListResults files={fileList} meta={filesMeta} onFileClick={(path) => { setActiveTool('read'); setSearchInput(path); setSelectedFile(path) }} />
       )}
       {activeTool === 'read' && (selectedFile || hasQuery) && !fileLoading && fileContent && (
         <FileContentView content={fileContent} />
@@ -564,107 +612,160 @@ const SearchSubTab: FC<{ repoId: string; enabled: boolean }> = ({ repoId, enable
 }
 
 // Search results (semantic + keyword)
-const SearchResultsList: FC<{ results: KoditFileResult[] }> = ({ results }) => {
+const SearchResultsList: FC<{
+  results: KoditFileResult[]
+  meta?: KoditSearchMeta
+  onFileClick: (path: string) => void
+}> = ({ results, meta, onFileClick }) => {
   if (results.length === 0) {
     return <Alert severity="info">No results found.</Alert>
   }
+
+  const count = meta?.count ?? results.length
+  const limitHit = meta && count >= meta.limit
+
   return (
     <Stack spacing={1}>
-      <Chip label={`${results.length} result${results.length !== 1 ? 's' : ''}`} size="small" sx={{ alignSelf: 'flex-start', mb: 1 }} />
-      {results.map((r, i) => (
-        <Card key={i} variant="outlined" sx={{ '&:hover': { borderColor: 'primary.main' } }}>
-          <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-              {r.language && <Chip label={r.language} size="small" sx={{ fontSize: '0.7rem', height: 20 }} />}
-              {r.path && <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>{r.path}</Typography>}
-              {r.lines && <Typography variant="caption" color="text.secondary">{r.lines}</Typography>}
-              <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
-                {r.score > 0 ? `score: ${r.score.toFixed(3)}` : ''}
-              </Typography>
-            </Box>
-            <Box
-              component="pre"
-              sx={{
-                fontSize: '0.8rem',
-                lineHeight: 1.5,
-                fontFamily: 'monospace',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                margin: 0,
-                color: 'text.secondary',
-                maxHeight: 200,
-                overflow: 'auto',
-              }}
-            >
-              {r.preview}
-            </Box>
-          </CardContent>
-        </Card>
-      ))}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+        <Chip label={`${count} result${count !== 1 ? 's' : ''}`} size="small" />
+        {limitHit && (
+          <Typography variant="caption" color="text.secondary">
+            (limit reached)
+          </Typography>
+        )}
+      </Box>
+      {results.map((r, i) => {
+        const filePath = extractPathFromLink(r.links?.file_content, r.path)
+        return (
+          <Card key={i} variant="outlined" sx={{ '&:hover': { borderColor: 'primary.main' } }}>
+            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                {r.language && <Chip label={r.language} size="small" sx={{ fontSize: '0.7rem', height: 20 }} />}
+                {filePath && (
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontFamily: 'monospace',
+                      cursor: 'pointer',
+                      color: '#00d5ff',
+                      '&:hover': { textDecoration: 'underline' },
+                    }}
+                    onClick={() => onFileClick(filePath)}
+                  >
+                    {filePath}
+                  </Typography>
+                )}
+                {r.lines && <Typography variant="caption" color="text.secondary">{r.lines}</Typography>}
+                <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
+                  {r.score > 0 ? `score: ${r.score.toFixed(3)}` : ''}
+                </Typography>
+              </Box>
+              <Box
+                component="pre"
+                sx={{
+                  fontSize: '0.8rem',
+                  lineHeight: 1.5,
+                  fontFamily: 'monospace',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  margin: 0,
+                  color: 'text.secondary',
+                  maxHeight: 200,
+                  overflow: 'auto',
+                }}
+              >
+                {r.preview}
+              </Box>
+            </CardContent>
+          </Card>
+        )
+      })}
     </Stack>
   )
 }
 
 // Grep results
-const GrepResultsList: FC<{ results: KoditGrepResult[]; repoId: string; onFileClick: (path: string) => void }> = ({ results, onFileClick }) => {
+const GrepResultsList: FC<{
+  results: KoditGrepResult[]
+  meta?: KoditGrepMeta
+  onFileClick: (path: string) => void
+}> = ({ results, meta, onFileClick }) => {
   if (results.length === 0) {
     return <Alert severity="info">No matches found.</Alert>
   }
+
+  const count = meta?.count ?? results.length
+  const limitHit = meta && count >= meta.limit
+
   return (
     <Stack spacing={1}>
-      <Chip label={`${results.length} file${results.length !== 1 ? 's' : ''}`} size="small" sx={{ alignSelf: 'flex-start', mb: 1 }} />
-      {results.map((r, i) => (
-        <Card key={i} variant="outlined" sx={{ '&:hover': { borderColor: 'primary.main' } }}>
-          <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-              <Typography
-                variant="body2"
-                sx={{ fontFamily: 'monospace', fontWeight: 600, cursor: 'pointer', color: '#00d5ff', '&:hover': { textDecoration: 'underline' } }}
-                onClick={() => onFileClick(r.path)}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+        <Chip label={`${count} file${count !== 1 ? 's' : ''}`} size="small" />
+        {limitHit && (
+          <Typography variant="caption" color="text.secondary">
+            (limit reached)
+          </Typography>
+        )}
+      </Box>
+      {results.map((r, i) => {
+        const filePath = extractPathFromLink(r.links?.file_content, r.path)
+        return (
+          <Card key={i} variant="outlined" sx={{ '&:hover': { borderColor: 'primary.main' } }}>
+            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <Typography
+                  variant="body2"
+                  sx={{ fontFamily: 'monospace', fontWeight: 600, cursor: 'pointer', color: '#00d5ff', '&:hover': { textDecoration: 'underline' } }}
+                  onClick={() => onFileClick(filePath)}
+                >
+                  {filePath}
+                </Typography>
+                {r.language && <Chip label={r.language} size="small" sx={{ fontSize: '0.7rem', height: 20 }} />}
+                <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
+                  {r.matches.length} match{r.matches.length !== 1 ? 'es' : ''}
+                </Typography>
+              </Box>
+              <Box
+                component="pre"
+                sx={{
+                  fontSize: '0.8rem',
+                  lineHeight: 1.5,
+                  fontFamily: 'monospace',
+                  whiteSpace: 'pre-wrap',
+                  margin: 0,
+                  color: 'text.secondary',
+                  maxHeight: 200,
+                  overflow: 'auto',
+                }}
               >
-                {r.path}
-              </Typography>
-              {r.language && <Chip label={r.language} size="small" sx={{ fontSize: '0.7rem', height: 20 }} />}
-              <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
-                {r.matches.length} match{r.matches.length !== 1 ? 'es' : ''}
-              </Typography>
-            </Box>
-            <Box
-              component="pre"
-              sx={{
-                fontSize: '0.8rem',
-                lineHeight: 1.5,
-                fontFamily: 'monospace',
-                whiteSpace: 'pre-wrap',
-                margin: 0,
-                color: 'text.secondary',
-                maxHeight: 200,
-                overflow: 'auto',
-              }}
-            >
-              {r.matches.slice(0, 10).map((m, j) => (
-                <Box key={j} component="span" sx={{ display: 'block' }}>
-                  <Box component="span" sx={{ color: 'text.disabled', userSelect: 'none', mr: 1 }}>
-                    {String(m.line).padStart(4)}
+                {r.matches.slice(0, 10).map((m, j) => (
+                  <Box key={j} component="span" sx={{ display: 'block' }}>
+                    <Box component="span" sx={{ color: 'text.disabled', userSelect: 'none', mr: 1 }}>
+                      {String(m.line).padStart(4)}
+                    </Box>
+                    {m.content}
                   </Box>
-                  {m.content}
-                </Box>
-              ))}
-              {r.matches.length > 10 && (
-                <Box component="span" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
-                  ... and {r.matches.length - 10} more matches
-                </Box>
-              )}
-            </Box>
-          </CardContent>
-        </Card>
-      ))}
+                ))}
+                {r.matches.length > 10 && (
+                  <Box component="span" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
+                    ... and {r.matches.length - 10} more matches
+                  </Box>
+                )}
+              </Box>
+            </CardContent>
+          </Card>
+        )
+      })}
     </Stack>
   )
 }
 
 // File list results
-const FileListResults: FC<{ files: KoditFileEntry[]; onFileClick: (path: string) => void }> = ({ files, onFileClick }) => {
+const FileListResults: FC<{
+  files: KoditFileEntry[]
+  meta?: KoditFilesMeta
+  onFileClick: (path: string) => void
+}> = ({ files, meta, onFileClick }) => {
   if (files.length === 0) {
     return <Alert severity="info">No files found.</Alert>
   }
@@ -675,33 +776,38 @@ const FileListResults: FC<{ files: KoditFileEntry[]; onFileClick: (path: string)
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
+  const count = meta?.count ?? files.length
+
   return (
     <Stack spacing={0}>
-      <Chip label={`${files.length} file${files.length !== 1 ? 's' : ''}`} size="small" sx={{ alignSelf: 'flex-start', mb: 1 }} />
-      {files.map((f, i) => (
-        <Box
-          key={i}
-          onClick={() => onFileClick(f.path)}
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 2,
-            py: 0.5,
-            px: 1,
-            cursor: 'pointer',
-            borderRadius: 1,
-            '&:hover': { bgcolor: 'rgba(0, 213, 255, 0.08)' },
-          }}
-        >
-          <FileText size={14} style={{ opacity: 0.5, flexShrink: 0 }} />
-          <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.85rem', flex: 1 }}>
-            {f.path}
-          </Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-            {formatSize(f.size)}
-          </Typography>
-        </Box>
-      ))}
+      <Chip label={`${count} file${count !== 1 ? 's' : ''}`} size="small" sx={{ alignSelf: 'flex-start', mb: 1 }} />
+      {files.map((f, i) => {
+        const filePath = extractPathFromLink(f.links?.file_content, f.path)
+        return (
+          <Box
+            key={i}
+            onClick={() => onFileClick(filePath)}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              py: 0.5,
+              px: 1,
+              cursor: 'pointer',
+              borderRadius: 1,
+              '&:hover': { bgcolor: 'rgba(0, 213, 255, 0.08)' },
+            }}
+          >
+            <FileText size={14} style={{ opacity: 0.5, flexShrink: 0 }} />
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.85rem', flex: 1 }}>
+              {filePath}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+              {formatSize(f.size)}
+            </Typography>
+          </Box>
+        )
+      })}
     </Stack>
   )
 }

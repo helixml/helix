@@ -19,6 +19,17 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// repoRelativePath strips the leading "repos/<id>/" prefix that the kodit
+// library stores internally, returning the path as seen in the repository.
+func repoRelativePath(fullPath string) string {
+	// Paths stored as "repos/<id>/actual/path.go"
+	parts := strings.SplitN(fullPath, "/", 3)
+	if len(parts) == 3 && parts[0] == "repos" {
+		return parts[2]
+	}
+	return fullPath
+}
+
 // KoditService handles communication with Kodit code intelligence library
 type KoditService struct {
 	enabled bool
@@ -669,7 +680,7 @@ func (s *KoditService) SemanticSearch(ctx context.Context, koditRepoID int64, qu
 		return nil, fmt.Errorf("semantic search: %w", err)
 	}
 
-	return enrichmentsToFileResults(enrichments, scores), nil
+	return s.resolveFileResults(ctx, enrichments, scores)
 }
 
 // KeywordSearch performs BM25 keyword search against indexed code snippets.
@@ -696,18 +707,7 @@ func (s *KoditService) KeywordSearch(ctx context.Context, koditRepoID int64, key
 		return nil, fmt.Errorf("keyword search: %w", err)
 	}
 
-	return enrichmentsToFileResults(enrichments, scores), nil
-}
-
-// normalizeExtension ensures a language string starts with a dot for filter matching.
-func normalizeExtension(lang string) string {
-	if lang == "" {
-		return ""
-	}
-	if lang[0] != '.' {
-		return "." + lang
-	}
-	return lang
+	return s.resolveFileResults(ctx, enrichments, scores)
 }
 
 // GrepSearch runs git grep against a repository.
@@ -817,24 +817,81 @@ func (s *KoditService) ReadFile(ctx context.Context, koditRepoID int64, filePath
 	}, nil
 }
 
-// enrichmentsToFileResults converts enrichments with scores to file results.
-func enrichmentsToFileResults(enrichments []enrichment.Enrichment, scores map[string]float64) []KoditFileResult {
+// resolveFileResults resolves enrichments to file-based results with paths and
+// line ranges, matching the resolution logic used by the Kodit MCP server.
+func (s *KoditService) resolveFileResults(ctx context.Context, enrichments []enrichment.Enrichment, scores map[string]float64) ([]KoditFileResult, error) {
+	if len(enrichments) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]int64, len(enrichments))
+	for i, e := range enrichments {
+		ids[i] = e.ID()
+	}
+
+	sourceFiles, err := s.client.Enrichments.SourceFiles(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("resolve source files: %w", err)
+	}
+
+	lineRanges, err := s.client.Enrichments.LineRanges(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("resolve line ranges: %w", err)
+	}
+
+	// Collect all file IDs for batch lookup.
+	var allFileIDs []int64
+	for _, fileIDs := range sourceFiles {
+		allFileIDs = append(allFileIDs, fileIDs...)
+	}
+
+	filesByID := make(map[int64]repository.File)
+	if len(allFileIDs) > 0 {
+		files, fileErr := s.client.Files.Find(ctx, repository.WithIDIn(allFileIDs))
+		if fileErr != nil {
+			return nil, fmt.Errorf("fetch files: %w", fileErr)
+		}
+		for _, f := range files {
+			filesByID[f.ID()] = f
+		}
+	}
+
 	results := make([]KoditFileResult, 0, len(enrichments))
 	for _, e := range enrichments {
 		idStr := strconv.FormatInt(e.ID(), 10)
+
+		fileIDs := sourceFiles[idStr]
+		if len(fileIDs) == 0 {
+			continue
+		}
+		file, ok := filesByID[fileIDs[0]]
+		if !ok {
+			continue
+		}
+
+		filePath := repoRelativePath(file.Path())
+
+		var lines string
+		if lr, found := lineRanges[idStr]; found && lr.StartLine() > 0 {
+			lines = fmt.Sprintf("L%d-L%d", lr.StartLine(), lr.EndLine())
+		}
+
 		preview := e.Content()
-		// Truncate preview
 		runes := []rune(preview)
 		if len(runes) > 300 {
 			preview = string(runes[:300]) + "..."
 		}
+
 		results = append(results, KoditFileResult{
+			Path:     filePath,
 			Language: e.Language(),
+			Lines:    lines,
 			Score:    scores[idStr],
 			Preview:  preview,
 		})
 	}
-	return results
+
+	return results, nil
 }
 
 // RescanCommit triggers a rescan of a specific commit in Kodit

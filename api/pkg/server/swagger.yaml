@@ -1564,6 +1564,118 @@ definitions:
           $ref: '#/definitions/server.KoditEnrichmentDTO'
         type: array
     type: object
+  server.KoditFileContentDTO:
+    properties:
+      commit_sha:
+        type: string
+      content:
+        type: string
+      path:
+        type: string
+    type: object
+  server.KoditFileContentResponse:
+    properties:
+      data:
+        $ref: '#/definitions/server.KoditFileContentDTO'
+      links:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  server.KoditFileEntryDTO:
+    properties:
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      path:
+        type: string
+      size:
+        type: integer
+    type: object
+  server.KoditFileResultDTO:
+    properties:
+      language:
+        type: string
+      lines:
+        type: string
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      path:
+        type: string
+      preview:
+        type: string
+      score:
+        type: number
+    type: object
+  server.KoditFilesMeta:
+    properties:
+      count:
+        type: integer
+      pattern:
+        type: string
+    type: object
+  server.KoditFilesResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditFileEntryDTO'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      meta:
+        $ref: '#/definitions/server.KoditFilesMeta'
+    type: object
+  server.KoditGrepMatchDTO:
+    properties:
+      content:
+        type: string
+      line:
+        type: integer
+    type: object
+  server.KoditGrepMeta:
+    properties:
+      count:
+        type: integer
+      glob:
+        type: string
+      limit:
+        type: integer
+      pattern:
+        type: string
+    type: object
+  server.KoditGrepResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditGrepResultDTO'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      meta:
+        $ref: '#/definitions/server.KoditGrepMeta'
+    type: object
+  server.KoditGrepResultDTO:
+    properties:
+      language:
+        type: string
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      matches:
+        items:
+          $ref: '#/definitions/server.KoditGrepMatchDTO'
+        type: array
+      path:
+        type: string
+    type: object
   server.KoditIndexingStatusAttributes:
     properties:
       message:
@@ -1587,6 +1699,30 @@ definitions:
       type:
         type: string
     type: object
+  server.KoditSearchMeta:
+    properties:
+      count:
+        type: integer
+      language:
+        type: string
+      limit:
+        type: integer
+      query:
+        type: string
+    type: object
+  server.KoditSearchResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditFileResultDTO'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      meta:
+        $ref: '#/definitions/server.KoditSearchMeta'
+    type: object
   server.KoditSearchResultDTO:
     properties:
       content:
@@ -1597,6 +1733,52 @@ definitions:
         type: string
       type:
         type: string
+    type: object
+  server.KoditWikiPageDTO:
+    properties:
+      content:
+        type: string
+      slug:
+        type: string
+      title:
+        type: string
+    type: object
+  server.KoditWikiPageResponse:
+    properties:
+      data:
+        $ref: '#/definitions/server.KoditWikiPageDTO'
+      links:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  server.KoditWikiTreeNodeDTO:
+    properties:
+      children:
+        items:
+          $ref: '#/definitions/server.KoditWikiTreeNodeDTO'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      path:
+        type: string
+      slug:
+        type: string
+      title:
+        type: string
+    type: object
+  server.KoditWikiTreeResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditWikiTreeNodeDTO'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
     type: object
   server.LicenseKeyRequest:
     properties:
@@ -2022,15 +2204,6 @@ definitions:
         type: integer
       gop_buffer_size:
         type: integer
-    type: object
-  services.KoditWikiPage:
-    properties:
-      content:
-        type: string
-      slug:
-        type: string
-      title:
-        type: string
     type: object
   services.SampleProjectCode:
     properties:
@@ -12428,6 +12601,182 @@ paths:
       summary: Get enrichment by ID
       tags:
       - git-repositories
+  /api/v1/git/repositories/{id}/file-content:
+    get:
+      description: Read the content of a file from the repository, optionally with
+        line range filtering
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: File path within the repository
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: Start line (1-indexed, inclusive)
+        in: query
+        name: start_line
+        type: integer
+      - description: End line (1-indexed, inclusive)
+        in: query
+        name: end_line
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditFileContentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Read repository file
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/files:
+    get:
+      description: List files in a repository matching a glob pattern
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Glob pattern to filter files
+        in: query
+        name: pattern
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditFilesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List repository files
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/grep:
+    get:
+      description: Run pattern matching (grep) against repository files
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Search pattern (regex)
+        in: query
+        name: pattern
+        required: true
+        type: string
+      - description: Glob pattern to filter files (e.g. *.go)
+        in: query
+        name: glob
+        type: string
+      - description: Maximum results (default 50, max 200)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditGrepResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Grep repository
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/keyword-search:
+    get:
+      description: Search repository code using BM25 keyword matching
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Keywords to search for
+        in: query
+        name: keywords
+        required: true
+        type: string
+      - description: Maximum results (default 10, max 100)
+        in: query
+        name: limit
+        type: integer
+      - description: Filter by language extension (e.g. .go, .ts)
+        in: query
+        name: language
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditSearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Keyword search repository
+      tags:
+      - git-repositories
   /api/v1/git/repositories/{id}/kodit-commits:
     get:
       description: Get commits for a repository from Kodit (used for enrichment filtering)
@@ -12784,6 +13133,52 @@ paths:
       summary: Search repository snippets
       tags:
       - git-repositories
+  /api/v1/git/repositories/{id}/semantic-search:
+    get:
+      description: Search repository code using vector similarity (semantic meaning)
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Natural language search query
+        in: query
+        name: query
+        required: true
+        type: string
+      - description: Maximum results (default 10, max 100)
+        in: query
+        name: limit
+        type: integer
+      - description: Filter by language extension (e.g. .go, .ts)
+        in: query
+        name: language
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditSearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Semantic search repository
+      tags:
+      - git-repositories
   /api/v1/git/repositories/{id}/sync-all:
     post:
       description: Syncs all branches from the upstream remote repository to the local
@@ -12864,7 +13259,7 @@ paths:
   /api/v1/git/repositories/{id}/wiki:
     get:
       description: Get the wiki navigation tree (titles and paths, no content) for
-        a repository
+        a repository. Each node includes a link to fetch the full page content.
       parameters:
       - description: Repository ID
         in: path
@@ -12877,8 +13272,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.KoditWikiTreeResponse'
         "400":
           description: Bad Request
           schema:
@@ -12916,7 +13310,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/services.KoditWikiPage'
+            $ref: '#/definitions/server.KoditWikiPageResponse'
         "400":
           description: Bad Request
           schema:

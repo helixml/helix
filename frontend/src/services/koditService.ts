@@ -207,6 +207,7 @@ export interface KoditWikiTreeNode {
   slug: string
   title: string
   path: string
+  links?: Record<string, string>
   children?: KoditWikiTreeNode[]
 }
 
@@ -228,7 +229,7 @@ export function useKoditWikiTree(repoId: string, options?: { enabled?: boolean }
   return useQuery({
     queryKey: koditWikiTreeQueryKey(repoId),
     queryFn: async () => {
-      const response = await api.get<{ data: KoditWikiTreeNode[] }>(`/api/v1/git/repositories/${repoId}/wiki`)
+      const response = await api.get<{ data: KoditWikiTreeNode[], links: Record<string, string> }>(`/api/v1/git/repositories/${repoId}/wiki`)
       return response?.data || []
     },
     enabled: options?.enabled !== false && !!repoId,
@@ -245,8 +246,8 @@ export function useKoditWikiPage(repoId: string, pagePath: string, options?: { e
   return useQuery({
     queryKey: koditWikiPageQueryKey(repoId, pagePath),
     queryFn: async () => {
-      const response = await api.get<KoditWikiPage>(`/api/v1/git/repositories/${repoId}/wiki-page?path=${encodeURIComponent(pagePath)}`)
-      return response
+      const response = await api.get<{ data: KoditWikiPage, links: Record<string, string> }>(`/api/v1/git/repositories/${repoId}/wiki-page?path=${encodeURIComponent(pagePath)}`)
+      return response?.data
     },
     enabled: options?.enabled !== false && !!repoId && !!pagePath,
     staleTime: 5 * 60 * 1000,
@@ -262,6 +263,7 @@ export interface KoditFileResult {
   lines: string
   score: number
   preview: string
+  links?: Record<string, string>
 }
 
 export interface KoditGrepMatch {
@@ -273,17 +275,64 @@ export interface KoditGrepResult {
   path: string
   language: string
   matches: KoditGrepMatch[]
+  links?: Record<string, string>
 }
 
 export interface KoditFileEntry {
   path: string
   size: number
+  links?: Record<string, string>
 }
 
 export interface KoditFileContent {
   path: string
   content: string
   commit_sha: string
+}
+
+/**
+ * Generic envelope types for JSON:API-style responses
+ */
+export interface KoditSearchMeta {
+  query: string
+  limit: number
+  language?: string
+  count: number
+}
+
+interface KoditSearchResponse {
+  data: KoditFileResult[]
+  meta: KoditSearchMeta
+  links: Record<string, string>
+}
+
+export interface KoditGrepMeta {
+  pattern: string
+  glob?: string
+  limit: number
+  count: number
+}
+
+interface KoditGrepResponse {
+  data: KoditGrepResult[]
+  meta: KoditGrepMeta
+  links: Record<string, string>
+}
+
+export interface KoditFilesMeta {
+  pattern: string
+  count: number
+}
+
+interface KoditFilesResponse {
+  data: KoditFileEntry[]
+  meta: KoditFilesMeta
+  links: Record<string, string>
+}
+
+interface KoditFileContentResponse {
+  data: KoditFileContent
+  links: Record<string, string>
 }
 
 /**
@@ -304,8 +353,8 @@ export function useKoditSemanticSearch(
       const params = new URLSearchParams({ query })
       if (limit) params.set('limit', String(limit))
       if (language) params.set('language', language)
-      const response = await api.get<KoditFileResult[]>(`/api/v1/git/repositories/${repoId}/semantic-search?${params}`)
-      return response || []
+      const response = await api.get<KoditSearchResponse>(`/api/v1/git/repositories/${repoId}/semantic-search?${params}`)
+      return { data: response?.data || [], meta: response?.meta }
     },
     enabled: options?.enabled !== false && !!repoId && !!query && query.trim().length > 0,
     staleTime: 5 * 60 * 1000,
@@ -330,8 +379,8 @@ export function useKoditKeywordSearch(
       const params = new URLSearchParams({ keywords })
       if (limit) params.set('limit', String(limit))
       if (language) params.set('language', language)
-      const response = await api.get<KoditFileResult[]>(`/api/v1/git/repositories/${repoId}/keyword-search?${params}`)
-      return response || []
+      const response = await api.get<KoditSearchResponse>(`/api/v1/git/repositories/${repoId}/keyword-search?${params}`)
+      return { data: response?.data || [], meta: response?.meta }
     },
     enabled: options?.enabled !== false && !!repoId && !!keywords && keywords.trim().length > 0,
     staleTime: 5 * 60 * 1000,
@@ -356,8 +405,8 @@ export function useKoditGrep(
       const params = new URLSearchParams({ pattern })
       if (glob) params.set('glob', glob)
       if (limit) params.set('limit', String(limit))
-      const response = await api.get<KoditGrepResult[]>(`/api/v1/git/repositories/${repoId}/grep?${params}`)
-      return response || []
+      const response = await api.get<KoditGrepResponse>(`/api/v1/git/repositories/${repoId}/grep?${params}`)
+      return { data: response?.data || [], meta: response?.meta }
     },
     enabled: options?.enabled !== false && !!repoId && !!pattern && pattern.trim().length > 0,
     staleTime: 5 * 60 * 1000,
@@ -379,8 +428,8 @@ export function useKoditFiles(
     queryFn: async () => {
       const params = new URLSearchParams()
       if (pattern) params.set('pattern', pattern)
-      const response = await api.get<KoditFileEntry[]>(`/api/v1/git/repositories/${repoId}/files?${params}`)
-      return response || []
+      const response = await api.get<KoditFilesResponse>(`/api/v1/git/repositories/${repoId}/files?${params}`)
+      return { data: response?.data || [], meta: response?.meta }
     },
     enabled: options?.enabled !== false && !!repoId && !!pattern && pattern.trim().length > 0,
     staleTime: 5 * 60 * 1000,
@@ -403,8 +452,8 @@ export function useKoditFileContent(
       const params = new URLSearchParams({ path: filePath })
       if (options?.startLine) params.set('start_line', String(options.startLine))
       if (options?.endLine) params.set('end_line', String(options.endLine))
-      const response = await api.get<KoditFileContent>(`/api/v1/git/repositories/${repoId}/file-content?${params}`)
-      return response
+      const response = await api.get<KoditFileContentResponse>(`/api/v1/git/repositories/${repoId}/file-content?${params}`)
+      return response?.data
     },
     enabled: options?.enabled !== false && !!repoId && !!filePath,
     staleTime: 5 * 60 * 1000,
