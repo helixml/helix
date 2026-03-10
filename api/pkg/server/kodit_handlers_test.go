@@ -80,6 +80,27 @@ func (f *fakeKoditService) DeleteTask(_ context.Context, _ int64) error { return
 func (f *fakeKoditService) UpdateTaskPriority(_ context.Context, _ int64, _ int) error {
 	return f.err
 }
+func (f *fakeKoditService) GetWikiTree(_ context.Context, _ int64) ([]services.KoditWikiTreeNode, error) {
+	return nil, f.err
+}
+func (f *fakeKoditService) GetWikiPage(_ context.Context, _ int64, _ string) (*services.KoditWikiPage, error) {
+	return nil, f.err
+}
+func (f *fakeKoditService) SemanticSearch(_ context.Context, _ int64, _ string, _ int, _ string) ([]services.KoditFileResult, error) {
+	return nil, f.err
+}
+func (f *fakeKoditService) KeywordSearch(_ context.Context, _ int64, _ string, _ int, _ string) ([]services.KoditFileResult, error) {
+	return nil, f.err
+}
+func (f *fakeKoditService) GrepSearch(_ context.Context, _ int64, _ string, _ string, _ int) ([]services.KoditGrepResult, error) {
+	return nil, f.err
+}
+func (f *fakeKoditService) ListFiles(_ context.Context, _ int64, _ string) ([]services.KoditFileEntry, error) {
+	return nil, f.err
+}
+func (f *fakeKoditService) ReadFile(_ context.Context, _ int64, _ string, _, _ int) (*services.KoditFileContent, error) {
+	return nil, f.err
+}
 
 type fakeGitRepositoryStore struct {
 	store.Store
