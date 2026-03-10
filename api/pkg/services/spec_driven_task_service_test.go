@@ -194,6 +194,11 @@ func TestGenerateTaskNameFromPrompt(t *testing.T) {
 			expected: "Tabbed text with extra spaces",
 		},
 		{
+			name:     "hash with markdown headings and multi-byte chars",
+			prompt:   "## Health Check — Monitor cluster status, verify alerts — ensure uptime SLA compliance",
+			expected: "## Health Check — Monitor cluster status, verify alerts —...",
+		},
+		{
 			name:     "empty prompt",
 			prompt:   "",
 			expected: "",
