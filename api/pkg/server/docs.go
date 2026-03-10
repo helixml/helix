@@ -15028,6 +15028,11 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "List models from a specific provider, or aggregate from all providers if none specified. If the request includes an anthropic-version header, proxies to the upstream Anthropic provider.",
+                "tags": [
+                    "models"
+                ],
+                "summary": "List models",
                 "parameters": [
                     {
                         "type": "string",
@@ -20077,6 +20082,10 @@ const docTemplate = `{
         "types.CronTrigger": {
             "type": "object",
             "properties": {
+                "action": {
+                    "description": "\"session\" (default) or \"spec_task\"",
+                    "type": "string"
+                },
                 "emails": {
                     "type": "array",
                     "items": {
@@ -20087,6 +20096,10 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "input": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "description": "Target project for spec_task action",
                     "type": "string"
                 },
                 "schedule": {

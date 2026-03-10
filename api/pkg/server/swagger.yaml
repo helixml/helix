@@ -3555,6 +3555,9 @@ definitions:
     type: object
   types.CronTrigger:
     properties:
+      action:
+        description: '"session" (default) or "spec_task"'
+        type: string
       emails:
         items:
           type: string
@@ -3562,6 +3565,9 @@ definitions:
       enabled:
         type: boolean
       input:
+        type: string
+      project_id:
+        description: Target project for spec_task action
         type: string
       schedule:
         type: string
@@ -19011,6 +19017,9 @@ paths:
       - embeddings
   /v1/models:
     get:
+      description: List models from a specific provider, or aggregate from all providers
+        if none specified. If the request includes an anthropic-version header, proxies
+        to the upstream Anthropic provider.
       parameters:
       - description: Provider
         in: query
@@ -19025,6 +19034,9 @@ paths:
             type: array
       security:
       - BearerAuth: []
+      summary: List models
+      tags:
+      - models
 schemes:
 - https
 securityDefinitions:

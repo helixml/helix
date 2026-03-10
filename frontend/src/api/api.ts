@@ -2205,9 +2205,13 @@ export interface TypesCrispTrigger {
 }
 
 export interface TypesCronTrigger {
+  /** "session" (default) or "spec_task" */
+  action?: string;
   emails?: string[];
   enabled?: boolean;
   input?: string;
+  /** Target project for spec_task action */
+  project_id?: string;
   schedule?: string;
 }
 
@@ -12724,9 +12728,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * No description
+     * @description List models from a specific provider, or aggregate from all providers if none specified. If the request includes an anthropic-version header, proxies to the upstream Anthropic provider.
      *
+     * @tags models
      * @name ModelsList
+     * @summary List models
      * @request GET:/v1/models
      * @secure
      */
