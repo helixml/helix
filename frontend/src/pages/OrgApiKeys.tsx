@@ -18,9 +18,15 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogActions from '@mui/material/DialogActions'
 import CircularProgress from '@mui/material/CircularProgress'
 import Chip from '@mui/material/Chip'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import ListItemText from '@mui/material/ListItemText'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { Copy, Check, Trash2, Plus } from 'lucide-react'
 
 import Page from '../components/system/Page'
+import ApiCodeExamples from '../components/widgets/ApiCodeExamples'
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
 import { useListOrgApiKeys, useCreateOrgApiKey, useDeleteOrgApiKey } from '../services/orgApiKeyService'
@@ -60,6 +66,9 @@ const OrgApiKeys: FC = () => {
   const [newKeyName, setNewKeyName] = useState('')
   const [deleteKey, setDeleteKey] = useState<string | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
+  const [menuKeyId, setMenuKeyId] = useState<string | null>(null)
+  const [examplesDialogKey, setExamplesDialogKey] = useState<string | null>(null)
 
   const organization = account.organizationTools.organization
   const orgId = organization?.id || ''
@@ -96,9 +105,21 @@ const OrgApiKeys: FC = () => {
     }
   }
 
-  const confirmDelete = (key: string) => {
-    setDeleteKey(key)
-    setDeleteDialogOpen(true)
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, keyId: string) => {
+    setMenuAnchorEl(event.currentTarget)
+    setMenuKeyId(keyId)
+  }
+
+  const handleMenuClose = () => {
+    setMenuAnchorEl(null)
+  }
+
+  const handleDeleteClick = () => {
+    if (menuKeyId) {
+      setDeleteKey(menuKeyId)
+      setDeleteDialogOpen(true)
+    }
+    handleMenuClose()
   }
 
   if (!account.user) return null
@@ -141,7 +162,7 @@ const OrgApiKeys: FC = () => {
                   <TableRow>
                     <TableCell sx={{ fontWeight: 600 }}>Name</TableCell>
                     <TableCell sx={{ fontWeight: 600 }}>Key</TableCell>
-                    {isOrgOwner && <TableCell sx={{ fontWeight: 600 }}>Owner</TableCell>}
+                    {isOrgOwner && <TableCell sx={{ fontWeight: 600 }}>Creator</TableCell>}
                     <TableCell sx={{ fontWeight: 600 }}>Created</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 600 }}>Actions</TableCell>
                   </TableRow>
@@ -159,7 +180,12 @@ const OrgApiKeys: FC = () => {
                     apiKeys.map((key) => (
                       <TableRow key={key.key} hover>
                         <TableCell>
-                          <Typography variant="body2" fontWeight={500}>
+                          <Typography
+                            variant="body2"
+                            fontWeight={500}
+                            sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+                            onClick={() => setExamplesDialogKey(key.key || '')}
+                          >
                             {key.name || 'Unnamed'}
                           </Typography>
                         </TableCell>
@@ -187,15 +213,12 @@ const OrgApiKeys: FC = () => {
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
-                          <Tooltip title="Delete API key">
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => confirmDelete(key.key || '')}
-                            >
-                              <Trash2 size={16} />
-                            </IconButton>
-                          </Tooltip>
+                          <IconButton
+                            size="small"
+                            onClick={(e) => handleMenuOpen(e, key.key || '')}
+                          >
+                            <MoreVertIcon fontSize="small" />
+                          </IconButton>
                         </TableCell>
                       </TableRow>
                     ))
@@ -206,6 +229,38 @@ const OrgApiKeys: FC = () => {
           )}
         </Box>
       </Container>
+
+      {/* Row actions menu */}
+      <Menu
+        anchorEl={menuAnchorEl}
+        open={Boolean(menuAnchorEl)}
+        onClose={handleMenuClose}
+      >
+        <MenuItem onClick={handleDeleteClick}>
+          <ListItemIcon>
+            <Trash2 size={16} />
+          </ListItemIcon>
+          <ListItemText>Delete</ListItemText>
+        </MenuItem>
+      </Menu>
+
+      {/* Code Examples Dialog */}
+      <Dialog
+        open={Boolean(examplesDialogKey)}
+        onClose={() => setExamplesDialogKey(null)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>API Usage Examples</DialogTitle>
+        <DialogContent>
+          {examplesDialogKey && (
+            <ApiCodeExamples apiKey={examplesDialogKey} />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setExamplesDialogKey(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Create Key Dialog */}
       <Dialog

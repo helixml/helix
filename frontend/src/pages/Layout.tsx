@@ -361,6 +361,7 @@ const Layout: FC<{
       case "org_people":
       case "org_teams":
       case "org_billing":
+      case "org_api_keys":
       case "team_people":
         // Organization management pages use the org context sidebar
         return <OrgSidebar />;
