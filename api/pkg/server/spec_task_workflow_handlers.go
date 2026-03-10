@@ -96,12 +96,15 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			return
 		}
 
-		// Check if branch already has commits - if so, create PR immediately
+		// Check if branch already has commits - if so, create PR immediately.
+		// Also try when the check fails (e.g. main branch not fetched locally) since
+		// ensurePullRequestForTask pushes to the remote which can determine this itself.
 		hasCommits, err := s.branchHasCommitsAhead(ctx, repo.LocalPath, specTask.BranchName, repo.DefaultBranch)
 		if err != nil {
-			log.Warn().Err(err).Str("task_id", specTask.ID).Msg("Failed to check if branch has commits ahead - will wait for agent push")
-		} else if hasCommits {
-			log.Info().Str("task_id", specTask.ID).Str("branch", specTask.BranchName).Msg("Branch has commits ahead - creating PR immediately")
+			log.Warn().Err(err).Str("task_id", specTask.ID).Msg("Failed to check if branch has commits ahead - will try creating PR anyway")
+		}
+		if hasCommits || err != nil {
+			log.Info().Str("task_id", specTask.ID).Str("branch", specTask.BranchName).Bool("check_failed", err != nil).Msg("Creating PR for task")
 			s.wg.Add(1)
 			go func() {
 				defer s.wg.Done()
