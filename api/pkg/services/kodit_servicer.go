@@ -10,6 +10,56 @@ import (
 	"github.com/helixml/kodit/domain/tracking"
 )
 
+// KoditWikiTreeNode represents a wiki page in the navigation tree (no content).
+type KoditWikiTreeNode struct {
+	Slug     string              `json:"slug"`
+	Title    string              `json:"title"`
+	Path     string              `json:"path"`
+	Children []KoditWikiTreeNode `json:"children,omitempty"`
+}
+
+// KoditWikiPage represents a single wiki page with its rendered content.
+type KoditWikiPage struct {
+	Slug    string `json:"slug"`
+	Title   string `json:"title"`
+	Content string `json:"content"`
+}
+
+// KoditFileResult represents a search result (semantic or keyword) with file context.
+type KoditFileResult struct {
+	Path     string  `json:"path"`
+	Language string  `json:"language"`
+	Lines    string  `json:"lines,omitempty"`
+	Score    float64 `json:"score"`
+	Preview  string  `json:"preview"`
+}
+
+// KoditGrepResult represents a grep match grouped by file.
+type KoditGrepResult struct {
+	Path     string            `json:"path"`
+	Language string            `json:"language"`
+	Matches  []KoditGrepMatch  `json:"matches"`
+}
+
+// KoditGrepMatch represents a single grep match line.
+type KoditGrepMatch struct {
+	Line    int    `json:"line"`
+	Content string `json:"content"`
+}
+
+// KoditFileEntry represents a file in a repository listing.
+type KoditFileEntry struct {
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+}
+
+// KoditFileContent represents the content of a file.
+type KoditFileContent struct {
+	Path      string `json:"path"`
+	Content   string `json:"content"`
+	CommitSHA string `json:"commit_sha"`
+}
+
 // ErrKoditNotFound is a sentinel error for "not found" responses from Kodit.
 // Handlers use this instead of importing the root kodit package.
 var ErrKoditNotFound = errors.New("kodit: not found")
@@ -83,6 +133,17 @@ type KoditServicer interface {
 	SystemStats(ctx context.Context) (KoditSystemStats, error)
 	RepositoryTasks(ctx context.Context, koditRepoID int64) (KoditRepositoryTasks, error)
 
+	// Wiki
+	GetWikiTree(ctx context.Context, koditRepoID int64) ([]KoditWikiTreeNode, error)
+	GetWikiPage(ctx context.Context, koditRepoID int64, pagePath string) (*KoditWikiPage, error)
+
+	// Search tools (mirrors MCP server capabilities)
+	SemanticSearch(ctx context.Context, koditRepoID int64, query string, limit int, language string) ([]KoditFileResult, error)
+	KeywordSearch(ctx context.Context, koditRepoID int64, keywords string, limit int, language string) ([]KoditFileResult, error)
+	GrepSearch(ctx context.Context, koditRepoID int64, pattern string, glob string, limit int) ([]KoditGrepResult, error)
+	ListFiles(ctx context.Context, koditRepoID int64, pattern string) ([]KoditFileEntry, error)
+	ReadFile(ctx context.Context, koditRepoID int64, filePath string, startLine, endLine int) (*KoditFileContent, error)
+
 	// Global task queue management
 	ListAllTasks(ctx context.Context, limit, offset int) ([]KoditPendingTask, int64, error)
 	ActiveTasks(ctx context.Context) ([]KoditActiveTask, error)
@@ -136,6 +197,27 @@ func (d *disabledKoditService) SystemStats(context.Context) (KoditSystemStats, e
 }
 func (d *disabledKoditService) RepositoryTasks(context.Context, int64) (KoditRepositoryTasks, error) {
 	return KoditRepositoryTasks{}, errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) GetWikiTree(context.Context, int64) ([]KoditWikiTreeNode, error) {
+	return nil, errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) GetWikiPage(context.Context, int64, string) (*KoditWikiPage, error) {
+	return nil, errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) SemanticSearch(context.Context, int64, string, int, string) ([]KoditFileResult, error) {
+	return nil, errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) KeywordSearch(context.Context, int64, string, int, string) ([]KoditFileResult, error) {
+	return nil, errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) GrepSearch(context.Context, int64, string, string, int) ([]KoditGrepResult, error) {
+	return nil, errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) ListFiles(context.Context, int64, string) ([]KoditFileEntry, error) {
+	return nil, errors.New("kodit service not enabled")
+}
+func (d *disabledKoditService) ReadFile(context.Context, int64, string, int, int) (*KoditFileContent, error) {
+	return nil, errors.New("kodit service not enabled")
 }
 func (d *disabledKoditService) ListAllTasks(context.Context, int, int) ([]KoditPendingTask, int64, error) {
 	return nil, 0, errors.New("kodit service not enabled")

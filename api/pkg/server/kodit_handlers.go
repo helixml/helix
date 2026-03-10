@@ -521,6 +521,280 @@ func (apiServer *HelixAPIServer) getRepositoryIndexingStatus(w http.ResponseWrit
 	json.NewEncoder(w).Encode(indexingStatusToDTO(summary))
 }
 
+// getRepositoryWikiTree returns the wiki navigation tree for a repository
+// @Summary Get repository wiki tree
+// @Description Get the wiki navigation tree (titles and paths, no content) for a repository
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/wiki [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getRepositoryWikiTree(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	if !ok {
+		return
+	}
+
+	nodes, err := apiServer.koditService.GetWikiTree(r.Context(), koditRepoID)
+	if err != nil {
+		handleKoditError(w, err, "Failed to fetch wiki tree")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"data": nodes})
+}
+
+// getRepositoryWikiPage returns a single wiki page by path
+// @Summary Get wiki page
+// @Description Get a wiki page by hierarchical path as markdown content
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param path query string true "Wiki page path (e.g. architecture/database-layer.md)"
+// @Success 200 {object} services.KoditWikiPage
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/wiki-page [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getRepositoryWikiPage(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	pagePath := r.URL.Query().Get("path")
+	if pagePath == "" {
+		http.Error(w, "path query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	if !ok {
+		return
+	}
+
+	page, err := apiServer.koditService.GetWikiPage(r.Context(), koditRepoID, pagePath)
+	if err != nil {
+		handleKoditError(w, err, "Failed to fetch wiki page")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(page)
+}
+
+// semanticSearchRepository performs vector similarity search
+func (apiServer *HelixAPIServer) semanticSearchRepository(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	query := r.URL.Query().Get("query")
+	if query == "" {
+		http.Error(w, "query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	limit := 10
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	language := r.URL.Query().Get("language")
+
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	if !ok {
+		return
+	}
+
+	results, err := apiServer.koditService.SemanticSearch(r.Context(), koditRepoID, query, limit, language)
+	if err != nil {
+		handleKoditError(w, err, "Failed to perform semantic search")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+
+// keywordSearchRepository performs BM25 keyword search
+func (apiServer *HelixAPIServer) keywordSearchRepository(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	keywords := r.URL.Query().Get("keywords")
+	if keywords == "" {
+		http.Error(w, "keywords parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	limit := 10
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	language := r.URL.Query().Get("language")
+
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	if !ok {
+		return
+	}
+
+	results, err := apiServer.koditService.KeywordSearch(r.Context(), koditRepoID, keywords, limit, language)
+	if err != nil {
+		handleKoditError(w, err, "Failed to perform keyword search")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+
+// grepRepository runs git grep against a repository
+func (apiServer *HelixAPIServer) grepRepository(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	pattern := r.URL.Query().Get("pattern")
+	if pattern == "" {
+		http.Error(w, "pattern parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	glob := r.URL.Query().Get("glob")
+
+	limit := 50
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	if !ok {
+		return
+	}
+
+	results, err := apiServer.koditService.GrepSearch(r.Context(), koditRepoID, pattern, glob, limit)
+	if err != nil {
+		handleKoditError(w, err, "Failed to perform grep search")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+
+// listRepositoryFiles lists files matching a glob pattern
+func (apiServer *HelixAPIServer) listRepositoryFiles(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	pattern := r.URL.Query().Get("pattern")
+	if pattern == "" {
+		pattern = "**/*"
+	}
+
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	if !ok {
+		return
+	}
+
+	entries, err := apiServer.koditService.ListFiles(r.Context(), koditRepoID, pattern)
+	if err != nil {
+		handleKoditError(w, err, "Failed to list files")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(entries)
+}
+
+// readRepositoryFile reads the content of a file from the repository
+func (apiServer *HelixAPIServer) readRepositoryFile(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	filePath := r.URL.Query().Get("path")
+	if filePath == "" {
+		http.Error(w, "path parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	var startLine, endLine int
+	if s := r.URL.Query().Get("start_line"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil {
+			startLine = v
+		}
+	}
+	if s := r.URL.Query().Get("end_line"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil {
+			endLine = v
+		}
+	}
+
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	if !ok {
+		return
+	}
+
+	content, err := apiServer.koditService.ReadFile(r.Context(), koditRepoID, filePath, startLine, endLine)
+	if err != nil {
+		handleKoditError(w, err, "Failed to read file")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(content)
+}
+
 // rescanRepository triggers a rescan of a specific commit in Kodit
 // @Summary Rescan repository commit
 // @Description Trigger a rescan of a specific commit in Kodit to refresh code intelligence

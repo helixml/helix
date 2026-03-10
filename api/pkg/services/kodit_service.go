@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/kodit/domain/repository"
 	"github.com/helixml/kodit/domain/search"
 	"github.com/helixml/kodit/domain/tracking"
+	"github.com/helixml/kodit/domain/wiki"
 	"github.com/rs/zerolog/log"
 )
 
@@ -537,6 +538,303 @@ func (s *KoditService) UpdateTaskPriority(ctx context.Context, taskID int64, pri
 		return fmt.Errorf("kodit service not enabled")
 	}
 	return s.client.Tasks.Reprioritize(ctx, taskID, priority)
+}
+
+// GetWikiTree returns the wiki navigation tree for a repository.
+func (s *KoditService) GetWikiTree(ctx context.Context, koditRepoID int64) ([]KoditWikiTreeNode, error) {
+	if !s.enabled {
+		return nil, fmt.Errorf("kodit service not enabled")
+	}
+
+	parsed, err := s.latestWiki(ctx, koditRepoID)
+	if err != nil {
+		return nil, err
+	}
+
+	pathIndex := parsed.PathIndex()
+	nodes := make([]KoditWikiTreeNode, 0, len(parsed.Pages()))
+	for _, p := range parsed.Pages() {
+		nodes = append(nodes, wikiPageToTreeNode(p, pathIndex))
+	}
+	return nodes, nil
+}
+
+// GetWikiPage returns a single wiki page by its hierarchical path.
+func (s *KoditService) GetWikiPage(ctx context.Context, koditRepoID int64, pagePath string) (*KoditWikiPage, error) {
+	if !s.enabled {
+		return nil, fmt.Errorf("kodit service not enabled")
+	}
+
+	pagePath = strings.TrimPrefix(pagePath, "/")
+	pagePath = strings.TrimSuffix(pagePath, ".md")
+	pagePath = strings.TrimSuffix(pagePath, "/")
+
+	parsed, err := s.latestWiki(ctx, koditRepoID)
+	if err != nil {
+		return nil, err
+	}
+
+	page, ok := parsed.PageByPath(pagePath)
+	if !ok {
+		return nil, fmt.Errorf("%w: wiki page %q not found", ErrKoditNotFound, pagePath)
+	}
+
+	// Don't rewrite links — the frontend intercepts wiki link clicks
+	// and navigates within the wiki viewer.
+	pathIndex := parsed.PathIndex()
+	// Use empty prefix so slugs become relative paths the frontend can interpret.
+	rewritten := wiki.NewRewrittenContent(page.Content(), pathIndex, "", "")
+
+	return &KoditWikiPage{
+		Slug:    page.Slug(),
+		Title:   page.Title(),
+		Content: rewritten.String(),
+	}, nil
+}
+
+// latestWiki finds the most recent wiki enrichment for a repository and parses it.
+func (s *KoditService) latestWiki(ctx context.Context, koditRepoID int64) (wiki.Wiki, error) {
+	commits, err := s.client.Commits.Find(ctx, repository.WithRepoID(koditRepoID))
+	if err != nil {
+		return wiki.Wiki{}, fmt.Errorf("find commits: %w", err)
+	}
+
+	shas := make([]string, 0, len(commits))
+	for _, c := range commits {
+		shas = append(shas, c.SHA())
+	}
+
+	if len(shas) == 0 {
+		return wiki.Wiki{}, fmt.Errorf("%w: no commits found for repository", ErrKoditNotFound)
+	}
+
+	wikiType := enrichment.TypeUsage
+	wikiSubtype := enrichment.SubtypeWiki
+	enrichments, err := s.client.Enrichments.List(ctx, &service.EnrichmentListParams{
+		CommitSHAs: shas,
+		Type:       &wikiType,
+		Subtype:    &wikiSubtype,
+		Limit:      1,
+	})
+	if err != nil {
+		return wiki.Wiki{}, fmt.Errorf("find wiki enrichment: %w", err)
+	}
+
+	if len(enrichments) == 0 {
+		return wiki.Wiki{}, fmt.Errorf("%w: no wiki found for repository", ErrKoditNotFound)
+	}
+
+	parsed, err := wiki.ParseWiki(enrichments[0].Content())
+	if err != nil {
+		return wiki.Wiki{}, fmt.Errorf("parse wiki content: %w", err)
+	}
+
+	return parsed, nil
+}
+
+func wikiPageToTreeNode(p wiki.Page, pathIndex map[string]string) KoditWikiTreeNode {
+	children := make([]KoditWikiTreeNode, 0, len(p.Children()))
+	for _, child := range p.Children() {
+		children = append(children, wikiPageToTreeNode(child, pathIndex))
+	}
+	return KoditWikiTreeNode{
+		Slug:     p.Slug(),
+		Title:    p.Title(),
+		Path:     pathIndex[p.Slug()] + ".md",
+		Children: children,
+	}
+}
+
+// SemanticSearch performs vector similarity search against indexed code snippets.
+func (s *KoditService) SemanticSearch(ctx context.Context, koditRepoID int64, query string, limit int, language string) ([]KoditFileResult, error) {
+	if !s.enabled {
+		return nil, fmt.Errorf("kodit service not enabled")
+	}
+	if query == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+
+	var filterOpts []search.FiltersOption
+	filterOpts = append(filterOpts, search.WithSourceRepos([]int64{koditRepoID}))
+	if language != "" {
+		filterOpts = append(filterOpts, search.WithLanguages([]string{language}))
+	}
+	filters := search.NewFilters(filterOpts...)
+
+	enrichments, scores, err := s.client.Search.SearchCodeWithScores(ctx, query, limit, filters)
+	if err != nil {
+		return nil, fmt.Errorf("semantic search: %w", err)
+	}
+
+	return enrichmentsToFileResults(enrichments, scores), nil
+}
+
+// KeywordSearch performs BM25 keyword search against indexed code snippets.
+func (s *KoditService) KeywordSearch(ctx context.Context, koditRepoID int64, keywords string, limit int, language string) ([]KoditFileResult, error) {
+	if !s.enabled {
+		return nil, fmt.Errorf("kodit service not enabled")
+	}
+	if keywords == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+
+	var filterOpts []search.FiltersOption
+	filterOpts = append(filterOpts, search.WithSourceRepos([]int64{koditRepoID}))
+	if language != "" {
+		filterOpts = append(filterOpts, search.WithLanguages([]string{language}))
+	}
+	filters := search.NewFilters(filterOpts...)
+
+	enrichments, scores, err := s.client.Search.SearchKeywordsWithScores(ctx, keywords, limit, filters)
+	if err != nil {
+		return nil, fmt.Errorf("keyword search: %w", err)
+	}
+
+	return enrichmentsToFileResults(enrichments, scores), nil
+}
+
+// normalizeExtension ensures a language string starts with a dot for filter matching.
+func normalizeExtension(lang string) string {
+	if lang == "" {
+		return ""
+	}
+	if lang[0] != '.' {
+		return "." + lang
+	}
+	return lang
+}
+
+// GrepSearch runs git grep against a repository.
+func (s *KoditService) GrepSearch(ctx context.Context, koditRepoID int64, pattern string, glob string, limit int) ([]KoditGrepResult, error) {
+	if !s.enabled {
+		return nil, fmt.Errorf("kodit service not enabled")
+	}
+	if pattern == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	results, err := s.client.Grep.Search(ctx, koditRepoID, pattern, glob, limit)
+	if err != nil {
+		return nil, fmt.Errorf("grep search: %w", err)
+	}
+
+	out := make([]KoditGrepResult, 0, len(results))
+	for _, r := range results {
+		matches := make([]KoditGrepMatch, 0, len(r.Matches))
+		for _, m := range r.Matches {
+			matches = append(matches, KoditGrepMatch{
+				Line:    m.Line,
+				Content: m.Content,
+			})
+		}
+		out = append(out, KoditGrepResult{
+			Path:     r.Path,
+			Language: r.Language,
+			Matches:  matches,
+		})
+	}
+	return out, nil
+}
+
+// ListFiles lists files matching a glob pattern in a repository.
+func (s *KoditService) ListFiles(ctx context.Context, koditRepoID int64, pattern string) ([]KoditFileEntry, error) {
+	if !s.enabled {
+		return nil, fmt.Errorf("kodit service not enabled")
+	}
+	if pattern == "" {
+		pattern = "**/*"
+	}
+
+	entries, err := s.client.Blobs.ListFiles(ctx, koditRepoID, pattern)
+	if err != nil {
+		return nil, fmt.Errorf("list files: %w", err)
+	}
+
+	out := make([]KoditFileEntry, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, KoditFileEntry{
+			Path: e.Path,
+			Size: e.Size,
+		})
+	}
+	return out, nil
+}
+
+// ReadFile reads the content of a file from the repository.
+func (s *KoditService) ReadFile(ctx context.Context, koditRepoID int64, filePath string, startLine, endLine int) (*KoditFileContent, error) {
+	if !s.enabled {
+		return nil, fmt.Errorf("kodit service not enabled")
+	}
+	if filePath == "" {
+		return nil, fmt.Errorf("file path is required")
+	}
+
+	// Use "main" as blob name — Content() resolves branches to commit SHAs
+	blob, err := s.client.Blobs.Content(ctx, koditRepoID, "main", filePath)
+	if err != nil {
+		return nil, fmt.Errorf("read file: %w", wrapNotFound(err))
+	}
+
+	content := string(blob.Content())
+
+	// Apply line filtering if requested
+	if startLine > 0 || endLine > 0 {
+		lines := strings.Split(content, "\n")
+		start := 0
+		end := len(lines)
+		if startLine > 0 {
+			start = startLine - 1 // Convert to 0-indexed
+			if start > len(lines) {
+				start = len(lines)
+			}
+		}
+		if endLine > 0 && endLine < len(lines) {
+			end = endLine
+		}
+		if start < end {
+			content = strings.Join(lines[start:end], "\n")
+		} else {
+			content = ""
+		}
+	}
+
+	return &KoditFileContent{
+		Path:      filePath,
+		Content:   content,
+		CommitSHA: blob.CommitSHA(),
+	}, nil
+}
+
+// enrichmentsToFileResults converts enrichments with scores to file results.
+func enrichmentsToFileResults(enrichments []enrichment.Enrichment, scores map[string]float64) []KoditFileResult {
+	results := make([]KoditFileResult, 0, len(enrichments))
+	for _, e := range enrichments {
+		idStr := strconv.FormatInt(e.ID(), 10)
+		preview := e.Content()
+		// Truncate preview
+		runes := []rune(preview)
+		if len(runes) > 300 {
+			preview = string(runes[:300]) + "..."
+		}
+		results = append(results, KoditFileResult{
+			Language: e.Language(),
+			Score:    scores[idStr],
+			Preview:  preview,
+		})
+	}
+	return results
 }
 
 // RescanCommit triggers a rescan of a specific commit in Kodit
