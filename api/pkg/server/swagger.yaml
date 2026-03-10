@@ -13477,6 +13477,78 @@ paths:
       summary: Update an organization
       tags:
       - organizations
+  /api/v1/organizations/{id}/api_keys:
+    get:
+      description: List API keys for an organization. Owners see all keys, members
+        see only their own.
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.ApiKey'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List organization API keys
+      tags:
+      - organizations
+    post:
+      description: Create a new API key scoped to the organization. Any member can
+        create keys.
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Request body with name
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ApiKey'
+      security:
+      - BearerAuth: []
+      summary: Create an organization API key
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/api_keys/{key}:
+    delete:
+      description: Delete an API key. Owners can delete any org key, members only
+        their own.
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: API key to delete
+        in: path
+        name: key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Delete an organization API key
+      tags:
+      - organizations
   /api/v1/organizations/{id}/guidelines-history:
     get:
       consumes:
