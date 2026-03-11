@@ -117,44 +117,56 @@ COMMON_VALUES=()
 COMMON_VALUES+=("--set" "controlplane.runnerToken=test-token-for-helm-validation")
 COMMON_VALUES+=("--set" "controlplane.haystack.enabled=false")
 
+# Helper: dump pod diagnostics on failure
+dump_diagnostics() {
+  log "--- Pod status ---"
+  kubectl get pods -l "app.kubernetes.io/instance=${RELEASE_NAME}" -o wide 2>/dev/null || true
+  log "--- Controlplane logs ---"
+  kubectl logs -l "app.kubernetes.io/name=helix-controlplane" -c controlplane --tail=30 2>/dev/null || true
+  log "--- Events ---"
+  kubectl get events --sort-by=.lastTimestamp --field-selector involvedObject.kind=Pod 2>/dev/null | tail -20 || true
+}
+
+# Helper: wait for controlplane pod to be ready with diagnostics on failure
+wait_for_controlplane() {
+  local phase="$1"
+  log "Waiting for controlplane pod to be ready ($phase)..."
+  if ! kubectl wait --for=condition=ready pod \
+    -l "app.kubernetes.io/name=helix-controlplane" \
+    --timeout=300s 2>/dev/null; then
+    log "Controlplane pod not ready after $phase"
+    dump_diagnostics
+    fail "Controlplane pod never became ready after $phase"
+  fi
+}
+
 log "Installing previous chart (v${PREVIOUS_VERSION})..."
 helm install "$RELEASE_NAME" helix/helix-controlplane \
   --version "$PREVIOUS_VERSION" \
   "${COMMON_VALUES[@]}" \
-  --wait --timeout "$TIMEOUT" || fail "Failed to install published chart v${PREVIOUS_VERSION}"
+  --timeout "$TIMEOUT" || fail "Failed to install published chart v${PREVIOUS_VERSION}"
 
 log "Previous chart installed. Checking pods..."
 kubectl get pods -l "app.kubernetes.io/instance=${RELEASE_NAME}"
-
-# Wait for controlplane to be ready
-log "Waiting for controlplane pod to be ready..."
-kubectl wait --for=condition=ready pod \
-  -l "app.kubernetes.io/name=helix-controlplane" \
-  --timeout=300s || fail "Controlplane pod never became ready after install"
+wait_for_controlplane "install v${PREVIOUS_VERSION}"
 
 # --- Step 2: Upgrade to the latest published chart ---
 log "Upgrading to latest chart (v${LATEST_VERSION})..."
 helm upgrade "$RELEASE_NAME" helix/helix-controlplane \
   --version "$LATEST_VERSION" \
   "${COMMON_VALUES[@]}" \
-  --wait --timeout "$TIMEOUT" || fail "Helm upgrade from v${PREVIOUS_VERSION} to v${LATEST_VERSION} failed"
+  --timeout "$TIMEOUT" || fail "Helm upgrade from v${PREVIOUS_VERSION} to v${LATEST_VERSION} failed"
 
 log "Upgrade complete. Checking pods..."
 kubectl get pods -l "app.kubernetes.io/instance=${RELEASE_NAME}"
-
-# --- Step 3: Validate the upgrade ---
-log "Waiting for controlplane pod to be ready after upgrade..."
-kubectl wait --for=condition=ready pod \
-  -l "app.kubernetes.io/name=helix-controlplane" \
-  --timeout=300s || fail "Controlplane pod never became ready after upgrade"
+wait_for_controlplane "upgrade to v${LATEST_VERSION}"
 
 # Check no pods are in CrashLoopBackOff
 CRASH_PODS=$(kubectl get pods -l "app.kubernetes.io/instance=${RELEASE_NAME}" \
   -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.containerStatuses[*].state.waiting.reason}{"\n"}{end}' \
   | grep -c "CrashLoopBackOff" || true)
 if [ "$CRASH_PODS" -gt 0 ]; then
-  kubectl get pods -l "app.kubernetes.io/instance=${RELEASE_NAME}"
-  kubectl logs -l "app.kubernetes.io/name=helix-controlplane" --tail=50
+  dump_diagnostics
   fail "$CRASH_PODS pod(s) in CrashLoopBackOff after upgrade"
 fi
 
