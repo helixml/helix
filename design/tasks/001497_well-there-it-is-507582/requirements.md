@@ -37,16 +37,28 @@ As a platform operator, I need server-side git operations to not leak processes 
 - `readDesignDocsFromGit()` and `backfillDesignReviewFromGit()` use `exec.CommandContext` with the request context (or a derived timeout context)
 - Alternatively, migrate these to the existing pure-Go `GitRepo` wrapper in `services/git_helpers.go` which doesn't spawn subprocesses
 
-### US-3: Reduce git subprocess volume from diff polling
-As a platform operator, I need the diff endpoint to spawn fewer processes per request so that even with many sessions, the system isn't overwhelmed.
+### US-3: Replace blind polling with event-driven diff updates
+As a platform operator, I need the diff system to only do work when files actually change, instead of spawning 10+ git subprocesses every 3 seconds per session regardless of activity.
+
+**Context:** The container already uses `fsnotify` (dependency exists — used in `settings-sync-daemon`) and already has a WebSocket infrastructure (`/ws/stream` for video). The desktop server in the container (`api/pkg/desktop/`) is the right place to watch for filesystem changes and push notifications.
+
+**Approach:**
+1. Add an `fsnotify` watcher in the desktop server that monitors the working tree and `.git/refs/` for changes (file writes, branch switches, commits)
+2. Expose a new `/ws/diff` WebSocket endpoint on the desktop server that pushes a lightweight "files changed" notification when the watcher fires (debounced ~500ms)
+3. The frontend subscribes to `/ws/diff` and only calls the existing `/diff` REST endpoint when it receives a change notification (or on initial connect)
+4. Keep the existing `/diff` REST endpoint unchanged — it still does the full git diff computation, but now it's called on-demand instead of every 3 seconds
 
 **Acceptance Criteria:**
-- Consider using the pure-Go `GitRepo` (go-git/gitea) wrapper for read-only operations like `ls-tree` and `show` instead of spawning subprocesses
-- OR batch multiple git queries into fewer subprocess invocations
-- OR increase the frontend poll interval for diffs (currently 3s is aggressive)
+- A new `fsnotify` watcher in the desktop server watches the git working tree and `.git/refs/` for changes
+- A new `/ws/diff` WebSocket endpoint pushes change notifications to connected clients (debounced to avoid flooding during rapid edits)
+- The frontend `useLiveFileDiff` hook subscribes to `/ws/diff` and fetches the full diff only on notification, replacing the 3-second `refetchInterval`
+- Fallback: if the WebSocket disconnects, the frontend falls back to polling at a slower rate (e.g., 10s) until reconnected
+- With an idle session (no file changes), zero git subprocesses are spawned for diff purposes
+- Git subprocess volume drops from ~200/min/session (current: 10+ procs × 20 polls/min) to near-zero during idle periods
 
 ## Out of Scope
 
 - Replacing all `gitcmd.NewCommand` usage (these already go through Gitea's git wrapper which has timeouts)
 - Changing the git HTTP server's `upload-pack`/`receive-pack` handling (these are properly managed by `gitcmd.Run` with context)
 - Adding process-level monitoring for git zombies (unnecessary if the root cause is fixed)
+- Piggybacking diff notifications onto the existing `/ws/stream` video WebSocket (different lifecycle — video may be paused/disconnected while diff should keep working)
