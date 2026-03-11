@@ -43,6 +43,36 @@ if [ "${SKIP_CLUSTER_CREATE:-}" != "1" ]; then
   kind create cluster --name "$CLUSTER_NAME" --wait 120s
 fi
 
+# When running inside a container with the host Docker socket mounted (e.g. Drone CI),
+# Kind's kubeconfig points to 127.0.0.1 which is the container's own localhost, not
+# the host where the Kind API server container actually listens. Fix by:
+# 1. Connecting this container to Kind's Docker network
+# 2. Patching kubeconfig to use the control plane container's IP
+if [ -S /var/run/docker.sock ] && docker inspect "${CLUSTER_NAME}-control-plane" >/dev/null 2>&1; then
+  # Detect if we're inside a container. Try hostname (Docker sets it to short
+  # container ID) and validate it's actually a container via docker inspect.
+  SELF_CONTAINER_ID=""
+  if docker inspect "$(hostname)" >/dev/null 2>&1; then
+    SELF_CONTAINER_ID="$(hostname)"
+  fi
+
+  if [ -n "$SELF_CONTAINER_ID" ]; then
+    log "Running inside container ${SELF_CONTAINER_ID}, connecting to Kind network..."
+    docker network connect kind "$SELF_CONTAINER_ID" 2>/dev/null || true
+
+    CONTROL_PLANE_IP=$(docker inspect "${CLUSTER_NAME}-control-plane" \
+      --format '{{ .NetworkSettings.Networks.kind.IPAddress }}' 2>/dev/null || true)
+    if [ -n "$CONTROL_PLANE_IP" ]; then
+      log "Patching kubeconfig to use control plane IP: ${CONTROL_PLANE_IP}"
+      # The Kind API server TLS cert is issued for 127.0.0.1/localhost, not the
+      # container IP, so we must skip TLS verification when connecting via IP.
+      kubectl config set-cluster "kind-${CLUSTER_NAME}" \
+        --server="https://${CONTROL_PLANE_IP}:6443" \
+        --insecure-skip-tls-verify=true
+    fi
+  fi
+fi
+
 log "Cluster info:"
 kubectl cluster-info --context "kind-${CLUSTER_NAME}"
 
@@ -72,6 +102,7 @@ log "Upgrade path: v${PREVIOUS_VERSION} -> v${LATEST_VERSION}"
 # --- Step 1: Install the previous published chart (simulates existing customer) ---
 # Minimal values to get the chart running without real API keys
 COMMON_VALUES=()
+COMMON_VALUES+=("--set" "controlplane.runnerToken=test-token-for-helm-validation")
 COMMON_VALUES+=("--set" "controlplane.haystack.enabled=false")
 
 log "Installing previous chart (v${PREVIOUS_VERSION})..."
