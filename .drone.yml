@@ -1550,6 +1550,13 @@ kind: pipeline
 type: docker
 name: helm-upgrade-test
 
+concurrency:
+  limit: 1
+
+platform:
+  os: linux
+  arch: amd64
+
 trigger:
   event:
     - cron
@@ -1565,12 +1572,14 @@ steps:
         path: /var/run/docker.sock
     commands:
       # Install tools
-      - apk add --no-cache bash curl git helm kubectl
+      - apk add --no-cache bash curl git helm kubectl jq
       # Install kind
       - curl -Lo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
       - chmod +x /usr/local/bin/kind
       # Verify Docker is accessible via host socket
       - docker info >/dev/null 2>&1 || (echo "Cannot access Docker socket" && exit 1)
+      # Pre-flight cleanup: remove any orphaned Kind containers from previous failed runs
+      - docker rm -f helm-upgrade-test-control-plane 2>/dev/null || true
       # Run upgrade test
       - bash scripts/helm-upgrade-test.sh
     depends_on: []
