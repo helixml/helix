@@ -10,6 +10,8 @@
 - [x] Test: Verify task moves from planning phase back to backlog column
 - [x] Test: Verify button is not shown for backlog status (correctly hidden)
 - [x] Test: Verify snackbar shows "Task moved to backlog" on success
+- [x] Fix `stopAgentSession` handler to actually stop the container via Hydra executor (was TODO)
+- [x] Test: Verify container is stopped when moving task to backlog
 
 ## Testing Notes
 
@@ -18,3 +20,10 @@
 - Clicking the option moved the task back to Backlog column
 - Snackbar confirmation "Task moved to backlog" displayed correctly
 - Button correctly hidden for tasks already in backlog status
+- Container is now properly stopped via Hydra when moving to backlog
+
+## Additional Fix
+
+The `stopAgentSession` handler had a TODO and wasn't actually stopping containers.
+This fix also benefits the existing "Stop Agent" button in TaskCard (implementation phase),
+which was previously broken.
