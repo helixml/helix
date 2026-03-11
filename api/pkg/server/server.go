@@ -327,7 +327,7 @@ func NewServer(
 			ps,                         // PubSub for Zed integration
 			externalAgentExecutor,      // Hydra executor for launching external agents
 			gitRepositoryService,
-			nil, // Will set callback after apiServer is constructed
+			nil,                                // Will set callback after apiServer is constructed
 			services.NewDisabledKoditService(), // Replaced after kodit init below
 		),
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
@@ -435,6 +435,9 @@ func NewServer(
 	log.Info().
 		Str("projects_base_path", projectsBasePath).
 		Msg("Initialized project repository service")
+
+	// Wire spec task creator into the trigger manager for cron triggers with action "spec_task"
+	apiServer.trigger.SetSpecTaskCreator(apiServer.specDrivenTaskService)
 
 	// Set the request mapping callback for SpecDrivenTaskService
 	apiServer.specDrivenTaskService.RegisterRequestMapping = apiServer.RegisterRequestToSessionMapping

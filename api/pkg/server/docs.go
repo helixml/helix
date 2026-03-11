@@ -21095,6 +21095,10 @@ const docTemplate = `{
         "types.CronTrigger": {
             "type": "object",
             "properties": {
+                "action": {
+                    "description": "\"session\" (default) or \"spec_task\"",
+                    "type": "string"
+                },
                 "emails": {
                     "type": "array",
                     "items": {
@@ -21105,6 +21109,10 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "input": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "description": "Target project for spec_task action",
                     "type": "string"
                 },
                 "schedule": {

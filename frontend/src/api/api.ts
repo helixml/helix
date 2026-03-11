@@ -2344,9 +2344,13 @@ export interface TypesCrispTrigger {
 }
 
 export interface TypesCronTrigger {
+  /** "session" (default) or "spec_task" */
+  action?: string;
   emails?: string[];
   enabled?: boolean;
   input?: string;
+  /** Target project for spec_task action */
+  project_id?: string;
   schedule?: string;
 }
 
