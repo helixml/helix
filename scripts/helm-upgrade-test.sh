@@ -121,22 +121,25 @@ COMMON_VALUES+=("--set" "controlplane.haystack.enabled=false")
 dump_diagnostics() {
   log "--- Pod status ---"
   kubectl get pods -l "app.kubernetes.io/instance=${RELEASE_NAME}" -o wide 2>/dev/null || true
-  log "--- Controlplane logs ---"
-  kubectl logs -l "app.kubernetes.io/name=helix-controlplane" -c controlplane --tail=30 2>/dev/null || true
+  log "--- Controlplane container logs ---"
+  kubectl logs -l "app.kubernetes.io/component=controlplane" -c controlplane --tail=30 2>/dev/null || true
+  log "--- Init container logs ---"
+  kubectl logs -l "app.kubernetes.io/component=controlplane" -c wait-for-postgres --tail=30 2>/dev/null || true
+  log "--- Pod describe ---"
+  kubectl describe pod -l "app.kubernetes.io/component=controlplane" 2>/dev/null | tail -40 || true
   log "--- Events ---"
   kubectl get events --sort-by=.lastTimestamp --field-selector involvedObject.kind=Pod 2>/dev/null | tail -20 || true
 }
 
-# Helper: wait for controlplane pod to be ready with diagnostics on failure
+# Helper: wait for controlplane deployment rollout with diagnostics on failure
 wait_for_controlplane() {
   local phase="$1"
-  log "Waiting for controlplane pod to be ready ($phase)..."
-  if ! kubectl wait --for=condition=ready pod \
-    -l "app.kubernetes.io/name=helix-controlplane" \
-    --timeout=300s 2>/dev/null; then
-    log "Controlplane pod not ready after $phase"
+  log "Waiting for controlplane rollout ($phase)..."
+  if ! kubectl rollout status deployment/"${RELEASE_NAME}-helix-controlplane" \
+    --timeout=300s 2>&1; then
+    log "Controlplane rollout failed after $phase"
     dump_diagnostics
-    fail "Controlplane pod never became ready after $phase"
+    fail "Controlplane deployment never rolled out after $phase"
   fi
 }
 
