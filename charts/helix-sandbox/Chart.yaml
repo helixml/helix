@@ -6,6 +6,7 @@ description: |
   connectivity to the Helix control plane. Supports NVIDIA, AMD, Intel GPUs and software rendering.
 
 type: application
+icon: https://helix.ml/logo.png
 
 # Chart version - increment on changes to chart templates
 version: 0.2.1
