@@ -5,6 +5,7 @@
 - [x] Add "Move to Backlog" button/option in `SpecTaskDetailContent.tsx` toolbar for eligible statuses
 - [x] Add loading state handling for the combined stop + status update operation
 - [x] Add snackbar feedback on success ("Task moved to backlog") and error
-- [ ] Test: Verify task moves from planning phase back to backlog column
-- [ ] Test: Verify task moves from implementation phase back to backlog (agent stops)
-- [ ] Test: Verify button is not shown for backlog, queued, done, and pull_request statuses
+- [x] Verify build passes (`yarn build`)
+- [ ] Manual test: Verify task moves from planning phase back to backlog column
+- [ ] Manual test: Verify task moves from implementation phase back to backlog (agent stops)
+- [ ] Manual test: Verify button is not shown for backlog, queued, done, and pull_request statuses
