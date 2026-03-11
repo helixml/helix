@@ -1541,6 +1541,56 @@ services:
       - name: integration-test
         path: /integration-test
 
+---
+# Helm Upgrade Compatibility Test
+# Catches backwards-incompatible Helm chart changes before they reach customers.
+# Installs the previous published chart version then upgrades to the latest.
+# Run locally: ./scripts/helm-upgrade-test.sh
+kind: pipeline
+type: docker
+name: helm-upgrade-test
+
+trigger:
+  event:
+    - cron
+  cron:
+    - helm-upgrade-nightly
+    - developer
+
+steps:
+  - name: helm-upgrade-test
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    commands:
+      # Install tools
+      - apk add --no-cache bash curl git kubectl helm
+      # Install kind
+      - curl -Lo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+      - chmod +x /usr/local/bin/kind
+      # Start Docker daemon
+      - dockerd --host=unix:///var/run/docker.sock &
+      - |
+        for i in $(seq 1 30); do
+          docker info >/dev/null 2>&1 && break
+          sleep 1
+        done
+      - docker info >/dev/null 2>&1 || (echo "Docker daemon failed to start" && exit 1)
+      # Run upgrade test
+      - bash scripts/helm-upgrade-test.sh
+    depends_on: []
+
+  - name: slack-notification
+    image: plugins/slack
+    settings:
+      webhook:
+        from_secret: JANITOR_SLACK_WEBHOOK_URL
+      channel: helix-janitor
+      message: "❌ Helm upgrade test failed — possible breaking chart change. (<https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}|Build>)"
+    when:
+      status:
+        - failure
 
 # ---
 # Spectask/Sandbox Integration Tests
