@@ -18070,6 +18070,21 @@ const docTemplate = `{
                 "status": {
                     "type": "string"
                 },
+                "tasks_active": {
+                    "type": "integer"
+                },
+                "tasks_completed": {
+                    "type": "integer"
+                },
+                "tasks_failed": {
+                    "type": "integer"
+                },
+                "tasks_pending": {
+                    "type": "integer"
+                },
+                "tasks_total": {
+                    "type": "integer"
+                },
                 "updated_at": {
                     "type": "string"
                 }

@@ -1212,3 +1212,4 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
 }
 
 export default CodeIntelligenceTab
+export { WikiSubTab, SearchSubTab, ChangelogSubTab, ConnectSubTab }
