@@ -1559,24 +1559,18 @@ trigger:
 
 steps:
   - name: helm-upgrade-test
-    image: docker:27-dind
-    privileged: true
-    environment:
-      DOCKER_TLS_CERTDIR: ""
+    image: docker:27-cli
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
     commands:
       # Install tools
-      - apk add --no-cache bash curl git kubectl helm
+      - apk add --no-cache bash curl git helm kubectl
       # Install kind
       - curl -Lo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
       - chmod +x /usr/local/bin/kind
-      # Start Docker daemon
-      - dockerd --host=unix:///var/run/docker.sock &
-      - |
-        for i in $(seq 1 30); do
-          docker info >/dev/null 2>&1 && break
-          sleep 1
-        done
-      - docker info >/dev/null 2>&1 || (echo "Docker daemon failed to start" && exit 1)
+      # Verify Docker is accessible via host socket
+      - docker info >/dev/null 2>&1 || (echo "Cannot access Docker socket" && exit 1)
       # Run upgrade test
       - bash scripts/helm-upgrade-test.sh
     depends_on: []
@@ -1591,6 +1585,11 @@ steps:
     when:
       status:
         - failure
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
 
 # ---
 # Spectask/Sandbox Integration Tests
