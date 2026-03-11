@@ -2,7 +2,7 @@
 
 ## Architecture Overview
 
-The fix targets three layers: (1) add context/timeout to all raw `exec.Command("git", ...)` calls, (2) reduce subprocess volume in the hottest path, and (3) add a safety-net monitor for git processes.
+The fix targets two layers: (1) add context/timeout to all raw `exec.Command("git", ...)` calls in the desktop diff hot path, and (2) migrate server-side reads to the existing pure-Go git library to eliminate subprocesses entirely.
 
 ## Key Findings from Code Investigation
 
@@ -26,7 +26,7 @@ The fix targets three layers: (1) add context/timeout to all raw `exec.Command("
 1. **No context propagation**: `exec.Command("git", ...)` ignores the HTTP request context. When a client disconnects or a new poll fires, the old git processes keep running.
 2. **No timeout**: If a git operation blocks on a lock (`index.lock`), it hangs forever.
 3. **High frequency**: The frontend polls `/diff` every 3 seconds. Each poll spawns 10+ git subprocesses. With 5 sessions open in the UI, that's ~150 git process spawns per second.
-4. **No reaping**: The existing process monitor (`process_monitor.go`) only watches for VLLM/Ollama patterns. Git zombies are invisible.
+
 
 ### Existing patterns to follow
 
@@ -62,15 +62,7 @@ func gitCommand(ctx context.Context, dir string, args ...string) ([]byte, error)
 
 **Scope of change**: 2 functions in 2 files. The `GitRepo` wrapper is already imported elsewhere in the services package.
 
-### Decision 3: Add git process counting to the orphan monitor
-
-**Approach**: Add a lightweight git-process counter to the existing `orphanMonitorLoop()` in `process_monitor.go`. Every 30 seconds (existing interval), count processes matching `git` in the process tree. Log a warning if count exceeds a threshold.
-
-**Rationale**: Defense in depth. Even after fixing the known leak sources, we want early warning if new ones appear. Reusing the existing monitor avoids adding new goroutines or timers.
-
-**Implementation**: Add a `countGitProcesses()` method that scans `tree.Nodes` for command strings containing `git ` (note the space, to avoid matching e.g. `digital`). Log at WARN level if count > 100. Optionally SIGTERM git processes older than 5 minutes that aren't children of tracked processes.
-
-### Decision 4: Do NOT change the frontend poll interval
+### Decision 3: Do NOT change the frontend poll interval
 
 **Rationale**: 3-second polling is a product requirement for "live" diff updates. The fix should be on the backend — making each poll cheap (via context cleanup and potentially pure-Go reads), not by degrading the UX.
 
@@ -81,7 +73,6 @@ func gitCommand(ctx context.Context, dir string, args ...string) ([]byte, error)
 | `api/pkg/desktop/diff.go` | Add `gitCommand()` helper. Refactor all `exec.Command("git", ...)` → `gitCommand(ctx, dir, ...)`. Thread `r.Context()` through `handleDiff`, `resolveBaseBranch`, `getWorkspaceInfo`, `generateHelixSpecsDiff`, `findHelixSpecsWorktree`. |
 | `api/pkg/server/spec_task_orchestrator_handlers.go` | Replace `exec.Command("git", ...)` in `readDesignDocsFromGit()` with `services.OpenGitRepo()` + `ListFilesInBranch()` + `ReadFileFromBranch()`. |
 | `api/pkg/server/spec_task_design_review_handlers.go` | Replace `exec.Command("git", ...)` in `backfillDesignReviewFromGit()` with `services.OpenGitRepo()` + pure-Go equivalents. |
-| `api/pkg/runner/process_monitor.go` | Add `countGitProcesses()` method. Call it from `scanForOrphansInternal()`. Log warning if threshold exceeded. Optionally reap stale git processes. |
 
 ## Risks and Mitigations
 
@@ -90,4 +81,3 @@ func gitCommand(ctx context.Context, dir string, args ...string) ([]byte, error)
 | 10s timeout too short for large repos | Start with 10s, log timeouts at WARN level so we can tune. Most git read ops complete in <100ms. |
 | Context cancellation leaves `index.lock` files | Read-only git operations (`rev-parse`, `status`, `diff`, `ls-tree`, `show`) don't create lock files. Only write operations do, and those aren't in the affected paths. |
 | Pure-Go git library behaves differently than CLI | The `GitRepo` wrapper is already used for the same operations in other code paths (`FindTaskDirInBranch`, `ReadDesignDocs`). Battle-tested. |
-| Reaping git processes could kill legitimate long-running operations | Only reap processes older than 5 minutes. No legitimate git read operation takes that long. Push/fetch operations go through `gitcmd` which has its own timeout management. |

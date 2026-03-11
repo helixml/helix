@@ -20,10 +20,6 @@ Three distinct sources of zombie git processes have been identified:
 - `backfillDesignReviewFromGit()` in `spec_task_design_review_handlers.go` spawns `git rev-parse` + `git ls-tree` + 3 × `git show`, also raw `exec.Command`
 - These run on API request paths and can hang indefinitely on lock contention
 
-### 3. Existing process monitor is blind to git processes
-- `process_monitor.go` only tracks VLLM and Ollama processes via regex
-- Git zombies are completely invisible to the orphan scanner
-
 ## User Stories
 
 ### US-1: Eliminate zombie git processes from diff polling
@@ -41,15 +37,7 @@ As a platform operator, I need server-side git operations to not leak processes 
 - `readDesignDocsFromGit()` and `backfillDesignReviewFromGit()` use `exec.CommandContext` with the request context (or a derived timeout context)
 - Alternatively, migrate these to the existing pure-Go `GitRepo` wrapper in `services/git_helpers.go` which doesn't spawn subprocesses
 
-### US-3: Add git process monitoring as a safety net
-As a platform operator, I need visibility into git process accumulation so that leaks are detected before reaching catastrophic levels.
-
-**Acceptance Criteria:**
-- The existing orphan process monitor (or a new lightweight check) periodically counts git processes
-- A warning is logged when git process count exceeds a threshold (e.g., 100)
-- Optionally: stale git processes (older than 5 minutes) are reaped
-
-### US-4: Reduce git subprocess volume from diff polling
+### US-3: Reduce git subprocess volume from diff polling
 As a platform operator, I need the diff endpoint to spawn fewer processes per request so that even with many sessions, the system isn't overwhelmed.
 
 **Acceptance Criteria:**
@@ -61,4 +49,4 @@ As a platform operator, I need the diff endpoint to spawn fewer processes per re
 
 - Replacing all `gitcmd.NewCommand` usage (these already go through Gitea's git wrapper which has timeouts)
 - Changing the git HTTP server's `upload-pack`/`receive-pack` handling (these are properly managed by `gitcmd.Run` with context)
-- Rewriting the process monitor's core architecture
+- Adding process-level monitoring for git zombies (unnecessary if the root cause is fixed)

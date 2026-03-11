@@ -19,18 +19,10 @@
 - [ ] Ensure `GitRepo.Close()` is called via `defer` in both refactored functions
 - [ ] Verify the orchestrator and design review handler tests still pass
 
-## Phase 3: Add git process monitoring as safety net
+## Phase 3: Verify and test
 
-- [ ] Add a `countGitProcesses(tree *ProcessTree) int` method to `ProcessTracker` in `api/pkg/runner/process_monitor.go` that counts nodes whose command contains `git ` (with trailing space to avoid false positives like `digital`)
-- [ ] Call `countGitProcesses()` from `scanForOrphansInternal()` after building the process tree
-- [ ] Log at WARN level when git process count exceeds 100, including the count and a sample of process commands
-- [ ] Optionally: identify and SIGTERM git processes older than 5 minutes that are not descendants of tracked processes (reuse existing `isProcessOrphaned` / `isProcessTooYoung` logic)
-
-## Phase 4: Verify and test
-
-- [ ] Build the API: `cd api && go build ./pkg/server/ ./pkg/desktop/ ./pkg/runner/ ./pkg/services/`
+- [ ] Build the API: `cd api && go build ./pkg/server/ ./pkg/desktop/ ./pkg/services/`
 - [ ] Run desktop diff tests: `cd api && go test -v ./pkg/desktop/ -count=1`
-- [ ] Run process monitor tests (if any): `cd api && go test -v ./pkg/runner/ -count=1`
 - [ ] Deploy to dev environment and monitor `ps aux | grep git | wc -l` over 10 minutes with 3+ active sessions — count should stay under 50
 - [ ] Check API logs for any new WARN-level git process count messages
 - [ ] Run frontend `yarn build` to confirm no frontend changes needed
