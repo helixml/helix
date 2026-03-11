@@ -49,6 +49,7 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import LinkIcon from "@mui/icons-material/Link";
 import ArchiveIcon from "@mui/icons-material/Archive";
 import AccountTree from "@mui/icons-material/AccountTree";
+import UndoIcon from "@mui/icons-material/Undo";
 import { TypesSpecTaskPriority, TypesSpecTaskStatus } from "../../api/api";
 import ExternalAgentDesktopViewer, {
   useSandboxState,
@@ -80,6 +81,7 @@ import {
   useGetProject,
   useGetProjectRepositories,
 } from "../../services/projectService";
+import { useMoveToBacklog } from "../../services/specTaskWorkflowService";
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
 import AgentDropdown from "../agent/AgentDropdown";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
@@ -130,6 +132,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const streaming = useStreaming();
   const apps = useApps();
   const updateSpecTask = useUpdateSpecTask();
+  const moveToBacklogMutation = useMoveToBacklog(taskId);
   const queryClient = useQueryClient();
   const router = useRouter();
   // Use md breakpoint (900px) to enable split view on tablets
@@ -452,6 +455,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Check if task is archived/rejected - container is shut down so desktop view won't work
   const isTaskArchived = task?.archived;
+
+  // Check if task can be moved to backlog (not in backlog, queued, done, or pull_request)
+  const isQueued =
+    task?.status === "queued_implementation" ||
+    task?.status === "queued_spec_generation" ||
+    task?.status === "spec_approved";
+  const canMoveToBacklog =
+    task &&
+    !isQueued &&
+    task.status !== "backlog" &&
+    task.status !== "done" &&
+    task.status !== "pull_request" &&
+    !isTaskArchived;
 
   // Thread selection state for switching between planning and implementation threads
   const [selectedThreadSessionId, setSelectedThreadSessionId] = useState<
@@ -1431,6 +1447,31 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 <Copy size={14} />
               </IconButton>
             </Tooltip>
+          </Box>
+        )}
+
+        {/* Move to Backlog button */}
+        {canMoveToBacklog && (
+          <Box sx={{ mt: 2 }}>
+            <Button
+              size="small"
+              variant="outlined"
+              color="warning"
+              startIcon={
+                moveToBacklogMutation.isPending ? (
+                  <CircularProgress size={14} color="inherit" />
+                ) : (
+                  <UndoIcon />
+                )
+              }
+              onClick={() => moveToBacklogMutation.mutate()}
+              disabled={moveToBacklogMutation.isPending}
+              sx={{ fontSize: "0.75rem" }}
+            >
+              {moveToBacklogMutation.isPending
+                ? "Moving..."
+                : "Move to Backlog"}
+            </Button>
           </Box>
         )}
 
