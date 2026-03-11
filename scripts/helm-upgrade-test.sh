@@ -43,6 +43,48 @@ if [ "${SKIP_CLUSTER_CREATE:-}" != "1" ]; then
   kind create cluster --name "$CLUSTER_NAME" --wait 120s
 fi
 
+# When running inside a container with the host Docker socket mounted (e.g. Drone CI),
+# Kind's kubeconfig points to 127.0.0.1 which is the container's own localhost, not
+# the host where the Kind API server container actually listens. Fix by:
+# 1. Connecting this container to Kind's Docker network
+# 2. Patching kubeconfig to use the control plane container's IP
+if [ -S /var/run/docker.sock ] && ! kubectl cluster-info --context "kind-${CLUSTER_NAME}" >/dev/null 2>&1; then
+  log "Cannot reach cluster via localhost, patching kubeconfig for container environment..."
+
+  # Find our own container ID using multiple methods (Drone overrides hostname)
+  SELF_CONTAINER_ID=""
+  # Method 1: hostname (Docker default, but orchestrators may override)
+  if [ -z "$SELF_CONTAINER_ID" ] && docker inspect "$(hostname)" >/dev/null 2>&1; then
+    SELF_CONTAINER_ID="$(hostname)"
+  fi
+  # Method 2: cgroup v1 cpuset path contains the 64-char container ID
+  if [ -z "$SELF_CONTAINER_ID" ]; then
+    SELF_CONTAINER_ID=$(cat /proc/1/cpuset 2>/dev/null | grep -oE '[a-f0-9]{64}' | head -1 || true)
+  fi
+  # Method 3: mountinfo contains docker/containers/<id> paths
+  if [ -z "$SELF_CONTAINER_ID" ]; then
+    SELF_CONTAINER_ID=$(cat /proc/self/mountinfo 2>/dev/null | grep -oE 'docker/containers/[a-f0-9]{64}' | head -1 | sed 's:docker/containers/::' || true)
+  fi
+
+  if [ -n "$SELF_CONTAINER_ID" ]; then
+    log "Detected container ID: ${SELF_CONTAINER_ID:0:12}, connecting to Kind network..."
+    docker network connect kind "$SELF_CONTAINER_ID" 2>/dev/null || true
+  else
+    log "WARNING: Could not detect container ID, kubectl may not reach the cluster"
+  fi
+
+  CONTROL_PLANE_IP=$(docker inspect "${CLUSTER_NAME}-control-plane" \
+    --format '{{ .NetworkSettings.Networks.kind.IPAddress }}' 2>/dev/null || true)
+  if [ -n "$CONTROL_PLANE_IP" ]; then
+    log "Patching kubeconfig to use control plane IP: ${CONTROL_PLANE_IP}"
+    # The Kind API server TLS cert is issued for 127.0.0.1/localhost, not the
+    # container IP, so we must skip TLS verification when connecting via IP.
+    kubectl config set-cluster "kind-${CLUSTER_NAME}" \
+      --server="https://${CONTROL_PLANE_IP}:6443" \
+      --insecure-skip-tls-verify=true
+  fi
+fi
+
 log "Cluster info:"
 kubectl cluster-info --context "kind-${CLUSTER_NAME}"
 
@@ -72,6 +114,7 @@ log "Upgrade path: v${PREVIOUS_VERSION} -> v${LATEST_VERSION}"
 # --- Step 1: Install the previous published chart (simulates existing customer) ---
 # Minimal values to get the chart running without real API keys
 COMMON_VALUES=()
+COMMON_VALUES+=("--set" "controlplane.runnerToken=test-token-for-helm-validation")
 COMMON_VALUES+=("--set" "controlplane.haystack.enabled=false")
 
 log "Installing previous chart (v${PREVIOUS_VERSION})..."
