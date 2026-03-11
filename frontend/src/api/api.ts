@@ -1058,6 +1058,11 @@ export interface ServerKoditGrepResultDTO {
 export interface ServerKoditIndexingStatusAttributes {
   message?: string;
   status?: string;
+  tasks_active?: number;
+  tasks_completed?: number;
+  tasks_failed?: number;
+  tasks_pending?: number;
+  tasks_total?: number;
   updated_at?: string;
 }
 

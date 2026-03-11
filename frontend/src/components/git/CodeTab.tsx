@@ -228,7 +228,7 @@ const CodeTab: FC<CodeTabProps> = ({
   const diagramsLoading = diagramEnrichmentQueries.some(q => q.isLoading) && diagramEnrichmentIds.length > 0
 
   const handleNavigateToCodeIntelligence = () => {
-    router.mergeParams({ tab: 'code-intelligence' })
+    router.mergeParams({ tab: 'wiki' })
   }
 
   const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null)
