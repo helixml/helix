@@ -9,8 +9,8 @@
   "orientation": "any",
   "icons": [
     {
-      "src": "/img/logo.png",
-      "sizes": "1000x1000",
+      "src": "/img/favicon.png",
+      "sizes": "180x180",
       "type": "image/png",
       "purpose": "any maskable"
     }
