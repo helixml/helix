@@ -59,6 +59,30 @@ steps:
   #        - push
   #    depends_on: []
 
+  - name: helm-lint
+    image: alpine/helm:3.16.4
+    commands:
+      # Lint all three charts with default values
+      - helm lint charts/helix-controlplane
+      - helm lint charts/helix-runner
+      - helm lint charts/helix-sandbox
+      # Lint controlplane with production-like example values
+      - helm lint charts/helix-controlplane -f charts/helix-controlplane/values-example.yaml
+      - helm lint charts/helix-runner -f charts/helix-runner/values-example.yaml
+      # Template render to catch runtime errors (missing helpers, bad references)
+      - helm dependency build charts/helix-controlplane
+      - helm template test-release charts/helix-controlplane -f charts/helix-controlplane/values-example.yaml > /dev/null
+      - helm template test-release charts/helix-runner -f charts/helix-runner/values-example.yaml > /dev/null
+      - helm template test-release charts/helix-sandbox > /dev/null
+      # Template with each sandbox values variant
+      - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-bare-metal.yaml > /dev/null
+      - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-eks.yaml > /dev/null
+      - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-gke.yaml > /dev/null
+    when:
+      event:
+        - push
+    depends_on: []
+
   - name: check-for-secrets
     image: ghcr.io/gitleaks/gitleaks:v8.24.0
     commands:
