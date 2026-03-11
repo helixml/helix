@@ -53,8 +53,8 @@ helm repo add helix --force-update "$HELM_REPO_URL"
 helm repo update
 
 log "Fetching published chart versions..."
-# Get all versions sorted by semver (newest first)
-ALL_VERSIONS=$(helm search repo helix/helix-controlplane --versions --output json \
+# Get all versions including pre-release (--devel), sorted newest first
+ALL_VERSIONS=$(helm search repo helix/helix-controlplane --versions --devel --output json \
   | grep -o '"version":"[^"]*"' | cut -d'"' -f4)
 
 LATEST_VERSION=$(echo "$ALL_VERSIONS" | head -1)
