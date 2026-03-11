@@ -1561,9 +1561,6 @@ trigger:
   event:
     - cron
     - push
-  cron:
-    - helm-upgrade-nightly
-    - developer
   branch:
     - main
     - fix/helm-upgrade-*
