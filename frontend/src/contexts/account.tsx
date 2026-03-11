@@ -471,11 +471,15 @@ export const useAccountContext = (): IAccountContext => {
   }, [initialized, user, router.name, organizationTools.organizations.length, organizationTools.initialized])
 
   // Redirect to orgs page if user has no org memberships
+  // Only redirect if onboarding is completed (or dismissed) to avoid a loop with /onboarding
   useEffect(() => {
     if (!initialized || !user) return
     if (user.waitlisted) return
     if (!organizationTools.initialized) return
     if (router.name === 'orgs') return
+    // Don't redirect to /orgs if onboarding hasn't been completed yet — let the
+    // onboarding redirect above handle the flow instead
+    if (!user.onboarding_completed && !onboardingDismissedRef.current) return
     const hasMembership = organizationTools.organizations.some(org => org.member !== false)
     if (hasMembership) return
 
