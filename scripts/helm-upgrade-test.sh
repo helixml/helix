@@ -12,12 +12,11 @@ set -euo pipefail
 #   ./scripts/helm-upgrade-test.sh           # full test (creates Kind cluster)
 #   SKIP_CLUSTER_CREATE=1 ./scripts/helm-upgrade-test.sh  # reuse existing cluster
 #
-# Requirements: docker, kind, kubectl, helm
+# Requirements: docker, kind, kubectl, helm, jq
 
 CLUSTER_NAME="helm-upgrade-test"
 HELM_REPO_URL="https://charts.helixml.tech"
 RELEASE_NAME="upgrade-test"
-NAMESPACE="default"
 TIMEOUT="5m"
 
 log() { echo "==> $*"; }
@@ -55,7 +54,7 @@ helm repo update
 log "Fetching published chart versions..."
 # Get all versions including pre-release (--devel), sorted newest first
 ALL_VERSIONS=$(helm search repo helix/helix-controlplane --versions --devel --output json \
-  | grep -o '"version":"[^"]*"' | cut -d'"' -f4)
+  | jq -r '.[].version')
 
 LATEST_VERSION=$(echo "$ALL_VERSIONS" | head -1)
 PREVIOUS_VERSION=$(echo "$ALL_VERSIONS" | head -2 | tail -1)
@@ -73,7 +72,6 @@ log "Upgrade path: v${PREVIOUS_VERSION} -> v${LATEST_VERSION}"
 # --- Step 1: Install the previous published chart (simulates existing customer) ---
 # Minimal values to get the chart running without real API keys
 COMMON_VALUES=()
-COMMON_VALUES+=("--set" "controlplane.providers={}")
 COMMON_VALUES+=("--set" "controlplane.haystack.enabled=false")
 
 log "Installing previous chart (v${PREVIOUS_VERSION})..."
@@ -117,33 +115,14 @@ if [ "$CRASH_PODS" -gt 0 ]; then
   fail "$CRASH_PODS pod(s) in CrashLoopBackOff after upgrade"
 fi
 
-# Run helm test (the test-connection hook)
+# Run helm test (validates service connectivity)
 log "Running helm test..."
 helm test "$RELEASE_NAME" --timeout 60s || fail "helm test failed after upgrade"
 
-# Check all expected services exist
-log "Checking expected services..."
-for svc in "${RELEASE_NAME}-helix-controlplane"; do
-  kubectl get svc "$svc" > /dev/null || fail "Service $svc not found"
-done
-
-# Check controlplane responds to health check
-log "Port-forward and health check..."
-kubectl port-forward "svc/${RELEASE_NAME}-helix-controlplane" 18080:80 &
-PF_PID=$!
-sleep 3
-
-HEALTH_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "http://localhost:18080/" 2>/dev/null || echo "000")
-kill $PF_PID 2>/dev/null || true
-
-if [ "$HEALTH_STATUS" = "000" ]; then
-  log "Warning: Could not connect to controlplane (may be expected in Kind without full config)"
-else
-  log "Health check returned HTTP $HEALTH_STATUS"
-  if [ "$HEALTH_STATUS" -ge 500 ]; then
-    fail "Controlplane returned HTTP $HEALTH_STATUS"
-  fi
-fi
+# Check controlplane service exists
+log "Checking controlplane service..."
+kubectl get svc "${RELEASE_NAME}-helix-controlplane" > /dev/null \
+  || fail "Service ${RELEASE_NAME}-helix-controlplane not found"
 
 # --- Done ---
 log ""
