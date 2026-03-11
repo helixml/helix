@@ -147,13 +147,11 @@ func (apiServer *HelixAPIServer) configJS(res http.ResponseWriter, req *http.Req
 	res.Header().Set("Pragma", "no-cache")
 	res.Header().Set("Expires", "0")
 	content := fmt.Sprintf(`
-window.DISABLE_LLM_CALL_LOGGING = %t
 window.HELIX_SENTRY_DSN = "%s"
 window.HELIX_GOOGLE_ANALYTICS = "%s"
 window.RUDDERSTACK_WRITE_KEY = "%s"
 window.RUDDERSTACK_DATA_PLANE_URL = "%s"
 `,
-		config.DisableLLMCallLogging,
 		config.SentryDSNFrontend,
 		config.GoogleAnalyticsFrontend,
 		config.RudderStackWriteKey,
