@@ -49,4 +49,43 @@ Not eligible:
 ## Components Modified
 
 - `TaskCard.tsx` — Add menu item for phases other than backlog/queued/done/pull_request
-- `SpecTaskActionButtons.tsx` or `SpecTaskDetailContent.tsx` — Add button/menu option in detail view
+- `SpecTaskDetailContent.tsx` — Add button in details panel (next to Archive button)
+
+## Implementation Notes
+
+### Files Changed
+
+1. **`frontend/src/services/specTaskWorkflowService.ts`**
+   - Added `useMoveToBacklog(specTaskId)` hook
+   - Combines stop agent (ignoring errors if no agent running) + update status to backlog
+   - Handles snackbar success/error feedback
+
+2. **`frontend/src/components/tasks/TaskCard.tsx`**
+   - Added `UndoIcon` import and `useMoveToBacklog` hook
+   - Added `canMoveToBacklog` computed value based on phase/status
+   - Added "Move to Backlog" menu item in overflow menu (three-dot menu)
+
+3. **`frontend/src/components/tasks/SpecTaskDetailContent.tsx`**
+   - Added `UndoIcon` import and `useMoveToBacklog` hook
+   - Added `canMoveToBacklog` computed value (same logic as TaskCard)
+   - Added "Move to Backlog" button in details panel, above Archive button
+
+### Eligibility Logic
+
+```typescript
+const isQueued = task.status === "queued_implementation" || 
+                 task.status === "queued_spec_generation" || 
+                 task.status === "spec_approved";
+
+const canMoveToBacklog = !isQueued &&
+                         task.phase !== "backlog" &&
+                         task.phase !== "completed" &&
+                         task.phase !== "pull_request" &&
+                         task.status !== "done" &&
+                         task.status !== "pull_request";
+```
+
+### UI Placement
+
+- **TaskCard**: Menu item in overflow menu, shown after "Remove from queue" and before "Clone to projects"
+- **SpecTaskDetailContent**: Warning-colored outlined button in details panel, above the Archive button
