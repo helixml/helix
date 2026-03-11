@@ -1826,10 +1826,12 @@ type CrispTrigger struct {
 }
 
 type CronTrigger struct {
-	Enabled  bool     `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Schedule string   `json:"schedule,omitempty" yaml:"schedule,omitempty"`
-	Input    string   `json:"input,omitempty" yaml:"input,omitempty"`
-	Emails   []string `json:"emails,omitempty" yaml:"emails,omitempty"`
+	Enabled   bool     `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Schedule  string   `json:"schedule,omitempty" yaml:"schedule,omitempty"`
+	Input     string   `json:"input,omitempty" yaml:"input,omitempty"`
+	Emails    []string `json:"emails,omitempty" yaml:"emails,omitempty"`
+	Action    string   `json:"action,omitempty" yaml:"action,omitempty"`         // "session" (default) or "spec_task"
+	ProjectID string   `json:"project_id,omitempty" yaml:"project_id,omitempty"` // Target project for spec_task action
 }
 
 // AzureDevOpsTrigger - once enabled, a trigger in the database will be created
