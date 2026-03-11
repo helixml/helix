@@ -375,7 +375,7 @@ func NewServer(
 	}
 
 	// Initialize Kodit code intelligence library (in-process)
-	kr, err := initKodit(cfg, apiServer.gitRepositoryService)
+	kr, err := initKodit(cfg, apiServer.gitRepositoryService, apiServer.Store)
 	if err != nil {
 		return nil, err
 	}
