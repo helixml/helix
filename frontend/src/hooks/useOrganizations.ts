@@ -4,7 +4,6 @@ import useApi from './useApi'
 import useSnackbar from './useSnackbar'
 import useRouter from './useRouter'
 import { extractErrorMessage } from './useErrorCallback'
-import bluebird from 'bluebird'
 
 export interface IOrganizationTools {
   organizations: TypesOrganization[],
@@ -204,7 +203,7 @@ export default function useOrganizations(): IOrganizationTools {
       const result = await api.getApiClient().v1OrganizationsList()
 
       // Fetch members for each organization in parallel
-      const orgsWithMembers = await bluebird.map(result.data, async (org) => {
+      const orgsWithMembers = await Promise.all(result.data.map(async (org) => {
         try {
           // Only fetch members if org has an ID
           if (org.id) {
@@ -236,7 +235,7 @@ export default function useOrganizations(): IOrganizationTools {
           // Return the original org if there was an error fetching members
           return org
         }
-      })
+      }))
 
       // Sort organizations by display_name (or name if display_name is not available)
       const sortedOrgs = [...orgsWithMembers].sort((a, b) => {

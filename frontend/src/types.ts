@@ -355,6 +355,7 @@ export interface IServerConfig {
   version?: string,
   latest_version?: string,
   deployment_id?: string,
+  edition?: string,
   license?: {
     valid: boolean,
     organization: string,

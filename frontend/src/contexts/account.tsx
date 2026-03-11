@@ -1,4 +1,3 @@
-import bluebird from 'bluebird'
 import { createContext, FC, useCallback, useEffect, useMemo, useRef, useState, useContext, ReactNode } from 'react'
 import useApi from '../hooks/useApi'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
@@ -6,6 +5,7 @@ import useLoading from '../hooks/useLoading'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useOrganizations, { IOrganizationTools, defaultOrganizationTools } from '../hooks/useOrganizations'
+import { useGetConfig } from '../services/userService'
 
 import {
   IApiKey,
@@ -47,6 +47,19 @@ export interface IAccountContext {
   dismissOnboarding: () => void,
 }
 
+const DEFAULT_SERVER_CONFIG: IServerConfig = {
+  filestore_prefix: '',
+  stripe_enabled: false,
+  billing_enabled: false,
+  require_active_subscription: false,
+  sentry_dsn_frontend: '',
+  google_analytics_frontend: '',
+  providers_management_enabled: false,
+  eval_user_id: '',
+  tools_enabled: true,
+  apps_enabled: true,
+}
+
 export const AccountContext = createContext<IAccountContext>({
   initialized: false,
   credits: 0,
@@ -55,15 +68,7 @@ export const AccountContext = createContext<IAccountContext>({
   isOrgAdmin: false,
   isOrgMember: false,
   loggingOut: false,
-  serverConfig: {
-    filestore_prefix: '',
-    stripe_enabled: false,
-    sentry_dsn_frontend: '',
-    google_analytics_frontend: '',
-    eval_user_id: '',
-    tools_enabled: true,
-    apps_enabled: true,
-  },
+  serverConfig: DEFAULT_SERVER_CONFIG,
   userConfig: {},
   appApiKeys: [],
   mobileMenuOpen: false,
@@ -100,15 +105,42 @@ export const useAccountContext = (): IAccountContext => {
   const [ credits, setCredits ] = useState(0)
   const [ loggingOut, setLoggingOut ] = useState(false)
   const [ userConfig, setUserConfig ] = useState<IUserConfig>({})
-  const [ serverConfig, setServerConfig ] = useState<IServerConfig>({
-    filestore_prefix: '',
-    stripe_enabled: false,
-    sentry_dsn_frontend: '',
-    google_analytics_frontend: '',
-    eval_user_id: '',
-    tools_enabled: true,
-    apps_enabled: true,
-  })
+
+  // Server config via React Query — single source of truth.
+  // Default staleTime=0 means data refetches on mount (e.g. Login page after logout).
+  const { data: configData } = useGetConfig()
+  const serverConfig = useMemo<IServerConfig>(() => {
+    if (!configData) return DEFAULT_SERVER_CONFIG
+    return {
+      filestore_prefix: configData.filestore_prefix ?? '',
+      stripe_enabled: configData.stripe_enabled ?? false,
+      billing_enabled: configData.billing_enabled ?? false,
+      require_active_subscription: configData.require_active_subscription ?? false,
+      sentry_dsn_frontend: configData.sentry_dsn_frontend ?? '',
+      google_analytics_frontend: configData.google_analytics_frontend ?? '',
+      providers_management_enabled: configData.providers_management_enabled ?? false,
+      eval_user_id: configData.eval_user_id ?? '',
+      tools_enabled: configData.tools_enabled ?? true,
+      apps_enabled: configData.apps_enabled ?? true,
+      version: configData.version,
+      latest_version: configData.latest_version,
+      deployment_id: configData.deployment_id,
+      edition: configData.edition,
+      license: configData.license ? {
+        valid: configData.license.valid ?? false,
+        organization: configData.license.organization ?? '',
+        valid_until: configData.license.valid_until ?? '',
+        features: {
+          users: configData.license.features?.users ?? false,
+        },
+        limits: {
+          users: configData.license.limits?.users ?? 0,
+          machines: configData.license.limits?.machines ?? 0,
+        },
+      } : undefined,
+    }
+  }, [configData])
+
   const [apiKeys, setApiKeys] = useState<IApiKey[]>([])
   const [appApiKeys, setAppApiKeys] = useState<IApiKey[]>([])
   const [models, setModels] = useState<IHelixModel[]>([])
@@ -162,12 +194,6 @@ export const useAccountContext = (): IAccountContext => {
     }
   }, [])
 
-  const loadServerConfig = useCallback(async () => {
-    const configResult = await api.get('/api/v1/config')
-    if (!configResult) return
-    setServerConfig(configResult)
-  }, [])
-
   const loadApiKeys = useCallback(async (params: Record<string, string> = {}) => {
     // This function is kept for backward compatibility but now relies on React Query
     // The actual loading is handled by the useGetUserAPIKeys hook
@@ -211,21 +237,6 @@ export const useAccountContext = (): IAccountContext => {
     snackbar,
     apiKeys,
     loadAppApiKeys,
-  ])
-
-  const loadAll = useCallback(async () => {
-    try {
-      await bluebird.all([
-        loadStatus(),
-        loadServerConfig(),
-      ])
-    } catch (error) {
-      console.error('Error loading data:', error)
-      // Don't crash the app on data loading errors
-    }
-  }, [
-    loadStatus,
-    loadServerConfig,
   ])
 
   const onLogin = useCallback(async () => {
@@ -408,16 +419,10 @@ export const useAccountContext = (): IAccountContext => {
 
 
   useEffect(() => {
-    try {
-      if (user) {
-        loadAll()
-      } else {
-        loadServerConfig()
-      }
-    } catch (error) {
-      console.error('Error in data loading useEffect:', error)
-      // Ensure any loading states are cleared even on error
+    if (user) {
+      loadStatus()
     }
+    // Server config is loaded via React Query (useGetConfig) automatically
   }, [user])
 
   // Redirect to login page if not authenticated
