@@ -10,16 +10,33 @@ The Anthropic Go SDK (`v1.12.0+`, currently in `go.mod`) already has built-in Ve
 
 ## User Stories
 
-### US-1: Operator configures Anthropic-via-Vertex as a provider
-As a Helix operator, I want to configure Vertex AI as the backend for Anthropic models so that API calls go through Google Cloud instead of directly to Anthropic.
+### US-1: Operator configures Anthropic-via-Vertex via environment variables
+As a Helix operator, I want to configure Vertex AI as the backend for Anthropic models using environment variables so that API calls go through Google Cloud instead of directly to Anthropic.
 
 **Acceptance Criteria:**
 - New env vars: `ANTHROPIC_VERTEX_PROJECT_ID`, `ANTHROPIC_VERTEX_REGION` (default `global`), and `ANTHROPIC_VERTEX_CREDENTIALS_FILE` (path to Google service account JSON; if unset, uses Application Default Credentials)
 - When `ANTHROPIC_VERTEX_PROJECT_ID` is set, the Anthropic proxy uses Vertex AI instead of direct Anthropic API
-- `ANTHROPIC_API_KEY` and `ANTHROPIC_VERTEX_PROJECT_ID` are mutually exclusive — if both set, fail at startup with a clear error
+- `ANTHROPIC_API_KEY` and `ANTHROPIC_VERTEX_PROJECT_ID` are mutually exclusive for the built-in provider — if both set, fail at startup with a clear error
 - All existing Anthropic model names (e.g. `claude-sonnet-4`, `claude-opus-4`) continue to work unchanged from the client perspective (Zed, API consumers)
 
-### US-2: Transparent to downstream clients
+### US-2: Admin configures Vertex as a provider endpoint via the UI
+As a Helix admin, I want to create a global Anthropic-via-Vertex provider endpoint through the admin providers UI so that all users route through Vertex.
+
+**Acceptance Criteria:**
+- The create/update provider endpoint API accepts optional `vertex_project_id`, `vertex_region`, and `vertex_credentials_file` fields
+- When a provider endpoint has `vertex_project_id` set, the proxy uses Vertex mode for requests routed to that endpoint
+- The provider endpoint can be created via the API (and later through the frontend form)
+- Works alongside direct-Anthropic provider endpoints — an org could have one of each (though only one is active per routing decision)
+
+### US-3: User configures Vertex as a personal provider endpoint
+As a Helix user (when custom user providers are enabled), I want to add my own Vertex-backed Anthropic provider using my own GCP project and credentials.
+
+**Acceptance Criteria:**
+- Same fields available on user-owned provider endpoints as admin endpoints (`vertex_project_id`, `vertex_region`, `vertex_credentials_file`)
+- User's Vertex endpoint is used when they are the owner and routing selects it
+- Credentials file must be mounted/accessible to the API container (same pattern as `api_key_file`)
+
+### US-4: Transparent to downstream clients
 As a Zed IDE user or API consumer, I should not need to change anything when the operator switches from direct Anthropic to Vertex AI.
 
 **Acceptance Criteria:**
@@ -27,16 +44,17 @@ As a Zed IDE user or API consumer, I should not need to change anything when the
 - Billing/usage logging continues to work — model names, token counts, costs all still recorded
 - Error responses are still Anthropic-format (Vertex returns Anthropic-native responses via `rawPredict`)
 
-### US-3: SaaS deployment
+### US-5: SaaS deployment
 As the Helix SaaS operator, I want to deploy Vertex AI as the Anthropic backend on `app.helix.ml`.
 
 **Acceptance Criteria:**
-- Helm chart updated with optional Vertex configuration fields
-- Google Cloud service account credentials mountable as a Kubernetes secret
+- Docker Compose env var passthrough for `ANTHROPIC_VERTEX_*` vars (SaaS runs Docker, not k8s)
+- Google service account credentials file mountable as a Docker volume
+- Helm chart also updated with optional Vertex configuration fields (for k8s deployments)
 - Deployed and verified on SaaS before closing this task
 
 ## Out of Scope
 
 - Failover/fallback between direct Anthropic and Vertex (future work)
-- Exposing Vertex as a user-selectable provider in the UI (it's an operator-level backend choice)
+- Frontend UI changes to the create/update provider dialog for Vertex fields (the API supports it; UI polish is a follow-up)
 - Changing how Claude Code subscription mode works (that bypasses the proxy entirely)
