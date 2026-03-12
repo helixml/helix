@@ -167,6 +167,10 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   const [saveConnection, setSaveConnection] = useState(true); // Save PAT for future use
   const [patToDisconnect, setPatToDisconnect] = useState<string | null>(null);
 
+  // PAT submit validation state (shown inline on PAT entry form)
+  const [patSubmitError, setPatSubmitError] = useState<string | null>(null);
+  const [patSubmitLoading, setPatSubmitLoading] = useState(false);
+
   // PAT-based repos
   const [patRepos, setPatRepos] = useState<TypesRepositoryInfo[]>([]);
   const [patReposLoading, setPatReposLoading] = useState(false);
@@ -216,6 +220,8 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       setPatCredentials(null);
       setPatRepos([]);
       setPatReposError(null);
+      setPatSubmitError(null);
+      setPatSubmitLoading(false);
       setSaveConnection(true);
     }
   }, [open]);
@@ -302,11 +308,12 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
     return provider?.id;
   };
 
-  // Fetch repos using PAT via backend API
+  // Fetch repos using PAT via backend API.
+  // Returns null on success, or an error message string on failure.
   const fetchReposWithPat = async (
     provider: ProviderType,
     creds: PatCredentials,
-  ) => {
+  ): Promise<string | null> => {
     setPatReposLoading(true);
     setPatReposError(null);
     setPatRepos([]);
@@ -324,6 +331,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
 
       const repos = response.data?.repositories || [];
       setPatRepos(repos);
+      return null;
     } catch (err: any) {
       const rawData = err?.response?.data;
       const message =
@@ -331,9 +339,10 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         rawData?.message ||
         err?.message ||
         "Failed to fetch repositories";
-      setPatReposError(
-        typeof message === "string" ? message : JSON.stringify(message),
-      );
+      const errorStr =
+        typeof message === "string" ? message : JSON.stringify(message);
+      setPatReposError(errorStr);
+      return errorStr;
     } finally {
       setPatReposLoading(false);
     }
@@ -442,6 +451,9 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   const handlePatSubmit = async () => {
     if (!pat.trim() || !selectedProvider) return;
 
+    setPatSubmitError(null);
+    setPatSubmitLoading(true);
+
     const creds: PatCredentials = {
       pat,
       username:
@@ -452,37 +464,50 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       bitbucketBaseUrl:
         selectedProvider === "bitbucket" ? bitbucketBaseUrl : undefined,
     };
-    setPatCredentials(creds);
-    setViewMode("browse-pat-repos");
 
-    // Fetch repos
-    await fetchReposWithPat(selectedProvider, creds);
+    try {
+      // Validate token by attempting to fetch repos BEFORE switching views
+      setPatCredentials(creds);
+      const fetchError = await fetchReposWithPat(selectedProvider, creds);
 
-    // Save connection if requested
-    if (saveConnection) {
-      try {
-        await createPatConnection.mutateAsync({
-          provider_type: mapProviderToRepoType(selectedProvider) as any,
-          token: pat,
-          auth_username: creds.username,
-          organization_url: creds.orgUrl,
-          base_url:
-            creds.gitlabBaseUrl ||
-            creds.githubBaseUrl ||
-            creds.bitbucketBaseUrl,
-        });
-        snackbar.success("Connection saved for future use");
-      } catch (err: any) {
-        const rawData = err?.response?.data;
-        const errorMsg =
-          (typeof rawData === "string" && rawData) ||
-          rawData?.message ||
-          err?.message ||
-          "Failed to save connection";
-        snackbar.error(
-          typeof errorMsg === "string" ? errorMsg : JSON.stringify(errorMsg),
-        );
+      if (fetchError) {
+        // Token is invalid — stay on PAT entry form and show error inline
+        setPatSubmitError(fetchError);
+        setPatCredentials(null);
+        return;
       }
+
+      // Token is valid — switch to repo browser
+      setViewMode("browse-pat-repos");
+
+      // Save connection if requested
+      if (saveConnection) {
+        try {
+          await createPatConnection.mutateAsync({
+            provider_type: mapProviderToRepoType(selectedProvider) as any,
+            token: pat,
+            auth_username: creds.username,
+            organization_url: creds.orgUrl,
+            base_url:
+              creds.gitlabBaseUrl ||
+              creds.githubBaseUrl ||
+              creds.bitbucketBaseUrl,
+          });
+          snackbar.success("Connection saved for future use");
+        } catch (err: any) {
+          const rawData = err?.response?.data;
+          const errorMsg =
+            (typeof rawData === "string" && rawData) ||
+            rawData?.message ||
+            err?.message ||
+            "Failed to save connection";
+          snackbar.error(
+            typeof errorMsg === "string" ? errorMsg : JSON.stringify(errorMsg),
+          );
+        }
+      }
+    } finally {
+      setPatSubmitLoading(false);
     }
   };
 
@@ -906,6 +931,12 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               Enter your personal access token to browse and link repositories.
             </Typography>
 
+            {patSubmitError && (
+              <Alert severity="error" onClose={() => setPatSubmitError(null)}>
+                {patSubmitError}
+              </Alert>
+            )}
+
             {selectedProvider === "azure-devops" && (
               <TextField
                 label="Organization URL"
@@ -969,7 +1000,10 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               fullWidth
               type="password"
               value={pat}
-              onChange={(e) => setPat(e.target.value)}
+              onChange={(e) => {
+                setPat(e.target.value);
+                if (patSubmitError) setPatSubmitError(null);
+              }}
               helperText={
                 selectedProvider === "github"
                   ? "Create a token at GitHub → Settings → Developer settings → Personal access tokens"
@@ -999,19 +1033,24 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleBack}>Back</Button>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={handleBack} disabled={patSubmitLoading}>
+            Back
+          </Button>
+          <Button onClick={onClose} disabled={patSubmitLoading}>
+            Cancel
+          </Button>
           <Button
             variant="contained"
             color="secondary"
             onClick={handlePatSubmit}
             disabled={
+              patSubmitLoading ||
               !pat.trim() ||
               (selectedProvider === "azure-devops" && !orgUrl.trim()) ||
               (selectedProvider === "bitbucket" && !bitbucketUsername.trim())
             }
           >
-            Browse Repositories
+            {patSubmitLoading ? "Validating..." : "Browse Repositories"}
           </Button>
         </DialogActions>
       </Dialog>

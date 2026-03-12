@@ -1573,6 +1573,18 @@ func (s *HelixAPIServer) getOrCreateUserAPIKey(ctx context.Context, user *types.
 // @Failure 500 {object} types.APIError
 // @Router /api/v1/git/browse-remote [post]
 // @Security BearerAuth
+// isAuthenticationError checks if an error from a git provider API call is an
+// authentication/authorization failure (bad token, expired token, missing scopes, etc.)
+func isAuthenticationError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "401") ||
+		strings.Contains(msg, "403") ||
+		strings.Contains(msg, "bad credentials") ||
+		strings.Contains(msg, "unauthorized") ||
+		strings.Contains(msg, "authentication") ||
+		strings.Contains(msg, "invalid token")
+}
+
 func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -1595,8 +1607,12 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 		ghClient := github.NewClientWithPATAndBaseURL(request.Token, request.BaseURL)
 		ghRepos, err := ghClient.ListRepositories(ctx)
 		if err != nil {
+			if isAuthenticationError(err) {
+				http.Error(w, "Invalid GitHub token. Please check your token and try again.", http.StatusBadRequest)
+				return
+			}
 			log.Error().Err(err).Msg("Failed to list GitHub repositories")
-			http.Error(w, fmt.Sprintf("Failed to list GitHub repositories: %s", err.Error()), http.StatusInternalServerError)
+			http.Error(w, "Failed to list GitHub repositories. Please try again.", http.StatusInternalServerError)
 			return
 		}
 
@@ -1615,15 +1631,23 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 	case types.ExternalRepositoryTypeGitLab:
 		glClient, err := gitlab.NewClientWithPAT(request.BaseURL, request.Token)
 		if err != nil {
+			if isAuthenticationError(err) {
+				http.Error(w, "Invalid GitLab token. Please check your token and try again.", http.StatusBadRequest)
+				return
+			}
 			log.Error().Err(err).Msg("Failed to create GitLab client")
-			http.Error(w, fmt.Sprintf("Failed to create GitLab client: %s", err.Error()), http.StatusInternalServerError)
+			http.Error(w, "Failed to create GitLab client. Please try again.", http.StatusInternalServerError)
 			return
 		}
 
 		glProjects, err := glClient.ListProjects(ctx)
 		if err != nil {
+			if isAuthenticationError(err) {
+				http.Error(w, "Invalid GitLab token. Please check your token and try again.", http.StatusBadRequest)
+				return
+			}
 			log.Error().Err(err).Msg("Failed to list GitLab projects")
-			http.Error(w, fmt.Sprintf("Failed to list GitLab projects: %s", err.Error()), http.StatusInternalServerError)
+			http.Error(w, "Failed to list GitLab projects. Please try again.", http.StatusInternalServerError)
 			return
 		}
 
@@ -1648,8 +1672,12 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 		adoClient := azuredevops.NewAzureDevOpsClient(request.OrganizationURL, request.Token)
 		adoRepos, err := adoClient.ListRepositories(ctx, "") // Empty string = all projects
 		if err != nil {
+			if isAuthenticationError(err) {
+				http.Error(w, "Invalid Azure DevOps token. Please check your token and try again.", http.StatusBadRequest)
+				return
+			}
 			log.Error().Err(err).Msg("Failed to list Azure DevOps repositories")
-			http.Error(w, fmt.Sprintf("Failed to list Azure DevOps repositories: %s", err.Error()), http.StatusInternalServerError)
+			http.Error(w, "Failed to list Azure DevOps repositories. Please try again.", http.StatusInternalServerError)
 			return
 		}
 
