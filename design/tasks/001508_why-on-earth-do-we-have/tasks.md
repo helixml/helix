@@ -23,18 +23,18 @@ The actual model IDs from Anthropic's `/v1/models` endpoint are: `claude-sonnet-
 
 ## Fix 3: Remove `injectLanguageModelAPIKey` from settings-sync-daemon
 
-- [~] Delete the `injectLanguageModelAPIKey()` method from `api/cmd/settings-sync-daemon/main.go` (lines 246–264).
-- [~] Remove the call `d.injectLanguageModelAPIKey()` in `syncFromHelix()` (around line 737).
-- [~] Remove the call `d.injectLanguageModelAPIKey()` in `checkHelixUpdates()` (around line 1113).
-- [~] Delete any test for `injectLanguageModelAPIKey` from `api/cmd/settings-sync-daemon/main_test.go`.
-- [~] Search for any other tests asserting `api_key` presence in settings output and update them to assert absence instead.
-- [ ] Verify: `cd api && go build ./cmd/settings-sync-daemon/ && go test ./cmd/settings-sync-daemon/ -count=1`
+- [x] Delete the `injectLanguageModelAPIKey()` method from `api/cmd/settings-sync-daemon/main.go` (lines 246–264).
+- [x] Remove the call `d.injectLanguageModelAPIKey()` in `syncFromHelix()` (around line 737).
+- [x] Remove the call `d.injectLanguageModelAPIKey()` in `checkHelixUpdates()` (around line 1113).
+- [x] Delete any test for `injectLanguageModelAPIKey` from `api/cmd/settings-sync-daemon/main_test.go`.
+- [x] Search for any other tests asserting `api_key` presence in settings output and update them to assert absence instead.
+- [x] Verify: `cd api && go build ./cmd/settings-sync-daemon/ && go test ./cmd/settings-sync-daemon/ -count=1`
 
 ## Verification
 
-- [ ] Run `cd api && go build ./cmd/settings-sync-daemon/ ./pkg/external-agent/` — compilation passes.
-- [ ] Run `cd api && go test ./cmd/settings-sync-daemon/ -count=1` — daemon tests pass.
-- [ ] Run `cd api && go test ./pkg/external-agent/ -count=1` — zed_config tests pass including new 4.6 normalization cases.
+- [x] Run `cd api && go build ./cmd/settings-sync-daemon/ ./pkg/external-agent/` — compilation passes.
+- [x] Run `cd api && go test ./cmd/settings-sync-daemon/ -count=1` — daemon tests pass.
+- [x] Run `cd api && go test ./pkg/external-agent/ -count=1` — zed_config tests pass including new 4.6 normalization cases.
 - [ ] Deploy and start a new session with `claude-opus-4-6` — inspect `~/.config/zed/settings.json` inside the container and verify:
   - No `claude-opus-4-6` entry exists in `available_models` under `language_models.anthropic` (Zed uses its built-in definition instead).
   - No `api_key` field exists under `language_models.anthropic`.
