@@ -24,17 +24,17 @@
 - [x] Confirm the old `Entity<AcpThread>` stays alive via `previous_view` by adding logging in `AcpServerView::on_release`
 
 ### Fix Part A: Cancel running threads when switching away from AgentThread view
-- [~] In `zed/crates/agent_ui/src/agent_panel.rs`, in `set_active_view` (~line 1780), before the view replacement logic: if the outgoing `active_view` is an `AgentThread`, read its `active_thread()` and call `cancel_generation(cx)` on it
-- [~] Also cancel generation on `previous_view` if it holds an `AgentThread` being replaced — specifically in the `!current_is_special && new_is_special` branch where `previous_view` gets overwritten, cancel the outgoing `previous_view` first
+- [x] In `zed/crates/agent_ui/src/agent_panel.rs`, in `set_active_view` (~line 1780), before the view replacement logic: if the outgoing `active_view` is an `AgentThread`, read its `active_thread()` and call `cancel_generation(cx)` on it
+- [x] Also cancel generation on `previous_view` if it holds an `AgentThread` being replaced — specifically in the `!current_is_special && new_is_special` branch where `previous_view` gets overwritten, cancel the outgoing `previous_view` first
 
 ### Fix Part B: Clear stale `previous_view` on special → non-special transitions
-- [~] In `zed/crates/agent_ui/src/agent_panel.rs`, in the `set_active_view` first branch (`current_is_special && !new_is_special`): cancel any running generation in `previous_view` if it holds an AgentThread, then set `self.previous_view = None` before assigning the new active view
-- [ ] Verify the "back" button flow still works: History → back should restore `previous_view` (this path uses `go_back` which calls `self.previous_view.take()` before `set_active_view`, so it's unaffected)
+- [x] In `zed/crates/agent_ui/src/agent_panel.rs`, in the `set_active_view` first branch (`current_is_special && !new_is_special`): cancel any running generation in `previous_view` if it holds an AgentThread, then set `self.previous_view = None` before assigning the new active view
+- [x] Verify the "back" button flow still works: History → back should restore `previous_view` (this path uses `go_back` which calls `self.previous_view.take()` before `set_active_view`, so it's unaffected)
 
 ### Fix Part C: Clean up THREAD_REGISTRY on entity replacement
-- [~] In `zed/crates/external_websocket_sync/src/thread_service.rs`: add `pub fn unregister_thread(acp_thread_id: &str)` that removes the entry from `THREAD_REGISTRY`
-- [~] In `register_thread`, log a warning when overwriting an existing entry with a different entity (helps diagnose future split-brain issues)
-- [~] In `zed/crates/agent_ui/src/acp/thread_view.rs`, in `from_existing_thread`'s `on_release` callback: call `unregister_thread` with the session ID to clean up the registry when a headless view is dropped
+- [x] In `zed/crates/external_websocket_sync/src/thread_service.rs`: add `pub fn unregister_thread(acp_thread_id: &str)` that removes the entry from `THREAD_REGISTRY`
+- [x] In `register_thread`, log a warning when overwriting an existing entry with a different entity (helps diagnose future split-brain issues)
+- [x] In `zed/crates/agent_ui/src/acp/thread_view.rs`, in `from_existing_thread`'s `on_release` callback: call `unregister_thread` with the session ID to clean up the registry when a headless view is dropped
 
 ### Testing
 - [ ] Manual: start long-running task from Helix → navigate to thread list → click same thread → verify only one agent is running (no ghost file writes)
@@ -43,6 +43,6 @@
 - [ ] Manual: start task → navigate to thread list → click same thread → send stop → verify it actually stops (no continued file writes from orphaned agent)
 
 ## Build Verification
-- [ ] `cargo build --features external_websocket_sync -p zed` compiles cleanly
-- [ ] `cargo test -p external_websocket_sync` passes
-- [ ] `cargo test -p agent_ui` passes (if applicable)
+- [ ] `cargo build --features external_websocket_sync -p zed` compiles cleanly — WARNING: cargo not available in this environment, must verify in VM or CI
+- [ ] `cargo test -p external_websocket_sync` passes — WARNING: blocked on build environment
+- [ ] `cargo test -p agent_ui` passes (if applicable) — WARNING: blocked on build environment

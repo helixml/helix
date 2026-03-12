@@ -186,3 +186,28 @@ When a Thread entity in the registry is replaced by `register_thread` (same sess
 - **Manual**: Start a task → navigate to thread list → click a different thread → verify the first task's generation was cancelled (no more file writes from the old task).
 - **Manual**: Start a task → navigate to thread list → press "back" → verify the original thread is still visible and functional (the `previous_view` restore path for "back" still works).
 - **E2E**: The existing Zed WebSocket sync E2E test infrastructure can be extended with a phase that verifies `is_being_followed(CollaboratorId::Agent)` returns true after an external message triggers generation.
+
+## Implementation Notes
+
+### Decisions made during implementation
+
+- **Bug 1 fix location**: Added `workspace.follow(CollaboratorId::Agent)` in two places within the `ThreadDisplayNotification` handler in `agent_panel.rs`:
+  1. In the early-return path (same entity already displayed) — for follow-up messages that reuse the existing view
+  2. After `set_active_view` for newly created views — for initial thread creation and loaded threads
+  Both check `should_be_following` on the `AcpThreadView` before activating, respecting the user's toggle state.
+
+- **Bug 2 cancellation is `#[cfg(feature = "external_websocket_sync")]` gated**: The split-brain only occurs with Helix's `from_existing_thread` / `HeadlessConnection` path. Normal Zed uses real `NativeAgentConnection` where `close_all_sessions` works. Gating avoids any risk to upstream behavior.
+
+- **Cancellation only targets `previous_view`, not the outgoing `active_view`**: When the user navigates to History, the outgoing AgentThread is stashed in `previous_view` and should NOT be cancelled (user might press "back"). Cancellation only fires when `previous_view` is about to be dropped because a new non-special view is taking over.
+
+- **`go_back` flow is safe**: `go_back` calls `self.previous_view.take()` before `set_active_view`, so `previous_view` is `None` when our cancellation code runs. No risk of cancelling a thread the user wants to restore.
+
+### Gotchas
+
+- **`workspace.follow()` needs window context**: The follow call must happen inside `update_in` (which provides `window`), not inside a plain `update`. The `ThreadDisplayNotification` handler already runs in a `cx.spawn_in(window, ...)` context, so `window` is available.
+
+- **`cancel_generation` is fire-and-forget**: It stores the cancel task in `_cancel_task` on the `AcpThreadView` and returns. The actual cancellation (including tool call cleanup) happens asynchronously. This is fine for our use case — we just need to signal the stop, not wait for it.
+
+- **`unregister_thread` in `on_release`**: The `on_release` callback on `AcpServerView` fires when the GPUI entity is dropped (all strong references gone). This happens when `previous_view` is set to `None` and the old `ActiveView::AgentThread` is dropped. The `ServerState::Connected` check ensures we only try to unregister when there's actually a connected state with an active_id.
+
+- **Cargo not available in dev environment**: Build verification must happen in the VM (`./stack build-zed release`) or CI. The diagnostics tool confirmed no syntax errors in all three modified files.
