@@ -11,7 +11,7 @@ set -euo pipefail
 # and data directory layouts are incompatible, so a dump/restore is required.
 #
 # Usage:
-#   ./migrate-from-bitnami.sh <release-name> [namespace]
+#   ./migrate-from-bitnami.sh --release <name> [--namespace <ns>]
 #
 # Prerequisites:
 #   - kubectl configured with access to the cluster
@@ -23,16 +23,36 @@ set -euo pipefail
 #   Phase 2 (user action):  prompts you to run helm upgrade
 #   Phase 3 (post-upgrade): pg_restore into the new official postgres pod
 
-RELEASE=${1:-}
-NAMESPACE=${2:-default}
-DUMP_FILE="/tmp/helix-pg-migration-${RELEASE}.sql"
+usage() {
+  echo "Usage: $0 --release <name> [--namespace <ns>]"
+  echo ""
+  echo "Options:"
+  echo "  --release    Helm release name (required)"
+  echo "  --namespace  Kubernetes namespace (default: default)"
+  echo ""
+  echo "Example: $0 --release my-helix --namespace production"
+  exit 1
+}
+
+RELEASE=""
+NAMESPACE="default"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --release)    RELEASE="$2"; shift 2 ;;
+    --namespace)  NAMESPACE="$2"; shift 2 ;;
+    -h|--help)    usage ;;
+    *)            echo "Unknown option: $1"; usage ;;
+  esac
+done
 
 if [ -z "$RELEASE" ]; then
-  echo "Usage: $0 <release-name> [namespace]"
+  echo "ERROR: --release is required"
   echo ""
-  echo "Example: $0 my-helix default"
-  exit 1
+  usage
 fi
+
+DUMP_FILE="/tmp/helix-pg-migration-${RELEASE}.sql"
 
 NS_FLAG="-n ${NAMESPACE}"
 
