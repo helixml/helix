@@ -241,34 +241,26 @@ func (d *SettingsDaemon) rewriteLocalhostURLsInExternalSync(externalSync map[str
 	}
 }
 
-// injectLanguageModelAPIKey adds the API token to language_models config.
-// Zed reads api_key from settings.json to authenticate LLM API calls.
-// The token comes from HELIX_API_TOKEN env var (set by Hydra when starting the desktop).
-func (d *SettingsDaemon) injectLanguageModelAPIKey() {
-	if d.apiToken == "" {
-		log.Printf("Warning: HELIX_API_TOKEN not set, language models may not authenticate")
-		return
-	}
-
-	languageModels, ok := d.helixSettings["language_models"].(map[string]interface{})
-	if !ok {
-		return
-	}
-
-	// Inject api_key into each provider's config
-	for provider, config := range languageModels {
-		if providerConfig, ok := config.(map[string]interface{}); ok {
-			providerConfig["api_key"] = d.apiToken
-			log.Printf("Injected api_key into language_models.%s", provider)
-		}
-	}
-}
-
 // injectAvailableModels adds the configured model to the provider's available_models list.
 // Zed only recognizes models that are either built-in (gpt-4, claude-3, etc.) or listed
 // in available_models. Without this, custom models like "helix/qwen3:8b" are rejected.
+//
+// IMPORTANT: For providers with native Zed support (e.g. "anthropic"), we skip injection
+// entirely. Zed already has built-in definitions for all Claude models with correct context
+// lengths, cache config, beta headers, thinking mode, etc. Injecting a Custom model from
+// available_models would override the built-in with worse metadata.
 func (d *SettingsDaemon) injectAvailableModels() {
 	if d.codeAgentConfig == nil || d.codeAgentConfig.Model == "" {
+		return
+	}
+
+	// Skip injection for providers where Zed has built-in model definitions.
+	// Zed's built-ins have correct context lengths (e.g. 200K for claude-opus-4-6),
+	// cache configuration, beta headers, thinking mode support, etc.
+	// Injecting into available_models creates a degraded Custom model that's missing all that.
+	if d.codeAgentConfig.APIType == "anthropic" {
+		log.Printf("Skipping available_models injection for %s — Zed has built-in definitions for %s provider models",
+			d.codeAgentConfig.Model, d.codeAgentConfig.APIType)
 		return
 	}
 
@@ -293,7 +285,7 @@ func (d *SettingsDaemon) injectAvailableModels() {
 	// Use token limits from model_info.json if available, otherwise use sensible defaults
 	maxTokens := d.codeAgentConfig.MaxTokens
 	if maxTokens == 0 {
-		maxTokens = 128000 // Default context window if not found in model_info
+		maxTokens = 200000 // Default context window for custom models if not found in model_info (200K matches most current frontier models)
 	}
 
 	modelEntry := AvailableModel{
@@ -740,9 +732,10 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	// Save baseline before inject mutations (for deepEqual comparison in checkHelixUpdates)
 	d.helixSettingsBaseline = copyMap(d.helixSettings)
 
-	// Inject API keys and custom models (mutates d.helixSettings)
+	// Inject custom models (mutates d.helixSettings)
+	// Note: API keys are NOT injected into settings.json — Zed reads ANTHROPIC_API_KEY /
+	// OPENAI_API_KEY from container env vars (set by DesktopAgentAPIEnvVars).
 	d.injectKoditAuth()
-	d.injectLanguageModelAPIKey()
 	d.injectAvailableModels()
 
 	d.userOverrides = make(map[string]interface{})
@@ -1170,7 +1163,7 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 	d.syncClaudeCredentials()
 
 	// Compare against the pre-injection baseline to avoid spurious diffs
-	// caused by injectLanguageModelAPIKey/injectAvailableModels mutations
+	// caused by injectAvailableModels mutations
 	codeAgentChanged := !deepEqual(config.CodeAgentConfig, d.codeAgentConfig)
 	if !deepEqual(newHelixSettings, d.helixSettingsBaseline) || codeAgentChanged {
 		log.Println("Detected Helix config change, updating settings.json")
@@ -1178,9 +1171,8 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 		d.helixSettings = newHelixSettings
 		d.codeAgentConfig = config.CodeAgentConfig
 
-		// Inject API keys and custom models (mutates d.helixSettings)
+		// Inject custom models (mutates d.helixSettings)
 		d.injectKoditAuth()
-		d.injectLanguageModelAPIKey()
 		d.injectAvailableModels()
 
 		// Merge with user overrides and write
