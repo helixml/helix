@@ -5,6 +5,9 @@
 #
 # Requires GITHUB_TOKEN environment variable for authentication.
 # Skips silently if GITHUB_TOKEN is not set (allows gradual rollout).
+#
+# Adds org.opencontainers.image.source label so GHCR links the package
+# to the helix repository automatically.
 set -e
 
 if [ -z "$GITHUB_TOKEN" ]; then
@@ -17,6 +20,8 @@ echo "$GITHUB_TOKEN" | docker login ghcr.io -u helixml --password-stdin
 for IMAGE in "$@"; do
   GHCR_IMAGE=$(echo "$IMAGE" | sed 's|registry.helixml.tech/helix|ghcr.io/helixml|')
   echo "Mirroring $IMAGE -> $GHCR_IMAGE"
-  docker tag "$IMAGE" "$GHCR_IMAGE"
+  echo "FROM $IMAGE" | docker build \
+    --label "org.opencontainers.image.source=https://github.com/helixml/helix" \
+    -t "$GHCR_IMAGE" -
   docker push "$GHCR_IMAGE"
 done
