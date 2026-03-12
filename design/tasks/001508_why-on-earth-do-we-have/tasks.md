@@ -2,9 +2,9 @@
 
 ## Fix 1: Stop injecting built-in models into `available_models`
 
-- [ ] In `injectAvailableModels()` in `api/cmd/settings-sync-daemon/main.go`, add a check at the top: if the model's provider has native Zed support (i.e. `APIType == "anthropic"`), skip injection entirely and return early. Zed already has built-in definitions for all Claude models with correct context lengths, cache config, beta headers, thinking mode, etc. Injecting a `Custom` model from `available_models` is strictly worse.
-- [ ] For non-built-in models (e.g. `helix/qwen3:8b` via OpenAI-compatible API), keep the existing injection logic — these truly need `available_models` entries for Zed to recognize them.
-- [ ] Change the hardcoded fallback from `128000` to `200000` (for the custom model path). Update the comment to: `// Default context window for custom models if not found in model_info (200K matches most current frontier models)`.
+- [~] In `injectAvailableModels()` in `api/cmd/settings-sync-daemon/main.go`, add a check at the top: if the model's provider has native Zed support (i.e. `APIType == "anthropic"`), skip injection entirely and return early. Zed already has built-in definitions for all Claude models with correct context lengths, cache config, beta headers, thinking mode, etc. Injecting a `Custom` model from `available_models` is strictly worse.
+- [~] For non-built-in models (e.g. `helix/qwen3:8b` via OpenAI-compatible API), keep the existing injection logic — these truly need `available_models` entries for Zed to recognize them.
+- [~] Change the hardcoded fallback from `128000` to `200000` (for the custom model path). Update the comment to: `// Default context window for custom models if not found in model_info (200K matches most current frontier models)`.
 - [ ] Verify: `cd api && go build ./cmd/settings-sync-daemon/`
 
 ## Fix 2: Complete `normalizeModelIDForZed` for all Anthropic model IDs
