@@ -297,23 +297,23 @@ func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerT
 		if err != nil {
 			return nil, fmt.Errorf("failed to validate GitHub token: %w", err)
 		}
-		// Classic PATs return the X-OAuth-Scopes header (even if empty).
-		// Fine-grained PATs don't return it at all — we give those a free pass
-		// since there's no non-destructive way to probe their permissions.
-		if scopeHeaderPresent {
-			if len(scopes) == 0 {
-				return nil, fmt.Errorf("GitHub token has no scopes. Helix requires the 'repo' scope for full repository access. Please create a new token with the 'repo' scope at https://github.com/settings/tokens")
+		if !scopeHeaderPresent {
+			// Fine-grained PATs don't return X-OAuth-Scopes so we can't validate
+			// their permissions. Reject them and ask for a classic token.
+			return nil, fmt.Errorf("Fine-grained GitHub tokens are not supported. Helix requires a classic token with the 'repo' scope. Please create one at https://github.com/settings/tokens")
+		}
+		if len(scopes) == 0 {
+			return nil, fmt.Errorf("GitHub token has no scopes. Helix requires the 'repo' scope for full repository access. Please create a new classic token with the 'repo' scope at https://github.com/settings/tokens")
+		}
+		hasRepo := false
+		for _, s := range scopes {
+			if s == "repo" {
+				hasRepo = true
+				break
 			}
-			hasRepo := false
-			for _, s := range scopes {
-				if s == "repo" {
-					hasRepo = true
-					break
-				}
-			}
-			if !hasRepo {
-				return nil, fmt.Errorf("GitHub token is missing required scope 'repo'. Your token has scopes: %s. Please create a token with the 'repo' scope at https://github.com/settings/tokens", strings.Join(scopes, ", "))
-			}
+		}
+		if !hasRepo {
+			return nil, fmt.Errorf("GitHub token is missing required scope 'repo'. Your token has scopes: %s. Please create a new classic token with the 'repo' scope at https://github.com/settings/tokens", strings.Join(scopes, ", "))
 		}
 		return &types.OAuthUserInfo{
 			ID:        fmt.Sprintf("%d", user.GetID()),

@@ -1618,22 +1618,26 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 			http.Error(w, "Failed to validate GitHub token. Please try again.", http.StatusInternalServerError)
 			return
 		}
-		if scopeHeaderPresent {
-			if len(scopes) == 0 {
-				http.Error(w, "GitHub token has no scopes. Helix requires the 'repo' scope for full repository access. Please create a new token with the 'repo' scope at https://github.com/settings/tokens", http.StatusBadRequest)
-				return
+		if !scopeHeaderPresent {
+			// Fine-grained PATs don't return X-OAuth-Scopes so we can't validate
+			// their permissions. Reject them and ask for a classic token.
+			http.Error(w, "Fine-grained GitHub tokens are not supported. Helix requires a classic token with the 'repo' scope. Please create one at https://github.com/settings/tokens", http.StatusBadRequest)
+			return
+		}
+		if len(scopes) == 0 {
+			http.Error(w, "GitHub token has no scopes. Helix requires the 'repo' scope for full repository access. Please create a new classic token with the 'repo' scope at https://github.com/settings/tokens", http.StatusBadRequest)
+			return
+		}
+		hasRepo := false
+		for _, s := range scopes {
+			if s == "repo" {
+				hasRepo = true
+				break
 			}
-			hasRepo := false
-			for _, s := range scopes {
-				if s == "repo" {
-					hasRepo = true
-					break
-				}
-			}
-			if !hasRepo {
-				http.Error(w, fmt.Sprintf("GitHub token is missing required scope 'repo'. Your token has scopes: %s. Please create a token with the 'repo' scope at https://github.com/settings/tokens", strings.Join(scopes, ", ")), http.StatusBadRequest)
-				return
-			}
+		}
+		if !hasRepo {
+			http.Error(w, fmt.Sprintf("GitHub token is missing required scope 'repo'. Your token has scopes: %s. Please create a new classic token with the 'repo' scope at https://github.com/settings/tokens", strings.Join(scopes, ", ")), http.StatusBadRequest)
+			return
 		}
 
 		ghRepos, err := ghClient.ListRepositories(ctx)
