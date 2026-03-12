@@ -267,11 +267,19 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		}
 	}
 
+	// Apply a timeout for the Docker operations that follow. This is separate
+	// from the golden cache copy (which can take minutes for 50+ GB) — that
+	// copy happens during buildHostConfig/buildMounts above and is allowed to
+	// run without a deadline as long as it reports progress. The timeout here
+	// only covers Docker API calls (inspect, create, start).
+	dockerCtx, dockerCancel := context.WithTimeout(ctx, 120*time.Second)
+	defer dockerCancel()
+
 	// Check if container with this name already exists
 	// This handles cases where:
 	// 1. API restarted but container is still running
 	// 2. Previous start request failed after container creation but before DB update
-	existingContainer, err := dockerClient.ContainerInspect(ctx, req.ContainerName)
+	existingContainer, err := dockerClient.ContainerInspect(dockerCtx, req.ContainerName)
 	if err == nil {
 		// Container exists - check its state
 		if existingContainer.State.Running {
@@ -326,15 +334,15 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 			Str("state", existingContainer.State.Status).
 			Msg("Container exists but stopped, starting it")
 
-		if err := dockerClient.ContainerStart(ctx, existingContainer.ID, container.StartOptions{}); err != nil {
+		if err := dockerClient.ContainerStart(dockerCtx, existingContainer.ID, container.StartOptions{}); err != nil {
 			// Failed to start - remove and create new
 			log.Warn().Err(err).
 				Str("container_id", existingContainer.ID).
 				Msg("Failed to start existing container, removing and creating new")
-			dockerClient.ContainerRemove(ctx, existingContainer.ID, container.RemoveOptions{Force: true})
+			dockerClient.ContainerRemove(dockerCtx, existingContainer.ID, container.RemoveOptions{Force: true})
 		} else {
 			// Started successfully - get updated info and return
-			inspect, err := dockerClient.ContainerInspect(ctx, existingContainer.ID)
+			inspect, err := dockerClient.ContainerInspect(dockerCtx, existingContainer.ID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to inspect started container: %w", err)
 			}
@@ -383,7 +391,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	// Container doesn't exist (or was removed above) - create new one
 
 	// Create container
-	resp, err := dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
+	resp, err := dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create container: %w", err)
 	}
@@ -395,14 +403,14 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		Msg("Container created, starting...")
 
 	// Start container
-	if err := dockerClient.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+	if err := dockerClient.ContainerStart(dockerCtx, resp.ID, container.StartOptions{}); err != nil {
 		// Cleanup on failure
-		dockerClient.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+		dockerClient.ContainerRemove(dockerCtx, resp.ID, container.RemoveOptions{Force: true})
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
 
 	// Get container IP from inspection
-	inspect, err := dockerClient.ContainerInspect(ctx, resp.ID)
+	inspect, err := dockerClient.ContainerInspect(dockerCtx, resp.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect container: %w", err)
 	}
