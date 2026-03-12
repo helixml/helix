@@ -12,8 +12,9 @@ Additionally, there is a pre-existing bug: hardcoded Helix defaults (like `text_
 
 1. **As a Helix user**, I want Zed to stop reformatting my JS/TS/TSX files on save so my code stays as I wrote it.
 2. **As a Helix user writing Go**, I want `gofmt` format-on-save to keep working because that's the standard Go workflow.
-3. **As a Helix user**, I want my Zed settings changes to survive the daemon's 30-second poll cycle, not get silently reverted.
+3. **As a Helix user**, I want my Zed settings changes (e.g. theme) to survive the daemon's 30-second poll cycle, not get silently reverted.
 4. **As a Helix user**, I want to be able to override `format_on_save` per-language (e.g. re-enable for Rust) and have that override stick.
+5. **As a Helix user**, I want new sessions to start with a sensible default theme ("Ayu Dark") but be able to change it without it reverting.
 
 ## Acceptance Criteria
 
@@ -25,7 +26,8 @@ Additionally, there is a pre-existing bug: hardcoded Helix defaults (like `text_
 - [ ] Hardcoded Helix defaults (`text_rendering_mode`, `suggest_dev_container`, `format_on_save`, `languages`, `agent.tool_permissions`) persist across the 30-second poll cycle — they must not be dropped by `checkHelixUpdates()`
 - [ ] The daemon does not detect a spurious "config changed" diff on every poll due to missing hardcoded defaults in the comparison baseline
 
-### User override persistence
+### User preference persistence
+- [ ] `theme` is set to "Ayu Dark" as the initial default on new sessions, but once the user changes it via Zed UI, the daemon preserves the user's choice and never reverts it
 - [ ] `mergeSettings()` deep-merges the `languages` key (same pattern as `context_servers`) so user per-language overrides don't clobber Helix's Go formatting override and vice versa
 - [ ] `extractUserOverrides()` diffs `languages` per-language key (same pattern as `context_servers`) so only actual user customizations are captured
 - [ ] A user who changes `format_on_save` to `"on"` for a specific language via Zed UI has that change persist across poll cycles
