@@ -197,6 +197,26 @@ func (c *Client) GetAuthenticatedUser(ctx context.Context) (*github.User, error)
 	return user, nil
 }
 
+// GetAuthenticatedUserWithScopes gets the user profile and returns token scopes
+// from the X-OAuth-Scopes response header. Fine-grained PATs don't return this
+// header, so callers should treat empty scopes as "unknown" rather than "none".
+func (c *Client) GetAuthenticatedUserWithScopes(ctx context.Context) (*github.User, []string, error) {
+	user, resp, err := c.client.Users.Get(ctx, "")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get authenticated user: %w", err)
+	}
+	var scopes []string
+	if scopeHeader := resp.Header.Get("X-OAuth-Scopes"); scopeHeader != "" {
+		for _, s := range strings.Split(scopeHeader, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				scopes = append(scopes, s)
+			}
+		}
+	}
+	return user, scopes, nil
+}
+
 // CheckRepositoryPermissions checks if the authenticated user has write/push access to a repository
 // Returns the permissions object which includes admin, push, pull booleans
 func (c *Client) CheckRepositoryPermissions(ctx context.Context, owner, repo string) (*github.Repository, error) {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -43,7 +44,7 @@ func (s *HelixAPIServer) listGitProviderConnections(w http.ResponseWriter, r *ht
 		return
 	}
 
-	json.NewEncoder(w).Encode( connections)
+	json.NewEncoder(w).Encode(connections)
 }
 
 // createGitProviderConnection creates a new PAT-based git provider connection
@@ -154,7 +155,7 @@ func (s *HelixAPIServer) createGitProviderConnection(w http.ResponseWriter, r *h
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode( connection)
+	json.NewEncoder(w).Encode(connection)
 }
 
 // deleteGitProviderConnection deletes a PAT-based git provider connection
@@ -282,7 +283,7 @@ func (s *HelixAPIServer) browseGitProviderConnectionRepositories(w http.Response
 		return
 	}
 
-	json.NewEncoder(w).Encode( types.ListOAuthRepositoriesResponse{
+	json.NewEncoder(w).Encode(types.ListOAuthRepositoriesResponse{
 		Repositories: repos,
 	})
 }
@@ -292,9 +293,23 @@ func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerT
 	switch providerType {
 	case types.ExternalRepositoryTypeGitHub:
 		client := github.NewClientWithPATAndBaseURL(token, baseURL)
-		user, err := client.GetAuthenticatedUser(ctx)
+		user, scopes, err := client.GetAuthenticatedUserWithScopes(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to validate GitHub token: %w", err)
+		}
+		// Check scopes — only enforce if scopes were returned (classic PATs).
+		// Fine-grained PATs don't return X-OAuth-Scopes, so scopes will be empty.
+		if len(scopes) > 0 {
+			hasRepo := false
+			for _, s := range scopes {
+				if s == "repo" {
+					hasRepo = true
+					break
+				}
+			}
+			if !hasRepo {
+				return nil, fmt.Errorf("GitHub token is missing required scope 'repo'. Your token has scopes: %s. Please create a token with the 'repo' scope at https://github.com/settings/tokens", strings.Join(scopes, ", "))
+			}
 		}
 		return &types.OAuthUserInfo{
 			ID:        fmt.Sprintf("%d", user.GetID()),
