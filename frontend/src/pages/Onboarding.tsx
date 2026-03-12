@@ -1358,7 +1358,7 @@ export default function Onboarding() {
                   >
                     {isSubscribing
                       ? "Redirecting to payment..."
-                      : "Start Subscription ($399/m)"}
+                      : "Start Subscription ($499/m)"}
                   </Button>
                 )}
                 <Button

@@ -295,7 +295,7 @@ const OrgBilling: FC = () => {
                                 startIcon={isSubscribing ? <CircularProgress size={16} color="inherit" /> : undefined}
                                 sx={{ minWidth: 140 }}
                               >
-                                {isSubscribing ? 'Processing...' : 'Start Subscription ($399/m)'}
+                                {isSubscribing ? 'Processing...' : 'Start Subscription ($499/m)'}
                               </Button>
                             </Box>
                           )}
