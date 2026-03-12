@@ -155,3 +155,13 @@ The backend already returns the error message in the HTTP 400 response body (lin
 5. **Disconnect flow**: Save a PAT connection, click Disconnect, confirm → connection removed, UI shows PAT entry form again.
 6. **Go build**: `go build ./api/pkg/server/ ./api/pkg/agent/skill/github/`
 7. **Frontend build**: `cd frontend && yarn build`
+
+## Implementation Notes
+
+- The `BrowseProvidersDialog` has two code paths that hit the backend when submitting a PAT: `fetchReposWithPat()` calls `v1GitBrowseRemoteCreate` (the browse endpoint), and `createPatConnection` calls `v1GitProviderConnectionsCreate` (the save endpoint). Only the save endpoint runs `validateAndFetchUserInfo()` with scope checking. The browse endpoint (`browseRemoteRepositories` in `git_repository_handlers.go`) calls `ListRepositories` directly and returns 500 on failure.
+- The Go backend uses `http.Error()` which returns plain text, not JSON. The frontend error extraction was checking `err?.response?.data?.message` (JSON field) but missing the plain-text body. Fixed by checking `typeof rawData === "string"` first.
+- The `handlePatSubmit` save-connection catch block was silently logging errors (`console.error`). Changed to surface the validation error via `snackbar.error()` so users see the "Bad credentials" or "missing required scope 'repo'" message.
+- The disconnect button works for **all providers** (GitHub, GitLab, Azure DevOps, Bitbucket) since the PAT connection CRUD is provider-agnostic. Scope validation is GitHub-only because other providers don't return equivalent scope headers.
+- The `go-github/v57` `Response` struct doesn't have a `TokenScopes` field, but it embeds `*http.Response`, so `resp.Header.Get("X-OAuth-Scopes")` works. Fine-grained PATs don't return this header, so we skip scope validation when scopes are empty.
+- Full server build (`go build ./api/pkg/server/`) fails locally due to a pre-existing `go-tree-sitter` CGO issue unrelated to this change. The `github` package builds clean (`go build ./api/pkg/agent/skill/github/`), and the language server reports no diagnostics in the handler file. CI will validate the full build.
+- Gotcha: MUI `Dialog` components render via Portal, so nesting a confirmation `Dialog` inside another `Dialog`'s content works fine — they stack independently in the DOM.

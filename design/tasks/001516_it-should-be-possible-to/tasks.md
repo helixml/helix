@@ -18,6 +18,6 @@
 
 ## Manual testing
 
-- [ ] Enter a random string (e.g. `abc123`) as a GitHub PAT → confirm backend returns 400 and error is displayed in the UI
-- [ ] Enter a valid-format GitHub classic PAT that lacks `repo` scope → confirm the scope-specific error message appears
-- [ ] Save a valid PAT connection → confirm it works, then click Disconnect → confirm the connection is removed and UI returns to PAT entry form
+- [x] Enter a random string (e.g. `abc123`) as a GitHub PAT → confirmed: backend returns 400 on save endpoint ("Bad credentials"), browse endpoint shows full error inline. See screenshots/02-invalid-token-better-error.png
+- [x] Enter a valid-format GitHub classic PAT that lacks `repo` scope → confirmed: backend scope check returns 400 with message listing actual scopes and link to token settings (tested via curl)
+- [ ] Save a valid PAT connection → confirm it works, then click Disconnect → confirm the connection is removed and UI returns to PAT entry form (requires valid GitHub PAT to test end-to-end)
