@@ -86,11 +86,9 @@ Google OAuth2 access tokens expire (typically 1 hour). We use `golang.org/x/oaut
 
 The `TokenSource` returned by the Google auth libraries is safe for concurrent use and handles refresh internally.
 
-### Decision 3: Mutual exclusivity for built-in provider only
+### Decision 3: Vertex wins unconditionally
 
-For the **built-in env-var provider**, `ANTHROPIC_API_KEY` and `ANTHROPIC_VERTEX_PROJECT_ID` are mutually exclusive — if both set, fail at startup with a clear error. This prevents ambiguous routing for the default provider.
-
-For **DB-configured provider endpoints**, there is no such restriction. An org could have both a direct-Anthropic endpoint and a Vertex endpoint, with routing determined by which endpoint is selected for a given project/request.
+When `ANTHROPIC_VERTEX_PROJECT_ID` is set (env var or DB endpoint), all Anthropic traffic goes through Vertex. Vertex is strictly better when available — same pricing, better reliability. `ANTHROPIC_API_KEY` is simply ignored. No mutual exclusivity validation, no precedence logic, no configuration to choose between them. Vertex is on or it's off.
 
 ### Decision 4: Config changes
 
@@ -178,7 +176,7 @@ When `vertexProjectID` is set, the chart mounts the credentials secret as a volu
 | `api/pkg/anthropic/vertex.go` | New file: Vertex URL/body transformation + Google OAuth2 token source initialization and caching |
 | `api/pkg/anthropic/anthropic_proxy.go` | Add Vertex-aware director logic, `TokenSource` management on Proxy struct |
 | `api/pkg/server/anthropic_api_proxy_handler.go` | Update `getBuiltInProviderEndpoint` to populate Vertex fields; skip requiring `ANTHROPIC_API_KEY` when Vertex is configured |
-| `api/pkg/server/server.go` (or wherever proxy is initialized) | Pass Vertex config to proxy constructor; validate mutual exclusivity of env vars |
+| `api/pkg/server/server.go` (or wherever proxy is initialized) | Pass Vertex config to proxy constructor when `ANTHROPIC_VERTEX_PROJECT_ID` is set |
 | `docker-compose.dev.yaml` | Add `ANTHROPIC_VERTEX_*` env var passthrough |
 | `docker-compose.yaml` | Add `ANTHROPIC_VERTEX_*` env var passthrough |
 | `charts/helix-controlplane/values.yaml` | Add Vertex config fields |

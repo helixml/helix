@@ -3,7 +3,7 @@
 ## Config & Types
 
 - [ ] Add `VertexProjectID`, `VertexRegion`, `VertexCredentialsFile` fields to `Anthropic` struct in `api/pkg/config/config.go` with `envconfig` tags (`ANTHROPIC_VERTEX_PROJECT_ID`, `ANTHROPIC_VERTEX_REGION` default `global`, `ANTHROPIC_VERTEX_CREDENTIALS_FILE`)
-- [ ] Add startup validation: if both `ANTHROPIC_API_KEY` and `ANTHROPIC_VERTEX_PROJECT_ID` are set, fail with a clear error message
+
 - [ ] Add `VertexProjectID`, `VertexRegion`, `VertexCredentialsFile` fields to `ProviderEndpoint` struct in `api/pkg/types/provider.go` (with GORM column tags and `json:"...,omitempty"`)
 - [ ] Add corresponding optional pointer fields to `UpdateProviderEndpoint` struct in `api/pkg/types/provider.go`
 - [ ] GORM AutoMigrate will pick up the new columns automatically — verify with a local test
@@ -40,7 +40,7 @@
 ## Tests
 
 - [ ] Add unit tests in `api/pkg/anthropic/vertex_test.go` for URL rewriting logic (non-streaming → `rawPredict`, streaming → `streamRawPredict`, `global` region URL, body transformation, `anthropic_version` injection)
-- [ ] Add unit test for mutual exclusivity validation (both API key and Vertex project ID set → error)
+- [ ] Add unit test verifying Vertex wins when both `ANTHROPIC_API_KEY` and `ANTHROPIC_VERTEX_PROJECT_ID` are set (no error, Vertex used)
 - [ ] Add integration test or manual test procedure: configure Vertex credentials, send a request through the proxy, verify response and billing logging
 
 ## SaaS Deployment

@@ -15,8 +15,8 @@ As a Helix operator, I want to configure Vertex AI as the backend for Anthropic 
 
 **Acceptance Criteria:**
 - New env vars: `ANTHROPIC_VERTEX_PROJECT_ID`, `ANTHROPIC_VERTEX_REGION` (default `global`), and `ANTHROPIC_VERTEX_CREDENTIALS_FILE` (path to Google service account JSON; if unset, uses Application Default Credentials)
-- When `ANTHROPIC_VERTEX_PROJECT_ID` is set, the Anthropic proxy uses Vertex AI instead of direct Anthropic API
-- `ANTHROPIC_API_KEY` and `ANTHROPIC_VERTEX_PROJECT_ID` are mutually exclusive for the built-in provider — if both set, fail at startup with a clear error
+- When `ANTHROPIC_VERTEX_PROJECT_ID` is set, all Anthropic traffic goes through Vertex — it wins unconditionally (it's strictly better when available)
+- `ANTHROPIC_API_KEY` is ignored when `ANTHROPIC_VERTEX_PROJECT_ID` is set; no error, Vertex just takes over
 - All existing Anthropic model names (e.g. `claude-sonnet-4`, `claude-opus-4`) continue to work unchanged from the client perspective (Zed, API consumers)
 
 ### US-2: Admin configures Vertex as a provider endpoint via the UI
