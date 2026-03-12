@@ -15,10 +15,10 @@ spec:
     requests:
       storage: {{ .Values.typesense.persistence.size | quote }}
   {{- if .Values.typesense.persistence.selector }}
-  selector: {{- include "common.tplvalues.render" (dict "value" .Values.typesense.persistence.selector "context" $) | nindent 4 }}
+  selector: {{- include "helix-controlplane.tplvalues.render" (dict "value" .Values.typesense.persistence.selector "context" $) | nindent 4 }}
   {{- end }}
   {{- if .Values.typesense.persistence.dataSource }}
-  dataSource: {{- include "common.tplvalues.render" (dict "value" .Values.typesense.persistence.dataSource "context" $) | nindent 4 }}
+  dataSource: {{- include "helix-controlplane.tplvalues.render" (dict "value" .Values.typesense.persistence.dataSource "context" $) | nindent 4 }}
   {{- end }}
-  {{- include "common.storage.class" (dict "persistence" .Values.typesense.persistence "global" .Values.global) | nindent 2 }}
+  {{- include "helix-controlplane.storage.class" (dict "persistence" .Values.typesense.persistence "global" .Values.global) | nindent 2 }}
 {{- end -}}
