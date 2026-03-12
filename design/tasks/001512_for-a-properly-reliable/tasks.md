@@ -2,7 +2,7 @@
 
 ## Config & Types
 
-- [ ] Add `VertexProjectID`, `VertexRegion`, `VertexCredentialsFile` fields to `Anthropic` struct in `api/pkg/config/config.go` with `envconfig` tags (`ANTHROPIC_VERTEX_PROJECT_ID`, `ANTHROPIC_VERTEX_REGION` default `us-east5`, `ANTHROPIC_VERTEX_CREDENTIALS_FILE`)
+- [ ] Add `VertexProjectID`, `VertexRegion`, `VertexCredentialsFile` fields to `Anthropic` struct in `api/pkg/config/config.go` with `envconfig` tags (`ANTHROPIC_VERTEX_PROJECT_ID`, `ANTHROPIC_VERTEX_REGION` default `global`, `ANTHROPIC_VERTEX_CREDENTIALS_FILE`)
 - [ ] Add startup validation: if both `ANTHROPIC_API_KEY` and `ANTHROPIC_VERTEX_PROJECT_ID` are set, fail with a clear error message
 - [ ] Add `VertexProjectID` and `VertexRegion` fields to `ProviderEndpoint` struct in `api/pkg/types/provider.go`
 

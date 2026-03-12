@@ -74,7 +74,7 @@ The `Anthropic` config struct gets three new fields:
 ```go
 // In config.go, type Anthropic struct:
 VertexProjectID      string `envconfig:"ANTHROPIC_VERTEX_PROJECT_ID"`
-VertexRegion         string `envconfig:"ANTHROPIC_VERTEX_REGION" default:"us-east5"`
+VertexRegion         string `envconfig:"ANTHROPIC_VERTEX_REGION" default:"global"`
 VertexCredentialsFile string `envconfig:"ANTHROPIC_VERTEX_CREDENTIALS_FILE"` // path to service account JSON; empty = ADC
 ```
 
@@ -102,7 +102,7 @@ anthropic:
   baseUrl: ""
   apiKey: ""
   vertexProjectID: ""
-  vertexRegion: "us-east5"
+  vertexRegion: "global"
   vertexCredentialsSecret: ""        # k8s secret name containing service-account.json
   vertexCredentialsSecretKey: "key"  # key within the secret
 ```
@@ -136,4 +136,4 @@ When `vertexProjectID` is set, the chart mounts the credentials secret as a volu
 
 - **Token refresh latency:** First request after token expiry may be slightly slower (~100ms for refresh). Acceptable.
 - **Vertex API differences:** Vertex uses `rawPredict`/`streamRawPredict` which should return native Anthropic responses. If there are subtle response format differences, billing parsing could break. Mitigate with integration testing.
-- **Region selection:** Wrong region = higher latency or missing model availability. Default `us-east5` is a safe choice for Claude on Vertex. Document that operators should pick based on their GCP setup.
+- **Region selection:** Wrong region = higher latency or missing model availability. Default `global` routes through Google's global endpoint (`https://aiplatform.googleapis.com/`). Operators can override to a specific region if needed.

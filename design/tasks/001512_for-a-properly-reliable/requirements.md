@@ -14,7 +14,7 @@ The Anthropic Go SDK (`v1.12.0+`, currently in `go.mod`) already has built-in Ve
 As a Helix operator, I want to configure Vertex AI as the backend for Anthropic models so that API calls go through Google Cloud instead of directly to Anthropic.
 
 **Acceptance Criteria:**
-- New env vars: `ANTHROPIC_VERTEX_PROJECT_ID`, `ANTHROPIC_VERTEX_REGION` (default `us-east5`), and `ANTHROPIC_VERTEX_CREDENTIALS_FILE` (path to Google service account JSON; if unset, uses Application Default Credentials)
+- New env vars: `ANTHROPIC_VERTEX_PROJECT_ID`, `ANTHROPIC_VERTEX_REGION` (default `global`), and `ANTHROPIC_VERTEX_CREDENTIALS_FILE` (path to Google service account JSON; if unset, uses Application Default Credentials)
 - When `ANTHROPIC_VERTEX_PROJECT_ID` is set, the Anthropic proxy uses Vertex AI instead of direct Anthropic API
 - `ANTHROPIC_API_KEY` and `ANTHROPIC_VERTEX_PROJECT_ID` are mutually exclusive — if both set, fail at startup with a clear error
 - All existing Anthropic model names (e.g. `claude-sonnet-4`, `claude-opus-4`) continue to work unchanged from the client perspective (Zed, API consumers)
