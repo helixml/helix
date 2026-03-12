@@ -24,6 +24,7 @@ import (
 
 	anthropic "github.com/anthropics/anthropic-sdk-go" // imported as anthropic
 	"github.com/rs/zerolog/log"
+	"golang.org/x/oauth2"
 )
 
 type Proxy struct {
@@ -34,6 +35,10 @@ type Proxy struct {
 	billingLogger         logger.LogStore
 	modelInfoProvider     model.ModelInfoProvider
 	wg                    sync.WaitGroup
+
+	// Vertex AI support
+	vertexTokenSources *tokenSourceCache  // per-credentials-file token source cache
+	defaultTokenSource oauth2.TokenSource // for env-var-configured built-in provider (nil if not configured)
 }
 
 func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.ModelInfoProvider, logStores ...logger.LogStore) *Proxy {
@@ -45,6 +50,24 @@ func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.Mo
 		logStores:             logStores,
 		modelInfoProvider:     modelInfoProvider,
 		wg:                    sync.WaitGroup{},
+		vertexTokenSources:    newTokenSourceCache(),
+	}
+
+	// Initialize default Vertex token source if configured via env vars
+	if cfg.Providers.Anthropic.VertexProjectID != "" {
+		ts, err := newTokenSource(context.Background(), cfg.Providers.Anthropic.VertexCredentialsFile)
+		if err != nil {
+			log.Error().Err(err).
+				Str("project_id", cfg.Providers.Anthropic.VertexProjectID).
+				Str("region", cfg.Providers.Anthropic.VertexRegion).
+				Msg("failed to initialize Vertex AI token source — Vertex will not be available")
+		} else {
+			p.defaultTokenSource = ts
+			log.Info().
+				Str("project_id", cfg.Providers.Anthropic.VertexProjectID).
+				Str("region", cfg.Providers.Anthropic.VertexRegion).
+				Msg("Vertex AI configured for Anthropic proxy — all inference traffic will route through Vertex")
+		}
 	}
 
 	billingLogger, err := logger.NewBillingLogger(store, cfg.Stripe.BillingEnabled)
@@ -117,6 +140,39 @@ func (s *Proxy) anthropicAPIProxyDirector(r *http.Request) {
 		return
 	}
 
+	// Remove incoming auth headers (user's Helix token, not the real provider API key)
+	r.Header.Del("Authorization")
+	r.Header.Del("x-api-key")
+	r.Header.Del("api-key")
+
+	// Vertex AI mode: if the endpoint has a VertexProjectID, transform the request
+	// for Vertex's rawPredict/streamRawPredict API format
+	if endpoint.VertexProjectID != "" {
+		tokenSource, err := s.getVertexTokenSource(r.Context(), endpoint.VertexCredentialsFile)
+		if err != nil {
+			log.Error().Err(err).
+				Str("vertex_project_id", endpoint.VertexProjectID).
+				Msg("failed to get Vertex AI token source")
+			return
+		}
+
+		if err := vertexTransformRequest(r, endpoint.VertexProjectID, endpoint.VertexRegion, tokenSource); err != nil {
+			log.Error().Err(err).
+				Str("vertex_project_id", endpoint.VertexProjectID).
+				Str("vertex_region", endpoint.VertexRegion).
+				Msg("failed to transform request for Vertex AI")
+			return
+		}
+
+		log.Debug().
+			Str("vertex_project_id", endpoint.VertexProjectID).
+			Str("vertex_region", endpoint.VertexRegion).
+			Str("url", r.URL.String()).
+			Msg("request transformed for Vertex AI")
+		return
+	}
+
+	// Direct Anthropic API mode: rewrite URL and set x-api-key
 	// Note: Don't check r.Body == nil here - GET requests (like /v1/models) have no body
 
 	u, err := url.Parse(endpoint.BaseURL)
@@ -129,11 +185,6 @@ func (s *Proxy) anthropicAPIProxyDirector(r *http.Request) {
 
 	r.Host = u.Host
 
-	// Remove incoming auth headers (user's Helix token, not the real provider API key)
-	r.Header.Del("Authorization")
-	r.Header.Del("x-api-key")
-	r.Header.Del("api-key")
-
 	// Set headers from provider endpoint (may include x-api-key)
 	for key, value := range endpoint.Headers {
 		r.Header.Set(key, value)
@@ -145,6 +196,20 @@ func (s *Proxy) anthropicAPIProxyDirector(r *http.Request) {
 	if r.Header.Get("x-api-key") == "" && endpoint.APIKey != "" {
 		r.Header.Set("x-api-key", endpoint.APIKey)
 	}
+}
+
+// getVertexTokenSource returns the appropriate OAuth2 token source for a Vertex request.
+// For the built-in provider (empty credentialsFile matching env var config), it returns
+// the default token source initialized at startup. For DB-configured endpoints, it
+// lazily creates and caches a token source per credentials file path.
+func (s *Proxy) getVertexTokenSource(ctx context.Context, credentialsFile string) (oauth2.TokenSource, error) {
+	// If this matches the built-in provider's credentials file, use the default token source
+	if s.defaultTokenSource != nil && credentialsFile == s.cfg.Providers.Anthropic.VertexCredentialsFile {
+		return s.defaultTokenSource, nil
+	}
+
+	// For DB-configured endpoints, use the cache
+	return s.vertexTokenSources.getOrCreate(ctx, credentialsFile)
 }
 
 // anthropicAPIProxyModifyResponse - parses the response

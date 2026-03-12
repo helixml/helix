@@ -68,6 +68,11 @@ type ProviderEndpoint struct {
 	BillingEnabled bool                 `json:"billing_enabled"`
 	Headers        map[string]string    `json:"headers" gorm:"type:jsonb;serializer:json"` // If for example anthropic expects x-api-key and anthropic-version
 
+	// Google Vertex AI fields — when VertexProjectID is set, this endpoint routes through Vertex
+	VertexProjectID       string `json:"vertex_project_id,omitempty" gorm:"column:vertex_project_id"`
+	VertexRegion          string `json:"vertex_region,omitempty" gorm:"column:vertex_region"`
+	VertexCredentialsFile string `json:"vertex_credentials_file,omitempty" gorm:"column:vertex_credentials_file"`
+
 	AvailableModels []OpenAIModel          `json:"available_models" gorm:"-"`
 	Status          ProviderEndpointStatus `json:"status" gorm:"-"` // If we can't fetch models
 	Error           string                 `json:"error" gorm:"-"`
@@ -123,4 +128,9 @@ type UpdateProviderEndpoint struct {
 	APIKey         *string           `json:"api_key,omitempty"`
 	APIKeyFromFile *string           `json:"api_key_file,omitempty"` // Must be mounted to the container
 	Headers        map[string]string `json:"headers,omitempty"`      // Custom headers for the endpoint
+
+	// Google Vertex AI fields
+	VertexProjectID       *string `json:"vertex_project_id,omitempty"`
+	VertexRegion          *string `json:"vertex_region,omitempty"`
+	VertexCredentialsFile *string `json:"vertex_credentials_file,omitempty"`
 }
