@@ -20,7 +20,7 @@ echo "$GITHUB_TOKEN" | docker login ghcr.io -u helixml --password-stdin
 for IMAGE in "$@"; do
   GHCR_IMAGE=$(echo "$IMAGE" | sed 's|registry.helixml.tech/helix|ghcr.io/helixml|')
   echo "Mirroring $IMAGE -> $GHCR_IMAGE"
-  echo "FROM $IMAGE" | docker build \
+  echo "FROM $IMAGE" | docker build --provenance=false \
     --label "org.opencontainers.image.source=https://github.com/helixml/helix" \
     -t "$GHCR_IMAGE" -
   docker push "$GHCR_IMAGE"
