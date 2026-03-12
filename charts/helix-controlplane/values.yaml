@@ -151,7 +151,7 @@ controlplane:
     args:
       - 'echo "Hello World"'
   haystack:
-    enabled: false
+    enabled: true
     image:
       repository: registry.helixml.tech/helix/haystack
     embeddingsModel: "MrLight/dse-qwen2-2b-mrl-v1"
