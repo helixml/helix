@@ -2,10 +2,10 @@
 
 ## Backend: GitHub token scope validation
 
-- [~] Add `GetAuthenticatedUserWithScopes(ctx) (*github.User, []string, error)` method to `api/pkg/agent/skill/github/client.go` that calls `c.client.Users.Get(ctx, "")` and parses the `X-OAuth-Scopes` response header into a string slice
-- [ ] Update the `ExternalRepositoryTypeGitHub` case in `validateAndFetchUserInfo()` in `api/pkg/server/git_provider_connection_handlers.go` to call `GetAuthenticatedUserWithScopes` instead of `GetAuthenticatedUser`
-- [ ] After getting scopes, if the scopes list is non-empty (classic PAT) and `repo` is not present, return an error with a message listing the token's actual scopes and linking to `https://github.com/settings/tokens`
-- [ ] If scopes list is empty (fine-grained PAT or GitHub App), skip scope validation — accept the token if `GetAuthenticatedUser` succeeded
+- [x] Add `GetAuthenticatedUserWithScopes(ctx) (*github.User, []string, error)` method to `api/pkg/agent/skill/github/client.go` that calls `c.client.Users.Get(ctx, "")` and parses the `X-OAuth-Scopes` response header into a string slice
+- [~] Update the `ExternalRepositoryTypeGitHub` case in `validateAndFetchUserInfo()` in `api/pkg/server/git_provider_connection_handlers.go` to call `GetAuthenticatedUserWithScopes` instead of `GetAuthenticatedUser`
+- [~] After getting scopes, if the scopes list is non-empty (classic PAT) and `repo` is not present, return an error with a message listing the token's actual scopes and linking to `https://github.com/settings/tokens`
+- [~] If scopes list is empty (fine-grained PAT or GitHub App), skip scope validation — accept the token if `GetAuthenticatedUser` succeeded
 - [ ] Verify: `go build ./api/pkg/server/ ./api/pkg/agent/skill/github/`
 
 ## Frontend: Unlink/disconnect saved PAT connection
