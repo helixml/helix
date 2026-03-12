@@ -1605,6 +1605,37 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 	switch request.ProviderType {
 	case types.ExternalRepositoryTypeGitHub:
 		ghClient := github.NewClientWithPATAndBaseURL(request.Token, request.BaseURL)
+
+		// Validate token scopes before listing repos. Classic PATs with no scopes
+		// or missing 'repo' can still list public repos, but Helix needs write access.
+		_, scopes, scopeHeaderPresent, err := ghClient.GetAuthenticatedUserWithScopes(ctx)
+		if err != nil {
+			if isAuthenticationError(err) {
+				http.Error(w, "Invalid GitHub token. Please check your token and try again.", http.StatusBadRequest)
+				return
+			}
+			log.Error().Err(err).Msg("Failed to validate GitHub token")
+			http.Error(w, "Failed to validate GitHub token. Please try again.", http.StatusInternalServerError)
+			return
+		}
+		if scopeHeaderPresent {
+			if len(scopes) == 0 {
+				http.Error(w, "GitHub token has no scopes. Helix requires the 'repo' scope for full repository access. Please create a new token with the 'repo' scope at https://github.com/settings/tokens", http.StatusBadRequest)
+				return
+			}
+			hasRepo := false
+			for _, s := range scopes {
+				if s == "repo" {
+					hasRepo = true
+					break
+				}
+			}
+			if !hasRepo {
+				http.Error(w, fmt.Sprintf("GitHub token is missing required scope 'repo'. Your token has scopes: %s. Please create a token with the 'repo' scope at https://github.com/settings/tokens", strings.Join(scopes, ", ")), http.StatusBadRequest)
+				return
+			}
+		}
+
 		ghRepos, err := ghClient.ListRepositories(ctx)
 		if err != nil {
 			if isAuthenticationError(err) {
