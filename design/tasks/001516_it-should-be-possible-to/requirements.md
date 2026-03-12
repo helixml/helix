@@ -11,9 +11,9 @@ Users can connect GitHub via PAT (Personal Access Token) in the "Browse Provider
 **I want to** remove/unlink it from the UI,
 **So that** I can disconnect or replace it without needing admin help.
 
-### US-2: Validate token scopes before saving
+### US-2: Validate token before saving
 **As a** user entering a GitHub PAT,
-**I want to** be told immediately if my token lacks the required scopes (e.g., `repo`),
+**I want to** be told immediately if my token is invalid (e.g., a copy-paste mistake) or lacks the required scopes (e.g., `repo`),
 **So that** I don't save a broken token that silently fails.
 
 ## Acceptance Criteria
