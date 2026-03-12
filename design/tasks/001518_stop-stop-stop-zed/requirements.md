@@ -6,7 +6,9 @@ Zed's default `format_on_save: "on"` setting is actively reformatting source fil
 
 The settings-sync-daemon controls what goes into `~/.config/zed/settings.json` inside desktop containers, but currently sets no `format_on_save` or `languages` config — so Zed's default (`"on"`) applies globally.
 
-Additionally, there is a pre-existing bug: hardcoded Helix defaults (like `text_rendering_mode`) are only set in `syncFromHelix()` (startup) but not in `checkHelixUpdates()` (30-second poll). This means all hardcoded defaults — including any new `format_on_save` setting — get silently dropped ~30 seconds after session start. Users observe their settings being overridden shortly after changing them.
+Additionally, the daemon's user override mechanism is fundamentally broken. `writeSettings()` does an atomic write (`os.Rename` from a temp file), which replaces the inode at the settings path. On Linux, inotify watches inodes — so after the first atomic write, the fsnotify watcher is watching a deleted inode and never receives events again. `onFileChanged()` never fires, `d.userOverrides` stays empty forever, and user changes to any setting (theme, context_servers, anything) are silently reverted on the next poll cycle.
+
+On top of this, hardcoded Helix defaults (like `text_rendering_mode`) are only set in `syncFromHelix()` (startup) but not in `checkHelixUpdates()` (30-second poll), so they get silently dropped. And inject mutations (`injectLanguageModelAPIKey`, etc.) cause `deepEqual` to always fail, so the daemon rewrites the file every 30 seconds even when nothing changed.
 
 ## User Stories
 
@@ -22,9 +24,13 @@ Additionally, there is a pre-existing bug: hardcoded Helix defaults (like `text_
 - [ ] `format_on_save` is `"off"` globally in the Zed settings written by the settings-sync-daemon
 - [ ] Go language has `format_on_save: "on"` as a per-language override
 
+### fsnotify watcher fix
+- [ ] The fsnotify watcher watches the settings **directory** (not the file) so atomic renames don't kill it — same pattern already used for the Claude credentials watcher
+- [ ] `onFileChanged()` fires when Zed writes `settings.json`, and user overrides are captured in `d.userOverrides`
+
 ### Poll-cycle bug fix
 - [ ] Hardcoded Helix defaults (`text_rendering_mode`, `suggest_dev_container`, `format_on_save`, `languages`, `agent.tool_permissions`) persist across the 30-second poll cycle — they must not be dropped by `checkHelixUpdates()`
-- [ ] The daemon does not detect a spurious "config changed" diff on every poll due to missing hardcoded defaults in the comparison baseline
+- [ ] The daemon does not detect a spurious "config changed" diff on every poll due to inject mutations (`api_key`, `available_models`) polluting the comparison baseline
 
 ### User preference persistence
 - [ ] `theme` is set to "Ayu Dark" as the initial default on new sessions, but once the user changes it via Zed UI, the daemon preserves the user's choice and never reverts it

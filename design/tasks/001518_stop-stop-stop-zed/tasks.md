@@ -1,5 +1,11 @@
 # Implementation Tasks
 
+## Fix broken fsnotify watcher (root cause of all user override failures)
+
+- [ ] In `startWatcher()`, watch the settings **directory** (`filepath.Dir(SettingsPath)`) instead of the file itself — atomic renames (`os.Rename` in `writeSettings`) replace the inode, killing a file-level inotify watcher permanently. This is the same pattern already used for the Claude credentials watcher.
+- [ ] In the fsnotify event handler, match settings changes with `filepath.Base(event.Name) == "settings.json"` instead of `event.Name == SettingsPath`
+- [ ] Verify `onFileChanged()` fires after Zed writes `settings.json` — add a log line and confirm it appears in daemon logs after changing a setting in the Zed UI
+
 ## Extract hardcoded defaults to shared helper
 
 - [ ] Create a `helixDefaults()` function in `api/cmd/settings-sync-daemon/main.go` that returns the static Helix defaults map: `text_rendering_mode`, `suggest_dev_container`, `format_on_save: "off"`, and `languages: {"Go": {"format_on_save": "on"}}`

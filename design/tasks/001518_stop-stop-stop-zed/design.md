@@ -21,7 +21,8 @@ The daemon has three ad-hoc categories with no clear boundaries:
 | **Everything else** | `theme`, `language_models`, `assistant`, `agent`, `context_servers` | Fully Helix-owned. API value is the base, user changes captured as overrides via fsnotify + `extractUserOverrides()`. |
 
 Problems with this:
-- `theme` is treated as Helix-owned, but it's a user preference. The API hardcodes `"Ayu Dark"` in `GenerateZedMCPConfig`, so theme goes through the whole override dance (user changes it → fsnotify captures it → stored as override → reapplied on merge) when it should just be left alone. In practice, users report the theme reverting within 30 seconds — the exact failure path isn't clear from code analysis alone, but the override mechanism is unnecessarily fragile for something that should simply be user-owned.
+- **The entire user override mechanism is broken.** `writeSettings()` does an atomic write (write temp file, `os.Rename` to `settings.json`). On Linux with inotify, this replaces the inode. The fsnotify watcher was added to the original inode via `watcher.Add(SettingsPath)` — after the first atomic rename, the watcher is watching a deleted inode and never receives events again. `onFileChanged()` never fires, `d.userOverrides` stays empty forever, and `mergeSettings()` has no user overrides to apply. This means user changes to **any** setting (theme, context_servers, anything) are silently reverted on the next poll cycle.
+- `theme` is treated as Helix-owned, but it's a user preference. The API hardcodes `"Ayu Dark"` in `GenerateZedMCPConfig`. Combined with the broken fsnotify watcher, the user's theme choice is overwritten every 30 seconds with no way to persist it.
 - Hardcoded defaults vanish after the first poll because `checkHelixUpdates()` rebuilds `d.helixSettings` from just the API response.
 - `injectLanguageModelAPIKey()` and `injectAvailableModels()` mutate `d.helixSettings` in place after the `deepEqual` baseline is set, so the comparison always fails → the daemon rewrites the file every 30 seconds even when nothing actually changed.
 
@@ -143,7 +144,26 @@ if !deepEqual(newHelixSettings, d.helixSettingsBaseline) || codeAgentChanged {
 
 This stops the every-30-second rewrite. The daemon should only rewrite `settings.json` when the Helix API actually returns different config (e.g. MCP servers changed, model changed).
 
-## Change 5: Deep Merge for `languages`
+## Change 5: Fix Broken fsnotify Watcher
+
+`writeSettings()` does an atomic write via `os.Rename(tmpFile, SettingsPath)`. On Linux, inotify watches inodes, not paths. After the rename, the old inode is gone and the watcher is dead — `onFileChanged()` never fires again for any subsequent writes (by Zed or anyone else).
+
+**Fix:** Watch the **directory** (`~/.config/zed/`) instead of the file, and filter events for `settings.json` by filename — the same pattern already used for the Claude credentials watcher (which watches the parent directory and filters by `credFilename`):
+
+```go
+// Watch the settings DIRECTORY (not the file) so atomic renames don't kill the watcher.
+// Filter for events on "settings.json" by filename.
+settingsDir := filepath.Dir(SettingsPath)
+if err := watcher.Add(settingsDir); err != nil {
+    return err
+}
+```
+
+Then in the event handler, match on `filepath.Base(event.Name) == "settings.json"` instead of `event.Name == SettingsPath`.
+
+This fixes the user override mechanism for all settings, not just theme. But theme should still be user-owned (Change 3) because relying on the override dance is unnecessary complexity for a user preference.
+
+## Change 6: Deep Merge for `languages`
 
 Currently `mergeSettings()` deep-merges `context_servers` but does a flat overwrite for everything else. If a user sets `"languages": {"TypeScript": {"tab_size": 4}}`, it replaces the entire `languages` map and loses our `"Go": {"format_on_save": "on"}`.
 
