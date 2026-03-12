@@ -96,6 +96,44 @@ This raw markdown is rendered directly in `InteractionInference.tsx` via the `Ma
 - **Tool call rendering:** Zed's `ToolCall.to_markdown()` serializes tool calls as markdown with `**Tool Call: <name>**\nStatus: <status>` headers. This arrives at the Go API as part of the accumulated response_message string.
 - **Session switching:** `streaming.tsx` manages a single `currentSessionId`. WebSocket subscription is shared (not per-session). The `clearSessionData` function is supposed to reset state but doesn't clear all refs.
 
+## Implementation Notes
+
+### Root Cause Analysis
+
+**Problem 1 (Messages don't get finished):** The Go API side was actually correct — `flushAndClearStreamingContext` already forces a DB write when `sctx.dirty == true`, and `handleExternalAgentReceiver` processes WebSocket messages sequentially (no reordering). The real bug was on the frontend: `interaction_patch` events use `requestAnimationFrame` to batch updates. When `interaction_update` with `state=complete` arrived, a stale RAF callback from a previous patch could fire AFTER the completion update, overwriting the final `response_message` with truncated streaming content.
+
+**Problem 2 (Tool calls need collapsing):** Zed's `ToolCall.to_markdown()` outputs `**Tool Call: <name>**\nStatus: <status>\n\n<body>`. The Go API's `MessageAccumulator` concatenates these into a single `response_message` string (separated by `\n\n` for distinct message IDs). The frontend rendered this raw markdown directly.
+
+**Problem 3 (Session switching mess):** `clearSessionData` in `streaming.tsx` only cleared `stepInfos` for the new session — it didn't clear `currentResponses`, `patchContentRef`, `patchPendingRef`, `messageBufferRef`, or `messageHistoryRef` for the old session. Additionally, `useLiveInteraction` only reset `lastKnownMessage` when `interactionId` changed, not when `sessionId` changed, causing stale content to leak across sessions.
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `api/pkg/server/websocket_external_agent_sync.go` | Added WARN log when `message_completed` finds empty `response_message` |
+| `frontend/src/components/session/CollapsibleToolCall.tsx` | **NEW** — `parseToolCallBlocks()` parser + `CollapsibleToolCall` component |
+| `frontend/src/components/session/InteractionInference.tsx` | Added `MessageWithToolCalls` wrapper that splits response by tool call blocks |
+| `frontend/src/components/session/InteractionLiveStream.tsx` | Same `MessageWithToolCalls` treatment for live streaming messages |
+| `frontend/src/contexts/streaming.tsx` | Enhanced `clearSessionData` to clear all refs; session ID filtering on `session_update`; synchronous `currentResponses` update on completion; clear `patchPendingRef` on completion |
+| `frontend/src/hooks/useLiveInteraction.ts` | Reset all state on `sessionId` change via `prevSessionIdRef`; prioritize `initialInteraction.response_message` over `lastKnownMessage` when `isComplete` |
+| `frontend/src/components/session/EmbeddedSessionView.tsx` | Reset `hasInitiallyScrolled`, scroll state, and remove old session cache on `sessionId` change |
+
+### Key Design Decisions
+
+1. **Synchronous update on completion:** When `interaction_update` with `state=complete` arrives in `streaming.tsx`, we update `currentResponses` synchronously (not via `requestAnimationFrame`) to prevent the RAF race condition. This is safe because completion events are infrequent (once per message turn).
+
+2. **Tool call parser uses regex, not AST:** The `parseToolCallBlocks` function uses a regex `^\*\*Tool Call: (.+?)\*\*\s*\nStatus: (\S+)` to detect complete tool call blocks. Incomplete blocks (missing `Status:` line, e.g. during streaming) pass through as raw markdown. This is deliberately lenient — if the format changes, it gracefully degrades to showing raw text.
+
+3. **Old session cache removal:** `EmbeddedSessionView` calls `queryClient.removeQueries()` for the old session when `sessionId` changes. This prevents flash of stale content but means navigating back to a session requires a fresh fetch. This is acceptable because session data is small and the refetch is fast.
+
+4. **Priority chain for message resolution in `useLiveInteraction`:** `completedMessage` (from initialInteraction when isComplete) > `safeResponseMessage` (from streaming currentResponses) > `lastKnownMessage` (preserved fallback) > `""`. The `completedMessage` path ensures the final DB-sourced content always wins over throttled streaming data.
+
+### Gotchas
+
+- The Go API build has a pre-existing `go-tree-sitter` dependency issue that causes `go build ./pkg/server/` to fail. This is not from our changes — use `go vet` on specific files or check CI for real build status.
+- `Interaction.tsx` uses `React.memo` with a custom `areEqual` function that checks `response_message` and `state` — this correctly triggers re-renders when the completion event updates the React Query cache.
+- The `CollapsibleToolCall` component is duplicated between `InteractionInference.tsx` and `InteractionLiveStream.tsx` as a local `MessageWithToolCalls` wrapper. This avoids creating a separate file for a thin wrapper and keeps the rendering logic co-located with where it's used.
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
