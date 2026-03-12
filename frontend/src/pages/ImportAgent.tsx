@@ -831,23 +831,6 @@ const ImportAgent: FC = () => {
               </Typography>
             </Box>
 
-            {organizations.length > 1 && (
-              <FormControl size="small" sx={{ mb: 3, minWidth: 250 }}>
-                <InputLabel>Import into organization</InputLabel>
-                <Select
-                  value={selectedOrgId}
-                  label="Import into organization"
-                  onChange={(e) => setSelectedOrgId(e.target.value)}
-                >
-                  {organizations.map((org) => (
-                    <MenuItem key={org.id} value={org.id}>
-                      {org.display_name || org.name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            )}
-
             <SecurityWarningCard
               severity="warning"
               themeConfig={themeConfig}
@@ -987,6 +970,25 @@ const ImportAgent: FC = () => {
                 </ConfigCard>
               </Box>
             </Box>
+
+            {organizations.length > 0 && (
+              <Box sx={{ display: "flex", justifyContent: "center", pt: 2 }}>
+                <FormControl size="small" sx={{ minWidth: 250 }}>
+                  <InputLabel>Import into organization</InputLabel>
+                  <Select
+                    value={selectedOrgId}
+                    label="Import into organization"
+                    onChange={(e) => setSelectedOrgId(e.target.value)}
+                  >
+                    {organizations.map((org) => (
+                      <MenuItem key={org.id} value={org.id}>
+                        {org.display_name || org.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
+            )}
 
             <Box
               sx={{ display: "flex", gap: 3, justifyContent: "center", pt: 2 }}
