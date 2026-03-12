@@ -72,6 +72,7 @@ interface BrowseProvidersDialogProps {
     repo: TypesRepositoryInfo,
     providerType: string,
     oauthConnectionId?: string,
+    patConnectionId?: string,
   ) => void;
   isLinking?: boolean;
   // If provided, shows warning that repo will be visible to org members
@@ -526,6 +527,15 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         bitbucketBaseUrl: patCredentials.bitbucketBaseUrl,
       });
       onSelectRepository(selectedRepo, providerWithCreds);
+    } else if (selectedPatConnectionId) {
+      // Saved PAT connection - pass the connection ID so the backend can
+      // look up and decrypt the stored token
+      onSelectRepository(
+        selectedRepo,
+        selectedProvider,
+        undefined,
+        selectedPatConnectionId,
+      );
     } else {
       // OAuth-based selection - pass connection ID
       onSelectRepository(selectedRepo, selectedProvider, selectedConnectionId);

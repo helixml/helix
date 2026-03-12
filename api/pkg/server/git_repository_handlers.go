@@ -13,6 +13,7 @@ import (
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
 	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/agent/skill/gitlab"
+	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -75,6 +76,72 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 	// Enterprise ADO deployments reject commits with non-corporate email addresses
 	request.CreatorName = user.FullName
 	request.CreatorEmail = user.Email
+
+	// If a saved PAT connection is referenced, look up the connection, decrypt the
+	// token, and populate the provider-specific settings so the service layer can
+	// build an authenticated clone URL without needing encryption key access.
+	if request.GitProviderConnectionID != "" {
+		connection, err := s.Store.GetGitProviderConnection(r.Context(), request.GitProviderConnectionID)
+		if err != nil {
+			http.Error(w, "Referenced git provider connection not found", http.StatusBadRequest)
+			return
+		}
+		if connection.UserID != user.ID {
+			http.Error(w, "Git provider connection does not belong to this user", http.StatusForbidden)
+			return
+		}
+		encryptionKey, err := s.getEncryptionKey()
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to get encryption key for git provider connection")
+			http.Error(w, "Failed to decrypt connection credentials", http.StatusInternalServerError)
+			return
+		}
+		decryptedToken, err := crypto.DecryptAES256GCM(connection.Token, encryptionKey)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to decrypt git provider connection token")
+			http.Error(w, "Failed to decrypt connection credentials", http.StatusInternalServerError)
+			return
+		}
+		token := string(decryptedToken)
+
+		switch connection.ProviderType {
+		case types.ExternalRepositoryTypeGitHub:
+			if request.GitHub == nil {
+				request.GitHub = &types.GitHub{}
+			}
+			request.GitHub.PersonalAccessToken = token
+			if connection.BaseURL != "" && request.GitHub.BaseURL == "" {
+				request.GitHub.BaseURL = connection.BaseURL
+			}
+		case types.ExternalRepositoryTypeGitLab:
+			if request.GitLab == nil {
+				request.GitLab = &types.GitLab{}
+			}
+			request.GitLab.PersonalAccessToken = token
+			if connection.BaseURL != "" && request.GitLab.BaseURL == "" {
+				request.GitLab.BaseURL = connection.BaseURL
+			}
+		case types.ExternalRepositoryTypeADO:
+			if request.AzureDevOps == nil {
+				request.AzureDevOps = &types.AzureDevOps{}
+			}
+			request.AzureDevOps.PersonalAccessToken = token
+			if connection.OrganizationURL != "" && request.AzureDevOps.OrganizationURL == "" {
+				request.AzureDevOps.OrganizationURL = connection.OrganizationURL
+			}
+		case types.ExternalRepositoryTypeBitbucket:
+			if request.Bitbucket == nil {
+				request.Bitbucket = &types.Bitbucket{}
+			}
+			request.Bitbucket.AppPassword = token
+			if connection.AuthUsername != "" {
+				decryptedUsername, err := crypto.DecryptAES256GCM(connection.AuthUsername, encryptionKey)
+				if err == nil {
+					request.Bitbucket.Username = string(decryptedUsername)
+				}
+			}
+		}
+	}
 
 	// Create repository
 	repository, err := s.gitRepositoryService.CreateRepository(r.Context(), &request)
