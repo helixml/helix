@@ -43,6 +43,6 @@
 - [ ] Manual: start task → navigate to thread list → click same thread → send stop → verify it actually stops (no continued file writes from orphaned agent)
 
 ## Build Verification
-- [ ] `cargo build --features external_websocket_sync -p zed` compiles cleanly — WARNING: cargo not available in this environment, must verify in VM or CI
-- [ ] `cargo test -p external_websocket_sync` passes — WARNING: blocked on build environment
-- [ ] `cargo test -p agent_ui` passes (if applicable) — WARNING: blocked on build environment
+- [x] `./stack build-zed release` compiles cleanly (had to fix borrow checker errors — clone Entity before update to avoid conflicting borrows)
+- [ ] `cargo test -p external_websocket_sync` passes — needs VM with cargo
+- [ ] `cargo test -p agent_ui` passes (if applicable) — needs VM with cargo

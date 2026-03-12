@@ -210,4 +210,6 @@ When a Thread entity in the registry is replaced by `register_thread` (same sess
 
 - **`unregister_thread` in `on_release`**: The `on_release` callback on `AcpServerView` fires when the GPUI entity is dropped (all strong references gone). This happens when `previous_view` is set to `None` and the old `ActiveView::AgentThread` is dropped. The `ServerState::Connected` check ensures we only try to unregister when there's actually a connected state with an active_id.
 
-- **Cargo not available in dev environment**: Build verification must happen in the VM (`./stack build-zed release`) or CI. The diagnostics tool confirmed no syntax errors in all three modified files.
+- **Borrow checker on `set_active_view` cancellation**: `server_view.read(cx).active_thread()` returns `Option<&Entity<AcpThreadView>>` — the `read(cx)` holds an immutable borrow on `cx`. Calling `active_thread.update(cx, ...)` then tries a mutable borrow, which conflicts. Fix: `.cloned()` on the `Option<&Entity>` to get an owned `Entity` before calling `update`. This is the standard GPUI pattern — always clone the entity handle out of a `read()` before mutating.
+
+- **Build via `./stack build-zed release`**: The dev environment doesn't have cargo installed directly, but `./stack build-zed release` runs the build inside Docker with BuildKit cache mounts. First build bootstraps rustup (~45s), subsequent builds are incremental. The diagnostics tool catches syntax errors but not borrow checker issues — always run the real build.
