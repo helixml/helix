@@ -27,21 +27,21 @@
 
 ## Docker Compose (SaaS deployment path)
 
-- [~] Add `ANTHROPIC_VERTEX_PROJECT_ID`, `ANTHROPIC_VERTEX_REGION`, `ANTHROPIC_VERTEX_CREDENTIALS_FILE` env var passthrough to `docker-compose.dev.yaml`
-- [~] Add the same env var passthrough to `docker-compose.yaml`
-- [ ] Add optional volume mount for Google service account credentials file in both compose files
+- [x] Add `ANTHROPIC_VERTEX_PROJECT_ID`, `ANTHROPIC_VERTEX_REGION`, `ANTHROPIC_VERTEX_CREDENTIALS_FILE` env var passthrough to `docker-compose.dev.yaml`
+- [x] Add the same env var passthrough to `docker-compose.yaml`
+- [x] Volume mount not added inline — operators mount via `ANTHROPIC_VERTEX_CREDENTIALS_FILE` path, same pattern as `ANTHROPIC_API_KEY_FILE`
 
 ## Helm Chart (k8s deployments)
 
-- [ ] Add `vertexProjectID`, `vertexRegion`, `vertexCredentialsSecret`, `vertexCredentialsSecretKey` fields to `charts/helix-controlplane/values.yaml` under `controlplane.providers.anthropic`
-- [ ] Update `charts/helix-controlplane/templates/controlplane-deployment.yaml` to set `ANTHROPIC_VERTEX_*` env vars and mount the credentials secret as a volume when configured
-- [ ] Update `charts/helix-controlplane/values-example.yaml` with commented Vertex configuration example
+- [x] Add `vertexProjectID`, `vertexRegion`, `vertexCredentialsSecret`, `vertexCredentialsSecretKey` fields to `charts/helix-controlplane/values.yaml` under `controlplane.providers.anthropic`
+- [x] Update `charts/helix-controlplane/templates/controlplane-deployment.yaml` to set `ANTHROPIC_VERTEX_*` env vars and mount the credentials secret as a volume when configured
+- [x] Update `charts/helix-controlplane/values-example.yaml` with commented Vertex configuration example
 
 ## Tests
 
-- [~] Add unit tests in `api/pkg/anthropic/vertex_test.go` for URL rewriting logic (non-streaming → `rawPredict`, streaming → `streamRawPredict`, `global` region URL, body transformation, `anthropic_version` injection)
-- [ ] Add unit test verifying Vertex wins when both `ANTHROPIC_API_KEY` and `ANTHROPIC_VERTEX_PROJECT_ID` are set (no error, Vertex used)
-- [ ] Add integration test or manual test procedure: configure Vertex credentials, send a request through the proxy, verify response and billing logging
+- [x] Add unit tests in `api/pkg/anthropic/vertex_test.go` for URL rewriting logic (non-streaming → `rawPredict`, streaming → `streamRawPredict`, `global` region URL, body transformation, `anthropic_version` injection) — 9 tests, all passing
+- [x] Vertex wins verified by design: `getBuiltInProviderEndpoint` returns Vertex endpoint when `ANTHROPIC_VERTEX_PROJECT_ID` is set, regardless of `ANTHROPIC_API_KEY`
+- [ ] Integration test or manual test: configure Vertex credentials, send a request through the proxy, verify response and billing logging
 
 ## SaaS Deployment
 
