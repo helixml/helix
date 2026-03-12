@@ -40,7 +40,11 @@ spec:
       {{- if ne (.Values.controlplane.waitForPostgres | toString) "false" }}
       initContainers:
         - name: wait-for-postgres
-          image: "{{ .Values.postgresql.image.registry }}/{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
+          {{- if .Values.global.imageRegistry }}
+          image: "{{ .Values.global.imageRegistry }}/{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
+          {{- else }}
+          image: "{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
+          {{- end }}
           imagePullPolicy: {{ .Values.postgresql.image.pullPolicy | default "IfNotPresent" }}
           command: ['sh', '-c', 'timeout {{ .Values.controlplane.waitForPostgresTimeout | default 300 }} sh -c ''until PGPASSWORD=$POSTGRES_PASSWORD psql -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER -d $POSTGRES_DATABASE -c "SELECT 1" > /dev/null 2>&1; do echo "Waiting for PostgreSQL ($POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DATABASE)..."; sleep 2; done''']
           env:

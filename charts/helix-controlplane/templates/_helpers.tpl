@@ -62,13 +62,50 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
+Renders a value that contains a template.
+Replaces Bitnami common.tplvalues.render.
+Usage: {{ include "helix-controlplane.tplvalues.render" (dict "value" .Values.some.value "context" $) }}
+*/}}
+{{- define "helix-controlplane.tplvalues.render" -}}
+{{- if typeIs "string" .value }}
+{{- tpl .value .context }}
+{{- else }}
+{{- tpl (.value | toYaml) .context }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Return the appropriate storageClass for a PVC.
+Replaces Bitnami common.storage.class.
+Usage: {{ include "helix-controlplane.storage.class" (dict "persistence" .Values.some.persistence "global" .Values.global) }}
+*/}}
+{{- define "helix-controlplane.storage.class" -}}
+{{- $storageClass := "" -}}
+{{- if .global -}}
+{{- if .global.storageClass -}}
+{{- $storageClass = .global.storageClass -}}
+{{- end -}}
+{{- end -}}
+{{- if .persistence.storageClass -}}
+{{- $storageClass = .persistence.storageClass -}}
+{{- end -}}
+{{- if $storageClass -}}
+{{- if (eq "-" $storageClass) }}
+storageClassName: ""
+{{- else }}
+storageClassName: {{ $storageClass | quote }}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 PostgreSQL connection environment variables.
 Used by both the init container and main controlplane container.
 */}}
 {{- define "helix-controlplane.postgres-env" -}}
 {{- if .Values.postgresql.enabled }}
 - name: POSTGRES_HOST
-  value: {{ .Release.Name }}-postgresql
+  value: {{ include "helix-controlplane.fullname" . }}-postgres
 - name: POSTGRES_PORT
   value: "5432"
 {{- if .Values.postgresql.auth.existingSecret }}
