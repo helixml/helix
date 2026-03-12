@@ -1560,10 +1560,9 @@ platform:
 trigger:
   event:
     - cron
-    - push
-  branch:
-    - main
-    - fix/helm-upgrade-*
+  cron:
+    - helm-upgrade-nightly
+    - developer
 
 steps:
   - name: helm-upgrade-test
