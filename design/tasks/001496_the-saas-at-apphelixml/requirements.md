@@ -2,9 +2,13 @@
 
 ## Problem
 
-The login page at app.helix.ml (Helix Cloud / SaaS) shows "Use your organization's single sign-on to access Helix." and "Sign in with SSO". This wording is appropriate for enterprise customers who have configured their own SSO provider, but misleading on the public SaaS where the SSO provider (Keycloak) is managed by Helix — it's not "your organization's" SSO, it's Helix's own auth.
+Two issues with SaaS-vs-enterprise awareness in the frontend:
 
-A second instance exists in Session.tsx where a login prompt says "You can login with your Google account or your organization's SSO provider."
+1. **Login copy**: The login page at app.helix.ml shows "Use your organization's single sign-on to access Helix." This is correct for enterprise customers who configured their own SSO, but misleading on the public SaaS where Helix manages the auth. A second instance in Session.tsx says "You can login with your Google account or your organization's SSO provider."
+
+2. **Dead upsell/SaaS code to clean up**:
+   - `useLiveInteraction.ts` has a hardcoded `window.location.hostname === "app.helix.ml"` check that gates a "stale interaction" timer. The `isStale` value it produces is returned from the hook but **never consumed by any UI component** — it's dead code. This was presumably wired to an upsell prompt that has since been removed.
+   - `InteractionInference.tsx` has an `upgrade` prop that renders an "Upgrade" button (with a `queue_upgrade_clicked` analytics event). Both call sites in `Interaction.tsx` always pass `upgrade={false}`, so this button can never appear — also dead code.
 
 ## User Stories
 
@@ -14,18 +18,23 @@ A second instance exists in Session.tsx where a login prompt says "You can login
 
 ## Locations to Change
 
-| File | Line | Current Text | Context |
-|------|------|-------------|---------|
-| `frontend/src/pages/Login.tsx` | ~426 | `"Use your organization's single sign-on to access Helix."` | OIDC login page description |
-| `frontend/src/pages/Login.tsx` | ~444 | `"Sign in with SSO"` | OIDC login button label |
-| `frontend/src/pages/Session.tsx` | ~1628 | `"You can login with your Google account or your organization's SSO provider."` | Login prompt in shared session view |
+| File | Line | Current Text / Code | Action |
+|------|------|-------------|--------|
+| `frontend/src/pages/Login.tsx` | ~426 | `"Use your organization's single sign-on to access Helix."` | Conditionalise for SaaS vs enterprise |
+| `frontend/src/pages/Login.tsx` | ~444 | `"Sign in with SSO"` | Conditionalise for SaaS vs enterprise |
+| `frontend/src/pages/Session.tsx` | ~1628 | `"You can login with your Google account or your organization's SSO provider."` | Conditionalise for SaaS vs enterprise |
+| `frontend/src/hooks/useLiveInteraction.ts` | ~42-44, ~101-117 | `isAppTryHelixDomain` hostname check + stale timer + `isStale` state | Remove entirely (dead code) |
+| `frontend/src/components/session/InteractionInference.tsx` | ~63, ~81, ~462-481 | `upgrade` prop + "Upgrade" button + `queue_upgrade_clicked` event | Remove entirely (dead code, always `false`) |
+| `frontend/src/components/session/Interaction.tsx` | ~218, ~302 | `upgrade={false}` on both `<InteractionInference>` call sites | Remove the prop (no longer exists) |
 
 ## Acceptance Criteria
 
 1. On Helix Cloud (app.helix.ml), the login page shows neutral copy that doesn't reference "your organization" — e.g. "Sign in to your Helix account" / "Sign in".
 2. On enterprise/self-hosted deployments with OIDC, the existing "your organization's SSO" wording is preserved.
 3. The Session.tsx login prompt also adapts its text based on the same condition.
-4. No new API endpoints or config fields are needed — use existing `config` data to distinguish deployments.
+4. The `isAppTryHelixDomain` hostname check, `isStale` state, stale timer, and `isStale` field on `LiveInteractionResult` are all removed from `useLiveInteraction.ts`.
+5. The `upgrade` prop, "Upgrade" button, and `queue_upgrade_clicked` event are removed from `InteractionInference.tsx`, and the `upgrade={false}` props are removed from `Interaction.tsx`.
+6. No new API endpoints or config fields are needed — use existing `config` data to distinguish deployments.
 
 ## How to Distinguish SaaS from Enterprise
 
@@ -35,8 +44,4 @@ The `/api/v1/config` endpoint returns a `ServerConfigForFrontend` object. Observ
 - `stripe_enabled`: `true`
 - `edition`: (empty/undefined)
 
-Options for the check (in order of preference):
-1. **`billing_enabled === true`** — SaaS has billing; enterprise self-hosted typically does not. Already available in config, no backend change needed.
-2. **`edition === "cloud"`** — More explicit, but currently not set on app.helix.ml. Would require a backend config change to set `HELIX_EDITION=cloud` in the SaaS deployment.
-
-Recommendation: Use `edition === "cloud"` — it's the most semantically correct and future-proof. Requires a one-line infra change to set `HELIX_EDITION=cloud` in the SaaS deployment's environment.
+Recommendation: Use `edition === "cloud"` — it's the most semantically correct and future-proof. Requires a one-line infra change to set `HELIX_EDITION=cloud` in the SaaS deployment's environment. The `edition` field already exists end-to-end (Go config → API → frontend types).

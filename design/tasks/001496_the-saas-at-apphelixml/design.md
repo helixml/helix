@@ -26,7 +26,18 @@ The `edition` field is already defined in `api/pkg/types/types.go` (line ~1037) 
 2. **`frontend/src/pages/Session.tsx`** — Line ~1628. Login prompt dialog:
    - `"You can login with your Google account or your organization's SSO provider."`
 
-3. **SaaS deployment config** (infra) — Set `HELIX_EDITION=cloud`.
+3. **`frontend/src/hooks/useLiveInteraction.ts`** — Lines ~42-44, ~101-117. Dead code:
+   - `isAppTryHelixDomain`: hardcoded `window.location.hostname === "app.helix.ml"` check.
+   - `isStale` state, `recentTimestamp` state, stale timer `useEffect`, and `isStale` on the `LiveInteractionResult` interface.
+   - This was the plumbing for a SaaS upsell prompt (likely "Upgrade" / "contact sales" shown when a response went stale). The UI side was already removed but the hook-side plumbing was left behind.
+
+4. **`frontend/src/components/session/InteractionInference.tsx`** — Lines ~63, ~81, ~462-481. Dead code:
+   - `upgrade?: boolean` prop, the `{upgrade && ...}` block rendering an "Upgrade" button, and the `queue_upgrade_clicked` analytics event.
+   - Both call sites in `Interaction.tsx` (~lines 218, 302) always pass `upgrade={false}`, so this button can never appear.
+
+5. **`frontend/src/components/session/Interaction.tsx`** — Lines ~218, ~302. Remove `upgrade={false}` prop from both `<InteractionInference>` usages (prop no longer exists after cleanup above).
+
+6. **SaaS deployment config** (infra) — Set `HELIX_EDITION=cloud`.
 
 ### How Login.tsx Currently Works
 
@@ -48,6 +59,22 @@ The `isRegular` branch (email/password) is unaffected — this task only touches
 ### How Session.tsx Login Prompt Works
 
 Session.tsx renders a `<Window>` modal when `showLoginWindow` is true (triggered when an unauthenticated user tries to interact with a shared session). It currently has access to `account` context but not `config`. It will need to import `useGetConfig`.
+
+## Dead Code Cleanup
+
+The codebase has two layers of remnant SaaS-only upsell plumbing that should be removed:
+
+### `useLiveInteraction.ts` — stale check + hostname guard
+
+This hook computes `isStale` (true when no streaming update received for 10s) but only when `window.location.hostname === "app.helix.ml"`. The `isStale` value is returned in `LiveInteractionResult` but **no component reads it** — `InteractionLiveStream.tsx` destructures `{ message, status, stepInfos, isComplete }` and ignores `isStale`. The stale check was presumably wired to the upgrade prompt that was removed separately.
+
+**Remove**: `isAppTryHelixDomain` memo, `isStale` state, `recentTimestamp` state, the stale-check `useEffect`, and the `isStale` field from the return type and return value. The `recentTimestamp` reset inside the SSE streaming `useEffect` also becomes dead — remove the `setRecentTimestamp(Date.now())` calls and the `if (isStale) { setIsStale(false) }` block.
+
+### `InteractionInference.tsx` — `upgrade` prop + "Upgrade" button
+
+The component accepts `upgrade?: boolean` and renders an "Upgrade" button that emits `queue_upgrade_clicked` and opens the account settings dialog. Both callers in `Interaction.tsx` pass `upgrade={false}`, so this code path is unreachable.
+
+**Remove**: the `upgrade` prop from the interface and destructuring, the `{upgrade && ...}` JSX block, and `upgrade={false}` from both call sites in `Interaction.tsx`.
 
 ## Decision: How to Detect SaaS
 
@@ -132,5 +159,6 @@ This is an ops/infra task, not a code change. The Go config already reads `HELIX
 
 - The email/password login flow (`isRegular` branch) — unaffected.
 - The `account.onLogin()` behaviour — same OAuth/OIDC redirect regardless of copy.
-- Any backend logic — purely frontend text changes + one env var.
+- Any backend logic — purely frontend text changes + dead code removal + one env var.
 - Enterprise deployments — they keep existing wording with no action needed.
+- The core `useLiveInteraction` streaming/message logic — only the stale check is removed.
