@@ -7,12 +7,18 @@
 - [ ] Change the hardcoded fallback from `128000` to `200000` (for the custom model path). Update the comment to: `// Default context window for custom models if not found in model_info (200K matches most current frontier models)`.
 - [ ] Verify: `cd api && go build ./cmd/settings-sync-daemon/`
 
-## Fix 2: Add 4.6 models to `normalizeModelIDForZed`
+## Fix 2: Complete `normalizeModelIDForZed` for all Anthropic model IDs
 
-- [ ] In `normalizeModelIDForZed()` in `api/pkg/external-agent/zed_config.go`, add the missing 4.6 cases alongside the existing 4.5 cases:
-  - `claude-opus-4-6*` → `claude-opus-4-6-latest`
-  - `claude-sonnet-4-6*` → `claude-sonnet-4-6-latest`
-- [ ] Add corresponding test cases in `api/pkg/external-agent/zed_config_test.go` (or whichever file tests `normalizeModelIDForZed`).
+The actual model IDs from Anthropic's `/v1/models` endpoint are: `claude-sonnet-4-6`, `claude-opus-4-6`, `claude-opus-4-5-20251101`, `claude-haiku-4-5-20251001`, `claude-sonnet-4-5-20250929`, `claude-opus-4-1-20250805`, `claude-opus-4-20250514`, `claude-sonnet-4-20250514`, `claude-3-haiku-20240307`. These are the model IDs the user selects in the Helix UI.
+
+- [ ] In `normalizeModelIDForZed()` in `api/pkg/external-agent/zed_config.go`, add the missing cases. Order matters — more specific prefixes must come before less specific ones to avoid false matches:
+  - `claude-opus-4-6*` → `claude-opus-4-6-latest` (NEW)
+  - `claude-sonnet-4-6*` → `claude-sonnet-4-6-latest` (NEW)
+  - `claude-opus-4-1*` → `claude-opus-4-1-latest` (NEW)
+  - `claude-opus-4*` (after 4-1, 4-5, 4-6 checks) → `claude-opus-4-latest` (NEW — handles `claude-opus-4-20250514`)
+  - `claude-sonnet-4*` (after 4-5, 4-6 checks) → `claude-sonnet-4-latest` (NEW — handles `claude-sonnet-4-20250514`)
+  - (existing 4.5 and 3.x cases remain unchanged)
+- [ ] Add corresponding test cases in `api/pkg/external-agent/zed_config_test.go` covering every Anthropic model ID listed above.
 - [ ] Verify: `cd api && go test ./pkg/external-agent/ -count=1 -run Normalize`
 
 ## Fix 3: Remove `injectLanguageModelAPIKey` from settings-sync-daemon

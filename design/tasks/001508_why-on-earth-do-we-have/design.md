@@ -78,15 +78,32 @@ This is much better than trying to get the right context length from model_info.
 
 **Fallback for truly custom models:** Keep `injectAvailableModels()` for non-built-in models, but update the fallback default from `128000` to `200000`.
 
-### Fix 2: Add 4.6 models to `normalizeModelIDForZed`
+### Fix 2: Complete `normalizeModelIDForZed` for all Anthropic model IDs
 
 **Location:** `api/pkg/external-agent/zed_config.go` → `normalizeModelIDForZed()`
 
-Add the missing cases:
+The actual model IDs from Anthropic's API (fetched via `curl -H "anthropic-version: 2023-06-01" -H "x-api-key: ..." http://api:8080/v1/models`) are:
+
+| Anthropic model ID | `normalizeModelIDForZed` result | Correct? |
+|---|---|---|
+| `claude-sonnet-4-6` | unchanged (no match) | ❌ |
+| `claude-opus-4-6` | unchanged (no match) | ❌ |
+| `claude-opus-4-5-20251101` | `claude-opus-4-5-latest` | ✅ |
+| `claude-haiku-4-5-20251001` | `claude-haiku-4-5-latest` | ✅ |
+| `claude-sonnet-4-5-20250929` | `claude-sonnet-4-5-latest` | ✅ |
+| `claude-opus-4-1-20250805` | unchanged (no match) | ❌ |
+| `claude-opus-4-20250514` | unchanged (no match) | ❌ |
+| `claude-sonnet-4-20250514` | unchanged (no match) | ❌ |
+| `claude-3-haiku-20240307` | `claude-3-haiku-latest` | ✅ |
+
+Only the 4.5-era and 3.x models are handled. Add the missing cases (order matters — more specific prefixes must come first to avoid false matches):
 - `claude-opus-4-6*` → `claude-opus-4-6-latest`
 - `claude-sonnet-4-6*` → `claude-sonnet-4-6-latest`
+- `claude-opus-4-1*` → `claude-opus-4-1-latest`
+- `claude-opus-4*` (after 4-1, 4-5, 4-6 checks) → `claude-opus-4-latest`
+- `claude-sonnet-4*` (after 4-5, 4-6 checks) → `claude-sonnet-4-latest`
 
-This ensures the `default_model` in agent settings uses the canonical `-latest` ID that exactly matches Zed's built-in model keys.
+This ensures the `default_model` in agent settings uses the canonical `-latest` ID that exactly matches Zed's built-in model keys for every model the user can select from Anthropic's API.
 
 ### Fix 3: Remove `injectLanguageModelAPIKey`
 

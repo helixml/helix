@@ -8,7 +8,21 @@ The settings-sync-daemon injects model configuration into Zed's `settings.json`.
 
 2. **api_key in settings.json is dead config**: The daemon's `injectLanguageModelAPIKey()` writes `api_key` into `language_models.anthropic` in settings.json, but Zed's `AnthropicSettings` struct only has two fields: `api_url` and `available_models`. There is no `api_key` field — Zed reads API keys exclusively from the `ANTHROPIC_API_KEY` env var or the system keychain. The env var is already correctly set by `DesktopAgentAPIEnvVars()`. Writing the API key to settings.json leaks a token into a config file for no reason.
 
-3. **`normalizeModelIDForZed` is missing 4.6 models**: The function in `zed_config.go` converts model names to `-latest` format for Zed's `default_model` config. It has cases for 4.5 models but no cases for 4.6 models (`claude-opus-4-6`, `claude-sonnet-4-6`). These should be added for consistency, even though Zed's `Model::from_id()` can resolve them via prefix matching today.
+3. **`normalizeModelIDForZed` has gaps for many Anthropic model IDs**: The function in `zed_config.go` converts model names to `-latest` format for Zed's `default_model` config. The actual model IDs from Anthropic's API (fetched via `curl -H "anthropic-version: 2023-06-01" http://api:8080/v1/models`) are:
+
+    | Anthropic model ID | `normalizeModelIDForZed` result | Correct? |
+    |---|---|---|
+    | `claude-sonnet-4-6` | unchanged (no match) | ❌ Missing |
+    | `claude-opus-4-6` | unchanged (no match) | ❌ Missing |
+    | `claude-opus-4-5-20251101` | `claude-opus-4-5-latest` | ✅ |
+    | `claude-haiku-4-5-20251001` | `claude-haiku-4-5-latest` | ✅ |
+    | `claude-sonnet-4-5-20250929` | `claude-sonnet-4-5-latest` | ✅ |
+    | `claude-opus-4-1-20250805` | unchanged (no match) | ❌ Missing |
+    | `claude-opus-4-20250514` | unchanged (no match) | ❌ Missing |
+    | `claude-sonnet-4-20250514` | unchanged (no match) | ❌ Missing |
+    | `claude-3-haiku-20240307` | `claude-3-haiku-latest` | ✅ |
+
+    Only the 4.5-era and 3.x models are handled. All 4.0, 4.1, and 4.6 models pass through unnormalized. Zed's `Model::from_id()` still resolves them via `starts_with` prefix matching today, but the function should be complete for all models the user can select.
 
 ## User Stories
 
@@ -24,7 +38,12 @@ The settings-sync-daemon injects model configuration into Zed's `settings.json`.
 - [ ] The 128,000 hardcoded fallback default for custom models is updated to 200,000.
 
 ### Model ID Normalization
-- [ ] `normalizeModelIDForZed()` handles `claude-opus-4-6*` → `claude-opus-4-6-latest` and `claude-sonnet-4-6*` → `claude-sonnet-4-6-latest`.
+- [ ] `normalizeModelIDForZed()` handles all Anthropic model IDs returned by the Anthropic `/v1/models` endpoint. Specifically, add the missing cases:
+  - `claude-opus-4-6*` → `claude-opus-4-6-latest`
+  - `claude-sonnet-4-6*` → `claude-sonnet-4-6-latest`
+  - `claude-opus-4-1*` → `claude-opus-4-1-latest`
+  - `claude-opus-4*` (but not `claude-opus-4-1`, `claude-opus-4-5`, `claude-opus-4-6`) → `claude-opus-4-latest`
+  - `claude-sonnet-4*` (but not `claude-sonnet-4-5`, `claude-sonnet-4-6`) → `claude-sonnet-4-latest`
 - [ ] The `default_model` in agent settings uses canonical `-latest` IDs that exactly match Zed's built-in model keys.
 
 ### API Key Removal from settings.json
