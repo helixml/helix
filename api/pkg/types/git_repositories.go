@@ -17,8 +17,8 @@ type GitRepositoryStatus string
 
 const (
 	GitRepositoryStatusActive   GitRepositoryStatus = "active"
-	GitRepositoryStatusCloning  GitRepositoryStatus = "cloning"  // Clone in progress
-	GitRepositoryStatusError    GitRepositoryStatus = "error"    // Clone or sync failed
+	GitRepositoryStatusCloning  GitRepositoryStatus = "cloning" // Clone in progress
+	GitRepositoryStatusError    GitRepositoryStatus = "error"   // Clone or sync failed
 	GitRepositoryStatusArchived GitRepositoryStatus = "archived"
 	GitRepositoryStatusDeleted  GitRepositoryStatus = "deleted"
 )
@@ -76,13 +76,17 @@ type GitRepository struct {
 	// When set, uses the OAuth access token instead of username/password or PAT
 	OAuthConnectionID string `gorm:"index" json:"oauth_connection_id"`
 
+	// GitProviderConnectionID - references a GitProviderConnection (saved PAT) for authentication
+	// When set, the encrypted token is decrypted and used for clone/push operations
+	GitProviderConnectionID string `gorm:"index" json:"git_provider_connection_id"`
+
 	// TODO: SSH key support
 
 	// Code intelligence fields
 	KoditIndexing bool `gorm:"index" json:"kodit_indexing"` // Enable Kodit indexing for code intelligence (MCP server for snippets/architecture)
 
 	// Clone progress tracking for async cloning
-	CloneError    string         `json:"clone_error,omitempty"`                         // Error message if cloning failed
+	CloneError    string         `json:"clone_error,omitempty"`                                      // Error message if cloning failed
 	CloneProgress *CloneProgress `json:"clone_progress,omitempty" gorm:"type:jsonb;serializer:json"` // Live progress during cloning
 }
 
@@ -163,6 +167,9 @@ type GitRepositoryCreateRequest struct {
 
 	// OAuth connection ID - references an OAuthConnection for authentication
 	OAuthConnectionID string `json:"oauth_connection_id,omitempty"`
+
+	// GitProviderConnectionID - references a saved PAT connection for authentication
+	GitProviderConnectionID string `json:"git_provider_connection_id,omitempty"`
 
 	KoditIndexing bool `json:"kodit_indexing"` // Enable Kodit code intelligence indexing
 
