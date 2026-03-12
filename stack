@@ -1164,8 +1164,14 @@ function transfer-desktop-to-sandbox() {
   fi
 
   # Tag with the expected names inside sandbox (Hydra uses helix-${desktop}:${tag})
-  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}"
-  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest"
+  if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}"; then
+    echo "❌ Failed to tag ${SANDBOX_REGISTRY_TAG} as ${IMAGE_NAME}:${IMAGE_TAG} inside sandbox"
+    return 1
+  fi
+  if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest"; then
+    echo "❌ Failed to tag ${SANDBOX_REGISTRY_TAG} as ${IMAGE_NAME}:latest inside sandbox"
+    return 1
+  fi
 
   # Remove the registry-prefixed tag to allow proper cleanup later
   # (layers are shared, so this just removes the tag, not the data)
