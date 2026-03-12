@@ -2,8 +2,8 @@
 
 ## Route Migration
 
-- [ ] In `frontend/src/router.tsx`, add new org-scoped route: `{ name: 'org_import-agent', path: '/orgs/:org_id/import-agent', ... }` rendering `<ImportAgent />`
-- [ ] In `frontend/src/router.tsx`, convert the existing `import-agent` route into a redirect: read `selected_org` from `localStorage`, redirect to `/orgs/{org}/import-agent` preserving the `?config=...` query string. If no org stored, redirect to `/orgs`
+- [~] In `frontend/src/router.tsx`, add new org-scoped route: `{ name: 'org_import-agent', path: '/orgs/:org_id/import-agent', ... }` rendering `<ImportAgent />`
+- [~] In `frontend/src/router.tsx`, convert the existing `import-agent` route into a redirect: read `selected_org` from `localStorage`, redirect to `/orgs/{org}/import-agent` preserving the `?config=...` query string. If no org stored, redirect to `/orgs`
 
 ## Fix Organization ID in Import Payload
 
