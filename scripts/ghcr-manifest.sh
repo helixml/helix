@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # Create and push a multi-arch manifest on ghcr.io/helixml.
 # Usage: scripts/ghcr-manifest.sh <old-repo> <version>
 # Example: scripts/ghcr-manifest.sh registry.helixml.tech/helix/controlplane v1.0
@@ -14,7 +14,7 @@ fi
 
 OLD_REPO="$1"
 VERSION="$2"
-GHCR_REPO="${OLD_REPO/registry.helixml.tech\/helix/ghcr.io\/helixml}"
+GHCR_REPO=$(echo "$OLD_REPO" | sed 's|registry.helixml.tech/helix|ghcr.io/helixml|')
 
 echo "$GITHUB_TOKEN" | docker login ghcr.io -u helixml --password-stdin
 
