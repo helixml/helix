@@ -73,7 +73,33 @@ Layer 4: IS_SANDBOX env var
 
 **Approach:** Add a `// PERMISSION BYPASS STACK` comment block near the top of `generateAgentServerConfig()` explaining all 4 layers and linking to this design doc. Also add a section to `CLAUDE.md` developer guide.
 
-### Decision 4: No changes to the Zed fork
+### Decision 4: Make Claude Code the default runtime for new agents
+
+**Rationale:** Claude Code is the best coding agent experience. New users shouldn't have to discover it buried in a dropdown — it should be the default.
+
+**Approach:** Introduce a `DEFAULT_CODE_AGENT_RUNTIME` constant in `frontend/src/contexts/apps.tsx` set to `'claude_code'`, and replace all 6 hardcoded `'zed_agent'` defaults:
+
+| File | Line | Current |
+|------|------|---------|
+| `contexts/apps.tsx` (`createAgent` fallback) | ~226 | `params.codeAgentRuntime \|\| 'zed_agent'` |
+| `pages/Onboarding.tsx` | ~258 | `useState<CodeAgentRuntime>("zed_agent")` |
+| `components/project/CreateProjectDialog.tsx` | ~196 | `useState<CodeAgentRuntime>('zed_agent')` |
+| `components/project/AgentSelectionModal.tsx` | ~91 | `useState<CodeAgentRuntime>('zed_agent')` |
+| `components/tasks/NewSpecTaskForm.tsx` | ~175 | `useState<CodeAgentRuntime>("zed_agent")` |
+| `pages/ProjectSettings.tsx` | ~514 | `useState<CodeAgentRuntime>("zed_agent")` |
+
+`AppSettings.tsx` uses `app.code_agent_runtime || 'zed_agent'` which is a fallback for existing agents — this should stay as-is (or use the constant) so existing agents aren't affected.
+
+The `AgentSelectionModal` already has logic to auto-select `claude_code` when the user has a Claude subscription and no other providers. With this change, Claude Code becomes the default for everyone, and that conditional logic can be removed since it's now redundant.
+
+**UX impact:** When Claude Code is selected, the credentials sub-section appears immediately, showing either "Claude Subscription" or "Anthropic API Key" radio buttons. This guides the user to configure credentials as part of agent creation rather than discovering the need later.
+
+Screenshots captured during planning:
+- `screenshots/01-onboarding-default-zed-agent.png` — current default (Zed Agent)
+- `screenshots/02-runtime-dropdown-options.png` — the three runtime options
+- `screenshots/03-claude-code-selected-no-credentials.png` — Claude Code selected, showing credential options
+
+### Decision 5: No changes to the Zed fork
 
 **Rationale:** The Zed side (`tool_permissions.default = "allow"`) already works correctly. The problems have always been on the Helix side (wrong field names, missing settings, wrong env vars). No Zed changes needed.
 
@@ -100,6 +126,8 @@ Key gotcha already handled: `baseURL` must NOT have `/v1` suffix because the Ant
 - **devcontainer.go** (`api/pkg/hydra/`) builds the container environment. `IS_SANDBOX=1` is hardcoded there.
 - **Field name sensitivity**: The ACP config uses `default_mode` (underscore), not `default` (which is a JSON keyword in some contexts). PR #1778's entire fix was changing `"default"` to `"default_mode"`.
 - **Claude Code credential memoization**: Claude Code's credential reader is memoized. If it reads before `~/.claude/.credentials.json` exists, it caches null permanently. The settings-sync-daemon gates on file existence before emitting `agent_servers` config to prevent this.
+- **Scattered runtime defaults**: The default code agent runtime (`'zed_agent'`) is hardcoded in 6 separate `useState` calls across the frontend, plus a fallback in `contexts/apps.tsx`. There is no centralized `DEFAULT_CODE_AGENT_RUNTIME` constant — this should be introduced alongside the default change to prevent scatter.
+- **`CodingAgentForm.tsx`** is the shared form component used by most agent creation flows. It receives `value.codeAgentRuntime` as a prop — the default is set by the parent, not the form itself. So the fix is in the parents, not the form.
 
 ## Risks
 

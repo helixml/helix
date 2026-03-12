@@ -50,3 +50,18 @@
 - [ ] Consider pinning `@anthropic-ai/claude-code` to a specific version in `Dockerfile.ubuntu-helix` and `Dockerfile.sway-helix` instead of `@latest`, to avoid surprise config format changes
 - [ ] Add a Go unit test in `api/cmd/settings-sync-daemon/` that verifies `generateAgentServerConfig()` output for `claude_code` runtime contains `"default_mode"` key (not `"default"`)
 - [ ] Add a Go unit test verifying the agent_servers config structure matches what the ACP expects: `{ "claude": { "default_mode": "bypassPermissions", "env": { ... } } }`
+
+## Make Claude Code the Default Runtime
+
+- [ ] Add a `DEFAULT_CODE_AGENT_RUNTIME` constant set to `'claude_code'` in `frontend/src/contexts/apps.tsx` next to the existing `CodeAgentRuntime` type
+- [ ] Replace all 6 hardcoded `'zed_agent'` defaults in `useState` calls with the new constant:
+  - `pages/Onboarding.tsx` (~line 258)
+  - `components/project/CreateProjectDialog.tsx` (~line 196)
+  - `components/project/AgentSelectionModal.tsx` (~line 91)
+  - `components/tasks/NewSpecTaskForm.tsx` (~line 175)
+  - `pages/ProjectSettings.tsx` (~line 514)
+  - `components/app/AppSettings.tsx` (~line 253) — use the constant as the fallback for existing apps with no runtime set
+- [ ] Update the `createAgent` fallback in `contexts/apps.tsx` (~line 226): change `params.codeAgentRuntime || 'zed_agent'` to use the new constant
+- [ ] Remove the now-redundant auto-select logic in `AgentSelectionModal.tsx` (~line 150-155) that conditionally sets `claude_code` when the user has a Claude subscription and no other providers — the default handles this now
+- [ ] Verify in the browser: open onboarding, create project dialog, agent selection modal, new spec task form — all should show "Claude Code" as the pre-selected runtime with the credentials sub-section visible immediately
+- [ ] Verify existing agents with `code_agent_runtime: 'zed_agent'` still load correctly in `AppSettings.tsx` (the existing value from the app takes precedence over the default)

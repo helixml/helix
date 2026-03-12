@@ -41,6 +41,22 @@ As a developer, I want an automated test that verifies Claude Code doesn't promp
 - Test fails if any of the bypass mechanisms are misconfigured
 - Can run in CI or manually via the spectask CLI
 
+### US-4: Claude Code is the default runtime when creating a new agent
+As a new user creating their first agent, I want Claude Code to be the default runtime selection, because it's the best coding agent experience and I shouldn't have to know to switch away from Zed Agent.
+
+**Acceptance Criteria:**
+- The "Code Agent Runtime" dropdown defaults to "Claude Code" (not "Zed Agent") in all agent creation flows:
+  - Onboarding page (`Onboarding.tsx`)
+  - Create Project dialog (`CreateProjectDialog.tsx`)
+  - Agent Selection modal (`AgentSelectionModal.tsx`)
+  - New Spec Task form (`NewSpecTaskForm.tsx`)
+  - Project Settings page (`ProjectSettings.tsx`)
+- The `createAgent` fallback in `contexts/apps.tsx` defaults to `'claude_code'` instead of `'zed_agent'`
+- Existing agents with `code_agent_runtime: 'zed_agent'` (or empty) are NOT changed — this only affects the default for new agent creation
+- The credential mode sub-section ("Claude Subscription" vs "Anthropic API Key") appears immediately, guiding the user to configure credentials
+
+**Codebase note:** The default is currently hardcoded as `'zed_agent'` in 6 separate `useState` calls plus the `createAgent` fallback in `contexts/apps.tsx`. There is no centralized `DEFAULT_CODE_AGENT_RUNTIME` constant — one should be introduced to avoid scatter.
+
 ## Non-Functional Requirements
 
 - **No new dependencies**: All permission bypass mechanisms already exist. The work is about hardening configuration, adding tests, and documenting the layered bypass system.
