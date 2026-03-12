@@ -133,34 +133,6 @@ func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, req *http.Request
 	return apiServer.getConfig(req.Context())
 }
 
-// prints the config values as JavaScript values so we can block the rest of the frontend on
-// initializing until we have these values (useful for things like Sentry without having to burn keys into frontend code)
-func (apiServer *HelixAPIServer) configJS(res http.ResponseWriter, req *http.Request) {
-	config, err := apiServer.getConfig(req.Context())
-	if err != nil {
-		http.Error(res, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	res.Header().Set("Content-Type", "application/javascript")
-	// Never cache config - contains deployment-specific values for pre-React init
-	res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	res.Header().Set("Pragma", "no-cache")
-	res.Header().Set("Expires", "0")
-	content := fmt.Sprintf(`
-window.HELIX_SENTRY_DSN = "%s"
-window.HELIX_GOOGLE_ANALYTICS = "%s"
-window.RUDDERSTACK_WRITE_KEY = "%s"
-window.RUDDERSTACK_DATA_PLANE_URL = "%s"
-`,
-		config.SentryDSNFrontend,
-		config.GoogleAnalyticsFrontend,
-		config.RudderStackWriteKey,
-		config.RudderStackDataPlaneURL,
-	)
-	if _, err := res.Write([]byte(content)); err != nil {
-		log.Error().Msgf("Failed to write response: %v", err)
-	}
-}
 
 func (apiServer *HelixAPIServer) status(_ http.ResponseWriter, req *http.Request) (types.UserStatus, error) {
 	user := getRequestUser(req)

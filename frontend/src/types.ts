@@ -341,34 +341,6 @@ export interface IWebsocketEvent {
   total_length?: number, // Final content length after patch
 }
 
-export interface IServerConfig {
-  filestore_prefix: string,
-  stripe_enabled: boolean,
-  billing_enabled: boolean,
-  require_active_subscription: boolean,
-  sentry_dsn_frontend: string,
-  google_analytics_frontend: string,
-  providers_management_enabled: boolean,
-  eval_user_id: string,
-  tools_enabled: boolean,
-  apps_enabled: boolean,
-  version?: string,
-  latest_version?: string,
-  deployment_id?: string,
-  edition?: string,
-  license?: {
-    valid: boolean,
-    organization: string,
-    valid_until: string,
-    features: {
-      users: boolean,
-    },
-    limits: {
-      users: number,
-      machines: number,
-    },
-  },
-}
 
 export interface IConversation {
   from: string,

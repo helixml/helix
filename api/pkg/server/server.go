@@ -625,7 +625,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		SilenceErrors: true,
 	})).Methods(http.MethodGet)
 
-	insecureRouter.HandleFunc("/config/js", apiServer.configJS).Methods(http.MethodGet)
 	insecureRouter.Handle("/swagger", apiServer.swaggerHandler()).Methods(http.MethodGet)
 
 	// this is not authenticated because we use the webhook signing secret

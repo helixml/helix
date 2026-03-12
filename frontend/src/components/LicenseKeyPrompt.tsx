@@ -82,8 +82,8 @@ export const LicenseKeyPrompt: React.FC<LicenseKeyPromptProps> = ({
           {new Date(
             account.serverConfig.license.valid_until,
           ).toLocaleDateString()}{" "}
-          | Users: {account.serverConfig.license.limits.users} | Machines:{" "}
-          {account.serverConfig.license.limits.machines}
+          | Users: {account.serverConfig.license.limits?.users} | Machines:{" "}
+          {account.serverConfig.license.limits?.machines}
         </Alert>
       )}
       <Typography paragraph>

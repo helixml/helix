@@ -11,10 +11,10 @@ import {
   IApiKey,
   IHelixModel,
   IKeycloakUser,
-  IServerConfig,
   IUserConfig,
   IProviderEndpoint,
 } from '../types'
+import { TypesServerConfigForFrontend } from '../api/api'
 
 export interface IAccountContext {
   initialized: boolean,
@@ -26,7 +26,7 @@ export interface IAccountContext {
   user?: IKeycloakUser,
   userMeta?: { slug: string },  // User metadata including slug for GitHub-style URLs
   loggingOut?: boolean,
-  serverConfig: IServerConfig,
+  serverConfig: TypesServerConfigForFrontend,
   userConfig: IUserConfig,
   appApiKeys: IApiKey[],
   mobileMenuOpen: boolean,
@@ -47,19 +47,6 @@ export interface IAccountContext {
   dismissOnboarding: () => void,
 }
 
-const DEFAULT_SERVER_CONFIG: IServerConfig = {
-  filestore_prefix: '',
-  stripe_enabled: false,
-  billing_enabled: false,
-  require_active_subscription: false,
-  sentry_dsn_frontend: '',
-  google_analytics_frontend: '',
-  providers_management_enabled: false,
-  eval_user_id: '',
-  tools_enabled: true,
-  apps_enabled: true,
-}
-
 export const AccountContext = createContext<IAccountContext>({
   initialized: false,
   credits: 0,
@@ -68,7 +55,7 @@ export const AccountContext = createContext<IAccountContext>({
   isOrgAdmin: false,
   isOrgMember: false,
   loggingOut: false,
-  serverConfig: DEFAULT_SERVER_CONFIG,
+  serverConfig: {},
   userConfig: {},
   appApiKeys: [],
   mobileMenuOpen: false,
@@ -109,37 +96,7 @@ export const useAccountContext = (): IAccountContext => {
   // Server config via React Query — single source of truth.
   // Default staleTime=0 means data refetches on mount (e.g. Login page after logout).
   const { data: configData } = useGetConfig()
-  const serverConfig = useMemo<IServerConfig>(() => {
-    if (!configData) return DEFAULT_SERVER_CONFIG
-    return {
-      filestore_prefix: configData.filestore_prefix ?? '',
-      stripe_enabled: configData.stripe_enabled ?? false,
-      billing_enabled: configData.billing_enabled ?? false,
-      require_active_subscription: configData.require_active_subscription ?? false,
-      sentry_dsn_frontend: configData.sentry_dsn_frontend ?? '',
-      google_analytics_frontend: configData.google_analytics_frontend ?? '',
-      providers_management_enabled: configData.providers_management_enabled ?? false,
-      eval_user_id: configData.eval_user_id ?? '',
-      tools_enabled: configData.tools_enabled ?? true,
-      apps_enabled: configData.apps_enabled ?? true,
-      version: configData.version,
-      latest_version: configData.latest_version,
-      deployment_id: configData.deployment_id,
-      edition: configData.edition,
-      license: configData.license ? {
-        valid: configData.license.valid ?? false,
-        organization: configData.license.organization ?? '',
-        valid_until: configData.license.valid_until ?? '',
-        features: {
-          users: configData.license.features?.users ?? false,
-        },
-        limits: {
-          users: configData.license.limits?.users ?? 0,
-          machines: configData.license.limits?.machines ?? 0,
-        },
-      } : undefined,
-    }
-  }, [configData])
+  const serverConfig: TypesServerConfigForFrontend = configData ?? {}
 
   const [apiKeys, setApiKeys] = useState<IApiKey[]>([])
   const [appApiKeys, setAppApiKeys] = useState<IApiKey[]>([])
