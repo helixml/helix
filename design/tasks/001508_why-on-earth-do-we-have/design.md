@@ -2,74 +2,57 @@
 
 ## Root Cause Analysis
 
-### Problem 1: Wrong context length (128K instead of real value)
+### Problem 1: Wrong context length (128K instead of 200K)
 
-**Chain of events:**
+**The real issue is simpler than it first appears.** Zed already has built-in definitions for all current Claude models with correct context lengths, output limits, cache configs, etc. The daemon's `injectAvailableModels()` is *overriding* those correct built-ins with a broken `Custom` model entry.
 
-1. `buildCodeAgentConfigFromAssistant()` in `zed_config_handlers.go` looks up model info:
-   ```go
-   modelInfo, err := apiServer.modelInfoProvider.GetModelInfo(ctx, &modelPkg.ModelInfoRequest{
-       Provider: providerName,  // "anthropic"
-       Model:    modelName,     // e.g. "claude-opus-4-6" (Anthropic's dash format)
-   })
-   if err == nil {
-       maxTokens = modelInfo.ContextLength
-       maxOutputTokens = modelInfo.MaxCompletionTokens
-   }
-   ```
+**How Zed's model selection works (`zed/crates/language_models/src/provider/anthropic.rs` → `provided_models()`):**
 
-2. `BaseModelInfoProvider.GetModelInfo()` (in `api/pkg/model/model_info.go`) tries several lookup strategies:
-   - Direct map lookup by `provider_model_id` — fails because the map is keyed by provider-specific IDs like `global.anthropic.claude-opus-4-6-v1` (Bedrock), not `claude-opus-4-6`.
-   - Strip prefix and retry — `claude-opus-4-6` still not in the map.
-   - Construct slug `anthropic/claude-opus-4-6` and iterate all models comparing against `model.Slug` (`anthropic/claude-opus-4.6` — dots) and `model.Permaslug` (`anthropic/claude-4.6-opus-20260205`). **None match** because dashes ≠ dots.
-   - `trimAnthropicDateSuffix` only strips trailing `-YYYYMMDD` patterns — doesn't help here since `4-6` is not a date suffix.
+1. Populate a `BTreeMap` with all built-in models, keyed by `model.id()` (e.g. `"claude-opus-4-6-latest"`)
+2. Then iterate `available_models` from settings.json and **insert into the same map**, keyed by `model.name`
+3. If a settings entry has the same key as a built-in, it **replaces** the built-in with a `Custom` model
 
-3. `GetModelInfo` returns an error → `maxTokens` stays 0 → goes into `CodeAgentConfig.MaxTokens` as 0.
+The daemon injects `name: "claude-opus-4-6"` which is a *different* key from the built-in `"claude-opus-4-6-latest"`, so it doesn't replace — it adds a **second, broken model** alongside the correct built-in. This Custom model has wrong context (128K fallback), no cache configuration, no beta headers, etc.
 
-4. In the settings-sync-daemon's `injectAvailableModels()` (`api/cmd/settings-sync-daemon/main.go`):
-   ```go
-   maxTokens := d.codeAgentConfig.MaxTokens
-   if maxTokens == 0 {
-       maxTokens = 128000 // Hardcoded fallback — THIS IS THE BUG
-   }
-   ```
+**The chain of failure in detail:**
 
-5. Zed's `AnthropicAvailableModel.max_tokens` field means **context window size** (the comment in `zed/crates/settings_content/src/language_model.rs` says "The model's context window size"). So Zed thinks the model has a 128K context window when it should be 1,000,000 (for claude-opus-4.6) or 200,000 (for most other Claude models).
+1. `buildCodeAgentConfigFromAssistant()` tries `GetModelInfo()` with model name `claude-opus-4-6`
+2. model_info.json (OpenRouter) uses dot-format slugs (`anthropic/claude-opus-4.6`) — lookup fails due to dash vs dot mismatch
+3. `MaxTokens` stays 0 → daemon falls back to hardcoded `128000`
+4. Daemon writes `available_models: [{name: "claude-opus-4-6", max_tokens: 128000}]` to settings.json
+5. Zed creates a `Custom` model from this, missing all the metadata the built-in has
 
-**Actual context lengths from model_info.json (OpenRouter source):**
-- `anthropic/claude-opus-4.6`: context_length=1,000,000
-- `anthropic/claude-opus-4.5`: context_length=200,000
-- `anthropic/claude-opus-4`: context_length=200,000
-- `anthropic/claude-sonnet-4`: context_length=200,000
-- `anthropic/claude-sonnet-4.5`: context_length=200,000
-- `anthropic/claude-sonnet-4.6`: context_length=200,000
+**But none of this matters for built-in models.** Zed already knows `claude-opus-4-6` — it has correct values hardcoded. The daemon shouldn't be injecting it at all.
 
-### Problem 2: api_key written to settings.json is dead config
+**Authoritative context lengths (from Zed built-ins in `zed/crates/anthropic/src/anthropic.rs`):**
 
-**How Zed reads API keys (priority order in `ApiKeyState.load_if_needed()` in `zed/crates/language_model/src/api_key.rs`):**
-1. Check env var (`ANTHROPIC_API_KEY`) → if non-empty, use it immediately (returns `Task::ready(Ok(()))`)
-2. Fall back to system keychain lookup via `CredentialsProvider`
+| Model | ID | Context | Max Output |
+|-------|-----|---------|------------|
+| ClaudeOpus4_6 | `claude-opus-4-6-latest` | **200,000** | 128,000 |
+| ClaudeOpus4_6_1mContext | `claude-opus-4-6-1m-context-latest` | **1,000,000** | 128,000 |
+| ClaudeOpus4_5 | `claude-opus-4-5-latest` | 200,000 | 64,000 |
+| ClaudeSonnet4_6 | `claude-sonnet-4-6-latest` | 200,000 | 64,000 |
+| ClaudeSonnet4 | `claude-sonnet-4-latest` | 200,000 | 64,000 |
 
-**Zed's `AnthropicSettings` struct (`zed/crates/language_models/src/provider/anthropic.rs`) only has two fields:**
+The 1M variants are explicit opt-in (separate model entries). Do NOT trust model_info.json (OpenRouter) for context lengths — it conflates the 1M variant into the base model.
+
+### Problem 1b: `normalizeModelIDForZed` missing 4.6 models
+
+`normalizeModelIDForZed()` in `api/pkg/external-agent/zed_config.go` converts model names to `-latest` format for Zed's `default_model` config. It has cases for `claude-opus-4-5`, `claude-sonnet-4-5`, `claude-haiku-4-5`, but **no cases for any 4.6 models**. So `claude-opus-4-6` passes through unnormalized. Zed's `Model::from_id()` still resolves it (via `id.starts_with("claude-opus-4-6")`), but we should be consistent and add the 4.6 entries.
+
+### Problem 2: api_key in settings.json is dead config
+
+Zed's `AnthropicSettings` struct only has two fields:
 ```rust
 pub struct AnthropicSettings {
     pub api_url: String,
     pub available_models: Vec<AvailableModel>,
 }
 ```
-There is **no `api_key` field**. Any `api_key` in settings.json is silently ignored by Zed's settings deserialization.
 
-**The env var is already set correctly** by `DesktopAgentAPIEnvVars()` in `api/pkg/types/types.go`:
-```go
-func DesktopAgentAPIEnvVars(apiKey string) []string {
-    return []string{
-        "USER_API_TOKEN=" + apiKey,
-        "ANTHROPIC_API_KEY=" + apiKey,  // ← Already handled
-        "OPENAI_API_KEY=" + apiKey,
-        "ZED_HELIX_TOKEN=" + apiKey,
-    }
-}
-```
+There is **no `api_key` field**. Zed reads API keys from the `ANTHROPIC_API_KEY` env var (via `ApiKeyState` in `api_key.rs`) or the system keychain. The env var is already set by `DesktopAgentAPIEnvVars()`.
+
+The daemon's `injectLanguageModelAPIKey()` writes a token to a file where nothing reads it.
 
 ### Problem 3: Contradictory intent between API handler and daemon
 
@@ -79,61 +62,70 @@ The zed-config API handler (`zed_config_handlers.go` line 166) deliberately omit
 // container env vars (set by DesktopAgentAPIEnvVars). Only api_url is needed in settings.
 ```
 
-But then the settings-sync-daemon's `injectLanguageModelAPIKey()` re-injects it, undoing that deliberate omission. This is dead code that contradicts the API handler's security-conscious design.
+But then the daemon's `injectLanguageModelAPIKey()` re-injects it, contradicting that deliberate omission.
 
 ## Solution Design
 
-### Fix 1: Model name normalization in GetModelInfo
+### Fix 1: Stop injecting built-in models into `available_models`
 
-**Location:** `api/pkg/model/model_info.go` → `GetModelInfo()`
+**Location:** `api/cmd/settings-sync-daemon/main.go` → `injectAvailableModels()`
 
-The core issue: Anthropic model IDs use dashes for version numbers (`claude-opus-4-6`) but OpenRouter slugs use dots (`anthropic/claude-opus-4.6`). The existing `trimAnthropicDateSuffix` helper already handles one class of normalization (stripping `-YYYYMMDD`). We need a similar normalization for dash-vs-dot version segments.
+The simplest correct fix: **skip injection for models that Zed already has built-in definitions for.** Zed knows all current Claude, GPT, and Gemini models. The `available_models` mechanism is only needed for truly custom models (e.g. `helix/qwen3:8b` routed through OpenAI-compatible API).
 
-**Approach:** After existing slug-based lookups fail, apply a normalization that converts trailing version-like dash segments to dots. The pattern is: when the model name ends with segments like `-4-6` or `-4-5`, try replacing the last separating dash with a dot (e.g. `claude-opus-4-6` → `claude-opus-4.6`). This is specifically for the pattern where a model family version and a minor version are both numeric and dash-separated.
+**Approach:** Before injecting into `available_models`, check if the model name matches a known Zed built-in by checking the provider's API type. For `anthropic` provider models, Zed has built-in definitions for all Claude models — `injectAvailableModels()` should skip injection when `APIType == "anthropic"`. For `openai` provider models going through the OpenAI-compatible proxy with a `provider/model` prefix, Zed won't have a built-in and injection is still needed.
 
-A reasonable regex: match `-(\d+)-(\d+)` at the end of the model name portion of the slug and try replacing with `-$1.$2`. This converts `anthropic/claude-opus-4-6` → `anthropic/claude-opus-4.6`.
+This is much better than trying to get the right context length from model_info.json (which has wrong values anyway). The built-in model has the correct context length, cache config, beta headers, thinking mode support — everything. A `Custom` model from `available_models` has none of that.
 
-This follows the same pattern as `trimAnthropicDateSuffix` — a targeted normalization that fires as a fallback only when exact matches fail.
+**Fallback for truly custom models:** Keep `injectAvailableModels()` for non-built-in models, but update the fallback default from `128000` to `200000`.
 
-### Fix 2: Remove injectLanguageModelAPIKey
+### Fix 2: Add 4.6 models to `normalizeModelIDForZed`
+
+**Location:** `api/pkg/external-agent/zed_config.go` → `normalizeModelIDForZed()`
+
+Add the missing cases:
+- `claude-opus-4-6*` → `claude-opus-4-6-latest`
+- `claude-sonnet-4-6*` → `claude-sonnet-4-6-latest`
+
+This ensures the `default_model` in agent settings uses the canonical `-latest` ID that exactly matches Zed's built-in model keys.
+
+### Fix 3: Remove `injectLanguageModelAPIKey`
 
 **Location:** `api/cmd/settings-sync-daemon/main.go`
 
 1. Delete the `injectLanguageModelAPIKey()` method entirely.
-2. Remove calls to it in `syncFromHelix()` (line ~737) and `checkHelixUpdates()` (line ~1113).
-3. Remove the corresponding test.
+2. Remove calls in `syncFromHelix()` (~line 737) and `checkHelixUpdates()` (~line 1113).
+3. Remove corresponding test.
 
-No replacement needed — `ANTHROPIC_API_KEY` env var already handles auth correctly.
-
-### Fix 3: Update hardcoded 128K fallback
-
-**Location:** `api/cmd/settings-sync-daemon/main.go` → `injectAvailableModels()`
-
-Change the fallback from `128000` to `200000`. This is a safer default since most current frontier models have at least 200K context. With Fix 1 in place, this fallback should rarely be hit — only for models completely absent from model_info.json.
+No replacement needed — `ANTHROPIC_API_KEY` env var already handles auth.
 
 ## Key Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Where to normalize model names | `GetModelInfo()` in `model_info.go` | Single fix point for all callers; same pattern as existing `trimAnthropicDateSuffix` |
-| Normalization strategy | Regex-based dash-to-dot for trailing version segments | Targeted and safe — only fires when exact lookups fail, only affects numeric version patterns |
-| What to do with `api_key` in settings.json | Remove `injectLanguageModelAPIKey()` entirely | Zed ignores the field; writing tokens to disk is unnecessary exposure; contradicts the API handler's deliberate omission |
-| Fallback context length | 200,000 (from 128,000) | Matches most frontier models; conservative; rarely hit after Fix 1 |
+| How to fix context length | Don't inject built-in models into `available_models` | Zed's built-ins are authoritative — injecting creates a worse `Custom` model that's missing cache config, beta headers, etc. |
+| How to identify built-in models | Check `APIType == "anthropic"` (and similar for other native providers) | Simple, correct — all Anthropic models have built-in Zed definitions |
+| `normalizeModelIDForZed` | Add 4.6 model entries | Consistency with existing 4.5 entries; ensures `default_model` exactly matches built-in IDs |
+| `api_key` in settings.json | Remove entirely | Zed ignores it; unnecessary token exposure |
+| Fallback for custom models | 200,000 (from 128,000) | Safer default for non-built-in models; rarely hit |
 
 ## Files Changed
 
 | File | Change |
 |------|--------|
-| `api/pkg/model/model_info.go` | Add dash-to-dot version normalization in `GetModelInfo()` as a fallback, following the `trimAnthropicDateSuffix` pattern |
-| `api/pkg/model/model_info_test.go` | Add test for `claude-opus-4-6` (dashes) resolving correctly to the same ModelInfo as `anthropic/claude-opus-4.6` |
-| `api/cmd/settings-sync-daemon/main.go` | Delete `injectLanguageModelAPIKey()` method and its two call sites; update `128000` fallback to `200000` |
-| `api/cmd/settings-sync-daemon/main_test.go` | Delete `TestInjectLanguageModelAPIKey`; update any tests that assert `api_key` presence in output |
+| `api/cmd/settings-sync-daemon/main.go` | Skip `injectAvailableModels()` for models with native Zed provider support (anthropic); delete `injectLanguageModelAPIKey()`; update fallback from 128K to 200K |
+| `api/cmd/settings-sync-daemon/main_test.go` | Update tests: remove api_key assertions; add test that anthropic models are NOT injected into available_models; keep test that custom models ARE injected |
+| `api/pkg/external-agent/zed_config.go` | Add `claude-opus-4-6` and `claude-sonnet-4-6` cases to `normalizeModelIDForZed()` |
+| `api/pkg/external-agent/zed_config_test.go` | Add test cases for 4.6 model normalization |
+
+## What We're NOT Changing
+
+- **`GetModelInfo()` / model_info.go** — The dash-vs-dot lookup failure in model_info.json is a real bug, but fixing it doesn't help here because OpenRouter's context lengths are wrong anyway (1M for base claude-opus-4.6 when Anthropic says 200K). The right fix is to not inject built-in models at all, making the lookup irrelevant for this case. The model_info lookup bug can be fixed separately if needed for other consumers (e.g. billing/pricing).
+- **`CodeAgentConfig.MaxTokens`** — Still populated from model_info when available (for non-built-in models), but no longer drives settings.json for built-in models.
 
 ## Codebase Patterns Discovered
 
-- **model_info.json** is sourced from OpenRouter and embedded via `go:embed`. Model slugs use dots for versions (e.g. `anthropic/claude-opus-4.6`). The data map is keyed by `provider_model_id` (e.g. `global.anthropic.claude-opus-4-6-v1` for Bedrock, `claude-sonnet-4-6` for Anthropic direct). Not all models have an Anthropic-direct endpoint entry — claude-opus-4.6 only has a Bedrock endpoint in the current data.
-- **`trimAnthropicDateSuffix`** already exists as a model name normalization helper in `model_info.go` — the new normalization follows the same fallback pattern.
-- **Zed settings.json schema** is strict — `api_key` is not part of any provider's settings struct (`AnthropicSettings`, `OpenAiSettings`). Auth is always env var or system keychain. The `available_models[].max_tokens` field means **context window size**, not max output tokens.
-- **`DesktopAgentAPIEnvVars()`** in `api/pkg/types/types.go` is the canonical place where container env vars for LLM auth are set. All code paths (`addUserAPITokenToAgent`, `buildEnvWithLocale`, `GoldenBuildService`) use it consistently.
-- **`CodeAgentConfig`** is the bridge between the API server (which looks up model info) and the settings-sync-daemon (which writes settings.json). Token limits flow through its `MaxTokens`/`MaxOutputTokens` fields. When these are 0, the daemon falls back to hardcoded defaults.
-- **The zed-config API handler** deliberately omits `api_key` from the response (comment at line 166 of `zed_config_handlers.go`), but the daemon re-injects it — this is the inconsistency being fixed.
+- **Zed's `provided_models()` merges built-ins with `available_models` from settings.** Settings entries override built-ins by key. Built-in IDs use `-latest` suffix (e.g. `claude-opus-4-6-latest`); injected names don't — so they create duplicate entries rather than overriding. Either way, injecting built-in models is wrong.
+- **`normalizeModelIDForZed()`** maintains a manual mapping of model prefixes to `-latest` IDs. New model versions need to be added here. The 4.6 entries were missed.
+- **Zed settings.json schema is strict.** `AnthropicSettings` has only `api_url` + `available_models`. No `api_key` field exists. Auth is env var or keychain.
+- **`DesktopAgentAPIEnvVars()`** is the canonical auth injection point — sets `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc. as container env vars.
+- **model_info.json (OpenRouter) is unreliable for context lengths.** It conflates extended-context variants into base models. Zed's built-in definitions are authoritative for models it knows about.
