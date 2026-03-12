@@ -606,14 +606,9 @@ function TaskCardInner({
     task.status === "queued_spec_generation" ||
     task.status === "spec_approved";
 
-  // Can move to backlog from planning, review, or implementation phases (not backlog, queued, done, or pull_request)
+  // Can move to backlog from any phase except backlog itself and queued states
   const canMoveToBacklog =
-    !isQueued &&
-    task.phase !== "backlog" &&
-    task.phase !== "completed" &&
-    task.phase !== "pull_request" &&
-    task.status !== "done" &&
-    task.status !== "pull_request";
+    !isQueued && task.phase !== "backlog" && task.status !== "backlog";
 
   const handleRemoveFromQueue = async () => {
     if (!task.id) return;

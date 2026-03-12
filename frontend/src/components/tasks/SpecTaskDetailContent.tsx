@@ -456,18 +456,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Check if task is archived/rejected - container is shut down so desktop view won't work
   const isTaskArchived = task?.archived;
 
-  // Check if task can be moved to backlog (not in backlog, queued, done, or pull_request)
+  // Check if task can be moved to backlog (not in backlog or queued)
   const isQueued =
     task?.status === "queued_implementation" ||
     task?.status === "queued_spec_generation" ||
     task?.status === "spec_approved";
   const canMoveToBacklog =
-    task &&
-    !isQueued &&
-    task.status !== "backlog" &&
-    task.status !== "done" &&
-    task.status !== "pull_request" &&
-    !isTaskArchived;
+    task && !isQueued && task.status !== "backlog" && !isTaskArchived;
 
   // Thread selection state for switching between planning and implementation threads
   const [selectedThreadSessionId, setSelectedThreadSessionId] = useState<
