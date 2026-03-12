@@ -2,22 +2,22 @@
 
 ## Config & Types
 
-- [~] Add `VertexProjectID`, `VertexRegion`, `VertexCredentialsFile` fields to `Anthropic` struct in `api/pkg/config/config.go` with `envconfig` tags (`ANTHROPIC_VERTEX_PROJECT_ID`, `ANTHROPIC_VERTEX_REGION` default `global`, `ANTHROPIC_VERTEX_CREDENTIALS_FILE`)
+- [x] Add `VertexProjectID`, `VertexRegion`, `VertexCredentialsFile` fields to `Anthropic` struct in `api/pkg/config/config.go` with `envconfig` tags (`ANTHROPIC_VERTEX_PROJECT_ID`, `ANTHROPIC_VERTEX_REGION` default `global`, `ANTHROPIC_VERTEX_CREDENTIALS_FILE`)
 
-- [~] Add `VertexProjectID`, `VertexRegion`, `VertexCredentialsFile` fields to `ProviderEndpoint` struct in `api/pkg/types/provider.go` (with GORM column tags and `json:"...,omitempty"`)
-- [~] Add corresponding optional pointer fields to `UpdateProviderEndpoint` struct in `api/pkg/types/provider.go`
-- [ ] GORM AutoMigrate will pick up the new columns automatically — verify with a local test
+- [x] Add `VertexProjectID`, `VertexRegion`, `VertexCredentialsFile` fields to `ProviderEndpoint` struct in `api/pkg/types/provider.go` (with GORM column tags and `json:"...,omitempty"`)
+- [x] Add corresponding optional pointer fields to `UpdateProviderEndpoint` struct in `api/pkg/types/provider.go`
+- [x] GORM AutoMigrate will pick up the new columns automatically — verified: `go build ./pkg/config/ ./pkg/types/` compiles clean
 
 ## Vertex Proxy Logic
 
-- [ ] Create `api/pkg/anthropic/vertex.go` with:
+- [~] Create `api/pkg/anthropic/vertex.go` with:
   - Google OAuth2 `TokenSource` initialization (from credentials file or Application Default Credentials)
   - `vertexTransformRequest(r *http.Request, projectID, region string)` — reads body, extracts `model`, rewrites URL path to `/v1/projects/{project}/locations/{region}/publishers/anthropic/models/{model}:{rawPredict|streamRawPredict}`, injects `anthropic_version` into body if missing, removes `model` from body
   - Helper to compute Vertex base URL from region (`global` → `https://aiplatform.googleapis.com/`, otherwise `https://{region}-aiplatform.googleapis.com/`)
   - Thread-safe `TokenSource` cache (`sync.Map`) keyed by credentials file path, for DB-configured endpoints with different credentials
-- [ ] Update `Proxy` struct in `anthropic_proxy.go` to hold an optional default `oauth2.TokenSource` (for env-var-configured built-in provider) and the `sync.Map` cache for per-endpoint token sources
-- [ ] Update `anthropicAPIProxyDirector` to detect Vertex mode (endpoint has `VertexProjectID` set) and call Vertex transform + set `Authorization: Bearer <token>` instead of `x-api-key`
-- [ ] Update `New()` constructor in `anthropic_proxy.go` to accept Vertex config and initialize the default token source at startup (when `ANTHROPIC_VERTEX_PROJECT_ID` is set)
+- [~] Update `Proxy` struct in `anthropic_proxy.go` to hold an optional default `oauth2.TokenSource` (for env-var-configured built-in provider) and the `sync.Map` cache for per-endpoint token sources
+- [~] Update `anthropicAPIProxyDirector` to detect Vertex mode (endpoint has `VertexProjectID` set) and call Vertex transform + set `Authorization: Bearer <token>` instead of `x-api-key`
+- [~] Update `New()` constructor in `anthropic_proxy.go` to accept Vertex config and initialize the default token source at startup (when `ANTHROPIC_VERTEX_PROJECT_ID` is set)
 
 ## Wiring
 
