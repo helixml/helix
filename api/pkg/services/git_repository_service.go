@@ -394,6 +394,9 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		UpdatedAt:         time.Now(),
 		Metadata:          request.Metadata,
 		AzureDevOps:       request.AzureDevOps,
+		GitHub:            request.GitHub,
+		GitLab:            request.GitLab,
+		Bitbucket:         request.Bitbucket,
 		KoditIndexing:     request.KoditIndexing,
 		OAuthConnectionID: request.OAuthConnectionID,
 	}
