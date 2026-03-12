@@ -88,7 +88,9 @@ The `TokenSource` returned by the Google auth libraries is safe for concurrent u
 
 ### Decision 3: Vertex wins unconditionally
 
-When `ANTHROPIC_VERTEX_PROJECT_ID` is set (env var or DB endpoint), all Anthropic traffic goes through Vertex. Vertex is strictly better when available — same pricing, better reliability. `ANTHROPIC_API_KEY` is simply ignored. No mutual exclusivity validation, no precedence logic, no configuration to choose between them. Vertex is on or it's off.
+When `ANTHROPIC_VERTEX_PROJECT_ID` is set (env var or DB endpoint), all Anthropic **inference** traffic goes through Vertex. Vertex is strictly better when available — same pricing, better reliability. No mutual exclusivity validation, no precedence logic, no configuration to choose between them. Vertex is on or it's off.
+
+`ANTHROPIC_API_KEY` is ignored for inference but is **required for model discovery** (see Decision 7). Vertex has no API to list available models, so model listing always hits `api.anthropic.com` directly. For SaaS, both `ANTHROPIC_VERTEX_PROJECT_ID` and `ANTHROPIC_API_KEY` must be set.
 
 ### Decision 4: Config changes
 
@@ -156,6 +158,34 @@ anthropic:
 
 When `vertexProjectID` is set, the chart mounts the credentials secret as a volume and sets `ANTHROPIC_VERTEX_CREDENTIALS_FILE` to the mount path.
 
+### Decision 7: Model listing — Vertex has no model discovery API
+
+**The problem:** Helix dynamically discovers Anthropic models by calling `GET /v1/models` on `api.anthropic.com`. This model list populates the Helix model cache, drives the UI model selectors, and determines what models users can configure for agents. Without it, no Anthropic models appear in Helix at all.
+
+Vertex AI does **not** support this endpoint. The Vertex REST API for publisher models (`publishers.models`) only has a `get` method for fetching a single model by name — there is **no `list` method** to enumerate available models from a publisher. The project-scoped resource (`projects.locations.publishers.models`) only exposes inference endpoints (`rawPredict`, `streamRawPredict`, etc.) with no metadata operations at all. Google simply does not provide an API to answer "what Anthropic models are available on Vertex?"
+
+This is an industry-wide gap. Claude Code sidesteps it by hardcoding model names via environment variables (`ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, etc.) and warns users to pin versions. Zed hardcodes models as a Rust enum. Neither calls a discovery API.
+
+**We will NOT hardcode a list of Anthropic models into Helix.** That creates a maintenance burden — every new Anthropic model release (Opus 4.7, etc.) would require a Helix code change and redeployment. The whole point of calling `/v1/models` is to avoid exactly this.
+
+**Approach — two tiers:**
+
+**Tier 1: SaaS and most deployments (recommended).** Set `ANTHROPIC_API_KEY` alongside the Vertex config. Model discovery calls `GET api.anthropic.com/v1/models` using the API key — this is a metadata-only query, no user data or inference traffic touches Anthropic. All inference goes through Vertex. When Anthropic ships new models, they appear automatically. This is a **hard requirement for the Helix SaaS deployment** (`app.helix.ml`).
+
+Concretely:
+- **`listAnthropicModels`** (in `openai_client_anthropic.go`): When Vertex is configured, ignore the Vertex base URL for model listing. Always call `api.anthropic.com/v1/models` with `ANTHROPIC_API_KEY`. The existing code already does this when `baseURL` is set to the Anthropic default — we just need to force that path when Vertex is active.
+- **`listModelsAnthropic`** (in `openai_model_handlers.go`, the proxy path): Same — proxy model list requests to `api.anthropic.com` regardless of Vertex config.
+
+**Tier 2: Vertex-only deployments (no Anthropic API key).** For self-hosted operators who only have Google Cloud credentials and no Anthropic API key, we promote the existing `ANTHROPIC_MODELS` env var from a filter to also act as a **source**. Currently `ANTHROPIC_MODELS` only marks models as enabled/disabled from the list fetched via the API. When no API key is available and the API call returns nothing, `ANTHROPIC_MODELS` should be used to synthesize the model list directly. The operator explicitly declares which models they want:
+
+```
+ANTHROPIC_MODELS=claude-sonnet-4-6,claude-opus-4-6,claude-haiku-4-5
+```
+
+The change is in `listAnthropicModels`: if the API call fails or is skipped (no API key), and `ANTHROPIC_MODELS` is non-empty, return those model IDs as the model list instead of returning empty. If both the API key and `ANTHROPIC_MODELS` are missing, return an empty list — the operator has misconfigured the deployment.
+
+This is why `ANTHROPIC_API_KEY` isn't truly "ignored" when Vertex is configured — it's still essential for model discovery. Decision 3 ("Vertex wins unconditionally") applies to **inference** only.
+
 ## Codebase Patterns Discovered
 
 - **Provider config:** Each provider (OpenAI, Anthropic, TogetherAI, VLLM) has its own config struct in `api/pkg/config/config.go` with `envconfig` tags. New env vars follow `ANTHROPIC_VERTEX_*` naming.
@@ -181,11 +211,14 @@ When `vertexProjectID` is set, the chart mounts the credentials secret as a volu
 | `docker-compose.yaml` | Add `ANTHROPIC_VERTEX_*` env var passthrough |
 | `charts/helix-controlplane/values.yaml` | Add Vertex config fields |
 | `charts/helix-controlplane/templates/controlplane-deployment.yaml` | Add Vertex env vars and credentials volume mount |
+| `api/pkg/openai/openai_client_anthropic.go` | When Vertex is active, force model listing to hit `api.anthropic.com` directly; when no API key, synthesize list from `ANTHROPIC_MODELS` |
+| `api/pkg/server/openai_model_handlers.go` | Proxy model list requests to `api.anthropic.com` regardless of Vertex config |
 | `api/pkg/anthropic/vertex_test.go` | Tests for URL rewriting and body transformation |
 
 ## Risks
 
 - **Token refresh latency:** First request after token expiry may be slightly slower (~100ms for refresh). Acceptable.
 - **Vertex API differences:** Vertex uses `rawPredict`/`streamRawPredict` which should return native Anthropic responses. If there are subtle response format differences, billing parsing could break. Mitigate with integration testing.
+- **Model listing not available on Vertex:** Vertex has no API to list available Anthropic models (confirmed: `publishers.models` only has `get`, no `list`). SaaS **must** set `ANTHROPIC_API_KEY` alongside Vertex config for model discovery. Vertex-only deployments without an API key must set `ANTHROPIC_MODELS` explicitly or get an empty model list. This is a platform limitation, not something we can work around — Claude Code and Zed both hardcode their model lists for the same reason.
 - **Region selection:** Wrong region = higher latency or missing model availability. Default `global` routes through Google's global endpoint (`https://aiplatform.googleapis.com/`). Operators can override to a specific region if needed.
 - **Credentials file for DB-configured endpoints:** The `vertex_credentials_file` path must be accessible inside the API container. For Docker, this means a volume mount. This is the same constraint as `api_key_file` — not a new pattern, but worth documenting.

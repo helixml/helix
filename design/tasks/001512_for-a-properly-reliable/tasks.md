@@ -2,10 +2,10 @@
 
 ## Config & Types
 
-- [ ] Add `VertexProjectID`, `VertexRegion`, `VertexCredentialsFile` fields to `Anthropic` struct in `api/pkg/config/config.go` with `envconfig` tags (`ANTHROPIC_VERTEX_PROJECT_ID`, `ANTHROPIC_VERTEX_REGION` default `global`, `ANTHROPIC_VERTEX_CREDENTIALS_FILE`)
+- [~] Add `VertexProjectID`, `VertexRegion`, `VertexCredentialsFile` fields to `Anthropic` struct in `api/pkg/config/config.go` with `envconfig` tags (`ANTHROPIC_VERTEX_PROJECT_ID`, `ANTHROPIC_VERTEX_REGION` default `global`, `ANTHROPIC_VERTEX_CREDENTIALS_FILE`)
 
-- [ ] Add `VertexProjectID`, `VertexRegion`, `VertexCredentialsFile` fields to `ProviderEndpoint` struct in `api/pkg/types/provider.go` (with GORM column tags and `json:"...,omitempty"`)
-- [ ] Add corresponding optional pointer fields to `UpdateProviderEndpoint` struct in `api/pkg/types/provider.go`
+- [~] Add `VertexProjectID`, `VertexRegion`, `VertexCredentialsFile` fields to `ProviderEndpoint` struct in `api/pkg/types/provider.go` (with GORM column tags and `json:"...,omitempty"`)
+- [~] Add corresponding optional pointer fields to `UpdateProviderEndpoint` struct in `api/pkg/types/provider.go`
 - [ ] GORM AutoMigrate will pick up the new columns automatically — verify with a local test
 
 ## Vertex Proxy Logic

@@ -40,9 +40,10 @@ As a Helix user (when custom user providers are enabled), I want to add my own V
 As a Zed IDE user or API consumer, I should not need to change anything when the operator switches from direct Anthropic to Vertex AI.
 
 **Acceptance Criteria:**
-- The Anthropic proxy endpoint (`/v1/messages`, streaming, token counting) behaves identically from the client's perspective
+- Inference endpoints (`/v1/messages`, streaming, token counting) behave identically from the client's perspective — Vertex's `rawPredict`/`streamRawPredict` returns native Anthropic response format
 - Billing/usage logging continues to work — model names, token counts, costs all still recorded
-- Error responses are still Anthropic-format (Vertex returns Anthropic-native responses via `rawPredict`)
+- Error responses are still Anthropic-format
+- Model listing (`GET /v1/models`) still works — Vertex doesn't support this endpoint, so model discovery falls back to `api.anthropic.com` (if `ANTHROPIC_API_KEY` is set) or a hardcoded list of known Claude models
 
 ### US-5: SaaS deployment
 As the Helix SaaS operator, I want to deploy Vertex AI as the Anthropic backend on `app.helix.ml`.
