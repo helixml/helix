@@ -10,11 +10,11 @@
 
 ## Frontend: Unlink/disconnect saved PAT connection
 
-- [~] In `BrowseProvidersDialog.tsx`, add state: `const [patToDisconnect, setPatToDisconnect] = useState<string | null>(null)`
-- [~] In the `choose-method` view, next to the PAT "Saved" chip (around L640-645), add an `IconButton` with a `Trash` icon that sets `patToDisconnect` to the connection ID
-- [~] Add a confirmation `Dialog` (follow the pattern in `ClaudeSubscriptionConnect.tsx`): title "Disconnect Token", body "Remove this saved token? You can re-enter it later.", Cancel + Disconnect buttons
-- [~] On confirm, call `deletePatConnection.mutateAsync(patToDisconnect)`, show snackbar success/error, and clear `patToDisconnect`
-- [ ] Verify: `cd frontend && yarn build`
+- [x] In `BrowseProvidersDialog.tsx`, add state: `const [patToDisconnect, setPatToDisconnect] = useState<string | null>(null)`
+- [x] In the `choose-method` view, next to the PAT "Saved" chip (around L640-645), add an `IconButton` with a `Trash` icon that sets `patToDisconnect` to the connection ID
+- [x] Add a confirmation `Dialog` (follow the pattern in `ClaudeSubscriptionConnect.tsx`): title "Disconnect Token", body "Remove this saved token? You can re-enter it later.", Cancel + Disconnect buttons
+- [x] On confirm, call `deletePatConnection.mutateAsync(patToDisconnect)`, show snackbar success/error, and clear `patToDisconnect`
+- [x] Verify: `cd frontend && yarn build` passes
 
 ## Manual testing
 
