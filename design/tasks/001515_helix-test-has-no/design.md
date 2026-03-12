@@ -122,3 +122,15 @@ if resolvedOrgID != "" {
 - **`deployApp` uses direct client calls**, not shelling out to `helix apply`. So the org must be threaded in-process.
 - **`deleteApp` does name-based lookup** via `ListApps` — this must be org-scoped when org is provided, otherwise the app won't be found.
 - **`ListOrganizations()`** in `api/pkg/client/organizations.go` returns all orgs the user is a member of. Taking `[0]` gives a sensible default.
+
+## Implementation Notes
+
+### Files Modified
+1. **`api/pkg/cli/organization.go`** — Added `ResolveOrganization()` helper (24 lines). Placed between `LookupOrganization` and `LookupTeam`.
+2. **`api/cmd/helix/test.go`** — Added `--organization`/`-o` flag, threaded through `runTest()` → `deployApp()` / `deleteApp()`. Added `"github.com/helixml/helix/api/pkg/cli"` import.
+3. **`api/pkg/cli/app/apply.go`** — Replaced `LookupOrganization` block in `createApp()` with `ResolveOrganization()` call.
+
+### Gotchas
+- **Variable shadowing in `apply.go`**: After replacing the `if orgID != ""` block (which had its own `err` scope) with `ResolveOrganization()`, the `err` variable from `cli.ResolveOrganization()` was still in scope when `apiClient.CreateApp()` was called. This caused `app, err := apiClient.CreateApp(...)` to fail with `no new variables on left side of :=`. Fix: changed `:=` to `=` on that line.
+- **CGO required for full binary build**: `go build ./cmd/helix/` fails in this environment because `go-tree-sitter` requires CGO (a C compiler). The packages we modified (`./pkg/cli/...`) build and vet cleanly with `CGO_ENABLED=0`. CI will verify the full binary build.
+- **Org resolution creates an extra API client in `runTest()`**: We create a `client.NewClientFromEnv()` early in `runTest()` to call `ResolveOrganization()`. `deployApp()` and `deleteApp()` each create their own client internally. This is fine — the alternative (refactoring them to accept a client) is unnecessary churn for this change.
