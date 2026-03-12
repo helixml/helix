@@ -198,15 +198,23 @@ func (c *Client) GetAuthenticatedUser(ctx context.Context) (*github.User, error)
 }
 
 // GetAuthenticatedUserWithScopes gets the user profile and returns token scopes
-// from the X-OAuth-Scopes response header. Fine-grained PATs don't return this
-// header, so callers should treat empty scopes as "unknown" rather than "none".
-func (c *Client) GetAuthenticatedUserWithScopes(ctx context.Context) (*github.User, []string, error) {
+// from the X-OAuth-Scopes response header.
+//
+// Returns:
+//   - scopeHeaderPresent=true, scopes=[] → classic PAT with zero scopes (reject)
+//   - scopeHeaderPresent=true, scopes=[...] → classic PAT with scopes (check them)
+//   - scopeHeaderPresent=false, scopes=[] → fine-grained PAT (no scope info available)
+func (c *Client) GetAuthenticatedUserWithScopes(ctx context.Context) (user *github.User, scopes []string, scopeHeaderPresent bool, err error) {
 	user, resp, err := c.client.Users.Get(ctx, "")
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get authenticated user: %w", err)
+		return nil, nil, false, fmt.Errorf("failed to get authenticated user: %w", err)
 	}
-	var scopes []string
-	if scopeHeader := resp.Header.Get("X-OAuth-Scopes"); scopeHeader != "" {
+	// http.Header.Values returns nil if the header is absent, vs []string{""} if present but empty.
+	// This lets us distinguish fine-grained tokens (header absent) from classic tokens with no scopes
+	// (header present but empty).
+	scopeValues := resp.Header.Values("X-OAuth-Scopes")
+	scopeHeaderPresent = len(scopeValues) > 0
+	for _, scopeHeader := range scopeValues {
 		for _, s := range strings.Split(scopeHeader, ",") {
 			s = strings.TrimSpace(s)
 			if s != "" {
@@ -214,7 +222,7 @@ func (c *Client) GetAuthenticatedUserWithScopes(ctx context.Context) (*github.Us
 			}
 		}
 	}
-	return user, scopes, nil
+	return user, scopes, scopeHeaderPresent, nil
 }
 
 // CheckRepositoryPermissions checks if the authenticated user has write/push access to a repository

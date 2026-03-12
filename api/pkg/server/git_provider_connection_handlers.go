@@ -293,13 +293,17 @@ func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerT
 	switch providerType {
 	case types.ExternalRepositoryTypeGitHub:
 		client := github.NewClientWithPATAndBaseURL(token, baseURL)
-		user, scopes, err := client.GetAuthenticatedUserWithScopes(ctx)
+		user, scopes, scopeHeaderPresent, err := client.GetAuthenticatedUserWithScopes(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to validate GitHub token: %w", err)
 		}
-		// Check scopes — only enforce if scopes were returned (classic PATs).
-		// Fine-grained PATs don't return X-OAuth-Scopes, so scopes will be empty.
-		if len(scopes) > 0 {
+		// Classic PATs return the X-OAuth-Scopes header (even if empty).
+		// Fine-grained PATs don't return it at all — we give those a free pass
+		// since there's no non-destructive way to probe their permissions.
+		if scopeHeaderPresent {
+			if len(scopes) == 0 {
+				return nil, fmt.Errorf("GitHub token has no scopes. Helix requires the 'repo' scope for full repository access. Please create a new token with the 'repo' scope at https://github.com/settings/tokens")
+			}
 			hasRepo := false
 			for _, s := range scopes {
 				if s == "repo" {
