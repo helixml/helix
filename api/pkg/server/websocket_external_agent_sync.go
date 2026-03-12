@@ -1830,6 +1830,15 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("state_before", string(targetInteraction.State)).
 		Msg("🔄 [HELIX] Reloaded interaction with latest response content")
 
+	// Warn if the response is suspiciously empty — likely indicates content was lost
+	// during the streaming→flush→reload pipeline
+	if targetInteraction.ResponseMessage == "" {
+		log.Warn().
+			Str("helix_session_id", helixSessionID).
+			Str("interaction_id", targetInteraction.ID).
+			Msg("⚠️ [HELIX] message_completed but response_message is EMPTY — content may have been lost during streaming flush")
+	}
+
 	// Mark the interaction as complete
 	targetInteraction.State = types.InteractionStateComplete
 	targetInteraction.Completed = time.Now()

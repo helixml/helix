@@ -9,6 +9,10 @@ import ClickLink from "../widgets/ClickLink";
 import Row from "../widgets/Row";
 import Cell from "../widgets/Cell";
 import Markdown from "./Markdown";
+import {
+  parseToolCallBlocks,
+  CollapsibleToolCall,
+} from "./CollapsibleToolCall";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -52,6 +56,70 @@ const ImagePreview = styled("img")({
     transform: "scale(1.05)",
   },
 });
+
+/**
+ * Renders a message that may contain tool call blocks.
+ * Tool call blocks are collapsed by default; regular markdown renders normally.
+ */
+const MessageWithToolCalls: FC<{
+  text: string;
+  session: TypesSession;
+  getFileURL: (url: string) => string;
+  showBlinker: boolean;
+  isStreaming: boolean;
+  onFilterDocument?: (docId: string) => void;
+}> = ({
+  text,
+  session,
+  getFileURL,
+  showBlinker,
+  isStreaming,
+  onFilterDocument,
+}) => {
+  const segments = parseToolCallBlocks(text);
+
+  // If no tool calls found, render plain markdown (fast path)
+  if (segments.length === 1 && segments[0].type === "markdown") {
+    return (
+      <Markdown
+        text={text}
+        session={session}
+        getFileURL={getFileURL}
+        showBlinker={showBlinker}
+        isStreaming={isStreaming}
+        onFilterDocument={onFilterDocument}
+      />
+    );
+  }
+
+  return (
+    <>
+      {segments.map((segment, i) => {
+        if (segment.type === "toolcall" && segment.toolName && segment.status) {
+          return (
+            <CollapsibleToolCall
+              key={`tc-${i}`}
+              toolName={segment.toolName}
+              status={segment.status}
+              body={segment.body || ""}
+            />
+          );
+        }
+        return (
+          <Markdown
+            key={`md-${i}`}
+            text={segment.content}
+            session={session}
+            getFileURL={getFileURL}
+            showBlinker={showBlinker && i === segments.length - 1}
+            isStreaming={isStreaming && i === segments.length - 1}
+            onFilterDocument={onFilterDocument}
+          />
+        );
+      })}
+    </>
+  );
+};
 
 export const InteractionInference: FC<{
   imageURLs?: string[];
@@ -253,8 +321,8 @@ export const InteractionInference: FC<{
                     },
                   }}
                 >
-                  <Markdown
-                    text={message}
+                  <MessageWithToolCalls
+                    text={message || ""}
                     session={session}
                     getFileURL={getFileURL}
                     showBlinker={false}
@@ -473,7 +541,7 @@ export const InteractionInference: FC<{
                   emitEvent({
                     name: "queue_upgrade_clicked",
                   });
-                  settingsDialog.openDialog('account');
+                  settingsDialog.openDialog("account");
                 }}
               >
                 Upgrade

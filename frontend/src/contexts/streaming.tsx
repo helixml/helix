@@ -97,14 +97,39 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
   const patchContentRef = useRef<Map<string, string>>(new Map());
   const patchPendingRef = useRef<boolean>(false);
 
-  // Clear stepInfos when setting a new session
+  // Clear all streaming state when switching sessions
   const clearSessionData = useCallback(
     (sessionId: string | null) => {
       // Don't clear anything if setting to the same session ID
       if (sessionId === currentSessionId) return;
 
+      // Clear ALL streaming state for the old session to prevent stale data leaking
+      if (currentSessionId) {
+        // Clear stepInfos for the old session
+        setStepInfos((prev) => {
+          const newMap = new Map(prev);
+          newMap.delete(currentSessionId);
+          return newMap;
+        });
+
+        // Clear currentResponses for the old session
+        setCurrentResponses((prev) => {
+          const newMap = new Map(prev);
+          newMap.delete(currentSessionId);
+          return newMap;
+        });
+
+        // Clear message buffer and history for the old session
+        messageBufferRef.current.delete(currentSessionId);
+        messageHistoryRef.current.delete(currentSessionId);
+      }
+
+      // Clear all patch state (not session-keyed, so clear everything)
+      patchContentRef.current.clear();
+      patchPendingRef.current = false;
+
+      // Also clear stepInfos for the new session (fresh start)
       if (sessionId) {
-        // Clear stepInfos for the new session
         setStepInfos((prev) => {
           const newMap = new Map(prev);
           newMap.delete(sessionId);
@@ -210,6 +235,14 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
 
       // If there's a session update with state changes
       if (parsedData.type === "session_update" && parsedData.session) {
+        // Discard events for a different session to prevent cross-session contamination
+        if (
+          parsedData.session.id &&
+          parsedData.session.id !== currentSessionId
+        ) {
+          return;
+        }
+
         const newInteractionCount =
           parsedData.session.interactions?.length || 0;
 
@@ -305,6 +338,15 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
           patchContentRef.current.delete(updatedInteraction.id);
         }
 
+        // When interaction is complete, cancel any pending patch RAF to prevent
+        // a stale patch callback from overwriting the final response_message
+        if (
+          updatedInteraction.state ===
+          TypesInteractionState.InteractionStateComplete
+        ) {
+          patchPendingRef.current = false;
+        }
+
         // Surgically update just this interaction in the React Query cache
         queryClient.setQueryData(
           GET_SESSION_QUERY_KEY(currentSessionId),
@@ -331,14 +373,20 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
 
         // Also update currentResponses for live streaming display
         if (updatedInteraction.id) {
-          requestAnimationFrame(() => {
+          // When interaction is complete, update synchronously (not via RAF) to avoid
+          // race conditions where a stale patch RAF fires after this and overwrites
+          // the final content with truncated streaming data
+          const isComplete =
+            updatedInteraction.state ===
+            TypesInteractionState.InteractionStateComplete;
+
+          const doUpdate = () => {
             setCurrentResponses((prev) => {
               const current = prev.get(currentSessionId) || {};
-              // IMPORTANT: Only fall back to current values if the interaction ID matches
-              // Otherwise we'd show stale content from a previous interaction
               const isSameInteraction = current.id === updatedInteraction.id;
 
-              // When it's a different interaction, start fresh - don't spread current
+              // When complete, use server's response_message directly — do NOT fall
+              // back to current.response_message which may be truncated streaming data
               const updated: Partial<TypesInteraction> = isSameInteraction
                 ? {
                     ...current,
@@ -347,9 +395,10 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
                     prompt_message:
                       updatedInteraction.prompt_message ||
                       current.prompt_message,
-                    response_message:
-                      updatedInteraction.response_message ||
-                      current.response_message,
+                    response_message: isComplete
+                      ? updatedInteraction.response_message // Complete: use server data only
+                      : updatedInteraction.response_message ||
+                        current.response_message,
                   }
                 : {
                     // New interaction - start with clean slate
@@ -362,7 +411,14 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
               const newMap = new Map(prev).set(currentSessionId, updated);
               return newMap;
             });
-          });
+          };
+
+          if (isComplete) {
+            // Synchronous update for completion — prevents RAF race condition
+            doUpdate();
+          } else {
+            requestAnimationFrame(doUpdate);
+          }
         }
       }
 
