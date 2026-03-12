@@ -4,21 +4,21 @@
 
 Claude Code is one of the code agent runtimes available in Helix desktop sessions. Users configure it via the Helix UI (choosing `claude_code` runtime), and it runs inside Zed via the ACP (Agent Client Protocol). There are two credential modes:
 
-1. **API key mode**: User provides an Anthropic API key, requests route through Helix's Anthropic proxy
+1. **API key mode**: An Anthropic API key is configured via an inference provider in the system (either a global/system-level `ProviderEndpoint` or a user/org-level one). Requests route through Helix's Anthropic proxy, which resolves the appropriate provider endpoint and its API key.
 2. **Subscription mode**: User connects their Claude subscription via OAuth, Claude Code talks directly to Anthropic
 
 The recurring problem: **Claude Code keeps asking for permission on every tool use** (file edits, bash commands, reads), despite the system having multiple layers designed to prevent this. This has regressed at least 3 times (PRs #1629, #1637, #1778), each time due to a different subtle misconfiguration.
 
 ## User Stories
 
-### US-1: Configure a Claude Code agent with an API key
-As a user with an Anthropic API key, I want to create a coding agent that uses Claude Code, so I can use Claude as my autonomous coding agent without a subscription.
+### US-1: Configure a Claude Code agent with an inference provider
+As a user with an Anthropic inference provider configured (global or user-level), I want to create a coding agent that uses Claude Code, so I can use Claude as my autonomous coding agent without a subscription.
 
 **Acceptance Criteria:**
 - User selects "Claude Code" runtime and "API Key" credential mode in the UI
 - User picks an Anthropic provider + Claude model (e.g., `claude-sonnet-4-20250514`)
 - Agent is created and session starts without errors
-- Claude Code receives `ANTHROPIC_BASE_URL` pointing at the Helix proxy and `ANTHROPIC_API_KEY` from the user's provider config
+- Claude Code receives `ANTHROPIC_BASE_URL` pointing at the Helix proxy; the proxy resolves the API key from the matching `ProviderEndpoint` (global, user, or org-level)
 - Requests flow through Helix's `/v1/messages` proxy endpoint correctly
 
 ### US-2: Claude Code runs autonomously without permission prompts

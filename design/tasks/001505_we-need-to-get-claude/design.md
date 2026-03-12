@@ -16,7 +16,7 @@ User → Helix UI (configure agent) → Helix API (build config) → Settings-sy
 
 For API key mode specifically:
 ```
-Claude Code → ANTHROPIC_BASE_URL (Helix proxy) → /v1/messages → Anthropic API (with user's API key)
+Claude Code → ANTHROPIC_BASE_URL (Helix proxy) → /v1/messages → resolve ProviderEndpoint (global or user/org) → Anthropic API
 ```
 
 ### The 4-Layer Permission Bypass Stack
@@ -79,12 +79,17 @@ Layer 4: IS_SANDBOX env var
 
 ## API Key Mode — What to Verify
 
-The API key flow for Claude Code:
+The API key flow for Claude Code relies on Helix's inference provider system (`ProviderEndpoint`). The API key is NOT passed directly by the user — it comes from a configured inference provider, which can be:
+- **Global/system-level**: Set via `ANTHROPIC_API_KEY` env var on the Helix server (falls back to this if no DB provider found)
+- **User-level**: A `ProviderEndpoint` with `endpoint_type=user` created by the user in the Helix UI
+- **Org-level**: A `ProviderEndpoint` with `endpoint_type=org` shared across an organization
+
+Flow:
 
 1. **UI**: User selects `claude_code` runtime + `api_key` credential type + Anthropic provider + Claude model
 2. **API** (`buildCodeAgentConfigFromAssistant`): Builds `CodeAgentConfig` with `baseURL = helixURL` (no `/v1` suffix — Claude Code SDK appends `/v1/messages` itself)
-3. **Settings-sync-daemon** (`generateAgentServerConfig`): Sets `ANTHROPIC_BASE_URL` and `ANTHROPIC_API_KEY` env vars in agent_servers config
-4. **Helix proxy** (`/v1/messages`): Forwards to Anthropic with the user's API key, tracks usage
+3. **Settings-sync-daemon** (`generateAgentServerConfig`): Sets `ANTHROPIC_BASE_URL` (Helix proxy URL) in the agent_servers env. The proxy itself resolves the API key server-side.
+4. **Helix proxy** (`/v1/messages` → `getProviderEndpoint`): Looks up the `ProviderEndpoint` for the request user — tries org-level first, then user-level, then falls back to the built-in global provider from env vars. Forwards to Anthropic with the resolved API key, tracks usage.
 
 Key gotcha already handled: `baseURL` must NOT have `/v1` suffix because the Anthropic SDK appends `/v1/messages` to `ANTHROPIC_BASE_URL`.
 

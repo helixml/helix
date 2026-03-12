@@ -12,10 +12,11 @@
 
 ## API Key Mode End-to-End Verification
 
+- [ ] Ensure an Anthropic inference provider (`ProviderEndpoint`) is configured — either a global one via `ANTHROPIC_API_KEY` env var on the server, or a user/org-level one created in the UI
 - [ ] Create a Claude Code agent via the UI with: runtime=`claude_code`, credential_type=`api_key`, provider=`anthropic`, model=`claude-sonnet-4-20250514`
 - [ ] Verify `buildCodeAgentConfigFromAssistant` returns correct config: `baseURL = helixURL` (no `/v1` suffix), `apiType = "anthropic"`, `agentName = "claude"`
-- [ ] Verify settings-sync-daemon sets `ANTHROPIC_BASE_URL` (Helix proxy URL) and `ANTHROPIC_API_KEY` in the agent_servers env
-- [ ] Verify requests flow through Helix proxy at `/v1/messages` to Anthropic — check API container logs for proxy activity
+- [ ] Verify settings-sync-daemon sets `ANTHROPIC_BASE_URL` (Helix proxy URL) in the agent_servers env — the proxy resolves the API key server-side from the `ProviderEndpoint`, not from the container env
+- [ ] Verify requests flow through Helix proxy at `/v1/messages` → `getProviderEndpoint()` resolves the correct provider (org → user → global fallback) — check API container logs for proxy activity
 - [ ] Confirm the agent completes a multi-step coding task (create file, edit file, run bash command) without hanging
 
 ## Add Startup Validation in Settings-Sync-Daemon
@@ -36,12 +37,12 @@
 ## Add E2E Smoke Test
 
 - [ ] Create a test script (e.g. `tests/claude-code-smoke-test.sh`) that:
-  - Uses `spectask start` with a Claude Code agent (API key mode)
+  - Uses `spectask start` with a Claude Code agent (API key mode, requires an Anthropic inference provider to be configured)
   - Waits for session ready
   - Uses `spectask send` to request: "Create /tmp/smoke-test.txt with 'hello', then cat it"
   - Uses `spectask stream` with a timeout (e.g. 120s)
   - Checks that the task completes (output contains "hello") rather than hanging on a permission prompt
-- [ ] Document how to run the test manually (requires `ANTHROPIC_API_KEY` and a running Helix stack)
+- [ ] Document how to run the test manually (requires an Anthropic inference provider — global via `ANTHROPIC_API_KEY` env var or user-level — and a running Helix stack)
 - [ ] Consider adding to CI pipeline (gated on ANTHROPIC_API_KEY secret availability)
 
 ## Harden Against Future Regressions
