@@ -11,23 +11,23 @@
 
 The actual model IDs from Anthropic's `/v1/models` endpoint are: `claude-sonnet-4-6`, `claude-opus-4-6`, `claude-opus-4-5-20251101`, `claude-haiku-4-5-20251001`, `claude-sonnet-4-5-20250929`, `claude-opus-4-1-20250805`, `claude-opus-4-20250514`, `claude-sonnet-4-20250514`, `claude-3-haiku-20240307`. These are the model IDs the user selects in the Helix UI.
 
-- [~] In `normalizeModelIDForZed()` in `api/pkg/external-agent/zed_config.go`, add the missing cases. Order matters — more specific prefixes must come before less specific ones to avoid false matches:
+- [x] In `normalizeModelIDForZed()` in `api/pkg/external-agent/zed_config.go`, add the missing cases. Order matters — more specific prefixes must come before less specific ones to avoid false matches:
   - `claude-opus-4-6*` → `claude-opus-4-6-latest` (NEW)
   - `claude-sonnet-4-6*` → `claude-sonnet-4-6-latest` (NEW)
   - `claude-opus-4-1*` → `claude-opus-4-1-latest` (NEW)
   - `claude-opus-4*` (after 4-1, 4-5, 4-6 checks) → `claude-opus-4-latest` (NEW — handles `claude-opus-4-20250514`)
   - `claude-sonnet-4*` (after 4-5, 4-6 checks) → `claude-sonnet-4-latest` (NEW — handles `claude-sonnet-4-20250514`)
   - (existing 4.5 and 3.x cases remain unchanged)
-- [ ] Add corresponding test cases in `api/pkg/external-agent/zed_config_test.go` covering every Anthropic model ID listed above.
-- [ ] Verify: `cd api && go test ./pkg/external-agent/ -count=1 -run Normalize`
+- [x] Add corresponding test cases in `api/pkg/external-agent/zed_config_test.go` covering every Anthropic model ID listed above.
+- [x] Verify: `cd api && go test ./pkg/external-agent/ -count=1 -run Normalize`
 
 ## Fix 3: Remove `injectLanguageModelAPIKey` from settings-sync-daemon
 
-- [ ] Delete the `injectLanguageModelAPIKey()` method from `api/cmd/settings-sync-daemon/main.go` (lines 246–264).
-- [ ] Remove the call `d.injectLanguageModelAPIKey()` in `syncFromHelix()` (around line 737).
-- [ ] Remove the call `d.injectLanguageModelAPIKey()` in `checkHelixUpdates()` (around line 1113).
-- [ ] Delete any test for `injectLanguageModelAPIKey` from `api/cmd/settings-sync-daemon/main_test.go`.
-- [ ] Search for any other tests asserting `api_key` presence in settings output and update them to assert absence instead.
+- [~] Delete the `injectLanguageModelAPIKey()` method from `api/cmd/settings-sync-daemon/main.go` (lines 246–264).
+- [~] Remove the call `d.injectLanguageModelAPIKey()` in `syncFromHelix()` (around line 737).
+- [~] Remove the call `d.injectLanguageModelAPIKey()` in `checkHelixUpdates()` (around line 1113).
+- [~] Delete any test for `injectLanguageModelAPIKey` from `api/cmd/settings-sync-daemon/main_test.go`.
+- [~] Search for any other tests asserting `api_key` presence in settings output and update them to assert absence instead.
 - [ ] Verify: `cd api && go build ./cmd/settings-sync-daemon/ && go test ./cmd/settings-sync-daemon/ -count=1`
 
 ## Verification
