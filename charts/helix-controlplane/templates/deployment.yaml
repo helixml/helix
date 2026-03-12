@@ -151,7 +151,7 @@ spec:
             - name: PROVIDERS_MANAGEMENT_ENABLED
               value: {{ .Values.controlplane.providersManagementEnabled | quote }}
             - name: FILESTORE_LOCALFS_PATH
-              value: {{- with .Values.controlplane }} {{ .filestorePath | default "/filestore" }} {{- else }} "/filestore" {{- end }} 
+              value: {{- with .Values.controlplane }} {{ .filestorePath | default "/filestore" }} {{- else }} "/filestore" {{- end }}
             - name: TEXT_EXTRACTION_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-llamaindex:5000/api/v1/extract
             - name: RAG_INDEX_URL
@@ -163,7 +163,7 @@ spec:
             - name: RAG_TYPESENSE_API_KEY
               value: {{ .Values.typesense.apiKey }}
             - name: TEXT_EXTRACTION_TIKA_URL
-              value: http://{{ include "helix-controlplane.fullname" . }}-tika:9998/tika 
+              value: http://{{ include "helix-controlplane.fullname" . }}-tika:9998/tika
             - name: RAG_CRAWLER_LAUNCHER_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-chrome:7317
             # Postgres configuration
@@ -249,6 +249,18 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
+            {{- end }}
+            {{- with (default "" .Values.controlplane.providers.anthropic.vertexProjectID) }}
+            - name: ANTHROPIC_VERTEX_PROJECT_ID
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with (default "" .Values.controlplane.providers.anthropic.vertexRegion) }}
+            - name: ANTHROPIC_VERTEX_REGION
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.controlplane.providers.anthropic.vertexCredentialsSecret }}
+            - name: ANTHROPIC_VERTEX_CREDENTIALS_FILE
+              value: "/run/secrets/vertex-credentials/{{ .Values.controlplane.providers.anthropic.vertexCredentialsSecretKey | default "key" }}"
             {{- end }}
             {{- if .Values.controlplane.providers.togetherai }}
             {{- with (default "" .Values.controlplane.providers.togetherai.baseUrl) }}
@@ -383,11 +395,16 @@ spec:
           {{- if and .Values.controlplane.haystack .Values.controlplane.haystack.enabled }}
             - name: helix-embeddings-socket
               mountPath: /socket
-          {{- end }}  
+          {{- end }}
           {{- if .Values.persistence.enabled }}
             - name: controlplane-storage
               mountPath: /filestore
-          {{- end }}  
+          {{- end }}
+          {{- if .Values.controlplane.providers.anthropic.vertexCredentialsSecret }}
+            - name: vertex-credentials
+              mountPath: /run/secrets/vertex-credentials
+              readOnly: true
+          {{- end }}
         {{- if .Values.controlplane.sidecar.enabled }}
         - name: {{ .Values.controlplane.sidecar.name | default "sidecar" }}
           image: "{{ .Values.controlplane.sidecar.image }}"
@@ -522,16 +539,21 @@ spec:
       volumes:
       - name: helix-embeddings-socket
         emptyDir: {}
+      {{- if .Values.controlplane.providers.anthropic.vertexCredentialsSecret }}
+      - name: vertex-credentials
+        secret:
+          secretName: {{ .Values.controlplane.providers.anthropic.vertexCredentialsSecret }}
+      {{- end }}
       {{- if .Values.controlplane.extraVolumes }}
       {{- range $name, $volume := .Values.controlplane.extraVolumes }}
       - name: {{ $name }}
       {{- toYaml $volume | nindent 8 }}
       {{- end }}
       {{- end }}
-      {{- if .Values.persistence.enabled }}     
+      {{- if .Values.persistence.enabled }}
       - name: controlplane-storage
         persistentVolumeClaim:
-          claimName: {{ include "helix-controlplane.fullname" . }}-controlplane-pvc      
+          claimName: {{ include "helix-controlplane.fullname" . }}-controlplane-pvc
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

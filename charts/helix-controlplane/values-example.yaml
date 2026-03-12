@@ -242,6 +242,12 @@ controlplane:
     #   # Option: Use existing secret for API key
     #   # existingSecret: "anthropic-credentials"
     #   # existingSecretApiKeyKey: "api-key"
+    #   # Option: Route through Google Vertex AI instead of direct Anthropic API
+    #   # When vertexProjectID is set, Vertex wins unconditionally for inference.
+    #   # vertexProjectID: "my-gcp-project"
+    #   # vertexRegion: "global"
+    #   # vertexCredentialsSecret: "gcp-vertex-credentials"  # k8s secret with service account JSON
+    #   # vertexCredentialsSecretKey: "key"
     #
     # togetherai:
     #   baseUrl: "https://api.together.xyz/v1"

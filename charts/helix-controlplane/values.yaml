@@ -174,6 +174,10 @@ controlplane:
       apiKey: ""
       existingSecret: ""
       existingSecretApiKeyKey: ""
+      vertexProjectID: ""
+      vertexRegion: "global"
+      vertexCredentialsSecret: "" # k8s secret name containing service-account.json
+      vertexCredentialsSecretKey: "key" # key within the secret
     togetherai:
       baseUrl: ""
       apiKey: ""
