@@ -21,10 +21,9 @@ The daemon has three ad-hoc categories with no clear boundaries:
 | **Everything else** | `theme`, `language_models`, `assistant`, `agent`, `context_servers` | Fully Helix-owned. API value is the base, user changes captured as overrides via fsnotify + `extractUserOverrides()`. |
 
 Problems with this:
-- `theme` is treated as Helix-owned, but it's a user preference. The API hardcodes `"Ayu Dark"` in `GenerateZedMCPConfig`, so the daemon fights the user every 30 seconds.
+- `theme` is treated as Helix-owned, but it's a user preference. The API hardcodes `"Ayu Dark"` in `GenerateZedMCPConfig`, so theme goes through the whole override dance (user changes it → fsnotify captures it → stored as override → reapplied on merge) when it should just be left alone. In practice, users report the theme reverting within 30 seconds — the exact failure path isn't clear from code analysis alone, but the override mechanism is unnecessarily fragile for something that should simply be user-owned.
 - Hardcoded defaults vanish after the first poll because `checkHelixUpdates()` rebuilds `d.helixSettings` from just the API response.
 - `injectLanguageModelAPIKey()` and `injectAvailableModels()` mutate `d.helixSettings` in place after the `deepEqual` baseline is set, so the comparison always fails → the daemon rewrites the file every 30 seconds even when nothing actually changed.
-- The every-30-second rewrite creates timing windows where user changes get lost (fsnotify event suppressed by the 1-second `lastModified` guard).
 
 ### Proposed State
 
@@ -142,7 +141,7 @@ if !deepEqual(newHelixSettings, d.helixSettingsBaseline) || codeAgentChanged {
 }
 ```
 
-This stops the every-30-second rewrite, which also eliminates the timing window where user changes get lost (user edits file → fsnotify debounce → poll rewrite → `lastModified` guard suppresses the fsnotify → override never captured).
+This stops the every-30-second rewrite. The daemon should only rewrite `settings.json` when the Helix API actually returns different config (e.g. MCP servers changed, model changed).
 
 ## Change 5: Deep Merge for `languages`
 
