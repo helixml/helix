@@ -325,8 +325,10 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       const repos = response.data?.repositories || [];
       setPatRepos(repos);
     } catch (err: any) {
+      const rawData = err?.response?.data;
       const message =
-        err?.response?.data?.message ||
+        (typeof rawData === "string" && rawData) ||
+        rawData?.message ||
         err?.message ||
         "Failed to fetch repositories";
       setPatReposError(
@@ -352,8 +354,10 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       const repos = response.data?.repositories || [];
       setPatRepos(repos);
     } catch (err: any) {
+      const rawData = err?.response?.data;
       const message =
-        err?.response?.data?.message ||
+        (typeof rawData === "string" && rawData) ||
+        rawData?.message ||
         err?.message ||
         "Failed to fetch repositories";
       setPatReposError(
@@ -468,9 +472,16 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
             creds.bitbucketBaseUrl,
         });
         snackbar.success("Connection saved for future use");
-      } catch (err) {
-        // Don't fail the flow if saving fails
-        console.error("Failed to save connection:", err);
+      } catch (err: any) {
+        const rawData = err?.response?.data;
+        const errorMsg =
+          (typeof rawData === "string" && rawData) ||
+          rawData?.message ||
+          err?.message ||
+          "Failed to save connection";
+        snackbar.error(
+          typeof errorMsg === "string" ? errorMsg : JSON.stringify(errorMsg),
+        );
       }
     }
   };
