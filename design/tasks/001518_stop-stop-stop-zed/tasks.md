@@ -36,7 +36,7 @@
 ## Build and verify
 
 - [x] Run `go build ./cmd/settings-sync-daemon/` from `api/` to verify compilation
-- [ ] `./stack build-ubuntu` to rebuild the desktop image with the new daemon
+- [x] `./stack build-ubuntu` to rebuild the desktop image with the new daemon
 - [ ] Start a new session — confirm theme is "Ayu Dark" (initial default)
 - [ ] Change theme to something else, wait >30 seconds — confirm theme is NOT reverted
 - [ ] Open a JS/TS file, edit and save — confirm no auto-formatting
