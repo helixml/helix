@@ -55,7 +55,7 @@ func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.Mo
 
 	// Initialize default Vertex token source if configured via env vars
 	if cfg.Providers.Anthropic.VertexProjectID != "" {
-		ts, err := newTokenSource(context.Background(), cfg.Providers.Anthropic.VertexCredentialsFile)
+		ts, err := newTokenSource(context.Background(), cfg.Providers.Anthropic.VertexCredentialsJSON, cfg.Providers.Anthropic.VertexCredentialsFile)
 		if err != nil {
 			log.Error().Err(err).
 				Str("project_id", cfg.Providers.Anthropic.VertexProjectID).
@@ -148,7 +148,7 @@ func (s *Proxy) anthropicAPIProxyDirector(r *http.Request) {
 	// Vertex AI mode: if the endpoint has a VertexProjectID, transform the request
 	// for Vertex's rawPredict/streamRawPredict API format
 	if endpoint.VertexProjectID != "" {
-		tokenSource, err := s.getVertexTokenSource(r.Context(), endpoint.VertexCredentialsFile)
+		tokenSource, err := s.getVertexTokenSource(r.Context(), endpoint.VertexCredentialsJSON, endpoint.VertexCredentialsFile)
 		if err != nil {
 			log.Error().Err(err).
 				Str("vertex_project_id", endpoint.VertexProjectID).
@@ -199,17 +199,19 @@ func (s *Proxy) anthropicAPIProxyDirector(r *http.Request) {
 }
 
 // getVertexTokenSource returns the appropriate OAuth2 token source for a Vertex request.
-// For the built-in provider (empty credentialsFile matching env var config), it returns
-// the default token source initialized at startup. For DB-configured endpoints, it
-// lazily creates and caches a token source per credentials file path.
-func (s *Proxy) getVertexTokenSource(ctx context.Context, credentialsFile string) (oauth2.TokenSource, error) {
-	// If this matches the built-in provider's credentials file, use the default token source
-	if s.defaultTokenSource != nil && credentialsFile == s.cfg.Providers.Anthropic.VertexCredentialsFile {
+// For the built-in provider (matching env var config), it returns the default token source
+// initialized at startup. For DB-configured endpoints, it lazily creates and caches a
+// token source per credentials material.
+func (s *Proxy) getVertexTokenSource(ctx context.Context, credentialsJSON, credentialsFile string) (oauth2.TokenSource, error) {
+	// If this matches the built-in provider's credentials, use the default token source
+	if s.defaultTokenSource != nil &&
+		credentialsJSON == s.cfg.Providers.Anthropic.VertexCredentialsJSON &&
+		credentialsFile == s.cfg.Providers.Anthropic.VertexCredentialsFile {
 		return s.defaultTokenSource, nil
 	}
 
 	// For DB-configured endpoints, use the cache
-	return s.vertexTokenSources.getOrCreate(ctx, credentialsFile)
+	return s.vertexTokenSources.getOrCreate(ctx, credentialsJSON, credentialsFile)
 }
 
 // anthropicAPIProxyModifyResponse - parses the response

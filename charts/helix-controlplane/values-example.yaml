@@ -246,7 +246,8 @@ controlplane:
     #   # When vertexProjectID is set, Vertex wins unconditionally for inference.
     #   # vertexProjectID: "my-gcp-project"
     #   # vertexRegion: "global"
-    #   # vertexCredentialsSecret: "gcp-vertex-credentials"  # k8s secret with service account JSON
+    #   # vertexCredentialsJSON: '{"type":"service_account","project_id":"...","private_key":"..."}' # preferred for containers
+    #   # vertexCredentialsSecret: "gcp-vertex-credentials"  # alternative: k8s secret with service account JSON file
     #   # vertexCredentialsSecretKey: "key"
     #
     # togetherai:

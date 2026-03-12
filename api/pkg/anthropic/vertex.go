@@ -3,6 +3,7 @@ package anthropic
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,18 +26,6 @@ const (
 	vertexAuthScope = "https://www.googleapis.com/auth/cloud-platform"
 )
 
-// VertexConfig holds the configuration for routing Anthropic requests through Google Vertex AI.
-type VertexConfig struct {
-	ProjectID       string
-	Region          string
-	CredentialsFile string // Path to service account JSON; empty = Application Default Credentials
-}
-
-// IsEnabled returns true if Vertex AI is configured.
-func (c *VertexConfig) IsEnabled() bool {
-	return c != nil && c.ProjectID != ""
-}
-
 // VertexBaseURL returns the Vertex AI base URL for the given region.
 // "global" uses https://aiplatform.googleapis.com/, otherwise https://{region}-aiplatform.googleapis.com/.
 func VertexBaseURL(region string) string {
@@ -46,9 +35,9 @@ func VertexBaseURL(region string) string {
 	return fmt.Sprintf("https://%s-aiplatform.googleapis.com/", region)
 }
 
-// tokenSourceCache caches oauth2.TokenSource instances by credentials file path.
-// This allows DB-configured endpoints with different credentials files to each have
-// their own auto-refreshing token source.
+// tokenSourceCache caches oauth2.TokenSource instances keyed by a hash of the
+// credentials material. This allows DB-configured endpoints with different
+// credentials to each have their own auto-refreshing token source.
 type tokenSourceCache struct {
 	mu    sync.Mutex
 	cache map[string]oauth2.TokenSource
@@ -60,27 +49,57 @@ func newTokenSourceCache() *tokenSourceCache {
 	}
 }
 
-// getOrCreate returns a cached TokenSource for the given credentials file path,
-// or creates a new one if not cached. An empty key means Application Default Credentials.
-func (c *tokenSourceCache) getOrCreate(ctx context.Context, credentialsFile string) (oauth2.TokenSource, error) {
+// getOrCreate returns a cached TokenSource for the given credentials,
+// or creates a new one if not cached.
+func (c *tokenSourceCache) getOrCreate(ctx context.Context, credentialsJSON, credentialsFile string) (oauth2.TokenSource, error) {
+	key := tokenSourceCacheKey(credentialsJSON, credentialsFile)
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if ts, ok := c.cache[credentialsFile]; ok {
+	if ts, ok := c.cache[key]; ok {
 		return ts, nil
 	}
 
-	ts, err := newTokenSource(ctx, credentialsFile)
+	ts, err := newTokenSource(ctx, credentialsJSON, credentialsFile)
 	if err != nil {
 		return nil, err
 	}
 
-	c.cache[credentialsFile] = ts
+	c.cache[key] = ts
 	return ts, nil
 }
 
-// newTokenSource creates a Google OAuth2 TokenSource from a credentials file or ADC.
-func newTokenSource(ctx context.Context, credentialsFile string) (oauth2.TokenSource, error) {
+// tokenSourceCacheKey produces a stable cache key from credentials material.
+// JSON content is hashed so we don't store large blobs as map keys.
+// File paths are used directly (prefixed to avoid collisions).
+func tokenSourceCacheKey(credentialsJSON, credentialsFile string) string {
+	if credentialsJSON != "" {
+		h := sha256.Sum256([]byte(credentialsJSON))
+		return fmt.Sprintf("json:%x", h[:8])
+	}
+	if credentialsFile != "" {
+		return "file:" + credentialsFile
+	}
+	return "adc"
+}
+
+// newTokenSource creates a Google OAuth2 TokenSource.
+//
+// Priority:
+//  1. credentialsJSON — service account JSON provided as a string (preferred for containers)
+//  2. credentialsFile — path to a service account JSON file on disk
+//  3. Application Default Credentials
+func newTokenSource(ctx context.Context, credentialsJSON, credentialsFile string) (oauth2.TokenSource, error) {
+	if credentialsJSON != "" {
+		creds, err := google.CredentialsFromJSON(ctx, []byte(credentialsJSON), vertexAuthScope)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse Vertex credentials from JSON string: %w", err)
+		}
+		log.Info().Msg("initialized Vertex AI token source from credentials JSON string")
+		return creds.TokenSource, nil
+	}
+
 	if credentialsFile != "" {
 		data, err := os.ReadFile(credentialsFile)
 		if err != nil {
@@ -113,7 +132,8 @@ func newTokenSource(ctx context.Context, credentialsFile string) (oauth2.TokenSo
 //   - Sets the Authorization header with a Bearer token from the given TokenSource
 //   - Removes x-api-key header (Vertex uses OAuth2, not API keys)
 //
-// This replicates the logic from the Anthropic SDK's vertex/vertex.go middleware.
+// This replicates the logic from the Anthropic SDK's vertex middleware, which is
+// unexported and designed for the SDK's own client pipeline rather than a reverse proxy.
 func vertexTransformRequest(r *http.Request, projectID, region string, tokenSource oauth2.TokenSource) error {
 	// Get a valid OAuth2 token (auto-refreshes if expired)
 	token, err := tokenSource.Token()

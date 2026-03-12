@@ -130,6 +130,7 @@ type Anthropic struct {
 	// is only used for model listing if also set.
 	VertexProjectID       string `envconfig:"ANTHROPIC_VERTEX_PROJECT_ID"`
 	VertexRegion          string `envconfig:"ANTHROPIC_VERTEX_REGION" default:"global"`
+	VertexCredentialsJSON string `envconfig:"ANTHROPIC_VERTEX_CREDENTIALS_JSON"` // service account JSON string; takes precedence over VertexCredentialsFile
 	VertexCredentialsFile string `envconfig:"ANTHROPIC_VERTEX_CREDENTIALS_FILE"` // path to service account JSON; empty = Application Default Credentials
 
 	// OAuth configuration for Claude subscription login flow

@@ -259,32 +259,58 @@ func TestVertexTransformRequest_ContentLengthUpdated(t *testing.T) {
 	assert.Equal(t, newBody, getBodyContent, "GetBody should return same content")
 }
 
-func TestVertexConfig_IsEnabled(t *testing.T) {
+func TestTokenSourceCacheKey(t *testing.T) {
 	tests := []struct {
-		name     string
-		config   *VertexConfig
-		expected bool
+		name            string
+		credentialsJSON string
+		credentialsFile string
+		expectedPrefix  string
 	}{
 		{
-			name:     "nil config",
-			config:   nil,
-			expected: false,
+			name:            "JSON string produces json: prefix",
+			credentialsJSON: `{"type":"service_account","project_id":"test"}`,
+			credentialsFile: "",
+			expectedPrefix:  "json:",
 		},
 		{
-			name:     "empty project ID",
-			config:   &VertexConfig{ProjectID: "", Region: "global"},
-			expected: false,
+			name:            "JSON takes precedence over file",
+			credentialsJSON: `{"type":"service_account","project_id":"test"}`,
+			credentialsFile: "/some/path.json",
+			expectedPrefix:  "json:",
 		},
 		{
-			name:     "project ID set",
-			config:   &VertexConfig{ProjectID: "helixml", Region: "global"},
-			expected: true,
+			name:            "file path produces file: prefix",
+			credentialsJSON: "",
+			credentialsFile: "/run/secrets/vertex-credentials/key",
+			expectedPrefix:  "file:",
+		},
+		{
+			name:            "neither produces adc key",
+			credentialsJSON: "",
+			credentialsFile: "",
+			expectedPrefix:  "adc",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, tt.config.IsEnabled())
+			key := tokenSourceCacheKey(tt.credentialsJSON, tt.credentialsFile)
+			assert.True(t, len(key) > 0, "cache key should not be empty")
+			if tt.expectedPrefix == "adc" {
+				assert.Equal(t, "adc", key)
+			} else {
+				assert.Contains(t, key, tt.expectedPrefix)
+			}
 		})
 	}
+
+	// Same JSON content should produce the same key
+	key1 := tokenSourceCacheKey(`{"type":"service_account"}`, "")
+	key2 := tokenSourceCacheKey(`{"type":"service_account"}`, "")
+	assert.Equal(t, key1, key2, "identical JSON should produce identical cache keys")
+
+	// Different JSON content should produce different keys
+	key3 := tokenSourceCacheKey(`{"type":"service_account","project_id":"a"}`, "")
+	key4 := tokenSourceCacheKey(`{"type":"service_account","project_id":"b"}`, "")
+	assert.NotEqual(t, key3, key4, "different JSON should produce different cache keys")
 }

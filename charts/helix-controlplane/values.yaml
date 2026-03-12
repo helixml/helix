@@ -176,6 +176,7 @@ controlplane:
       existingSecretApiKeyKey: ""
       vertexProjectID: ""
       vertexRegion: "global"
+      vertexCredentialsJSON: "" # service account JSON string; takes precedence over vertexCredentialsSecret
       vertexCredentialsSecret: "" # k8s secret name containing service-account.json
       vertexCredentialsSecretKey: "key" # key within the secret
     togetherai:

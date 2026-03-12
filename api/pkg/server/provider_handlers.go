@@ -534,6 +534,9 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	if updatedEndpoint.VertexRegion != nil {
 		existingEndpoint.VertexRegion = strings.TrimSpace(*updatedEndpoint.VertexRegion)
 	}
+	if updatedEndpoint.VertexCredentialsJSON != nil {
+		existingEndpoint.VertexCredentialsJSON = strings.TrimSpace(*updatedEndpoint.VertexCredentialsJSON)
+	}
 	if updatedEndpoint.VertexCredentialsFile != nil {
 		existingEndpoint.VertexCredentialsFile = strings.TrimSpace(*updatedEndpoint.VertexCredentialsFile)
 	}

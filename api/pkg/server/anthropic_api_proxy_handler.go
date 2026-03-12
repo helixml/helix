@@ -281,6 +281,7 @@ func (s *HelixAPIServer) getBuiltInProviderEndpoint(provider string) (*types.Pro
 			BillingEnabled:        s.Cfg.Providers.BillingEnabled,
 			VertexProjectID:       s.Cfg.Providers.Anthropic.VertexProjectID,
 			VertexRegion:          s.Cfg.Providers.Anthropic.VertexRegion,
+			VertexCredentialsJSON: s.Cfg.Providers.Anthropic.VertexCredentialsJSON,
 			VertexCredentialsFile: s.Cfg.Providers.Anthropic.VertexCredentialsFile,
 		}, nil
 	}

@@ -258,6 +258,10 @@ spec:
             - name: ANTHROPIC_VERTEX_REGION
               value: {{ . | quote }}
             {{- end }}
+            {{- with (default "" .Values.controlplane.providers.anthropic.vertexCredentialsJSON) }}
+            - name: ANTHROPIC_VERTEX_CREDENTIALS_JSON
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.controlplane.providers.anthropic.vertexCredentialsSecret }}
             - name: ANTHROPIC_VERTEX_CREDENTIALS_FILE
               value: "/run/secrets/vertex-credentials/{{ .Values.controlplane.providers.anthropic.vertexCredentialsSecretKey | default "key" }}"

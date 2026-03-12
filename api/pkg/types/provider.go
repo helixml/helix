@@ -71,6 +71,7 @@ type ProviderEndpoint struct {
 	// Google Vertex AI fields — when VertexProjectID is set, this endpoint routes through Vertex
 	VertexProjectID       string `json:"vertex_project_id,omitempty" gorm:"column:vertex_project_id"`
 	VertexRegion          string `json:"vertex_region,omitempty" gorm:"column:vertex_region"`
+	VertexCredentialsJSON string `json:"vertex_credentials_json,omitempty" gorm:"column:vertex_credentials_json"` // Service account JSON string; takes precedence over file
 	VertexCredentialsFile string `json:"vertex_credentials_file,omitempty" gorm:"column:vertex_credentials_file"`
 
 	AvailableModels []OpenAIModel          `json:"available_models" gorm:"-"`
@@ -132,5 +133,6 @@ type UpdateProviderEndpoint struct {
 	// Google Vertex AI fields
 	VertexProjectID       *string `json:"vertex_project_id,omitempty"`
 	VertexRegion          *string `json:"vertex_region,omitempty"`
+	VertexCredentialsJSON *string `json:"vertex_credentials_json,omitempty"`
 	VertexCredentialsFile *string `json:"vertex_credentials_file,omitempty"`
 }
