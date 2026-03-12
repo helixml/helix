@@ -2,18 +2,18 @@
 
 ## Route Migration
 
-- [x] In `frontend/src/router.tsx`, add new org-scoped route: `{ name: 'org_import-agent', path: '/orgs/:org_id/import-agent', ... }` rendering `<ImportAgent />`
-- [x] In `frontend/src/router.tsx`, convert the existing `import-agent` route into a redirect: read `selected_org` from `localStorage`, redirect to `/orgs/{org}/import-agent` preserving the `?config=...` query string. If no org stored, redirect to `/orgs`
+- [x] ~~In `frontend/src/router.tsx`, add new org-scoped route~~ — **Not needed.** External links can't include an org ID, so the route stays at `/import-agent`. Instead, the component resolves the org internally.
+- [x] ~~In `frontend/src/router.tsx`, convert the existing `import-agent` route into a redirect~~ — **Not needed.** Same reason as above.
 
 ## Fix Organization ID in Import Payload
 
-- [~] In `frontend/src/pages/ImportAgent.tsx` `handleImport()` (L491), change `organization_id` to `account.organizationTools.organization?.id || ''` — remove the `configData.organization_id` fallback so the exporter's org is never used
+- [x] In `frontend/src/pages/ImportAgent.tsx`, add org resolution logic: read user's orgs from `account.organizationTools.organizations`, default to the org stored in `localStorage("selected_org")`, and add a dropdown for users with multiple orgs
+- [x] Change `organization_id` in `handleImport()` to use `selectedOrgId` from the dropdown state — removes the `configData.organization_id` fallback so the exporter's org is never used
+- [x] Pass `org_id` explicitly in all `orgNavigate()` calls using the selected org's name, since this page has no `:org_id` route param
 
 ## Testing
 
-- [ ] Test: visit old-format URL `/import-agent?config=...` while logged in with an org selected → should redirect to `/orgs/{org}/import-agent?config=...`
-- [ ] Test: visit old-format URL `/import-agent?config=...` with no stored org → should redirect to `/orgs`
-- [ ] Test: visit new-format URL `/orgs/{org}/import-agent?config=...` → agent preview renders, org name visible in sidebar/breadcrumb
-- [ ] Test: click Import → agent created under correct org → navigates to `/orgs/{org}/app/{app_id}` without crash
-- [ ] Test: visit import URL while not logged in → shows login prompt → after login, returns to import page with config preserved
-- [ ] `cd frontend && yarn build` passes without errors
+- [x] Test: visit `/import-agent?config=...` while logged in with an org → agent preview renders correctly
+- [x] Test: click Import → agent created under correct org → navigates to `/orgs/{org}/app/{app_id}` without crash
+- [x] Test: visit import URL while not logged in → shows login prompt → after login, returns to import page with config preserved
+- [x] `cd frontend && yarn build` passes without errors
