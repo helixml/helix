@@ -245,8 +245,11 @@ func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.Us
 }
 
 // getBuiltInProviderEndpoint returns a ProviderEndpoint for the built-in Anthropic provider
-// configured via environment variables (ANTHROPIC_API_KEY or ANTHROPIC_API_KEY_FILE).
-// This allows the Anthropic proxy to work without requiring database configuration.
+// configured via environment variables.
+//
+// When ANTHROPIC_VERTEX_PROJECT_ID is set, Vertex AI wins unconditionally — all inference
+// traffic routes through Vertex. ANTHROPIC_API_KEY is only used for model listing in that case.
+// When Vertex is not configured, ANTHROPIC_API_KEY or ANTHROPIC_API_KEY_FILE is required.
 //
 // To enable usage tracking/billing for this built-in provider, set PROVIDERS_BILLING_ENABLED=true.
 // This is separate from STRIPE_BILLING_ENABLED which controls the platform-level Stripe integration.
@@ -255,7 +258,35 @@ func (s *HelixAPIServer) getBuiltInProviderEndpoint(provider string) (*types.Pro
 		return nil, fmt.Errorf("provider %q not found", provider)
 	}
 
-	// Get API key from env var or file
+	// Vertex AI mode: Vertex wins unconditionally when configured
+	if s.Cfg.Providers.Anthropic.VertexProjectID != "" {
+		// API key is optional in Vertex mode — only used for model listing
+		apiKey := s.Cfg.Providers.Anthropic.APIKey
+		if apiKey == "" && s.Cfg.Providers.Anthropic.APIKeyFromFile != "" {
+			data, err := os.ReadFile(s.Cfg.Providers.Anthropic.APIKeyFromFile)
+			if err == nil {
+				apiKey = strings.TrimSpace(string(data))
+			}
+		}
+
+		return &types.ProviderEndpoint{
+			ID:                    string(types.ProviderAnthropic),
+			Name:                  string(types.ProviderAnthropic),
+			Description:           "Built-in Anthropic provider (via Google Vertex AI)",
+			BaseURL:               s.Cfg.Providers.Anthropic.BaseURL,
+			APIKey:                apiKey,
+			EndpointType:          types.ProviderEndpointTypeGlobal,
+			Owner:                 string(types.OwnerTypeSystem),
+			OwnerType:             types.OwnerTypeSystem,
+			BillingEnabled:        s.Cfg.Providers.BillingEnabled,
+			VertexProjectID:       s.Cfg.Providers.Anthropic.VertexProjectID,
+			VertexRegion:          s.Cfg.Providers.Anthropic.VertexRegion,
+			VertexCredentialsJSON: s.Cfg.Providers.Anthropic.VertexCredentialsJSON,
+			VertexCredentialsFile: s.Cfg.Providers.Anthropic.VertexCredentialsFile,
+		}, nil
+	}
+
+	// Direct Anthropic API mode: API key is required
 	apiKey := s.Cfg.Providers.Anthropic.APIKey
 	if apiKey == "" && s.Cfg.Providers.Anthropic.APIKeyFromFile != "" {
 		data, err := os.ReadFile(s.Cfg.Providers.Anthropic.APIKeyFromFile)
@@ -266,7 +297,7 @@ func (s *HelixAPIServer) getBuiltInProviderEndpoint(provider string) (*types.Pro
 	}
 
 	if apiKey == "" {
-		return nil, fmt.Errorf("anthropic provider not configured: ANTHROPIC_API_KEY or ANTHROPIC_API_KEY_FILE not set")
+		return nil, fmt.Errorf("anthropic provider not configured: set ANTHROPIC_VERTEX_PROJECT_ID for Vertex AI, or ANTHROPIC_API_KEY / ANTHROPIC_API_KEY_FILE for direct API access")
 	}
 
 	return &types.ProviderEndpoint{
@@ -278,6 +309,6 @@ func (s *HelixAPIServer) getBuiltInProviderEndpoint(provider string) (*types.Pro
 		EndpointType:   types.ProviderEndpointTypeGlobal,
 		Owner:          string(types.OwnerTypeSystem),
 		OwnerType:      types.OwnerTypeSystem,
-		BillingEnabled: s.Cfg.Providers.BillingEnabled, // Controlled by PROVIDERS_BILLING_ENABLED env var
+		BillingEnabled: s.Cfg.Providers.BillingEnabled,
 	}, nil
 }

@@ -51,6 +51,10 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_VERTEX_PROJECT_ID=${ANTHROPIC_VERTEX_PROJECT_ID:-}
+      - ANTHROPIC_VERTEX_REGION=${ANTHROPIC_VERTEX_REGION:-}
+      - ANTHROPIC_VERTEX_CREDENTIALS_JSON=${ANTHROPIC_VERTEX_CREDENTIALS_JSON:-}
+      - ANTHROPIC_VERTEX_CREDENTIALS_FILE=${ANTHROPIC_VERTEX_CREDENTIALS_FILE:-}
       - HF_TOKEN=${HF_TOKEN:-}
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
       - STRIPE_WEBHOOK_SIGNING_SECRET=${STRIPE_WEBHOOK_SIGNING_SECRET:-}
@@ -129,7 +133,7 @@ services:
     image: postgres:12.13-alpine
     restart: always
     ports:
-     - 127.0.0.1:5432:5432
+      - 127.0.0.1:5432:5432
     command: >
       postgres
       -c shared_buffers=32MB
@@ -617,11 +621,11 @@ services:
     # virtio-gpu device mounts
     device_cgroup_rules:
       - "c 13:* rmw"
-      - "c 226:* rmw"  # DRM devices for virtio-gpu
+      - "c 226:* rmw" # DRM devices for virtio-gpu
     devices:
       - /dev/uinput
       - /dev/uhid
-      - /dev/dri  # DRM render nodes for virtio-gpu
+      - /dev/dri # DRM render nodes for virtio-gpu
     # No nvidia runtime for virtio-gpu
     cap_add:
       - SYS_PTRACE # Thread diagnostics
