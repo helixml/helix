@@ -3,12 +3,26 @@
 ## Test Claude Code with API Key Mode (Anthropic Proxy)
 
 - [~] Create a Claude Code agent via the UI: runtime=`claude_code`, credential_type=`api_key`, Anthropic provider, Claude model (e.g. `claude-sonnet-4-20250514`)
-- [ ] Start a session and verify Claude Code launches without errors
+  - **BLOCKER FOUND:** The UI shows "Anthropic API Key (not configured)" even though a global Anthropic provider exists (via `ANTHROPIC_API_KEY` env var). The `hasAnthropicProvider` check in the frontend only matches `endpoint_type === 'user'`, ignoring `global` providers. The proxy at `/v1/messages` *would* work (it falls back to the built-in global provider), but the UI won't let you create the agent.
+  - This check is duplicated in 4 files: `CreateProjectDialog.tsx`, `AgentSelectionModal.tsx`, `NewSpecTaskForm.tsx`, `ProjectSettings.tsx`
+  - **Fix:** Change `hasAnthropicProvider` to also accept `endpoint_type === 'global'` providers
+- [ ] Fix `hasAnthropicProvider` to include global providers (see fix task below)
+- [ ] After fix: create agent, start session, verify Claude Code launches without errors
 - [ ] Verify no permission prompts appear — the agent should run autonomously
 - [ ] Send a real coding task (e.g. "Create a file called hello.py that prints hello world, then run it") and confirm the agent completes it
 - [ ] Check inner API logs to confirm requests flow through the Helix Anthropic proxy at `/v1/messages`
 - [ ] In helix-in-helix setup, verify the full proxy chain works: container → inner Helix `/v1/messages` → outer Helix API → Google Vertex Anthropic hosting
 - [ ] If anything breaks, diagnose and fix the specific issue
+
+## Fix: `hasAnthropicProvider` ignores global providers
+
+- [ ] Update `hasAnthropicProvider` in all 4 files to check for `name === 'anthropic'` regardless of `endpoint_type` (or at least include both `'user'` and `'global'`):
+  - `components/project/CreateProjectDialog.tsx` (~line 117)
+  - `components/project/AgentSelectionModal.tsx` (~line 83)
+  - `components/tasks/NewSpecTaskForm.tsx` (~line 191)
+  - `pages/ProjectSettings.tsx` (~line 529)
+- [ ] Verify in browser: with only a global Anthropic provider, "Anthropic API Key" radio should show "(configured)" and be selectable
+- [ ] Verify creating a Claude Code agent with API key mode now works
 
 ## Make Claude Code the Default Runtime (Conditional)
 
