@@ -92,9 +92,9 @@ Decision: **Emit an `agent_interaction_completed` attention event inside `handle
 
 This is NOT the same as container stop detection. The container may keep running (idle timeout), and that's fine. What matters is "the agent finished its current task and the human should look."
 
-**4. Replace GlobalNotifications entirely, render unconditionally**
+**4. Refactor GlobalNotifications in-place, render unconditionally**
 
-Decision: **Replace `GlobalNotifications` with a new `AttentionQueue` component that renders unconditionally in `Page.tsx`** (remove the `notifications` prop gate). Every page that uses `<Page>` gets the queue button.
+Decision: **Refactor the existing `GlobalNotifications.tsx` in-place** — keep the bell icon, badge, and button code exactly as they are. Swap the `Popover` for a `Drawer`, swap the data source from status-polling to the attention events API. Make `Page.tsx` render it unconditionally (remove the `notifications` prop gate). No new component file for the bell — reuse what's there.
 
 **5. Browser notifications: permission requested in the queue drawer**
 
@@ -189,7 +189,7 @@ If no Slack bot is configured for the project, this is a silent no-op.
 - `api/pkg/services/attention_service.go` — `AttentionService` with `EmitEvent()`: creates DB row, posts to Slack if applicable
 - `api/pkg/server/attention_event_handlers.go` — HTTP handlers for list/acknowledge/dismiss
 
-**Modified files:**
+**Modified files (backend):**
 - `api/pkg/server/websocket_external_agent_sync.go` — in `handleMessageCompleted`, after the existing `updateSpecTaskZedThreadActivity` call, emit `agent_interaction_completed` attention event
 - `api/pkg/services/git_http_server.go` — in `processDesignDocsForBranch`, emit `specs_pushed` attention event
 - `api/pkg/services/spec_task_orchestrator.go` — on transitions to `spec_failed`, `implementation_failed`, `pull_request`, emit corresponding attention events
@@ -200,9 +200,9 @@ If no Slack bot is configured for the project, this is a silent no-op.
 
 ```
 Page.tsx (app shell)
-  └── AttentionQueue (replaces GlobalNotifications, rendered UNCONDITIONALLY)
-        ├── AttentionQueueButton — bell icon + red badge count
-        ├── AttentionQueueDrawer — right-side MUI Drawer, ~400px
+  └── GlobalNotifications (REFACTORED in-place, rendered UNCONDITIONALLY)
+        ├── Existing bell icon + Badge — keep current IconButton/Badge/Bell code as-is
+        ├── AttentionQueueDrawer — replaces the small Popover with a right-side MUI Drawer, ~400px
         │     ├── BrowserNotificationBanner — permission prompt (shown when permission is "default")
         │     ├── QueueHeader — "Needs Attention", count, "Dismiss All" button
         │     ├── QueueSection (failures) — red accent, collapsible
@@ -219,15 +219,12 @@ Page.tsx (app shell)
 4. Click on item → `account.orgNavigate('project-task-detail', ...)` (same as today)
 
 **New files:**
-- `frontend/src/components/system/AttentionQueue.tsx`
 - `frontend/src/hooks/useAttentionEvents.ts` — React Query hook for the new API
 - `frontend/src/hooks/useBrowserNotifications.ts` — Notification API wrapper
 
 **Modified files:**
-- `frontend/src/components/system/Page.tsx` — replace `GlobalNotifications` with `AttentionQueue`, render unconditionally (remove `notifications` prop gate)
-
-**Deleted files:**
-- `frontend/src/components/system/GlobalNotifications.tsx`
+- `frontend/src/components/system/GlobalNotifications.tsx` — **refactor in-place**: keep the existing bell icon / `IconButton` / `Badge` / `Bell` code exactly as-is; swap the data source from status-polling to `useAttentionEvents` hook; replace the `Popover` with a `Drawer`; add queue sections and browser notification wiring
+- `frontend/src/components/system/Page.tsx` — render `GlobalNotifications` **unconditionally** (remove the `{notifications && ...}` prop gate so it appears on every page, not just `Projects.tsx`)
 
 ### API Endpoints
 

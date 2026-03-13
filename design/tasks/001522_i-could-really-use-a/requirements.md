@@ -36,7 +36,10 @@ The user's original request names **events** — "specs pushed", "agent has stop
 As a user, I want to see an always-visible queue of events needing my attention, so I can quickly context-switch without hunting through projects.
 
 **Acceptance Criteria:**
-- Queue is accessible from every page in the app (global overlay/drawer) — not gated behind a prop like today
+- Reuse the existing `GlobalNotifications` bell icon + badge — keep the same `IconButton`/`Badge`/`Bell` code, same position in the top bar
+- Make it render on every page (remove the `notifications` prop gate in `Page.tsx` so it's not limited to `Projects.tsx`)
+- Replace the small `Popover` with a proper slide-out `Drawer` for the queue body
+- Swap the data source from status-polling to the new attention events API
 - Shows attention events from all projects, sorted by time (newest first)
 - Each item shows: event type, task name, project name, how long ago
 - Clicking an item navigates to the task detail page or opens in split screen
@@ -82,7 +85,7 @@ As a user, I want Slack alerts when tasks need my attention, posted to the proje
 As a user, I want the queue to look great and feel native to the Helix app.
 
 **Acceptance Criteria:**
-- Slide-out drawer (right side) triggered by persistent bell icon in the top bar
+- Slide-out drawer (right side) triggered by the existing bell icon (reuse current `GlobalNotifications` button code)
 - Groups items by type: failures at top, then agent-stopped, then reviews/PRs
 - Visual distinction between new (unseen) and acknowledged items
 - Dismiss/snooze individual items (snooze = hide for 1h)

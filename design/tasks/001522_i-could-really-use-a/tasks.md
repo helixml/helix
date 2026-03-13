@@ -24,16 +24,13 @@
 
 - [ ] Create `frontend/src/hooks/useAttentionEvents.ts` — React Query hook: polls `GET /api/v1/attention-events?active=true` every 10s via `api.getApiClient()`, returns events sorted by `created_at` desc, exposes `acknowledge`, `dismiss`, `snooze`, `dismissAll` mutation wrappers that call the PATCH/POST endpoints and invalidate the query
 - [ ] Create `frontend/src/hooks/useBrowserNotifications.ts` — wraps browser `Notification` API: tracks `Notification.permission` state, `requestPermission()`, `fireNotification(title, body, onClick)`, localStorage opt-out flag (`helix_browser_notif_disabled`). Only fires for events not yet acknowledged.
-- [ ] Create `frontend/src/components/system/AttentionQueue.tsx` — replaces `GlobalNotifications.tsx`:
-  - `AttentionQueueButton` — bell icon + red badge count in top bar (reuse existing icon position)
-  - `AttentionQueueDrawer` — MUI `Drawer` anchor="right", ~400px wide
+- [ ] Refactor `frontend/src/components/system/GlobalNotifications.tsx` **in-place** — keep the existing bell `IconButton` / `Badge` / `Bell` icon code as-is; swap data source from status-polling (`useQueries` on `v1SpecTasksList`) to the new `useAttentionEvents` hook; replace the `Popover` with a right-side MUI `Drawer` (~400px wide) containing:
   - `QueueHeader` — title "Needs Attention", event count, "Dismiss All" button
   - `QueueSection` — collapsible group per category: Failures (red), Agent Done (amber), Specs & PRs (blue)
   - `AttentionEventItem` — event title, task name, project name, relative time ("3m ago"), dismiss button, snooze (1h) button
   - `BrowserNotificationBanner` — inline prompt when `Notification.permission === "default"`, with Enable/Dismiss buttons
 - [ ] Wire browser notifications — when `useAttentionEvents` returns new unacknowledged events, call `useBrowserNotifications.fireNotification()`. Clicking browser notification focuses tab and navigates via `account.orgNavigate('project-task-detail', ...)`.
-- [ ] Edit `frontend/src/components/system/Page.tsx` — replace `GlobalNotifications` import with `AttentionQueue`, render it **unconditionally** (remove the `{notifications && ...}` prop gate so queue button appears on every page, not just `Projects.tsx`)
-- [ ] Delete `frontend/src/components/system/GlobalNotifications.tsx`
+- [ ] Edit `frontend/src/components/system/Page.tsx` — render `GlobalNotifications` **unconditionally** (remove the `{notifications && ...}` prop gate so the existing bell icon appears on every page, not just `Projects.tsx`)
 
 ## Phase 4: Verification
 
