@@ -146,8 +146,10 @@ func (s *Proxy) anthropicAPIProxyDirector(r *http.Request) {
 	r.Header.Del("api-key")
 
 	// Vertex AI mode: if the endpoint has a VertexProjectID, transform the request
-	// for Vertex's rawPredict/streamRawPredict API format
-	if endpoint.VertexProjectID != "" {
+	// for Vertex's rawPredict/streamRawPredict API format.
+	// Exception: /v1/models goes to the direct Anthropic API since Vertex has no
+	// model listing endpoint. This requires an API key to be configured alongside Vertex.
+	if endpoint.VertexProjectID != "" && r.URL.Path != "/v1/models" {
 		tokenSource, err := s.getVertexTokenSource(r.Context(), endpoint.VertexCredentialsJSON, endpoint.VertexCredentialsFile)
 		if err != nil {
 			log.Error().Err(err).
