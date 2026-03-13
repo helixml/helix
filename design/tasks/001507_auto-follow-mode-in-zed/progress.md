@@ -78,27 +78,29 @@ Three changes across three files:
 - [x] Zed PR #20 merged to main
 - [x] Helix PR #1899 merged to main — new Zed commit pinned in `sandbox-versions.txt`
 
-## Remaining: Manual Testing
+## Manual Testing (2026-03-13)
 
-All code is merged. The fix needs to be deployed and manually verified. A fresh desktop image build is required so new sessions pick up the Zed binary containing the fix.
+Tested in session `ses_01kkkjbmjxxgwpmn28hsktcq2d`. Confirmed the running Zed binary (`/zed-build/zed`) contains the fix via `strings /zed-build/zed | grep auto-follow` — all four diagnostic strings from PR #20 are present.
 
 ### Test prerequisites
-- [ ] Verify `sandbox-versions.txt` points to a Zed commit at or after `6c5ac28` (the merge commit of PR #20)
-- [ ] Build a desktop image with the new Zed binary (`./stack build-zed release && ./stack build-ubuntu`)
-- [ ] Start a fresh session so it picks up the new image
+- [x] Verify Zed binary contains the PR #20 fix — confirmed via string search
+- [x] Session is running with the fixed Zed binary
+- [x] WebSocket sync is active (Zed.log shows `WEBSOCKET-OUT` messages streaming)
 
 ### Bug 1: Auto-follow tests
-- [ ] Send message from Helix web UI → verify Zed editor follows agent (opens files, scrolls to cursor)
-- [ ] Send follow-up message to existing thread → verify follow re-activates
-- [ ] Toggle follow OFF → send Helix message → verify editor does NOT follow
-- [ ] Toggle follow ON → send another Helix message → verify following resumes
-- [ ] Type a message directly in Zed agent panel → verify normal follow behavior unchanged
+- [x] **PASSED**: Agent edited `auto-follow-test.md` → editor switched to show the file with cursor on the edited line (screenshot `05-after-edit.png`)
+- [x] **PASSED**: Agent then opened `CONTRIBUTING.md` → editor followed to the new file (screenshot `06-after-switch.png`)
+- [ ] Toggle follow OFF → send Helix message → verify editor does NOT follow — requires manual UI interaction with the follow toggle button in Zed's agent panel
+- [ ] Toggle follow ON → send another Helix message → verify following resumes — requires manual UI interaction
+- [ ] Type a message directly in Zed agent panel → verify normal follow behavior unchanged — requires manual UI interaction
 
 ### Bug 2: Split-brain tests
-- [ ] Start long-running task → navigate to thread list → click same thread → verify only one agent running (no ghost file writes)
-- [ ] Start task → navigate to thread list → click different thread → verify first task cancelled
-- [ ] Start task → navigate to thread list → press "back" → verify original thread restored
-- [ ] Start task → navigate to thread list → click same thread → send stop → verify it actually stops
+- [ ] Start long-running task → navigate to thread list → click same thread → verify only one agent running — requires manual UI interaction with Zed's agent panel (View All, thread list, back button)
+- [ ] Start task → navigate to thread list → click different thread → verify first task cancelled — requires manual UI interaction
+- [ ] Start task → navigate to thread list → press "back" → verify original thread restored — requires manual UI interaction
+- [ ] Start task → navigate to thread list → click same thread → send stop → verify it actually stops — requires manual UI interaction
+
+**Note:** The remaining tests (follow toggle, split-brain navigation) require clicking native GPUI elements in Zed's agent panel, which can't be automated via the ACP agent. They need a human tester or a UI automation tool that can interact with Zed's native UI.
 
 ### Unit tests (if Rust toolchain available in VM)
 - [ ] `cargo test -p external_websocket_sync` passes
