@@ -479,8 +479,12 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	primaryRepoName string,
 ) error {
 	// Fetch guidelines from project and organization
-	guidelines := s.getGuidelinesForTask(ctx, task)
-	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName, s.koditService.MCPDocumentation())
+	guidelines, project := s.getGuidelinesForTask(ctx, task)
+	koditDoc := ""
+	if project != nil && project.KoditEnabled {
+		koditDoc = s.koditService.MCPDocumentation()
+	}
+	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName, koditDoc)
 
 	log.Info().
 		Str("session_id", sessionID).
@@ -503,14 +507,14 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 }
 
 // getGuidelinesForTask fetches concatenated organization/user + project guidelines
-func (s *AgentInstructionService) getGuidelinesForTask(ctx context.Context, task *types.SpecTask) string {
+func (s *AgentInstructionService) getGuidelinesForTask(ctx context.Context, task *types.SpecTask) (string, *types.Project) {
 	if task.ProjectID == "" {
-		return ""
+		return "", nil
 	}
 
 	project, err := s.store.GetProject(ctx, task.ProjectID)
 	if err != nil || project == nil {
-		return ""
+		return "", nil
 	}
 
 	guidelines := ""
@@ -537,7 +541,7 @@ func (s *AgentInstructionService) getGuidelinesForTask(ctx context.Context, task
 		guidelines += project.Guidelines
 	}
 
-	return guidelines
+	return guidelines, project
 }
 
 // SendImplementationReviewRequest notifies agent that implementation is ready for review

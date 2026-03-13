@@ -31,9 +31,23 @@ func resolveKoditRepoScope(ctx context.Context, s store.Store, sessionID string,
 
 	switch {
 	case session.ProjectID != "":
-		repos, err = s.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-			ProjectID: session.ProjectID,
-		})
+		project, projErr := s.GetProject(ctx, session.ProjectID)
+		if projErr != nil {
+			return nil, fmt.Errorf("project lookup: %w", projErr)
+		}
+		if !project.KoditEnabled {
+			return &koditRepoScope{repoIDs: make(map[int64]bool)}, nil
+		}
+		// When Kodit is enabled, scope to all org repos (not just project repos)
+		if project.OrganizationID != "" {
+			repos, err = s.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+				OrganizationID: project.OrganizationID,
+			})
+		} else {
+			repos, err = s.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+				OwnerID: user.ID,
+			})
+		}
 	case user.OrganizationID != "":
 		repos, err = s.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
 			OrganizationID: user.OrganizationID,

@@ -184,6 +184,7 @@ const ProjectSettings: FC = () => {
   const [autoStartBacklogTasks, setAutoStartBacklogTasks] = useState(false);
   const [pullRequestReviewsEnabled, setPullRequestReviewsEnabled] =
     useState(false);
+  const [koditEnabled, setKoditEnabled] = useState(true);
   const [autoWarmDockerCache, setAutoWarmDockerCache] = useState(false);
   const [showGoldenBuildViewer, setShowGoldenBuildViewer] = useState(false);
   const [selectedGoldenSandboxId, setSelectedGoldenSandboxId] = useState("");
@@ -601,6 +602,7 @@ const ProjectSettings: FC = () => {
       setPullRequestReviewsEnabled(
         project.pull_request_reviews_enabled || false,
       );
+      setKoditEnabled(project.kodit_enabled !== false);
       setAutoWarmDockerCache(
         project.metadata?.auto_warm_docker_cache || false,
       );
@@ -1595,6 +1597,34 @@ const ProjectSettings: FC = () => {
                     GitLab, etc.) as the primary repository.
                   </Typography>
                 )}
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <Box sx={{ flex: 1, mr: 2 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      Code intelligence
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {koditEnabled
+                        ? "Code intelligence is enabled for this project"
+                        : "Allow agents to use code intelligence for all of your organization's repositories"}
+                    </Typography>
+                  </Box>
+                  <Switch
+                    checked={koditEnabled}
+                    onChange={(e) => {
+                      const newValue = e.target.checked;
+                      setKoditEnabled(newValue);
+                      updateProjectMutation.mutate({
+                        kodit_enabled: newValue,
+                      });
+                    }}
+                  />
+                </Box>
               </Box>
             </Paper>
 
