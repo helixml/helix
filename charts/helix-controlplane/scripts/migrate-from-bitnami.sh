@@ -85,10 +85,26 @@ POSTGRES_DB=$(kubectl get deploy ${NS_FLAG} "${RELEASE}-helix-controlplane" -o j
   kubectl get deploy ${NS_FLAG} "${RELEASE}" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="POSTGRES_DATABASE")].value}' 2>/dev/null || \
   echo "helix")
 
+# Get the password from the Bitnami secret ({release}-postgresql)
+BITNAMI_SECRET="${RELEASE}-postgresql"
+echo "Reading password from secret ${BITNAMI_SECRET}..."
+POSTGRES_PASSWORD=$(kubectl get secret ${NS_FLAG} "${BITNAMI_SECRET}" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || \
+  echo "")
+if [ -z "${POSTGRES_PASSWORD}" ]; then
+  echo "WARNING: Could not read password from secret ${BITNAMI_SECRET}."
+  echo "Trying to read from controlplane deployment env..."
+  POSTGRES_PASSWORD=$(kubectl get deploy ${NS_FLAG} "${RELEASE}-helix-controlplane" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="POSTGRES_PASSWORD")].value}' 2>/dev/null || \
+    echo "")
+fi
+if [ -z "${POSTGRES_PASSWORD}" ]; then
+  echo "ERROR: Could not determine PostgreSQL password."
+  exit 1
+fi
+
 echo "User: ${POSTGRES_USER}, Database: ${POSTGRES_DB}"
 
-echo "Running pg_dumpall from ${OLD_POD}..."
-kubectl exec ${NS_FLAG} "${OLD_POD}" -- pg_dumpall -U "${POSTGRES_USER}" > "${DUMP_FILE}"
+echo "Running pg_dump from ${OLD_POD} (database: ${POSTGRES_DB})..."
+kubectl exec ${NS_FLAG} "${OLD_POD}" -- env PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" > "${DUMP_FILE}"
 
 DUMP_SIZE=$(wc -c < "${DUMP_FILE}" | tr -d ' ')
 echo "Dump complete: ${DUMP_FILE} (${DUMP_SIZE} bytes)"
@@ -139,9 +155,16 @@ echo "New postgres pod: ${NEW_POD}"
 echo "Copying dump file to new pod..."
 kubectl cp ${NS_FLAG} "${DUMP_FILE}" "${NEW_POD}:/tmp/helix-migration.sql"
 
+# Get the new postgres password from the new deployment's env
+echo "Reading new postgres credentials..."
+NEW_PASSWORD=$(kubectl get deploy ${NS_FLAG} \
+  -l "app.kubernetes.io/component=postgres,app.kubernetes.io/instance=${RELEASE}" \
+  -o jsonpath='{.items[0].spec.template.spec.containers[0].env[?(@.name=="POSTGRES_PASSWORD")].value}' 2>/dev/null || \
+  echo "${POSTGRES_PASSWORD}")
+
 echo "Restoring database..."
 kubectl exec ${NS_FLAG} "${NEW_POD}" -- \
-  psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -f /tmp/helix-migration.sql
+  env PGPASSWORD="${NEW_PASSWORD}" psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -f /tmp/helix-migration.sql
 
 echo "Cleaning up dump file from pod..."
 kubectl exec ${NS_FLAG} "${NEW_POD}" -- rm -f /tmp/helix-migration.sql
@@ -153,7 +176,7 @@ echo ""
 echo "--- Phase 4: Verify ---"
 
 TABLE_COUNT=$(kubectl exec ${NS_FLAG} "${NEW_POD}" -- \
-  psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -t -c \
+  env PGPASSWORD="${NEW_PASSWORD}" psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -t -c \
   "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" | tr -d ' ')
 
 echo "Tables in public schema: ${TABLE_COUNT}"
