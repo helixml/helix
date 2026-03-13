@@ -38,10 +38,18 @@ type Proxy struct {
 
 func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.ModelInfoProvider, logStores ...logger.LogStore) *Proxy {
 
+	reverseProxy := httputil.NewSingleHostReverseProxy(nil)
+	// FlushInterval -1 enables immediate flushing of each write to the client.
+	// Without this, httputil.ReverseProxy buffers the response, which breaks
+	// SSE streaming — especially in double-proxy setups (sandbox API → outer API
+	// → Anthropic) where tool_use content blocks get truncated because the
+	// buffered data never reaches the downstream reader in time.
+	reverseProxy.FlushInterval = -1
+
 	p := &Proxy{
 		cfg:                   cfg,
 		store:                 store,
-		anthropicReverseProxy: httputil.NewSingleHostReverseProxy(nil),
+		anthropicReverseProxy: reverseProxy,
 		logStores:             logStores,
 		modelInfoProvider:     modelInfoProvider,
 		wg:                    sync.WaitGroup{},
@@ -152,6 +160,26 @@ func (s *Proxy) anthropicAPIProxyModifyResponse(response *http.Response) error {
 
 	// If content type is "text/event-stream", then process the stream
 	if strings.Contains(response.Header.Get("Content-Type"), "text/event-stream") {
+		// Log incoming response headers for debugging double-proxy truncation
+		log.Info().
+			Str("content_type", response.Header.Get("Content-Type")).
+			Str("content_length", response.Header.Get("Content-Length")).
+			Str("transfer_encoding", response.Header.Get("Transfer-Encoding")).
+			Int64("content_length_parsed", response.ContentLength).
+			Int("status_code", response.StatusCode).
+			Msg("[SSE_PROXY] ModifyResponse called for SSE stream")
+
+		// In double-proxy setups (sandbox API → outer API → Anthropic), the
+		// outer proxy's ModifyResponse replaces the body with an io.Pipe but
+		// may preserve the original Content-Length from Anthropic. The inner
+		// proxy's httputil.ReverseProxy then stops reading after Content-Length
+		// bytes, truncating the stream mid-event (typically at the tool_use
+		// content_block_start). Fix: delete Content-Length and force chunked
+		// transfer encoding so the full stream flows through.
+		response.Header.Del("Content-Length")
+		response.ContentLength = -1
+		response.Header.Set("Transfer-Encoding", "chunked")
+
 		pr, pw := io.Pipe()
 		body := response.Body
 		response.Body = pr
@@ -174,11 +202,34 @@ func (s *Proxy) anthropicAPIProxyModifyResponse(response *http.Response) error {
 			// that we assemble from the chunks
 			var respMessage anthropic.Message
 
-			defer pw.Close()
+			defer func() {
+				log.Info().Msg("[SSE_PROXY] goroutine exiting, closing pipe writer")
+				pw.Close()
+			}()
+			defer body.Close()
+
+			lineNum := 0
+			totalBytes := 0
 			reader := bufio.NewReader(body)
 			for {
 				line, err := reader.ReadBytes('\n')
+				lineNum++
+				totalBytes += len(line)
 				if err != nil {
+					log.Info().
+						Err(err).
+						Int("line_num", lineNum).
+						Int("partial_len", len(line)).
+						Int("total_bytes_read", totalBytes).
+						Str("partial_data", string(line)).
+						Msg("[SSE_PROXY] read error (EOF or failure)")
+					// Write any partial line data that came with the EOF
+					if len(line) > 0 {
+						_, writeErr := pw.Write(line)
+						if writeErr != nil {
+							log.Error().Err(writeErr).Msg("[SSE_PROXY] pipe write error on partial line")
+						}
+					}
 					// Log the final assembled message for billing
 					// Always log, even if no content (for debugging)
 					bts, err := json.Marshal(respMessage)
@@ -186,13 +237,32 @@ func (s *Proxy) anthropicAPIProxyModifyResponse(response *http.Response) error {
 						log.Error().Err(err).Any("resp_message", respMessage).Msg("failed to marshal resp message")
 					} else {
 						s.logLLMCall(response.Request.Context(), time.Now(), bts, nil, true, time.Since(start).Milliseconds())
-						log.Debug().Msg("XX logging full")
 					}
 					return
 				}
 
+				// Forward the line to the client FIRST, before parsing
+				_, writeErr := pw.Write(line)
+				if writeErr != nil {
+					log.Error().
+						Err(writeErr).
+						Int("line_num", lineNum).
+						Msg("[SSE_PROXY] pipe write error - downstream closed?")
+					// Downstream closed, stop reading
+					return
+				}
+
+				if lineNum <= 5 || lineNum%10 == 0 {
+					log.Debug().
+						Int("line_num", lineNum).
+						Int("line_len", len(line)).
+						Int("total_bytes", totalBytes).
+						Msg("[SSE_PROXY] forwarded line")
+				}
+
 				// Parse SSE line
 				lineStr := string(line)
+
 				if strings.HasPrefix(lineStr, "data: ") {
 					data := strings.TrimPrefix(lineStr, "data: ")
 					data = strings.TrimSpace(data)
@@ -200,7 +270,6 @@ func (s *Proxy) anthropicAPIProxyModifyResponse(response *http.Response) error {
 					// Skip empty data and [DONE] markers
 					if data == "" || data == "[DONE]" {
 						log.Debug().Str("data", data).Msg("skipping empty or done marker")
-						_, _ = pw.Write(line)
 						continue
 					}
 
@@ -208,20 +277,15 @@ func (s *Proxy) anthropicAPIProxyModifyResponse(response *http.Response) error {
 					var event anthropic.MessageStreamEventUnion
 					if err := event.UnmarshalJSON([]byte(data)); err != nil {
 						log.Debug().Err(err).Str("data", data).Msg("failed to parse streaming event")
-						_, _ = pw.Write(line)
 						continue
 					}
 
 					err = respMessage.Accumulate(event)
 					if err != nil {
 						log.Error().Err(err).Msg("failed to accumulate event")
-						_, _ = pw.Write(line)
 						continue
 					}
 				}
-
-				// Forward the line to the client
-				_, _ = pw.Write(line)
 			}
 		}()
 		return nil
