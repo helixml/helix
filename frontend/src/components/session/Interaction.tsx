@@ -9,7 +9,7 @@ import CopyButtonWithCheck from "./CopyButtonWithCheck";
 
 import useAccount from "../../hooks/useAccount";
 
-import { IServerConfig } from "../../types";
+import { TypesServerConfigForFrontend } from "../../api/api";
 
 import {
     TypesSession,
@@ -72,7 +72,7 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
 };
 
 interface InteractionProps {
-    serverConfig: IServerConfig;
+    serverConfig: TypesServerConfigForFrontend;
     interaction: TypesInteraction;
     session: TypesSession;
     highlightAllFiles: boolean;

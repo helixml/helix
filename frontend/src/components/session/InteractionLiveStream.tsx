@@ -15,7 +15,7 @@ import Box from "@mui/material/Box";
 import { useTheme } from "@mui/material/styles";
 import useLiveInteraction from "../../hooks/useLiveInteraction";
 import Markdown from "./Markdown";
-import { IServerConfig } from "../../types";
+import { TypesServerConfigForFrontend } from "../../api/api";
 import {
     TypesInteraction,
     TypesInteractionState,
@@ -26,7 +26,7 @@ import ToolStepsWidget from "./ToolStepsWidget";
 export const InteractionLiveStream: FC<{
     session_id: string;
     interaction: TypesInteraction;
-    serverConfig?: IServerConfig;
+    serverConfig?: TypesServerConfigForFrontend;
     session: TypesSession;
     onMessageChange?: {
         (message: string): void;

@@ -17,6 +17,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import useApi from '../../hooks/useApi';
 import { TypesPaginatedLLMCalls, TypesLLMCall } from '../../api/api';
+import { useGetConfig } from '../../services/userService';
 import JsonView from '../widgets/JsonView';
 import { useListLLMCalls } from '../../services/llmCallsService';
 import DarkDialog from '../dialog/DarkDialog';
@@ -32,8 +33,7 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
   const [modalOpen, setModalOpen] = useState(false);
 
   const { data: llmCalls, isLoading, error, refetch } = useListLLMCalls(sessionFilter, "", page, rowsPerPage, true);
-
-  const win = (window as any)
+  const { data: serverConfig } = useGetConfig();
 
   const handleChangePage = (event: unknown, newPage: number) => {
     setPage(newPage);
@@ -94,7 +94,7 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
               </TableRow>
             </TableHead>
             <TableBody>
-              { win.DISABLE_LLM_CALL_LOGGING ? (
+              { serverConfig?.disable_llm_call_logging ? (
                 <TableRow>
                   <TableCell colSpan={6}>LLM call logging is disabled by the administrator.</TableCell>
                 </TableRow>
