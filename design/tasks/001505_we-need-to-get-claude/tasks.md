@@ -2,7 +2,7 @@
 
 ## Test Claude Code with API Key Mode (Anthropic Proxy)
 
-- [ ] Create a Claude Code agent via the UI: runtime=`claude_code`, credential_type=`api_key`, Anthropic provider, Claude model (e.g. `claude-sonnet-4-20250514`)
+- [~] Create a Claude Code agent via the UI: runtime=`claude_code`, credential_type=`api_key`, Anthropic provider, Claude model (e.g. `claude-sonnet-4-20250514`)
 - [ ] Start a session and verify Claude Code launches without errors
 - [ ] Verify no permission prompts appear — the agent should run autonomously
 - [ ] Send a real coding task (e.g. "Create a file called hello.py that prints hello world, then run it") and confirm the agent completes it
