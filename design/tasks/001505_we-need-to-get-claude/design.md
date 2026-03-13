@@ -1,136 +1,74 @@
-# Design: Claude Code Integration — Hardening Permission Bypass & API Key Mode
+# Design: Claude Code — Test API Key Mode & Conditional Default
 
 ## Problem Statement
 
-Claude Code in Helix desktop sessions keeps regressing to asking permission for every tool use. This has happened 3+ times (PRs #1629, #1637, #1778), each caused by a different subtle misconfiguration in the 4-layer permission bypass stack. The root cause is that the bypass system is fragile, undocumented as a unit, and has zero automated tests.
-
-Additionally, the API key mode (where users provide their own Anthropic key rather than a Claude subscription) needs to be verified end-to-end since most testing has focused on subscription mode.
-
-## Architecture Overview
-
-Claude Code runs inside Zed via the ACP (Agent Client Protocol). The flow is:
+Claude Code subscription mode has been user-tested and confirmed working. What hasn't been verified is **API key mode**, where Claude Code talks through the Helix Anthropic proxy. In the helix-in-helix setup, the proxy chain is:
 
 ```
-User → Helix UI (configure agent) → Helix API (build config) → Settings-sync-daemon (write Zed settings) → Zed → Claude Code ACP
+Claude Code (in container) → ANTHROPIC_BASE_URL (inner Helix /v1/messages) → outer Helix API → Google Vertex Anthropic hosting
 ```
 
-For API key mode specifically:
-```
-Claude Code → ANTHROPIC_BASE_URL (Helix proxy) → /v1/messages → resolve ProviderEndpoint (global or user/org) → Anthropic API
-```
+We need to test this end-to-end and, once confirmed working, make Claude Code the default runtime — but only when the user has an Anthropic provider available.
 
-### The 4-Layer Permission Bypass Stack
+## Architecture: API Key Mode Proxy Chain
 
-All four must be correctly configured or Claude Code prompts for every action:
-
-```
-Layer 1: ~/.claude/settings.json
-  Written by: helix-workspace-setup.sh (at container start, before Zed launches)
-  Contains: {"permissions":{"allow":["Bash","Read","Edit"],"defaultMode":"bypassPermissions"},"skipDangerousModePermissionPrompt":true}
-  Why: Claude Code's own internal permission system
-
-Layer 2: Zed tool_permissions
-  Written by: settings-sync-daemon (syncFromHelix function, every poll cycle)
-  Contains: agent.tool_permissions.default = "allow"
-  Why: Zed's tool permission system — gates ACP tool calls before they reach Claude Code
-
-Layer 3: ACP agent_servers default_mode
-  Written by: settings-sync-daemon (generateAgentServerConfig function)
-  Contains: agent_servers.claude.default_mode = "bypassPermissions"
-  Why: Tells the Claude Code ACP wrapper to start in bypass mode
-
-Layer 4: IS_SANDBOX env var
-  Set by: devcontainer.go (buildEnv function)
-  Contains: IS_SANDBOX=1
-  Why: Claude Code ACP checks (!IS_ROOT || IS_SANDBOX) — containers run as root, so without IS_SANDBOX it blocks bypassPermissions
-```
-
-## Key Design Decisions
-
-### Decision 1: Add a startup validation check in settings-sync-daemon
-
-**Rationale:** Rather than only discovering bypass regressions when a user notices prompts, the settings-sync-daemon should validate all bypass layers on startup and log warnings if any are misconfigured.
-
-**Approach:** After writing settings, read them back and verify:
-- `tool_permissions.default` is `"allow"`
-- `agent_servers.claude.default_mode` is `"bypassPermissions"` (not `"default"`, not missing)
-- Log a clear `WARN` if any layer is wrong
-
-### Decision 2: Add an E2E smoke test for Claude Code
-
-**Rationale:** The only way to prevent repeated regressions is to test the actual behavior. A test that starts a session, sends a task, and checks for prompt-free completion catches any layer failure.
-
-**Approach:** Use the existing `spectask` CLI infrastructure:
-- `spectask start` with a Claude Code agent (API key mode)
-- `spectask send` a simple task: "Create a file called /tmp/test.txt with the contents 'hello world', then run 'cat /tmp/test.txt'"
-- `spectask stream` to watch output
-- Verify task completes without timeout (permission prompts cause the agent to hang waiting for user input)
-- This can be a shell script in `tests/` or a Go test
-
-### Decision 3: Document the bypass stack in code comments
-
-**Rationale:** Each previous regression happened because someone changed one layer without understanding the full stack. A single authoritative comment block in `settings-sync-daemon/main.go` listing all 4 layers prevents this.
-
-**Approach:** Add a `// PERMISSION BYPASS STACK` comment block near the top of `generateAgentServerConfig()` explaining all 4 layers and linking to this design doc. Also add a section to `CLAUDE.md` developer guide.
-
-### Decision 4: Make Claude Code the default runtime for new agents
-
-**Rationale:** Claude Code is the best coding agent experience. New users shouldn't have to discover it buried in a dropdown — it should be the default.
-
-**Approach:** Introduce a `DEFAULT_CODE_AGENT_RUNTIME` constant in `frontend/src/contexts/apps.tsx` set to `'claude_code'`, and replace all 6 hardcoded `'zed_agent'` defaults:
-
-| File | Line | Current |
-|------|------|---------|
-| `contexts/apps.tsx` (`createAgent` fallback) | ~226 | `params.codeAgentRuntime \|\| 'zed_agent'` |
-| `pages/Onboarding.tsx` | ~258 | `useState<CodeAgentRuntime>("zed_agent")` |
-| `components/project/CreateProjectDialog.tsx` | ~196 | `useState<CodeAgentRuntime>('zed_agent')` |
-| `components/project/AgentSelectionModal.tsx` | ~91 | `useState<CodeAgentRuntime>('zed_agent')` |
-| `components/tasks/NewSpecTaskForm.tsx` | ~175 | `useState<CodeAgentRuntime>("zed_agent")` |
-| `pages/ProjectSettings.tsx` | ~514 | `useState<CodeAgentRuntime>("zed_agent")` |
-
-`AppSettings.tsx` uses `app.code_agent_runtime || 'zed_agent'` which is a fallback for existing agents — this should stay as-is (or use the constant) so existing agents aren't affected.
-
-The `AgentSelectionModal` already has logic to auto-select `claude_code` when the user has a Claude subscription and no other providers. With this change, Claude Code becomes the default for everyone, and that conditional logic can be removed since it's now redundant.
-
-**UX impact:** When Claude Code is selected, the credentials sub-section appears immediately, showing either "Claude Subscription" or "Anthropic API Key" radio buttons. This guides the user to configure credentials as part of agent creation rather than discovering the need later.
-
-Screenshots captured during planning:
-- `screenshots/01-onboarding-default-zed-agent.png` — current default (Zed Agent)
-- `screenshots/02-runtime-dropdown-options.png` — the three runtime options
-- `screenshots/03-claude-code-selected-no-credentials.png` — Claude Code selected, showing credential options
-
-### Decision 5: No changes to the Zed fork
-
-**Rationale:** The Zed side (`tool_permissions.default = "allow"`) already works correctly. The problems have always been on the Helix side (wrong field names, missing settings, wrong env vars). No Zed changes needed.
-
-## API Key Mode — What to Verify
-
-The API key flow for Claude Code relies on Helix's inference provider system (`ProviderEndpoint`). The API key is NOT passed directly by the user — it comes from a configured inference provider, which can be:
-- **Global/system-level**: Set via `ANTHROPIC_API_KEY` env var on the Helix server (falls back to this if no DB provider found)
-- **User-level**: A `ProviderEndpoint` with `endpoint_type=user` created by the user in the Helix UI
-- **Org-level**: A `ProviderEndpoint` with `endpoint_type=org` shared across an organization
-
-Flow:
+### How it's wired today
 
 1. **UI**: User selects `claude_code` runtime + `api_key` credential type + Anthropic provider + Claude model
-2. **API** (`buildCodeAgentConfigFromAssistant`): Builds `CodeAgentConfig` with `baseURL = helixURL` (no `/v1` suffix — Claude Code SDK appends `/v1/messages` itself)
-3. **Settings-sync-daemon** (`generateAgentServerConfig`): Sets `ANTHROPIC_BASE_URL` (Helix proxy URL) in the agent_servers env. The proxy itself resolves the API key server-side.
-4. **Helix proxy** (`/v1/messages` → `getProviderEndpoint`): Looks up the `ProviderEndpoint` for the request user — tries org-level first, then user-level, then falls back to the built-in global provider from env vars. Forwards to Anthropic with the resolved API key, tracks usage.
+2. **API** (`buildCodeAgentConfigFromAssistant` in `zed_config_handlers.go`): Builds `CodeAgentConfig` with `baseURL = helixURL` (no `/v1` suffix — Claude Code SDK appends `/v1/messages` itself)
+3. **Settings-sync-daemon** (`generateAgentServerConfig`): Sets `ANTHROPIC_BASE_URL` (Helix proxy URL) in the agent_servers env config for Claude Code
+4. **Helix proxy** (`/v1/messages` → `getProviderEndpoint()`): Looks up the `ProviderEndpoint` for the request — tries org-level first, then falls back to the built-in global provider from env vars. Forwards to Anthropic with the resolved API key.
 
-Key gotcha already handled: `baseURL` must NOT have `/v1` suffix because the Anthropic SDK appends `/v1/messages` to `ANTHROPIC_BASE_URL`.
+In helix-in-helix, step 4 hits the **inner** Helix API, which has `ANTHROPIC_BASE_URL=http://host.docker.internal:8081` pointing at the **outer** Helix API, which in turn proxies to Google Vertex Anthropic hosting.
 
-## Codebase Patterns Discovered
+### What could go wrong
 
-- **Settings-sync-daemon** (`api/cmd/settings-sync-daemon/main.go`) is the central config writer. It polls the Helix API every 30s and writes Zed's `settings.json`. All agent_servers config goes through `generateAgentServerConfig()`.
-- **helix-workspace-setup.sh** (`desktop/shared/`) runs once at container start, before Zed. It sets up `~/.claude/settings.json` with bypass permissions. It symlinks `~/.claude` to persistent storage for cross-session persistence.
-- **devcontainer.go** (`api/pkg/hydra/`) builds the container environment. `IS_SANDBOX=1` is hardcoded there.
-- **Field name sensitivity**: The ACP config uses `default_mode` (underscore), not `default` (which is a JSON keyword in some contexts). PR #1778's entire fix was changing `"default"` to `"default_mode"`.
-- **Claude Code credential memoization**: Claude Code's credential reader is memoized. If it reads before `~/.claude/.credentials.json` exists, it caches null permanently. The settings-sync-daemon gates on file existence before emitting `agent_servers` config to prevent this.
-- **Scattered runtime defaults**: The default code agent runtime (`'zed_agent'`) is hardcoded in 6 separate `useState` calls across the frontend, plus a fallback in `contexts/apps.tsx`. There is no centralized `DEFAULT_CODE_AGENT_RUNTIME` constant — this should be introduced alongside the default change to prevent scatter.
-- **`CodingAgentForm.tsx`** is the shared form component used by most agent creation flows. It receives `value.codeAgentRuntime` as a prop — the default is set by the parent, not the form itself. So the fix is in the parents, not the form.
+- The double-proxy chain might mangle headers (e.g., `anthropic-version`, `x-api-key`)
+- The `ANTHROPIC_BASE_URL` inside the container might not resolve correctly in the inner network
+- Token/auth issues between inner and outer Helix APIs
+- Claude Code might not handle non-standard base URLs correctly
 
-## Risks
+## Design Decisions
 
-- **Claude Code npm updates**: Claude Code is installed via `npm install -g @anthropic-ai/claude-code@latest` in the Dockerfile. A new version could change permission semantics or config format. Consider pinning the version.
-- **Zed rebase**: When rebasing the Zed fork, `tool_permissions` handling could change upstream. The porting guide should flag this.
-- **ACP protocol changes**: The `default_mode` field in agent_servers config is part of the ACP protocol between Zed and Claude Code. Changes here require coordinated updates.
+### Decision 1: Manual E2E test of API key mode
+
+**Approach:** Create a Claude Code agent via the UI with API key mode, start a session, send a real coding task, and verify:
+- No permission prompts (bypass layers are working — already confirmed in subscription mode)
+- Requests flow through the proxy chain (check inner API logs)
+- The agent actually completes work
+
+This is a manual test — if it works, we're done. If something breaks, we fix the specific issue.
+
+### Decision 2: Conditional default — Claude Code only when Anthropic is available
+
+**Rationale:** Claude Code only works with Anthropic models. If the user only has OpenAI or other providers, defaulting to Claude Code would just show them error states. Zed Agent works with any LLM, so it's the safe universal default.
+
+**Approach:** The frontend already has `hasAnthropicProvider` (checks if an Anthropic `ProviderEndpoint` exists) and `hasClaudeSubscription` (checks for active Claude OAuth subscription). The default runtime logic should be:
+
+```
+if (hasAnthropicProvider || hasClaudeSubscription) → default to 'claude_code'
+else → default to 'zed_agent'
+```
+
+There's already partial logic for this in `AgentSelectionModal.tsx` (~line 150-155) that auto-selects `claude_code` when the user has a Claude subscription and no other providers. This needs to be generalized to also cover Anthropic API key providers, and applied consistently across all agent creation flows.
+
+**Files that need the default changed** (currently all hardcoded to `'zed_agent'`):
+- `pages/Onboarding.tsx` (~line 258)
+- `components/project/CreateProjectDialog.tsx` (~line 196)
+- `components/project/AgentSelectionModal.tsx` (~line 91)
+- `components/tasks/NewSpecTaskForm.tsx` (~line 175)
+- `pages/ProjectSettings.tsx` (~line 514)
+- `contexts/apps.tsx` `createAgent` fallback (~line 226)
+- `components/app/AppSettings.tsx` (~line 253) — fallback for existing apps
+
+Each of these needs access to the provider/subscription state to compute the default. A shared helper (e.g., `getDefaultCodeAgentRuntime(hasAnthropicProvider, hasClaudeSubscription)`) in `contexts/apps.tsx` would keep it DRY.
+
+### Decision 3: No changes to the Zed fork or backend
+
+The bypass layers and proxy chain are all backend/container config. No Zed Rust changes are needed. The only code changes are in the frontend to adjust the default runtime selection.
+
+## Codebase Patterns
+
+- **Provider detection**: `hasAnthropicProvider` is already computed in `AgentSelectionModal.tsx` by checking if any `ProviderEndpoint` has name matching `anthropic`. This pattern should be reused.
+- **`CodingAgentForm.tsx`** receives `value.codeAgentRuntime` as a prop — the default is set by the parent, not the form. So changes are in the parent components.
+- **`AppSettings.tsx`** uses `app.code_agent_runtime || 'zed_agent'` for existing agents — this should use the conditional default so that existing agents with no runtime set get the right default for their environment.
