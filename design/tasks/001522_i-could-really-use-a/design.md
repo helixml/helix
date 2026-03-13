@@ -10,14 +10,26 @@ Add a global "attention queue" that surfaces spectasks needing human action acro
 
 | Component | Location | What it does |
 |-----------|----------|-------------|
-| `GlobalNotifications` | `frontend/src/components/system/GlobalNotifications.tsx` | Bell icon in top bar, polls tasks in `spec_review`, `implementation_review`, `pull_request` statuses. Shows a small MUI `Popover` with task list. Tracks seen/unseen via `localStorage`. |
-| `Page` component | `frontend/src/components/system/Page.tsx` | App shell — renders `<GlobalNotifications>` when `notifications` prop is true. This is the global layout wrapper. |
+| `GlobalNotifications` | `frontend/src/components/system/GlobalNotifications.tsx` | Bell icon in top bar, polls tasks in `spec_review`, `implementation_review`, `pull_request` statuses. Shows a small MUI `Popover` with task list. Tracks seen/unseen via `localStorage`. **But effectively invisible** — see below. |
+| `Page` component | `frontend/src/components/system/Page.tsx` | App shell — renders `<GlobalNotifications>` only when `notifications` prop is true. **Only `Projects.tsx` passes `notifications={true}`** — no other page does. So the bell only appears on the projects list, and disappears once you enter a project's Kanban, task detail, or split screen view (the pages where you actually need it). |
 | Slack webhook (janitor) | `api/pkg/janitor/utils.go` | `sendSlackNotification(webhookURL, message)` — simple webhook POST. Used for session errors and admin alerts. |
 | Agent notifications config | `api/pkg/config/config.go` | `AGENT_NOTIFICATIONS_SLACK_*` env vars — webhook URL, bot token, channel. Currently used for agent progress updates. |
 | SpecTask statuses | `api/pkg/types/simple_spec_task.go` | All status constants including `spec_failed`, `implementation_failed` which are NOT currently surfaced in notifications. |
 | Orchestrator | `api/pkg/services/spec_task_orchestrator.go` | Manages status transitions. This is where we hook in server-side notifications. |
 | WebSocket events | `frontend/src/contexts/streaming.tsx` | Session-scoped WebSocket for streaming responses. NOT suitable for global task events (it's per-session). |
 | Existing polling | `GlobalNotifications` polls every 30s; `SpecTasksPage` polls tasks every 3.7s for workspace view. |
+
+### Why You Never See the Bell
+
+`Page.tsx` accepts an optional `notifications` boolean prop. When true, it renders `<GlobalNotifications>`. Grep across all pages shows exactly ONE caller passes it:
+
+- `Projects.tsx` → `notifications={true}` ✅
+- `SpecTasksPage.tsx` → not set ❌
+- `SpecTaskDetailPage.tsx` → not set ❌
+- `SpecTaskReviewPage.tsx` → not set ❌
+- `TeamDesktopPage.tsx` → not set ❌
+
+The fix is simple: the new `AttentionQueue` component should **not** rely on this prop-gating at all. Instead, `Page.tsx` should render it unconditionally (or we move it outside `Page` into the app shell). Every page that uses `<Page>` gets the queue button for free.
 
 ### Key Decisions
 
@@ -39,7 +51,7 @@ Decision: **Show an inline prompt inside the queue drawer on first open**, not a
 
 **5. Queue drawer vs modal vs embedded panel**
 
-Decision: **Right-side slide-out drawer** (MUI `Drawer` with `anchor="right"`). This overlays on top of any page (Kanban, detail, split screen) without disrupting layout. Triggered by the bell icon (same position as today). Drawer width: ~400px. This pattern is already familiar from the chat panel in `SpecTasksPage`.
+Decision: **Right-side slide-out drawer** (MUI `Drawer` with `anchor="right"`). This overlays on top of any page (Kanban, detail, split screen) without disrupting layout. Triggered by the bell icon — but this time rendered **unconditionally** by `Page.tsx` (no `notifications` prop gate). Drawer width: ~400px. This pattern is already familiar from the chat panel in `SpecTasksPage`.
 
 ## Architecture
 
@@ -122,7 +134,7 @@ Responsibilities:
 | `frontend/src/components/system/AttentionQueue.tsx` | **New** — queue button + drawer + all UI |
 | `frontend/src/hooks/useAttentionQueue.ts` | **New** — React Query hook for fetching/filtering human-needed tasks across all projects |
 | `frontend/src/hooks/useBrowserNotifications.ts` | **New** — manages `Notification` API permission + firing |
-| `frontend/src/components/system/Page.tsx` | **Edit** — swap `GlobalNotifications` import for `AttentionQueue` |
+| `frontend/src/components/system/Page.tsx` | **Edit** — swap `GlobalNotifications` import for `AttentionQueue`, render it **unconditionally** (remove the `notifications` prop gate so it appears on every page) |
 | `api/pkg/services/spec_task_human_notifier.go` | **New** — Slack notification on human-needed transitions |
 | `api/pkg/services/spec_task_orchestrator.go` | **Edit** — call notifier on status transitions |
 

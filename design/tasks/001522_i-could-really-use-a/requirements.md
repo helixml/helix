@@ -2,12 +2,13 @@
 
 ## Problem
 
-When managing multiple spectasks across projects, there's no consolidated view of what needs human attention right now. The existing bell notification shows pending reviews, but:
-- It only covers review statuses, not agent-stopped/failed states
+When managing multiple spectasks across projects, there's no consolidated view of what needs human attention right now. There is a `GlobalNotifications` bell icon component, but **it's effectively invisible** — it only renders on the Projects list page (`Projects.tsx` is the only page that passes `notifications={true}` to `Page.tsx`). Once you drill into a project's Kanban board, task detail, or split screen view, the bell disappears entirely. So:
+- The bell only shows on the one page where you least need it (browsing projects, not doing task work)
+- Even when visible, it only covers review statuses, not agent-stopped/failed states
 - It's a small popover, not a proper work queue
-- No browser push notifications — you have to be looking at the app
+- No browser push notifications — you have to be looking at the app AND on the right page
 - No Slack integration for "human needed" events
-- No way to see the queue from every page (Kanban, detail, split screen)
+- No way to see the queue from Kanban, detail page, or split screen view
 
 ## User Stories
 

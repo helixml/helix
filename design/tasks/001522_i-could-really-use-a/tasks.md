@@ -13,7 +13,7 @@
   - `BrowserNotificationBanner` — inline prompt shown when permission is `"default"`, with Enable/Dismiss buttons
 - [ ] Extend localStorage seen/snoozed tracking — store `{ taskId, status, seenAt, snoozedUntil }` per item, expire after 8h (match existing pattern), filter snoozed items from visible queue
 - [ ] Wire browser notifications — when `useAttentionQueue` detects new unseen items, call `useBrowserNotifications.fireNotification()` with task title + project name; clicking notification focuses tab and navigates via `account.orgNavigate('project-task-detail', ...)`
-- [ ] Update `frontend/src/components/system/Page.tsx` — replace `GlobalNotifications` import/usage with `AttentionQueue`
+- [ ] Update `frontend/src/components/system/Page.tsx` — replace `GlobalNotifications` import/usage with `AttentionQueue`, and render it **unconditionally** (remove the `{notifications && ...}` prop gate so the queue button appears on every page, not just `Projects.tsx`)
 - [ ] Delete `frontend/src/components/system/GlobalNotifications.tsx`
 
 ## Phase 2: Backend — Slack Notifications
