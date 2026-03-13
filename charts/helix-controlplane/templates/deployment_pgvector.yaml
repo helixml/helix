@@ -32,7 +32,7 @@ spec:
   replicas: {{ .Values.pgvector.replicas | default 1 }}
   {{- end }}
   strategy:
-    type: RollingUpdate
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/component: pgvector

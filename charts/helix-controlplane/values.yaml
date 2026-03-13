@@ -276,21 +276,27 @@ affinity: {}
 postgresql:
   enabled: true
   image:
-    registry: docker.io
-    repository: bitnamilegacy/postgresql
-    tag: "17"
+    repository: postgres
+    tag: "17-alpine"
     pullPolicy: IfNotPresent
   auth:
-    postgresPassword: ""
     username: helix
     password: "oh-hallo-insecure-password"
     database: helix
     existingSecret: ""
-    postgresPasswordKey: "postgres-password"
     usernameKey: ""
     passwordKey: ""
     databaseKey: ""
-  architecture: standalone
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClass: ""
+    annotations: {}
+    accessModes:
+      - ReadWriteOnce
+    existingClaim: ""
+    selector: {}
+    dataSource: {}
   external:
     host: ""
     port: 5432
@@ -303,7 +309,6 @@ postgresql:
     existingSecretUserKey: ""
     existingSecretDatabaseKey: ""
     existingSecretPasswordKey: ""
-    annotations: {}
 
 # Kodit configuration - Code indexing service
 # Kodit provides code search and analysis capabilities for Helix
