@@ -64,14 +64,22 @@ func (s *KoditRepoResolverSuite) TearDownTest() {
 func (s *KoditRepoResolverSuite) TestProjectScopedRepos() {
 	sessionID := "ses-123"
 	projectID := "proj-abc"
+	orgID := "org-1"
 
 	s.mockStore.EXPECT().GetSession(gomock.Any(), sessionID).Return(&types.Session{
 		ID:        sessionID,
 		ProjectID: projectID,
 	}, nil)
 
+	s.mockStore.EXPECT().GetProject(gomock.Any(), projectID).Return(&types.Project{
+		ID:             projectID,
+		OrganizationID: orgID,
+		KoditEnabled:   true,
+	}, nil)
+
+	// When KoditEnabled, resolver queries by org (all org repos), not by project
 	s.mockStore.EXPECT().ListGitRepositories(gomock.Any(), &types.ListGitRepositoriesRequest{
-		ProjectID: projectID,
+		OrganizationID: orgID,
 	}).Return([]*types.GitRepository{
 		{
 			ID:            "repo-1",
@@ -95,7 +103,7 @@ func (s *KoditRepoResolverSuite) TestProjectScopedRepos() {
 		},
 	}, nil)
 
-	user := &types.User{ID: "user-1", OrganizationID: "org-1"}
+	user := &types.User{ID: "user-1", OrganizationID: orgID}
 	scope, err := resolveKoditRepoScope(s.ctx, s.mockStore, sessionID, user)
 	s.Require().NoError(err)
 
@@ -104,6 +112,28 @@ func (s *KoditRepoResolverSuite) TestProjectScopedRepos() {
 	s.True(scope.repoIDs[10])
 	s.True(scope.repoIDs[20])
 	s.False(scope.repoIDs[30])
+}
+
+func (s *KoditRepoResolverSuite) TestProjectKoditDisabledReturnsEmptyScope() {
+	sessionID := "ses-disabled"
+	projectID := "proj-disabled"
+
+	s.mockStore.EXPECT().GetSession(gomock.Any(), sessionID).Return(&types.Session{
+		ID:        sessionID,
+		ProjectID: projectID,
+	}, nil)
+
+	s.mockStore.EXPECT().GetProject(gomock.Any(), projectID).Return(&types.Project{
+		ID:           projectID,
+		KoditEnabled: false,
+	}, nil)
+
+	user := &types.User{ID: "user-1", OrganizationID: "org-1"}
+	scope, err := resolveKoditRepoScope(s.ctx, s.mockStore, sessionID, user)
+	s.Require().NoError(err)
+
+	s.Equal(0, len(scope.idSlice))
+	s.Equal(0, len(scope.repoIDs))
 }
 
 func (s *KoditRepoResolverSuite) TestOrgFallbackWhenNoProject() {
@@ -161,10 +191,18 @@ func (s *KoditRepoResolverSuite) TestOwnerFallbackWhenNoOrg() {
 
 func (s *KoditRepoResolverSuite) TestSkipsReposWithoutKoditRepoID() {
 	sessionID := "ses-noid"
+	projectID := "proj-1"
+	orgID := "org-1"
 
 	s.mockStore.EXPECT().GetSession(gomock.Any(), sessionID).Return(&types.Session{
 		ID:        sessionID,
-		ProjectID: "proj-1",
+		ProjectID: projectID,
+	}, nil)
+
+	s.mockStore.EXPECT().GetProject(gomock.Any(), projectID).Return(&types.Project{
+		ID:             projectID,
+		OrganizationID: orgID,
+		KoditEnabled:   true,
 	}, nil)
 
 	s.mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{
@@ -180,7 +218,7 @@ func (s *KoditRepoResolverSuite) TestSkipsReposWithoutKoditRepoID() {
 		},
 	}, nil)
 
-	user := &types.User{ID: "user-1", OrganizationID: "org-1"}
+	user := &types.User{ID: "user-1", OrganizationID: orgID}
 	scope, err := resolveKoditRepoScope(s.ctx, s.mockStore, sessionID, user)
 	s.Require().NoError(err)
 
