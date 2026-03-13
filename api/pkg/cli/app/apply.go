@@ -211,16 +211,16 @@ func createApp(ctx context.Context, apiClient client.Client, orgID string, appCo
 		},
 	}
 
-	// Only set OrganizationID if an organization is provided
-	if orgID != "" {
-		org, err := cli.LookupOrganization(ctx, apiClient, orgID)
-		if err != nil {
-			return "", err
-		}
-		app.OrganizationID = org.ID
+	// Resolve organization: explicit flag or default to first org
+	resolvedOrgID, err := cli.ResolveOrganization(ctx, apiClient, orgID)
+	if err != nil {
+		return "", err
+	}
+	if resolvedOrgID != "" {
+		app.OrganizationID = resolvedOrgID
 	}
 
-	app, err := apiClient.CreateApp(ctx, app)
+	app, err = apiClient.CreateApp(ctx, app)
 	if err != nil {
 		return "", err
 	}

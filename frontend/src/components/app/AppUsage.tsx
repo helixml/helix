@@ -48,14 +48,13 @@ import { useGetAppUsage } from '../../services/appService';
 import { useListAppInteractions } from '../../services/interactionsService';
 import { useListAppLLMCalls } from '../../services/llmCallsService';
 import { useListAppSteps } from '../../services/appService';
+import { useGetConfig } from '../../services/userService';
 
 interface AppLogsTableProps {
   appId: string;
 }
 
 type PeriodType = '1d' | '7d' | '1m' | '6m';
-
-const win = (window as any)
 
 const getDateRange = (period: PeriodType): { from: string; to: string } => {
   const now = new Date();
@@ -85,6 +84,7 @@ const getDateRange = (period: PeriodType): { from: string; to: string } => {
 
 const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const theme = useTheme();
+  const { data: serverConfig } = useGetConfig();
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(100);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -454,7 +454,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
             </TableRow>
           </TableHead>
           <TableBody>
-            { win.DISABLE_LLM_CALL_LOGGING ? (
+            { serverConfig?.disable_llm_call_logging ? (
               <TableRow>
                 <TableCell colSpan={4}>LLM call logging is disabled by the administrator.</TableCell>
               </TableRow>

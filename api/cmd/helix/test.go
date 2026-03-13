@@ -41,6 +41,7 @@ import (
 	"html/template"
 
 	"github.com/helixml/helix/api/pkg/apps"
+	"github.com/helixml/helix/api/pkg/cli"
 	cliutil "github.com/helixml/helix/api/pkg/cli/util"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/system"
@@ -684,13 +685,14 @@ func NewTestCmd() *cobra.Command {
 	var deleteExtraFiles bool
 	var knowledgeTimeout time.Duration
 	var skipCleanup bool
+	var organization string
 
 	cmd := &cobra.Command{
 		Use:   "test",
 		Short: "Run tests for Helix agent",
 		Long:  `This command runs tests defined in helix.yaml or a specified YAML file and evaluates the results.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runTest(cmd, yamlFile, evaluationModel, syncFiles, deleteExtraFiles, knowledgeTimeout, skipCleanup)
+			return runTest(cmd, yamlFile, evaluationModel, syncFiles, deleteExtraFiles, knowledgeTimeout, skipCleanup, organization)
 		},
 	}
 
@@ -700,14 +702,28 @@ func NewTestCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&deleteExtraFiles, "delete", false, "When used with --rsync, delete files in filestore that don't exist locally (similar to rsync --delete)")
 	cmd.Flags().DurationVar(&knowledgeTimeout, "knowledge-timeout", 5*time.Minute, "Timeout when waiting for knowledge indexing")
 	cmd.Flags().BoolVar(&skipCleanup, "skip-cleanup", false, "Skip cleaning up the test app after tests complete")
+	cmd.Flags().StringVarP(&organization, "organization", "o", "", "Organization ID or name (defaults to first org)")
 
 	return cmd
 }
 
-func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFiles []string, deleteExtraFiles bool, knowledgeTimeout time.Duration, skipCleanup bool) error {
+func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFiles []string, deleteExtraFiles bool, knowledgeTimeout time.Duration, skipCleanup bool, organization string) error {
 	appConfig, helixYamlContent, err := readHelixYaml(yamlFile)
 	if err != nil {
 		return err
+	}
+
+	// Resolve organization: explicit flag or default to first org
+	apiClient, err := client.NewClientFromEnv()
+	if err != nil {
+		return err
+	}
+	organizationID, err := cli.ResolveOrganization(cmd.Context(), apiClient, organization)
+	if err != nil {
+		return fmt.Errorf("failed to resolve organization: %w", err)
+	}
+	if organizationID != "" {
+		fmt.Printf("Using organization: %s\n", organizationID)
 	}
 
 	testID := system.GenerateTestRunID()
@@ -731,7 +747,7 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFi
 	fmt.Printf("Using evaluation model: %s\n", evaluationModel)
 
 	// Deploy the app with the namespaced name and appConfig
-	appID, err := deployApp(namespacedAppName, yamlFile)
+	appID, err := deployApp(namespacedAppName, yamlFile, organizationID)
 	if err != nil {
 		return fmt.Errorf("error deploying app: %v", err)
 	}
@@ -741,7 +757,7 @@ func runTest(cmd *cobra.Command, yamlFile string, evaluationModel string, syncFi
 	// Setup cleanup function
 	cleanup := func() {
 		if !skipCleanup {
-			if err := deleteApp(namespacedAppName); err != nil {
+			if err := deleteApp(namespacedAppName, organizationID); err != nil {
 				fmt.Printf("Error deleting app: %v\n", err)
 			}
 		}
@@ -1440,7 +1456,7 @@ func truncate(s string, n int) string {
 	return s[:n] + "..."
 }
 
-func deployApp(namespacedAppName string, yamlFile string) (string, error) {
+func deployApp(namespacedAppName string, yamlFile string, organizationID string) (string, error) {
 	apiClient, err := client.NewClientFromEnv()
 	if err != nil {
 		return "", fmt.Errorf("failed to create API client: %w", err)
@@ -1465,6 +1481,10 @@ func deployApp(namespacedAppName string, yamlFile string) (string, error) {
 		},
 	}
 
+	if organizationID != "" {
+		app.OrganizationID = organizationID
+	}
+
 	createdApp, err := apiClient.CreateApp(context.Background(), app)
 	if err != nil {
 		return "", fmt.Errorf("failed to create app: %w", err)
@@ -1473,7 +1493,7 @@ func deployApp(namespacedAppName string, yamlFile string) (string, error) {
 	return createdApp.ID, nil
 }
 
-func deleteApp(namespacedAppName string) error {
+func deleteApp(namespacedAppName string, organizationID string) error {
 	apiClient, err := client.NewClientFromEnv()
 	if err != nil {
 		return fmt.Errorf("failed to create API client: %w", err)
@@ -1481,8 +1501,13 @@ func deleteApp(namespacedAppName string) error {
 
 	ctx := context.Background()
 
-	// First, we need to look up the app by name
-	existingApps, err := apiClient.ListApps(ctx, &client.AppFilter{})
+	// Scope the app lookup to the organization if provided
+	filter := &client.AppFilter{}
+	if organizationID != "" {
+		filter.OrganizationID = organizationID
+	}
+
+	existingApps, err := apiClient.ListApps(ctx, filter)
 	if err != nil {
 		return fmt.Errorf("failed to list apps: %w", err)
 	}
