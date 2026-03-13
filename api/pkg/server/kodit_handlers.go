@@ -14,6 +14,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/kodit/domain/enrichment"
 	"github.com/helixml/kodit/domain/repository"
+	"github.com/helixml/kodit/domain/snippet"
+	"github.com/helixml/kodit/domain/task"
 	"github.com/helixml/kodit/domain/tracking"
 	"github.com/rs/zerolog/log"
 )
@@ -67,9 +69,14 @@ type KoditIndexingStatusData struct {
 
 // KoditIndexingStatusAttributes holds the indexing status fields.
 type KoditIndexingStatusAttributes struct {
-	Status    string    `json:"status"`
-	Message   string    `json:"message"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Status         string    `json:"status"`
+	Message        string    `json:"message"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	TasksTotal     int       `json:"tasks_total"`
+	TasksCompleted int       `json:"tasks_completed"`
+	TasksActive    int       `json:"tasks_active"`
+	TasksPending   int       `json:"tasks_pending"`
+	TasksFailed    int       `json:"tasks_failed"`
 }
 
 // KoditCommitDTO is the JSON representation of a commit.
@@ -719,8 +726,38 @@ func (apiServer *HelixAPIServer) getRepositoryIndexingStatus(w http.ResponseWrit
 		return
 	}
 
+	dto := indexingStatusToDTO(summary)
+
+	// Enrich with task progress when actively indexing
+	summaryStatus := summary.Status()
+	if summaryStatus != snippet.IndexStatusCompleted && summaryStatus != snippet.IndexStatusCompletedWithErrors && summaryStatus != snippet.IndexStatusFailed {
+		tasks, err := apiServer.koditService.RepositoryTasks(r.Context(), koditRepoID)
+		if err == nil {
+			completed := 0
+			active := 0
+			failed := 0
+			for _, ts := range tasks.Statuses {
+				state := task.ReportingState(ts.State)
+				switch {
+				case state == task.ReportingStateCompleted || state == task.ReportingStateSkipped:
+					completed++
+				case state == task.ReportingStateStarted || state == task.ReportingStateInProgress:
+					active++
+				case state == task.ReportingStateFailed:
+					failed++
+				}
+			}
+			total := completed + active + failed + len(tasks.PendingTasks)
+			dto.Data.Attributes.TasksTotal = total
+			dto.Data.Attributes.TasksCompleted = completed
+			dto.Data.Attributes.TasksActive = active
+			dto.Data.Attributes.TasksPending = len(tasks.PendingTasks)
+			dto.Data.Attributes.TasksFailed = failed
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(indexingStatusToDTO(summary))
+	json.NewEncoder(w).Encode(dto)
 }
 
 // getRepositoryWikiTree returns the wiki navigation tree for a repository

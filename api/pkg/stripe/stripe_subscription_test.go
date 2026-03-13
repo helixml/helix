@@ -108,6 +108,43 @@ func (m *mockSubscriptionBackend) CallMultipart(string, string, string, string, 
 
 func (m *mockSubscriptionBackend) SetMaxNetworkRetries(int64) {}
 
+type mockProductBackend struct {
+	t               *testing.T
+	expectedPath    string
+	product         *stripe.Product
+	err             error
+	callInvoked     bool
+}
+
+func (m *mockProductBackend) Call(method, path, _ string, _ stripe.ParamsContainer, v stripe.LastResponseSetter) error {
+	require.Equal(m.t, http.MethodGet, method)
+	require.Equal(m.t, m.expectedPath, path)
+	require.NotNil(m.t, v)
+	m.callInvoked = true
+	if m.err != nil {
+		return m.err
+	}
+
+	prod, ok := v.(*stripe.Product)
+	require.True(m.t, ok)
+	*prod = *m.product
+	return nil
+}
+
+func (m *mockProductBackend) CallStreaming(string, string, string, stripe.ParamsContainer, stripe.StreamingLastResponseSetter) error {
+	return fmt.Errorf("unexpected CallStreaming invocation")
+}
+
+func (m *mockProductBackend) CallRaw(string, string, string, *form.Values, *stripe.Params, stripe.LastResponseSetter) error {
+	return fmt.Errorf("unexpected CallRaw invocation")
+}
+
+func (m *mockProductBackend) CallMultipart(string, string, string, string, *bytes.Buffer, *stripe.Params, stripe.LastResponseSetter) error {
+	return fmt.Errorf("unexpected CallMultipart invocation")
+}
+
+func (m *mockProductBackend) SetMaxNetworkRetries(int64) {}
+
 func TestSyncSubscription_UpdatesAndPersistsWallet(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

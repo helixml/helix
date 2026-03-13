@@ -59,6 +59,31 @@ steps:
   #        - push
   #    depends_on: []
 
+  - name: helm-lint
+    image: alpine/helm:3.16.4
+    commands:
+      # Fetch subchart dependencies (postgresql, common) before lint/template
+      - helm dependency build charts/helix-controlplane
+      # Lint all three charts with default values
+      - helm lint charts/helix-controlplane
+      - helm lint charts/helix-runner
+      - helm lint charts/helix-sandbox
+      # Lint controlplane with production-like example values
+      - helm lint charts/helix-controlplane -f charts/helix-controlplane/values-example.yaml
+      - helm lint charts/helix-runner -f charts/helix-runner/values-example.yaml
+      # Template render to catch runtime errors (missing helpers, bad references)
+      - helm template test-release charts/helix-controlplane -f charts/helix-controlplane/values-example.yaml > /dev/null
+      - helm template test-release charts/helix-runner -f charts/helix-runner/values-example.yaml > /dev/null
+      - helm template test-release charts/helix-sandbox > /dev/null
+      # Template with each sandbox values variant
+      - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-bare-metal.yaml > /dev/null
+      - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-eks.yaml > /dev/null
+      - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-gke.yaml > /dev/null
+    when:
+      event:
+        - push
+    depends_on: []
+
   - name: check-for-secrets
     image: ghcr.io/gitleaks/gitleaks:v8.24.0
     commands:
@@ -772,7 +797,7 @@ steps:
           RELEASE=$(gh release list | awk -v tag="$DRONE_TAG" '$1 == tag || $1 ~ "^"tag" " {print $1; exit}')
           if [ -n "$RELEASE" ]; then
             echo "Uploading helix binaries, installer, and docker-compose.yaml to release $RELEASE"
-            gh release upload "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 helix-windows-amd64.exe docker-compose.yaml
+            gh release upload --clobber "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 helix-windows-amd64.exe docker-compose.yaml
           else
             echo "No matching release found for tag $DRONE_TAG"
           fi
@@ -893,9 +918,12 @@ steps:
           .
         echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
         docker push registry.helixml.tech/helix/controlplane:$${VERSION}-linux-amd64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/controlplane:$${VERSION}-linux-amd64
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -926,6 +954,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
@@ -940,6 +970,7 @@ steps:
           -t registry.helixml.tech/helix/controlplane:$${VERSION}-linux-arm64 \
           .
         docker push registry.helixml.tech/helix/controlplane:$${VERSION}-linux-arm64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/controlplane:$${VERSION}-linux-arm64
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -970,6 +1001,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
@@ -984,6 +1017,7 @@ steps:
           $${REPO}:$${VERSION}-linux-arm64
         docker manifest push $${REPO}:$${VERSION}
         echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+        scripts/ghcr-manifest.sh $${REPO} $${VERSION}
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1026,9 +1060,12 @@ steps:
           haystack_service
         echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
         docker push registry.helixml.tech/helix/haystack:$${VERSION}-linux-amd64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/haystack:$${VERSION}-linux-amd64
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1059,6 +1096,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
@@ -1073,6 +1112,7 @@ steps:
           -t registry.helixml.tech/helix/haystack:$${VERSION}-linux-arm64 \
           haystack_service
         docker push registry.helixml.tech/helix/haystack:$${VERSION}-linux-arm64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/haystack:$${VERSION}-linux-arm64
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1103,6 +1143,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
@@ -1117,6 +1159,7 @@ steps:
           $${REPO}:$${VERSION}-linux-arm64
         docker manifest push $${REPO}:$${VERSION}
         echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+        scripts/ghcr-manifest.sh $${REPO} $${VERSION}
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1148,6 +1191,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
       - docker pull registry.helixml.tech/helix/runner:2.7.12
@@ -1155,9 +1200,11 @@ steps:
         if [ -n "$DRONE_TAG" ]; then
           docker tag registry.helixml.tech/helix/runner:2.7.12 registry.helixml.tech/helix/runner:$DRONE_TAG
           docker push registry.helixml.tech/helix/runner:$DRONE_TAG
+          scripts/ghcr-push.sh registry.helixml.tech/helix/runner:$DRONE_TAG
         fi
       - docker tag registry.helixml.tech/helix/runner:2.7.12 registry.helixml.tech/helix/runner:latest
       - docker push registry.helixml.tech/helix/runner:latest
+      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:latest
     when:
       ref:
         include:
@@ -1190,6 +1237,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
       - docker pull registry.helixml.tech/helix/runner:2.7.12-small
@@ -1197,9 +1246,11 @@ steps:
         if [ -n "$DRONE_TAG" ]; then
           docker tag registry.helixml.tech/helix/runner:2.7.12-small registry.helixml.tech/helix/runner:${DRONE_TAG}-small
           docker push registry.helixml.tech/helix/runner:${DRONE_TAG}-small
+          scripts/ghcr-push.sh registry.helixml.tech/helix/runner:${DRONE_TAG}-small
         fi
       - docker tag registry.helixml.tech/helix/runner:2.7.12-small registry.helixml.tech/helix/runner:latest-small
       - docker push registry.helixml.tech/helix/runner:latest-small
+      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:latest-small
     when:
       ref:
         include:
@@ -1214,11 +1265,14 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
       - docker pull registry.helixml.tech/helix/runner:2.7.12-small
       - docker tag registry.helixml.tech/helix/runner:2.7.12-small registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-small
       - docker push registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-small
+      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-small
     when:
       branch:
         exclude:
@@ -1250,6 +1304,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
       - docker pull registry.helixml.tech/helix/runner:2.7.12-large
@@ -1257,9 +1313,11 @@ steps:
         if [ -n "$DRONE_TAG" ]; then
           docker tag registry.helixml.tech/helix/runner:2.7.12-large registry.helixml.tech/helix/runner:${DRONE_TAG}-large
           docker push registry.helixml.tech/helix/runner:${DRONE_TAG}-large
+          scripts/ghcr-push.sh registry.helixml.tech/helix/runner:${DRONE_TAG}-large
         fi
       - docker tag registry.helixml.tech/helix/runner:2.7.12-large registry.helixml.tech/helix/runner:latest-large
       - docker push registry.helixml.tech/helix/runner:latest-large
+      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:latest-large
     when:
       ref:
         include:
@@ -1274,11 +1332,14 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - docker login registry.helixml.tech -u admin -p "$REGISTRY_PASSWORD"
       - docker pull registry.helixml.tech/helix/runner:2.7.12-large
       - docker tag registry.helixml.tech/helix/runner:2.7.12-large registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-large
       - docker push registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-large
+      - scripts/ghcr-push.sh registry.helixml.tech/helix/runner:${DRONE_COMMIT_SHA}-large
     when:
       branch:
         exclude:
@@ -1321,9 +1382,12 @@ steps:
           .
         echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
         docker push registry.helixml.tech/helix/typesense:$${VERSION}-linux-amd64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/typesense:$${VERSION}-linux-amd64
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1354,6 +1418,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
@@ -1367,6 +1433,7 @@ steps:
           -t registry.helixml.tech/helix/typesense:$${VERSION}-linux-arm64 \
           .
         docker push registry.helixml.tech/helix/typesense:$${VERSION}-linux-arm64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/typesense:$${VERSION}-linux-arm64
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1397,6 +1464,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
@@ -1411,6 +1480,7 @@ steps:
           $${REPO}:$${VERSION}-linux-arm64
         docker manifest push $${REPO}:$${VERSION}
         echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+        scripts/ghcr-manifest.sh $${REPO} $${VERSION}
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -1453,6 +1523,34 @@ steps:
         include:
           - refs/heads/main
           - refs/tags/*
+
+  - name: mirror-demos-to-ghcr
+    image: docker:cli
+    environment:
+      GITHUB_TOKEN:
+        from_secret: github_token
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+      - |
+        # auto_tag produces "latest" on main, semver tags on git tags
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION="latest"
+        fi
+        docker pull registry.helixml.tech/helix/demos:$${VERSION}
+        scripts/ghcr-push.sh registry.helixml.tech/helix/demos:$${VERSION}
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    when:
+      ref:
+        include:
+          - refs/heads/main
+          - refs/tags/*
+    depends_on: [publish-demos]
 
 ---
 # See integration-test/smoke/README.md
@@ -1516,6 +1614,64 @@ services:
       - name: integration-test
         path: /integration-test
 
+---
+# Helm Upgrade Compatibility Test
+# Catches backwards-incompatible Helm chart changes before they reach customers.
+# Installs the previous published chart version then upgrades to the latest.
+# Run locally: ./scripts/helm-upgrade-test.sh
+kind: pipeline
+type: docker
+name: helm-upgrade-test
+
+concurrency:
+  limit: 1
+
+platform:
+  os: linux
+  arch: amd64
+
+trigger:
+  event:
+    - cron
+  cron:
+    - helm-upgrade-nightly
+    - developer
+
+steps:
+  - name: helm-upgrade-test
+    image: docker:27-cli
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    commands:
+      # Install tools
+      - apk add --no-cache bash curl git helm kubectl jq
+      # Install kind
+      - curl -Lo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+      - chmod +x /usr/local/bin/kind
+      # Verify Docker is accessible via host socket
+      - docker info >/dev/null 2>&1 || (echo "Cannot access Docker socket" && exit 1)
+      # Pre-flight cleanup: remove any orphaned Kind containers from previous failed runs
+      - docker rm -f helm-upgrade-test-control-plane 2>/dev/null || true
+      # Run upgrade test
+      - bash scripts/helm-upgrade-test.sh
+    depends_on: []
+
+  - name: slack-notification
+    image: plugins/slack
+    settings:
+      webhook:
+        from_secret: JANITOR_SLACK_WEBHOOK_URL
+      channel: helix-janitor
+      message: "❌ Helm upgrade test failed — possible breaking chart change. (<https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}|Build>)"
+    when:
+      status:
+        - failure
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
 
 # ---
 # Spectask/Sandbox Integration Tests
@@ -1935,6 +2091,8 @@ steps:
       DOCKER_HOST: unix:///var/run/docker.sock
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - |
         # Determine version tag
@@ -1954,6 +2112,7 @@ steps:
           -t registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-amd64 \
           .
         docker push registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-amd64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-amd64
         echo "helix-sway:$${VERSION}-linux-amd64 pushed to registry"
       # Build and push helix-ubuntu
       - |
@@ -1965,6 +2124,7 @@ steps:
           -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64 \
           .
         docker push registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64
         echo "helix-ubuntu:$${VERSION}-linux-amd64 pushed to registry"
       # Write version refs for sandbox
       - |
@@ -2016,6 +2176,8 @@ steps:
       DOCKER_HOST: unix:///var/run/docker.sock
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - |
         # Determine version tag
@@ -2031,9 +2193,11 @@ steps:
         echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
         echo "Pushing helix-sandbox:$${COMMIT}-linux-amd64..."
         docker push registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-amd64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-amd64
         if [ "$${IS_RELEASE}" = "true" ]; then
           echo "Pushing release tag: $${VERSION}-linux-amd64..."
           docker push registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-amd64
+          scripts/ghcr-push.sh registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-amd64
         fi
         echo "Push complete!"
     volumes:
@@ -2246,6 +2410,8 @@ steps:
       DOCKER_HOST: unix:///var/run/docker.sock
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - |
         if [ -n "${DRONE_TAG}" ]; then
@@ -2264,6 +2430,7 @@ steps:
           -t registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-arm64 \
           .
         docker push registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-arm64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-arm64
         echo "helix-sway:$${VERSION}-linux-arm64 pushed to registry"
       # Build and push helix-ubuntu (arm64, no CUDA)
       - |
@@ -2275,6 +2442,7 @@ steps:
           -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64 \
           .
         docker push registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64
         echo "helix-ubuntu:$${VERSION}-linux-arm64 pushed to registry"
       # Write version refs for sandbox
       - |
@@ -2324,6 +2492,8 @@ steps:
       DOCKER_HOST: unix:///var/run/docker.sock
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - |
         if [ -n "${DRONE_TAG}" ]; then
@@ -2338,9 +2508,11 @@ steps:
         echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
         echo "Pushing helix-sandbox:$${COMMIT}-linux-arm64..."
         docker push registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-arm64
+        scripts/ghcr-push.sh registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-arm64
         if [ "$${IS_RELEASE}" = "true" ]; then
           echo "Pushing release tag: $${VERSION}-linux-arm64..."
           docker push registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-arm64
+          scripts/ghcr-push.sh registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-arm64
         fi
         echo "ARM64 push complete!"
     volumes:
@@ -2378,6 +2550,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
@@ -2393,6 +2567,7 @@ steps:
           $${REPO}:$${VERSION}-linux-arm64
         docker manifest push $${REPO}:$${VERSION}
         echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+        scripts/ghcr-manifest.sh $${REPO} $${VERSION}
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -2402,6 +2577,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
@@ -2417,6 +2594,7 @@ steps:
           $${REPO}:$${VERSION}-linux-arm64
         docker manifest push $${REPO}:$${VERSION}
         echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+        scripts/ghcr-manifest.sh $${REPO} $${VERSION}
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
@@ -2426,6 +2604,8 @@ steps:
     environment:
       REGISTRY_PASSWORD:
         from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
       - |
@@ -2441,6 +2621,7 @@ steps:
           $${REPO}:$${VERSION}-linux-arm64
         docker manifest push $${REPO}:$${VERSION}
         echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+        scripts/ghcr-manifest.sh $${REPO} $${VERSION}
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock

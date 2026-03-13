@@ -184,6 +184,23 @@ load_desktop_image() {
         return 0
     fi
 
+    # Check for registry-prefixed tag without a corresponding local tag.
+    # In Helix-in-Helix, the sandbox's Docker data is seeded from the golden
+    # cache and the image sometimes ends up as registry:5000/IMAGE:VERSION
+    # without the local IMAGE:VERSION tag that Hydra needs. The root cause
+    # isn't fully understood yet, but re-tagging is a cheap fix.
+    local REGISTRY_PREFIXED="registry:5000/${IMAGE_NAME}:${VERSION}"
+    local PREFIXED_ID=$(docker images "${REGISTRY_PREFIXED}" --format '{{.ID}}' 2>/dev/null || echo "")
+    if [ -n "$PREFIXED_ID" ]; then
+        echo "🔄 Found ${REGISTRY_PREFIXED} without local tag — re-tagging as ${IMAGE_NAME}:${VERSION}"
+        docker tag "${REGISTRY_PREFIXED}" "${IMAGE_NAME}:${VERSION}" 2>/dev/null || true
+        docker tag "${REGISTRY_PREFIXED}" "${IMAGE_NAME}:latest" 2>/dev/null || true
+        # Clean up the registry-prefixed tag
+        docker rmi "${REGISTRY_PREFIXED}" 2>/dev/null || true
+        echo "✅ ${IMAGE_NAME}:${VERSION} re-tagged from registry-prefixed image (ID: ${PREFIXED_ID})"
+        return 0
+    fi
+
     # Registry pull (production mode - .ref file points to registry.helixml.tech)
     if [ -f "$REF_FILE" ]; then
         local REGISTRY_REF=$(cat "$REF_FILE")

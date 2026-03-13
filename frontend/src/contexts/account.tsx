@@ -83,6 +83,11 @@ export const useAccountContext = (): IAccountContext => {
   const loading = useLoading()
   const router = useRouter()
   const organizationTools = useOrganizations()
+  // Keep a ref to organizationTools so that orgNavigate always reads the latest
+  // state, even when called from stale closures (e.g. React.memo'd components
+  // that captured an old onTaskClick → old orgNavigate).
+  const organizationToolsRef = useRef(organizationTools)
+  organizationToolsRef.current = organizationTools
   const [ admin, setAdmin ] = useState(false)
   const [ mobileMenuOpen, setMobileMenuOpen ] = useState(false)
   const [ showLoginWindow, setShowLoginWindow ] = useState(false)
@@ -358,7 +363,7 @@ export const useAccountContext = (): IAccountContext => {
       targetRouteName = `org_${routeName}`
     }
 
-    const useOrgID = params.org_id || organizationTools.organization?.name
+    const useOrgID = params.org_id || organizationToolsRef.current.organization?.name
     const targetParams = {
       ...params,
       org_id: useOrgID,

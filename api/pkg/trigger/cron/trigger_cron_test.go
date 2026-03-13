@@ -213,7 +213,7 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 	)
 
 	// Execute the function
-	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, app, "test-user", "trigger-123", trigger, "test-session")
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, app, "test-user", "trigger-123", trigger, "test-session")
 
 	// Verify the result
 	suite.NoError(err)
@@ -342,7 +342,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 	)
 
 	// Execute the function
-	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, app, user.ID, "trigger-123", trigger, "test-session")
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, app, user.ID, "trigger-123", trigger, "test-session")
 
 	// Verify the result
 	suite.NoError(err)
@@ -451,7 +451,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_WithEmails() {
 		},
 	)
 
-	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, app, "test-user", "trigger-123", trigger, "test-session")
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, app, "test-user", "trigger-123", trigger, "test-session")
 	suite.NoError(err)
 	suite.NotEmpty(result)
 }
@@ -555,7 +555,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_FailureNotification_WithEmails()
 	// Note: ExecuteCronTask reassigns err from UpdateTriggerExecution, which
 	// returns nil here, so the function returns nil error despite the LLM failure.
 	// The key assertion is that the failure notification was sent with the emails.
-	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, app, "test-user", "trigger-123", trigger, "test-session")
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, app, "test-user", "trigger-123", trigger, "test-session")
 	suite.NoError(err)
 	suite.Empty(result)
 }
@@ -650,7 +650,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_NoEmails_FallsBackToOwner() {
 		},
 	)
 
-	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, app, "test-user", "trigger-123", trigger, "test-session")
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, app, "test-user", "trigger-123", trigger, "test-session")
 	suite.NoError(err)
 	suite.NotEmpty(result)
 }
@@ -670,7 +670,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_Error() {
 	suite.store.EXPECT().GetAppWithTools(suite.ctx, "app-123").Return(nil, errors.New("database error"))
 
 	// Execute the function
-	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, app, "test-user", "trigger-123", trigger, "test-session")
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, app, "test-user", "trigger-123", trigger, "test-session")
 
 	// Verify the error
 	suite.Error(err)
@@ -725,6 +725,169 @@ func TestNextRunFormatted(t *testing.T) {
 			}
 		})
 	}
+}
+
+// mockSpecTaskCreator implements SpecTaskCreator for testing
+type mockSpecTaskCreator struct {
+	createFunc func(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error)
+}
+
+func (m *mockSpecTaskCreator) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
+	return m.createFunc(ctx, req)
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction() {
+	app := &types.App{
+		ID:        "app-123",
+		Owner:     "test-user",
+		OwnerType: types.OwnerTypeUser,
+	}
+
+	trigger := &types.CronTrigger{
+		Input:     "Build the login page",
+		Action:    "spec_task",
+		ProjectID: "proj-456",
+	}
+
+	mockCreator := &mockSpecTaskCreator{
+		createFunc: func(_ context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
+			suite.Equal("proj-456", req.ProjectID)
+			suite.Equal("Build the login page", req.Prompt)
+			suite.Equal("test-user", req.UserID)
+			return &types.SpecTask{
+				ID:   "task-789",
+				Name: "Build the login page",
+			}, nil
+		},
+	}
+
+	// Mock CreateTriggerExecution
+	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			suite.Equal("trigger-123", execution.TriggerConfigurationID)
+			suite.Equal(types.TriggerExecutionStatusRunning, execution.Status)
+			return execution, nil
+		},
+	)
+
+	// Mock Notify for success
+	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, n *notification.Notification) error {
+			suite.Equal(types.EventCronTriggerComplete, n.Event)
+			suite.Contains(n.Message, "task-789")
+			return nil
+		},
+	)
+
+	// Mock UpdateTriggerExecution for success
+	suite.store.EXPECT().UpdateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			suite.Equal(types.TriggerExecutionStatusSuccess, execution.Status)
+			suite.Contains(execution.Output, "task-789")
+			return execution, nil
+		},
+	)
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, mockCreator, app, "test-user", "trigger-123", trigger, "test-session")
+	suite.NoError(err)
+	suite.Contains(result, "task-789")
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction_Error() {
+	app := &types.App{
+		ID:        "app-123",
+		Owner:     "test-user",
+		OwnerType: types.OwnerTypeUser,
+	}
+
+	trigger := &types.CronTrigger{
+		Input:     "Build the login page",
+		Action:    "spec_task",
+		ProjectID: "proj-456",
+		Emails:    []string{"user@example.com"},
+	}
+
+	mockCreator := &mockSpecTaskCreator{
+		createFunc: func(_ context.Context, _ *types.CreateTaskRequest) (*types.SpecTask, error) {
+			return nil, errors.New("project not found")
+		},
+	}
+
+	// Mock CreateTriggerExecution
+	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			return execution, nil
+		},
+	)
+
+	// Mock Notify for failure
+	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, n *notification.Notification) error {
+			suite.Equal(types.EventCronTriggerFailed, n.Event)
+			suite.Contains(n.Message, "project not found")
+			suite.Equal([]string{"user@example.com"}, n.Emails)
+			return nil
+		},
+	)
+
+	// Mock UpdateTriggerExecution for error
+	suite.store.EXPECT().UpdateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			suite.Equal(types.TriggerExecutionStatusError, execution.Status)
+			suite.Contains(execution.Error, "project not found")
+			return execution, nil
+		},
+	)
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, mockCreator, app, "test-user", "trigger-123", trigger, "test-session")
+	suite.Error(err)
+	suite.Empty(result)
+	suite.Contains(err.Error(), "project not found")
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction_MissingProjectID() {
+	app := &types.App{
+		ID:        "app-123",
+		Owner:     "test-user",
+		OwnerType: types.OwnerTypeUser,
+	}
+
+	trigger := &types.CronTrigger{
+		Input:  "Build the login page",
+		Action: "spec_task",
+		// ProjectID intentionally empty
+	}
+
+	mockCreator := &mockSpecTaskCreator{
+		createFunc: func(_ context.Context, _ *types.CreateTaskRequest) (*types.SpecTask, error) {
+			suite.Fail("CreateTaskFromPrompt should not be called when ProjectID is empty")
+			return nil, nil
+		},
+	}
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, mockCreator, app, "test-user", "trigger-123", trigger, "test-session")
+	suite.Error(err)
+	suite.Empty(result)
+	suite.Contains(err.Error(), "project_id is required")
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction_NilCreator() {
+	app := &types.App{
+		ID:        "app-123",
+		Owner:     "test-user",
+		OwnerType: types.OwnerTypeUser,
+	}
+
+	trigger := &types.CronTrigger{
+		Input:     "Build the login page",
+		Action:    "spec_task",
+		ProjectID: "proj-456",
+	}
+
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, app, "test-user", "trigger-123", trigger, "test-session")
+	suite.Error(err)
+	suite.Empty(result)
+	suite.Contains(err.Error(), "spec task creator not configured")
 }
 
 func TestExtractTimezoneFromCron(t *testing.T) {

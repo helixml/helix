@@ -27,6 +27,7 @@ type Manager struct {
 	store           store.Store
 	controller      *controller.Controller
 	notifier        notification.Notifier
+	specTaskCreator cron.SpecTaskCreator
 	azureDevOps     *azure.AzureDevOps
 	teams           *teams.Teams
 	helixCodeReview *project.HelixCodeReviewTrigger
@@ -44,6 +45,12 @@ func NewTriggerManager(cfg *config.ServerConfig, store store.Store, notifier not
 		teams:           teams.New(cfg, store, controller),
 		helixCodeReview: project.New(cfg, store, controller),
 	}
+}
+
+// SetSpecTaskCreator sets the spec task creator for cron triggers that use the "spec_task" action.
+// This is set after construction because the SpecDrivenTaskService is created later in the init sequence.
+func (t *Manager) SetSpecTaskCreator(specTaskCreator cron.SpecTaskCreator) {
+	t.specTaskCreator = specTaskCreator
 }
 
 func (t *Manager) Start(ctx context.Context) {
@@ -123,7 +130,7 @@ func (t *Manager) runDiscord(ctx context.Context) {
 }
 
 func (t *Manager) runCron(ctx context.Context) {
-	cronTrigger, err := cron.New(t.cfg, t.store, t.notifier, t.controller)
+	cronTrigger, err := cron.New(t.cfg, t.store, t.notifier, t.controller, t.specTaskCreator)
 	if err != nil {
 		log.Err(err).Msg("failed to create cron trigger")
 		return

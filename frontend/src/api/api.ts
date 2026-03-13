@@ -1058,6 +1058,11 @@ export interface ServerKoditGrepResultDTO {
 export interface ServerKoditIndexingStatusAttributes {
   message?: string;
   status?: string;
+  tasks_active?: number;
+  tasks_completed?: number;
+  tasks_failed?: number;
+  tasks_pending?: number;
+  tasks_total?: number;
   updated_at?: string;
 }
 
@@ -2344,9 +2349,13 @@ export interface TypesCrispTrigger {
 }
 
 export interface TypesCronTrigger {
+  /** "session" (default) or "spec_task" */
+  action?: string;
   emails?: string[];
   enabled?: boolean;
   input?: string;
+  /** Target project for spec_task action */
+  project_id?: string;
   schedule?: string;
 }
 
@@ -2787,6 +2796,8 @@ export interface TypesGitRepositoryCreateRequest {
   kodit_indexing?: boolean;
   metadata?: Record<string, any>;
   name?: string;
+  /** GitProviderConnectionID - references a saved PAT connection for authentication */
+  git_provider_connection_id?: string;
   /** OAuth connection ID - references an OAuthConnection for authentication */
   oauth_connection_id?: string;
   /** Organization ID - required for access control */
@@ -5805,12 +5816,21 @@ export interface TypesZedInstanceStatus {
   zed_instance_id?: string;
 }
 
-import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, HeadersDefaults, ResponseType } from "axios";
+import type {
+  AxiosInstance,
+  AxiosRequestConfig,
+  AxiosResponse,
+  HeadersDefaults,
+  ResponseType,
+} from "axios";
 import axios from "axios";
 
 export type QueryParamsType = Record<string | number, any>;
 
-export interface FullRequestParams extends Omit<AxiosRequestConfig, "data" | "params" | "url" | "responseType"> {
+export interface FullRequestParams extends Omit<
+  AxiosRequestConfig,
+  "data" | "params" | "url" | "responseType"
+> {
   /** set parameter to `true` for call `securityWorker` for this request */
   secure?: boolean;
   /** request path */
@@ -5825,9 +5845,15 @@ export interface FullRequestParams extends Omit<AxiosRequestConfig, "data" | "pa
   body?: unknown;
 }
 
-export type RequestParams = Omit<FullRequestParams, "body" | "method" | "query" | "path">;
+export type RequestParams = Omit<
+  FullRequestParams,
+  "body" | "method" | "query" | "path"
+>;
 
-export interface ApiConfig<SecurityDataType = unknown> extends Omit<AxiosRequestConfig, "data" | "cancelToken"> {
+export interface ApiConfig<SecurityDataType = unknown> extends Omit<
+  AxiosRequestConfig,
+  "data" | "cancelToken"
+> {
   securityWorker?: (
     securityData: SecurityDataType | null,
   ) => Promise<AxiosRequestConfig | void> | AxiosRequestConfig | void;
@@ -5849,8 +5875,16 @@ export class HttpClient<SecurityDataType = unknown> {
   private secure?: boolean;
   private format?: ResponseType;
 
-  constructor({ securityWorker, secure, format, ...axiosConfig }: ApiConfig<SecurityDataType> = {}) {
-    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "https://app.helix.ml" });
+  constructor({
+    securityWorker,
+    secure,
+    format,
+    ...axiosConfig
+  }: ApiConfig<SecurityDataType> = {}) {
+    this.instance = axios.create({
+      ...axiosConfig,
+      baseURL: axiosConfig.baseURL || "https://app.helix.ml",
+    });
     this.secure = secure;
     this.format = format;
     this.securityWorker = securityWorker;
@@ -5860,7 +5894,10 @@ export class HttpClient<SecurityDataType = unknown> {
     this.securityData = data;
   };
 
-  protected mergeRequestParams(params1: AxiosRequestConfig, params2?: AxiosRequestConfig): AxiosRequestConfig {
+  protected mergeRequestParams(
+    params1: AxiosRequestConfig,
+    params2?: AxiosRequestConfig,
+  ): AxiosRequestConfig {
     const method = params1.method || (params2 && params2.method);
 
     return {
@@ -5868,7 +5905,11 @@ export class HttpClient<SecurityDataType = unknown> {
       ...params1,
       ...(params2 || {}),
       headers: {
-        ...((method && this.instance.defaults.headers[method.toLowerCase() as keyof HeadersDefaults]) || {}),
+        ...((method &&
+          this.instance.defaults.headers[
+            method.toLowerCase() as keyof HeadersDefaults
+          ]) ||
+          {}),
         ...(params1.headers || {}),
         ...((params2 && params2.headers) || {}),
       },
@@ -5889,11 +5930,15 @@ export class HttpClient<SecurityDataType = unknown> {
     }
     return Object.keys(input || {}).reduce((formData, key) => {
       const property = input[key];
-      const propertyContent: any[] = property instanceof Array ? property : [property];
+      const propertyContent: any[] =
+        property instanceof Array ? property : [property];
 
       for (const formItem of propertyContent) {
         const isFileType = formItem instanceof Blob || formItem instanceof File;
-        formData.append(key, isFileType ? formItem : this.stringifyFormItem(formItem));
+        formData.append(
+          key,
+          isFileType ? formItem : this.stringifyFormItem(formItem),
+        );
       }
 
       return formData;
@@ -5917,11 +5962,21 @@ export class HttpClient<SecurityDataType = unknown> {
     const requestParams = this.mergeRequestParams(params, secureParams);
     const responseFormat = format || this.format || undefined;
 
-    if (type === ContentType.FormData && body && body !== null && typeof body === "object") {
+    if (
+      type === ContentType.FormData &&
+      body &&
+      body !== null &&
+      typeof body === "object"
+    ) {
       body = this.createFormData(body as Record<string, unknown>);
     }
 
-    if (type === ContentType.Text && body && body !== null && typeof body !== "string") {
+    if (
+      type === ContentType.Text &&
+      body &&
+      body !== null &&
+      typeof body !== "string"
+    ) {
       body = JSON.stringify(body);
     }
 
@@ -5947,7 +6002,9 @@ export class HttpClient<SecurityDataType = unknown> {
  *
  * This is the HelixML API.
  */
-export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
+export class Api<
+  SecurityDataType extends unknown,
+> extends HttpClient<SecurityDataType> {
   api = {
     /**
      * @description Retrieves debug data for agent sandboxes (Hydra-based) including GPU stats, dev containers, and connected clients
@@ -6098,7 +6155,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/admin/kodit/repositories/{koditRepoId}
      * @secure
      */
-    v1AdminKoditRepositoriesDelete: (koditRepoId: number, params: RequestParams = {}) =>
+    v1AdminKoditRepositoriesDelete: (
+      koditRepoId: number,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, string>, TypesAPIError>({
         path: `/api/v1/admin/kodit/repositories/${koditRepoId}`,
         method: "DELETE",
@@ -6116,7 +6176,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/admin/kodit/repositories/{koditRepoId}
      * @secure
      */
-    v1AdminKoditRepositoriesDetail: (koditRepoId: number, params: RequestParams = {}) =>
+    v1AdminKoditRepositoriesDetail: (
+      koditRepoId: number,
+      params: RequestParams = {},
+    ) =>
       this.request<ServerKoditAdminRepoDetailResponse, TypesAPIError>({
         path: `/api/v1/admin/kodit/repositories/${koditRepoId}`,
         method: "GET",
@@ -6134,7 +6197,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/admin/kodit/repositories/{koditRepoId}/rescan
      * @secure
      */
-    v1AdminKoditRepositoriesRescanCreate: (koditRepoId: number, params: RequestParams = {}) =>
+    v1AdminKoditRepositoriesRescanCreate: (
+      koditRepoId: number,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, string>, TypesAPIError>({
         path: `/api/v1/admin/kodit/repositories/${koditRepoId}/rescan`,
         method: "POST",
@@ -6152,7 +6218,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/admin/kodit/repositories/{koditRepoId}/sync
      * @secure
      */
-    v1AdminKoditRepositoriesSyncCreate: (koditRepoId: number, params: RequestParams = {}) =>
+    v1AdminKoditRepositoriesSyncCreate: (
+      koditRepoId: number,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, string>, TypesAPIError>({
         path: `/api/v1/admin/kodit/repositories/${koditRepoId}/sync`,
         method: "POST",
@@ -6170,7 +6239,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/admin/kodit/repositories/{koditRepoId}/tasks
      * @secure
      */
-    v1AdminKoditRepositoriesTasksDetail: (koditRepoId: number, params: RequestParams = {}) =>
+    v1AdminKoditRepositoriesTasksDetail: (
+      koditRepoId: number,
+      params: RequestParams = {},
+    ) =>
       this.request<ServerKoditAdminRepositoryTasksResponse, TypesAPIError>({
         path: `/api/v1/admin/kodit/repositories/${koditRepoId}/tasks`,
         method: "GET",
@@ -6188,7 +6260,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/admin/kodit/repositories/batch/delete
      * @secure
      */
-    v1AdminKoditRepositoriesBatchDeleteCreate: (body: ServerKoditAdminBatchRequest, params: RequestParams = {}) =>
+    v1AdminKoditRepositoriesBatchDeleteCreate: (
+      body: ServerKoditAdminBatchRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<ServerKoditAdminBatchResponse, TypesAPIError>({
         path: `/api/v1/admin/kodit/repositories/batch/delete`,
         method: "POST",
@@ -6208,7 +6283,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/admin/kodit/repositories/batch/rescan
      * @secure
      */
-    v1AdminKoditRepositoriesBatchRescanCreate: (body: ServerKoditAdminBatchRequest, params: RequestParams = {}) =>
+    v1AdminKoditRepositoriesBatchRescanCreate: (
+      body: ServerKoditAdminBatchRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<ServerKoditAdminBatchResponse, TypesAPIError>({
         path: `/api/v1/admin/kodit/repositories/batch/rescan`,
         method: "POST",
@@ -6316,7 +6394,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/admin/users/{id}/password
      * @secure
      */
-    v1AdminUsersPasswordUpdate: (id: string, request: TypesAdminResetPasswordRequest, params: RequestParams = {}) =>
+    v1AdminUsersPasswordUpdate: (
+      id: string,
+      request: TypesAdminResetPasswordRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesUser, SystemHTTPError>({
         path: `/api/v1/admin/users/${id}/password`,
         method: "PUT",
@@ -6383,7 +6465,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Create a new API key
      * @request POST:/api/v1/api_keys
      */
-    v1ApiKeysCreate: (request: Record<string, any>, params: RequestParams = {}) =>
+    v1ApiKeysCreate: (
+      request: Record<string, any>,
+      params: RequestParams = {},
+    ) =>
       this.request<string, any>({
         path: `/api/v1/api_keys`,
         method: "POST",
@@ -6523,7 +6608,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/apps/{id}/access-grants
      * @secure
      */
-    v1AppsAccessGrantsCreate: (id: string, request: TypesCreateAccessGrantRequest, params: RequestParams = {}) =>
+    v1AppsAccessGrantsCreate: (
+      id: string,
+      request: TypesCreateAccessGrantRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesAccessGrant, any>({
         path: `/api/v1/apps/${id}/access-grants`,
         method: "POST",
@@ -6541,7 +6630,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/apps/{id}/api-actions
      * @secure
      */
-    v1AppsApiActionsCreate: (id: string, request: TypesRunAPIActionRequest, params: RequestParams = {}) =>
+    v1AppsApiActionsCreate: (
+      id: string,
+      request: TypesRunAPIActionRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesRunAPIActionResponse, SystemHTTPError>({
         path: `/api/v1/apps/${id}/api-actions`,
         method: "POST",
@@ -6596,7 +6689,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/apps/{id}/avatar
      * @secure
      */
-    v1AppsAvatarCreate: (id: string, image: string, params: RequestParams = {}) =>
+    v1AppsAvatarCreate: (
+      id: string,
+      image: string,
+      params: RequestParams = {},
+    ) =>
       this.request<void, SystemHTTPError>({
         path: `/api/v1/apps/${id}/avatar`,
         method: "POST",
@@ -6751,7 +6848,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/apps/{id}/memories/{memory_id}
      * @secure
      */
-    v1AppsMemoriesDelete: (id: string, memoryId: string, params: RequestParams = {}) =>
+    v1AppsMemoriesDelete: (
+      id: string,
+      memoryId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<void, any>({
         path: `/api/v1/apps/${id}/memories/${memoryId}`,
         method: "DELETE",
@@ -6903,7 +7004,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Login
      * @request POST:/api/v1/auth/login
      */
-    v1AuthLoginCreate: (request: TypesLoginRequest, params: RequestParams = {}) =>
+    v1AuthLoginCreate: (
+      request: TypesLoginRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<void, any>({
         path: `/api/v1/auth/login`,
         method: "POST",
@@ -6935,7 +7039,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Password Reset
      * @request POST:/api/v1/auth/password-reset
      */
-    v1AuthPasswordResetCreate: (request: TypesPasswordResetRequest, params: RequestParams = {}) =>
+    v1AuthPasswordResetCreate: (
+      request: TypesPasswordResetRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<void, any>({
         path: `/api/v1/auth/password-reset`,
         method: "POST",
@@ -6952,7 +7059,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Complete Password Reset
      * @request POST:/api/v1/auth/password-reset-complete
      */
-    v1AuthPasswordResetCompleteCreate: (request: TypesPasswordResetCompleteRequest, params: RequestParams = {}) =>
+    v1AuthPasswordResetCompleteCreate: (
+      request: TypesPasswordResetCompleteRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<void, any>({
         path: `/api/v1/auth/password-reset-complete`,
         method: "POST",
@@ -6970,7 +7080,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/auth/password-update
      * @secure
      */
-    v1AuthPasswordUpdateCreate: (request: TypesPasswordUpdateRequest, params: RequestParams = {}) =>
+    v1AuthPasswordUpdateCreate: (
+      request: TypesPasswordUpdateRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<void, any>({
         path: `/api/v1/auth/password-update`,
         method: "POST",
@@ -7003,7 +7116,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Register
      * @request POST:/api/v1/auth/register
      */
-    v1AuthRegisterCreate: (request: TypesRegisterRequest, params: RequestParams = {}) =>
+    v1AuthRegisterCreate: (
+      request: TypesRegisterRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<void, any>({
         path: `/api/v1/auth/register`,
         method: "POST",
@@ -7036,7 +7152,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/auth/update
      * @secure
      */
-    v1AuthUpdateCreate: (request: TypesAccountUpdateRequest, params: RequestParams = {}) =>
+    v1AuthUpdateCreate: (
+      request: TypesAccountUpdateRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesUserResponse, any>({
         path: `/api/v1/auth/update`,
         method: "POST",
@@ -7112,7 +7231,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/claude-subscriptions
      * @secure
      */
-    v1ClaudeSubscriptionsCreate: (body: TypesCreateClaudeSubscriptionRequest, params: RequestParams = {}) =>
+    v1ClaudeSubscriptionsCreate: (
+      body: TypesCreateClaudeSubscriptionRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesClaudeSubscription, SystemHTTPError>({
         path: `/api/v1/claude-subscriptions`,
         method: "POST",
@@ -7185,7 +7307,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/claude-subscriptions/poll-login/{sessionId}
      * @secure
      */
-    v1ClaudeSubscriptionsPollLoginDetail: (sessionId: string, params: RequestParams = {}) =>
+    v1ClaudeSubscriptionsPollLoginDetail: (
+      sessionId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<ServerClaudePollLoginResponse, SystemHTTPError>({
         path: `/api/v1/claude-subscriptions/poll-login/${sessionId}`,
         method: "GET",
@@ -7221,7 +7346,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/clone-groups/{groupId}/progress
      * @secure
      */
-    v1CloneGroupsProgressDetail: (groupId: string, params: RequestParams = {}) =>
+    v1CloneGroupsProgressDetail: (
+      groupId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesCloneGroupProgress, TypesAPIError>({
         path: `/api/v1/clone-groups/${groupId}/progress`,
         method: "GET",
@@ -7295,7 +7423,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/external-agents/{sessionID}/clipboard
      * @secure
      */
-    v1ExternalAgentsClipboardDetail: (sessionId: string, params: RequestParams = {}) =>
+    v1ExternalAgentsClipboardDetail: (
+      sessionId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesClipboardData, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/clipboard`,
         method: "GET",
@@ -7313,7 +7444,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/external-agents/{sessionID}/clipboard
      * @secure
      */
-    v1ExternalAgentsClipboardCreate: (sessionId: string, clipboard: TypesClipboardData, params: RequestParams = {}) =>
+    v1ExternalAgentsClipboardCreate: (
+      sessionId: string,
+      clipboard: TypesClipboardData,
+      params: RequestParams = {},
+    ) =>
       this.request<void, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/clipboard`,
         method: "POST",
@@ -7390,7 +7525,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/external-agents/{sessionID}/exec
      * @secure
      */
-    v1ExternalAgentsExecCreate: (sessionId: string, body: object, params: RequestParams = {}) =>
+    v1ExternalAgentsExecCreate: (
+      sessionId: string,
+      body: object,
+      params: RequestParams = {},
+    ) =>
       this.request<object, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/exec`,
         method: "POST",
@@ -7410,7 +7549,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/external-agents/{sessionID}/input
      * @secure
      */
-    v1ExternalAgentsInputCreate: (sessionId: string, input: object, params: RequestParams = {}) =>
+    v1ExternalAgentsInputCreate: (
+      sessionId: string,
+      input: object,
+      params: RequestParams = {},
+    ) =>
       this.request<object, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/input`,
         method: "POST",
@@ -7462,7 +7605,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/external-agents/{sessionID}/workspaces
      * @secure
      */
-    v1ExternalAgentsWorkspacesDetail: (sessionId: string, params: RequestParams = {}) =>
+    v1ExternalAgentsWorkspacesDetail: (
+      sessionId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<object, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/workspaces`,
         method: "GET",
@@ -7480,7 +7626,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/external-agents/{sessionID}/ws/input
      * @secure
      */
-    v1ExternalAgentsWsInputDetail: (sessionId: string, params: RequestParams = {}) =>
+    v1ExternalAgentsWsInputDetail: (
+      sessionId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<any, void | SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/ws/input`,
         method: "GET",
@@ -7497,7 +7646,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/external-agents/{sessionID}/ws/stream
      * @secure
      */
-    v1ExternalAgentsWsStreamDetail: (sessionId: string, params: RequestParams = {}) =>
+    v1ExternalAgentsWsStreamDetail: (
+      sessionId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<any, void | SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/ws/stream`,
         method: "GET",
@@ -7751,7 +7903,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/git-provider-connections
      * @secure
      */
-    v1GitProviderConnectionsCreate: (request: TypesGitProviderConnectionCreateRequest, params: RequestParams = {}) =>
+    v1GitProviderConnectionsCreate: (
+      request: TypesGitProviderConnectionCreateRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesGitProviderConnection, TypesAPIError>({
         path: `/api/v1/git-provider-connections`,
         method: "POST",
@@ -7788,7 +7943,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/git-provider-connections/{id}/repositories
      * @secure
      */
-    v1GitProviderConnectionsRepositoriesDetail: (id: string, params: RequestParams = {}) =>
+    v1GitProviderConnectionsRepositoriesDetail: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesListOAuthRepositoriesResponse, TypesAPIError>({
         path: `/api/v1/git-provider-connections/${id}/repositories`,
         method: "GET",
@@ -7806,7 +7964,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/git/browse-remote
      * @secure
      */
-    v1GitBrowseRemoteCreate: (request: TypesBrowseRemoteRepositoriesRequest, params: RequestParams = {}) =>
+    v1GitBrowseRemoteCreate: (
+      request: TypesBrowseRemoteRepositoriesRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesListOAuthRepositoriesResponse, TypesAPIError>({
         path: `/api/v1/git/browse-remote`,
         method: "POST",
@@ -7857,7 +8018,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/git/repositories
      * @secure
      */
-    v1GitRepositoriesCreate: (repository: TypesGitRepositoryCreateRequest, params: RequestParams = {}) =>
+    v1GitRepositoriesCreate: (
+      repository: TypesGitRepositoryCreateRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesGitRepository, TypesAPIError>({
         path: `/api/v1/git/repositories`,
         method: "POST",
@@ -7912,7 +8076,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/git/repositories/{id}
      * @secure
      */
-    v1GitRepositoriesUpdate: (id: string, repository: TypesGitRepositoryUpdateRequest, params: RequestParams = {}) =>
+    v1GitRepositoriesUpdate: (
+      id: string,
+      repository: TypesGitRepositoryUpdateRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesGitRepository, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}`,
         method: "PUT",
@@ -7932,7 +8100,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/git/repositories/{id}/access-grants
      * @secure
      */
-    v1GitRepositoriesAccessGrantsDetail: (id: string, params: RequestParams = {}) =>
+    v1GitRepositoriesAccessGrantsDetail: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesAccessGrant[], any>({
         path: `/api/v1/git/repositories/${id}/access-grants`,
         method: "GET",
@@ -7990,7 +8161,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/git/repositories/{id}/branches
      * @secure
      */
-    createGitRepositoryBranch: (id: string, request: TypesCreateBranchRequest, params: RequestParams = {}) =>
+    createGitRepositoryBranch: (
+      id: string,
+      request: TypesCreateBranchRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesCreateBranchResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/branches`,
         method: "POST",
@@ -8152,7 +8327,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @duplicate
      * @secure
      */
-    v1GitRepositoriesEnrichmentsDetail2: (id: string, enrichmentId: string, params: RequestParams = {}) =>
+    v1GitRepositoriesEnrichmentsDetail2: (
+      id: string,
+      enrichmentId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<ServerKoditEnrichmentDTO, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/enrichments/${enrichmentId}`,
         method: "GET",
@@ -8338,7 +8517,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/git/repositories/{id}/kodit-status
      * @secure
      */
-    v1GitRepositoriesKoditStatusDetail: (id: string, params: RequestParams = {}) =>
+    v1GitRepositoriesKoditStatusDetail: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
       this.request<ServerKoditIndexingStatusDTO, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/kodit-status`,
         method: "GET",
@@ -8402,7 +8584,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/git/repositories/{id}/pull-requests
      * @secure
      */
-    createGitRepositoryPullRequest: (id: string, request: TypesCreatePullRequestRequest, params: RequestParams = {}) =>
+    createGitRepositoryPullRequest: (
+      id: string,
+      request: TypesCreatePullRequestRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesCreatePullRequestResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/pull-requests`,
         method: "POST",
@@ -8694,7 +8880,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/helix-models/{id}
      * @secure
      */
-    v1HelixModelsUpdate: (id: string, request: TypesModel, params: RequestParams = {}) =>
+    v1HelixModelsUpdate: (
+      id: string,
+      request: TypesModel,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesModel, string>({
         path: `/api/v1/helix-models/${id}`,
         method: "PUT",
@@ -9007,7 +9197,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/model-info
      * @secure
      */
-    v1ModelInfoCreate: (request: TypesDynamicModelInfo, params: RequestParams = {}) =>
+    v1ModelInfoCreate: (
+      request: TypesDynamicModelInfo,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesDynamicModelInfo, string>({
         path: `/api/v1/model-info`,
         method: "POST",
@@ -9060,7 +9253,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/model-info/{id}
      * @secure
      */
-    v1ModelInfoUpdate: (id: string, request: TypesDynamicModelInfo, params: RequestParams = {}) =>
+    v1ModelInfoUpdate: (
+      id: string,
+      request: TypesDynamicModelInfo,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesDynamicModelInfo, string>({
         path: `/api/v1/model-info/${id}`,
         method: "PUT",
@@ -9148,7 +9345,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/oauth/connections/{id}/repositories
      * @secure
      */
-    v1OauthConnectionsRepositoriesDetail: (id: string, params: RequestParams = {}) =>
+    v1OauthConnectionsRepositoriesDetail: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesListOAuthRepositoriesResponse, any>({
         path: `/api/v1/oauth/connections/${id}/repositories`,
         method: "GET",
@@ -9183,7 +9383,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/oauth/providers
      * @secure
      */
-    v1OauthProvidersCreate: (request: TypesOAuthProvider, params: RequestParams = {}) =>
+    v1OauthProvidersCreate: (
+      request: TypesOAuthProvider,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesOAuthProvider, any>({
         path: `/api/v1/oauth/providers`,
         method: "POST",
@@ -9219,7 +9422,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/oauth/sharepoint/resolve-site
      * @secure
      */
-    v1OauthSharepointResolveSiteCreate: (request: ServerSharePointSiteResolveRequest, params: RequestParams = {}) =>
+    v1OauthSharepointResolveSiteCreate: (
+      request: ServerSharePointSiteResolveRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<ServerSharePointSiteResolveResponse, any>({
         path: `/api/v1/oauth/sharepoint/resolve-site`,
         method: "POST",
@@ -9254,7 +9460,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/organizations
      * @secure
      */
-    v1OrganizationsCreate: (request: TypesOrganization, params: RequestParams = {}) =>
+    v1OrganizationsCreate: (
+      request: TypesOrganization,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesOrganization, any>({
         path: `/api/v1/organizations`,
         method: "POST",
@@ -9300,7 +9509,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/organizations/{id}
      * @secure
      */
-    v1OrganizationsUpdate: (id: string, request: TypesOrganization, params: RequestParams = {}) =>
+    v1OrganizationsUpdate: (
+      id: string,
+      request: TypesOrganization,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesOrganization, any>({
         path: `/api/v1/organizations/${id}`,
         method: "PUT",
@@ -9335,7 +9548,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/organizations/{id}/api_keys
      * @secure
      */
-    v1OrganizationsApiKeysCreate: (id: string, request: object, params: RequestParams = {}) =>
+    v1OrganizationsApiKeysCreate: (
+      id: string,
+      request: object,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesApiKey, any>({
         path: `/api/v1/organizations/${id}/api_keys`,
         method: "POST",
@@ -9354,7 +9571,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/organizations/{id}/api_keys/{key}
      * @secure
      */
-    v1OrganizationsApiKeysDelete: (id: string, key: string, params: RequestParams = {}) =>
+    v1OrganizationsApiKeysDelete: (
+      id: string,
+      key: string,
+      params: RequestParams = {},
+    ) =>
       this.request<string, any>({
         path: `/api/v1/organizations/${id}/api_keys/${key}`,
         method: "DELETE",
@@ -9371,7 +9592,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/organizations/{id}/guidelines-history
      * @secure
      */
-    v1OrganizationsGuidelinesHistoryDetail: (id: string, params: RequestParams = {}) =>
+    v1OrganizationsGuidelinesHistoryDetail: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesGuidelinesHistory[], SystemHTTPError>({
         path: `/api/v1/organizations/${id}/guidelines-history`,
         method: "GET",
@@ -9430,7 +9654,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/organizations/{id}/members/{user_id}
      * @secure
      */
-    v1OrganizationsMembersDelete: (id: string, userId: string, params: RequestParams = {}) =>
+    v1OrganizationsMembersDelete: (
+      id: string,
+      userId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<void, any>({
         path: `/api/v1/organizations/${id}/members/${userId}`,
         method: "DELETE",
@@ -9505,7 +9733,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/organizations/{id}/teams
      * @secure
      */
-    v1OrganizationsTeamsCreate: (id: string, request: TypesCreateTeamRequest, params: RequestParams = {}) =>
+    v1OrganizationsTeamsCreate: (
+      id: string,
+      request: TypesCreateTeamRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesTeam, any>({
         path: `/api/v1/organizations/${id}/teams`,
         method: "POST",
@@ -9525,7 +9757,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/organizations/{id}/teams/{team_id}
      * @secure
      */
-    v1OrganizationsTeamsDelete: (id: string, teamId: string, params: RequestParams = {}) =>
+    v1OrganizationsTeamsDelete: (
+      id: string,
+      teamId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<void, any>({
         path: `/api/v1/organizations/${id}/teams/${teamId}`,
         method: "DELETE",
@@ -9567,7 +9803,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/organizations/{id}/teams/{team_id}/members
      * @secure
      */
-    v1OrganizationsTeamsMembersDetail: (id: string, teamId: string, params: RequestParams = {}) =>
+    v1OrganizationsTeamsMembersDetail: (
+      id: string,
+      teamId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesTeamMembership[], any>({
         path: `/api/v1/organizations/${id}/teams/${teamId}/members`,
         method: "GET",
@@ -9635,7 +9875,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/projects
      * @secure
      */
-    v1ProjectsCreate: (request: TypesProjectCreateRequest, params: RequestParams = {}) =>
+    v1ProjectsCreate: (
+      request: TypesProjectCreateRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesProject, SystemHTTPError>({
         path: `/api/v1/projects`,
         method: "POST",
@@ -9693,7 +9936,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/projects/{id}
      * @secure
      */
-    v1ProjectsUpdate: (id: string, request: TypesProjectUpdateRequest, params: RequestParams = {}) =>
+    v1ProjectsUpdate: (
+      id: string,
+      request: TypesProjectUpdateRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesProject, SystemHTTPError>({
         path: `/api/v1/projects/${id}`,
         method: "PUT",
@@ -9730,7 +9977,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/projects/{id}/access-grants
      * @secure
      */
-    v1ProjectsAccessGrantsCreate: (id: string, request: TypesCreateAccessGrantRequest, params: RequestParams = {}) =>
+    v1ProjectsAccessGrantsCreate: (
+      id: string,
+      request: TypesCreateAccessGrantRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesAccessGrant, any>({
         path: `/api/v1/projects/${id}/access-grants`,
         method: "POST",
@@ -9808,7 +10059,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/projects/{id}/docker-cache/build
      * @secure
      */
-    v1ProjectsDockerCacheBuildCreate: (id: string, params: RequestParams = {}) =>
+    v1ProjectsDockerCacheBuildCreate: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/projects/${id}/docker-cache/build`,
         method: "POST",
@@ -9826,7 +10080,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/projects/{id}/docker-cache/cancel
      * @secure
      */
-    v1ProjectsDockerCacheCancelCreate: (id: string, params: RequestParams = {}) =>
+    v1ProjectsDockerCacheCancelCreate: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/projects/${id}/docker-cache/cancel`,
         method: "POST",
@@ -9844,7 +10101,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/projects/{id}/exploratory-session
      * @secure
      */
-    v1ProjectsExploratorySessionDelete: (id: string, params: RequestParams = {}) =>
+    v1ProjectsExploratorySessionDelete: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/projects/${id}/exploratory-session`,
         method: "DELETE",
@@ -9862,7 +10122,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/projects/{id}/exploratory-session
      * @secure
      */
-    v1ProjectsExploratorySessionDetail: (id: string, params: RequestParams = {}) =>
+    v1ProjectsExploratorySessionDetail: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSession, SystemHTTPError>({
         path: `/api/v1/projects/${id}/exploratory-session`,
         method: "GET",
@@ -9880,7 +10143,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/projects/{id}/exploratory-session
      * @secure
      */
-    v1ProjectsExploratorySessionCreate: (id: string, params: RequestParams = {}) =>
+    v1ProjectsExploratorySessionCreate: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSession, SystemHTTPError>({
         path: `/api/v1/projects/${id}/exploratory-session`,
         method: "POST",
@@ -9898,7 +10164,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/projects/{id}/guidelines-history
      * @secure
      */
-    v1ProjectsGuidelinesHistoryDetail: (id: string, params: RequestParams = {}) =>
+    v1ProjectsGuidelinesHistoryDetail: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesGuidelinesHistory[], SystemHTTPError>({
         path: `/api/v1/projects/${id}/guidelines-history`,
         method: "GET",
@@ -9917,7 +10186,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/projects/{id}/move
      * @secure
      */
-    v1ProjectsMoveCreate: (id: string, request: TypesMoveProjectRequest, params: RequestParams = {}) =>
+    v1ProjectsMoveCreate: (
+      id: string,
+      request: TypesMoveProjectRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesProject, SystemHTTPError>({
         path: `/api/v1/projects/${id}/move`,
         method: "POST",
@@ -9937,7 +10210,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/projects/{id}/move/preview
      * @secure
      */
-    v1ProjectsMovePreviewCreate: (id: string, request: TypesMoveProjectRequest, params: RequestParams = {}) =>
+    v1ProjectsMovePreviewCreate: (
+      id: string,
+      request: TypesMoveProjectRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesMoveProjectPreviewResponse, SystemHTTPError>({
         path: `/api/v1/projects/${id}/move/preview`,
         method: "POST",
@@ -9976,7 +10253,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/projects/{id}/repositories/{repo_id}/attach
      * @secure
      */
-    v1ProjectsRepositoriesAttachUpdate: (id: string, repoId: string, params: RequestParams = {}) =>
+    v1ProjectsRepositoriesAttachUpdate: (
+      id: string,
+      repoId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/projects/${id}/repositories/${repoId}/attach`,
         method: "PUT",
@@ -9995,7 +10276,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/projects/{id}/repositories/{repo_id}/detach
      * @secure
      */
-    v1ProjectsRepositoriesDetachUpdate: (id: string, repoId: string, params: RequestParams = {}) =>
+    v1ProjectsRepositoriesDetachUpdate: (
+      id: string,
+      repoId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/projects/${id}/repositories/${repoId}/detach`,
         method: "PUT",
@@ -10014,7 +10299,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/projects/{id}/repositories/{repo_id}/primary
      * @secure
      */
-    v1ProjectsRepositoriesPrimaryUpdate: (id: string, repoId: string, params: RequestParams = {}) =>
+    v1ProjectsRepositoriesPrimaryUpdate: (
+      id: string,
+      repoId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/projects/${id}/repositories/${repoId}/primary`,
         method: "PUT",
@@ -10050,7 +10339,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/projects/{id}/secrets
      * @secure
      */
-    v1ProjectsSecretsCreate: (id: string, request: TypesCreateSecretRequest, params: RequestParams = {}) =>
+    v1ProjectsSecretsCreate: (
+      id: string,
+      request: TypesCreateSecretRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSecret, any>({
         path: `/api/v1/projects/${id}/secrets`,
         method: "POST",
@@ -10069,7 +10362,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/projects/{id}/startup-script/history
      * @secure
      */
-    v1ProjectsStartupScriptHistoryDetail: (id: string, params: RequestParams = {}) =>
+    v1ProjectsStartupScriptHistoryDetail: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
       this.request<ServicesStartupScriptVersion[], any>({
         path: `/api/v1/projects/${id}/startup-script/history`,
         method: "GET",
@@ -10163,7 +10459,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/projects/quick-create
      * @secure
      */
-    v1ProjectsQuickCreateCreate: (request: ServerQuickCreateProjectRequest, params: RequestParams = {}) =>
+    v1ProjectsQuickCreateCreate: (
+      request: ServerQuickCreateProjectRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesProject, TypesAPIError>({
         path: `/api/v1/projects/quick-create`,
         method: "POST",
@@ -10217,7 +10516,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/prompt-history/{id}/pin
      * @secure
      */
-    v1PromptHistoryPinUpdate: (id: string, request: ServerPromptPinRequest, params: RequestParams = {}) =>
+    v1PromptHistoryPinUpdate: (
+      id: string,
+      request: ServerPromptPinRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, boolean>, SystemHTTPError>({
         path: `/api/v1/prompt-history/${id}/pin`,
         method: "PUT",
@@ -10237,7 +10540,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/prompt-history/{id}/tags
      * @secure
      */
-    v1PromptHistoryTagsUpdate: (id: string, request: ServerPromptTagsRequest, params: RequestParams = {}) =>
+    v1PromptHistoryTagsUpdate: (
+      id: string,
+      request: ServerPromptTagsRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/prompt-history/${id}/tags`,
         method: "PUT",
@@ -10330,7 +10637,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/prompt-history/sync
      * @secure
      */
-    v1PromptHistorySyncCreate: (request: TypesPromptHistorySyncRequest, params: RequestParams = {}) =>
+    v1PromptHistorySyncCreate: (
+      request: TypesPromptHistorySyncRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesPromptHistorySyncResponse, SystemHTTPError>({
         path: `/api/v1/prompt-history/sync`,
         method: "POST",
@@ -10519,7 +10829,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/question-sets
      * @secure
      */
-    v1QuestionSetsCreate: (questionSet: TypesQuestionSet, params: RequestParams = {}) =>
+    v1QuestionSetsCreate: (
+      questionSet: TypesQuestionSet,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesQuestionSet, SystemHTTPError>({
         path: `/api/v1/question-sets`,
         method: "POST",
@@ -10574,7 +10887,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/question-sets/{id}
      * @secure
      */
-    v1QuestionSetsUpdate: (id: string, questionSet: TypesQuestionSet, params: RequestParams = {}) =>
+    v1QuestionSetsUpdate: (
+      id: string,
+      questionSet: TypesQuestionSet,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesQuestionSet, SystemHTTPError>({
         path: `/api/v1/question-sets/${id}`,
         method: "PUT",
@@ -10722,7 +11039,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/resource-search
      * @secure
      */
-    v1ResourceSearchCreate: (request: TypesResourceSearchRequest, params: RequestParams = {}) =>
+    v1ResourceSearchCreate: (
+      request: TypesResourceSearchRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesResourceSearchResponse, any>({
         path: `/api/v1/resource-search`,
         method: "POST",
@@ -10775,7 +11095,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Get sample project code as archive
      * @request GET:/api/v1/sample-projects/{projectId}/archive
      */
-    v1SampleProjectsArchiveDetail: (projectId: string, params: RequestParams = {}) =>
+    v1SampleProjectsArchiveDetail: (
+      projectId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, string>, TypesAPIError>({
         path: `/api/v1/sample-projects/${projectId}/archive`,
         method: "GET",
@@ -10791,7 +11114,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Get sample project starter code
      * @request GET:/api/v1/sample-projects/{projectId}/code
      */
-    v1SampleProjectsCodeDetail: (projectId: string, params: RequestParams = {}) =>
+    v1SampleProjectsCodeDetail: (
+      projectId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<ServicesSampleProjectCode, TypesAPIError>({
         path: `/api/v1/sample-projects/${projectId}/code`,
         method: "GET",
@@ -10808,7 +11134,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/sample-projects/fork
      * @secure
      */
-    v1SampleProjectsForkCreate: (request: ServerForkSampleProjectRequest, params: RequestParams = {}) =>
+    v1SampleProjectsForkCreate: (
+      request: ServerForkSampleProjectRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<ServerForkSampleProjectResponse, any>({
         path: `/api/v1/sample-projects/fork`,
         method: "POST",
@@ -10867,7 +11196,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/sample-projects/simple/fork
      * @secure
      */
-    v1SampleProjectsSimpleForkCreate: (request: TypesForkSimpleProjectRequest, params: RequestParams = {}) =>
+    v1SampleProjectsSimpleForkCreate: (
+      request: TypesForkSimpleProjectRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesForkSimpleProjectResponse, any>({
         path: `/api/v1/sample-projects/simple/fork`,
         method: "POST",
@@ -10886,7 +11218,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/sample-projects/simple/fork-repos
      * @secure
      */
-    v1SampleProjectsSimpleForkReposCreate: (request: TypesForkRepositoriesRequest, params: RequestParams = {}) =>
+    v1SampleProjectsSimpleForkReposCreate: (
+      request: TypesForkRepositoriesRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesForkRepositoriesResponse, SystemHTTPError>({
         path: `/api/v1/sample-projects/simple/fork-repos`,
         method: "POST",
@@ -10906,7 +11241,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/samples/initialize
      * @secure
      */
-    v1SamplesInitializeCreate: (request: ServerInitializeSampleRepositoriesRequest, params: RequestParams = {}) =>
+    v1SamplesInitializeCreate: (
+      request: ServerInitializeSampleRepositoriesRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<ServerInitializeSampleRepositoriesResponse, TypesAPIError>({
         path: `/api/v1/samples/initialize`,
         method: "POST",
@@ -10926,7 +11264,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/samples/repositories
      * @secure
      */
-    v1SamplesRepositoriesCreate: (request: TypesCreateSampleRepositoryRequest, params: RequestParams = {}) =>
+    v1SamplesRepositoriesCreate: (
+      request: TypesCreateSampleRepositoryRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesGitRepository, TypesAPIError>({
         path: `/api/v1/samples/repositories`,
         method: "POST",
@@ -10976,7 +11317,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Get container blkio stats
      * @request GET:/api/v1/sandboxes/{id}/containers/{session_id}/blkio
      */
-    v1SandboxesContainersBlkioDetail: (id: string, sessionId: string, params: RequestParams = {}) =>
+    v1SandboxesContainersBlkioDetail: (
+      id: string,
+      sessionId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<HydraContainerBlkioStats, any>({
         path: `/api/v1/sandboxes/${id}/containers/${sessionId}/blkio`,
         method: "GET",
@@ -11016,7 +11361,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Update sandbox heartbeat
      * @request POST:/api/v1/sandboxes/{id}/heartbeat
      */
-    v1SandboxesHeartbeatCreate: (id: string, heartbeat: TypesSandboxHeartbeatRequest, params: RequestParams = {}) =>
+    v1SandboxesHeartbeatCreate: (
+      id: string,
+      heartbeat: TypesSandboxHeartbeatRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, string>, any>({
         path: `/api/v1/sandboxes/${id}/heartbeat`,
         method: "POST",
@@ -11034,7 +11383,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Register a sandbox instance
      * @request POST:/api/v1/sandboxes/register
      */
-    v1SandboxesRegisterCreate: (sandbox: TypesSandboxInstance, params: RequestParams = {}) =>
+    v1SandboxesRegisterCreate: (
+      sandbox: TypesSandboxInstance,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSandboxInstance, any>({
         path: `/api/v1/sandboxes/register`,
         method: "POST",
@@ -11155,7 +11507,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/secrets/{id}
      * @secure
      */
-    v1SecretsUpdate: (id: string, request: TypesSecret, params: RequestParams = {}) =>
+    v1SecretsUpdate: (
+      id: string,
+      request: TypesSecret,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSecret, any>({
         path: `/api/v1/secrets/${id}`,
         method: "PUT",
@@ -11199,7 +11555,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/service-connections
      * @secure
      */
-    v1ServiceConnectionsCreate: (request: TypesServiceConnectionCreateRequest, params: RequestParams = {}) =>
+    v1ServiceConnectionsCreate: (
+      request: TypesServiceConnectionCreateRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesServiceConnectionResponse, TypesAPIError>({
         path: `/api/v1/service-connections`,
         method: "POST",
@@ -11367,7 +11726,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/sessions/{id}
      * @secure
      */
-    v1SessionsUpdate: (id: string, request: TypesSession, params: RequestParams = {}) =>
+    v1SessionsUpdate: (
+      id: string,
+      request: TypesSession,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSession, any>({
         path: `/api/v1/sessions/${id}`,
         method: "PUT",
@@ -11386,7 +11749,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/sessions/{id}/claude-credentials
      * @secure
      */
-    v1SessionsClaudeCredentialsDetail: (id: string, params: RequestParams = {}) =>
+    v1SessionsClaudeCredentialsDetail: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesClaudeOAuthCredentials, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/claude-credentials`,
         method: "GET",
@@ -11404,7 +11770,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/sessions/{id}/claude-credentials
      * @secure
      */
-    v1SessionsClaudeCredentialsUpdate: (id: string, body: TypesClaudeOAuthCredentials, params: RequestParams = {}) =>
+    v1SessionsClaudeCredentialsUpdate: (
+      id: string,
+      body: TypesClaudeOAuthCredentials,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/claude-credentials`,
         method: "PUT",
@@ -11439,7 +11809,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Expose a port from the session's dev container
      * @request POST:/api/v1/sessions/{id}/expose
      */
-    v1SessionsExposeCreate: (id: string, request: ServerExposePortRequest, params: RequestParams = {}) =>
+    v1SessionsExposeCreate: (
+      id: string,
+      request: ServerExposePortRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<ServerExposePortResponse, string>({
         path: `/api/v1/sessions/${id}/expose`,
         method: "POST",
@@ -11457,7 +11831,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Unexpose a port from the session's dev container
      * @request DELETE:/api/v1/sessions/{id}/expose/{port}
      */
-    v1SessionsExposeDelete: (id: string, port: number, params: RequestParams = {}) =>
+    v1SessionsExposeDelete: (
+      id: string,
+      port: number,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, string>, string>({
         path: `/api/v1/sessions/${id}/expose/${port}`,
         method: "DELETE",
@@ -11504,7 +11882,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @duplicate
      * @secure
      */
-    v1SessionsInteractionsDetail2: (id: string, interactionId: string, params: RequestParams = {}) =>
+    v1SessionsInteractionsDetail2: (
+      id: string,
+      interactionId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesInteraction, any>({
         path: `/api/v1/sessions/${id}/interactions/${interactionId}`,
         method: "GET",
@@ -11644,7 +12026,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/sessions/{id}/stop-external-agent
      * @secure
      */
-    v1SessionsStopExternalAgentDelete: (id: string, params: RequestParams = {}) =>
+    v1SessionsStopExternalAgentDelete: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/stop-external-agent`,
         method: "DELETE",
@@ -11681,7 +12066,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/sessions/{id}/turns/{turn}
      * @secure
      */
-    v1SessionsTurnsDetail: (id: string, turn: number, params: RequestParams = {}) =>
+    v1SessionsTurnsDetail: (
+      id: string,
+      turn: number,
+      params: RequestParams = {},
+    ) =>
       this.request<ServerInteractionWithContext, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/turns/${turn}`,
         method: "GET",
@@ -11719,7 +12108,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/sessions/{id}/zed-config/user
      * @secure
      */
-    v1SessionsZedConfigUserCreate: (id: string, overrides: Record<string, any>, params: RequestParams = {}) =>
+    v1SessionsZedConfigUserCreate: (
+      id: string,
+      overrides: Record<string, any>,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/zed-config/user`,
         method: "POST",
@@ -11756,7 +12149,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/sessions/chat
      * @secure
      */
-    v1SessionsChatCreate: (request: TypesSessionChatRequest, params: RequestParams = {}) =>
+    v1SessionsChatCreate: (
+      request: TypesSessionChatRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesOpenAIResponse, any>({
         path: `/api/v1/sessions/chat`,
         method: "POST",
@@ -11835,7 +12231,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/skills/validate
      * @secure
      */
-    v1SkillsValidateCreate: (request: TypesAssistantMCP, params: RequestParams = {}) =>
+    v1SkillsValidateCreate: (
+      request: TypesAssistantMCP,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesToolMCPClientConfig, any>({
         path: `/api/v1/skills/validate`,
         method: "POST",
@@ -11936,7 +12335,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/spec-tasks/{spec_task_id}/approve-implementation
      * @secure
      */
-    v1SpecTasksApproveImplementationCreate: (specTaskId: string, params: RequestParams = {}) =>
+    v1SpecTasksApproveImplementationCreate: (
+      specTaskId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSpecTask, any>({
         path: `/api/v1/spec-tasks/${specTaskId}/approve-implementation`,
         method: "POST",
@@ -11953,7 +12355,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews
      * @secure
      */
-    v1SpecTasksDesignReviewsDetail: (specTaskId: string, params: RequestParams = {}) =>
+    v1SpecTasksDesignReviewsDetail: (
+      specTaskId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSpecTaskDesignReviewListResponse, TypesAPIError>({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews`,
         method: "GET",
@@ -11973,7 +12378,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @duplicate
      * @secure
      */
-    v1SpecTasksDesignReviewsDetail2: (specTaskId: string, reviewId: string, params: RequestParams = {}) =>
+    v1SpecTasksDesignReviewsDetail2: (
+      specTaskId: string,
+      reviewId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSpecTaskDesignReviewDetailResponse, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}`,
         method: "GET",
@@ -12015,8 +12424,15 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments
      * @secure
      */
-    v1SpecTasksDesignReviewsCommentsDetail: (specTaskId: string, reviewId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTaskDesignReviewCommentListResponse, SystemHTTPError>({
+    v1SpecTasksDesignReviewsCommentsDetail: (
+      specTaskId: string,
+      reviewId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<
+        TypesSpecTaskDesignReviewCommentListResponse,
+        SystemHTTPError
+      >({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comments`,
         method: "GET",
         secure: true,
@@ -12108,7 +12524,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/spec-tasks/{spec_task_id}/stop-agent
      * @secure
      */
-    v1SpecTasksStopAgentCreate: (specTaskId: string, params: RequestParams = {}) =>
+    v1SpecTasksStopAgentCreate: (
+      specTaskId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSpecTask, any>({
         path: `/api/v1/spec-tasks/${specTaskId}/stop-agent`,
         method: "POST",
@@ -12160,7 +12579,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/spec-tasks/{taskId}
      * @secure
      */
-    v1SpecTasksUpdate: (taskId: string, request: TypesSpecTaskUpdateRequest, params: RequestParams = {}) =>
+    v1SpecTasksUpdate: (
+      taskId: string,
+      request: TypesSpecTaskUpdateRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSpecTask, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}`,
         method: "PUT",
@@ -12179,7 +12602,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Approve or reject generated specifications
      * @request POST:/api/v1/spec-tasks/{taskId}/approve-specs
      */
-    v1SpecTasksApproveSpecsCreate: (taskId: string, request: TypesSpecApprovalResponse, params: RequestParams = {}) =>
+    v1SpecTasksApproveSpecsCreate: (
+      taskId: string,
+      request: TypesSpecApprovalResponse,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSpecTask, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/approve-specs`,
         method: "POST",
@@ -12222,7 +12649,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/spec-tasks/{taskId}/clone
      * @secure
      */
-    v1SpecTasksCloneCreate: (taskId: string, request: TypesCloneTaskRequest, params: RequestParams = {}) =>
+    v1SpecTasksCloneCreate: (
+      taskId: string,
+      request: TypesCloneTaskRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesCloneTaskResponse, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/clone`,
         method: "POST",
@@ -12242,7 +12673,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/spec-tasks/{taskId}/clone-groups
      * @secure
      */
-    v1SpecTasksCloneGroupsDetail: (taskId: string, params: RequestParams = {}) =>
+    v1SpecTasksCloneGroupsDetail: (
+      taskId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesCloneGroup[], any>({
         path: `/api/v1/spec-tasks/${taskId}/clone-groups`,
         method: "GET",
@@ -12352,7 +12786,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/spec-tasks/{taskId}/zed-instance
      * @secure
      */
-    v1SpecTasksZedInstanceDelete: (taskId: string, params: RequestParams = {}) =>
+    v1SpecTasksZedInstanceDelete: (
+      taskId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, any>, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/zed-instance`,
         method: "DELETE",
@@ -12371,7 +12808,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/spec-tasks/{taskId}/zed-instance
      * @secure
      */
-    v1SpecTasksZedInstanceDetail: (taskId: string, params: RequestParams = {}) =>
+    v1SpecTasksZedInstanceDetail: (
+      taskId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesZedInstanceStatus, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/zed-instance`,
         method: "GET",
@@ -12425,7 +12865,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/spec-tasks/board-settings
      * @secure
      */
-    v1SpecTasksBoardSettingsUpdate: (request: TypesBoardSettings, params: RequestParams = {}) =>
+    v1SpecTasksBoardSettingsUpdate: (
+      request: TypesBoardSettings,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesBoardSettings, TypesAPIError>({
         path: `/api/v1/spec-tasks/board-settings`,
         method: "PUT",
@@ -12444,7 +12887,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Create spec-driven task from simple prompt
      * @request POST:/api/v1/spec-tasks/from-prompt
      */
-    v1SpecTasksFromPromptCreate: (request: TypesCreateTaskRequest, params: RequestParams = {}) =>
+    v1SpecTasksFromPromptCreate: (
+      request: TypesCreateTaskRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSpecTask, TypesAPIError>({
         path: `/api/v1/spec-tasks/from-prompt`,
         method: "POST",
@@ -12548,7 +12994,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/system/settings
      * @secure
      */
-    v1SystemSettingsUpdate: (request: TypesSystemSettingsRequest, params: RequestParams = {}) =>
+    v1SystemSettingsUpdate: (
+      request: TypesSystemSettingsRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSystemSettingsResponse, string>({
         path: `/api/v1/system/settings`,
         method: "PUT",
@@ -12584,7 +13033,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/top-ups/new
      * @secure
      */
-    v1TopUpsNewCreate: (request: ServerCreateTopUpRequest, params: RequestParams = {}) =>
+    v1TopUpsNewCreate: (
+      request: ServerCreateTopUpRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<string, any>({
         path: `/api/v1/top-ups/new`,
         method: "POST",
@@ -12629,7 +13081,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/triggers
      * @secure
      */
-    v1TriggersCreate: (request: TypesTriggerConfiguration, params: RequestParams = {}) =>
+    v1TriggersCreate: (
+      request: TypesTriggerConfiguration,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesTriggerConfiguration, any>({
         path: `/api/v1/triggers`,
         method: "POST",
@@ -12664,7 +13119,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/triggers/{trigger_id}
      * @secure
      */
-    v1TriggersUpdate: (triggerId: string, request: TypesTriggerConfiguration, params: RequestParams = {}) =>
+    v1TriggersUpdate: (
+      triggerId: string,
+      request: TypesTriggerConfiguration,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesTriggerConfiguration, any>({
         path: `/api/v1/triggers/${triggerId}`,
         method: "PUT",
@@ -12800,7 +13259,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/users
      * @secure
      */
-    v1UsersCreate: (request: TypesAdminCreateUserRequest, params: RequestParams = {}) =>
+    v1UsersCreate: (
+      request: TypesAdminCreateUserRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesUser, any>({
         path: `/api/v1/users`,
         method: "POST",
@@ -12855,7 +13317,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/users/me/guidelines
      * @secure
      */
-    v1UsersMeGuidelinesUpdate: (request: TypesUpdateUserGuidelinesRequest, params: RequestParams = {}) =>
+    v1UsersMeGuidelinesUpdate: (
+      request: TypesUpdateUserGuidelinesRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesUserGuidelinesResponse, SystemHTTPError>({
         path: `/api/v1/users/me/guidelines`,
         method: "PUT",
@@ -13006,7 +13471,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/zed/events
      * @secure
      */
-    v1ZedEventsCreate: (request: TypesZedInstanceEvent, params: RequestParams = {}) =>
+    v1ZedEventsCreate: (
+      request: TypesZedInstanceEvent,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, any>, TypesAPIError>({
         path: `/api/v1/zed/events`,
         method: "POST",
@@ -13026,7 +13494,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/zed/instances/{instanceId}/heartbeat
      * @secure
      */
-    v1ZedInstancesHeartbeatCreate: (instanceId: string, request: Record<string, any>, params: RequestParams = {}) =>
+    v1ZedInstancesHeartbeatCreate: (
+      instanceId: string,
+      request: Record<string, any>,
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, any>, TypesAPIError>({
         path: `/api/v1/zed/instances/${instanceId}/heartbeat`,
         method: "POST",
@@ -13071,7 +13543,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/zed/threads/{threadId}/activity
      * @secure
      */
-    v1ZedThreadsActivityCreate: (threadId: string, request: Record<string, any>, params: RequestParams = {}) =>
+    v1ZedThreadsActivityCreate: (
+      threadId: string,
+      request: Record<string, any>,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSpecTaskZedThread, TypesAPIError>({
         path: `/api/v1/zed/threads/${threadId}/activity`,
         method: "POST",
@@ -13092,7 +13568,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/v1/chat/completions
      * @secure
      */
-    chatCompletionsCreate: (request: OpenaiChatCompletionRequest, params: RequestParams = {}) =>
+    chatCompletionsCreate: (
+      request: OpenaiChatCompletionRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<OpenaiChatCompletionResponse, any>({
         path: `/v1/chat/completions`,
         method: "POST",
@@ -13111,7 +13590,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/v1/embeddings
      * @secure
      */
-    embeddingsCreate: (request: TypesFlexibleEmbeddingRequest, params: RequestParams = {}) =>
+    embeddingsCreate: (
+      request: TypesFlexibleEmbeddingRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesFlexibleEmbeddingResponse, any>({
         path: `/v1/embeddings`,
         method: "POST",

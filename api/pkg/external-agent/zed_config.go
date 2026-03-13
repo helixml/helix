@@ -203,7 +203,7 @@ func GenerateZedMCPConfig(
 	// Only add if Kodit is enabled - otherwise Zed will get 501 errors
 	if koditEnabled {
 		// The Helix MCP gateway at /api/v1/mcp/kodit authenticates users and forwards to Kodit
-		koditMCPURL := fmt.Sprintf("%s/api/v1/mcp/kodit", helixAPIURL)
+		koditMCPURL := fmt.Sprintf("%s/api/v1/mcp/kodit?session_id=%s", helixAPIURL, sessionID)
 		config.ContextServers["kodit"] = ContextServerConfig{
 			URL:    koditMCPURL,
 			Headers: map[string]string{

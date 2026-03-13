@@ -18070,6 +18070,21 @@ const docTemplate = `{
                 "status": {
                     "type": "string"
                 },
+                "tasks_active": {
+                    "type": "integer"
+                },
+                "tasks_completed": {
+                    "type": "integer"
+                },
+                "tasks_failed": {
+                    "type": "integer"
+                },
+                "tasks_pending": {
+                    "type": "integer"
+                },
+                "tasks_total": {
+                    "type": "integer"
+                },
                 "updated_at": {
                     "type": "string"
                 }
@@ -21095,6 +21110,10 @@ const docTemplate = `{
         "types.CronTrigger": {
             "type": "object",
             "properties": {
+                "action": {
+                    "description": "\"session\" (default) or \"spec_task\"",
+                    "type": "string"
+                },
                 "emails": {
                     "type": "array",
                     "items": {
@@ -21105,6 +21124,10 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "input": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "description": "Target project for spec_task action",
                     "type": "string"
                 },
                 "schedule": {
