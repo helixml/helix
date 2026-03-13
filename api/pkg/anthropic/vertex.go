@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/rs/zerolog/log"
@@ -146,6 +147,16 @@ func vertexTransformRequest(r *http.Request, projectID, region string, tokenSour
 	r.Header.Del("api-key")
 	r.Header.Set("Authorization", "Bearer "+token.AccessToken)
 
+	// Always set the Vertex host/scheme so we never end up with an empty URL
+	baseURL := VertexBaseURL(region)
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse Vertex base URL %q: %w", baseURL, err)
+	}
+	r.URL.Host = u.Host
+	r.URL.Scheme = u.Scheme
+	r.Host = u.Host
+
 	// Read the body if present (POST requests for /v1/messages)
 	if r.Body == nil {
 		return nil
@@ -182,6 +193,10 @@ func vertexTransformRequest(r *http.Request, projectID, region string, tokenSour
 		if err := json.Unmarshal(modelRaw, &modelName); err == nil && modelName != "" {
 			// Remove model from body — Vertex puts it in the URL
 			delete(bodyMap, "model")
+			// Convert Anthropic model ID format to Vertex format:
+			// claude-sonnet-4-20250514 → claude-sonnet-4@20250514
+			// Vertex requires @ between model name and date version
+			modelName = convertModelNameToVertex(modelName)
 		}
 	}
 
@@ -219,15 +234,31 @@ func vertexTransformRequest(r *http.Request, projectID, region string, tokenSour
 		return io.NopCloser(bytes.NewReader(newBody)), nil
 	}
 
-	// Update the host to Vertex
-	baseURL := VertexBaseURL(region)
-	u, err := url.Parse(baseURL)
-	if err != nil {
-		return fmt.Errorf("failed to parse Vertex base URL %q: %w", baseURL, err)
-	}
-	r.URL.Host = u.Host
-	r.URL.Scheme = u.Scheme
-	r.Host = u.Host
-
 	return nil
+}
+
+// convertModelNameToVertex converts Anthropic API model IDs to Vertex AI format.
+// Anthropic uses dashes (claude-sonnet-4-20250514), Vertex uses @ (claude-sonnet-4@20250514).
+// If the model name already contains @, it's returned as-is.
+func convertModelNameToVertex(modelName string) string {
+	if strings.Contains(modelName, "@") {
+		return modelName
+	}
+	parts := strings.Split(modelName, "-")
+	if len(parts) >= 2 {
+		lastPart := parts[len(parts)-1]
+		if len(lastPart) == 8 && isAllDigits(lastPart) {
+			return strings.Join(parts[:len(parts)-1], "-") + "@" + lastPart
+		}
+	}
+	return modelName
+}
+
+func isAllDigits(s string) bool {
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }

@@ -77,8 +77,8 @@ func TestVertexTransformRequest_NonStreaming(t *testing.T) {
 	err = vertexTransformRequest(req, "helixml", "global", ts)
 	require.NoError(t, err)
 
-	// Check URL was rewritten to rawPredict (non-streaming)
-	assert.Equal(t, "/v1/projects/helixml/locations/global/publishers/anthropic/models/claude-sonnet-4-20250514:rawPredict", req.URL.Path)
+	// Check URL was rewritten to rawPredict (non-streaming), model name uses @ format for Vertex
+	assert.Equal(t, "/v1/projects/helixml/locations/global/publishers/anthropic/models/claude-sonnet-4@20250514:rawPredict", req.URL.Path)
 	assert.Equal(t, "aiplatform.googleapis.com", req.URL.Host)
 	assert.Equal(t, "https", req.URL.Scheme)
 
@@ -130,8 +130,8 @@ func TestVertexTransformRequest_Streaming(t *testing.T) {
 	err = vertexTransformRequest(req, "helixml", "us-east5", ts)
 	require.NoError(t, err)
 
-	// Check URL uses streamRawPredict for streaming
-	assert.Equal(t, "/v1/projects/helixml/locations/us-east5/publishers/anthropic/models/claude-sonnet-4-20250514:streamRawPredict", req.URL.Path)
+	// Check URL uses streamRawPredict for streaming, model name uses @ format
+	assert.Equal(t, "/v1/projects/helixml/locations/us-east5/publishers/anthropic/models/claude-sonnet-4@20250514:streamRawPredict", req.URL.Path)
 	assert.Equal(t, "us-east5-aiplatform.googleapis.com", req.URL.Host)
 }
 
@@ -155,7 +155,7 @@ func TestVertexTransformRequest_GlobalRegion(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "aiplatform.googleapis.com", req.URL.Host)
-	assert.Equal(t, "/v1/projects/my-project/locations/global/publishers/anthropic/models/claude-opus-4-20250514:rawPredict", req.URL.Path)
+	assert.Equal(t, "/v1/projects/my-project/locations/global/publishers/anthropic/models/claude-opus-4@20250514:rawPredict", req.URL.Path)
 }
 
 func TestVertexTransformRequest_PreservesExistingAnthropicVersion(t *testing.T) {
@@ -224,6 +224,10 @@ func TestVertexTransformRequest_NilBody(t *testing.T) {
 	// Auth should still be set even with nil body
 	assert.Equal(t, "Bearer vertex-tok", req.Header.Get("Authorization"))
 	assert.Empty(t, req.Header.Get("x-api-key"))
+
+	// URL host/scheme should be set even with nil body
+	assert.Equal(t, "aiplatform.googleapis.com", req.URL.Host)
+	assert.Equal(t, "https", req.URL.Scheme)
 }
 
 func TestVertexTransformRequest_ContentLengthUpdated(t *testing.T) {
@@ -313,4 +317,23 @@ func TestTokenSourceCacheKey(t *testing.T) {
 	key3 := tokenSourceCacheKey(`{"type":"service_account","project_id":"a"}`, "")
 	key4 := tokenSourceCacheKey(`{"type":"service_account","project_id":"b"}`, "")
 	assert.NotEqual(t, key3, key4, "different JSON should produce different cache keys")
+}
+
+func TestConvertModelNameToVertex(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"claude-sonnet-4-20250514", "claude-sonnet-4@20250514"},
+		{"claude-opus-4-5-20251101", "claude-opus-4-5@20251101"},
+		{"claude-haiku-3-5-20241022", "claude-haiku-3-5@20241022"},
+		{"claude-sonnet-4@20250514", "claude-sonnet-4@20250514"}, // already @ format
+		{"claude-sonnet-4", "claude-sonnet-4"},                   // no date suffix
+		{"claude-3-opus", "claude-3-opus"},                       // no date suffix
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.expected, convertModelNameToVertex(tt.input))
+		})
+	}
 }

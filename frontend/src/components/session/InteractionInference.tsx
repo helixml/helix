@@ -32,7 +32,7 @@ import { useSettingsDialog } from "../../contexts/settingsDialog";
 
 import { emitEvent } from "../../utils/analytics";
 
-import { IServerConfig } from "../../types";
+import { TypesServerConfigForFrontend } from "../../api/api";
 
 import { TypesInteraction, TypesSession, TypesFeedback } from "../../api/api";
 
@@ -125,7 +125,7 @@ export const InteractionInference: FC<{
   imageURLs?: string[];
   message?: string;
   error?: string;
-  serverConfig?: IServerConfig;
+  serverConfig?: TypesServerConfigForFrontend;
   interaction: TypesInteraction;
   session: TypesSession;
   upgrade?: boolean;

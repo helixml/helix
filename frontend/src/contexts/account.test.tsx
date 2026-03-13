@@ -54,6 +54,22 @@ vi.mock('../hooks/useRouter', () => ({
   }),
 }))
 
+vi.mock('../services/userService', () => ({
+  useGetConfig: () => ({
+    data: {
+      filestore_prefix: '',
+      stripe_enabled: false,
+      sentry_dsn_frontend: '',
+      google_analytics_frontend: '',
+      eval_user_id: '',
+      tools_enabled: true,
+      apps_enabled: true,
+    },
+    isLoading: false,
+    error: null,
+  }),
+}))
+
 vi.mock('../hooks/useOrganizations', () => ({
   default: () => ({
     initialized: mockOrgState.initialized,

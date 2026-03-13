@@ -205,7 +205,7 @@ func GenerateZedMCPConfig(
 		// The Helix MCP gateway at /api/v1/mcp/kodit authenticates users and forwards to Kodit
 		koditMCPURL := fmt.Sprintf("%s/api/v1/mcp/kodit?session_id=%s", helixAPIURL, sessionID)
 		config.ContextServers["kodit"] = ContextServerConfig{
-			URL:    koditMCPURL,
+			URL: koditMCPURL,
 			Headers: map[string]string{
 				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
 			},
@@ -232,7 +232,7 @@ func GenerateZedMCPConfig(
 	// search_all_sessions, list_sessions, get_turn, get_turns, get_interaction
 	sessionMCPURL := fmt.Sprintf("%s/api/v1/mcp/session?session_id=%s", helixAPIURL, sessionID)
 	config.ContextServers["helix-session"] = ContextServerConfig{
-		URL:    sessionMCPURL,
+		URL: sessionMCPURL,
 		Headers: map[string]string{
 			"Authorization": fmt.Sprintf("Bearer %s", helixToken),
 		},
@@ -368,7 +368,7 @@ func mcpToContextServerWithProxy(ctx context.Context, mcp types.AssistantMCP, us
 		// The proxy always exposes as Streamable HTTP (the modern protocol)
 		// It handles SSE transport internally when connecting to legacy servers
 		return ContextServerConfig{
-			URL:    proxyURL,
+			URL: proxyURL,
 			Headers: map[string]string{
 				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
 			},
@@ -452,7 +452,15 @@ func normalizeModelIDForZed(modelID string) string {
 		return modelID
 	}
 
-	// Claude 4.5 models (new naming: claude-opus-4-5, claude-sonnet-4-5, claude-haiku-4-5)
+	// Claude 4.6 models
+	if strings.HasPrefix(modelID, "claude-opus-4-6") {
+		return "claude-opus-4-6-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-sonnet-4-6") {
+		return "claude-sonnet-4-6-latest"
+	}
+
+	// Claude 4.5 models
 	if strings.HasPrefix(modelID, "claude-opus-4-5") {
 		return "claude-opus-4-5-latest"
 	}
@@ -461,6 +469,19 @@ func normalizeModelIDForZed(modelID string) string {
 	}
 	if strings.HasPrefix(modelID, "claude-haiku-4-5") {
 		return "claude-haiku-4-5-latest"
+	}
+
+	// Claude 4.1 models (must come before generic claude-opus-4 / claude-sonnet-4)
+	if strings.HasPrefix(modelID, "claude-opus-4-1") {
+		return "claude-opus-4-1-latest"
+	}
+
+	// Claude 4.0 models (generic — catches claude-opus-4-20250514, claude-sonnet-4-20250514, etc.)
+	if strings.HasPrefix(modelID, "claude-opus-4") {
+		return "claude-opus-4-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-sonnet-4") {
+		return "claude-sonnet-4-latest"
 	}
 
 	// Claude 3.x models (old naming: claude-3-5-sonnet, claude-3-5-haiku, etc.)

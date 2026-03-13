@@ -19,7 +19,7 @@ import {
   parseToolCallBlocks,
   CollapsibleToolCall,
 } from "./CollapsibleToolCall";
-import { IServerConfig } from "../../types";
+import { TypesServerConfigForFrontend } from "../../api/api";
 import {
   TypesInteraction,
   TypesInteractionState,
@@ -30,7 +30,7 @@ import ToolStepsWidget from "./ToolStepsWidget";
 export const InteractionLiveStream: FC<{
   session_id: string;
   interaction: TypesInteraction;
-  serverConfig?: IServerConfig;
+  serverConfig?: TypesServerConfigForFrontend;
   session: TypesSession;
   onMessageChange?: {
     (message: string): void;
