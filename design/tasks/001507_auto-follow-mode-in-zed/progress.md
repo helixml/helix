@@ -1,12 +1,15 @@
 # Progress: Auto-Follow Mode & Split-Brain Fix
 
-## Date: 2026-03-12
+## Date: 2026-03-13
 
-## Status: Implementation complete, awaiting manual testing
+## Status: Code merged, awaiting manual testing
 
-## PR
+## PRs
 
-- **Zed**: [helixml/zed#20](https://github.com/helixml/zed/pull/20) — `feature/001507-auto-follow-mode-in-zed`
+| Repo | PR | Branch | Status |
+|------|-----|--------|--------|
+| `helixml/zed` | [#20](https://github.com/helixml/zed/pull/20) | `feature/001507-auto-follow-mode-in-zed` | **Merged** (2026-03-13) |
+| `helixml/helix` | [#1899](https://github.com/helixml/helix/pull/1899) | — | **Merged** (2026-03-13) — pins new Zed commit in `sandbox-versions.txt` |
 
 ## Problem
 
@@ -60,23 +63,11 @@ Three changes across three files:
 **`thread_view.rs` — `on_release` cleanup:**
 - In `from_existing_thread`'s `on_release` callback: calls `unregister_thread` to clean up the registry when a headless view is dropped.
 
-## Key Codebase Patterns Discovered
-
-- `CollaboratorId::Agent` is the special collaborator ID for the AI agent (not a remote peer).
-- `workspace.follow()` is idempotent — safe to call when already following.
-- `AcpThreadView::should_be_following` defaults to `true`; `is_following()` is a derived query.
-- `notify_thread_display` is the single funnel point for showing threads in the UI from external sources.
-- `NativeAgentConnection` (from `thread_service`) and the UI's `NativeAgentServer.connect()` create **independent** `NativeAgent` instances — two connections to the same session = two agents operating independently.
-
-### GPUI borrow checker gotcha
-
-When calling `server_view.read(cx).active_thread()`, the returned `Option<&Entity<T>>` holds an immutable borrow on `cx`. Must `.cloned()` the entity handle before calling `.update(cx, ...)` to avoid E0502 conflicting borrows. This bit us twice during implementation.
-
 ## Files Changed
 
 | File | Lines | Change |
 |------|-------|--------|
-| `crates/agent_ui/src/agent_panel.rs` | +54 | Bug 1: follow activation. Bug 2: `set_active_view` cancellation |
+| `crates/agent_ui/src/agent_panel.rs` | +64 | Bug 1: follow activation. Bug 2: `set_active_view` cancellation |
 | `crates/external_websocket_sync/src/thread_service.rs` | +29, -1 | `unregister_thread()`, diagnostic logging in `register_thread()` |
 | `crates/agent_ui/src/acp/thread_view.rs` | +8 | `on_release` cleanup in `from_existing_thread` |
 
@@ -84,16 +75,34 @@ When calling `server_view.read(cx).active_thread()`, the returned `Option<&Entit
 
 - [x] `./stack build-zed release` passes (after fixing two E0502 borrow checker errors)
 - [x] `./stack build-ubuntu` passes — new Zed binary packaged into desktop image
+- [x] Zed PR #20 merged to main
+- [x] Helix PR #1899 merged to main — new Zed commit pinned in `sandbox-versions.txt`
 
-## Remaining Testing
+## Remaining: Manual Testing
 
-- [ ] Manual: send message from Helix web UI → verify Zed editor follows agent
-- [ ] Manual: toggle follow off → verify it stays off for subsequent messages
-- [ ] Manual: send follow-up message → verify follow re-activates
-- [ ] Manual: start long-running task → navigate to thread list → click different thread → verify only one agent running
-- [ ] Manual: test "back" button from History still works
-- [ ] `cargo test -p external_websocket_sync` (needs VM with Rust toolchain)
-- [ ] `cargo test -p agent_ui` (needs VM with Rust toolchain)
+All code is merged. The fix needs to be deployed and manually verified. A fresh desktop image build is required so new sessions pick up the Zed binary containing the fix.
+
+### Test prerequisites
+- [ ] Verify `sandbox-versions.txt` points to a Zed commit at or after `6c5ac28` (the merge commit of PR #20)
+- [ ] Build a desktop image with the new Zed binary (`./stack build-zed release && ./stack build-ubuntu`)
+- [ ] Start a fresh session so it picks up the new image
+
+### Bug 1: Auto-follow tests
+- [ ] Send message from Helix web UI → verify Zed editor follows agent (opens files, scrolls to cursor)
+- [ ] Send follow-up message to existing thread → verify follow re-activates
+- [ ] Toggle follow OFF → send Helix message → verify editor does NOT follow
+- [ ] Toggle follow ON → send another Helix message → verify following resumes
+- [ ] Type a message directly in Zed agent panel → verify normal follow behavior unchanged
+
+### Bug 2: Split-brain tests
+- [ ] Start long-running task → navigate to thread list → click same thread → verify only one agent running (no ghost file writes)
+- [ ] Start task → navigate to thread list → click different thread → verify first task cancelled
+- [ ] Start task → navigate to thread list → press "back" → verify original thread restored
+- [ ] Start task → navigate to thread list → click same thread → send stop → verify it actually stops
+
+### Unit tests (if Rust toolchain available in VM)
+- [ ] `cargo test -p external_websocket_sync` passes
+- [ ] `cargo test -p agent_ui` passes
 
 ## Design Decisions
 
@@ -104,3 +113,12 @@ When calling `server_view.read(cx).active_thread()`, the returned `Option<&Entit
 3. **`go_back` flow is safe**: it calls `self.previous_view.take()` before `set_active_view`, so `previous_view` is `None` when the cancellation code runs.
 
 4. **`unregister_thread` in `on_release`**: We clean up the registry when the headless view entity is dropped, not when `set_active_view` replaces it. This is more robust because it catches all drop paths (explicit cancellation, GPUI cleanup, etc.).
+
+## Key Codebase Patterns Discovered
+
+- `CollaboratorId::Agent` is the special collaborator ID for the AI agent (not a remote peer).
+- `workspace.follow()` is idempotent — safe to call when already following.
+- `AcpThreadView::should_be_following` defaults to `true`; `is_following()` is a derived query.
+- `notify_thread_display` is the single funnel point for showing threads in the UI from external sources.
+- `NativeAgentConnection` (from `thread_service`) and the UI's `NativeAgentServer.connect()` create **independent** `NativeAgent` instances — two connections to the same session = two agents operating independently.
+- GPUI borrow checker gotcha: when calling `server_view.read(cx).active_thread()`, must `.cloned()` the returned `Option<&Entity<T>>` before calling `.update(cx, ...)` to avoid E0502 conflicting borrows.

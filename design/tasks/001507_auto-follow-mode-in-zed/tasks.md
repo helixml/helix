@@ -1,48 +1,48 @@
 # Implementation Tasks
 
-## Bug 1: Auto-Follow Not Activating for External WebSocket Messages
+## Code Changes (Complete)
 
-### Investigation
-- [x] Reproduce: send a message from Helix web UI, confirm Zed editor does NOT follow the agent's file opens/cursor movements
-- [x] Confirm that sending the same message directly in Zed's agent panel DOES activate following
+### Bug 1: Auto-Follow Not Activating for External WebSocket Messages
+- [x] Add `workspace.follow(CollaboratorId::Agent)` in `AgentPanel` `ThreadDisplayNotification` handler for new external threads (after `set_active_view`)
+- [x] Add `workspace.follow(CollaboratorId::Agent)` in early-return same-entity path for follow-up messages (re-engages following when it has lapsed)
+- [x] Both paths check `should_be_following` to respect user's toggle state
 
-### Fix: Activate following in AgentPanel ThreadDisplayNotification handler
-- [x] In `zed/crates/agent_ui/src/agent_panel.rs`, in the `ThreadDisplayNotification` handler (~line 845), after `set_active_view` and before `focus_panel`: read `should_be_following` from the newly created `AcpThreadView` and call `workspace.follow(CollaboratorId::Agent, window, cx)` if true
-- [x] In the same handler, in the early-return path where the panel is already showing the same thread entity (~line 819): also check `should_be_following` on the existing `AcpThreadView` and call `workspace.follow(CollaboratorId::Agent, window, cx)` if true (re-engages following for follow-up messages)
+### Bug 2: Split-Brain — Duplicate Agent Instances After View Switching
+- [x] In `set_active_view`: cancel running generation in `previous_view` when transitioning `special → non-special` (History → new thread), then clear `previous_view`
+- [x] In `set_active_view`: cancel running generation in `previous_view` in the `else` branch (direct thread-to-thread replacement)
+- [x] Gate both cancellation blocks behind `#[cfg(feature = "external_websocket_sync")]`
+- [x] Add `unregister_thread()` to `thread_service.rs` for registry cleanup on entity drop
+- [x] Add diagnostic logging in `register_thread()` when overwriting existing entries with different entities
+- [x] Call `unregister_thread` in `from_existing_thread`'s `on_release` callback
 
-### Testing
-- [ ] Manual: send message from Helix web UI → verify Zed editor follows agent (opens files, scrolls to cursor)
-- [ ] Manual: click follow toggle OFF in Zed → send Helix message → verify editor does NOT follow
-- [ ] Manual: click follow toggle ON → send another Helix message → verify following resumes
-- [ ] Manual: send a follow-up message to an existing thread → verify following re-engages
-- [ ] Manual: type a message directly in Zed agent panel → verify normal follow behavior is unchanged
+### Build & Merge
+- [x] `./stack build-zed release` compiles cleanly
+- [x] `./stack build-ubuntu` passes — new Zed binary packaged into desktop image
+- [x] Zed PR #20 merged to `helixml/zed` main (2026-03-13)
+- [x] Helix PR #1899 merged to `helixml/helix` main (2026-03-13) — pins new Zed commit in `sandbox-versions.txt`
 
-## Bug 2: Split-Brain — Duplicate Agent Instances After View Switching
+## Testing (Not Started)
 
-### Investigation
-- [x] Reproduce: start a long-running agent task from Helix → while generating, navigate to thread list → click the same or different thread → observe two agents running in parallel (one still writing files, one responding to stop)
-- [x] Confirm the old `Entity<AcpThread>` stays alive via `previous_view` by adding logging in `AcpServerView::on_release`
+Testing requires a deployed desktop image containing the merged Zed binary. The tester needs to start sessions from the Helix web UI and observe Zed behavior via the desktop stream.
 
-### Fix Part A: Cancel running threads when switching away from AgentThread view
-- [x] In `zed/crates/agent_ui/src/agent_panel.rs`, in `set_active_view` (~line 1780), before the view replacement logic: if the outgoing `active_view` is an `AgentThread`, read its `active_thread()` and call `cancel_generation(cx)` on it
-- [x] Also cancel generation on `previous_view` if it holds an `AgentThread` being replaced — specifically in the `!current_is_special && new_is_special` branch where `previous_view` gets overwritten, cancel the outgoing `previous_view` first
+### Prerequisites
+- [ ] Verify `sandbox-versions.txt` points to a Zed commit that includes the PR #20 merge (commit `6c5ac28` or later on `helixml/zed` main)
+- [ ] Build a desktop image containing the new Zed binary (`./stack build-zed release && ./stack build-ubuntu`)
+- [ ] Start a fresh session so it picks up the new image
 
-### Fix Part B: Clear stale `previous_view` on special → non-special transitions
-- [x] In `zed/crates/agent_ui/src/agent_panel.rs`, in the `set_active_view` first branch (`current_is_special && !new_is_special`): cancel any running generation in `previous_view` if it holds an AgentThread, then set `self.previous_view = None` before assigning the new active view
-- [x] Verify the "back" button flow still works: History → back should restore `previous_view` (this path uses `go_back` which calls `self.previous_view.take()` before `set_active_view`, so it's unaffected)
+### Bug 1: Auto-Follow Verification
+- [ ] Send a message from the Helix web UI → verify Zed editor follows the agent as it opens and edits files (editor scrolls to the file being modified, not sitting idle)
+- [ ] Send a follow-up message to the same thread → verify following re-engages (editor tracks the agent's new file opens)
+- [ ] Click the follow toggle OFF in Zed's agent panel → send a Helix message → verify the editor does NOT follow (respects user's choice)
+- [ ] Click the follow toggle back ON → send another Helix message → verify following resumes
+- [ ] Type a message directly in Zed's agent panel → verify normal follow behavior is unchanged (regression check)
 
-### Fix Part C: Clean up THREAD_REGISTRY on entity replacement
-- [x] In `zed/crates/external_websocket_sync/src/thread_service.rs`: add `pub fn unregister_thread(acp_thread_id: &str)` that removes the entry from `THREAD_REGISTRY`
-- [x] In `register_thread`, log a warning when overwriting an existing entry with a different entity (helps diagnose future split-brain issues)
-- [x] In `zed/crates/agent_ui/src/acp/thread_view.rs`, in `from_existing_thread`'s `on_release` callback: call `unregister_thread` with the session ID to clean up the registry when a headless view is dropped
+### Bug 2: Split-Brain Verification
+- [ ] Start a long-running agent task from Helix → while generating, click "View All" in the agent panel → click the same thread from the history list → verify only one agent is running (no ghost file writes from the old agent — check container logs for duplicate tool call activity)
+- [ ] Start a task → navigate to thread list → click a different thread → verify the first task's generation was cancelled (no continued file writes from the old task)
+- [ ] Start a task → navigate to thread list → press "back" → verify the original thread is restored and functional (the `previous_view` restore path still works)
+- [ ] Start a task → navigate to thread list → click same thread → send stop → verify it actually stops (no continued file writes from an orphaned agent)
 
-### Testing
-- [ ] Manual: start long-running task from Helix → navigate to thread list → click same thread → verify only one agent is running (no ghost file writes)
-- [ ] Manual: start task → navigate to thread list → click different thread → verify first task's generation was cancelled
-- [ ] Manual: start task → navigate to thread list → press "back" → verify original thread is restored and functional
-- [ ] Manual: start task → navigate to thread list → click same thread → send stop → verify it actually stops (no continued file writes from orphaned agent)
-
-## Build Verification
-- [x] `./stack build-zed release` compiles cleanly (had to fix borrow checker errors — clone Entity before update to avoid conflicting borrows)
-- [ ] `cargo test -p external_websocket_sync` passes — needs VM with cargo
-- [ ] `cargo test -p agent_ui` passes (if applicable) — needs VM with cargo
+### Unit Tests (If Rust Toolchain Available)
+- [ ] `cargo test -p external_websocket_sync` passes
+- [ ] `cargo test -p agent_ui` passes (if applicable)
