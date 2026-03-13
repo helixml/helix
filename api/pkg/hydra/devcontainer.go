@@ -133,7 +133,7 @@ func imageTag(image string) string {
 
 // resolveRegistryImage checks if a registry-based image ref exists for the given image.
 // When sandbox pulls images from registry, it writes .runtime-ref files containing
-// the full registry path (e.g., "registry.helixml.tech/helix/helix-sway:v1.2.3").
+// the full registry path (e.g., "ghcr.io/helixml/helix-sway:v1.2.3").
 // This function returns the registry ref if available, otherwise returns the original image.
 func resolveRegistryImage(image string) string {
 	return resolveRegistryImageWithBase(image, "/opt/images")
@@ -196,7 +196,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}
 
 	// Resolve registry-based image ref if available
-	// This maps "helix-sway:abc123" to "registry.helixml.tech/helix/helix-sway:abc123"
+	// This maps "helix-sway:abc123" to "ghcr.io/helixml/helix-sway:abc123"
 	// when the sandbox has pulled images from registry
 	resolvedImage := resolveRegistryImage(req.Image)
 

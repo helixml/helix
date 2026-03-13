@@ -444,7 +444,7 @@ spec:
         {{- end }}
         {{- if and .Values.controlplane.haystack .Values.controlplane.haystack.enabled }}
         - name: {{ .Values.controlplane.haystack.name | default "haystack" }}
-          image: "{{ .Values.controlplane.haystack.image.repository | default "registry.helixml.tech/helix/haystack" }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.controlplane.haystack.image.repository | default "ghcr.io/helixml/haystack" }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: "{{ .Values.controlplane.haystack.imagePullPolicy | default .Values.image.pullPolicy }}"
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Mirror images from registry.helixml.tech to ghcr.io/helixml.
+# Mirror images from old registry to ghcr.io/helixml (primary).
 # Usage: scripts/ghcr-push.sh <image1> [image2] ...
 # Example: scripts/ghcr-push.sh registry.helixml.tech/helix/controlplane:v1.0-linux-amd64
 #
