@@ -70,9 +70,9 @@ services:
     #   - 5432:5432
     command: >
       postgres
-      -c shared_buffers=32MB
-      -c work_mem=2MB
-      -c max_connections=50
+      -c shared_buffers=128MB
+      -c work_mem=4MB
+      -c max_connections=200
       -c max_worker_processes=2
       -c maintenance_work_mem=32MB
       -c effective_cache_size=256MB
