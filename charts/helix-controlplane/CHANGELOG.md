@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.4.0] - 2026-03-13
+## [2.9.0] - 2026-03-13
 
 ### Changed
 - **BREAKING: Replaced Bitnami PostgreSQL with official postgres image**. See [UPGRADE.md](UPGRADE.md) for migration instructions.

@@ -1,8 +1,8 @@
 # Upgrade Guide
 
-## Upgrading to 0.4.0
+## Upgrading to 2.9.0
 
-Chart version 0.4.0 replaces the Bitnami PostgreSQL subchart with the official `postgres:17-alpine` image. This is a **breaking change** for existing installations.
+Chart version 2.9.0 replaces the Bitnami PostgreSQL subchart with the official `postgres:17-alpine` image. This is a **breaking change** for existing installations.
 
 ### What changed
 
@@ -87,7 +87,7 @@ The local dump file is preserved at `/tmp/helix-pg-migration-{release}.sql` as a
 
 If your values file referenced Bitnami-specific fields, update it:
 
-**Before (0.3.x):**
+**Before (2.8.x):**
 ```yaml
 postgresql:
   enabled: true
@@ -103,7 +103,7 @@ postgresql:
   architecture: standalone
 ```
 
-**After (0.4.0):**
+**After (2.9.0):**
 ```yaml
 postgresql:
   enabled: true
