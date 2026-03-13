@@ -509,6 +509,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	if req.PullRequestReviewsEnabled != nil {
 		project.PullRequestReviewsEnabled = *req.PullRequestReviewsEnabled
 	}
+	if req.KoditEnabled != nil {
+		project.KoditEnabled = *req.KoditEnabled
+	}
 	// Track guidelines changes with versioning
 	if req.Guidelines != nil && *req.Guidelines != project.Guidelines {
 		// Save current version to history before updating

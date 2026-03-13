@@ -22059,6 +22059,10 @@ const docTemplate = `{
                     "description": "Full URL to external repo (e.g., https://github.com/org/repo)",
                     "type": "string"
                 },
+                "git_provider_connection_id": {
+                    "description": "GitProviderConnectionID - references a GitProviderConnection (saved PAT) for authentication\nWhen set, the encrypted token is decrypted and used for clone/push operations",
+                    "type": "string"
+                },
                 "github": {
                     "$ref": "#/definitions/types.GitHub"
                 },
@@ -22155,6 +22159,10 @@ const docTemplate = `{
                 },
                 "external_url": {
                     "description": "Full URL to external repo (e.g., https://github.com/org/repo)",
+                    "type": "string"
+                },
+                "git_provider_connection_id": {
+                    "description": "GitProviderConnectionID - references a saved PAT connection for authentication",
                     "type": "string"
                 },
                 "github": {
@@ -24162,6 +24170,9 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "kodit_enabled": {
+                    "type": "boolean"
+                },
                 "metadata": {
                     "$ref": "#/definitions/types.ProjectMetadata"
                 },
@@ -24391,6 +24402,10 @@ const docTemplate = `{
                 "guidelines": {
                     "description": "Project-specific AI agent guidelines",
                     "type": "string"
+                },
+                "kodit_enabled": {
+                    "description": "Whether Kodit code intelligence is enabled",
+                    "type": "boolean"
                 },
                 "metadata": {
                     "$ref": "#/definitions/types.ProjectMetadata"
@@ -24702,6 +24717,20 @@ const docTemplate = `{
                     ]
                 },
                 "updated": {
+                    "type": "string"
+                },
+                "vertex_credentials_file": {
+                    "type": "string"
+                },
+                "vertex_credentials_json": {
+                    "description": "Service account JSON string; takes precedence over file",
+                    "type": "string"
+                },
+                "vertex_project_id": {
+                    "description": "Google Vertex AI fields — when VertexProjectID is set, this endpoint routes through Vertex",
+                    "type": "string"
+                },
+                "vertex_region": {
                     "type": "string"
                 }
             }
@@ -28914,6 +28943,19 @@ const docTemplate = `{
                     }
                 },
                 "name": {
+                    "type": "string"
+                },
+                "vertex_credentials_file": {
+                    "type": "string"
+                },
+                "vertex_credentials_json": {
+                    "type": "string"
+                },
+                "vertex_project_id": {
+                    "description": "Google Vertex AI fields",
+                    "type": "string"
+                },
+                "vertex_region": {
                     "type": "string"
                 }
             }

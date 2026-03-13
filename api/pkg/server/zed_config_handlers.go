@@ -99,7 +99,8 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 
 	// Determine if Kodit should be enabled for this session
 	// 1. Must be globally enabled via Kodit.Enabled config
-	// 2. For SpecTask sessions, also check if project repos have Kodit indexing enabled
+	// 2. Project must have KoditEnabled toggle on
+	// 3. For SpecTask sessions, also check if project repos have Kodit indexing enabled
 	koditEnabled := apiServer.Cfg.Kodit.Enabled
 	if koditEnabled && session.Metadata.SpecTaskID != "" {
 		// This is a SpecTask session - check if project repos have Kodit indexing
@@ -115,6 +116,11 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 			return nil, system.NewHTTPError500("failed to get project for skills config")
 		}
 		projectSkills = project.Skills
+
+		// Gate Kodit on the project-level toggle
+		if koditEnabled && !project.KoditEnabled {
+			koditEnabled = false
+		}
 	}
 
 	// Use sandboxAPIURL for Zed config - this is the URL Zed uses to call the Helix API
