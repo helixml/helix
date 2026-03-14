@@ -146,7 +146,7 @@ if ri, ok := r.ragClient.(rag.RepoIndexer); ok {
 return r.indexDataWithChunking(ctx, k, data)
 ```
 
-`KoditRAG` implements both `rag.RAG` (for `Query` and `Delete`) and `rag.RepoIndexer` (for `IndexRepo`). The `Index()` method on `KoditRAG` can return an error or no-op — it will never be called when `RepoIndexer` is detected.
+`KoditRAG` implements both `rag.RAG` (for `Query` and `Delete`) and `rag.RepoIndexer` (for `IndexRepo`). `KoditRAG.Index()` is a true no-op (returns nil) — kodit controls all file conversion and indexing via its git-clone pipeline; helix never pre-chunks or converts content. `Index()` will never be called when `RepoIndexer` is detected.
 
 ### What the knowledge indexer does in the RepoIndexer path
 
@@ -253,9 +253,10 @@ func (r *KoditRAG) IndexRepo(ctx context.Context, req *rag.IndexRepoRequest) err
 // Calls kodit.RegisterRepository(req.RepoURL) or SyncRepository if already registered
 // Polls GetRepositoryStatus() until indexing completes or errors
 
-// Index implements rag.RAG but is never called when RepoIndexer is detected.
+// Index implements rag.RAG but is a no-op — never called since the knowledge indexer
+// detects RepoIndexer and calls IndexRepo instead. Kodit owns all conversion and indexing
+// via its git-clone pipeline. Returns nil.
 func (r *KoditRAG) Index(ctx context.Context, _ ...*types.SessionRAGIndexChunk) error
-// Returns an error: "use IndexRepo for kodit provider"
 
 func (r *KoditRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*types.SessionRAGResult, error)
 // Look up kodit repo ID for q.DataEntityID
@@ -374,9 +375,9 @@ The `rag.RAG` interface (`Index`, `Query`, `Delete`) is the sole coupling betwee
 
 1. **Async indexing latency**: Kodit indexes asynchronously after repo registration. The polling loop in KoditRAG must handle long-running indexing jobs (large PDF collections) without timing out. May need a configurable timeout.
 
-2. **Kodit file-type filtering**: Without reading kodit v1.1.8 source, it's unknown whether `.txt` and `.pdf` files are currently skipped by language detection. This must be validated early — if kodit silently ignores non-code file types, this approach fails at the first step.
+2. **Kodit file-type filtering**: ~~Confirmed~~ by reading kodit v1.1.8 source — `.txt`, `.pdf`, `.docx` are not in `indexableExtensions` and PDFs fail `isBinary()`. Phase 1 kodit work (adding converters) is required before the git paradigm works at all.
 
-3. **Result mapping — ContentOffset**: Kodit returns file paths and line ranges; `SessionRAGResult` expects `ContentOffset` (byte offset). Line-to-byte offset mapping is needed. Can be computed from the stored file content if needed.
+3. **Result mapping — ContentOffset**: Kodit returns line ranges; `ContentOffset` is mapped to `StartLine` (e.g. `"120-150"` → `120`). This is a line position, not a byte offset — sufficient for distinguishing chunks from the same file. No byte-level mapping needed.
 
 4. **Vision pipeline**: Image embeddings are not supported by kodit. Deferred — the haystack vision pipeline could theoretically be kept in parallel for vision-enabled knowledge bases, or this feature is dropped initially.
 
@@ -388,17 +389,14 @@ The `rag.RAG` interface (`Index`, `Query`, `Delete`) is the sole coupling betwee
 
 ## Migration Order
 
-**Phase 1 — Validate kodit file type support** (fast check, blocks everything)
-- Inspect kodit v1.1.8 source to confirm `.txt` files are indexed (not filtered by language detection)
-- Create a test git repo with a `.txt` file, register it with kodit, verify it appears in search results
-- If `.txt` files are filtered: add a kodit change to allow arbitrary text files before proceeding
-
-**Phase 2 — Kodit file-type indexers** (kodit repo work)
-- Add PDF indexer to kodit (text extraction per page)
-- Add DOCX indexer to kodit (paragraph extraction)
-- Add HTML indexer to kodit (tag stripping)
-- Add metadata sidecar reading (`.meta.json` alongside files)
-- Verify chunking and embedding pipeline works end-to-end for each type
+**Phase 1 — Kodit file-type indexers** (kodit repo work, blocks everything)
+- Add `.txt` to `indexableExtensions` (one-liner; no converter needed)
+- Add PDF converter: intercept between `read bytes` and `isBinary()`, extract text via Go PDF parser
+- Add DOCX converter (same intercept pattern)
+- Add PPTX converter (optional)
+- Add metadata sidecar reading (`.meta.json` alongside files → enrichment metadata)
+- Write tests verifying `.txt`, `.pdf`, `.docx` appear in search results
+- **Why first**: confirmed by reading kodit v1.1.8 source — `.txt`/`.pdf`/`.docx` are not in `indexableExtensions` and PDFs fail `isBinary()`. Nothing else can proceed without this.
 
 **Phase 3 — KoditRAG adapter in helix**
 - Implement `api/pkg/rag/rag_kodit.go`

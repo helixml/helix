@@ -25,7 +25,7 @@ All changes are in `application/handler/indexing/chunk_files.go`.
 
 - [ ] Create `api/pkg/rag/rag_kodit.go` implementing both `rag.RAG` and `rag.RepoIndexer`
 - [ ] `IndexRepo()`: call `koditSvc.RegisterRepository(repoURL)` or `SyncRepository` if already registered; poll `GetRepositoryStatus()` until indexing completes or errors
-- [ ] `Index()`: return a clear error ("use IndexRepo — kodit does not accept pushed chunks"); this method should never be called in normal operation
+- [ ] `Index()`: implement as a no-op returning nil — never called since the knowledge indexer detects RepoIndexer and calls IndexRepo instead; kodit owns all conversion and indexing via the git-clone pipeline
 - [ ] `Query()`: look up kodit repo ID for `q.DataEntityID`; call `koditSvc.SemanticSearch` + `KeywordSearch`; merge results with Reciprocal Rank Fusion (k=60); map `KoditFileResult` → `SessionRAGResult`
 - [ ] `Delete()`: look up kodit repo ID; call `koditSvc.DeleteRepository`; delete the synthetic git repo
 - [ ] Add `KoditRepoID int64` column to `KnowledgeVersion` table (migration) to persist the `DataEntityID → kodit repo ID` mapping
