@@ -27,14 +27,14 @@ In `AgentSelectionModal.tsx`, `hasAnthropicProvider` was already fixed to includ
 
 **US1:** As a new user during onboarding, when a system Anthropic provider exists, I want Claude Code to be auto-suggested as the code agent runtime, so I don't need to manually discover and select it.
 
-**US2:** As a user selecting Claude Code during onboarding, when a global Anthropic API key is configured, I want the "Anthropic API Key" option to show "(configured)" and be selectable, so I can proceed without confusion.
+**US2:** As a user opening onboarding when a global Anthropic API key is configured, I want Claude Code to be auto-selected with the "Anthropic API Key" credential mode already chosen, so I can proceed without any manual selection.
 
 **US3:** As a user creating a new agent in project settings, when a global Anthropic provider exists, I want Claude Code to be auto-suggested as the runtime (with api_key mode), consistent with the onboarding experience.
 
 ## Acceptance Criteria
 
 - [ ] When Anthropic is a **global/system** provider and no user providers exist, onboarding auto-selects Claude Code with `api_key` mode
-- [ ] When Anthropic is a **global/system** provider and user selects Claude Code, the credentials section shows "Anthropic API Key (configured)" and the radio button is enabled
+- [ ] When Anthropic is a **global/system** provider, Claude Code is auto-selected and the "Anthropic API Key (configured)" credential mode is already chosen by default
 - [ ] When both Claude subscription and Anthropic global provider exist, Claude Code with `api_key` mode takes priority in auto-selection (consistent with NewSpecTaskForm pattern)
 - [ ] Same auto-select behavior applies in the "Create New Agent" modal (`AgentSelectionModal`)
 - [ ] Existing behavior is preserved: when only a Claude subscription exists, subscription mode is auto-selected
