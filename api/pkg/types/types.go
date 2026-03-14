@@ -881,12 +881,25 @@ type WebsocketEvent struct {
 	WorkerTaskResponse *RunnerTaskResponse         `json:"worker_task_response"`
 	InferenceResponse  *RunnerLLMInferenceResponse `json:"inference_response"`
 	StepInfo           *StepInfo                   `json:"step_info"`
-	// Patch fields for efficient streaming updates (interaction_patch events).
-	// Instead of sending the full interaction, we send only the changed portion
-	// of ResponseMessage. Frontend applies: content = content[:PatchOffset] + Patch
-	Patch       string `json:"patch,omitempty"`        // Content from PatchOffset onwards
-	PatchOffset int    `json:"patch_offset,omitempty"` // Byte position of first change
-	TotalLength int    `json:"total_length,omitempty"` // Final content length after patch
+	// Per-entry structured patches for streaming (interaction_patch events).
+	// Each EntryPatch carries a per-entry string patch (offset/patch/length) so the
+	// frontend can maintain a ResponseEntry[] with correct type boundaries during
+	// streaming. EntryCount is the total number of entries so the frontend can grow
+	// its array when new entries appear.
+	EntryPatches []EntryPatch `json:"entry_patches,omitempty"`
+	EntryCount   int          `json:"entry_count,omitempty"`
+}
+
+// EntryPatch is a per-entry delta for structured streaming. The frontend
+// applies the same patch logic as the flat content patch, but scoped to a
+// single ResponseEntry's content.
+type EntryPatch struct {
+	Index       int    `json:"index"`                  // Position in the entries array
+	MessageID   string `json:"message_id"`             // Zed message_id for this entry
+	Type        string `json:"type"`                   // "text" or "tool_call"
+	Patch       string `json:"patch,omitempty"`        // Content delta from PatchOffset onwards
+	PatchOffset int    `json:"patch_offset,omitempty"` // UTF-16 offset of first change in this entry
+	TotalLength int    `json:"total_length,omitempty"` // Final content length of this entry after patch
 }
 
 type StepInfoType string

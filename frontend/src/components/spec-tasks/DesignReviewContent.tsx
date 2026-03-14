@@ -304,8 +304,8 @@ export default function DesignReviewContent({
     });
 
     let accumulatedResponse = "";
-    // Track patch-based streaming content (same pattern as streaming.tsx)
-    let patchContent = "";
+    // Track per-entry streaming content (same pattern as streaming.tsx)
+    let entryContents: string[] = [];
 
     const messageHandler = (event: MessageEvent) => {
       try {
@@ -316,26 +316,41 @@ export default function DesignReviewContent({
           parsedData.type,
         );
 
-        // Handle interaction_patch events (patch-based streaming from Go server)
+        // Handle interaction_patch events (entry-based streaming from Go server)
         if (
           parsedData.type === "interaction_patch" &&
-          parsedData.patch !== undefined
+          parsedData.entry_patches
         ) {
-          const patchOffset = parsedData.patch_offset ?? 0;
-          const patch = parsedData.patch ?? "";
-          const totalLength = parsedData.total_length ?? 0;
+          const entryPatches = parsedData.entry_patches as Array<{
+            index: number;
+            patch: string;
+            patch_offset: number;
+            total_length: number;
+          }>;
+          const entryCount = parsedData.entry_count as number;
 
-          // Use shared utility for patch application
-          patchContent = applyPatch(
-            patchContent,
-            patchOffset,
-            patch,
-            totalLength,
-          );
-          accumulatedResponse = patchContent;
+          // Grow array if new entries appeared
+          while (entryContents.length < entryCount) {
+            entryContents.push("");
+          }
+          // Apply per-entry patches
+          for (const ep of entryPatches) {
+            if (ep.index < entryContents.length) {
+              entryContents[ep.index] = applyPatch(
+                entryContents[ep.index],
+                ep.patch_offset,
+                ep.patch,
+                ep.total_length,
+              );
+            }
+          }
+          // Join all entry contents for the design review bubble (plain text display)
+          accumulatedResponse = entryContents.filter(Boolean).join("\n\n");
 
           console.log(
-            "[DRWS-DEBUG] interaction_patch received, reconstructed length:",
+            "[DRWS-DEBUG] interaction_patch received, entry_count:",
+            entryCount,
+            "reconstructed length:",
             accumulatedResponse.length,
           );
 
@@ -440,8 +455,8 @@ export default function DesignReviewContent({
                 queryKey: designReviewKeys.detail(specTaskId, reviewId),
               });
               setStreamingResponse(null);
-              // Reset patch content for next streaming response
-              patchContent = "";
+              // Reset entry contents for next streaming response
+              entryContents = [];
             }
           }
         }
@@ -459,7 +474,7 @@ export default function DesignReviewContent({
 
           if (interaction.response_message) {
             accumulatedResponse = interaction.response_message;
-            patchContent = interaction.response_message;
+            entryContents = [interaction.response_message];
 
             const currentQueueStatus = queueStatusRef.current;
             const currentComments = allCommentsRef.current;
@@ -491,7 +506,7 @@ export default function DesignReviewContent({
               queryKey: designReviewKeys.detail(specTaskId, reviewId),
             });
             setStreamingResponse(null);
-            patchContent = "";
+            entryContents = [];
           }
         }
       } catch (error) {

@@ -19,6 +19,7 @@ import {
 } from "../types";
 import { applyPatch } from "../utils/patchUtils";
 import { TypesInteraction, TypesMessage, TypesSession } from "../api/api";
+import { ResponseEntry } from "../components/session/InteractionInference";
 import {
   GET_SESSION_QUERY_KEY,
   SESSION_STEPS_QUERY_KEY,
@@ -91,10 +92,9 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
   const pendingUpdateRef = useRef<boolean>(false);
   const messageHistoryRef = useRef<Map<string, string>>(new Map());
   const invalidateTimerRef = useRef<NodeJS.Timeout | null>(null);
-  // Track streaming content per interaction for patch-based updates.
-  // Keyed by interactionId, stores the current reconstructed content.
-  // Using a ref avoids React state reads during patch string operations.
-  const patchContentRef = useRef<Map<string, string>>(new Map());
+  // Track structured response entries per interaction for per-entry patch updates.
+  // Keyed by interactionId, stores the current ResponseEntry[] built from entry_patches.
+  const patchEntriesRef = useRef<Map<string, ResponseEntry[]>>(new Map());
   const patchPendingRef = useRef<boolean>(false);
 
   // Clear all streaming state when switching sessions
@@ -125,7 +125,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
       }
 
       // Clear all patch state (not session-keyed, so clear everything)
-      patchContentRef.current.clear();
+      patchEntriesRef.current.clear();
       patchPendingRef.current = false;
 
       // Also clear stepInfos for the new session (fresh start)
@@ -333,9 +333,9 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
       if (parsedData.type === "interaction_update" && parsedData.interaction) {
         const updatedInteraction = parsedData.interaction;
 
-        // Clear patch content ref since we have the full interaction now
+        // Clear patch entries ref since we have the full interaction now
         if (updatedInteraction.id) {
-          patchContentRef.current.delete(updatedInteraction.id);
+          patchEntriesRef.current.delete(updatedInteraction.id);
         }
 
         // When interaction is complete, cancel any pending patch RAF to prevent
@@ -422,10 +422,9 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
         }
       }
 
-      // PATCH-BASED STREAMING: Handle delta updates from Go server.
-      // This is the most efficient path for streaming — only the changed portion of
-      // ResponseMessage is sent over the wire. We reconstruct the full content in a ref
-      // (no React state reads needed) and batch the state update via requestAnimationFrame.
+      // ENTRY-BASED STREAMING: Handle per-entry delta updates from Go server.
+      // Each entry gets its own string patch so the frontend maintains a ResponseEntry[]
+      // with correct type boundaries (text vs tool_call) during streaming.
       // CRITICAL: We do NOT update React Query cache here — that would create new
       // interactions arrays and trigger re-renders of the entire session. The cache is
       // only updated on completion (via interaction_update or session_update).
@@ -434,19 +433,32 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
         parsedData.interaction_id
       ) {
         const interactionId = parsedData.interaction_id;
-        const patchOffset = parsedData.patch_offset ?? 0;
-        const patch = parsedData.patch ?? "";
-        const totalLength = parsedData.total_length ?? 0;
+        const entryPatches = parsedData.entry_patches;
+        const entryCount = parsedData.entry_count;
 
-        // Use shared utility for patch application
-        const currentContent = patchContentRef.current.get(interactionId) || "";
-        const newContent = applyPatch(
-          currentContent,
-          patchOffset,
-          patch,
-          totalLength,
-        );
-        patchContentRef.current.set(interactionId, newContent);
+        if (entryPatches && entryCount) {
+          const currentEntries = patchEntriesRef.current.get(interactionId) || [];
+          // Grow array to entry_count if new entries appeared
+          while (currentEntries.length < entryCount) {
+            currentEntries.push({ type: "text", content: "", message_id: "" });
+          }
+          // Apply each entry patch
+          for (const ep of entryPatches) {
+            if (ep.index < currentEntries.length) {
+              currentEntries[ep.index] = {
+                type: ep.type as "text" | "tool_call",
+                content: applyPatch(
+                  currentEntries[ep.index].content,
+                  ep.patch_offset,
+                  ep.patch,
+                  ep.total_length,
+                ),
+                message_id: ep.message_id,
+              };
+            }
+          }
+          patchEntriesRef.current.set(interactionId, currentEntries);
+        }
 
         // Batch state update via RAF to avoid per-patch re-renders
         if (!patchPendingRef.current) {
@@ -454,33 +466,27 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
           requestAnimationFrame(() => {
             patchPendingRef.current = false;
 
-            // Read latest content from ref (may have accumulated multiple patches)
-            const latestContent =
-              patchContentRef.current.get(interactionId) || "";
+            const latestEntries =
+              patchEntriesRef.current.get(interactionId) || undefined;
 
             setCurrentResponses((prev) => {
               const current = prev.get(currentSessionId!) || {};
-              // Only update response_message — don't touch other fields
               if (
-                current.response_message === latestContent &&
-                current.id === interactionId
+                current.id === interactionId &&
+                (current as any).response_entries === latestEntries
               ) {
                 return prev; // No change — skip re-render entirely
               }
-              // CRITICAL: Detect interaction transition (follow-up message scenario)
-              // If the interactionId differs from what's in current, DON'T spread old data
-              // Otherwise we'd pollute the new interaction with stale fields from the old one
               const isSameInteraction = current.id === interactionId;
-              const updated: Partial<TypesInteraction> = isSameInteraction
+              const updated: Partial<TypesInteraction> & { response_entries?: ResponseEntry[] } = isSameInteraction
                 ? {
                     ...current,
                     id: interactionId,
-                    response_message: latestContent,
+                    response_entries: latestEntries,
                   }
                 : {
-                    // New interaction - start with clean slate, only set id and response_message
                     id: interactionId,
-                    response_message: latestContent,
+                    response_entries: latestEntries,
                   };
               return new Map(prev).set(currentSessionId!, updated);
             });

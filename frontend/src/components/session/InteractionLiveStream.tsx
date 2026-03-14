@@ -5,24 +5,17 @@ import React, {
   useMemo,
   useCallback,
   useRef,
-  useLayoutEffect,
 } from "react";
 
 // Throttle interval for scroll updates during streaming (ms)
 const SCROLL_THROTTLE_MS = 200;
-import Typography from "@mui/material/Typography";
 import Box from "@mui/material/Box";
 import { useTheme } from "@mui/material/styles";
 import useLiveInteraction from "../../hooks/useLiveInteraction";
-import Markdown from "./Markdown";
-import {
-  parseToolCallBlocks,
-  CollapsibleToolCall,
-} from "./CollapsibleToolCall";
+import { MessageWithToolCalls } from "./InteractionInference";
 import { TypesServerConfigForFrontend } from "../../api/api";
 import {
   TypesInteraction,
-  TypesInteractionState,
   TypesSession,
 } from "../../api/api";
 import ToolStepsWidget from "./ToolStepsWidget";
@@ -46,17 +39,14 @@ export const InteractionLiveStream: FC<{
   onMessageUpdate,
   onFilterDocument,
 }) => {
-  const { message, status, stepInfos, isComplete } = useLiveInteraction(
+  const { message, responseEntries, stepInfos, isComplete } = useLiveInteraction(
     session_id,
     interaction,
   );
 
-  // Removed excessive debug logging
-
-  // Add state to track if we're still in streaming mode or completed
+  // Track if we're still in streaming mode or completed
   const [isActivelyStreaming, setIsActivelyStreaming] = useState(true);
 
-  // Memoize the useClientURL function
   const useClientURL = useCallback(
     (url: string) => {
       if (!url) return "";
@@ -66,7 +56,6 @@ export const InteractionLiveStream: FC<{
     [serverConfig],
   );
 
-  // Transform stepInfos to match ToolStepsWidget format
   const toolSteps = useMemo(
     () =>
       stepInfos.map((step, index) => ({
@@ -83,14 +72,12 @@ export const InteractionLiveStream: FC<{
     [stepInfos],
   );
 
-  // Reset streaming state when a new interaction starts or interaction ID changes
+  // Reset streaming state when interaction ID changes
   useEffect(() => {
-    // Always reset to streaming state when interaction ID changes
-    // Removed excessive debug logging
     setIsActivelyStreaming(true);
   }, [interaction?.id]);
 
-  // Effect to detect completion from the server (WebSocket)
+  // Detect completion from the server (WebSocket)
   useEffect(() => {
     if (isComplete && isActivelyStreaming) {
       setIsActivelyStreaming(false);
@@ -107,10 +94,12 @@ export const InteractionLiveStream: FC<{
   const scrollThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingScrollRef = useRef(false);
 
-  useEffect(() => {
-    if (!message || !onMessageUpdate) return;
+  // Trigger scroll on either message or entries change
+  const hasContent = !!(message || (responseEntries && responseEntries.length > 0));
 
-    // Throttle scroll updates
+  useEffect(() => {
+    if (!hasContent || !onMessageUpdate) return;
+
     if (!scrollThrottleRef.current) {
       onMessageUpdate();
       scrollThrottleRef.current = setTimeout(() => {
@@ -123,9 +112,8 @@ export const InteractionLiveStream: FC<{
     } else {
       pendingScrollRef.current = true;
     }
-  }, [message, onMessageUpdate]);
+  }, [hasContent, message, responseEntries, onMessageUpdate]);
 
-  // Cleanup throttle on unmount
   useEffect(() => {
     return () => {
       if (scrollThrottleRef.current) {
@@ -147,13 +135,14 @@ export const InteractionLiveStream: FC<{
         />
       )}
 
-      {/* Show clear text when in waiting state and no message yet */}
-      {interaction.state === "waiting" && !message && <ThinkingBox />}
+      {/* Show thinking indicator when waiting and no content yet */}
+      {interaction.state === "waiting" && !hasContent && <ThinkingBox />}
 
-      {message && (
+      {hasContent && (
         <div>
           <MessageWithToolCalls
             text={message}
+            responseEntries={responseEntries}
             session={session}
             getFileURL={useClientURL}
             showBlinker={true}
@@ -162,70 +151,6 @@ export const InteractionLiveStream: FC<{
           />
         </div>
       )}
-    </>
-  );
-};
-
-/**
- * Renders a message splitting out tool call blocks into collapsible sections.
- * During streaming, incomplete tool call blocks (missing Status: line) render as raw markdown.
- */
-const MessageWithToolCalls: FC<{
-  text: string;
-  session: TypesSession;
-  getFileURL: (url: string) => string;
-  showBlinker: boolean;
-  isStreaming: boolean;
-  onFilterDocument?: (docId: string) => void;
-}> = ({
-  text,
-  session,
-  getFileURL,
-  showBlinker,
-  isStreaming,
-  onFilterDocument,
-}) => {
-  const segments = parseToolCallBlocks(text);
-
-  // Fast path: no tool calls found
-  if (segments.length === 1 && segments[0].type === "markdown") {
-    return (
-      <Markdown
-        text={text}
-        session={session}
-        getFileURL={getFileURL}
-        showBlinker={showBlinker}
-        isStreaming={isStreaming}
-        onFilterDocument={onFilterDocument}
-      />
-    );
-  }
-
-  return (
-    <>
-      {segments.map((segment, i) => {
-        if (segment.type === "toolcall" && segment.toolName && segment.status) {
-          return (
-            <CollapsibleToolCall
-              key={`tc-${i}`}
-              toolName={segment.toolName}
-              status={segment.status}
-              body={segment.body || ""}
-            />
-          );
-        }
-        return (
-          <Markdown
-            key={`md-${i}`}
-            text={segment.content}
-            session={session}
-            getFileURL={getFileURL}
-            showBlinker={showBlinker && i === segments.length - 1}
-            isStreaming={isStreaming && i === segments.length - 1}
-            onFilterDocument={onFilterDocument}
-          />
-        );
-      })}
     </>
   );
 };
@@ -254,36 +179,19 @@ const ThinkingBox: FC = () => {
         },
       }}
     >
-      <Box
-        sx={{
-          width: "8px",
-          height: "8px",
-          borderRadius: "50%",
-          backgroundColor: theme.palette.mode === "light" ? "#666" : "#999",
-          animation: "bounce 1.4s ease-in-out infinite",
-          animationDelay: "0s",
-        }}
-      />
-      <Box
-        sx={{
-          width: "8px",
-          height: "8px",
-          borderRadius: "50%",
-          backgroundColor: theme.palette.mode === "light" ? "#666" : "#999",
-          animation: "bounce 1.4s ease-in-out infinite",
-          animationDelay: "0.2s",
-        }}
-      />
-      <Box
-        sx={{
-          width: "8px",
-          height: "8px",
-          borderRadius: "50%",
-          backgroundColor: theme.palette.mode === "light" ? "#666" : "#999",
-          animation: "bounce 1.4s ease-in-out infinite",
-          animationDelay: "0.4s",
-        }}
-      />
+      {[0, 0.2, 0.4].map((delay) => (
+        <Box
+          key={delay}
+          sx={{
+            width: "8px",
+            height: "8px",
+            borderRadius: "50%",
+            backgroundColor: theme.palette.mode === "light" ? "#666" : "#999",
+            animation: "bounce 1.4s ease-in-out infinite",
+            animationDelay: `${delay}s`,
+          }}
+        />
+      ))}
     </Box>
   );
 };

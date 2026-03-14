@@ -2,13 +2,15 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { INTERACTION_STATE_COMPLETE } from "../types";
 import { useStreaming } from "../contexts/streaming";
 import { TypesInteraction, TypesInteractionState } from "../api/api";
+import { ResponseEntry } from "../components/session/InteractionInference";
 
 interface LiveInteractionResult {
   message: string;
+  responseEntries: ResponseEntry[] | undefined;
   status: string;
   isComplete: boolean;
   isStale: boolean;
-  stepInfos: any[]; // Add this line
+  stepInfos: any[];
 }
 
 const useLiveInteraction = (
@@ -160,10 +162,22 @@ const useLiveInteraction = (
   const message =
     completedMessage || safeResponseMessage || lastKnownMessage || "";
 
+  // Response entries: prefer completed interaction's entries (from DB, fully corrected),
+  // then fall back to streaming entries from currentResponses (built from entry_patches)
+  const completedEntries =
+    isComplete && (initialInteraction as any)?.response_entries
+      ? ((initialInteraction as any).response_entries as ResponseEntry[])
+      : undefined;
+  const streamingEntries = interactionMatchesCurrent
+    ? (interaction as any)?.response_entries as ResponseEntry[] | undefined
+    : undefined;
+  const responseEntries = completedEntries || streamingEntries;
+
   const result = {
     // Use interaction message if available, otherwise fall back to preserved message
     // This prevents blank screen when streaming context clears during completion
     message,
+    responseEntries,
     status: interaction?.state || "",
     isComplete:
       interaction?.state === TypesInteractionState.InteractionStateComplete,

@@ -74,7 +74,7 @@ const ImagePreview = styled("img")({
  * field), renders each entry with the correct component in the correct order.
  * Otherwise falls back to regex parsing of the flat text (for old interactions).
  */
-const MessageWithToolCalls: FC<{
+export const MessageWithToolCalls: FC<{
   text: string;
   responseEntries?: ResponseEntry[];
   session: TypesSession;
