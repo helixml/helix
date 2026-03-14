@@ -2741,6 +2741,11 @@ export interface TypesGitRepository {
   external_type?: TypesExternalRepositoryType;
   /** Full URL to external repo (e.g., https://github.com/org/repo) */
   external_url?: string;
+  /**
+   * GitProviderConnectionID - references a GitProviderConnection (saved PAT) for authentication
+   * When set, the encrypted token is decrypted and used for clone/push operations
+   */
+  git_provider_connection_id?: string;
   github?: TypesGitHub;
   gitlab?: TypesGitLab;
   id?: string;
@@ -2787,6 +2792,8 @@ export interface TypesGitRepositoryCreateRequest {
   external_type?: TypesExternalRepositoryType;
   /** Full URL to external repo (e.g., https://github.com/org/repo) */
   external_url?: string;
+  /** GitProviderConnectionID - references a saved PAT connection for authentication */
+  git_provider_connection_id?: string;
   github?: TypesGitHub;
   gitlab?: TypesGitLab;
   initial_files?: Record<string, string>;
@@ -3629,6 +3636,7 @@ export interface TypesProject {
   /** Incremented on each update */
   guidelines_version?: number;
   id?: string;
+  kodit_enabled?: boolean;
   metadata?: TypesProjectMetadata;
   /** Indexed for search prefix matching */
   name?: string;
@@ -3720,6 +3728,8 @@ export interface TypesProjectUpdateRequest {
   github_repo_url?: string;
   /** Project-specific AI agent guidelines */
   guidelines?: string;
+  /** Whether Kodit code intelligence is enabled */
+  kodit_enabled?: boolean;
   metadata?: TypesProjectMetadata;
   name?: string;
   /** Project manager agent */
@@ -3855,6 +3865,12 @@ export interface TypesProviderEndpoint {
   /** If we can't fetch models */
   status?: TypesProviderEndpointStatus;
   updated?: string;
+  vertex_credentials_file?: string;
+  /** Service account JSON string; takes precedence over file */
+  vertex_credentials_json?: string;
+  /** Google Vertex AI fields — when VertexProjectID is set, this endpoint routes through Vertex */
+  vertex_project_id?: string;
+  vertex_region?: string;
 }
 
 export enum TypesProviderEndpointStatus {
@@ -5634,6 +5650,11 @@ export interface TypesUpdateProviderEndpoint {
   headers?: Record<string, string>;
   models?: string[];
   name?: string;
+  vertex_credentials_file?: string;
+  vertex_credentials_json?: string;
+  /** Google Vertex AI fields */
+  vertex_project_id?: string;
+  vertex_region?: string;
 }
 
 export interface TypesUpdateTeamRequest {

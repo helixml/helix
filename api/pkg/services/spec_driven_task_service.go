@@ -343,7 +343,11 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
-	planningPrompt := BuildPlanningPrompt(task, guidelines, s.koditService.MCPDocumentation())
+	koditDoc := ""
+	if project != nil && project.KoditEnabled {
+		koditDoc = s.koditService.MCPDocumentation()
+	}
+	planningPrompt := BuildPlanningPrompt(task, guidelines, koditDoc)
 
 	// Get CodeAgentRuntime from the app config (needed for session resume to select correct agent)
 	codeAgentRuntime := s.getCodeAgentRuntimeForTask(ctx, task)

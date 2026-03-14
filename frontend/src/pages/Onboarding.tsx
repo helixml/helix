@@ -56,21 +56,8 @@ import { useGetConfig } from "../services/userService";
 import { useGetWallet } from "../services/useBilling";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
 import type { TypesWallet } from "../api/api";
+import { RECOMMENDED_CODING_MODELS } from "../constants/models";
 
-const RECOMMENDED_MODELS = [
-  "claude-opus-4-6",
-  "claude-opus-4-5-20251101",
-  "claude-sonnet-4-5-20250929",
-  "claude-haiku-4-5-20251001",
-  "openai/gpt-5.1-codex",
-  "openai/gpt-oss-120b",
-  "gemini-2.5-pro",
-  "gemini-2.5-flash",
-  "glm-4.6",
-  "Qwen/Qwen3-Coder-480B-A35B-Instruct",
-  "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-  "Qwen/Qwen3-235B-A22B-fp8-tput",
-];
 const DEFAULT_ONBOARDING_AGENT_MODEL = "claude-opus-4-6";
 import type {
   TypesExternalRepositoryType,
@@ -239,6 +226,7 @@ export default function Onboarding() {
     repo: TypesRepositoryInfo;
     providerType: string;
     oauthConnectionId?: string;
+    patConnectionId?: string;
     patCredentials?: {
       pat?: string;
       username?: string;
@@ -308,7 +296,8 @@ export default function Onboarding() {
     if (!providers) return [];
     return providers.filter(
       (p) =>
-        p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeGlobal,
+        p.endpoint_type ===
+        TypesProviderEndpointType.ProviderEndpointTypeGlobal,
     );
   }, [providers]);
   const providerLogoMap = useMemo(() => {
@@ -324,7 +313,8 @@ export default function Onboarding() {
   // Consider Claude subscription as a valid provider for the "Continue" button
   const hasUserProviders =
     connectedProviderIds.size > 0 || hasClaudeSubscription;
-  const hasProvidersForContinue = hasUserProviders || globalProviders.length > 0;
+  const hasProvidersForContinue =
+    hasUserProviders || globalProviders.length > 0;
 
   // Check if any providers (including system/global) have enabled models
   const hasAnyEnabledModels = useMemo(() => {
@@ -697,6 +687,7 @@ export default function Onboarding() {
       repo: TypesRepositoryInfo,
       providerTypeOrCreds: string,
       oauthConnectionId?: string,
+      patConnectionId?: string,
     ) => {
       let providerType = providerTypeOrCreds;
       let patCredentials:
@@ -729,6 +720,7 @@ export default function Onboarding() {
         repo,
         providerType,
         oauthConnectionId,
+        patConnectionId,
         patCredentials,
       });
       if (!projectName.trim() && repo.name) {
@@ -832,8 +824,13 @@ export default function Onboarding() {
         });
         repoId = repoResponse.data?.id || "";
       } else if (repoMode === "external" && linkedExternalRepo) {
-        const { repo, providerType, oauthConnectionId, patCredentials } =
-          linkedExternalRepo;
+        const {
+          repo,
+          providerType,
+          oauthConnectionId,
+          patConnectionId,
+          patCredentials,
+        } = linkedExternalRepo;
 
         const externalTypeMap: Record<string, TypesExternalRepositoryType> = {
           github: "github" as TypesExternalRepositoryType,
@@ -890,6 +887,7 @@ export default function Onboarding() {
           azure_devops: azureDevOps,
           bitbucket,
           oauth_connection_id: oauthConnectionId,
+          git_provider_connection_id: patConnectionId,
         });
         repoId = repoResponse.data?.id || "";
       }
@@ -1358,7 +1356,7 @@ export default function Onboarding() {
                   >
                     {isSubscribing
                       ? "Redirecting to payment..."
-                      : "Start Subscription ($399/m)"}
+                      : "Start Subscription ($499/m)"}
                   </Button>
                 )}
                 <Button
@@ -1594,7 +1592,9 @@ export default function Onboarding() {
                       );
                       const Logo = providerMeta?.logo;
                       const providerName =
-                        providerMeta?.name || providerEndpoint.name || "Provider";
+                        providerMeta?.name ||
+                        providerEndpoint.name ||
+                        "Provider";
                       return (
                         <Box
                           key={`global-provider-${providerEndpoint.name}-${providerEndpoint.id}`}
@@ -2094,7 +2094,7 @@ export default function Onboarding() {
                     disabled={creatingAgent}
                     hasClaudeSubscription={hasClaudeSubscription}
                     hasAnthropicProvider={hasAnthropicProvider}
-                    recommendedModels={RECOMMENDED_MODELS}
+                    recommendedModels={RECOMMENDED_CODING_MODELS}
                     createAgentDescription="Code development agent"
                     createAgentOrganizationId={createdOrg?.id}
                     onCreateStateChange={setCreatingAgent}

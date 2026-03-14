@@ -132,7 +132,7 @@ const markdownContentStyles = {
 }
 
 const markdownComponents: Components = {
-  code: ({ className, children, node, ...props }) => {
+  code: ({ className, children, node, ref, ...props }) => {
     const match = /language-(\w+)/.exec(className || '')
     const language = match ? match[1] : ''
     const codeContent = String(children).replace(/\n$/, '')

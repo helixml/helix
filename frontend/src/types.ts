@@ -325,6 +325,17 @@ export interface IInteractionMessage {
 //   config: IBotConfig,
 // }
 
+export interface IEntryPatch {
+  index: number,
+  message_id: string,
+  type: string,
+  patch: string,
+  patch_offset: number,
+  total_length: number,
+  tool_name?: string,
+  tool_status?: string,
+}
+
 export interface IWebsocketEvent {
   type: IWebSocketEventType,
   session_id: string,
@@ -334,40 +345,13 @@ export interface IWebsocketEvent {
   interaction?: TypesInteraction, // Single interaction for interaction_update events
   worker_task_response?: IWorkerTaskResponse,
   step_info?: TypesStepInfo,
-  // Patch fields for efficient streaming updates (interaction_patch events).
-  // Frontend applies: content = content.slice(0, patch_offset) + patch
-  patch?: string,        // Content from patch_offset onwards
-  patch_offset?: number, // Byte position of first change
-  total_length?: number, // Final content length after patch
+  // Per-entry structured patches for streaming (interaction_patch events).
+  // Each entry_patch carries a per-entry string patch so the frontend can
+  // maintain a ResponseEntry[] with correct type boundaries during streaming.
+  entry_patches?: IEntryPatch[],
+  entry_count?: number,
 }
 
-export interface IServerConfig {
-  filestore_prefix: string,
-  stripe_enabled: boolean,
-  billing_enabled: boolean,
-  require_active_subscription: boolean,
-  sentry_dsn_frontend: string,
-  google_analytics_frontend: string,
-  providers_management_enabled: boolean,
-  eval_user_id: string,
-  tools_enabled: boolean,
-  apps_enabled: boolean,
-  version?: string,
-  latest_version?: string,
-  deployment_id?: string,
-  license?: {
-    valid: boolean,
-    organization: string,
-    valid_until: string,
-    features: {
-      users: boolean,
-    },
-    limits: {
-      users: number,
-      machines: number,
-    },
-  },
-}
 
 export interface IConversation {
   from: string,

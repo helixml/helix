@@ -60,26 +60,7 @@ import {
   generateAgentName,
 } from "../contexts/apps";
 import { IApp, IAppFlatState, AGENT_TYPE_ZED_EXTERNAL } from "../types";
-
-// Recommended models for zed_external agents (state-of-the-art coding models)
-const RECOMMENDED_MODELS = [
-  // Anthropic
-  "claude-opus-4-5-20251101",
-  "claude-sonnet-4-5-20250929",
-  "claude-haiku-4-5-20251001",
-  // OpenAI
-  "openai/gpt-5.1-codex",
-  "openai/gpt-oss-120b",
-  // Google Gemini
-  "gemini-2.5-pro",
-  "gemini-2.5-flash",
-  // Zhipu GLM
-  "glm-4.6",
-  // Qwen (Coder + Large)
-  "Qwen/Qwen3-Coder-480B-A35B-Instruct",
-  "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-  "Qwen/Qwen3-235B-A22B-fp8-tput",
-];
+import { RECOMMENDED_CODING_MODELS } from "../constants/models";
 import type { CodingAgentFormHandle } from "../components/agent/CodingAgentForm";
 import ProjectRepositoriesList from "../components/project/ProjectRepositoriesList";
 import AgentDropdown from "../components/agent/AgentDropdown";
@@ -184,6 +165,7 @@ const ProjectSettings: FC = () => {
   const [autoStartBacklogTasks, setAutoStartBacklogTasks] = useState(false);
   const [pullRequestReviewsEnabled, setPullRequestReviewsEnabled] =
     useState(false);
+  const [koditEnabled, setKoditEnabled] = useState(true);
   const [autoWarmDockerCache, setAutoWarmDockerCache] = useState(false);
   const [showGoldenBuildViewer, setShowGoldenBuildViewer] = useState(false);
   const [selectedGoldenSandboxId, setSelectedGoldenSandboxId] = useState("");
@@ -526,12 +508,7 @@ const ProjectSettings: FC = () => {
   const { data: providerEndpoints } = useListProviders({ loadModels: false });
   const hasAnthropicProvider = useMemo(() => {
     if (!providerEndpoints) return false;
-    return providerEndpoints.some(
-      (p) =>
-        p.endpoint_type ===
-          TypesProviderEndpointType.ProviderEndpointTypeUser &&
-        p.name === "anthropic",
-    );
+    return providerEndpoints.some((p) => p.name === "anthropic");
   }, [providerEndpoints]);
   const userProviderCount = useMemo(() => {
     if (!providerEndpoints) return 0;
@@ -601,6 +578,7 @@ const ProjectSettings: FC = () => {
       setPullRequestReviewsEnabled(
         project.pull_request_reviews_enabled || false,
       );
+      setKoditEnabled(project.kodit_enabled !== false);
       setAutoWarmDockerCache(
         project.metadata?.auto_warm_docker_cache || false,
       );
@@ -1414,7 +1392,7 @@ const ProjectSettings: FC = () => {
                     disabled={creatingAgent}
                     hasClaudeSubscription={hasClaudeSubscription}
                     hasAnthropicProvider={hasAnthropicProvider}
-                    recommendedModels={RECOMMENDED_MODELS}
+                    recommendedModels={RECOMMENDED_CODING_MODELS}
                     createAgentDescription="Code development agent for spec tasks"
                     onCreateStateChange={setCreatingAgent}
                     onAgentCreated={(app) => setSelectedAgentId(app.id)}
@@ -1595,6 +1573,34 @@ const ProjectSettings: FC = () => {
                     GitLab, etc.) as the primary repository.
                   </Typography>
                 )}
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <Box sx={{ flex: 1, mr: 2 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      Code intelligence
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {koditEnabled
+                        ? "Code intelligence is enabled for this project"
+                        : "Allow agents to use code intelligence for all of your organization's repositories"}
+                    </Typography>
+                  </Box>
+                  <Switch
+                    checked={koditEnabled}
+                    onChange={(e) => {
+                      const newValue = e.target.checked;
+                      setKoditEnabled(newValue);
+                      updateProjectMutation.mutate({
+                        kodit_enabled: newValue,
+                      });
+                    }}
+                  />
+                </Box>
               </Box>
             </Paper>
 

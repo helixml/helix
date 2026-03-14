@@ -1145,7 +1145,7 @@ const MemoizedMarkdownRenderer: FC<{ processedContent: string }> = React.memo(
     const markdownComponents = useMemo(
       () => ({
         code(props: any) {
-          const { children, className, node, ...rest } = props;
+          const { children, className, node, ref, ...rest } = props;
           const match = /language-(\w+)/.exec(className || "");
           return match ? (
             <CodeBlockWithCopy language={match[1]}>

@@ -236,10 +236,11 @@ func (s *Server) handleCreateDevContainer(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
-	defer cancel()
-
-	resp, err := s.devContainerManager.CreateDevContainer(ctx, &req)
+	// Use the request context without a blanket timeout. CreateDevContainer
+	// may copy a large golden cache (50+ GB) before touching Docker, and that
+	// copy reports progress independently. Docker operation timeouts are
+	// applied internally by CreateDevContainer once the copy is done.
+	resp, err := s.devContainerManager.CreateDevContainer(r.Context(), &req)
 	if err != nil {
 		log.Error().Err(err).
 			Str("session_id", req.SessionID).

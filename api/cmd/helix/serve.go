@@ -425,7 +425,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		ragSettings := &types.RAGSettings{}
 		ragSettings.Typesense.URL = cfg.RAG.Typesense.URL
 		ragSettings.Typesense.APIKey = cfg.RAG.Typesense.APIKey
-		ragClient, err = rag.NewTypesense(ragSettings)
+		ragClient, err = rag.NewTypesense(ctx, ragSettings)
 		if err != nil {
 			return fmt.Errorf("failed to create typesense RAG client: %v", err)
 		}

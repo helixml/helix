@@ -1353,10 +1353,14 @@ func (s *HelixAPIServer) sendApprovalInstructionToAgent(
 	primaryRepoName string,
 ) error {
 	// Fetch guidelines from project and organization
-	guidelines := s.getGuidelinesForSpecTask(ctx, specTask)
+	guidelines, project := s.getGuidelinesForSpecTask(ctx, specTask)
+	koditDoc := ""
+	if project != nil && project.KoditEnabled {
+		koditDoc = s.koditService.MCPDocumentation()
+	}
 
 	// Build the prompt using the shared function from services package
-	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines, primaryRepoName, s.koditService.MCPDocumentation())
+	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines, primaryRepoName, koditDoc)
 
 	_, err := s.sendMessageToSpecTaskAgent(ctx, specTask, message, "")
 	if err != nil {
@@ -1372,14 +1376,14 @@ func (s *HelixAPIServer) sendApprovalInstructionToAgent(
 }
 
 // getGuidelinesForSpecTask fetches concatenated organization + project guidelines
-func (s *HelixAPIServer) getGuidelinesForSpecTask(ctx context.Context, task *types.SpecTask) string {
+func (s *HelixAPIServer) getGuidelinesForSpecTask(ctx context.Context, task *types.SpecTask) (string, *types.Project) {
 	if task.ProjectID == "" {
-		return ""
+		return "", nil
 	}
 
 	project, err := s.Store.GetProject(ctx, task.ProjectID)
 	if err != nil || project == nil {
-		return ""
+		return "", nil
 	}
 
 	guidelines := ""
@@ -1400,5 +1404,5 @@ func (s *HelixAPIServer) getGuidelinesForSpecTask(ctx context.Context, task *typ
 		guidelines += project.Guidelines
 	}
 
-	return guidelines
+	return guidelines, project
 }

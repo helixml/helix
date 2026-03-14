@@ -124,6 +124,15 @@ type Anthropic struct {
 	APIKeyRefreshInterval time.Duration `envconfig:"ANTHROPIC_API_KEY_REFRESH_INTERVAL" default:"3s"`
 	Models                []string      `envconfig:"ANTHROPIC_MODELS"` // If set, only these models will be used
 
+	// Google Vertex AI configuration for Anthropic models
+	// When VertexProjectID is set, all Anthropic inference traffic routes through Vertex AI
+	// instead of the direct Anthropic API. Vertex wins unconditionally — ANTHROPIC_API_KEY
+	// is only used for model listing if also set.
+	VertexProjectID       string `envconfig:"ANTHROPIC_VERTEX_PROJECT_ID"`
+	VertexRegion          string `envconfig:"ANTHROPIC_VERTEX_REGION" default:"global"`
+	VertexCredentialsJSON string `envconfig:"ANTHROPIC_VERTEX_CREDENTIALS_JSON"` // service account JSON string; takes precedence over VertexCredentialsFile
+	VertexCredentialsFile string `envconfig:"ANTHROPIC_VERTEX_CREDENTIALS_FILE"` // path to service account JSON; empty = Application Default Credentials
+
 	// OAuth configuration for Claude subscription login flow
 	// Users can connect their Claude Pro/Max subscription via OAuth
 	OAuthClientID     string `envconfig:"ANTHROPIC_OAUTH_CLIENT_ID"`

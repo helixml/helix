@@ -28,7 +28,7 @@ type Typesense struct {
 
 var _ RAG = &Typesense{}
 
-func NewTypesense(settings *types.RAGSettings) (*Typesense, error) {
+func NewTypesense(ctx context.Context, settings *types.RAGSettings) (*Typesense, error) {
 	client := typesense.NewClient(
 		typesense.WithServer(settings.Typesense.URL),
 		typesense.WithAPIKey(settings.Typesense.APIKey),
@@ -47,14 +47,14 @@ func NewTypesense(settings *types.RAGSettings) (*Typesense, error) {
 		ready:      make(chan struct{}),
 	}
 
-	go t.waitForTypesense()
+	go t.waitForTypesense(ctx)
 
 	return t, nil
 }
 
-func (t *Typesense) waitForTypesense() {
+func (t *Typesense) waitForTypesense(ctx context.Context) {
 	err := retry.Do(func() error {
-		healthy, err := t.client.Health(context.Background(), 5*time.Second)
+		healthy, err := t.client.Health(ctx, 5*time.Second)
 		if err != nil {
 			return err
 		}
@@ -63,9 +63,10 @@ func (t *Typesense) waitForTypesense() {
 			return fmt.Errorf("typesense is not healthy yet")
 		}
 
-		return t.ensureCollection(context.Background())
+		return t.ensureCollection(ctx)
 	},
-		retry.Attempts(0),
+		retry.Context(ctx),
+		retry.Attempts(30),
 		retry.Delay(2*time.Second),
 		retry.MaxDelay(10*time.Second),
 		retry.LastErrorOnly(true),
@@ -73,12 +74,13 @@ func (t *Typesense) waitForTypesense() {
 			log.Warn().
 				Err(err).
 				Uint("retries", n).
+				Uint("max_retries", 30).
 				Msg("waiting for typesense to come up")
 		}),
 	)
 
 	if err != nil {
-		log.Error().Err(err).Msg("failed to connect to typesense")
+		log.Error().Err(err).Msg("failed to connect to typesense after 30 attempts, giving up")
 		return
 	}
 
