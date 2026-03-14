@@ -147,6 +147,10 @@ func vertexTransformRequest(r *http.Request, projectID, region string, tokenSour
 	r.Header.Del("api-key")
 	r.Header.Set("Authorization", "Bearer "+token.AccessToken)
 
+	// Strip anthropic-beta header — Vertex doesn't support all beta features
+	// (e.g. prompt-caching-scope-2026-01-05) and returns 400 for unknown values.
+	r.Header.Del("anthropic-beta")
+
 	// Always set the Vertex host/scheme so we never end up with an empty URL
 	baseURL := VertexBaseURL(region)
 	u, err := url.Parse(baseURL)
