@@ -269,8 +269,8 @@ In helix this is surfaced as `KoditFileResult` with `Preview` (full content), `L
 | `Filename` | Same as `Source` |
 | `ContentOffset` | Parse `StartLine` from `KoditFileResult.Lines` (e.g. `"120-150"` → `120`) — a line position in the extracted text, not a sequence index. Sufficient to distinguish chunks from the same file. |
 | `Distance` | `1.0 - KoditFileResult.Score` (convert similarity to distance) |
-| `DocumentID` | Compute as `sha256(Content)` in the adapter — matches how haystack and pgvector do it |
-| `DocumentGroupID` | Compute as `sha256(Source)` in the adapter — same convention |
+| `DocumentID` | Compute as `sha256(Content)` in the adapter from the returned chunk text |
+| `DocumentGroupID` | The kodit repo ID (int64 as string) — stable, unique per knowledge entity, already held by the adapter |
 | `Metadata` | From the `.meta.json` sidecar loaded by kodit |
 
 ### Citation validation: no change needed

@@ -20,7 +20,7 @@ All changes are in `application/handler/indexing/chunk_files.go`.
 - [ ] `Query()`: look up kodit repo ID for `q.DataEntityID`; call `koditSvc.SemanticSearch` + `KeywordSearch`; merge results with Reciprocal Rank Fusion (k=60); map `KoditFileResult` → `SessionRAGResult`
 - [ ] `Delete()`: look up kodit repo ID; call `koditSvc.DeleteRepository`; delete the synthetic git repo
 - [ ] Add `KoditRepoID int64` column to `KnowledgeVersion` table (migration) to persist the `DataEntityID → kodit repo ID` mapping
-- [ ] Implement `KoditFileResult → SessionRAGResult` mapping in adapter: `Content` = full `Preview` text, `ContentOffset` = `StartLine` parsed from `Lines` field (line position in extracted text, not a sequence index), `DocumentID` = `sha256(Content)`, `DocumentGroupID` = `sha256(Source)`, `Distance` = `1.0 - Score`
+- [ ] Implement `KoditFileResult → SessionRAGResult` mapping in adapter: `Content` = full `Preview` text, `ContentOffset` = `StartLine` parsed from `Lines` field (line position in extracted text, not a sequence index), `DocumentID` = `sha256(Content)`, `DocumentGroupID` = kodit repo ID (string), `Distance` = `1.0 - Score`
 - [ ] Implement RRF (k=60) merge of semantic and keyword search results before returning from `Query()`
 - [ ] Add `RAGProviderKodit = "kodit"` constant to `api/pkg/config/config.go`
 - [ ] Wire `KoditRAG` into `serve.go` switch statement
