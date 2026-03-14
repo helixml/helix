@@ -81,6 +81,7 @@ export default function Login() {
 
   const isRegular = config?.auth_provider === TypesAuthProvider.AuthProviderRegular
   const isRegistrationDisabled = mode === 'register' && config?.registration_enabled === false
+  const isCloud = config?.edition === 'cloud'
 
   // If user is already logged in, redirect away
   useEffect(() => {
@@ -423,7 +424,7 @@ export default function Login() {
                     lineHeight: 1.6,
                   }}
                 >
-                  Use your organization's single sign-on to access Helix.
+                  {isCloud ? 'Sign in to your Helix account.' : "Use your organization's single sign-on to access Helix."}
                 </Typography>
 
                 <Button
@@ -441,7 +442,7 @@ export default function Login() {
                     '&:hover': { bgcolor: '#00B8CC' },
                   }}
                 >
-                  Sign in with SSO
+                  {isCloud ? 'Sign in' : 'Sign in with SSO'}
                 </Button>
               </Box>
             )}
