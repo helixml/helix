@@ -79,7 +79,7 @@ func (c *RetryableClient) listGoogleModels(ctx context.Context) ([]types.OpenAIM
 		}
 
 		openaiModels = append(openaiModels, types.OpenAIModel{
-			ID:            model.Name,
+			ID:            strings.TrimPrefix(model.Name, "models/"),
 			Description:   model.Description,
 			Type:          "chat",
 			ContextLength: model.InputTokenLimit,

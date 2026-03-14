@@ -77,9 +77,9 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
   const [baseUrl, setBaseUrl] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [isFieldFocused, setIsFieldFocused] = useState(false);
-  const { mutate: createProviderEndpoint, isPending: isCreating } = useCreateProviderEndpoint();
-  const { mutate: updateProviderEndpoint, isPending: isUpdating } = useUpdateProviderEndpoint(existingProvider?.id || '');
-  const { mutate: deleteProviderEndpoint, isPending: isDeleting } = useDeleteProviderEndpoint();
+  const { mutateAsync: createProviderEndpoint, isPending: isCreating } = useCreateProviderEndpoint();
+  const { mutateAsync: updateProviderEndpoint, isPending: isUpdating } = useUpdateProviderEndpoint(existingProvider?.id || '');
+  const { mutateAsync: deleteProviderEndpoint, isPending: isDeleting } = useDeleteProviderEndpoint();
 
   const { success: snackbarSuccess } = useSnackbar();
 
