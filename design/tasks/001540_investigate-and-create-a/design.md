@@ -228,6 +228,65 @@ Existing haystack vector data does **not** need to be migrated:
 
 ---
 
+## Citations
+
+### How the current system works
+
+The frontend has two citation components:
+
+- **`Citation.tsx`**: renders each RAG hit as a quoted snippet with a source filename and a link
+- **`CitationComparisonModal.tsx`**: side-by-side view that validates whether the text the LLM quoted actually appears in the RAG chunk (exact match → green, fuzzy → orange, failed → red)
+
+The fields from `SessionRAGResult` used for citation display and validation are:
+
+| Field | How it's used |
+|-------|--------------|
+| `Content` | The full chunk text — sent to the LLM as context and compared against LLM quotes during validation |
+| `Source` | Original file path or URL — used to build a link to the source |
+| `Filename` | Displayed as the citation source name |
+| `ContentOffset` | Currently a **chunk sequence index** (0, 1, 2…), not a byte offset — used to distinguish chunks from the same document |
+| `DocumentID` | Hash of chunk content — used to look up the right chunk during validation |
+| `DocumentGroupID` | Hash of the source file path — groups chunks from the same file |
+| `Metadata` | Custom fields including `original_filename`, `original_source`, `chunk_id` |
+
+Notably: there is **no page number** in the current citation system. `ContentOffset` is just a sequential chunk index. The frontend does not link to a specific PDF page.
+
+### What kodit returns from search
+
+Kodit search results (`SnippetContentSchema` in the kodit API) contain:
+- `Value` — the **full, untruncated chunk text** (confirmed by reading kodit source: `enrichmentToSearchResult()` passes `e.Content()` directly, no truncation)
+- `StartLine` / `EndLine` — line range within the extracted text
+- `Language` — file language/type
+
+In helix this is surfaced as `KoditFileResult` with `Preview` (full content), `Lines`, `Path`, `Score`.
+
+### Field mapping: KoditFileResult → SessionRAGResult
+
+| `SessionRAGResult` field | Source in kodit |
+|--------------------------|----------------|
+| `Content` | `KoditFileResult.Preview` (full chunk text, despite the misleading name) |
+| `Source` | `KoditFileResult.Path` — this is the filename as committed to the git repo, which is the original filename |
+| `Filename` | Same as `Source` |
+| `ContentOffset` | Parse `StartLine` from `KoditFileResult.Lines` (e.g. `"120-150"` → `120`) — serves the same purpose as a chunk index |
+| `Distance` | `1.0 - KoditFileResult.Score` (convert similarity to distance) |
+| `DocumentID` | Compute as `sha256(Content)` in the adapter — matches how haystack and pgvector do it |
+| `DocumentGroupID` | Compute as `sha256(Source)` in the adapter — same convention |
+| `Metadata` | From the `.meta.json` sidecar loaded by kodit |
+
+### Citation validation: no change needed
+
+The `CitationComparisonModal` works by:
+1. Finding the RAG result whose `document_id` matches the citation
+2. Checking whether the LLM-quoted text appears in `result.content`
+
+Since kodit returns the full chunk text (not a preview), this validation logic works identically. No frontend changes required.
+
+### Page-level citations for PDFs (future)
+
+The current system has no page-level citation. If this is wanted later, the kodit PDF converter can prefix each page's extracted text with a structural marker (e.g. `\f` form-feed or `<!-- page N -->`). The chunker preserves line ranges, so a chunk's `StartLine` can be mapped back to a page number by counting markers in the pre-chunking text. This is additive and does not affect the current design.
+
+---
+
 ## Interfaces to Maintain (no upstream changes)
 
 These types in `api/pkg/types/types.go` remain unchanged:
