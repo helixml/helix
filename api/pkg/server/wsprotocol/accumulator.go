@@ -5,9 +5,11 @@ import "strings"
 // ResponseEntry represents a single typed entry in the response.
 // Used to preserve the structural boundary between assistant text and tool calls.
 type ResponseEntry struct {
-	Type      string `json:"type"` // "text" or "tool_call"
-	Content   string `json:"content"`
-	MessageID string `json:"message_id"`
+	Type       string `json:"type"` // "text" or "tool_call"
+	Content    string `json:"content"`
+	MessageID  string `json:"message_id"`
+	ToolName   string `json:"tool_name,omitempty"`   // For tool_call: the tool label
+	ToolStatus string `json:"tool_status,omitempty"` // For tool_call: "Completed", "In Progress", etc.
 }
 
 // MessageAccumulator handles the multi-message append/overwrite logic for
@@ -40,6 +42,9 @@ type MessageAccumulator struct {
 	messageContent map[string]string
 	// Map from message_id to its entry type ("text" or "tool_call")
 	messageType map[string]string
+	// Map from message_id to tool metadata (name, status) for tool_call entries
+	messageToolName   map[string]string
+	messageToolStatus map[string]string
 }
 
 // AddMessage processes a new content update from Zed.
@@ -55,11 +60,22 @@ func (a *MessageAccumulator) AddMessage(messageID, content string) {
 // entryType should be "text" for assistant prose or "tool_call" for tool invocations.
 // An empty entryType preserves any previously stored type for this message_id.
 func (a *MessageAccumulator) AddMessageWithType(messageID, content, entryType string) {
+	a.AddMessageWithToolInfo(messageID, content, entryType, "", "")
+}
+
+// AddMessageWithToolInfo processes a new content update with full tool metadata.
+func (a *MessageAccumulator) AddMessageWithToolInfo(messageID, content, entryType, toolName, toolStatus string) {
 	if a.messageContent == nil {
 		a.messageContent = make(map[string]string)
 	}
 	if a.messageType == nil {
 		a.messageType = make(map[string]string)
+	}
+	if a.messageToolName == nil {
+		a.messageToolName = make(map[string]string)
+	}
+	if a.messageToolStatus == nil {
+		a.messageToolStatus = make(map[string]string)
 	}
 
 	// Migrate legacy state: if we have Content but no messageOrder, this
@@ -86,12 +102,24 @@ func (a *MessageAccumulator) AddMessageWithType(messageID, content, entryType st
 		if entryType != "" {
 			a.messageType[messageID] = entryType
 		}
+		if toolName != "" {
+			a.messageToolName[messageID] = toolName
+		}
+		if toolStatus != "" {
+			a.messageToolStatus[messageID] = toolStatus
+		}
 	} else {
 		// New message_id — append to order
 		a.messageOrder = append(a.messageOrder, messageID)
 		a.messageContent[messageID] = content
 		if entryType != "" {
 			a.messageType[messageID] = entryType
+		}
+		if toolName != "" {
+			a.messageToolName[messageID] = toolName
+		}
+		if toolStatus != "" {
+			a.messageToolStatus[messageID] = toolStatus
 		}
 	}
 
@@ -119,9 +147,11 @@ func (a *MessageAccumulator) Entries() []ResponseEntry {
 			}
 		}
 		entries = append(entries, ResponseEntry{
-			Type:      t,
-			Content:   c,
-			MessageID: id,
+			Type:       t,
+			Content:    c,
+			MessageID:  id,
+			ToolName:   a.messageToolName[id],
+			ToolStatus: a.messageToolStatus[id],
 		})
 	}
 	return entries

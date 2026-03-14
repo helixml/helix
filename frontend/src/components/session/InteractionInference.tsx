@@ -23,6 +23,8 @@ export interface ResponseEntry {
   type: "text" | "tool_call";
   content: string;
   message_id: string;
+  tool_name?: string;
+  tool_status?: string;
 }
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
@@ -99,22 +101,9 @@ export const MessageWithToolCalls: FC<{
         {responseEntries.map((entry, i) => {
           if (entry.type === "tool_call") {
             const isLast = i === responseEntries.length - 1;
-            // Extract tool name from first line of content, stripping markdown bold markers
-            const firstLine = (entry.content || "").split("\n")[0];
-            const toolName = firstLine
-              .replace(/^\*\*Tool Call:\s*/, "")
-              .replace(/\*\*\s*$/, "")
-              .trim() || "Tool Call";
-            // Extract status from "Status: <word>" line if present
-            const statusMatch = entry.content.match(/^Status:\s*(\S+)/m);
-            const status = statusMatch
-              ? statusMatch[1]
-              : (isLast && isStreaming ? "Running" : "Completed");
-            // Body is everything after the status line (or after the first line if no status)
-            const headerEnd = statusMatch
-              ? entry.content.indexOf(statusMatch[0]) + statusMatch[0].length
-              : firstLine.length;
-            const body = entry.content.slice(headerEnd).trim();
+            const toolName = entry.tool_name || "Tool Call";
+            const status = entry.tool_status || (isLast && isStreaming ? "Running" : "Completed");
+            const body = entry.content || "";
             return (
               <React.Fragment key={`tc-${i}`}>
                 <CollapsibleToolCall

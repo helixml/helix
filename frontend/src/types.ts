@@ -332,6 +332,8 @@ export interface IEntryPatch {
   patch: string,
   patch_offset: number,
   total_length: number,
+  tool_name?: string,
+  tool_status?: string,
 }
 
 export interface IWebsocketEvent {

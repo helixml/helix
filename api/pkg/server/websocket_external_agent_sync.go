@@ -877,6 +877,9 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 	// entry_type distinguishes "text" (assistant prose) from "tool_call" (tool invocations).
 	// Optional field — old Zed versions don't send it (defaults to empty string).
 	entryType, _ := syncMsg.Data["entry_type"].(string)
+	// Structured tool call metadata — sent by Zed for tool_call entries.
+	toolName, _ := syncMsg.Data["tool_name"].(string)
+	toolStatus, _ := syncMsg.Data["tool_status"].(string)
 
 	log.Info().
 		Str("session_id", sessionID).
@@ -1017,7 +1020,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			acc := sctx.accumulator
 			prevMessageID := acc.LastMessageID
 
-			acc.AddMessageWithType(messageID, content, entryType)
+			acc.AddMessageWithToolInfo(messageID, content, entryType, toolName, toolStatus)
 
 			if prevMessageID != "" && prevMessageID != messageID {
 				log.Info().
@@ -2735,7 +2738,9 @@ func (apiServer *HelixAPIServer) publishEntryPatchesToFrontend(
 		if i < len(previousEntries) &&
 			prevContent == entry.Content &&
 			previousEntries[i].Type == entry.Type &&
-			previousEntries[i].MessageID == entry.MessageID {
+			previousEntries[i].MessageID == entry.MessageID &&
+			previousEntries[i].ToolName == entry.ToolName &&
+			previousEntries[i].ToolStatus == entry.ToolStatus {
 			continue
 		}
 		epOffset, epPatch, epTotalLen := computePatch(prevContent, entry.Content)
@@ -2746,6 +2751,8 @@ func (apiServer *HelixAPIServer) publishEntryPatchesToFrontend(
 			Patch:       epPatch,
 			PatchOffset: epOffset,
 			TotalLength: epTotalLen,
+			ToolName:    entry.ToolName,
+			ToolStatus:  entry.ToolStatus,
 		})
 	}
 

@@ -454,6 +454,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
                   ep.total_length,
                 ),
                 message_id: ep.message_id,
+                tool_name: ep.tool_name || currentEntries[ep.index].tool_name,
+                tool_status: ep.tool_status || currentEntries[ep.index].tool_status,
               };
             }
           }

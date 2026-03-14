@@ -900,6 +900,8 @@ type EntryPatch struct {
 	Patch       string `json:"patch,omitempty"`        // Content delta from PatchOffset onwards
 	PatchOffset int    `json:"patch_offset,omitempty"` // UTF-16 offset of first change in this entry
 	TotalLength int    `json:"total_length,omitempty"` // Final content length of this entry after patch
+	ToolName    string `json:"tool_name,omitempty"`    // For tool_call: the tool label
+	ToolStatus  string `json:"tool_status,omitempty"`  // For tool_call: "Completed", "In Progress", etc.
 }
 
 type StepInfoType string
