@@ -40,39 +40,4 @@ export function applyPatch(
   return newContent;
 }
 
-/**
- * Manages patch-based content accumulation for streaming responses.
- * Maintains internal state and provides the reconstructed content.
- */
-export class PatchAccumulator {
-  private content: string = "";
 
-  /**
-   * Apply a patch and return the new content.
-   */
-  apply(patchOffset: number, patch: string, totalLength: number): string {
-    this.content = applyPatch(this.content, patchOffset, patch, totalLength);
-    return this.content;
-  }
-
-  /**
-   * Get the current accumulated content.
-   */
-  getContent(): string {
-    return this.content;
-  }
-
-  /**
-   * Set content directly (e.g., from a full interaction update).
-   */
-  setContent(content: string): void {
-    this.content = content;
-  }
-
-  /**
-   * Reset the accumulator for a new streaming session.
-   */
-  reset(): void {
-    this.content = "";
-  }
-}

@@ -1757,8 +1757,8 @@ func (s *WebSocketSyncSuite) TestComputePatch_MultiByte() {
 }
 
 // TestStreamingPatch_PreviousContentTracked verifies that the streaming context
-// tracks previousContent for patch computation and updates it after each publish.
-func (s *WebSocketSyncSuite) TestStreamingPatch_PreviousContentTracked() {
+// tracks previousEntries for per-entry patch computation and updates after each publish.
+func (s *WebSocketSyncSuite) TestStreamingPatch_PreviousEntriesTracked() {
 	helixSessionID := "ses-patch-test"
 	acpThreadID := "thread-patch-1"
 	interactionID := "int-patch-1"
@@ -1792,18 +1792,21 @@ func (s *WebSocketSyncSuite) TestStreamingPatch_PreviousContentTracked() {
 			"role":          "assistant",
 			"message_id":    "msg-1",
 			"content":       "Hello",
+			"entry_type":    "text",
 		},
 	}
 
-	// Send first token — creates streaming context with previousContent=""
+	// Send first token — creates streaming context
 	err := s.server.handleMessageAdded("agent-1", syncMsg)
 	s.NoError(err)
 
-	// Verify previousContent is updated after publish
+	// Verify previousEntries is updated after publish
 	sctx := s.server.streamingContexts[helixSessionID]
 	sctx.mu.Lock()
-	s.Equal("Hello", sctx.previousContent, "previousContent should be updated after first publish")
-	s.Equal("Hello", sctx.interaction.ResponseMessage)
+	s.Require().Len(sctx.previousEntries, 1, "should have 1 entry after first publish")
+	s.Equal("Hello", sctx.previousEntries[0].Content)
+	s.Equal("text", sctx.previousEntries[0].Type)
+	s.Equal("msg-1", sctx.previousEntries[0].MessageID)
 	sctx.mu.Unlock()
 
 	// Expire throttles for second token
@@ -1812,32 +1815,32 @@ func (s *WebSocketSyncSuite) TestStreamingPatch_PreviousContentTracked() {
 	sctx.lastDBWrite = time.Now().Add(-300 * time.Millisecond)
 	sctx.mu.Unlock()
 
-	// Second token: append
+	// Second token: append to same entry
 	syncMsg.Data["content"] = "Hello world"
 	err = s.server.handleMessageAdded("agent-1", syncMsg)
 	s.NoError(err)
 
 	sctx.mu.Lock()
-	s.Equal("Hello world", sctx.previousContent, "previousContent should track latest published content")
-	s.Equal("Hello world", sctx.interaction.ResponseMessage)
+	s.Require().Len(sctx.previousEntries, 1)
+	s.Equal("Hello world", sctx.previousEntries[0].Content, "entry content should track latest published content")
 	sctx.mu.Unlock()
 
-	// Third token with backwards edit: tool call status change
+	// Third token: new entry (tool call)
 	sctx.mu.Lock()
 	sctx.lastPublish = time.Now().Add(-100 * time.Millisecond)
 	sctx.lastDBWrite = time.Now().Add(-300 * time.Millisecond)
 	sctx.mu.Unlock()
 
-	syncMsg.Data["content"] = "Hello earth"
+	syncMsg.Data["message_id"] = "msg-2"
+	syncMsg.Data["content"] = "**Tool Call: list_files**"
+	syncMsg.Data["entry_type"] = "tool_call"
 	err = s.server.handleMessageAdded("agent-1", syncMsg)
 	s.NoError(err)
 
 	sctx.mu.Lock()
-	s.Equal("Hello earth", sctx.previousContent)
-	// Verify patch computation would have produced the right delta
-	offset, patch, totalLen := computePatch("Hello world", "Hello earth")
-	s.Equal(6, offset)      // "Hello " is common prefix
-	s.Equal("earth", patch) // Changed portion
-	s.Equal(11, totalLen)
+	s.Require().Len(sctx.previousEntries, 2, "should have 2 entries after new message_id")
+	s.Equal("Hello world", sctx.previousEntries[0].Content, "first entry unchanged")
+	s.Equal("**Tool Call: list_files**", sctx.previousEntries[1].Content)
+	s.Equal("tool_call", sctx.previousEntries[1].Type)
 	sctx.mu.Unlock()
 }

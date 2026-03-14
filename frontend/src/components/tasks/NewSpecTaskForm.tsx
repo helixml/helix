@@ -26,6 +26,7 @@ import {
 } from "@mui/material";
 import { Add as AddIcon, Close as CloseIcon } from "@mui/icons-material";
 import { X } from "lucide-react";
+import { RECOMMENDED_CODING_MODELS } from "../../constants/models";
 
 import { CodeAgentRuntime, generateAgentName } from "../../contexts/apps";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
@@ -50,25 +51,7 @@ import useApps from "../../hooks/useApps";
 import { useGetProject, useGetProjectRepositories } from "../../services";
 import { useSpecTasks } from "../../services/specTaskService";
 
-// Recommended models for zed_external agents (state-of-the-art coding models)
-const RECOMMENDED_MODELS = [
-  // Anthropic
-  "claude-opus-4-5-20251101",
-  "claude-sonnet-4-5-20250929",
-  "claude-haiku-4-5-20251001",
-  // OpenAI
-  "openai/gpt-5.1-codex",
-  "openai/gpt-oss-120b",
-  // Google Gemini
-  "gemini-2.5-pro",
-  "gemini-2.5-flash",
-  // Zhipu GLM
-  "glm-4.6",
-  // Qwen (Coder + Large)
-  "Qwen/Qwen3-Coder-480B-A35B-Instruct",
-  "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-  "Qwen/Qwen3-235B-A22B-fp8-tput",
-];
+
 
 interface NewSpecTaskFormProps {
   projectId: string;
@@ -188,12 +171,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const { data: providerEndpoints } = useListProviders({ loadModels: false });
   const hasAnthropicProvider = useMemo(() => {
     if (!providerEndpoints) return false;
-    return providerEndpoints.some(
-      (p) =>
-        p.endpoint_type ===
-          TypesProviderEndpointType.ProviderEndpointTypeUser &&
-        p.name === "anthropic",
-    );
+    return providerEndpoints.some((p) => p.name === "anthropic");
   }, [providerEndpoints]);
   const userProviderCount = useMemo(() => {
     if (!providerEndpoints) return 0;
@@ -230,6 +208,16 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
       }
     });
 
+    // Sort zed_external agents by model quality (opus > sonnet > haiku > other)
+    const modelPriority = (app: IApp): number => {
+      const name = (app.config?.helix?.name || "").toLowerCase();
+      if (name.includes("opus")) return 0;
+      if (name.includes("sonnet")) return 1;
+      if (name.includes("haiku")) return 3;
+      return 2; // unknown models between sonnet and haiku
+    };
+    zedExternalApps.sort((a, b) => modelPriority(a) - modelPriority(b));
+
     const result: IApp[] = [];
     if (defaultApp) result.push(defaultApp);
     result.push(...zedExternalApps, ...otherApps);
@@ -244,15 +232,11 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm]);
 
   useEffect(() => {
-    if (
-      hasClaudeSubscription &&
-      !hasAnthropicProvider &&
-      userProviderCount === 0
-    ) {
+    if (hasClaudeSubscription || hasAnthropicProvider) {
       setCodeAgentRuntime("claude_code");
-      setClaudeCodeMode("subscription");
+      setClaudeCodeMode(hasAnthropicProvider ? "api_key" : "subscription");
     }
-  }, [hasClaudeSubscription, hasAnthropicProvider, userProviderCount]);
+  }, [hasClaudeSubscription, hasAnthropicProvider]);
 
   // Load apps on mount
   useEffect(() => {
@@ -771,7 +755,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                   disabled={creatingAgent || isCreating}
                   hasClaudeSubscription={hasClaudeSubscription}
                   hasAnthropicProvider={hasAnthropicProvider}
-                  recommendedModels={RECOMMENDED_MODELS}
+                  recommendedModels={RECOMMENDED_CODING_MODELS}
                   createAgentDescription="Code development agent for spec tasks"
                   onCreateStateChange={setCreatingAgent}
                   onAgentCreated={(app) => {

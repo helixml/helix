@@ -325,6 +325,17 @@ export interface IInteractionMessage {
 //   config: IBotConfig,
 // }
 
+export interface IEntryPatch {
+  index: number,
+  message_id: string,
+  type: string,
+  patch: string,
+  patch_offset: number,
+  total_length: number,
+  tool_name?: string,
+  tool_status?: string,
+}
+
 export interface IWebsocketEvent {
   type: IWebSocketEventType,
   session_id: string,
@@ -334,11 +345,11 @@ export interface IWebsocketEvent {
   interaction?: TypesInteraction, // Single interaction for interaction_update events
   worker_task_response?: IWorkerTaskResponse,
   step_info?: TypesStepInfo,
-  // Patch fields for efficient streaming updates (interaction_patch events).
-  // Frontend applies: content = content.slice(0, patch_offset) + patch
-  patch?: string,        // Content from patch_offset onwards
-  patch_offset?: number, // Byte position of first change
-  total_length?: number, // Final content length after patch
+  // Per-entry structured patches for streaming (interaction_patch events).
+  // Each entry_patch carries a per-entry string patch so the frontend can
+  // maintain a ResponseEntry[] with correct type boundaries during streaming.
+  entry_patches?: IEntryPatch[],
+  entry_count?: number,
 }
 
 

@@ -36,9 +36,14 @@ type streamingContext struct {
 	dirty       bool // true if interaction has been updated since last DB write
 	// Frontend publish throttling
 	lastPublish time.Time
-	// Patch-based delta tracking: tracks content sent to frontend so we can compute diffs
-	previousContent string // last ResponseMessage sent to frontend
-	mu              sync.Mutex
+	// Per-entry delta tracking: tracks entries sent to frontend so we can compute per-entry diffs
+	previousEntries []wsprotocol.ResponseEntry
+	// Message accumulator: persists across handleMessageAdded calls so that
+	// out-of-order flush updates (Stopped event) can replace earlier message_ids
+	// in-place instead of appending duplicates. A new accumulator per call would
+	// lose the message_id→content mapping because the DB only stores the joined string.
+	accumulator *wsprotocol.MessageAccumulator
+	mu          sync.Mutex
 }
 
 const (
@@ -869,6 +874,13 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		return fmt.Errorf("missing or invalid role")
 	}
 
+	// entry_type distinguishes "text" (assistant prose) from "tool_call" (tool invocations).
+	// Optional field — old Zed versions don't send it (defaults to empty string).
+	entryType, _ := syncMsg.Data["entry_type"].(string)
+	// Structured tool call metadata — sent by Zed for tool_call entries.
+	toolName, _ := syncMsg.Data["tool_name"].(string)
+	toolStatus, _ := syncMsg.Data["tool_status"].(string)
+
 	log.Info().
 		Str("session_id", sessionID).
 		Str("context_id", contextID).
@@ -992,16 +1004,23 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			// IMPORTANT: Keep state as Waiting - only message_completed marks it as Complete
 			//
 			// MULTI-MESSAGE HANDLING using wsprotocol.MessageAccumulator:
-			// Restores state from DB fields (LastZedMessageID, LastZedMessageOffset)
-			// so accumulation is restart-resilient.
-			acc := &wsprotocol.MessageAccumulator{
-				Content:       targetInteraction.ResponseMessage,
-				LastMessageID: targetInteraction.LastZedMessageID,
-				Offset:        targetInteraction.LastZedMessageOffset,
+			// The accumulator is stored in the streaming context so it persists
+			// across calls. This is critical: the Stopped flush sends corrected
+			// content for earlier message_ids (out of order), and the accumulator
+			// needs its message_id→content map to replace them in-place.
+			// Creating a new accumulator per call would lose this mapping because
+			// the DB only stores the joined Content string + LastMessageID/Offset.
+			if sctx.accumulator == nil {
+				sctx.accumulator = &wsprotocol.MessageAccumulator{
+					Content:       targetInteraction.ResponseMessage,
+					LastMessageID: targetInteraction.LastZedMessageID,
+					Offset:        targetInteraction.LastZedMessageOffset,
+				}
 			}
+			acc := sctx.accumulator
 			prevMessageID := acc.LastMessageID
 
-			acc.AddMessage(messageID, content)
+			acc.AddMessageWithToolInfo(messageID, content, entryType, toolName, toolStatus)
 
 			if prevMessageID != "" && prevMessageID != messageID {
 				log.Info().
@@ -1038,16 +1057,17 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				Msg("📝 [HELIX] Updated interaction in-memory")
 
 			// THROTTLED FRONTEND PUBLISH: Only publish if enough time has passed.
-			// Uses patch-based delta to reduce wire traffic from O(N) to O(delta).
+			// Uses per-entry patches to reduce wire traffic from O(N) to O(delta).
 			if now.Sub(sctx.lastPublish) >= publishInterval {
-				err := apiServer.publishInteractionPatchToFrontend(helixSessionID, helixSession.Owner, targetInteraction, sctx.previousContent, sctx.commenterID)
+				currentEntries := acc.Entries()
+				err := apiServer.publishEntryPatchesToFrontend(helixSessionID, helixSession.Owner, targetInteraction.ID, sctx.previousEntries, currentEntries, sctx.commenterID)
 				if err != nil {
 					log.Error().Err(err).
 						Str("session_id", helixSessionID).
 						Str("interaction_id", targetInteraction.ID).
-						Msg("Failed to publish interaction patch to frontend")
+						Msg("Failed to publish entry patches to frontend")
 				}
-				sctx.previousContent = targetInteraction.ResponseMessage
+				sctx.previousEntries = currentEntries
 				sctx.lastPublish = now
 			}
 		} else {
@@ -1112,8 +1132,8 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 // redundant GetSession + ListInteractions queries on every streaming token.
 //
 // IMPORTANT: Also detects interaction transitions (follow-up messages) and resets
-// previousContent when the target interaction changes. This prevents patch computation
-// from using stale previousContent from the old interaction.
+// previousEntries when the target interaction changes. This prevents patch computation
+// from using stale entries from the old interaction.
 func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context, helixSessionID string) *streamingContext {
 	// Check what interaction we SHOULD be targeting (from sessionToWaitingInteraction mapping)
 	apiServer.contextMappingsMutex.RLock()
@@ -1147,10 +1167,11 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 			// Reset for new interaction - will be populated below
 			sctx.interaction = nil
 			sctx.interactionID = ""
-			sctx.previousContent = ""
+			sctx.previousEntries = nil
 			sctx.dirty = false
 			sctx.lastDBWrite = time.Time{}
 			sctx.lastPublish = time.Time{}
+			sctx.accumulator = nil // clear stale message_id mappings from old interaction
 		}
 		sctx.mu.Unlock()
 
@@ -1254,34 +1275,67 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 // then removes the cached streaming context for a session.
 // Called on message_completed to ensure the DB has the latest content before
 // the interaction is marked as complete.
-func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Context, helixSessionID string) {
+func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Context, helixSessionID string) []wsprotocol.ResponseEntry {
 	apiServer.streamingContextsMu.Lock()
 	sctx, exists := apiServer.streamingContexts[helixSessionID]
 	delete(apiServer.streamingContexts, helixSessionID)
 	apiServer.streamingContextsMu.Unlock()
 
 	if !exists || sctx == nil {
-		return
+		return nil
 	}
 
 	sctx.mu.Lock()
 	defer sctx.mu.Unlock()
 
-	if sctx.dirty && sctx.interaction != nil {
-		_, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, sctx.interaction)
-		if err != nil {
-			log.Error().Err(err).
-				Str("session_id", helixSessionID).
-				Str("interaction_id", sctx.interaction.ID).
-				Msg("Failed to flush dirty interaction on streaming context clear")
-		} else {
-			log.Info().
-				Str("session_id", helixSessionID).
-				Str("interaction_id", sctx.interaction.ID).
-				Int("content_length", len(sctx.interaction.ResponseMessage)).
-				Msg("📦 [PERF] Flushed dirty interaction to DB before message_completed")
+	if sctx.interaction != nil {
+		if sctx.dirty {
+			_, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, sctx.interaction)
+			if err != nil {
+				log.Error().Err(err).
+					Str("session_id", helixSessionID).
+					Str("interaction_id", sctx.interaction.ID).
+					Msg("Failed to flush dirty interaction on streaming context clear")
+			} else {
+				log.Info().
+					Str("session_id", helixSessionID).
+					Str("interaction_id", sctx.interaction.ID).
+					Int("content_length", len(sctx.interaction.ResponseMessage)).
+					Msg("📦 [PERF] Flushed dirty interaction to DB before message_completed")
+			}
+		}
+
+		// CRITICAL: Publish one final set of entry patches to the frontend with the
+		// complete corrected content, bypassing the publish throttle. During streaming,
+		// the throttle may have sent truncated snapshots. The Stopped flush corrects
+		// the accumulator, but the throttle can swallow these corrections if
+		// message_completed arrives immediately after.
+		if sctx.session != nil && sctx.accumulator != nil {
+			currentEntries := sctx.accumulator.Entries()
+			err := apiServer.publishEntryPatchesToFrontend(
+				helixSessionID, sctx.session.Owner, sctx.interaction.ID,
+				sctx.previousEntries, currentEntries, sctx.commenterID,
+			)
+			if err != nil {
+				log.Error().Err(err).
+					Str("session_id", helixSessionID).
+					Str("interaction_id", sctx.interaction.ID).
+					Msg("Failed to publish final corrected entry patches to frontend")
+			} else {
+				log.Info().
+					Str("session_id", helixSessionID).
+					Str("interaction_id", sctx.interaction.ID).
+					Msg("📦 [FLUSH] Published final corrected entry patches to frontend before completion")
+			}
 		}
 	}
+
+	// Extract structured entries from the accumulator before it's destroyed.
+	// These preserve the type (text vs tool_call) and ordering of each message_id.
+	if sctx.accumulator != nil {
+		return sctx.accumulator.Entries()
+	}
+	return nil
 }
 
 // handleMessageUpdated processes message updates from external agent
@@ -1771,7 +1825,9 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 
 	// Flush any dirty streaming context to DB before clearing.
 	// The throttled DB writes in handleMessageAdded may have left unflushed content.
-	apiServer.flushAndClearStreamingContext(context.Background(), helixSessionID)
+	// Also extract the structured response entries (typed, ordered) from the accumulator
+	// before it's destroyed — these are stored on the interaction for structured rendering.
+	responseEntries := apiServer.flushAndClearStreamingContext(context.Background(), helixSessionID)
 
 	// Get the session
 	helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
@@ -1830,10 +1886,31 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("state_before", string(targetInteraction.State)).
 		Msg("🔄 [HELIX] Reloaded interaction with latest response content")
 
+	// Warn if the response is suspiciously empty — likely indicates content was lost
+	// during the streaming→flush→reload pipeline
+	if targetInteraction.ResponseMessage == "" {
+		log.Warn().
+			Str("helix_session_id", helixSessionID).
+			Str("interaction_id", targetInteraction.ID).
+			Msg("⚠️ [HELIX] message_completed but response_message is EMPTY — content may have been lost during streaming flush")
+	}
+
 	// Mark the interaction as complete
 	targetInteraction.State = types.InteractionStateComplete
 	targetInteraction.Completed = time.Now()
 	targetInteraction.Updated = time.Now()
+
+	// Store structured response entries if available (from accumulator).
+	// This preserves the type and ordering of each entry (text vs tool_call)
+	// so the frontend can render them with the correct component in order.
+	if len(responseEntries) > 0 {
+		entriesJSON, err := json.Marshal(responseEntries)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to marshal response entries")
+		} else {
+			targetInteraction.ResponseEntries = entriesJSON
+		}
+	}
 
 	_, err = apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction)
 	if err != nil {
@@ -2627,64 +2704,86 @@ func computePatch(previousContent, newContent string) (patchOffset int, patch st
 	return utf16Off, newContent[byteOff:], totalLength
 }
 
-// publishInteractionPatchToFrontend sends a delta patch instead of the full interaction.
-// This reduces per-update wire traffic from O(N) to O(delta). The frontend applies the
-// patch to reconstruct the full content: content = content[:patchOffset] + patch.
-// If commenterID is provided, also publishes to the commenter's queue (for design review comments).
-func (apiServer *HelixAPIServer) publishInteractionPatchToFrontend(
-	sessionID, owner string,
-	interaction *types.Interaction,
-	previousContent string,
+// publishEntryPatchesToFrontend sends per-entry delta patches for structured streaming.
+// Each entry gets its own string patch (offset/patch/length) so unchanged entries cost
+// zero bytes on the wire. The frontend maintains a ResponseEntry[] and applies patches
+// per-entry to reconstruct content with correct type boundaries (text vs tool_call).
+//
+// If commenterID is provided, also publishes to the commenter's queue (for design review).
+func (apiServer *HelixAPIServer) publishEntryPatchesToFrontend(
+	sessionID, owner, interactionID string,
+	previousEntries []wsprotocol.ResponseEntry,
+	currentEntries []wsprotocol.ResponseEntry,
 	commenterID ...string,
-) (err error) {
-	patchOffset, patch, totalLength := computePatch(previousContent, interaction.ResponseMessage)
+) error {
+	if len(currentEntries) == 0 {
+		return nil
+	}
 
 	event := &types.WebsocketEvent{
 		Type:          types.WebsocketEventInteractionPatch,
 		SessionID:     sessionID,
-		InteractionID: interaction.ID,
+		InteractionID: interactionID,
 		Owner:         owner,
-		Patch:         patch,
-		PatchOffset:   patchOffset,
-		TotalLength:   totalLength,
+		EntryCount:    len(currentEntries),
 	}
+
+	var entryPatches []types.EntryPatch
+	for i, entry := range currentEntries {
+		var prevContent string
+		if i < len(previousEntries) {
+			prevContent = previousEntries[i].Content
+		}
+		// Skip entries that haven't changed at all
+		if i < len(previousEntries) &&
+			prevContent == entry.Content &&
+			previousEntries[i].Type == entry.Type &&
+			previousEntries[i].MessageID == entry.MessageID &&
+			previousEntries[i].ToolName == entry.ToolName &&
+			previousEntries[i].ToolStatus == entry.ToolStatus {
+			continue
+		}
+		epOffset, epPatch, epTotalLen := computePatch(prevContent, entry.Content)
+		entryPatches = append(entryPatches, types.EntryPatch{
+			Index:       i,
+			MessageID:   entry.MessageID,
+			Type:        entry.Type,
+			Patch:       epPatch,
+			PatchOffset: epOffset,
+			TotalLength: epTotalLen,
+			ToolName:    entry.ToolName,
+			ToolStatus:  entry.ToolStatus,
+		})
+	}
+
+	if len(entryPatches) == 0 {
+		return nil // Nothing changed
+	}
+	event.EntryPatches = entryPatches
 
 	messageBytes, err := json.Marshal(event)
 	if err != nil {
-		return fmt.Errorf("failed to marshal patch event: %w", err)
+		return fmt.Errorf("failed to marshal entry patch event: %w", err)
 	}
 
-	err = apiServer.pubsub.Publish(context.Background(), pubsub.GetSessionQueue(owner, sessionID), messageBytes)
-	if err != nil {
-		return fmt.Errorf("failed to publish patch to pubsub: %w", err)
+	if err := apiServer.pubsub.Publish(context.Background(), pubsub.GetSessionQueue(owner, sessionID), messageBytes); err != nil {
+		return fmt.Errorf("failed to publish entry patches to pubsub: %w", err)
 	}
 
 	log.Debug().
 		Str("session_id", sessionID).
-		Str("interaction_id", interaction.ID).
-		Int("patch_offset", patchOffset).
-		Int("patch_len", len(patch)).
-		Int("total_len", totalLength).
-		Int("full_content_len", len(interaction.ResponseMessage)).
-		Msg("📤 [HELIX] Published interaction patch to frontend")
+		Str("interaction_id", interactionID).
+		Int("entry_patches", len(entryPatches)).
+		Int("entry_count", event.EntryCount).
+		Msg("📤 [HELIX] Published entry patches to frontend")
 
 	// Also publish to commenter if applicable (for design review comments)
-	// commenterID is passed directly from streamingContext (looked up from sessionToCommenterMapping)
 	if len(commenterID) > 0 && commenterID[0] != "" && commenterID[0] != owner {
-		// Publish to commenter's queue as well
-		err = apiServer.pubsub.Publish(context.Background(), pubsub.GetSessionQueue(commenterID[0], sessionID), messageBytes)
-		if err != nil {
-			log.Warn().
-				Err(err).
+		if err := apiServer.pubsub.Publish(context.Background(), pubsub.GetSessionQueue(commenterID[0], sessionID), messageBytes); err != nil {
+			log.Warn().Err(err).
 				Str("session_id", sessionID).
 				Str("commenter_id", commenterID[0]).
-				Msg("Failed to publish interaction patch to commenter")
-		} else {
-			log.Debug().
-				Str("session_id", sessionID).
-				Str("interaction_id", interaction.ID).
-				Str("commenter_id", commenterID[0]).
-				Msg("📤 [HELIX] Published interaction patch to commenter")
+				Msg("Failed to publish entry patches to commenter")
 		}
 	}
 

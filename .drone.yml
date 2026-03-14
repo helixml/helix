@@ -2043,7 +2043,13 @@ steps:
         # Critical: if helix-api/ already exists from a failed build,
         # cp -r nests api/ inside it (creating helix-api/api/) which
         # breaks Go module resolution in the Docker build.
-        rm -rf "$${E2E_DIR}/helix-api" "$${E2E_DIR}/helix-go.mod" "$${E2E_DIR}/helix-go.sum" "$${E2E_DIR}/zed-binary"
+        # Use docker to remove as root — files may be root-owned from previous docker builds.
+        docker run --rm -v "/var/cache/drone/sandbox-build/zed-source:/zed-source" alpine \
+          rm -rf \
+            "/zed-source/crates/external_websocket_sync/e2e-test/helix-api" \
+            "/zed-source/crates/external_websocket_sync/e2e-test/helix-go.mod" \
+            "/zed-source/crates/external_websocket_sync/e2e-test/helix-go.sum" \
+            "/zed-source/crates/external_websocket_sync/e2e-test/zed-binary"
 
         cp zed-build/zed "$${E2E_DIR}/zed-binary"
         cp /drone/src/go.mod "$${E2E_DIR}/helix-go.mod"
