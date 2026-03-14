@@ -2790,6 +2790,40 @@ func (apiServer *HelixAPIServer) publishEntryPatchesToFrontend(
 	return nil
 }
 
+// buildFullStatePatchEvent builds a serialized interaction_patch event containing the
+// full content of all entries (computed with no previous entries, so patch_offset=0
+// for each). Used to catch up a late-joining WebSocket client that missed earlier
+// streaming patches.
+func buildFullStatePatchEvent(sessionID, owner, interactionID string, entries []wsprotocol.ResponseEntry) ([]byte, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	event := &types.WebsocketEvent{
+		Type:          types.WebsocketEventInteractionPatch,
+		SessionID:     sessionID,
+		InteractionID: interactionID,
+		Owner:         owner,
+		EntryCount:    len(entries),
+	}
+	entryPatches := make([]types.EntryPatch, 0, len(entries))
+	for i, entry := range entries {
+		// previousContent="" → computePatch returns patchOffset=0, patch=full content
+		epOffset, epPatch, epTotalLen := computePatch("", entry.Content)
+		entryPatches = append(entryPatches, types.EntryPatch{
+			Index:       i,
+			MessageID:   entry.MessageID,
+			Type:        entry.Type,
+			Patch:       epPatch,
+			PatchOffset: epOffset,
+			TotalLength: epTotalLen,
+			ToolName:    entry.ToolName,
+			ToolStatus:  entry.ToolStatus,
+		})
+	}
+	event.EntryPatches = entryPatches
+	return json.Marshal(event)
+}
+
 // handleUserCreatedThread processes user-created thread event from Zed UI
 // Creates a new Helix session and maps it to the Zed thread
 func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, syncMsg *types.SyncMessage) error {
