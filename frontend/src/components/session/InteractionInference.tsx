@@ -388,7 +388,7 @@ export const InteractionInference: FC<{
                 >
                   <MessageWithToolCalls
                     text={message || ""}
-                    responseEntries={(interaction as any)?.response_entries}
+                    responseEntries={isFromAssistant ? (interaction as any)?.response_entries : undefined}
                     session={session}
                     getFileURL={getFileURL}
                     showBlinker={false}
