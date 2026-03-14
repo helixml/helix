@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/server/wsprotocol"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/suite"
@@ -1843,4 +1845,92 @@ func (s *WebSocketSyncSuite) TestStreamingPatch_PreviousEntriesTracked() {
 	s.Equal("**Tool Call: list_files**", sctx.previousEntries[1].Content)
 	s.Equal("tool_call", sctx.previousEntries[1].Type)
 	sctx.mu.Unlock()
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// buildFullStatePatchEvent tests
+// ──────────────────────────────────────────────────────────────────────────────
+
+func (s *WebSocketSyncSuite) TestBuildFullStatePatchEvent_Empty() {
+	payload, err := buildFullStatePatchEvent("ses-1", "owner-1", "int-1", nil)
+	s.NoError(err)
+	s.Nil(payload, "empty entries should return nil payload")
+}
+
+func (s *WebSocketSyncSuite) TestBuildFullStatePatchEvent_FullState() {
+	entries := []wsprotocol.ResponseEntry{
+		{MessageID: "msg-1", Type: "text", Content: "Hello world"},
+		{MessageID: "msg-2", Type: "tool_call", Content: "ls -la", ToolName: "bash", ToolStatus: "complete"},
+	}
+
+	payload, err := buildFullStatePatchEvent("ses-1", "owner-1", "int-1", entries)
+	s.NoError(err)
+	s.NotNil(payload)
+
+	var event types.WebsocketEvent
+	s.Require().NoError(json.Unmarshal(payload, &event))
+
+	s.Equal(types.WebsocketEventInteractionPatch, event.Type)
+	s.Equal("ses-1", event.SessionID)
+	s.Equal("int-1", event.InteractionID)
+	s.Equal(2, event.EntryCount)
+	s.Require().Len(event.EntryPatches, 2)
+
+	// All patches must have offset=0 (full replace, no delta baseline)
+	for i, ep := range event.EntryPatches {
+		s.Equal(0, ep.PatchOffset, "entry %d: patch_offset must be 0 for full-state snapshot", i)
+		s.Equal(entries[i].Content, ep.Patch, "entry %d: patch must equal full content", i)
+		s.Equal(entries[i].Type, ep.Type, "entry %d: type preserved", i)
+		s.Equal(entries[i].MessageID, ep.MessageID, "entry %d: message_id preserved", i)
+	}
+
+	s.Equal("bash", event.EntryPatches[1].ToolName)
+	s.Equal("complete", event.EntryPatches[1].ToolStatus)
+}
+
+// TestLateJoinerCatchUp verifies that a streaming context present at WebSocket
+// connect time produces a full-state patch via buildFullStatePatchEvent.
+func (s *WebSocketSyncSuite) TestLateJoinerCatchUp_ActiveStreamingContext() {
+	acc := &wsprotocol.MessageAccumulator{}
+	acc.AddMessageWithType("msg-1", "I'll start by exploring", "text")
+	acc.AddMessageWithType("msg-2", "**Tool Call: list_files**", "tool_call")
+
+	s.server.streamingContextsMu.Lock()
+	s.server.streamingContexts["ses-lj"] = &streamingContext{
+		session:     &types.Session{ID: "ses-lj", Owner: "owner-lj"},
+		interaction: &types.Interaction{ID: "int-lj"},
+		accumulator: acc,
+	}
+	s.server.streamingContextsMu.Unlock()
+
+	// Simulate what websocket_server_user.go does on connect
+	s.server.streamingContextsMu.RLock()
+	sctx := s.server.streamingContexts["ses-lj"]
+	s.server.streamingContextsMu.RUnlock()
+
+	s.Require().NotNil(sctx)
+
+	sctx.mu.Lock()
+	entries := sctx.accumulator.Entries()
+	interactionID := sctx.interaction.ID
+	owner := sctx.session.Owner
+	sctx.mu.Unlock()
+
+	payload, err := buildFullStatePatchEvent("ses-lj", owner, interactionID, entries)
+	s.NoError(err)
+	s.Require().NotNil(payload)
+
+	var event types.WebsocketEvent
+	s.Require().NoError(json.Unmarshal(payload, &event))
+
+	s.Equal(types.WebsocketEventInteractionPatch, event.Type)
+	s.Require().Len(event.EntryPatches, 2)
+
+	s.Equal(0, event.EntryPatches[0].PatchOffset)
+	s.Equal("I'll start by exploring", event.EntryPatches[0].Patch)
+	s.Equal("text", event.EntryPatches[0].Type)
+
+	s.Equal(0, event.EntryPatches[1].PatchOffset)
+	s.Equal("**Tool Call: list_files**", event.EntryPatches[1].Patch)
+	s.Equal("tool_call", event.EntryPatches[1].Type)
 }
