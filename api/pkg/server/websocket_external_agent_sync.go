@@ -1284,19 +1284,47 @@ func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Conte
 	sctx.mu.Lock()
 	defer sctx.mu.Unlock()
 
-	if sctx.dirty && sctx.interaction != nil {
-		_, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, sctx.interaction)
-		if err != nil {
-			log.Error().Err(err).
-				Str("session_id", helixSessionID).
-				Str("interaction_id", sctx.interaction.ID).
-				Msg("Failed to flush dirty interaction on streaming context clear")
-		} else {
-			log.Info().
-				Str("session_id", helixSessionID).
-				Str("interaction_id", sctx.interaction.ID).
-				Int("content_length", len(sctx.interaction.ResponseMessage)).
-				Msg("📦 [PERF] Flushed dirty interaction to DB before message_completed")
+	if sctx.interaction != nil {
+		if sctx.dirty {
+			_, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, sctx.interaction)
+			if err != nil {
+				log.Error().Err(err).
+					Str("session_id", helixSessionID).
+					Str("interaction_id", sctx.interaction.ID).
+					Msg("Failed to flush dirty interaction on streaming context clear")
+			} else {
+				log.Info().
+					Str("session_id", helixSessionID).
+					Str("interaction_id", sctx.interaction.ID).
+					Int("content_length", len(sctx.interaction.ResponseMessage)).
+					Msg("📦 [PERF] Flushed dirty interaction to DB before message_completed")
+			}
+		}
+
+		// CRITICAL: Publish one final patch to the frontend with the complete
+		// corrected content, bypassing the publish throttle. During streaming,
+		// the 100ms throttle may have sent truncated snapshots (e.g. "the target"
+		// instead of "the target directory and any existing context"). The Stopped
+		// flush corrects the accumulator, but the publish throttle can swallow
+		// these corrections if message_completed arrives immediately after.
+		// This final patch ensures the frontend has complete content before the
+		// streaming→static transition.
+		if sctx.session != nil && sctx.previousContent != sctx.interaction.ResponseMessage {
+			err := apiServer.publishInteractionPatchToFrontend(
+				helixSessionID, sctx.session.Owner, sctx.interaction,
+				sctx.previousContent, sctx.commenterID,
+			)
+			if err != nil {
+				log.Error().Err(err).
+					Str("session_id", helixSessionID).
+					Str("interaction_id", sctx.interaction.ID).
+					Msg("Failed to publish final corrected patch to frontend")
+			} else {
+				log.Info().
+					Str("session_id", helixSessionID).
+					Str("interaction_id", sctx.interaction.ID).
+					Msg("📦 [FLUSH] Published final corrected patch to frontend before completion")
+			}
 		}
 	}
 
