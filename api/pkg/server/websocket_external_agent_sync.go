@@ -1078,50 +1078,71 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				Msg("No interaction found to update with assistant response")
 		}
 	} else {
-		// For user messages, create new interaction
-		// User messages are infrequent (one per turn), no need to cache
-		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
-		if err != nil {
-			return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
-		}
+		// For user messages, check whether a pre-created Waiting interaction already exists
+		// for this session (e.g. created by sendMessageToSpecTaskAgent for approval flows).
+		// Zed echoes the sent user message back as message_added(role=user), which would
+		// otherwise create a duplicate interaction and overwrite the mapping, causing the
+		// assistant response to land in the wrong interaction (Bug 1 fix).
+		apiServer.contextMappingsMutex.RLock()
+		existingInteractionID := apiServer.sessionToWaitingInteraction[helixSessionID]
+		apiServer.contextMappingsMutex.RUnlock()
 
-		interaction := &types.Interaction{
-			ID:            "", // Will be generated
-			Created:       time.Now(),
-			Updated:       time.Now(),
-			SessionID:     helixSessionID,
-			UserID:        helixSession.Owner,
-			GenerationID:  helixSession.GenerationID, // Must match session's generation for query to find it
-			Mode:          types.SessionModeInference,
-			PromptMessage: content,
-			State:         types.InteractionStateWaiting,
-		}
+		if existingInteractionID != "" {
+			// A pre-created Waiting interaction exists — this is the Zed echo of a message
+			// sent by sendMessageToSpecTaskAgent. Reuse the pre-created interaction and do
+			// NOT overwrite the mapping so the assistant response lands in the right place.
+			log.Info().
+				Str("session_id", sessionID).
+				Str("context_id", contextID).
+				Str("helix_session_id", helixSessionID).
+				Str("existing_interaction_id", existingInteractionID).
+				Msg("💬 [HELIX] Reusing pre-created interaction for Zed user-message echo (skipping duplicate creation)")
+		} else {
+			// No pre-created interaction — this is a genuine user message from Zed.
+			// Create a new interaction and map it so the AI response goes to it.
+			helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
+			if err != nil {
+				return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
+			}
 
-		// Create the interaction in the store
-		createdInteraction, err := apiServer.Controller.Options.Store.CreateInteraction(context.Background(), interaction)
-		if err != nil {
-			return fmt.Errorf("failed to create interaction: %w", err)
-		}
+			interaction := &types.Interaction{
+				ID:            "", // Will be generated
+				Created:       time.Now(),
+				Updated:       time.Now(),
+				SessionID:     helixSessionID,
+				UserID:        helixSession.Owner,
+				GenerationID:  helixSession.GenerationID, // Must match session's generation for query to find it
+				Mode:          types.SessionModeInference,
+				PromptMessage: content,
+				State:         types.InteractionStateWaiting,
+			}
 
-		log.Info().
-			Str("session_id", sessionID).
-			Str("context_id", contextID).
-			Str("helix_session_id", helixSessionID).
-			Str("interaction_id", createdInteraction.ID).
-			Str("role", role).
-			Msg("💬 [HELIX] Created interaction for user message from Zed")
+			// Create the interaction in the store
+			createdInteraction, err := apiServer.Controller.Options.Store.CreateInteraction(context.Background(), interaction)
+			if err != nil {
+				return fmt.Errorf("failed to create interaction: %w", err)
+			}
 
-		// CRITICAL: Map this interaction so the AI response goes to it!
-		apiServer.contextMappingsMutex.Lock()
-		if apiServer.sessionToWaitingInteraction == nil {
-			apiServer.sessionToWaitingInteraction = make(map[string]string)
+			log.Info().
+				Str("session_id", sessionID).
+				Str("context_id", contextID).
+				Str("helix_session_id", helixSessionID).
+				Str("interaction_id", createdInteraction.ID).
+				Str("role", role).
+				Msg("💬 [HELIX] Created interaction for user message from Zed")
+
+			// CRITICAL: Map this interaction so the AI response goes to it!
+			apiServer.contextMappingsMutex.Lock()
+			if apiServer.sessionToWaitingInteraction == nil {
+				apiServer.sessionToWaitingInteraction = make(map[string]string)
+			}
+			apiServer.sessionToWaitingInteraction[helixSessionID] = createdInteraction.ID
+			apiServer.contextMappingsMutex.Unlock()
+			log.Info().
+				Str("helix_session_id", helixSessionID).
+				Str("interaction_id", createdInteraction.ID).
+				Msg("🗺️ [HELIX] Mapped session to new interaction from Zed user message")
 		}
-		apiServer.sessionToWaitingInteraction[helixSessionID] = createdInteraction.ID
-		apiServer.contextMappingsMutex.Unlock()
-		log.Info().
-			Str("helix_session_id", helixSessionID).
-			Str("interaction_id", createdInteraction.ID).
-			Msg("🗺️ [HELIX] Mapped session to new interaction from Zed user message")
 	}
 
 	return nil
