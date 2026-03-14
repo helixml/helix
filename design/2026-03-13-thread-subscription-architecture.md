@@ -1,4 +1,4 @@
-# Thread Subscription Architecture
+# Thread Subscription Architecture & Streaming Content Bug
 
 ## System Overview
 
@@ -110,7 +110,7 @@ The agentic turn completed (LLM returned `EndTurn`). Handler MUST:
 **Without this handler, the last throttled tokens are lost and the frontend never
 knows the response finished.**
 
-## The Bug
+## Bug 1: Missing `Stopped` Handler (FIXED)
 
 After a sandbox restart:
 1. Zed process restarts → `PERSISTENT_SUBSCRIPTIONS` static resets to empty
@@ -124,30 +124,125 @@ After a sandbox restart:
 9. Result: last ~100ms of tokens never flushed, `message_completed` never sent
 10. Frontend shows truncated response, stuck in "streaming" state forever
 
-## The Fix
+### Fix (applied)
 
-1. Add `Stopped` handler to `handle_follow_up_message` fallback subscription (immediate fix)
-2. Extract all subscription logic into a single `subscribe_to_thread_events()` function
-3. Ensure `open_existing_thread_sync` also creates a subscription (or at minimum ensures one exists)
-4. Fix `load_thread_from_agent` `NewEntry` to handle assistant messages too (consistency)
+1. Extracted all subscription logic into a single `ensure_thread_subscription()` function
+2. All 4 call sites now use it — consistent event handling everywhere
+3. `open_existing_thread_sync` now creates a subscription even when thread is already in registry
 
-## Throttle Chain
+## Bug 2: MessageAccumulator Drops Out-of-Order Flush Updates (CURRENT BUG)
+
+### Root Cause
+
+The `MessageAccumulator` in `api/pkg/server/wsprotocol/accumulator.go` only tracks
+a single `LastMessageID` + `Offset`. It can overwrite the **last** message_id's content,
+or append a **new** message_id. But it cannot go back and fix an earlier message_id.
+
+This matters because of how Zed structures thread entries:
+
+```
+entry_idx 0: UserMessage      → message_id "0" (user prompt)
+entry_idx 1: UserMessage      → message_id "1" (echoed user msg)
+entry_idx 2: AssistantMessage  → message_id "2" (text: "I'll start by exploring...")
+entry_idx 3: ToolCall          → message_id "3" (List directory)
+entry_idx 4: ToolCall          → message_id "4" (List directory)
+entry_idx 5: ToolCall          → message_id "5" (Read file)
+entry_idx 6: AssistantMessage  → message_id "6" (text: "The repo is very...")
+...
+entry_idx 18: AssistantMessage → message_id "18" (final summary)
+```
+
+Each entry has its own `entry_idx` which becomes the `message_id` in `message_added` events.
+The 100ms throttle captures a snapshot of each entry's content at the moment `EntryUpdated` fires.
+
+**The problem:** When a tool call arrives, Zed creates a new entry (new entry_idx). The
+previous assistant message entry may have been mid-word when the throttle last captured it.
+For example:
+
+```
+08:22:58  message_added(id="2", content="I'll start...understand the c")  ← TRUNCATED
+08:22:59  message_added(id="3", content="**Tool Call: List the `clea`...")  ← TRUNCATED
+08:22:59  message_added(id="4", content="**Tool Call: List the `helix-specs/d`...") ← TRUNCATED
+...many more entries...
+08:23:59  message_added(id="18", content="The design docs have been pushed...") ← streaming
+```
+
+Then `Stopped` fires and `flush_streaming_throttle()` sends corrected content for ALL entries:
+
+```
+08:23:59  message_added(id="2", content="I'll start...understand the codebase structure...")  ← FULL
+08:23:59  message_added(id="3", content="**Tool Call: List the `clean-truncation-test`...")    ← FULL
+08:23:59  message_added(id="6", content="The repo is very minimal...")                         ← FULL
+```
+
+But the accumulator processes these flush messages AFTER id="18" was already the LastMessageID.
+When id="2" arrives again:
+
+```go
+// a.LastMessageID = "18", messageID = "2"
+// "18" != "2", so this is treated as a NEW message → APPEND
+a.Content = a.Content + "\n\n" + content  // WRONG! Should replace id="2"'s content
+```
+
+Result: the truncated "understand the c" stays in position, and the corrected
+"understand the codebase structure..." is appended at the end as a duplicate.
+The final DB content has BOTH the truncated AND the full versions.
+
+### Evidence from Zed WebSocket Logs
+
+```
+# During streaming (throttled, content truncated mid-word):
+08:22:58  id="2"  "I'll start by exploring the project repository to understand the c"
+08:22:59  id="3"  "**Tool Call: List the `clea` directory's contents**"
+
+# During Stopped flush (complete content):
+08:23:59  id="2"  "I'll start by exploring the project repository to understand the codebase structure, tech stack, and patterns before writing the spec documents."
+08:23:59  id="3"  "**Tool Call: List the `clean-truncation-test` directory's contents**"
+```
+
+The complete content IS sent. The accumulator just can't apply it correctly.
+
+### Why Zed's UI Doesn't Have This Problem
+
+Zed renders directly from live `Entity<Markdown>` buffers via GPUI subscriptions.
+When the buffer content changes, GPUI re-renders automatically — it always shows
+the latest state. There is no snapshot/accumulate/patch pipeline.
+
+Our WebSocket sync path captures snapshots of `content_only()` / `to_markdown()`
+at the moment `EntryUpdated` fires, throttled to 100ms. The snapshots can be
+mid-word because the Markdown buffer is still being populated by streaming tokens.
+
+### Fix Required
+
+The `MessageAccumulator` needs to support updating ANY message_id, not just the last one.
+It must track the byte offset range for each message_id so that flush updates can
+replace content at the correct position. Alternatively, the accumulator could use a
+map of `message_id → content` and reconstruct the full string on each update.
+
+## Throttle Chain (and where content gets mangled)
 
 ```
 Zed AcpThread                    Zed thread_service              Go API Server
 ─────────────                    ──────────────────              ─────────────
 EntryUpdated ──100ms throttle──► message_added ──WebSocket──►   handleMessageAdded
-  (every token)   (pending if     (full content                   ├─ in-memory update
-                   <100ms since    for entry)                     ├─ 200ms DB throttle
-                   last send)                                     └─ 50ms frontend publish
+  (every token)   (pending if     (full content                   ├─ MessageAccumulator
+                   <100ms since    for entry,                     │   ├─ same id → overwrite ✅
+                   last send)      may be mid-word                │   └─ diff id → append ✅
+                                   if entry is still              │       (but can't go BACK ❌)
+                                   streaming when                 ├─ 200ms DB throttle
+                                   throttle fires)                └─ 50ms frontend publish
                                                                      (interaction_patch delta)
 
-Stopped ──► flush_streaming_throttle() ──► message_added (final content)
-            send MessageCompleted      ──► message_completed
-                                              ├─ flushAndClearStreamingContext (DB write if dirty)
-                                              ├─ reload interaction from DB
-                                              ├─ mark complete
-                                              └─ publish interaction_update to frontend
+Stopped ──► flush_streaming_throttle()
+              ├─ message_added(id=2, FULL)  ──► accumulator sees id≠last → APPENDS (BUG!)
+              ├─ message_added(id=3, FULL)  ──► accumulator sees id≠last → APPENDS (BUG!)
+              ├─ message_added(id=6, FULL)  ──► accumulator sees id≠last → APPENDS (BUG!)
+              └─ ...
+            send MessageCompleted ──► message_completed
+                                        ├─ flushAndClearStreamingContext (DB write if dirty)
+                                        ├─ reload interaction from DB (has mangled content!)
+                                        ├─ mark complete
+                                        └─ publish interaction_update to frontend
 ```
 
 ## Call Sites for `setup_thread_handler`

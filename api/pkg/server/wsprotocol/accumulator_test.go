@@ -124,6 +124,76 @@ func TestEmptyContent(t *testing.T) {
 	}
 }
 
+func TestOutOfOrderFlushUpdates(t *testing.T) {
+	// THE BUG: Zed's Stopped flush sends corrected content for earlier message_ids
+	// after later ones have already been processed. The old accumulator treated
+	// these as new appends instead of in-place replacements.
+	//
+	// Real scenario from Zed logs:
+	// During streaming (throttled, content truncated mid-word):
+	//   id="2"  "I'll start...understand the c"
+	//   id="3"  "**Tool Call: List the `clea` directory's contents**"
+	//   id="4"  "**Tool Call: List the `helix-specs/d`..."
+	//   ...
+	//   id="18" "The design docs have been pushed..."
+	//
+	// During Stopped flush (complete content, OUT OF ORDER):
+	//   id="2"  "I'll start...understand the codebase structure..."  ← MUST REPLACE, not append
+	//   id="3"  "**Tool Call: List the `clean-truncation-test`..."   ← MUST REPLACE, not append
+	a := &MessageAccumulator{}
+
+	// Streaming phase: entries arrive in order but with truncated content
+	a.AddMessage("2", "I'll start...understand the c")
+	a.AddMessage("3", "**Tool Call: List the `clea`**\nStatus: Pending")
+	a.AddMessage("4", "**Tool Call: List the `helix-specs/d`**\nStatus: Pending")
+	a.AddMessage("6", "The repo is very")
+	a.AddMessage("18", "The design docs")
+
+	// Verify truncated state
+	if a.Content != "I'll start...understand the c\n\n**Tool Call: List the `clea`**\nStatus: Pending\n\n**Tool Call: List the `helix-specs/d`**\nStatus: Pending\n\nThe repo is very\n\nThe design docs" {
+		t.Fatalf("unexpected truncated state:\n%s", a.Content)
+	}
+
+	// Flush phase: corrected content arrives for earlier message_ids
+	a.AddMessage("2", "I'll start...understand the codebase structure")
+	a.AddMessage("3", "**Tool Call: List the `clean-truncation-test`**\nStatus: Completed")
+	a.AddMessage("6", "The repo is very minimal — just a README.")
+	a.AddMessage("18", "The design docs have been pushed and are ready for review.")
+
+	expected := "I'll start...understand the codebase structure\n\n**Tool Call: List the `clean-truncation-test`**\nStatus: Completed\n\n**Tool Call: List the `helix-specs/d`**\nStatus: Pending\n\nThe repo is very minimal — just a README.\n\nThe design docs have been pushed and are ready for review."
+	if a.Content != expected {
+		t.Errorf("out-of-order flush failed.\nexpected:\n%s\n\ngot:\n%s", expected, a.Content)
+	}
+}
+
+func TestFlushDoesNotDuplicateContent(t *testing.T) {
+	// Verify that updating an earlier message_id does NOT append a duplicate —
+	// it must replace the content at the original position.
+	a := &MessageAccumulator{}
+	a.AddMessage("1", "first")
+	a.AddMessage("2", "second")
+	a.AddMessage("3", "third")
+
+	// "Update" message 1 with new content
+	a.AddMessage("1", "FIRST (corrected)")
+
+	expected := "FIRST (corrected)\n\nsecond\n\nthird"
+	if a.Content != expected {
+		t.Errorf("expected %q, got %q", expected, a.Content)
+	}
+
+	// Verify no duplication: count occurrences of "FIRST"
+	count := 0
+	for i := 0; i < len(a.Content)-4; i++ {
+		if a.Content[i:i+5] == "FIRST" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected 'FIRST' to appear once, appeared %d times in: %q", count, a.Content)
+	}
+}
+
 func TestResumeFromPersistedState(t *testing.T) {
 	// Simulate restoring state from DB after API restart
 	a := &MessageAccumulator{
