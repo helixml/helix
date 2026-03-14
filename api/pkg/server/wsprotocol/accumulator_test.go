@@ -2,6 +2,9 @@ package wsprotocol
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFirstMessage(t *testing.T) {
@@ -192,6 +195,112 @@ func TestFlushDoesNotDuplicateContent(t *testing.T) {
 	if count != 1 {
 		t.Errorf("expected 'FIRST' to appear once, appeared %d times in: %q", count, a.Content)
 	}
+}
+
+func TestEntriesWithTypes(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.AddMessageWithType("1", "I'll help you with that.", "text")
+	a.AddMessageWithType("2", "**Tool Call: list_files**\nStatus: Completed\n\nfile1.txt\nfile2.txt", "tool_call")
+	a.AddMessageWithType("3", "Here are the files I found.", "text")
+
+	entries := a.Entries()
+	require.Len(t, entries, 3)
+
+	assert.Equal(t, "text", entries[0].Type)
+	assert.Equal(t, "I'll help you with that.", entries[0].Content)
+	assert.Equal(t, "1", entries[0].MessageID)
+
+	assert.Equal(t, "tool_call", entries[1].Type)
+	assert.Contains(t, entries[1].Content, "list_files")
+	assert.Equal(t, "2", entries[1].MessageID)
+
+	assert.Equal(t, "text", entries[2].Type)
+	assert.Equal(t, "Here are the files I found.", entries[2].Content)
+	assert.Equal(t, "3", entries[2].MessageID)
+}
+
+func TestEntriesTypeInference(t *testing.T) {
+	// When entry_type is empty (old Zed without entry_type support),
+	// Entries() should infer type from content.
+	a := &MessageAccumulator{}
+	a.AddMessage("1", "Some assistant text")
+	a.AddMessage("2", "**Tool Call: edit_file**\nStatus: Running")
+	a.AddMessage("3", "More text after the tool call")
+
+	entries := a.Entries()
+	require.Len(t, entries, 3)
+
+	assert.Equal(t, "text", entries[0].Type, "plain text should be inferred as 'text'")
+	assert.Equal(t, "tool_call", entries[1].Type, "content starting with **Tool Call: should be inferred as 'tool_call'")
+	assert.Equal(t, "text", entries[2].Type)
+}
+
+func TestEntriesPreserveOrderAfterFlush(t *testing.T) {
+	// Entries must maintain insertion order even when earlier entries
+	// are updated out of order during the Stopped flush.
+	a := &MessageAccumulator{}
+	a.AddMessageWithType("1", "truncated tex", "text")
+	a.AddMessageWithType("2", "**Tool Call: List the `clea`**", "tool_call")
+	a.AddMessageWithType("3", "**Tool Call: Read file `heli`**", "tool_call")
+	a.AddMessageWithType("4", "Follow-up text", "text")
+
+	// Flush corrects earlier entries out of order
+	a.AddMessageWithType("1", "truncated text is now complete", "text")
+	a.AddMessageWithType("2", "**Tool Call: List the `clean-truncation-test`**\nStatus: Completed", "tool_call")
+
+	entries := a.Entries()
+	require.Len(t, entries, 4)
+
+	// Order must be 1, 2, 3, 4 — insertion order, not update order
+	assert.Equal(t, "1", entries[0].MessageID)
+	assert.Equal(t, "truncated text is now complete", entries[0].Content)
+	assert.Equal(t, "text", entries[0].Type)
+
+	assert.Equal(t, "2", entries[1].MessageID)
+	assert.Contains(t, entries[1].Content, "clean-truncation-test")
+	assert.Equal(t, "tool_call", entries[1].Type)
+
+	assert.Equal(t, "3", entries[2].MessageID, "entry 3 should still be at index 2")
+	assert.Equal(t, "4", entries[3].MessageID, "entry 4 should still be at index 3")
+}
+
+func TestEntriesEmptyContentOmitted(t *testing.T) {
+	a := &MessageAccumulator{}
+	a.AddMessageWithType("1", "text content", "text")
+	a.AddMessageWithType("2", "", "text") // empty
+	a.AddMessageWithType("3", "more text", "text")
+
+	entries := a.Entries()
+	require.Len(t, entries, 2, "empty entries should be omitted")
+	assert.Equal(t, "1", entries[0].MessageID)
+	assert.Equal(t, "3", entries[1].MessageID)
+}
+
+func TestEntriesStreamingGrowth(t *testing.T) {
+	// Simulate streaming: same message_id gets progressively longer content.
+	// Entries() should always reflect the latest content.
+	a := &MessageAccumulator{}
+	a.AddMessageWithType("1", "I", "text")
+
+	entries := a.Entries()
+	require.Len(t, entries, 1)
+	assert.Equal(t, "I", entries[0].Content)
+
+	a.AddMessageWithType("1", "I'll help", "text")
+	entries = a.Entries()
+	assert.Equal(t, "I'll help", entries[0].Content)
+
+	a.AddMessageWithType("1", "I'll help you with that.", "text")
+	entries = a.Entries()
+	assert.Equal(t, "I'll help you with that.", entries[0].Content)
+
+	// New entry appears
+	a.AddMessageWithType("2", "**Tool Call: ls**", "tool_call")
+	entries = a.Entries()
+	require.Len(t, entries, 2)
+	assert.Equal(t, "I'll help you with that.", entries[0].Content)
+	assert.Equal(t, "**Tool Call: ls**", entries[1].Content)
+	assert.Equal(t, "tool_call", entries[1].Type)
 }
 
 func TestResumeFromPersistedState(t *testing.T) {
