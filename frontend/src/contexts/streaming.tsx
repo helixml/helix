@@ -296,7 +296,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
               const isSameInteraction = current.id === lastInteraction.id;
 
               // When it's a different interaction, start fresh - don't spread current
-              const updatedInteraction: Partial<TypesInteraction> =
+              const updatedInteraction: Partial<TypesInteraction> & { response_entries?: ResponseEntry[] } =
                 isSameInteraction
                   ? {
                       ...current,
@@ -308,6 +308,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
                       response_message:
                         lastInteraction.response_message ||
                         current.response_message,
+                      // Preserve streaming entries — session_update doesn't carry them
+                      response_entries: (current as any).response_entries,
                     }
                   : {
                       // New interaction - start with clean slate, only use server data
