@@ -13,6 +13,16 @@ import {
   parseToolCallBlocks,
   CollapsibleToolCall,
 } from "./CollapsibleToolCall";
+
+/**
+ * A structured response entry from the Go API.
+ * Preserves the type and ordering of each entry as Zed originally had them.
+ */
+export interface ResponseEntry {
+  type: "text" | "tool_call";
+  content: string;
+  message_id: string;
+}
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -59,10 +69,14 @@ const ImagePreview = styled("img")({
 
 /**
  * Renders a message that may contain tool call blocks.
- * Tool call blocks are collapsed by default; regular markdown renders normally.
+ *
+ * If structured `responseEntries` are provided (from the Go API's ResponseEntries
+ * field), renders each entry with the correct component in the correct order.
+ * Otherwise falls back to regex parsing of the flat text (for old interactions).
  */
 const MessageWithToolCalls: FC<{
   text: string;
+  responseEntries?: ResponseEntry[];
   session: TypesSession;
   getFileURL: (url: string) => string;
   showBlinker: boolean;
@@ -70,12 +84,63 @@ const MessageWithToolCalls: FC<{
   onFilterDocument?: (docId: string) => void;
 }> = ({
   text,
+  responseEntries,
   session,
   getFileURL,
   showBlinker,
   isStreaming,
   onFilterDocument,
 }) => {
+  // Structured path: use response_entries from the Go API (preserves type + order)
+  if (responseEntries && responseEntries.length > 0) {
+    return (
+      <>
+        {responseEntries.map((entry, i) => {
+          if (entry.type === "tool_call") {
+            // Parse tool call markdown to extract name/status/body
+            const segments = parseToolCallBlocks(entry.content);
+            const toolSegment = segments.find((s) => s.type === "toolcall");
+            if (toolSegment && toolSegment.toolName && toolSegment.status) {
+              return (
+                <CollapsibleToolCall
+                  key={`tc-${i}`}
+                  toolName={toolSegment.toolName}
+                  status={toolSegment.status}
+                  body={toolSegment.body || ""}
+                />
+              );
+            }
+            // Fallback: render as markdown if parsing fails
+            return (
+              <Markdown
+                key={`md-${i}`}
+                text={entry.content}
+                session={session}
+                getFileURL={getFileURL}
+                showBlinker={false}
+                isStreaming={false}
+                onFilterDocument={onFilterDocument}
+              />
+            );
+          }
+          // text entry
+          return (
+            <Markdown
+              key={`md-${i}`}
+              text={entry.content}
+              session={session}
+              getFileURL={getFileURL}
+              showBlinker={showBlinker && i === responseEntries.length - 1}
+              isStreaming={isStreaming && i === responseEntries.length - 1}
+              onFilterDocument={onFilterDocument}
+            />
+          );
+        })}
+      </>
+    );
+  }
+
+  // Fallback: regex parsing of flat text (old interactions without response_entries)
   const segments = parseToolCallBlocks(text);
 
   // If no tool calls found, render plain markdown (fast path)
@@ -323,6 +388,7 @@ export const InteractionInference: FC<{
                 >
                   <MessageWithToolCalls
                     text={message || ""}
+                    responseEntries={(interaction as any)?.response_entries}
                     session={session}
                     getFileURL={getFileURL}
                     showBlinker={false}

@@ -2,6 +2,14 @@ package wsprotocol
 
 import "strings"
 
+// ResponseEntry represents a single typed entry in the response.
+// Used to preserve the structural boundary between assistant text and tool calls.
+type ResponseEntry struct {
+	Type      string `json:"type"` // "text" or "tool_call"
+	Content   string `json:"content"`
+	MessageID string `json:"message_id"`
+}
+
 // MessageAccumulator handles the multi-message append/overwrite logic for
 // WebSocket sync responses from Zed.
 //
@@ -30,6 +38,8 @@ type MessageAccumulator struct {
 	messageOrder []string
 	// Map from message_id to its content
 	messageContent map[string]string
+	// Map from message_id to its entry type ("text" or "tool_call")
+	messageType map[string]string
 }
 
 // AddMessage processes a new content update from Zed.
@@ -38,8 +48,18 @@ type MessageAccumulator struct {
 // update or flush correction). If messageID is new, it is appended to the
 // ordered list. The full Content string is rebuilt after every call.
 func (a *MessageAccumulator) AddMessage(messageID, content string) {
+	a.AddMessageWithType(messageID, content, "")
+}
+
+// AddMessageWithType processes a new content update from Zed, with an explicit entry type.
+// entryType should be "text" for assistant prose or "tool_call" for tool invocations.
+// An empty entryType preserves any previously stored type for this message_id.
+func (a *MessageAccumulator) AddMessageWithType(messageID, content, entryType string) {
 	if a.messageContent == nil {
 		a.messageContent = make(map[string]string)
+	}
+	if a.messageType == nil {
+		a.messageType = make(map[string]string)
 	}
 
 	// Migrate legacy state: if we have Content but no messageOrder, this
@@ -62,14 +82,49 @@ func (a *MessageAccumulator) AddMessage(messageID, content string) {
 	if _, exists := a.messageContent[messageID]; exists {
 		// Known message_id — replace content in-place
 		a.messageContent[messageID] = content
+		// Only update type if explicitly provided (don't overwrite with empty)
+		if entryType != "" {
+			a.messageType[messageID] = entryType
+		}
 	} else {
 		// New message_id — append to order
 		a.messageOrder = append(a.messageOrder, messageID)
 		a.messageContent[messageID] = content
+		if entryType != "" {
+			a.messageType[messageID] = entryType
+		}
 	}
 
 	a.LastMessageID = messageID
 	a.rebuild()
+}
+
+// Entries returns the structured response entries in insertion order,
+// preserving the type information for each message_id.
+// Entries with empty content are omitted.
+func (a *MessageAccumulator) Entries() []ResponseEntry {
+	entries := make([]ResponseEntry, 0, len(a.messageOrder))
+	for _, id := range a.messageOrder {
+		c := a.messageContent[id]
+		if c == "" {
+			continue
+		}
+		t := a.messageType[id]
+		if t == "" {
+			// Infer type from content for backward compat (no entry_type from old Zed)
+			if strings.HasPrefix(c, "**Tool Call:") {
+				t = "tool_call"
+			} else {
+				t = "text"
+			}
+		}
+		entries = append(entries, ResponseEntry{
+			Type:      t,
+			Content:   c,
+			MessageID: id,
+		})
+	}
+	return entries
 }
 
 // rebuild reconstructs Content by joining all messages in insertion order.

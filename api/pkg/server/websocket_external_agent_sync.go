@@ -874,6 +874,10 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		return fmt.Errorf("missing or invalid role")
 	}
 
+	// entry_type distinguishes "text" (assistant prose) from "tool_call" (tool invocations).
+	// Optional field — old Zed versions don't send it (defaults to empty string).
+	entryType, _ := syncMsg.Data["entry_type"].(string)
+
 	log.Info().
 		Str("session_id", sessionID).
 		Str("context_id", contextID).
@@ -1013,7 +1017,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			acc := sctx.accumulator
 			prevMessageID := acc.LastMessageID
 
-			acc.AddMessage(messageID, content)
+			acc.AddMessageWithType(messageID, content, entryType)
 
 			if prevMessageID != "" && prevMessageID != messageID {
 				log.Info().
@@ -1267,14 +1271,14 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 // then removes the cached streaming context for a session.
 // Called on message_completed to ensure the DB has the latest content before
 // the interaction is marked as complete.
-func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Context, helixSessionID string) {
+func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Context, helixSessionID string) []wsprotocol.ResponseEntry {
 	apiServer.streamingContextsMu.Lock()
 	sctx, exists := apiServer.streamingContexts[helixSessionID]
 	delete(apiServer.streamingContexts, helixSessionID)
 	apiServer.streamingContextsMu.Unlock()
 
 	if !exists || sctx == nil {
-		return
+		return nil
 	}
 
 	sctx.mu.Lock()
@@ -1295,6 +1299,13 @@ func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Conte
 				Msg("📦 [PERF] Flushed dirty interaction to DB before message_completed")
 		}
 	}
+
+	// Extract structured entries from the accumulator before it's destroyed.
+	// These preserve the type (text vs tool_call) and ordering of each message_id.
+	if sctx.accumulator != nil {
+		return sctx.accumulator.Entries()
+	}
+	return nil
 }
 
 // handleMessageUpdated processes message updates from external agent
@@ -1784,7 +1795,9 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 
 	// Flush any dirty streaming context to DB before clearing.
 	// The throttled DB writes in handleMessageAdded may have left unflushed content.
-	apiServer.flushAndClearStreamingContext(context.Background(), helixSessionID)
+	// Also extract the structured response entries (typed, ordered) from the accumulator
+	// before it's destroyed — these are stored on the interaction for structured rendering.
+	responseEntries := apiServer.flushAndClearStreamingContext(context.Background(), helixSessionID)
 
 	// Get the session
 	helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
@@ -1856,6 +1869,18 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	targetInteraction.State = types.InteractionStateComplete
 	targetInteraction.Completed = time.Now()
 	targetInteraction.Updated = time.Now()
+
+	// Store structured response entries if available (from accumulator).
+	// This preserves the type and ordering of each entry (text vs tool_call)
+	// so the frontend can render them with the correct component in order.
+	if len(responseEntries) > 0 {
+		entriesJSON, err := json.Marshal(responseEntries)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to marshal response entries")
+		} else {
+			targetInteraction.ResponseEntries = entriesJSON
+		}
+	}
 
 	_, err = apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction)
 	if err != nil {

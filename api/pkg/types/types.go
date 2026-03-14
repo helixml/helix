@@ -79,6 +79,13 @@ type Interaction struct {
 	// current message's portion during streaming updates, preserving earlier messages.
 	LastZedMessageOffset int `json:"last_zed_message_offset,omitempty"`
 
+	// ResponseEntries holds the structured response as an ordered list of typed entries.
+	// Each entry is either "text" (assistant prose) or "tool_call" (tool invocation),
+	// preserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.
+	// This is populated on completion alongside ResponseMessage (flat string, backward compat).
+	// The frontend uses this to render entries with the correct component in the correct order.
+	ResponseEntries datatypes.JSON `json:"response_entries,omitempty" gorm:"type:jsonb"`
+
 	// Summary is a one-line description of this interaction for search/indexing.
 	// Generated lazily on first access or via background job.
 	Summary          string     `json:"summary,omitempty"`
