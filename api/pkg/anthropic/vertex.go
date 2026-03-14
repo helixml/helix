@@ -253,13 +253,11 @@ func convertModelNameToVertex(modelName string) string {
 		}
 	}
 	// Versionless model (e.g. claude-sonnet-4-6, claude-opus-4-6):
-	// Vertex requires a version suffix with @ separator
-	if strings.HasPrefix(modelName, "claude-") {
-		if strings.HasSuffix(modelName, "-latest") {
-			// claude-sonnet-4-6-latest → claude-sonnet-4-6@latest
-			return strings.TrimSuffix(modelName, "-latest") + "@latest"
-		}
-		return modelName + "@latest"
+	// Vertex accepts bare model names without a version suffix.
+	// Adding @latest actually causes 404 errors on Vertex.
+	// Strip -latest suffix if present (Zed normalizes model names to -latest format).
+	if strings.HasSuffix(modelName, "-latest") {
+		return strings.TrimSuffix(modelName, "-latest")
 	}
 	return modelName
 }
