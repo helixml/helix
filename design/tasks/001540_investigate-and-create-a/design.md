@@ -15,157 +15,184 @@ helix-api (Go)
                     └── table: haystack_documents
 ```
 
-The haystack service is a separate container. The Go side calls it over HTTP. The `rag.RAG` interface (`Index`, `Query`, `Delete`) is the only coupling point.
+The haystack service is a separate container. The Go side calls it over HTTP. The `rag.RAG` interface (`Index`, `Query`, `Delete`) is the only coupling point between the knowledge indexer and the RAG provider.
 
 ### Kodit Stack (existing)
 
 ```
 helix-api (Go)
-  └── kodit.Client (in-process Go library)
-        ├── ONNX embedder (local model, hugot)
-        ├── VectorChord PostgreSQL (same tech, separate DB or tables)
+  └── kodit.Client (in-process Go library, github.com/helixml/kodit v1.1.8)
+        ├── SimpleChunking strategy (text-based, not AST-specific)
+        ├── ONNX embedder (local hugot model)
+        ├── VectorChord PostgreSQL (same tech, separate tables)
         └── BM25 + semantic hybrid search
 ```
 
-Kodit is already embedded as a Go library and already uses VectorChord with ONNX embeddings. However, it currently only indexes **git repositories** (code snippets), not arbitrary documents.
+Kodit is already embedded as a Go library. Helix runs a native git HTTP server at `/git/{repo_id}` with token authentication. Kodit clones from this server via `http://api:KEY@api:8080/git/{repo_id}`. Currently kodit only indexes git repositories (code files).
 
 ---
 
-## Target Architecture
+## Target Architecture: Filestore-as-Git-Repo
+
+Rather than adding a document push API to kodit, we expose each knowledge entity's files as a synthetic git repository and let kodit index it using its existing git-clone pipeline. Kodit gains dedicated file-type indexers (PDF, DOCX, etc.) that it runs on files as it encounters them during repo indexing.
 
 ```
 helix-api (Go)
-  └── rag.KoditRAG  (new, implements rag.RAG)
-        └── kodit.Client (extended to support arbitrary document indexing)
-              ├── DocumentConverter  (Go: PDF, DOCX, TXT, HTML support)
-              ├── Chunker            (configurable chunk size + overlap)
-              ├── ONNX embedder      (same model as code intelligence)
-              └── VectorChord        (shared PostgreSQL instance)
-                    ├── table: kodit_code_snippets   (existing)
-                    └── table: kodit_documents       (new, for RAG)
+  ├── knowledge_indexer.go
+  │     └── writes raw files → git repo (one repo per knowledge entity)
+  │           └── triggers KoditRAG.Index() → kodit.RegisterRepository(cloneURL)
+  │
+  └── KoditRAG (implements rag.RAG)
+        └── kodit.Client
+              ├── clones git repo via helix HTTP git server
+              ├── PDF indexer    (new in kodit)
+              ├── DOCX indexer   (new in kodit)
+              ├── TXT/MD/HTML indexer (new in kodit)
+              ├── SimpleChunking → ONNX embedder
+              └── VectorChord (shared PostgreSQL)
+                    ├── kodit_code_snippets  (existing, code intelligence)
+                    └── kodit_rag_documents  (same infra, separate table or repo-scoped)
 ```
 
-The haystack Python service is eliminated. All document indexing and search runs in the helix Go binary, using kodit's embedding and storage infrastructure.
+The haystack Python service is eliminated. File conversion, chunking, and embedding all run inside the kodit Go library.
+
+---
+
+## How the Indexing Flow Changes
+
+### Current flow (haystack)
+
+```
+1. knowledge_indexer fetches raw bytes from filestore
+2. (Optionally) pre-chunks text in helix via text.DataPrepTextSplitterChunk
+3. Calls ragClient.Index(chunks...) — pushes content over HTTP to haystack
+4. Haystack: PDF/DOCX → text, chunks, embeds, stores in VectorChord
+```
+
+### New flow (kodit git approach)
+
+```
+1. knowledge_indexer fetches raw bytes from filestore
+2. Writes raw files into a git repo (one repo per knowledge entity, keyed by DataEntityID)
+   — using helix's existing git HTTP server
+3. Calls ragClient.Index(files...) → KoditRAG.Index()
+   a. Creates or updates the git repo via helix GitRepositoryService
+   b. Commits raw files (PDF, DOCX, TXT, etc.) to the repo
+   c. Calls kodit.RegisterRepository(cloneURL) or kodit.SyncRepository(repoID)
+   d. Polls kodit.GetRepositoryStatus() until indexing completes (or errors)
+4. Kodit (internal, git-clone-based):
+   — Clones repo, detects file types
+   — Runs PDF/DOCX/TXT/HTML indexer (new kodit code)
+   — Extracts text, chunks via SimpleChunking, embeds via ONNX
+   — Stores in VectorChord
+```
+
+Key difference: helix sends **raw files**, not pre-chunked text. Kodit owns chunking and conversion.
+
+### Implication for the knowledge indexer
+
+The knowledge indexer should skip pre-chunking when using kodit. The `DisableChunking` flag already exists on `RAGSettings`; for the kodit provider it should default to true (kodit chunks internally). The indexer would call `indexDataDirectly()` which sends whole files — the KoditRAG adapter receives them and writes to git rather than pushing to a vector store.
+
+To avoid the KoditRAG adapter having to re-assemble chunked content, the `rag.RAG` interface's `Index()` semantics shift for this provider: each `SessionRAGIndexChunk` received by `KoditRAG.Index()` is treated as a whole file (one chunk = one file to write to git), not a sub-document chunk. The `Source`/`Filename` fields identify the file; `Content` carries raw bytes.
 
 ---
 
 ## Required Changes in Kodit (`github.com/helixml/kodit`)
 
-These are **blockers** — kodit must provide these before the adapter can be built.
+### 1. File-Type Indexers (the main kodit work)
 
-### 1. Arbitrary Document Indexing API
-Currently kodit only accepts git repositories. It needs a new API surface for indexing document chunks:
+Kodit needs to detect file types when walking the cloned git repo and run appropriate extractors:
 
-```go
-// New kodit API needed
-type DocumentIndexRequest struct {
-    DataEntityID    string
-    DocumentID      string
-    DocumentGroupID string
-    Source          string
-    Filename        string
-    ContentOffset   int
-    Content         string
-    Metadata        map[string]string
-}
+| File Type | Approach |
+|-----------|----------|
+| `.txt`, `.md` | Direct read (already works via SimpleChunking on text files) |
+| `.html` | Strip tags (`golang.org/x/net/html`), extract body text |
+| `.pdf` | Dedicated PDF indexer — extract text per page, preserve structure |
+| `.docx` | Dedicated DOCX indexer — extract paragraphs, headings, tables |
+| `.pptx` | Optional — extract slide text |
+| images | Deferred (vision pipeline) |
 
-type DocumentQueryRequest struct {
-    Query        string
-    DataEntityID string
-    DocumentIDs  []string
-    MaxResults   int
-    Threshold    float64
-}
+The developer has confirmed they are willing to build these indexers in kodit.
 
-type DocumentQueryResult struct {
-    DocumentID      string
-    DocumentGroupID string
-    Source          string
-    Filename        string
-    ContentOffset   int
-    Content         string
-    Score           float64
-    Metadata        map[string]string
-}
+### 2. Verify/Enable `.txt` File Indexing
 
-type DocumentDeleteRequest struct {
-    DataEntityID string
-}
-```
+Kodit currently uses language detection for code files. Confirm (or implement) that `.txt` / `.md` / `.html` files are not filtered out during repo indexing. This is likely already working given SimpleChunking is text-based, but needs verification against kodit v1.1.8 source.
 
-### 2. Metadata-Filtered Delete
-Kodit needs `DeleteDocuments(ctx, DataEntityID)` to remove all chunks belonging to a knowledge entity.
+### 3. Metadata Pass-Through
 
-### 3. File Type Converters in Go
-Currently the haystack Python service uses the `unstructured` library for PDF/DOCX parsing. Kodit (or helix) needs Go-based equivalents:
-- **PDF**: `pdfcpu`, `ledongthuc/pdfcontent`, or calling `pdftotext`
-- **DOCX**: `gooxml` or `docconv`
-- **TXT/MD**: direct read
-- **HTML**: `golang.org/x/net/html` stripper
+Knowledge entities have per-file `.metadata.yaml` files in the filestore with custom `map[string]string` metadata. These can be committed to the git repo alongside the data files (as `{filename}.metadata.yaml`). Kodit must read these sidecar files and store the metadata in VectorChord JSONB for filtering.
 
-This is the most significant engineering effort. Options:
-- A. Embed lightweight Go PDF/DOCX parsers in kodit
-- B. Keep a minimal Python converter sidecar just for format conversion (pre-conversion, not full haystack)
-- C. Send raw bytes to kodit and let kodit handle conversion
+Alternatively, metadata can be encoded into the git repo structure (e.g., a single `_metadata.json` at the root). Simpler.
 
-**Recommendation**: Option A for TXT/MD/HTML (easy), Option C with kodit owning converters for PDF/DOCX.
+### 4. Repo-Scoped Search (already supported)
 
-### 4. Separate VectorChord Table Namespace
-Kodit's existing code snippet table must not conflict with document RAG tables. Kodit should use a configurable table prefix (e.g., `kodit_documents` vs `kodit_code_snippets`).
+Kodit's existing `SearchCodeWithScores` / `SearchKeywordsWithScores` accept a `koditRepoID` filter. This naturally maps to `data_entity_id` — one kodit repo per knowledge entity. No new filtering API needed.
 
-### 5. BM25 Hybrid Search for Documents
-Kodit already implements hybrid search for code. This should be reusable for documents with the same VectorChord BM25 + pgvector approach.
+### 5. Async Indexing and Status Polling
+
+Kodit indexes in the background after `RegisterRepository()`/`SyncRepository()`. Helix's knowledge indexer needs to poll `GetRepositoryStatus()` (already exists in `KoditService`) until the repo reaches a terminal state (ready or error). The KoditRAG adapter can encapsulate this polling loop.
 
 ---
 
-## Helix-Side Changes (new `KoditRAG` adapter)
+## Helix-Side Changes
 
-File: `api/pkg/rag/rag_kodit.go`
+### KoditRAG Adapter (`api/pkg/rag/rag_kodit.go`)
 
 ```go
 type KoditRAG struct {
-    client kodit.Client  // extended to support document RAG
+    koditSvc    KoditServicer          // existing service interface
+    gitSvc      GitRepositoryServicer  // to create/manage synthetic git repos
+    db          Store                  // to persist DataEntityID → git repo ID mapping
 }
 
-func (r *KoditRAG) Index(ctx context.Context, chunks ...*types.SessionRAGIndexChunk) error
+func (r *KoditRAG) Index(ctx context.Context, files ...*types.SessionRAGIndexChunk) error
+// For each file: write to git repo (keyed by DataEntityID), commit
+// Then: kodit.RegisterRepository or SyncRepository
+// Then: poll GetRepositoryStatus until ready
+
 func (r *KoditRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*types.SessionRAGResult, error)
+// Look up kodit repo ID for q.DataEntityID
+// Call koditSvc.SemanticSearch + KeywordSearch, merge results (RRF)
+// Map KoditFileResult → SessionRAGResult
+
 func (r *KoditRAG) Delete(ctx context.Context, req *types.DeleteIndexRequest) error
+// Look up kodit repo ID for req.DataEntityID
+// Call koditSvc.DeleteRepository
+// Delete the synthetic git repo
 ```
 
-- `Index`: converts `SessionRAGIndexChunk` → `kodit.DocumentIndexRequest`, calls kodit
-- `Query`: converts `SessionRAGQuery` → `kodit.DocumentQueryRequest`, maps results back to `SessionRAGResult`
-- `Delete`: calls `kodit.DeleteDocuments(dataEntityID)`
+The `rag.RAG` interface is unchanged. All three types (`SessionRAGIndexChunk`, `SessionRAGQuery`, `SessionRAGResult`) and `DeleteIndexRequest` are unchanged.
 
-Add `RAGProviderKodit = "kodit"` to `config.go` and wire into `serve.go` switch statement.
+### DataEntityID → Git Repo Mapping
+
+A mapping table (or stored in `KnowledgeVersion.EmbeddingsModel` field repurposed, or a new `KnowledgeVersion` field) is needed to associate a `DataEntityID` with a kodit repo ID. Options:
+- Add `KoditRepoID int64` to the `KnowledgeVersion` table (cleanest)
+- Store a deterministic name (`knowledge-{DataEntityID}`) and look up by name
+
+### Knowledge Indexer Adjustment
+
+When kodit is the RAG provider, set `DisableChunking=true` so the indexer sends whole files rather than pre-chunked text. This can be done by the `KoditRAG` adapter exposing a method, or by convention (knowledge bases default to no-chunk when provider=kodit).
 
 ---
 
 ## File Storage Integration
 
-Helix filestore (local disk, S3, GCS) holds raw uploaded files. The knowledge indexer (`knowledge_indexer.go`) already:
-1. Fetches raw bytes from filestore
-2. Creates `SessionRAGIndexChunk` with content pre-extracted (if chunking enabled) or raw bytes
-3. Calls `ragClient.Index()`
+Helix filestore (local disk, S3, GCS) remains the source of truth for raw uploaded files. The git repo is a derived view of those files, committed by the knowledge indexer.
 
-The current haystack service does the document conversion (PDF → text) inside its `/process` endpoint. With kodit, there are two options:
-
-**Option A (preferred)**: Keep pre-processing in the knowledge indexer (Go side). The indexer already does chunking via `text.DataPrepTextSplitterChunk`. Add Go-based format converters here, so raw bytes become text before reaching kodit. Kodit receives text-only chunks.
-
-**Option B**: Push file bytes to kodit and let kodit convert. Requires kodit to bundle converters.
-
-Option A is simpler and keeps conversion logic in helix where it already partially lives.
+The synthetic git repos live in helix's existing git server (the same one code intelligence uses). They are private and only accessed by kodit via the authenticated clone URL.
 
 ### Re-indexing Strategy
-Existing haystack vector data does **not** need to be migrated. Instead:
-- On deprecation cutover, mark all existing knowledge versions as "Pending"
-- The knowledge reconciler will re-index everything through kodit
-- Haystack tables can be dropped after re-indexing completes
+
+Existing haystack vector data does **not** need to be migrated:
+- On cutover, mark all existing knowledge versions as "Pending"
+- The knowledge reconciler re-indexes everything: writes files to git repos, registers with kodit
+- Haystack VectorChord tables can be dropped after re-indexing completes
 
 ---
 
 ## Interfaces to Maintain (no upstream changes)
 
-These types in `api/pkg/types/types.go` must remain unchanged:
+These types in `api/pkg/types/types.go` remain unchanged:
 
 | Type | Fields |
 |------|--------|
@@ -174,78 +201,83 @@ These types in `api/pkg/types/types.go` must remain unchanged:
 | `SessionRAGResult` | ID, SessionID, InteractionID, DocumentID, DocumentGroupID, Filename, Source, ContentOffset, Content, Distance, Metadata |
 | `DeleteIndexRequest` | DataEntityID |
 
-The `rag.RAG` interface (`Index`, `Query`, `Delete`) is the sole integration point and must remain as-is.
-
-HTTP API endpoints for knowledge (`/api/v1/knowledge/...`) are unchanged.
+The `rag.RAG` interface (`Index`, `Query`, `Delete`) is the sole coupling between the knowledge indexer and any RAG provider. The external HTTP API for knowledge bases (`/api/v1/knowledge/...`) is unchanged.
 
 ---
 
-## Hard Migration Challenges
+## Remaining Migration Challenges
 
-1. **Vision Pipeline**: Haystack has a separate vision pipeline (image embeddings via DSE model). Kodit has no image embedding support. This is a blocker for full parity — either defer vision RAG or add vision embedding to kodit separately.
+1. **Async indexing latency**: Kodit indexes asynchronously after repo registration. The polling loop in KoditRAG must handle long-running indexing jobs (large PDF collections) without timing out. May need a configurable timeout.
 
-2. **PDF/DOCX Conversion**: The `unstructured` Python library handles messy real-world PDFs well (tables, headers, footnotes). Go PDF libraries are less capable. The hardest documents to migrate are complex PDFs with mixed layouts. Short-term mitigation: accept reduced PDF fidelity, or keep a minimal Python converter as a preprocessing step.
+2. **Kodit file-type filtering**: Without reading kodit v1.1.8 source, it's unknown whether `.txt` and `.pdf` files are currently skipped by language detection. This must be validated early — if kodit silently ignores non-code file types, this approach fails at the first step.
 
-3. **Chunking Quality**: Haystack's `DocumentSplitter` respects sentence boundaries. The existing Go splitter in helix (`text.DataPrepTextSplitterChunk`) must be validated to produce equivalent quality chunks.
+3. **Result mapping — ContentOffset**: Kodit returns file paths and line ranges; `SessionRAGResult` expects `ContentOffset` (byte offset). Line-to-byte offset mapping is needed. Can be computed from the stored file content if needed.
 
-4. **RRF Hybrid Search**: Haystack uses Reciprocal Rank Fusion (k=60) to merge semantic + BM25 results. Kodit must implement the same (or equivalent) for document search.
+4. **Vision pipeline**: Image embeddings are not supported by kodit. Deferred — the haystack vision pipeline could theoretically be kept in parallel for vision-enabled knowledge bases, or this feature is dropped initially.
 
-5. **Metadata YAML**: The knowledge indexer loads per-file `.metadata.yaml` from filestore and passes custom metadata to the indexer. Kodit must store and filter on arbitrary `map[string]string` metadata.
+5. **Hybrid search merge in helix**: Kodit exposes `SemanticSearch` and `KeywordSearch` as separate calls. The KoditRAG adapter must merge results using Reciprocal Rank Fusion (same as haystack's implementation, k=60). This logic lives in the adapter.
+
+6. **Metadata sidecar format**: `.metadata.yaml` files from filestore need to be committed into the synthetic git repo and read by kodit. A simple convention (e.g., commit `{filename}.meta.json` alongside each file) must be agreed between helix and kodit.
 
 ---
 
 ## Migration Order
 
-**Phase 1 — Kodit gains document RAG API** (kodit library work)
-- Add `DocumentIndexer` and `DocumentSearcher` interfaces to kodit
-- Implement metadata-filtered delete
-- Separate VectorChord table namespace for documents
+**Phase 1 — Validate kodit file type support** (fast check, blocks everything)
+- Inspect kodit v1.1.8 source to confirm `.txt` files are indexed (not filtered by language detection)
+- Create a test git repo with a `.txt` file, register it with kodit, verify it appears in search results
+- If `.txt` files are filtered: add a kodit change to allow arbitrary text files before proceeding
 
-**Phase 2 — File type converters** (kodit or helix)
-- TXT, MD, HTML: trivial (Go)
-- PDF: Go-native parser (accept reduced fidelity initially)
-- DOCX: `gooxml` or `docconv`
+**Phase 2 — Kodit file-type indexers** (kodit repo work)
+- Add PDF indexer to kodit (text extraction per page)
+- Add DOCX indexer to kodit (paragraph extraction)
+- Add HTML indexer to kodit (tag stripping)
+- Add metadata sidecar reading (`.meta.json` alongside files)
+- Verify chunking and embedding pipeline works end-to-end for each type
 
 **Phase 3 — KoditRAG adapter in helix**
 - Implement `api/pkg/rag/rag_kodit.go`
-- Wire up `RAGProviderKodit` in config and serve.go
+- Implement DataEntityID → git repo mapping (add `KoditRepoID` to `KnowledgeVersion`)
+- Implement RRF merge for hybrid search results
+- Wire `RAGProviderKodit` into config and serve.go
 - Unit + integration tests
 
-**Phase 4 — Validation**
-- Run both haystack and kodit in parallel on test data
-- Compare search quality (recall, precision) on known document sets
-- Validate metadata filtering, deletes, re-indexing
+**Phase 4 — Knowledge indexer adjustments**
+- Set DisableChunking=true automatically for kodit provider
+- Handle async indexing status polling
+- Test full upload → index → query roundtrip
 
-**Phase 5 — Cutover**
-- Set `RAG_DEFAULT_PROVIDER=kodit` as default
-- Mark all knowledge versions pending for re-indexing
-- Monitor error rates
+**Phase 5 — Validation**
+- Run haystack and kodit in parallel (shadow mode)
+- Compare search quality on real-world PDF, DOCX, TXT documents
+- Load test: 10k+ documents, measure indexing time and query latency
 
-**Phase 6 — Haystack removal**
-- Remove `haystack_service/` directory
-- Remove `RAGProviderHaystack` from config
-- Remove haystack from docker-compose
-- Remove `api/pkg/rag/rag_haystack.go`
+**Phase 6 — Cutover and haystack removal**
+- Switch `RAG_DEFAULT_PROVIDER=kodit`
+- Mark all KnowledgeVersions as Pending to trigger re-indexing
+- Remove `haystack_service/` and `api/pkg/rag/rag_haystack.go`
+- Update docker-compose and Helm charts
 
 ---
 
 ## Configuration Changes
 
-New config (in `config.go` Kodit struct, or new RAG sub-config):
+No new top-level config needed. The existing `Kodit` struct in `config.go` covers the database URL and git URL. Add:
 ```
-KODIT_RAG_ENABLED=true
-KODIT_RAG_TABLE_PREFIX=kodit_rag  # separate from code intelligence tables
+RAG_DEFAULT_PROVIDER=kodit   # new valid value
 ```
 
-The existing `KODIT_DB_URL` (VectorChord) can be shared between code intelligence and document RAG — same PostgreSQL instance, different tables.
+The kodit VectorChord instance (`KODIT_DB_URL`) serves both code intelligence and document RAG. No separate database needed.
 
 ---
 
 ## Patterns Found in This Codebase
 
 - RAG providers are selected by `RAG_DEFAULT_PROVIDER` env var, switch-cased in `serve.go`
-- All RAG implementations must satisfy the `rag.RAG` interface (`api/pkg/rag/rag.go`)
-- Knowledge indexer at `api/pkg/controller/knowledge/knowledge_indexer.go` is the orchestrator; it's RAG-provider-agnostic
-- Kodit uses build tags (`//go:build !nokodit`) — new KoditRAG adapter should follow the same pattern
-- VectorChord (PostgreSQL 17 with pgvector + BM25) is already operational for kodit code intelligence
-- File metadata is loaded from `{filename}.metadata.yaml` in filestore and passed as `map[string]string` to the RAG index call
+- All RAG implementations satisfy `rag.RAG` interface (`api/pkg/rag/rag.go`)
+- Knowledge indexer at `api/pkg/controller/knowledge/knowledge_indexer.go` is RAG-provider-agnostic
+- Kodit uses build tags (`//go:build !nokodit`) — KoditRAG adapter should follow the same pattern
+- Helix git HTTP server at `/git/{repo_id}` already serves authenticated repos for code intelligence
+- `BuildAuthenticatedCloneURL(repoID, apiKey)` in `git_repository_service.go` produces URLs kodit can clone
+- `KoditService.GetRepositoryStatus()` already exists for polling indexing progress
+- File metadata is loaded from `{filename}.metadata.yaml` in filestore — needs to be committed to git repo alongside data files
