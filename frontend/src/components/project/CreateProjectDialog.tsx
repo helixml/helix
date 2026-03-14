@@ -742,7 +742,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                             dense
                           >
                             {filteredGithubRepos.map((repo, index) => {
-                              const isSelected = selectedOAuthRepo?.full_name === repo.full_name ||
+                              const isSelected = selectedOAuthRepo?.full_name === repo.full_name
 
                               return (
                                 <ListItem key={repo.id || repo.full_name || index} disablePadding>
