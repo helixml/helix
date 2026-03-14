@@ -11,10 +11,10 @@
 
 ## Dead code cleanup — stale check in useLiveInteraction
 
-- [ ] In `frontend/src/hooks/useLiveInteraction.ts`: remove `isAppTryHelixDomain` memo (~line 42-44)
-- [ ] In `frontend/src/hooks/useLiveInteraction.ts`: remove `isStale` state, `recentTimestamp` state, and all `setRecentTimestamp`/`setIsStale` calls
-- [ ] In `frontend/src/hooks/useLiveInteraction.ts`: remove the stale-check `useEffect` (~line 101-117)
-- [ ] In `frontend/src/hooks/useLiveInteraction.ts`: remove `isStale` from the `LiveInteractionResult` interface and from the returned result object
+- [~] In `frontend/src/hooks/useLiveInteraction.ts`: remove `isAppTryHelixDomain` memo (~line 42-44)
+- [~] In `frontend/src/hooks/useLiveInteraction.ts`: remove `isStale` state, `recentTimestamp` state, and all `setRecentTimestamp`/`setIsStale` calls
+- [~] In `frontend/src/hooks/useLiveInteraction.ts`: remove the stale-check `useEffect` (~line 101-117)
+- [~] In `frontend/src/hooks/useLiveInteraction.ts`: remove `isStale` from the `LiveInteractionResult` interface and from the returned result object
 
 ## Dead code cleanup — upgrade button in InteractionInference
 
