@@ -147,6 +147,10 @@ func vertexTransformRequest(r *http.Request, projectID, region string, tokenSour
 	r.Header.Del("api-key")
 	r.Header.Set("Authorization", "Bearer "+token.AccessToken)
 
+	// Strip anthropic-beta header — Vertex doesn't support all beta features
+	// (e.g. prompt-caching-scope-2026-01-05) and returns 400 for unknown values.
+	r.Header.Del("anthropic-beta")
+
 	// Always set the Vertex host/scheme so we never end up with an empty URL
 	baseURL := VertexBaseURL(region)
 	u, err := url.Parse(baseURL)
@@ -253,13 +257,11 @@ func convertModelNameToVertex(modelName string) string {
 		}
 	}
 	// Versionless model (e.g. claude-sonnet-4-6, claude-opus-4-6):
-	// Vertex requires a version suffix with @ separator
-	if strings.HasPrefix(modelName, "claude-") {
-		if strings.HasSuffix(modelName, "-latest") {
-			// claude-sonnet-4-6-latest → claude-sonnet-4-6@latest
-			return strings.TrimSuffix(modelName, "-latest") + "@latest"
-		}
-		return modelName + "@latest"
+	// Vertex accepts bare model names without a version suffix.
+	// Adding @latest actually causes 404 errors on Vertex.
+	// Strip -latest suffix if present (Zed normalizes model names to -latest format).
+	if strings.HasSuffix(modelName, "-latest") {
+		return strings.TrimSuffix(modelName, "-latest")
 	}
 	return modelName
 }
