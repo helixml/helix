@@ -40,10 +40,6 @@ import AgentDropdown from "../agent/AgentDropdown";
 import CodingAgentForm, {
   CodingAgentFormHandle,
 } from "../agent/CodingAgentForm";
-import { useClaudeSubscriptions } from "../account/ClaudeSubscriptionConnect";
-import { useListProviders } from "../../services/providersService";
-import { TypesProviderEndpointType } from "../../api/api";
-
 import useAccount from "../../hooks/useAccount";
 import useApi from "../../hooks/useApi";
 import useSnackbar from "../../hooks/useSnackbar";
@@ -166,21 +162,6 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const [userModifiedName, setUserModifiedName] = useState(false);
   const [creatingAgent, setCreatingAgent] = useState(false);
   const codingAgentFormRef = useRef<CodingAgentFormHandle>(null);
-  const { data: claudeSubscriptions } = useClaudeSubscriptions();
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0;
-  const { data: providerEndpoints } = useListProviders({ loadModels: false });
-  const hasAnthropicProvider = useMemo(() => {
-    if (!providerEndpoints) return false;
-    return providerEndpoints.some((p) => p.name === "anthropic");
-  }, [providerEndpoints]);
-  const userProviderCount = useMemo(() => {
-    if (!providerEndpoints) return 0;
-    return providerEndpoints.filter(
-      (p) =>
-        p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser,
-    ).length;
-  }, [providerEndpoints]);
-
   // Ref for task prompt text field
   const taskPromptRef = useRef<HTMLTextAreaElement>(null);
 
@@ -230,13 +211,6 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
       setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime));
     }
   }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm]);
-
-  useEffect(() => {
-    if (hasClaudeSubscription || hasAnthropicProvider) {
-      setCodeAgentRuntime("claude_code");
-      setClaudeCodeMode(hasAnthropicProvider ? "api_key" : "subscription");
-    }
-  }, [hasClaudeSubscription, hasAnthropicProvider]);
 
   // Load apps on mount
   useEffect(() => {
@@ -753,8 +727,6 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                     setNewAgentName(nextValue.agentName);
                   }}
                   disabled={creatingAgent || isCreating}
-                  hasClaudeSubscription={hasClaudeSubscription}
-                  hasAnthropicProvider={hasAnthropicProvider}
                   recommendedModels={RECOMMENDED_CODING_MODELS}
                   createAgentDescription="Code development agent for spec tasks"
                   onCreateStateChange={setCreatingAgent}

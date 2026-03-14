@@ -28,10 +28,7 @@ import useAccount from '../../hooks/useAccount'
 
 import { AppsContext, CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
-import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
-import { useListProviders } from '../../services/providersService'
 import { RECOMMENDED_CODING_MODELS } from '../../constants/models'
-import { TypesProviderEndpointType } from '../../api/api'
 import CodingAgentForm, { CodingAgentFormHandle } from '../agent/CodingAgentForm'
 
 
@@ -56,19 +53,6 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
   const [isLoading, setIsLoading] = useState(false)
   const [showCreateForm, setShowCreateForm] = useState(false)
   const codingAgentFormRef = useRef<CodingAgentFormHandle>(null)
-
-  // Claude subscription + provider state
-  const { data: claudeSubscriptions } = useClaudeSubscriptions()
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
-  const { data: providerEndpoints } = useListProviders({ loadModels: false })
-  const hasAnthropicProvider = useMemo(() => {
-    if (!providerEndpoints) return false
-    return providerEndpoints.some(p => p.name === 'anthropic')
-  }, [providerEndpoints])
-  const userProviderCount = useMemo(() => {
-    if (!providerEndpoints) return 0
-    return providerEndpoints.filter(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser).length
-  }, [providerEndpoints])
 
   // Create agent form state
   const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent')
@@ -129,14 +113,6 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
       setShowCreateForm(true)
     }
   }, [open, apps])
-
-  // Auto-default to Claude Code when it's the only available AI provider
-  useEffect(() => {
-    if (hasClaudeSubscription && !hasAnthropicProvider && userProviderCount === 0) {
-      setCodeAgentRuntime('claude_code')
-      setClaudeCodeMode('subscription')
-    }
-  }, [hasClaudeSubscription, hasAnthropicProvider, userProviderCount])
 
   const handleSelect = () => {
     if (selectedAgentId) {
@@ -272,8 +248,6 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
                 setNewAgentName(nextValue.agentName)
               }}
               disabled={isCreating}
-              hasClaudeSubscription={hasClaudeSubscription}
-              hasAnthropicProvider={hasAnthropicProvider}
               recommendedModels={RECOMMENDED_CODING_MODELS}
               createAgentDescription="Code development agent for spec tasks"
               onCreateStateChange={setIsCreating}
