@@ -38,7 +38,12 @@ type streamingContext struct {
 	lastPublish time.Time
 	// Patch-based delta tracking: tracks content sent to frontend so we can compute diffs
 	previousContent string // last ResponseMessage sent to frontend
-	mu              sync.Mutex
+	// Message accumulator: persists across handleMessageAdded calls so that
+	// out-of-order flush updates (Stopped event) can replace earlier message_ids
+	// in-place instead of appending duplicates. A new accumulator per call would
+	// lose the message_id→content mapping because the DB only stores the joined string.
+	accumulator *wsprotocol.MessageAccumulator
+	mu          sync.Mutex
 }
 
 const (
@@ -992,13 +997,20 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			// IMPORTANT: Keep state as Waiting - only message_completed marks it as Complete
 			//
 			// MULTI-MESSAGE HANDLING using wsprotocol.MessageAccumulator:
-			// Restores state from DB fields (LastZedMessageID, LastZedMessageOffset)
-			// so accumulation is restart-resilient.
-			acc := &wsprotocol.MessageAccumulator{
-				Content:       targetInteraction.ResponseMessage,
-				LastMessageID: targetInteraction.LastZedMessageID,
-				Offset:        targetInteraction.LastZedMessageOffset,
+			// The accumulator is stored in the streaming context so it persists
+			// across calls. This is critical: the Stopped flush sends corrected
+			// content for earlier message_ids (out of order), and the accumulator
+			// needs its message_id→content map to replace them in-place.
+			// Creating a new accumulator per call would lose this mapping because
+			// the DB only stores the joined Content string + LastMessageID/Offset.
+			if sctx.accumulator == nil {
+				sctx.accumulator = &wsprotocol.MessageAccumulator{
+					Content:       targetInteraction.ResponseMessage,
+					LastMessageID: targetInteraction.LastZedMessageID,
+					Offset:        targetInteraction.LastZedMessageOffset,
+				}
 			}
+			acc := sctx.accumulator
 			prevMessageID := acc.LastMessageID
 
 			acc.AddMessage(messageID, content)
@@ -1151,6 +1163,7 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 			sctx.dirty = false
 			sctx.lastDBWrite = time.Time{}
 			sctx.lastPublish = time.Time{}
+			sctx.accumulator = nil // clear stale message_id mappings from old interaction
 		}
 		sctx.mu.Unlock()
 
