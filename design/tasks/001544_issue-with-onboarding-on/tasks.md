@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Create `frontend/src/components/agent/useCodingAgentProviderState.ts` — hook that calls `useListProviders`/`useClaudeSubscriptions`, computes `hasAnthropicProvider`/`hasClaudeSubscription`, and auto-selects the correct runtime/mode via `onChange` on first load (with `useRef` guard)
+- [~] Create `frontend/src/components/agent/useCodingAgentProviderState.ts` — hook that calls `useListProviders`/`useClaudeSubscriptions`, computes `hasAnthropicProvider`/`hasClaudeSubscription`, and auto-selects the correct runtime/mode via `onChange` on first load (with `useRef` guard)
 - [ ] Update `CodingAgentForm.tsx` — call the new hook internally, remove `hasAnthropicProvider` and `hasClaudeSubscription` from `CodingAgentFormProps`
 - [ ] Remove now-redundant code from all five parent components (`Onboarding.tsx`, `ProjectSettings.tsx`, `CreateProjectDialog.tsx`, `AgentSelectionModal.tsx`, `NewSpecTaskForm.tsx`): the `useListProviders`/`useClaudeSubscriptions` calls used for provider-state, the `hasAnthropicProvider`/`hasClaudeSubscription` derivations, the auto-select `useEffect`, and the two props passed to `CodingAgentForm`
 - [ ] Fix `AppSettings.tsx` — update the standalone `hasAnthropicProvider` check to include global providers (not in `CodingAgentForm`, so not covered by the hook)
