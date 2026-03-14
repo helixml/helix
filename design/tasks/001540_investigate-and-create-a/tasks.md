@@ -1,19 +1,17 @@
 # Implementation Tasks
 
-## Phase 1 — Validate Kodit File Type Support (blocks everything)
+## Phase 1 — Kodit: Add Document File Support (kodit repo work, blocks everything)
 
-- [ ] Inspect kodit v1.1.8 source to confirm `.txt` and `.md` files are not filtered out by language detection during repo indexing
-- [ ] Create a test git repo with `.txt` and `.pdf` (raw) files, register with kodit, verify they appear in semantic/keyword search results
-- [ ] If `.txt` is filtered: add a kodit change to allow arbitrary text files before any other work proceeds
+All changes are in `application/handler/indexing/chunk_files.go`.
 
-## Phase 2 — Kodit File-Type Indexers (kodit repo work)
+**Confirmed by reading kodit v1.1.8 source:** `.txt`, `.pdf`, `.docx` are not in `indexableExtensions` (lines 218–274) and will be silently skipped. PDFs also contain null bytes and fail the `isBinary()` check (lines 283–290). These changes are required before the git paradigm can work at all.
 
-- [ ] Add PDF indexer to kodit: extract text per page from `.pdf` files when encountered during repo clone/index
-- [ ] Add DOCX indexer to kodit: extract paragraphs and headings from `.docx` files
-- [ ] Add HTML indexer to kodit: strip tags and extract body text from `.html` files
-- [ ] Add PPTX indexer (optional stretch): extract slide text from `.pptx` files
-- [ ] Implement metadata sidecar reading: when kodit finds `{filename}.meta.json` alongside a file, merge that JSON into the document's stored metadata in VectorChord
-- [ ] Verify end-to-end pipeline: file → indexer → chunker (SimpleChunking) → ONNX embedder → VectorChord → searchable
+- [ ] Add `.txt": true` to `indexableExtensions` — one line change, `.txt` is plain text so no converter needed
+- [ ] Add `.pdf` to `indexableExtensions` and add a PDF text-extraction converter: intercept between `read bytes` and `isBinary()`, detect `.pdf` extension, run Go PDF parser, pass extracted text to `NewTextChunks()` (bypassing `isBinary()`)
+- [ ] Add `.docx` to `indexableExtensions` with a DOCX text-extraction converter (same intercept pattern as PDF)
+- [ ] Add `.pptx` to `indexableExtensions` with a PPTX text-extraction converter (optional stretch)
+- [ ] Implement metadata sidecar reading: when kodit encounters `{filename}.meta.json` alongside an indexed file, merge that JSON into the stored enrichment metadata so it is searchable/filterable
+- [ ] Write a test verifying `.txt`, `.pdf`, `.docx` files in a git repo are indexed and appear in search results (extend or mirror `TestChunkFiles_OnlyIndexesSourceAndDocFiles`)
 
 ## Phase 3 — KoditRAG Adapter in Helix
 

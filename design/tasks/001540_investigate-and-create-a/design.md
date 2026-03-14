@@ -99,36 +99,74 @@ To avoid the KoditRAG adapter having to re-assemble chunked content, the `rag.RA
 
 ## Required Changes in Kodit (`github.com/helixml/kodit`)
 
-### 1. File-Type Indexers (the main kodit work)
+### Source of truth: `chunk_files.go`
 
-Kodit needs to detect file types when walking the cloned git repo and run appropriate extractors:
+The entire file-selection logic lives in one place:
+`application/handler/indexing/chunk_files.go`
 
-| File Type | Approach |
-|-----------|----------|
-| `.txt`, `.md` | Direct read (already works via SimpleChunking on text files) |
-| `.html` | Strip tags (`golang.org/x/net/html`), extract body text |
-| `.pdf` | Dedicated PDF indexer — extract text per page, preserve structure |
-| `.docx` | Dedicated DOCX indexer — extract paragraphs, headings, tables |
-| `.pptx` | Optional — extract slide text |
+The pipeline per file is:
+```
+isIndexable(path)    → extension whitelist check (lines 276–281)
+  ↓ pass
+read bytes           → FileContent()
+  ↓
+isBinary(content)    → null-byte probe of first 8KB (lines 283–290)
+  ↓ pass
+NewTextChunks(text)  → SimpleChunking into fixed-size rune chunks
+  ↓
+save to VectorChord
+```
+
+`.txt`, `.pdf`, and `.docx` are **not** in `indexableExtensions` (lines 218–274), so they are silently skipped at the first step. PDFs additionally contain null bytes and would also fail `isBinary()`. Neither `.txt` nor any document format currently passes through to chunking.
+
+### 1. Add `.txt` to `indexableExtensions`
+
+One-liner: add `".txt": true` to the map. `.txt` files are already plain text so no converter is needed — they flow straight into `NewTextChunks()`.
+
+### 2. File-Type Converters for Binary Document Formats
+
+For PDF, DOCX, and PPTX the intercept point is between `read bytes` and `isBinary()`. When the file extension is a known document format, run a converter to produce plain text, then pass that text directly to `NewTextChunks()`, skipping the `isBinary()` check entirely:
+
+```
+isIndexable(path)              → must add: .pdf, .docx, .pptx, .txt, .html
+  ↓ pass
+read bytes                     → FileContent()
+  ↓
+isConvertible(ext)?            → NEW: .pdf / .docx / .pptx branch
+  → convert(bytes) → text      → PDF parser, DOCX parser, etc.
+  → NewTextChunks(text)
+isConvertible = false?
+  → isBinary(content)          → existing null-byte check
+  → NewTextChunks(string(content))
+```
+
+| Extension | Converter approach |
+|-----------|-------------------|
+| `.txt` | None — add to whitelist and pass through as-is |
+| `.html`, `.htm` | Already in whitelist; already text (tag stripping optional) |
+| `.md`, `.rst`, `.adoc` | Already in whitelist; already text |
+| `.pdf` | Add to whitelist + Go PDF parser (extract text per page) |
+| `.docx` | Add to whitelist + Go DOCX parser (paragraphs, headings) |
+| `.pptx` | Add to whitelist + Go PPTX parser (slide text), optional |
 | images | Deferred (vision pipeline) |
 
-The developer has confirmed they are willing to build these indexers in kodit.
+The developer has confirmed they will build these converters in kodit.
 
-### 2. Verify/Enable `.txt` File Indexing
+### 3. Configuration of SimpleChunking for Documents
 
-Kodit currently uses language detection for code files. Confirm (or implement) that `.txt` / `.md` / `.html` files are not filtered out during repo indexing. This is likely already working given SimpleChunking is text-based, but needs verification against kodit v1.1.8 source.
+The default kodit setup in helix already uses `WithSimpleChunking()` (kodit_init.go line 44). SimpleChunking parameters (size=1500 runes, overlap=200, min=50) are reasonable for documents but may need tuning separately from code. The `ChunkParams` struct supports this.
 
-### 3. Metadata Pass-Through
+### 4. Metadata Pass-Through
 
 Knowledge entities have per-file `.metadata.yaml` files in the filestore with custom `map[string]string` metadata. These can be committed to the git repo alongside the data files (as `{filename}.metadata.yaml`). Kodit must read these sidecar files and store the metadata in VectorChord JSONB for filtering.
 
 Alternatively, metadata can be encoded into the git repo structure (e.g., a single `_metadata.json` at the root). Simpler.
 
-### 4. Repo-Scoped Search (already supported)
+### 5. Repo-Scoped Search (already supported)
 
 Kodit's existing `SearchCodeWithScores` / `SearchKeywordsWithScores` accept a `koditRepoID` filter. This naturally maps to `data_entity_id` — one kodit repo per knowledge entity. No new filtering API needed.
 
-### 5. Async Indexing and Status Polling
+### 6. Async Indexing and Status Polling
 
 Kodit indexes in the background after `RegisterRepository()`/`SyncRepository()`. Helix's knowledge indexer needs to poll `GetRepositoryStatus()` (already exists in `KoditService`) until the repo reaches a terminal state (ready or error). The KoditRAG adapter can encapsulate this polling loop.
 
