@@ -97,7 +97,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const { data: providerEndpoints } = useListProviders({ loadModels: false })
   const hasAnthropicProvider = useMemo(() => {
     if (!providerEndpoints) return false
-    return providerEndpoints.some(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser && p.name === 'anthropic')
+    return providerEndpoints.some(p => p.name === 'anthropic')
   }, [providerEndpoints])
   const userProviderCount = useMemo(() => {
     if (!providerEndpoints) return 0
