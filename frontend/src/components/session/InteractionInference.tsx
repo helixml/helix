@@ -24,9 +24,7 @@ import ToPDF from "../export/ToPDF";
 import useAccount from "../../hooks/useAccount";
 import useRouter from "../../hooks/useRouter";
 import { useUpdateInteractionFeedback } from "../../services/interactionsService";
-import { useSettingsDialog } from "../../contexts/settingsDialog";
 
-import { emitEvent } from "../../utils/analytics";
 
 import { IServerConfig } from "../../types";
 
@@ -60,7 +58,6 @@ export const InteractionInference: FC<{
   serverConfig?: IServerConfig;
   interaction: TypesInteraction;
   session: TypesSession;
-  upgrade?: boolean;
   isFromAssistant?: boolean;
   onFilterDocument?: (docId: string) => void;
   onRegenerate?: (interactionID: string, message: string) => void;
@@ -78,7 +75,6 @@ export const InteractionInference: FC<{
   serverConfig,
   interaction,
   session,
-  upgrade,
   isFromAssistant: isFromAssistant,
   onFilterDocument,
   onRegenerate,
@@ -92,7 +88,6 @@ export const InteractionInference: FC<{
 }) => {
   const account = useAccount();
   const router = useRouter();
-  const settingsDialog = useSettingsDialog();
   const [viewingError, setViewingError] = useState(false);
   const [viewingExport, setViewingExport] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -437,7 +432,7 @@ export const InteractionInference: FC<{
               to view the details.
             </Alert>
           </Cell>
-          {!upgrade && onRegenerate && !message && (
+          {onRegenerate && !message && (
             <Cell
               sx={{
                 ml: 2,
@@ -456,27 +451,6 @@ export const InteractionInference: FC<{
                 }
               >
                 Retry
-              </Button>
-            </Cell>
-          )}
-          {upgrade && (
-            <Cell
-              sx={{
-                ml: 2,
-              }}
-            >
-              <Button
-                variant="contained"
-                color="secondary"
-                size="small"
-                onClick={() => {
-                  emitEvent({
-                    name: "queue_upgrade_clicked",
-                  });
-                  settingsDialog.openDialog('account');
-                }}
-              >
-                Upgrade
               </Button>
             </Cell>
           )}
