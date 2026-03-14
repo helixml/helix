@@ -344,7 +344,7 @@ func (s *HelixAPIServer) ensurePullRequestForTask(ctx context.Context, repo *typ
 	}
 
 	// Create new PR
-	description := fmt.Sprintf("> **Helix**: %s\n", task.Description)
+	description := fmt.Sprintf("> **Helix**: %s\n\n---\n[Created by Helix](https://helix.ml)\n", task.Description)
 	prID, err := s.gitRepositoryService.CreatePullRequest(ctx, repo.ID, task.Name, description, branch, repo.DefaultBranch)
 	if err != nil {
 		return fmt.Errorf("failed to create PR: %w", err)
