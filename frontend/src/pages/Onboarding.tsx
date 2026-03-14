@@ -309,7 +309,6 @@ export default function Onboarding() {
     });
     return map;
   }, []);
-  const hasAnthropicProvider = connectedProviderIds.has("anthropic");
   // Consider Claude subscription as a valid provider for the "Continue" button
   const hasUserProviders =
     connectedProviderIds.size > 0 || hasClaudeSubscription;
@@ -541,18 +540,6 @@ export default function Onboarding() {
     isLoadingProviders,
     providers,
   ]);
-
-  // Auto-default to Claude Code when it's the only available AI provider
-  useEffect(() => {
-    if (
-      hasClaudeSubscription &&
-      !hasAnthropicProvider &&
-      connectedProviderIds.size === 0
-    ) {
-      setCodeAgentRuntime("claude_code");
-      setClaudeCodeMode("subscription");
-    }
-  }, [hasClaudeSubscription, hasAnthropicProvider, connectedProviderIds.size]);
 
   // Auto-generate agent name when model or runtime changes
   useEffect(() => {
@@ -2092,8 +2079,6 @@ export default function Onboarding() {
                       setNewAgentName(nextValue.agentName);
                     }}
                     disabled={creatingAgent}
-                    hasClaudeSubscription={hasClaudeSubscription}
-                    hasAnthropicProvider={hasAnthropicProvider}
                     recommendedModels={RECOMMENDED_CODING_MODELS}
                     createAgentDescription="Code development agent"
                     createAgentOrganizationId={createdOrg?.id}

@@ -283,9 +283,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   })
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
   const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
-  const hasAnthropicProvider = providerEndpoints.some(
-    ep => ep.endpoint_type === 'user' && ep.name === 'anthropic'
-  )
+  const hasAnthropicProvider = providerEndpoints.some(ep => ep.name === 'anthropic')
 
   // Advanced settings state
   const [contextLimit, setContextLimit] = useState(app.context_limit || 0)

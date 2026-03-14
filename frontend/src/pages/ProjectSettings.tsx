@@ -87,10 +87,6 @@ import {
   useGetProjectGuidelinesHistory,
 } from "../services";
 import { useGitRepositories } from "../services/gitRepositoryService";
-import { useClaudeSubscriptions } from "../components/account/ClaudeSubscriptionConnect";
-import { useListProviders } from "../services/providersService";
-import { TypesProviderEndpointType } from "../api/api";
-
 const ProjectSettings: FC = () => {
   const account = useAccount();
   const { params, navigate } = useRouter();
@@ -503,22 +499,6 @@ const ProjectSettings: FC = () => {
   const [userModifiedName, setUserModifiedName] = useState(false);
   const [creatingAgent, setCreatingAgent] = useState(false);
   const codingAgentFormRef = useRef<CodingAgentFormHandle>(null);
-  const { data: claudeSubscriptions } = useClaudeSubscriptions();
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0;
-  const { data: providerEndpoints } = useListProviders({ loadModels: false });
-  const hasAnthropicProvider = useMemo(() => {
-    if (!providerEndpoints) return false;
-    return providerEndpoints.some((p) => p.name === "anthropic");
-  }, [providerEndpoints]);
-  const userProviderCount = useMemo(() => {
-    if (!providerEndpoints) return 0;
-    return providerEndpoints.filter(
-      (p) =>
-        p.endpoint_type ===
-        TypesProviderEndpointType.ProviderEndpointTypeUser,
-    ).length;
-  }, [providerEndpoints]);
-
   // Sort apps: zed_external first, then others
   const sortedApps = useMemo(() => {
     if (!apps) return [];
@@ -559,12 +539,6 @@ const ProjectSettings: FC = () => {
     }
   }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm]);
 
-  useEffect(() => {
-    if (hasClaudeSubscription && !hasAnthropicProvider && userProviderCount === 0) {
-      setCodeAgentRuntime("claude_code");
-      setClaudeCodeMode("subscription");
-    }
-  }, [hasClaudeSubscription, hasAnthropicProvider, userProviderCount]);
 
   // Initialize form from server data
   // This runs when project loads or refetches (standard React Query pattern)
@@ -1390,8 +1364,6 @@ const ProjectSettings: FC = () => {
                       setNewAgentName(nextValue.agentName);
                     }}
                     disabled={creatingAgent}
-                    hasClaudeSubscription={hasClaudeSubscription}
-                    hasAnthropicProvider={hasAnthropicProvider}
                     recommendedModels={RECOMMENDED_CODING_MODELS}
                     createAgentDescription="Code development agent for spec tasks"
                     onCreateStateChange={setCreatingAgent}

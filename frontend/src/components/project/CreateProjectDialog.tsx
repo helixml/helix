@@ -48,9 +48,6 @@ import useApi from '../../hooks/useApi'
 import { AppsContext, CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { findOAuthConnectionForProvider, findOAuthProviderForType, hasRequiredScopes, PROVIDER_TYPES } from '../../utils/oauthProviders'
-import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
-import { useListProviders } from '../../services/providersService'
-import { TypesProviderEndpointType } from '../../api/api'
 import { RECOMMENDED_CODING_MODELS } from '../../constants/models'
 import CodingAgentForm from '../agent/CodingAgentForm'
 import type { CodingAgentFormHandle } from '../agent/CodingAgentForm'
@@ -90,19 +87,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const queryClient = useQueryClient()
   const { apps, loadApps } = useContext(AppsContext)
   const createProjectMutation = useCreateProject()
-
-  // Claude subscription + provider state
-  const { data: claudeSubscriptions } = useClaudeSubscriptions()
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
-  const { data: providerEndpoints } = useListProviders({ loadModels: false })
-  const hasAnthropicProvider = useMemo(() => {
-    if (!providerEndpoints) return false
-    return providerEndpoints.some(p => p.name === 'anthropic')
-  }, [providerEndpoints])
-  const userProviderCount = useMemo(() => {
-    if (!providerEndpoints) return 0
-    return providerEndpoints.filter(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser).length
-  }, [providerEndpoints])
 
   // OAuth connections for GitHub browse
   const { data: oauthConnections } = useListOAuthConnections()
@@ -320,14 +304,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       }
     }
   }, [open, apps, sortedApps, selectedAgentId])
-
-  // Auto-default to Claude Code when a claude subscription or anthropic provider is available
-  useEffect(() => {
-    if (hasClaudeSubscription || hasAnthropicProvider) {
-      setCodeAgentRuntime('claude_code')
-      setClaudeCodeMode(hasAnthropicProvider ? 'api_key' : 'subscription')
-    }
-  }, [hasClaudeSubscription, hasAnthropicProvider])
 
   // Detect OAuth popup closure and refresh connections
   useEffect(() => {
@@ -1088,8 +1064,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                   setNewAgentName(nextValue.agentName)
                 }}
                 disabled={creatingAgent || createProjectMutation.isPending || creatingRepo}
-                hasClaudeSubscription={hasClaudeSubscription}
-                hasAnthropicProvider={hasAnthropicProvider}
                 recommendedModels={RECOMMENDED_CODING_MODELS}
                 createAgentDescription="Code development agent for spec tasks"
                 onCreateStateChange={setCreatingAgent}
