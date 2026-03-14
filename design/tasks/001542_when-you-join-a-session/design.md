@@ -43,7 +43,13 @@ In `websocket_server_user.go`, after subscribing to pub/sub (but before the read
 4. Enter read loop               ← normal operation
 ```
 
-Subscribing before the snapshot means: if a new patch is published between steps 2 and 3, the client receives both (snapshot + incremental patch). The frontend applies them in order: snapshot initializes the baseline, then the incremental patch adds the new tokens. This is safe because patches from `previousEntries=nil` set absolute content (`patch_offset=0`), so idempotency holds even if an entry is "patched" twice.
+Subscribing before the snapshot means there is a race window: a delta patch can arrive via pub/sub and be delivered to the client before the catch-up snapshot is written to the same connection. However, this is safe due to how `applyPatch` works in `patchUtils.ts`:
+
+- **Delta arrives before snapshot (race):** `applyPatch` treats `patchOffset >= currentContent.length` as a pure append, producing garbage (`"" + " extra tokens" = " extra tokens"`). Then the snapshot arrives with `patchOffset=0`. Because `patchOffset === 0` but `currentContent.length !== 0`, `applyPatch` falls into the "backwards edit" branch: `currentContent.slice(0, 0) + fullContent = fullContent`. The snapshot **overwrites** the bad state with the correct full content.
+
+- **Snapshot arrives before delta (normal):** Snapshot sets `currentContent = fullContent` via `patchOffset=0`. Subsequent deltas have `patchOffset = len(previousEntries[i].content)`. Since snapshot content is always a superset of `previousEntries` content (streaming is append-only), `snapshot.slice(0, patchOffset)` = `previousEntries.content` exactly. The delta correctly appends new tokens.
+
+So the `patchOffset=0` snapshot acts as a **full replace** that corrects any prior bad state. There is a brief flash of wrong content (milliseconds, before the snapshot is delivered) but this is unavoidable without a more complex mechanism and unnoticeable in practice.
 
 ### Catch-up event format
 
