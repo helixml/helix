@@ -1,4 +1,4 @@
-import { FC, useState, useEffect } from "react";
+import React, { FC, useState, useEffect } from "react";
 import { styled } from "@mui/system";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -9,6 +9,7 @@ import ClickLink from "../widgets/ClickLink";
 import Row from "../widgets/Row";
 import Cell from "../widgets/Cell";
 import Markdown from "./Markdown";
+import StreamingIndicator from "./StreamingIndicator";
 import {
   parseToolCallBlocks,
   CollapsibleToolCall,
@@ -100,14 +101,17 @@ export const MessageWithToolCalls: FC<{
             // Parse tool call markdown to extract name/status/body
             const segments = parseToolCallBlocks(entry.content);
             const toolSegment = segments.find((s) => s.type === "toolcall");
+            const isLast = i === responseEntries.length - 1;
             if (toolSegment && toolSegment.toolName && toolSegment.status) {
               return (
-                <CollapsibleToolCall
-                  key={`tc-${i}`}
-                  toolName={toolSegment.toolName}
-                  status={toolSegment.status}
-                  body={toolSegment.body || ""}
-                />
+                <React.Fragment key={`tc-${i}`}>
+                  <CollapsibleToolCall
+                    toolName={toolSegment.toolName}
+                    status={toolSegment.status}
+                    body={toolSegment.body || ""}
+                  />
+                  {isLast && showBlinker && isStreaming && <StreamingIndicator />}
+                </React.Fragment>
               );
             }
             // Fallback: render as markdown if parsing fails
@@ -117,8 +121,8 @@ export const MessageWithToolCalls: FC<{
                 text={entry.content}
                 session={session}
                 getFileURL={getFileURL}
-                showBlinker={false}
-                isStreaming={false}
+                showBlinker={showBlinker && isLast}
+                isStreaming={isStreaming && isLast}
                 onFilterDocument={onFilterDocument}
               />
             );

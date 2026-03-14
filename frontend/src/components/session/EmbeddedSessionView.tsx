@@ -60,6 +60,9 @@ const EmbeddedSessionView = forwardRef<
   // Simple scroll state: are we currently at the bottom?
   // This is the ONLY state we need for sticky scroll behavior
   const isAtBottomRef = useRef(true);
+  // Guard: when true, scroll events are from programmatic scrollTo, not user interaction.
+  // Prevents the scroll handler from unsetting isAtBottom during auto-scroll.
+  const isProgrammaticScrollRef = useRef(false);
   const SCROLL_THRESHOLD = 50;
 
   // DEBUG: State for debug overlay
@@ -85,6 +88,9 @@ const EmbeddedSessionView = forwardRef<
   const handleScroll = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    // Skip if this scroll was triggered by our own programmatic scrollTo
+    if (isProgrammaticScrollRef.current) return;
 
     isAtBottomRef.current = checkIsAtBottom();
 
@@ -119,6 +125,7 @@ const EmbeddedSessionView = forwardRef<
     }
 
     const onNativeScroll = () => {
+      if (isProgrammaticScrollRef.current) return;
       isAtBottomRef.current = checkIsAtBottom();
 
       if (DEBUG_SCROLL) {
@@ -206,8 +213,13 @@ const EmbeddedSessionView = forwardRef<
         }));
       }
 
+      isProgrammaticScrollRef.current = true;
       container.scrollTop = container.scrollHeight;
       isAtBottomRef.current = true;
+      // Clear the guard after the scroll event has fired
+      requestAnimationFrame(() => {
+        isProgrammaticScrollRef.current = false;
+      });
       onScrollToBottom?.();
     },
     [onScrollToBottom],
@@ -303,7 +315,11 @@ const EmbeddedSessionView = forwardRef<
     if (currentScrollHeight !== prevScrollHeight && prevScrollHeight > 0) {
       // Check isAtBottomRef BEFORE the scroll - this is the value from before the DOM update
       if (isAtBottomRef.current) {
+        isProgrammaticScrollRef.current = true;
         container.scrollTop = currentScrollHeight;
+        requestAnimationFrame(() => {
+          isProgrammaticScrollRef.current = false;
+        });
       }
     }
 
