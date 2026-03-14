@@ -89,11 +89,73 @@ The haystack Python service is eliminated. File conversion, chunking, and embedd
 
 Key difference: helix sends **raw files**, not pre-chunked text. Kodit owns chunking and conversion.
 
-### Implication for the knowledge indexer
+### Interface mismatch: `Index(chunks...)` is the wrong shape for kodit
 
-The knowledge indexer should skip pre-chunking when using kodit. The `DisableChunking` flag already exists on `RAGSettings`; for the kodit provider it should default to true (kodit chunks internally). The indexer would call `indexDataDirectly()` which sends whole files — the KoditRAG adapter receives them and writes to git rather than pushing to a vector store.
+The existing `rag.RAG.Index()` is a **push-chunks** API — the caller decides what the chunks are and pushes them to the store. Kodit is a **pull-from-repo** system — the caller hands it a git repo URL and kodit decides how to chunk and index the content. Forcing kodit through `Index(chunks...)` requires the adapter to pretend to be a chunk store, which is the wrong abstraction.
 
-To avoid the KoditRAG adapter having to re-assemble chunked content, the `rag.RAG` interface's `Index()` semantics shift for this provider: each `SessionRAGIndexChunk` received by `KoditRAG.Index()` is treated as a whole file (one chunk = one file to write to git), not a sub-document chunk. The `Source`/`Filename` fields identify the file; `Content` carries raw bytes.
+The correct API for kodit is:
+
+```
+"Here are some files exposed as a git repo — go chunk and index them."
+```
+
+### Proposed interface extension: `RepoIndexer`
+
+Rather than breaking the existing `rag.RAG` interface (which haystack, typesense, llamaindex, and pgvector all implement), add a separate optional interface:
+
+```go
+// api/pkg/rag/rag.go
+
+// RAG is the existing push-chunks interface, unchanged.
+type RAG interface {
+    Index(ctx context.Context, req ...*types.SessionRAGIndexChunk) error
+    Query(ctx context.Context, q *types.SessionRAGQuery) ([]*types.SessionRAGResult, error)
+    Delete(ctx context.Context, req *types.DeleteIndexRequest) error
+}
+
+// RepoIndexer is implemented by providers that pull from a git repo
+// rather than accepting pushed chunks.
+type RepoIndexer interface {
+    IndexRepo(ctx context.Context, req *IndexRepoRequest) error
+}
+
+type IndexRepoRequest struct {
+    DataEntityID string
+    RepoURL      string            // authenticated clone URL
+    Files        []IndexRepoFile   // list of files in the repo (for progress tracking)
+}
+
+type IndexRepoFile struct {
+    Filename string
+    Metadata map[string]string // from .metadata.yaml sidecar
+}
+```
+
+The knowledge indexer detects the interface at runtime:
+
+```go
+// In knowledge_indexer.go
+if ri, ok := r.ragClient.(rag.RepoIndexer); ok {
+    return ri.IndexRepo(ctx, &rag.IndexRepoRequest{
+        DataEntityID: dataEntityID,
+        RepoURL:      repoURL,
+        Files:        files,
+    })
+}
+// Fall through to push-chunks path for haystack/typesense/etc.
+return r.indexDataWithChunking(ctx, k, data)
+```
+
+`KoditRAG` implements both `rag.RAG` (for `Query` and `Delete`) and `rag.RepoIndexer` (for `IndexRepo`). The `Index()` method on `KoditRAG` can return an error or no-op — it will never be called when `RepoIndexer` is detected.
+
+### What the knowledge indexer does in the RepoIndexer path
+
+1. Fetches raw files from filestore (same as today)
+2. Creates or updates the synthetic git repo via `GitRepositoryService`
+3. Commits raw files to the repo (no conversion, no chunking — kodit handles that)
+4. Commits `.meta.json` sidecars for any files that have metadata
+5. Calls `ragClient.(RepoIndexer).IndexRepo(ctx, repoURL, ...)`
+6. `KoditRAG.IndexRepo()`: calls `kodit.RegisterRepository(repoURL)` or `SyncRepository()`, then polls status until done
 
 ---
 
@@ -176,6 +238,8 @@ Kodit indexes in the background after `RegisterRepository()`/`SyncRepository()`.
 
 ### KoditRAG Adapter (`api/pkg/rag/rag_kodit.go`)
 
+`KoditRAG` implements `rag.RAG` (for `Query` and `Delete`) and `rag.RepoIndexer` (for indexing). The knowledge indexer detects `RepoIndexer` via type assertion and calls `IndexRepo` instead of `Index`.
+
 ```go
 type KoditRAG struct {
     koditSvc    KoditServicer          // existing service interface
@@ -183,23 +247,27 @@ type KoditRAG struct {
     db          Store                  // to persist DataEntityID → git repo ID mapping
 }
 
-func (r *KoditRAG) Index(ctx context.Context, files ...*types.SessionRAGIndexChunk) error
-// For each file: write to git repo (keyed by DataEntityID), commit
-// Then: kodit.RegisterRepository or SyncRepository
-// Then: poll GetRepositoryStatus until ready
+// IndexRepo implements rag.RepoIndexer — the correct interface for kodit.
+// The knowledge indexer calls this when it detects the RepoIndexer interface.
+func (r *KoditRAG) IndexRepo(ctx context.Context, req *rag.IndexRepoRequest) error
+// Calls kodit.RegisterRepository(req.RepoURL) or SyncRepository if already registered
+// Polls GetRepositoryStatus() until indexing completes or errors
+
+// Index implements rag.RAG but is never called when RepoIndexer is detected.
+func (r *KoditRAG) Index(ctx context.Context, _ ...*types.SessionRAGIndexChunk) error
+// Returns an error: "use IndexRepo for kodit provider"
 
 func (r *KoditRAG) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*types.SessionRAGResult, error)
 // Look up kodit repo ID for q.DataEntityID
-// Call koditSvc.SemanticSearch + KeywordSearch, merge results (RRF)
+// Call koditSvc.SemanticSearch + KeywordSearch, merge with RRF
 // Map KoditFileResult → SessionRAGResult
 
 func (r *KoditRAG) Delete(ctx context.Context, req *types.DeleteIndexRequest) error
 // Look up kodit repo ID for req.DataEntityID
-// Call koditSvc.DeleteRepository
-// Delete the synthetic git repo
+// Call koditSvc.DeleteRepository + delete the synthetic git repo
 ```
 
-The `rag.RAG` interface is unchanged. All three types (`SessionRAGIndexChunk`, `SessionRAGQuery`, `SessionRAGResult`) and `DeleteIndexRequest` are unchanged.
+The `rag.RAG` interface types (`SessionRAGQuery`, `SessionRAGResult`, `DeleteIndexRequest`) are unchanged. The new `rag.RepoIndexer` interface is additive.
 
 ### DataEntityID → Git Repo Mapping
 

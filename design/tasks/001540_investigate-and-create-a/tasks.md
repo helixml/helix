@@ -13,20 +13,29 @@ All changes are in `application/handler/indexing/chunk_files.go`.
 - [ ] Implement metadata sidecar reading: when kodit encounters `{filename}.meta.json` alongside an indexed file, merge that JSON into the stored enrichment metadata so it is searchable/filterable
 - [ ] Write a test verifying `.txt`, `.pdf`, `.docx` files in a git repo are indexed and appear in search results (extend or mirror `TestChunkFiles_OnlyIndexesSourceAndDocFiles`)
 
+## Phase 2 — New `rag.RepoIndexer` Interface (helix repo work)
+
+- [ ] Add `RepoIndexer` interface to `api/pkg/rag/rag.go` with `IndexRepo(ctx, *IndexRepoRequest) error`
+- [ ] Define `IndexRepoRequest` struct: `DataEntityID string`, `RepoURL string`, `Files []IndexRepoFile`
+- [ ] Define `IndexRepoFile` struct: `Filename string`, `Metadata map[string]string`
+- [ ] Update knowledge indexer (`knowledge_indexer.go`) to type-assert `ragClient` for `RepoIndexer`: if detected, create/update git repo with raw files and call `IndexRepo`; otherwise fall through to existing chunk-push path
+- [ ] In the `RepoIndexer` path, commit raw files to the synthetic git repo via `GitRepositoryService`; commit `.meta.json` sidecars alongside files that have metadata
+
 ## Phase 3 — KoditRAG Adapter in Helix
 
-- [ ] Create `api/pkg/rag/rag_kodit.go` implementing `rag.RAG` interface (`Index`, `Query`, `Delete`)
-- [ ] `Index()`: for each `SessionRAGIndexChunk`, write raw `Content` bytes to a synthetic git repo keyed by `DataEntityID`; commit; call `kodit.RegisterRepository` or `SyncRepository`; poll `GetRepositoryStatus()` until ready or error
+- [ ] Create `api/pkg/rag/rag_kodit.go` implementing both `rag.RAG` and `rag.RepoIndexer`
+- [ ] `IndexRepo()`: call `koditSvc.RegisterRepository(repoURL)` or `SyncRepository` if already registered; poll `GetRepositoryStatus()` until indexing completes or errors
+- [ ] `Index()`: return a clear error ("use IndexRepo — kodit does not accept pushed chunks"); this method should never be called in normal operation
 - [ ] `Query()`: look up kodit repo ID for `q.DataEntityID`; call `koditSvc.SemanticSearch` + `KeywordSearch`; merge results with Reciprocal Rank Fusion (k=60); map `KoditFileResult` → `SessionRAGResult`
 - [ ] `Delete()`: look up kodit repo ID; call `koditSvc.DeleteRepository`; delete the synthetic git repo
 - [ ] Add `KoditRepoID int64` column to `KnowledgeVersion` table (migration) to persist the `DataEntityID → kodit repo ID` mapping
-- [ ] Implement `KoditFileResult → SessionRAGResult` mapping in adapter: `Content` = full `Preview` text, `ContentOffset` = `StartLine` parsed from `Lines` field (line position in extracted text, not a sequence index), `DocumentID` = `sha256(Content)`, `DocumentGroupID` = kodit repo ID (string), `Distance` = `1.0 - Score`
+- [ ] Implement `KoditFileResult → SessionRAGResult` mapping: `Content` = full `Preview` text, `ContentOffset` = `StartLine` parsed from `Lines` field, `DocumentID` = `sha256(Content)`, `DocumentGroupID` = kodit repo ID (string), `Distance` = `1.0 - Score`
 - [ ] Implement RRF (k=60) merge of semantic and keyword search results before returning from `Query()`
 - [ ] Add `RAGProviderKodit = "kodit"` constant to `api/pkg/config/config.go`
 - [ ] Wire `KoditRAG` into `serve.go` switch statement
 - [ ] Add build-tag stub `api/pkg/rag/rag_kodit_nokodit.go` (returns error when kodit is disabled at compile time)
 - [ ] Write unit tests for the adapter (mock KoditServicer and GitRepositoryServicer)
-- [ ] Write integration test: upload files → Index → Query → Delete roundtrip
+- [ ] Write integration test: upload files → IndexRepo → Query → Delete roundtrip
 
 ## Phase 4 — Knowledge Indexer Adjustments
 
