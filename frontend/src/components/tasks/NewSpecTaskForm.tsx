@@ -230,6 +230,16 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
       }
     });
 
+    // Sort zed_external agents by model quality (opus > sonnet > haiku > other)
+    const modelPriority = (app: IApp): number => {
+      const name = (app.config?.helix?.name || app.name || "").toLowerCase();
+      if (name.includes("opus")) return 0;
+      if (name.includes("sonnet")) return 1;
+      if (name.includes("haiku")) return 3;
+      return 2; // unknown models between sonnet and haiku
+    };
+    zedExternalApps.sort((a, b) => modelPriority(a) - modelPriority(b));
+
     const result: IApp[] = [];
     if (defaultApp) result.push(defaultApp);
     result.push(...zedExternalApps, ...otherApps);
