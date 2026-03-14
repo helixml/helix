@@ -401,6 +401,9 @@ export class MessageProcessor {
   }
 
   private processThinkingTags(message: string): string {
+    // Normalise <thinking> tags (emitted by Claude Code) to <think>
+    message = message.replace(/<thinking>/g, "<think>").replace(/<\/thinking>/g, "</think>");
+
     // Check for any <think> tags
     if (!message.includes("<think>")) {
       return message;

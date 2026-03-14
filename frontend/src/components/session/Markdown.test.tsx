@@ -470,6 +470,34 @@ And some more text.`;
     expect(result).toContain("And some more text.");
   });
 
+  // <thinking> tag support (Claude Code outputs <thinking> instead of <think>)
+  test("<thinking> closed tag should render as thinking widget", () => {
+    const message = `<thinking>\nThis is my reasoning.\n</thinking>\nHere is the answer.`;
+    const processor = new MessageProcessor(message, {
+      session: mockSession as TypesSession,
+      getFileURL: mockGetFileURL,
+      isStreaming: false,
+    });
+    const result = processor.process();
+    expect(result).toContain("__THINKING_WIDGET__");
+    expect(result).toContain("This is my reasoning.");
+    expect(result).not.toContain("<thinking>");
+    expect(result).not.toContain("<think>");
+  });
+
+  test("<thinking> unclosed tag during streaming should render as thinking widget with glow", () => {
+    const message = `<thinking>\nStill thinking...`;
+    const processor = new MessageProcessor(message, {
+      session: mockSession as TypesSession,
+      getFileURL: mockGetFileURL,
+      isStreaming: true,
+    });
+    const result = processor.process();
+    expect(result).toContain("__THINKING_WIDGET__");
+    expect(result).toContain("Still thinking...");
+    expect(result).not.toContain("<thinking>");
+  });
+
   // Test case 9: Citation ordering based on appearance in message rather than document_ids order
   test("Citations should be numbered in the order they appear in message, not document_ids order", () => {
     // Create a message with document IDs referenced in order: second, first, third
