@@ -741,6 +741,35 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		// Update StatusUpdatedAt so task appears at top of new column in Kanban
 		now := time.Now()
 		task.StatusUpdatedAt = &now
+
+		// When moving back to backlog, clear lifecycle fields so the task
+		// starts fresh. Without this, the orchestrator sees old specs and
+		// immediately transitions to spec_review without generating new ones.
+		if updateReq.Status == types.TaskStatusBacklog {
+			task.RequirementsSpec = ""
+			task.TechnicalDesign = ""
+			task.ImplementationPlan = ""
+			task.DesignDocsPushedAt = nil
+			task.DesignDocPath = ""
+			task.SpecApprovedBy = ""
+			task.SpecApprovedAt = nil
+			task.SpecApproval = nil
+			task.SpecRevisionCount = 0
+			task.ImplementationApprovedBy = ""
+			task.ImplementationApprovedAt = nil
+			task.PlanningSessionID = ""
+			task.ExternalAgentID = ""
+			task.ZedInstanceID = ""
+			task.LastPushCommitHash = ""
+			task.LastPushAt = nil
+			task.StartedAt = nil
+			task.CompletedAt = nil
+			task.PlanningStartedAt = nil
+			task.MergedToMain = false
+			task.MergedAt = nil
+			task.MergeCommitHash = ""
+			task.PullRequestID = ""
+		}
 	}
 	if updateReq.Priority != "" {
 		task.Priority = updateReq.Priority
