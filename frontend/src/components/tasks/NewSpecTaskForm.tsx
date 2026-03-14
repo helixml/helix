@@ -232,15 +232,11 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm]);
 
   useEffect(() => {
-    if (
-      hasClaudeSubscription &&
-      !hasAnthropicProvider &&
-      userProviderCount === 0
-    ) {
+    if (hasClaudeSubscription || hasAnthropicProvider) {
       setCodeAgentRuntime("claude_code");
-      setClaudeCodeMode("subscription");
+      setClaudeCodeMode(hasAnthropicProvider ? "api_key" : "subscription");
     }
-  }, [hasClaudeSubscription, hasAnthropicProvider, userProviderCount]);
+  }, [hasClaudeSubscription, hasAnthropicProvider]);
 
   // Load apps on mount
   useEffect(() => {

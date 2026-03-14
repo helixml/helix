@@ -321,13 +321,13 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
     }
   }, [open, apps, sortedApps, selectedAgentId])
 
-  // Auto-default to Claude Code when it's the only available AI provider
+  // Auto-default to Claude Code when a claude subscription or anthropic provider is available
   useEffect(() => {
-    if (hasClaudeSubscription && !hasAnthropicProvider && userProviderCount === 0) {
+    if (hasClaudeSubscription || hasAnthropicProvider) {
       setCodeAgentRuntime('claude_code')
-      setClaudeCodeMode('subscription')
+      setClaudeCodeMode(hasAnthropicProvider ? 'api_key' : 'subscription')
     }
-  }, [hasClaudeSubscription, hasAnthropicProvider, userProviderCount])
+  }, [hasClaudeSubscription, hasAnthropicProvider])
 
   // Detect OAuth popup closure and refresh connections
   useEffect(() => {
@@ -743,7 +743,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                           >
                             {filteredGithubRepos.map((repo, index) => {
                               const isSelected = selectedOAuthRepo?.full_name === repo.full_name ||
-                                selectedOAuthRepo?.id === repo.id
+
                               return (
                                 <ListItem key={repo.id || repo.full_name || index} disablePadding>
                                   <ListItemButton
