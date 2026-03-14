@@ -466,17 +466,13 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
           requestAnimationFrame(() => {
             patchPendingRef.current = false;
 
-            const latestEntries =
-              patchEntriesRef.current.get(interactionId) || undefined;
+            // Shallow clone so React sees a new reference (the ref array is mutated in place)
+            const rawEntries = patchEntriesRef.current.get(interactionId);
+            const latestEntries = rawEntries ? [...rawEntries] : undefined;
 
             setCurrentResponses((prev) => {
               const current = prev.get(currentSessionId!) || {};
-              if (
-                current.id === interactionId &&
-                (current as any).response_entries === latestEntries
-              ) {
-                return prev; // No change — skip re-render entirely
-              }
+
               const isSameInteraction = current.id === interactionId;
               const updated: Partial<TypesInteraction> & { response_entries?: ResponseEntry[] } = isSameInteraction
                 ? {
