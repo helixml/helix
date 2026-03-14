@@ -263,3 +263,123 @@ zed.rs (workspace creation)
               Consumer: loops in setup_thread_handler, dispatches to:
                 └── open_existing_thread_sync()  — display existing thread in UI
 ```
+
+## Bug 3: Tool Call Rendering Order and Boundary Loss (CURRENT)
+
+### Problem
+
+The Go API joins all message_ids into a single `response_message` string separated
+by `\n\n`. This loses the structural information about which segments are assistant
+text vs tool calls, and in what order they originally appeared.
+
+Consequences:
+1. **Tool calls render at the end** — tool calls that happened early in the turn
+   appear after all assistant text because the accumulator appends by insertion order,
+   and the flush sends corrected content for earlier message_ids after later ones.
+2. **Assistant text after tool calls gets captured inside the last tool call** —
+   the frontend's `parseToolCallBlocks()` regex can't find where a tool call block
+   ends and the next assistant text begins.
+3. **No reliable boundary** — `\n\n` is used both as a separator between entries
+   AND within markdown content, making parsing ambiguous.
+
+### Why Zed Doesn't Have This Problem
+
+Zed stores entries as a typed array: `Vec<AgentThreadEntry>` where each entry is
+either `UserMessage`, `AssistantMessage`, or `ToolCall`. The UI renders each entry
+with the correct component. There is no flattening to a string.
+
+### Root Cause
+
+The sync protocol sends `message_added` with `role: "assistant"` for both assistant
+text AND tool calls. The Go API has no way to distinguish them. Everything gets
+joined into one flat string.
+
+### Fix: Structured Response Entries
+
+Add an `entry_type` field to the protocol and store entries as structured JSON
+instead of (or in addition to) a flat string.
+
+#### Layer 1: Zed → Go API Protocol
+
+Add `entry_type` field to `SyncEvent::MessageAdded`:
+
+```
+MessageAdded {
+    acp_thread_id: String,
+    message_id: String,
+    role: String,
+    content: String,
+    entry_type: String,    // NEW: "text" | "tool_call"
+    timestamp: i64,
+}
+```
+
+Zed already knows the type in the subscription handler:
+- `AgentThreadEntry::AssistantMessage` → `entry_type: "text"`
+- `AgentThreadEntry::ToolCall` → `entry_type: "tool_call"`
+
+#### Layer 2: Go API Accumulator & DB
+
+The `MessageAccumulator` stores `entry_type` per message_id. New type:
+
+```go
+type ResponseEntry struct {
+    Type      string `json:"type"`       // "text" or "tool_call"
+    Content   string `json:"content"`
+    MessageID string `json:"message_id"`
+}
+```
+
+New field on `types.Interaction`:
+
+```go
+ResponseEntries []ResponseEntry `json:"response_entries,omitempty" gorm:"type:jsonb"`
+```
+
+The accumulator builds `ResponseEntries` from its ordered map. On completion,
+both `ResponseMessage` (flat string, backward compat) and `ResponseEntries`
+(structured) are saved to DB.
+
+#### Layer 3: Go API → Frontend WebSocket
+
+The `interaction_update` event already sends the full `Interaction` object.
+`ResponseEntries` will be included automatically via JSON serialization.
+
+For `interaction_patch` (streaming deltas), we continue patching `response_message`
+for live streaming display. The structured `response_entries` is used on completion.
+
+#### Layer 4: Frontend Rendering
+
+`InteractionInference` and `InteractionLiveStream` check for `response_entries`:
+- If present: render each entry with the correct component in order
+  - `type: "text"` → `<Markdown>` component
+  - `type: "tool_call"` → `<CollapsibleToolCall>` component
+- If absent (old interactions): fall back to `parseToolCallBlocks()` regex on
+  `response_message` (existing behavior, best-effort)
+
+#### Migration / Backward Compatibility
+
+- `response_message` continues to be populated (flat joined string) for:
+  - Older frontends that don't know about `response_entries`
+  - Search/indexing that operates on plain text
+  - The streaming `interaction_patch` pipeline (patches flat string)
+- `response_entries` is `omitempty` — old interactions without it just get null
+- Frontend falls back to regex parsing when `response_entries` is absent
+- `entry_type` field uses `#[serde(default)]` on Zed side so old Go APIs that
+  don't send it won't break deserialization
+
+#### Files Changed
+
+| Layer | File | Change |
+|-------|------|--------|
+| Zed | `types.rs` | Add `entry_type` to `MessageAdded` variant + serialization |
+| Zed | `thread_service.rs` | Pass `entry_type` from subscription handler: `"text"` for AssistantMessage, `"tool_call"` for ToolCall |
+| Zed | `thread_service.rs` | Add `entry_type` to `PendingMessage`, `throttled_send_message_added()`, `flush_streaming_throttle()` |
+| Go | `wsprotocol/accumulator.go` | Store `entry_type` per message_id, expose `Entries() []ResponseEntry` |
+| Go | `types/types.go` | Add `ResponseEntry` type, add `ResponseEntries` field to `Interaction` |
+| Go | `websocket_external_agent_sync.go` | Read `entry_type` from `message_added` data, pass to accumulator |
+| Go | `websocket_external_agent_sync.go` | On completion, populate `interaction.ResponseEntries` from accumulator |
+| Frontend | `api/api.ts` | Generated type gains `response_entries` field (via openapi) |
+| Frontend | `InteractionInference.tsx` | Read `response_entries`, render typed entries in order |
+| Frontend | `InteractionLiveStream.tsx` | Read `response_entries` for completed state, fall back to flat string during streaming |
+| Frontend | `CollapsibleToolCall.tsx` | Accept structured props directly instead of parsing markdown |
