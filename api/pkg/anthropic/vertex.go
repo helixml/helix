@@ -248,8 +248,18 @@ func convertModelNameToVertex(modelName string) string {
 	if len(parts) >= 2 {
 		lastPart := parts[len(parts)-1]
 		if len(lastPart) == 8 && isAllDigits(lastPart) {
+			// Dated model: claude-sonnet-4-20250514 → claude-sonnet-4@20250514
 			return strings.Join(parts[:len(parts)-1], "-") + "@" + lastPart
 		}
+	}
+	// Versionless model (e.g. claude-sonnet-4-6, claude-opus-4-6):
+	// Vertex requires a version suffix with @ separator
+	if strings.HasPrefix(modelName, "claude-") {
+		if strings.HasSuffix(modelName, "-latest") {
+			// claude-sonnet-4-6-latest → claude-sonnet-4-6@latest
+			return strings.TrimSuffix(modelName, "-latest") + "@latest"
+		}
+		return modelName + "@latest"
 	}
 	return modelName
 }

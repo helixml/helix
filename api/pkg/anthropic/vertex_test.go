@@ -328,8 +328,12 @@ func TestConvertModelNameToVertex(t *testing.T) {
 		{"claude-opus-4-5-20251101", "claude-opus-4-5@20251101"},
 		{"claude-haiku-3-5-20241022", "claude-haiku-3-5@20241022"},
 		{"claude-sonnet-4@20250514", "claude-sonnet-4@20250514"}, // already @ format
-		{"claude-sonnet-4", "claude-sonnet-4"},                   // no date suffix
-		{"claude-3-opus", "claude-3-opus"},                       // no date suffix
+		{"claude-sonnet-4", "claude-sonnet-4@latest"},            // versionless → @latest
+		{"claude-sonnet-4-6", "claude-sonnet-4-6@latest"},        // 4.6 versionless → @latest
+		{"claude-opus-4-6", "claude-opus-4-6@latest"},            // 4.6 versionless → @latest
+		{"claude-sonnet-4-6-latest", "claude-sonnet-4-6@latest"}, // -latest → @latest for Vertex
+		{"claude-3-opus", "claude-3-opus@latest"},                // old naming → @latest
+		{"gpt-4o", "gpt-4o"}, // non-claude unchanged
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
