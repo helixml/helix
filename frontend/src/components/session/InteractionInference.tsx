@@ -98,33 +98,32 @@ export const MessageWithToolCalls: FC<{
       <>
         {responseEntries.map((entry, i) => {
           if (entry.type === "tool_call") {
-            // Parse tool call markdown to extract name/status/body
-            const segments = parseToolCallBlocks(entry.content);
-            const toolSegment = segments.find((s) => s.type === "toolcall");
             const isLast = i === responseEntries.length - 1;
-            if (toolSegment && toolSegment.toolName && toolSegment.status) {
-              return (
-                <React.Fragment key={`tc-${i}`}>
-                  <CollapsibleToolCall
-                    toolName={toolSegment.toolName}
-                    status={toolSegment.status}
-                    body={toolSegment.body || ""}
-                  />
-                  {isLast && showBlinker && isStreaming && <StreamingIndicator />}
-                </React.Fragment>
-              );
-            }
-            // Fallback: render as markdown if parsing fails
+            // Extract tool name from first line of content, stripping markdown bold markers
+            const firstLine = (entry.content || "").split("\n")[0];
+            const toolName = firstLine
+              .replace(/^\*\*Tool Call:\s*/, "")
+              .replace(/\*\*\s*$/, "")
+              .trim() || "Tool Call";
+            // Extract status from "Status: <word>" line if present
+            const statusMatch = entry.content.match(/^Status:\s*(\S+)/m);
+            const status = statusMatch
+              ? statusMatch[1]
+              : (isLast && isStreaming ? "Running" : "Completed");
+            // Body is everything after the status line (or after the first line if no status)
+            const headerEnd = statusMatch
+              ? entry.content.indexOf(statusMatch[0]) + statusMatch[0].length
+              : firstLine.length;
+            const body = entry.content.slice(headerEnd).trim();
             return (
-              <Markdown
-                key={`md-${i}`}
-                text={entry.content}
-                session={session}
-                getFileURL={getFileURL}
-                showBlinker={showBlinker && isLast}
-                isStreaming={isStreaming && isLast}
-                onFilterDocument={onFilterDocument}
-              />
+              <React.Fragment key={`tc-${i}`}>
+                <CollapsibleToolCall
+                  toolName={toolName}
+                  status={status}
+                  body={body}
+                />
+                {isLast && showBlinker && isStreaming && <StreamingIndicator />}
+              </React.Fragment>
             );
           }
           // text entry
