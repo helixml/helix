@@ -476,6 +476,37 @@ func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage() {
 	s.Equal("int-user-new", s.server.sessionToWaitingInteraction["ses_user"])
 }
 
+// TestMessageAdded_UserMessage_PreCreatedInteractionReuse verifies Bug 1 fix:
+// When sendMessageToSpecTaskAgent pre-creates an interaction and sets sessionToWaitingInteraction,
+// the subsequent Zed echo of the user message must NOT create a duplicate interaction and must
+// NOT overwrite the mapping. This ensures the assistant response lands in the pre-created interaction.
+func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage_PreCreatedInteractionReuse() {
+	s.server.contextMappings["thread-spec"] = "ses_spec"
+
+	// Simulate sendMessageToSpecTaskAgent having pre-created an interaction
+	preCreatedID := "int-pre-created"
+	s.server.sessionToWaitingInteraction["ses_spec"] = preCreatedID
+
+	// No store expectations: CreateInteraction must NOT be called, GetSession must NOT be called
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_added",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-spec",
+			"message_id":    "msg-echo-1",
+			"content":       "Your implementation has been approved",
+			"role":          "user",
+		},
+	}
+
+	err := s.server.handleMessageAdded("agent-1", syncMsg)
+	s.NoError(err)
+
+	// Mapping must still point to the pre-created interaction (not overwritten)
+	s.Equal(preCreatedID, s.server.sessionToWaitingInteraction["ses_spec"],
+		"sessionToWaitingInteraction must not be overwritten by Zed user-message echo")
+}
+
 func (s *WebSocketSyncSuite) TestMessageAdded_ContextMappingMiss_DBFallback() {
 	// contextMappings is empty — should fall back to database lookup
 	session := &types.Session{
