@@ -34,15 +34,18 @@ These upstream files contain Helix modifications and will likely conflict. Resol
 
 The most fragile integration point: `thread_view.rs::from_existing_thread()` constructs a `ConnectedServerState` that must match upstream's struct fields. After merge, verify `ConnectedServerState` still has `active_id`, `threads` HashMap, and `conversation` Entity — upstream may rename or restructure this.
 
-## Porting Guide Updates
+## Porting Guide Status
 
-During conflict resolution, document **every new upstream change** that affected a Helix-modified file:
-- New fields added to structs we extend
-- Method signature changes in functions we call
-- Trait changes for interfaces we implement (`AgentConnection`, etc.)
-- New feature flags or settings we should be aware of
+The spec agent has **already updated** `portingguide.md` with all changes since the last upstream merge (commit `059342a545` on local `main`). This includes:
 
-Add these to the **Rebase Checklist** section of `portingguide.md` and update the commit history table.
+- 8 previously undocumented upstream file modifications (workspace.rs, migrate.rs, grep_tool.rs, connection.rs, context_server_registry.rs, config_options.rs, active_thread.rs, thread_view.rs unregistration)
+- 3 new Critical Fixes (#5 stale entry flush, #6 Stopped invariant, #7 THREAD_REGISTRY unregistration)
+- Rebase Checklist expanded from 21 to 30 items
+- E2E test description updated: 4 phases → 7 phases, slow-mcp-server documented
+- SyncEvent protocol additions documented
+- All 21 commits since last upstream merge added to Commit History table
+
+**During the actual upstream merge**, if new conflicts arise in previously uncatalogued files, add those to the Modified Upstream Files section and the Rebase Checklist.
 
 ## E2E Test Pipeline
 

@@ -33,10 +33,9 @@
 
 ## Documentation
 
-- [ ] Update `portingguide.md` — add any new upstream files that conflicted with Helix changes
-- [ ] Update `portingguide.md` — document any new struct/trait/API changes encountered
-- [ ] Update `portingguide.md` — add new entries to the Rebase Checklist if new files needed patching
-- [ ] Update `portingguide.md` — add merge commit to Commit History table
+- [ ] Push the porting guide update commit already on local `main` (commit `059342a545`) — create a PR or include in the upstream merge branch. The spec agent has already drafted all updates.
+- [ ] After merge, update `portingguide.md` — add any new upstream files that conflict with Helix changes during the actual merge
+- [ ] After merge, add the upstream merge commit to the Commit History table
 
 ## Push & CI
 
