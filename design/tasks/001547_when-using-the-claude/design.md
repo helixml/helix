@@ -71,6 +71,14 @@ The credentials file (`~/.claude/.credentials.json`) continues to be written by 
 | `helix/api/cmd/settings-sync-daemon/main.go` | Write `/etc/claude-code/managed-settings.json` instead of returning `agent_servers.claude` config |
 | `helix/api/cmd/settings-sync-daemon/main.go` | Stop writing `agent_servers` key to Zed settings for the `claude_code` runtime |
 
+## Implementation Notes
+
+- Added `ClaudeManagedSettingsPath = "/etc/claude-code/managed-settings.json"` constant alongside the existing Claude constants.
+- Added `claudeManagedSettings` and `claudePermissionSettings` structs to match the JSON schema expected by `claude-agent-acp`'s `settings.ts`.
+- Added `writeClaudeManagedSettings(env map[string]string) error` method on `SettingsDaemon` — writes atomically via tmp file + rename.
+- `generateAgentServerConfig` claude_code case now calls `writeClaudeManagedSettings` then returns `nil` (no agent_servers written to Zed settings).
+- The `os.Stat(ClaudeCredentialsPath)` gate and `ClaudeSubscriptionMarkerPath` write are unchanged — startup sequencing still works.
+
 ## Notes for Future Agents
 
 - `claude-agent-acp` is NOT Claude Code CLI. It is the Claude Agent SDK wrapped in ACP. Source: github.com/zed-industries/claude-agent-acp.
