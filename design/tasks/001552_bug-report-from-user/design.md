@@ -34,7 +34,7 @@ In `ClaudeSubscriptionConnect.tsx`, before sending `claude auth login`, send a p
 npm install -g @anthropic-ai/claude-code@latest
 ```
 
-This self-heals even on old Mac app VM images that are already deployed and can't be updated without a full app release. Requires npm/internet access from the container at login time (containers have internet access). Adds a few seconds of latency to the login flow.
+This self-heals even on old Mac app VM images that are already deployed and can't be updated without a full app release. No additional requirements — internet access is already a prerequisite for Claude OAuth to work at all. Adds a few seconds of latency to the login flow.
 
 **2. Pin the version in the Dockerfile (fix for future builds)**
 
