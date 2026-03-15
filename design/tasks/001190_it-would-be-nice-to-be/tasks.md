@@ -2,7 +2,7 @@
 
 ## Backend
 
-- [ ] Add `PinnedProjectIDs []string` to `UserConfig` in `api/pkg/types/authz.go`
+- [~] Add `PinnedProjectIDs []string` to `UserConfig` in `api/pkg/types/authz.go`
 - [ ] Add `pinProject` handler in `api/pkg/server/project_handlers.go` — `POST /api/v1/projects/{id}/pin` (append project ID to user's pinned list)
 - [ ] Add `unpinProject` handler in `api/pkg/server/project_handlers.go` — `DELETE /api/v1/projects/{id}/pin` (remove project ID from user's pinned list)
 - [ ] Register the two new routes in the server router
