@@ -2,10 +2,10 @@
 
 ## Frontend — Tool Call Rendering
 
-- [ ] In `DesignReviewContent.tsx`: update the `interaction_patch` handler to track `ResponseEntry[]` (type, content, tool_name, tool_status) instead of bare `string[]`; update `streamingResponse` state shape to carry `entries: ResponseEntry[]` alongside the comment ID
-- [ ] In `DesignReviewContent.tsx`: update the `interaction_update` and `session_update` completion handlers to parse `interaction.response_entries` JSON instead of reading `interaction.response_message`
-- [ ] In `InlineCommentBubble.tsx`: accept `streamingEntries?: ResponseEntry[]` prop; replace `InteractionMarkdown` with `MessageWithToolCalls`, passing entries for structured rendering and flat text as fallback
-- [ ] In `CommentLogSidebar.tsx`: replace `InteractionMarkdown` with `MessageWithToolCalls`; pass `agent_response_entries` (if present) as structured entries
+- [~] In `DesignReviewContent.tsx`: update the `interaction_patch` handler to track `ResponseEntry[]` (type, content, tool_name, tool_status) instead of bare `string[]`; update `streamingResponse` state shape to carry `entries: ResponseEntry[]` alongside the comment ID
+- [~] In `DesignReviewContent.tsx`: update the `interaction_update` and `session_update` completion handlers to parse `interaction.response_entries` JSON instead of reading `interaction.response_message`
+- [~] In `InlineCommentBubble.tsx`: accept `streamingEntries?: ResponseEntry[]` prop; replace `InteractionMarkdown` with `MessageWithToolCalls`, passing entries for structured rendering and flat text as fallback
+- [~] In `CommentLogSidebar.tsx`: replace `InteractionMarkdown` with `MessageWithToolCalls`; pass `agent_response_entries` (if present) as structured entries
 
 ## Frontend — ThinkingWidget Size
 
