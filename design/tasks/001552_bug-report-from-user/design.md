@@ -20,11 +20,22 @@ claude auth login
 → redirect_uri=https://platform.claude.com/oauth/code/callback
 ```
 
-No localhost port. Instead the user visits a URL, gets a code from claude.ai, and pastes it back into the terminal. The production v2.8.3 image has an older version where this was different.
+No localhost port. The CLI tries to open a browser to the OAuth URL; after the user authenticates, the flow continues via `https://platform.claude.com/oauth/code/callback`.
+
+**What we don't yet know** (requires interactive testing with a real Claude account):
+- Does the new flow complete entirely in the browser (CLI polls silently), or does the user need to paste a code back into the terminal?
+- If terminal input is required, the current login dialog (`ExternalAgentDesktopViewer` in stream mode) shows the desktop but may not support interactive terminal input — that would need a UI change.
+- Is the old browser-based flow (where the user enters a code in the browser UI) actually broken for everyone, or just for this one user on a very old image?
+
+The production v2.8.3 image has an older CLI version where this was different — but the exact UX of the new flow needs to be confirmed before deciding on UI changes.
 
 ## Fix
 
-Two complementary changes:
+Two changes, with a required investigation step first:
+
+**0. Interactive test (before writing code)**
+
+With a real Claude account: run `claude auth login` inside the container, open the printed URL, and observe exactly what the user needs to do to complete the flow. This determines whether any UI changes are needed beyond the CLI upgrade.
 
 **1. Upgrade claude CLI before login (primary fix for existing deployments)**
 
@@ -38,9 +49,11 @@ This self-heals even on old Mac app VM images that are already deployed and can'
 
 **2. Pin the version in the Dockerfile (fix for future builds)**
 
-Change `Dockerfile.ubuntu-helix:929` from `@latest` to an explicit version so dev and prod images are identical and regressions are reproducible. Bump the pin deliberately when upgrading. The runtime upgrade in step 1 means the pinned version is a floor, not a ceiling — users always get at least the pinned version, and the login flow upgrades to latest.
+Change `Dockerfile.ubuntu-helix:929` from `@latest` to an explicit version so dev and prod images are identical and regressions are reproducible. Bump the pin deliberately when upgrading. The runtime upgrade in step 1 means the pinned version is a floor, not a ceiling.
 
-The existing UI flow in `ClaudeSubscriptionConnect.tsx` already embeds the desktop terminal via `ExternalAgentDesktopViewer`, so the user can paste the code back. The alert text on line 431 already says to paste a code — this matches the new CLI behaviour.
+**3. UI changes (if needed — determined by step 0)**
+
+If the new flow requires terminal input, the login dialog may need to expose an interactive terminal in addition to (or instead of) the desktop stream. Scope TBD after testing.
 
 Also add a "paste credentials JSON" fallback (see tasks) as insurance against future CLI regressions.
 
