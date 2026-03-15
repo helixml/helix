@@ -93,7 +93,7 @@ type HelixAPIServer struct {
 	externalAgentRunnerManager  *ExternalAgentRunnerManager
 	contextMappings             map[string]string // Zed context_id -> Helix session_id mapping
 	contextMappingsMutex        sync.RWMutex      // Mutex for contextMappings (and related mappings below)
-	sessionToWaitingInteraction map[string]string // Helix session_id -> current waiting interaction_id
+	sessionToWaitingInteraction map[string][]string // Helix session_id -> FIFO queue of waiting interaction IDs
 	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
 	externalAgentSessionMapping map[string]string // External agent session_id -> Helix session_id mapping
 	externalAgentUserMapping    map[string]string // External agent session_id -> user_id mapping
@@ -291,7 +291,7 @@ func NewServer(
 		externalAgentWSManager:      externalAgentWSManager,
 		externalAgentRunnerManager:  externalAgentRunnerManager,
 		contextMappings:             make(map[string]string),
-		sessionToWaitingInteraction: make(map[string]string),
+		sessionToWaitingInteraction: make(map[string][]string),
 		requestToSessionMapping:     make(map[string]string),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),
