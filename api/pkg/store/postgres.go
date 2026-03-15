@@ -124,6 +124,18 @@ func (s *PostgresStore) runMigrations() error {
 		return fmt.Errorf("failed to run version migrations: %w", err)
 	}
 
+	// One-time schema fix: change prompt_history_entries.interrupt default from TRUE to FALSE.
+	// Queue mode (interrupt=false) is the safe default — interrupt mode is the exceptional case.
+	// GORM AutoMigrate doesn't change column defaults, so we do it here manually.
+	// The IF EXISTS + ALTER is idempotent — safe to run on every startup.
+	if s.gdb.Migrator().HasTable(&types.PromptHistoryEntry{}) {
+		if err := s.gdb.WithContext(context.Background()).Exec(
+			"ALTER TABLE prompt_history_entries ALTER COLUMN interrupt SET DEFAULT false",
+		).Error; err != nil {
+			return fmt.Errorf("failed to fix prompt_history_entries interrupt default: %w", err)
+		}
+	}
+
 	// One-time data fix: truncate oversized session names before AutoMigrate
 	// adds the varchar(255) constraint. Safe to run on every startup because
 	// the WHERE clause makes it a no-op once all names are within bounds.
