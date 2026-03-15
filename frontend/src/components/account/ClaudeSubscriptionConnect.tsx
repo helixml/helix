@@ -439,7 +439,7 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
       <DialogContent sx={{ p: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {isRunning && loginCommandSent && (
           <Alert severity="info" sx={{ mx: 2, mt: 1, flexShrink: 0 }}>
-            A browser will open below. Sign in to your Claude account, then copy the authentication code shown and paste it into the terminal.
+            A browser will open below. Sign in to your Claude account and complete the authentication flow in the browser.
           </Alert>
         )}
         {!isRunning ? (
