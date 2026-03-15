@@ -11,6 +11,6 @@
 
 - [x] Add `usePinProject` and `useUnpinProject` mutation hooks in `frontend/src/services/projectService.ts`
 - [x] Expose `pinnedProjectIDs` from user meta in the frontend (add hook or selector to fetch/read from user profile)
-- [~] Update `ProjectsListView.tsx` to split projects into pinned/unpinned arrays and render a "Pinned" section header above pinned cards
-- [~] Add a pin toggle button (MUI `PushPin` icon) to each project card — filled when pinned, outlined when not
-- [~] Wire pin toggle to the mutation hooks with optimistic UI update
+- [x] Update `ProjectsListView.tsx` to split projects into pinned/unpinned arrays and render a "Pinned" section header above pinned cards
+- [x] Add a pin toggle button (MUI `PushPin` icon) to each project card — filled when pinned, outlined when not
+- [x] Wire pin toggle to the mutation hooks with optimistic UI update
