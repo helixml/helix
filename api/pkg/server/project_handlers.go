@@ -2231,3 +2231,88 @@ func (s *HelixAPIServer) deleteDockerCache(_ http.ResponseWriter, r *http.Reques
 
 	return map[string]string{"message": fmt.Sprintf("cache cleared on %d sandbox(es)", deleted)}, nil
 }
+
+// PinnedProjectsResponse is the response body for pin/unpin endpoints
+type PinnedProjectsResponse struct {
+	PinnedProjectIDs []string `json:"pinned_project_ids"`
+}
+
+// pinProject godoc
+// @Summary Pin a project
+// @Description Pin a project for the current user so it appears at the top of the projects board
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Success 200 {object} PinnedProjectsResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/pin [post]
+func (s *HelixAPIServer) pinProject(_ http.ResponseWriter, r *http.Request) (*PinnedProjectsResponse, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	// Verify project exists
+	_, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	userMeta, err := s.Store.EnsureUserMeta(r.Context(), types.UserMeta{ID: user.ID})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to load user meta: %v", err))
+	}
+
+	// Add project ID if not already pinned
+	for _, id := range userMeta.Config.PinnedProjectIDs {
+		if id == projectID {
+			return &PinnedProjectsResponse{PinnedProjectIDs: userMeta.Config.PinnedProjectIDs}, nil
+		}
+	}
+	userMeta.Config.PinnedProjectIDs = append(userMeta.Config.PinnedProjectIDs, projectID)
+
+	if _, err := s.Store.UpdateUserMeta(r.Context(), *userMeta); err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update user meta: %v", err))
+	}
+
+	return &PinnedProjectsResponse{PinnedProjectIDs: userMeta.Config.PinnedProjectIDs}, nil
+}
+
+// unpinProject godoc
+// @Summary Unpin a project
+// @Description Remove a project from the current user's pinned projects
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Success 200 {object} PinnedProjectsResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/pin [delete]
+func (s *HelixAPIServer) unpinProject(_ http.ResponseWriter, r *http.Request) (*PinnedProjectsResponse, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	userMeta, err := s.Store.EnsureUserMeta(r.Context(), types.UserMeta{ID: user.ID})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to load user meta: %v", err))
+	}
+
+	// Remove project ID from pinned list
+	updated := userMeta.Config.PinnedProjectIDs[:0]
+	for _, id := range userMeta.Config.PinnedProjectIDs {
+		if id != projectID {
+			updated = append(updated, id)
+		}
+	}
+	userMeta.Config.PinnedProjectIDs = updated
+
+	if _, err := s.Store.UpdateUserMeta(r.Context(), *userMeta); err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update user meta: %v", err))
+	}
+
+	return &PinnedProjectsResponse{PinnedProjectIDs: userMeta.Config.PinnedProjectIDs}, nil
+}

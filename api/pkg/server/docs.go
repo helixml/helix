@@ -8508,6 +8508,108 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/pin": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Pin a project for the current user so it appears at the top of the projects board",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Pin a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PinnedProjectsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Remove a project from the current user's pinned projects",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Unpin a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PinnedProjectsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/repositories": {
             "get": {
                 "security": [
@@ -15129,6 +15231,43 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/users/me/pinned-projects": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the list of project IDs pinned by the current user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Get pinned project IDs",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PinnedProjectsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/users/search": {
             "get": {
                 "security": [
@@ -18342,6 +18481,17 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
+                }
+            }
+        },
+        "server.PinnedProjectsResponse": {
+            "type": "object",
+            "properties": {
+                "pinned_project_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -22535,6 +22685,13 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.SessionRAGResult"
                     }
                 },
+                "response_entries": {
+                    "description": "ResponseEntries holds the structured response as an ordered list of typed entries.\nEach entry is either \"text\" (assistant prose) or \"tool_call\" (tool invocation),\npreserving the ordering and boundaries that Zed's internal Vec\u003cAgentThreadEntry\u003e has.\nThis is populated on completion alongside ResponseMessage (flat string, backward compat).\nThe frontend uses this to render entries with the correct component in the correct order.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
                 "response_format": {
                     "description": "e.g. json",
                     "allOf": [
@@ -24463,7 +24620,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "interrupt": {
-                    "description": "Interrupt indicates this message should interrupt the current conversation\nWhen false, message waits until current conversation completes",
+                    "description": "Interrupt indicates this message should interrupt the current conversation\nWhen false, message waits until current conversation completes\nDefault is false: queue mode is the default, interrupt is explicit",
                     "type": "boolean"
                 },
                 "is_template": {

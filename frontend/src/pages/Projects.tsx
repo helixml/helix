@@ -35,6 +35,9 @@ import {
   useListSampleProjects,
   useInstantiateSampleProject,
   TypesProject,
+  usePinnedProjectIds,
+  usePinProject,
+  useUnpinProject,
 } from "../services";
 import { useGitRepositories } from "../services/gitRepositoryService";
 import type {
@@ -113,6 +116,19 @@ const Projects: FC = () => {
     enabled: isLoggedIn,
   });
   const instantiateSampleMutation = useInstantiateSampleProject();
+
+  // Pinned projects
+  const { data: pinnedProjectIds = [] } = usePinnedProjectIds(isLoggedIn);
+  const pinProjectMutation = usePinProject();
+  const unpinProjectMutation = useUnpinProject();
+
+  const handlePinProject = React.useCallback((projectId: string) => {
+    pinProjectMutation.mutate(projectId);
+  }, [pinProjectMutation]);
+
+  const handleUnpinProject = React.useCallback((projectId: string) => {
+    unpinProjectMutation.mutate(projectId);
+  }, [unpinProjectMutation]);
 
   // Get tab from URL query parameter
   const { tab } = router.params;
@@ -723,6 +739,9 @@ const Projects: FC = () => {
               sampleProjects={sampleProjects}
               isCreating={instantiateSampleMutation.isPending}
               appNamesMap={appNamesMap}
+              pinnedProjectIds={pinnedProjectIds}
+              onPinProject={handlePinProject}
+              onUnpinProject={handleUnpinProject}
             />
           )}
 
