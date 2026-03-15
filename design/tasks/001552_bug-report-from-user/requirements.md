@@ -10,7 +10,7 @@ When users on Helix v2.8.3 attempt to authenticate a Claude Pro/Max subscription
 
 Newer versions of the CLI (≥ 2.1.73, confirmed by running `claude auth login` inside the current helix-ubuntu image) use `https://platform.claude.com/oauth/code/callback` instead — a server-side callback that gives the user a code to paste into the terminal. This completely avoids the localhost port problem.
 
-`Dockerfile.ubuntu-helix` line 929 installs with `npm install -g @anthropic-ai/claude-code@latest`, but Docker layer caching means "latest" was frozen at an old version when the v2.8.3 image was built. Using `@latest` also means dev and prod images can silently diverge, making this class of bug hard to reproduce in dev.
+`Dockerfile.ubuntu-helix` line 929 installs with `npm install -g @anthropic-ai/claude-code@latest`, but Docker layer caching means "latest" was frozen at an old version when that image was built. "Production" here means both the hosted Helix service and Mac app users who downloaded an older helix-ubuntu image — they can each be running a different CLI version with no visibility into which one. Using `@latest` also means dev and prod images can silently diverge, making this class of bug hard to reproduce.
 
 **Reference**: [GitHub issue #1911](https://github.com/helixml/helix/issues/1911)
 
