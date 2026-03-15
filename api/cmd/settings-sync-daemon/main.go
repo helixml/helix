@@ -140,15 +140,16 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		}
 
 	case "claude_code":
-		// Claude Code: Uses Zed's built-in Claude Code ACP (@zed-industries/claude-code-acp).
-		// We only set env vars — Zed handles installing and launching the ACP wrapper.
+		// Claude Code: Uses Zed's built-in claude-agent-acp npm package.
+		// We configure it via /etc/claude-code/managed-settings.json (read by the
+		// package at startup) rather than agent_servers.claude in Zed settings.
+		// Writing to agent_servers.claude suppresses the model selector and
+		// bypass-permissions toggle in Zed's UI; using managed settings avoids this.
+		//
 		// Two modes based on whether baseURL is set:
 		// 1. API key mode (baseURL set): Claude Code uses Helix API proxy
 		// 2. Subscription mode (no baseURL): Claude Code uses OAuth credentials
-		env := map[string]interface{}{
-			"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-			"DISABLE_TELEMETRY":                        "1",
-		}
+		env := map[string]string{}
 
 		if d.codeAgentConfig.BaseURL != "" {
 			// API key mode: route through Helix API proxy
@@ -182,15 +183,14 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 			log.Printf("Using claude_code runtime (subscription mode)")
 		}
 
-		// Only set env — no command/args. Zed uses its built-in
-		// @zed-industries/claude-code-acp npm package which speaks ACP.
-		// The raw `claude` CLI does NOT support --experimental-acp.
-		return map[string]interface{}{
-			"claude": map[string]interface{}{
-				"default_mode": "bypassPermissions",
-				"env":          env,
-			},
+		if err := d.writeClaudeManagedSettings(env); err != nil {
+			log.Printf("Warning: failed to write Claude managed settings: %v", err)
 		}
+
+		// Return nil so no agent_servers.claude is written to Zed settings.
+		// Zed uses its built-in Claude agent defaults, which shows the full UI
+		// (model selector and bypass-permissions toggle).
+		return nil
 
 	default: // "zed_agent" or empty (default)
 		// Zed Agent: Uses Zed's built-in agent panel - no agent_servers needed
@@ -358,7 +358,52 @@ func (d *SettingsDaemon) injectKoditAuth() {
 const (
 	ClaudeCredentialsPath        = "/home/retro/.claude/.credentials.json"
 	ClaudeSubscriptionMarkerPath = "/tmp/helix-claude-subscription-mode"
+	ClaudeManagedSettingsPath    = "/etc/claude-code/managed-settings.json"
 )
+
+// claudeManagedSettings matches the ClaudeCodeSettings structure read by
+// claude-agent-acp (github.com/zed-industries/claude-agent-acp) at startup.
+type claudeManagedSettings struct {
+	Env         map[string]string        `json:"env,omitempty"`
+	Permissions *claudePermissionSettings `json:"permissions,omitempty"`
+}
+
+type claudePermissionSettings struct {
+	DefaultMode string `json:"defaultMode,omitempty"`
+}
+
+// writeClaudeManagedSettings writes /etc/claude-code/managed-settings.json.
+// claude-agent-acp reads this file at startup and applies env vars before
+// the ACP session begins. Using this instead of agent_servers.claude in Zed
+// settings preserves the model selector and bypass-permissions UI in Zed.
+func (d *SettingsDaemon) writeClaudeManagedSettings(env map[string]string) error {
+	settings := claudeManagedSettings{
+		Env: env,
+		Permissions: &claudePermissionSettings{
+			DefaultMode: "bypassPermissions",
+		},
+	}
+
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal managed settings: %w", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(ClaudeManagedSettingsPath), 0755); err != nil {
+		return fmt.Errorf("create managed settings dir: %w", err)
+	}
+
+	tmpPath := ClaudeManagedSettingsPath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		return fmt.Errorf("write managed settings tmp: %w", err)
+	}
+	if err := os.Rename(tmpPath, ClaudeManagedSettingsPath); err != nil {
+		return fmt.Errorf("rename managed settings: %w", err)
+	}
+
+	log.Printf("Wrote Claude managed settings to %s", ClaudeManagedSettingsPath)
+	return nil
+}
 
 // syncClaudeCredentials fetches Claude OAuth credentials from the Helix API
 // and writes them to ~/.claude/.credentials.json for Claude Code to use.
