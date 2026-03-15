@@ -24,17 +24,21 @@ No localhost port. Instead the user visits a URL, gets a code from claude.ai, an
 
 ## Fix
 
-Pin the `claude` CLI to an explicit version in `Dockerfile.ubuntu-helix:929` instead of `@latest`. Change:
+Two complementary changes:
+
+**1. Upgrade claude CLI before login (primary fix for existing deployments)**
+
+In `ClaudeSubscriptionConnect.tsx`, before sending `claude auth login`, send a prior exec command to upgrade the CLI:
 
 ```
 npm install -g @anthropic-ai/claude-code@latest
 ```
-to:
-```
-npm install -g @anthropic-ai/claude-code@2.1.76   # or current at time of fix
-```
 
-Rationale: `@latest` without a pinned version means dev and prod images can silently diverge, making bugs like this one hard to reproduce and debug. The CLI changes frequently, so the pin should be bumped deliberately (e.g. checked in CI or as part of a regular maintenance task) rather than floating.
+This self-heals even on old Mac app VM images that are already deployed and can't be updated without a full app release. Requires npm/internet access from the container at login time (containers have internet access). Adds a few seconds of latency to the login flow.
+
+**2. Pin the version in the Dockerfile (fix for future builds)**
+
+Change `Dockerfile.ubuntu-helix:929` from `@latest` to an explicit version so dev and prod images are identical and regressions are reproducible. Bump the pin deliberately when upgrading. The runtime upgrade in step 1 means the pinned version is a floor, not a ceiling — users always get at least the pinned version, and the login flow upgrades to latest.
 
 The existing UI flow in `ClaudeSubscriptionConnect.tsx` already embeds the desktop terminal via `ExternalAgentDesktopViewer`, so the user can paste the code back. The alert text on line 431 already says to paste a code — this matches the new CLI behaviour.
 
