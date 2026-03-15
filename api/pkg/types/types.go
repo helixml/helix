@@ -3192,16 +3192,15 @@ func (DiskUsageHistory) TableName() string {
 
 // TextFromInteraction returns the plain-text response for an interaction,
 // preferring ResponseEntries (structured) over ResponseMessage (legacy flat string).
-// ResponseEntries became the primary source in the response_entries migration;
-// ResponseMessage is kept only for backwards compat with old interactions.
-func TextFromInteraction(i *Interaction) string {
-	if len(i.ResponseEntries) > 0 {
-		type entry struct {
+// TextFromEntries reconstructs plain text from a ResponseEntries JSON blob,
+// falling back to fallback when entries are absent or contain no text.
+func TextFromEntries(responseEntries json.RawMessage, fallback string) string {
+	if len(responseEntries) > 0 {
+		var entries []struct {
 			Type    string `json:"type"`
 			Content string `json:"content"`
 		}
-		var entries []entry
-		if err := json.Unmarshal(i.ResponseEntries, &entries); err == nil {
+		if err := json.Unmarshal(responseEntries, &entries); err == nil {
 			var sb strings.Builder
 			for _, e := range entries {
 				if e.Type == "text" {
@@ -3213,5 +3212,12 @@ func TextFromInteraction(i *Interaction) string {
 			}
 		}
 	}
-	return i.ResponseMessage
+	return fallback
+}
+
+// TextFromInteraction returns the plain-text response for an interaction.
+// ResponseEntries became the primary source in the response_entries migration;
+// ResponseMessage is kept only for backwards compat with old interactions.
+func TextFromInteraction(i *Interaction) string {
+	return TextFromEntries(json.RawMessage(i.ResponseEntries), i.ResponseMessage)
 }

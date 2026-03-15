@@ -12,33 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
-
-// textFromEntries reconstructs plain text from a ResponseEntries JSON blob,
-// falling back to the legacy responseMessage string when entries are absent.
-// Mirrors types.TextFromInteraction but works on raw wire JSON (anonymous structs).
-func textFromEntries(responseEntries json.RawMessage, responseMessage string) string {
-	if len(responseEntries) > 0 {
-		var entries []struct {
-			Type    string `json:"type"`
-			Content string `json:"content"`
-		}
-		if err := json.Unmarshal(responseEntries, &entries); err == nil {
-			var sb strings.Builder
-			for _, e := range entries {
-				if e.Type == "text" {
-					sb.WriteString(e.Content)
-				}
-			}
-			if sb.Len() > 0 {
-				return sb.String()
-			}
-		}
-	}
-	return responseMessage
-}
 
 // MCPServer provides MCP tools for session navigation and history search.
 // These tools help AI agents navigate conversation history, find past context,
@@ -837,7 +814,7 @@ func (m *MCPServer) handleGetTurn(ctx context.Context, request mcp.CallToolReque
 		sb.WriteString("\n\n")
 	}
 
-	if assistantText := textFromEntries(turnData.Interaction.ResponseEntries, turnData.Interaction.ResponseMessage); assistantText != "" {
+	if assistantText := types.TextFromEntries(turnData.Interaction.ResponseEntries, turnData.Interaction.ResponseMessage); assistantText != "" {
 		sb.WriteString("ASSISTANT:\n")
 		sb.WriteString(assistantText)
 		sb.WriteString("\n\n")
@@ -934,7 +911,7 @@ func (m *MCPServer) handleGetTurns(ctx context.Context, request mcp.CallToolRequ
 			sb.WriteString(t.PromptMessage)
 			sb.WriteString("\n\n")
 		}
-		if responseText := textFromEntries(t.ResponseEntries, t.ResponseMessage); responseText != "" {
+		if responseText := types.TextFromEntries(t.ResponseEntries, t.ResponseMessage); responseText != "" {
 			sb.WriteString("ASSISTANT:\n")
 			sb.WriteString(responseText)
 			sb.WriteString("\n\n")
@@ -1007,7 +984,7 @@ func (m *MCPServer) handleGetInteraction(ctx context.Context, request mcp.CallTo
 		sb.WriteString("\n\n")
 	}
 
-	if responseText := textFromEntries(interaction.ResponseEntries, interaction.ResponseMessage); responseText != "" {
+	if responseText := types.TextFromEntries(interaction.ResponseEntries, interaction.ResponseMessage); responseText != "" {
 		sb.WriteString("ASSISTANT:\n")
 		sb.WriteString(responseText)
 		sb.WriteString("\n")
