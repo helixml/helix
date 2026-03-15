@@ -27,7 +27,13 @@ Both are currently saved to DB and serialised into every WebSocket event (`inter
 
 **Completion path — read from entries:** In the `interaction_update` and `session_update` handlers in `DesignReviewContent.tsx`, read `interaction.response_entries` (parsed JSON) instead of `interaction.response_message`.
 
-**Persisted display (`comment.agent_response`):** This DB field currently stores the flat text (set in `spec_task_design_review_handlers.go` from `interaction.ResponseMessage`). After migration, `ResponseMessage` will be empty; the handler should reconstruct text from `ResponseEntries` by joining `type=text` entries. For rendering, `MessageWithToolCalls` with the regex fallback will still work since the persisted text is produced from entries anyway — but ideally the handler saves a new `comment.agent_response_entries` JSON field alongside `agent_response` so the sidebar can render tool calls in completed (non-streaming) state too. Whether to add this DB field is at the implementer's discretion; the regression risk of not doing it is that completed tool call blocks show as bold text in the sidebar (same bug we already have), so worth doing.
+**Persisted display (`comment.agent_response`):** This DB field currently stores the flat text (set in `spec_task_design_review_handlers.go` from `interaction.ResponseMessage`). After migration, `ResponseMessage` will be empty; the handler should reconstruct text from `ResponseEntries` using `TextFromInteraction()`.
+
+Adding a `comment.AgentResponseEntries` (jsonb) column is **required, not optional**. Without it, tool calls disappear from completed comments for new sessions. The distinction:
+- **Old sessions:** `agent_response` was set from `ResponseMessage`, the full Zed output string with `**Tool Call:**` blocks inline — the regex fallback still finds and renders them.
+- **New sessions (after migration):** `TextFromInteraction()` joins only `type=text` entries, so tool call entries are absent from `agent_response`. Once streaming ends and the comment is refetched from DB, there is neither structured data nor parseable markdown — tool calls are gone from the completed view.
+
+The handler must marshal `interaction.ResponseEntries` into `comment.AgentResponseEntries` alongside the flat text so display components have structured data after completion.
 
 ---
 
@@ -49,7 +55,7 @@ Both are currently saved to DB and serialised into every WebSocket event (`inter
 
 Lines 815–817, 911–913, 983–985 read `ResponseMessage` to build conversation history for external LLM agents (Zed). These are the `get_turn`, `get_turns`, and `get_interaction` MCP endpoints.
 
-Migration: when `ResponseEntries` is non-empty, reconstruct text by iterating entries and joining all `type == "text"` content fields. Keep fallback to `ResponseMessage` for old interactions.
+Migration: when `ResponseEntries` is non-empty, reconstruct text by iterating entries and joining all `type == "text"` content fields. Keep fallback to `ResponseMessage` for old interactions (where entries are absent).
 
 **B. Summary service (`api/pkg/server/summary_service.go`)**
 
@@ -57,7 +63,7 @@ Lines 51, 454–456 read `ResponseMessage` to build summarisation prompts. Same 
 
 **C. Design review handlers (`api/pkg/server/spec_task_design_review_handlers.go`)**
 
-Lines 902, 976–977, 1092–1093 set `comment.AgentResponse = interaction.ResponseMessage`. After migration, reconstruct text from `ResponseEntries`.
+Lines 902, 976–977, 1092–1093 set `comment.AgentResponse = interaction.ResponseMessage`. After migration, use `TextFromInteraction()` for the flat text and also store `interaction.ResponseEntries` into a new `comment.AgentResponseEntries` jsonb column. See Fix 1 above for why the entries column is required (not optional) for new sessions.
 
 **D. Triggers (Slack, Teams, Azure DevOps, Crisp, etc.)**
 
@@ -99,7 +105,7 @@ Prefer `omitempty`. After stopping population, the field will be `""` for all ne
 |------|--------|
 | `api/pkg/session/mcp_server.go` | Reconstruct text from `ResponseEntries` with fallback to `ResponseMessage` |
 | `api/pkg/server/summary_service.go` | Same reconstruction pattern |
-| `api/pkg/server/spec_task_design_review_handlers.go` | Reconstruct text from `ResponseEntries`; optionally store entries in new `agent_response_entries` field |
+| `api/pkg/server/spec_task_design_review_handlers.go` | Use `TextFromInteraction()` for flat text; store entries in new `agent_response_entries` jsonb column (required) |
 | `api/pkg/trigger/*/` (slack, teams, azure, crisp, cron) | Same reconstruction pattern |
 | `api/pkg/controller/`, `api/pkg/cli/`, `api/pkg/server/` misc files | Audit each; apply reconstruction pattern where reading ResponseMessage |
 | `api/pkg/server/websocket_external_agent_sync.go` | Stop setting `ResponseMessage` once consumers are migrated |

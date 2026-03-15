@@ -21,7 +21,7 @@
 
 - [ ] `api/pkg/session/mcp_server.go`: replace direct reads of `ResponseMessage` in `get_turn`, `get_turns`, `get_interaction` handlers with `TextFromInteraction()`
 - [ ] `api/pkg/server/summary_service.go`: replace `ResponseMessage` reads with `TextFromInteraction()`
-- [ ] `api/pkg/server/spec_task_design_review_handlers.go`: replace `interaction.ResponseMessage` assignments to `comment.AgentResponse` with `TextFromInteraction()`; optionally marshal `ResponseEntries` into a new `comment.AgentResponseEntries` DB field so the sidebar can render tool calls in completed state
+- [ ] `api/pkg/server/spec_task_design_review_handlers.go`: replace `interaction.ResponseMessage` assignments to `comment.AgentResponse` with `TextFromInteraction()`; also marshal `interaction.ResponseEntries` into a new `comment.AgentResponseEntries` jsonb DB column (required — without it tool calls disappear from completed comments in new sessions)
 - [ ] `api/pkg/trigger/slack/`, `teams/`, `azure/`, `crisp/`, `cron/`: replace `ResponseMessage` reads with `TextFromInteraction()`
 - [ ] Audit remaining consumers (`controller_external_agent.go`, `sessions.go`, `question_set_handlers.go`, `session_toc_handlers.go`, `scheduler/workload.go`, CLI spectask) — apply `TextFromInteraction()` wherever reading `ResponseMessage` for display/output
 
