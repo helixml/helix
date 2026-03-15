@@ -24,7 +24,17 @@ No localhost port. Instead the user visits a URL, gets a code from claude.ai, an
 
 ## Fix
 
-Bust the Docker layer cache for the `npm install` line in `Dockerfile.ubuntu-helix:929` and rebuild with `./stack build-ubuntu`. The rebuilt image will install the current CLI version which uses the server-side callback.
+Pin the `claude` CLI to an explicit version in `Dockerfile.ubuntu-helix:929` instead of `@latest`. Change:
+
+```
+npm install -g @anthropic-ai/claude-code@latest
+```
+to:
+```
+npm install -g @anthropic-ai/claude-code@2.1.76   # or current at time of fix
+```
+
+Rationale: `@latest` without a pinned version means dev and prod images can silently diverge, making bugs like this one hard to reproduce and debug. The CLI changes frequently, so the pin should be bumped deliberately (e.g. checked in CI or as part of a regular maintenance task) rather than floating.
 
 The existing UI flow in `ClaudeSubscriptionConnect.tsx` already embeds the desktop terminal via `ExternalAgentDesktopViewer`, so the user can paste the code back. The alert text on line 431 already says to paste a code — this matches the new CLI behaviour.
 
