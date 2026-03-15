@@ -192,6 +192,7 @@ export default function DesignReviewContent({
   const [streamingResponse, setStreamingResponse] = useState<{
     commentId: string;
     content: string;
+    entries: Array<{ type: 'text' | 'tool_call'; content: string; message_id: string; tool_name?: string; tool_status?: string }>;
   } | null>(null);
   const account = useAccount();
   const queryClient = useQueryClient();
@@ -304,8 +305,9 @@ export default function DesignReviewContent({
     });
 
     let accumulatedResponse = "";
-    // Track per-entry streaming content (same pattern as streaming.tsx)
-    let entryContents: string[] = [];
+    // Track per-entry streaming content with type metadata
+    type StreamEntry = { type: 'text' | 'tool_call'; content: string; message_id: string; tool_name?: string; tool_status?: string };
+    let streamEntries: StreamEntry[] = [];
 
     const messageHandler = (event: MessageEvent) => {
       try {
@@ -326,26 +328,32 @@ export default function DesignReviewContent({
             patch: string;
             patch_offset: number;
             total_length: number;
+            type?: string;
+            tool_name?: string;
+            tool_status?: string;
           }>;
           const entryCount = parsedData.entry_count as number;
 
           // Grow array if new entries appeared
-          while (entryContents.length < entryCount) {
-            entryContents.push("");
+          while (streamEntries.length < entryCount) {
+            streamEntries.push({ type: 'text', content: '', message_id: String(streamEntries.length) });
           }
-          // Apply per-entry patches
+          // Apply per-entry patches and capture type metadata
           for (const ep of entryPatches) {
-            if (ep.index < entryContents.length) {
-              entryContents[ep.index] = applyPatch(
-                entryContents[ep.index],
+            if (ep.index < streamEntries.length) {
+              streamEntries[ep.index].content = applyPatch(
+                streamEntries[ep.index].content,
                 ep.patch_offset,
                 ep.patch,
                 ep.total_length,
               );
+              if (ep.type) streamEntries[ep.index].type = ep.type as 'text' | 'tool_call';
+              if (ep.tool_name) streamEntries[ep.index].tool_name = ep.tool_name;
+              if (ep.tool_status) streamEntries[ep.index].tool_status = ep.tool_status;
             }
           }
-          // Join all entry contents for the design review bubble (plain text display)
-          accumulatedResponse = entryContents.filter(Boolean).join("\n\n");
+          // Join text entries for flat content fallback
+          accumulatedResponse = streamEntries.filter(e => e.content).map(e => e.content).join("\n\n");
 
           console.log(
             "[DRWS-DEBUG] interaction_patch received, entry_count:",
@@ -370,6 +378,7 @@ export default function DesignReviewContent({
             setStreamingResponse({
               commentId: targetCommentId,
               content: accumulatedResponse,
+              entries: [...streamEntries],
             });
           }
         }
@@ -435,6 +444,7 @@ export default function DesignReviewContent({
               setStreamingResponse({
                 commentId: targetCommentId,
                 content: accumulatedResponse,
+                entries: [...streamEntries],
               });
             } else {
               console.warn(
@@ -455,8 +465,8 @@ export default function DesignReviewContent({
                 queryKey: designReviewKeys.detail(specTaskId, reviewId),
               });
               setStreamingResponse(null);
-              // Reset entry contents for next streaming response
-              entryContents = [];
+              // Reset entry tracking for next streaming response
+              streamEntries = [];
             }
           }
         }
@@ -474,7 +484,12 @@ export default function DesignReviewContent({
 
           if (interaction.response_message) {
             accumulatedResponse = interaction.response_message;
-            entryContents = [interaction.response_message];
+            // Use structured entries from the wire if available, else flat text entry
+            if (interaction.response_entries?.length) {
+              streamEntries = interaction.response_entries;
+            } else {
+              streamEntries = [{ type: 'text', content: interaction.response_message, message_id: '0' }];
+            }
 
             const currentQueueStatus = queueStatusRef.current;
             const currentComments = allCommentsRef.current;
@@ -491,6 +506,7 @@ export default function DesignReviewContent({
               setStreamingResponse({
                 commentId: targetCommentId,
                 content: accumulatedResponse,
+                entries: [...streamEntries],
               });
             }
           }
@@ -506,7 +522,7 @@ export default function DesignReviewContent({
               queryKey: designReviewKeys.detail(specTaskId, reviewId),
             });
             setStreamingResponse(null);
-            entryContents = [];
+            streamEntries = [];
           }
         }
       } catch (error) {
@@ -1252,6 +1268,11 @@ export default function DesignReviewContent({
                         ? streamingResponse.content
                         : undefined
                     }
+                    streamingEntries={
+                      isCurrentlyStreaming
+                        ? streamingResponse.entries
+                        : undefined
+                    }
                     commentRef={(el) => {
                       if (el) {
                         commentRefs.current.set(comment.id!, el);
@@ -1288,6 +1309,7 @@ export default function DesignReviewContent({
           show={showCommentLog}
           comments={activeDocComments}
           onResolveComment={handleResolveComment}
+          streamingResponse={streamingResponse}
         />
       </Box>
 

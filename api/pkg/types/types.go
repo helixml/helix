@@ -43,7 +43,7 @@ type Interaction struct {
 
 	// TODO: add the full multi-part response content
 	// ResponseMessageContent MessageContent `json:"response_message_content"` // LLM response
-	ResponseMessage        string         `json:"response_message"`                                  // LLM response
+	ResponseMessage        string         `json:"response_message,omitempty"`                        // LLM response (legacy — omit from wire when empty)
 	ResponseFormat         ResponseFormat `json:"response_format" gorm:"type:jsonb;serializer:json"` // e.g. json
 	ResponseFormatResponse string         `json:"response_format_response"`                          // e.g. json
 
@@ -3181,4 +3181,36 @@ type DiskUsageHistory struct {
 // TableName returns the table name for GORM
 func (DiskUsageHistory) TableName() string {
 	return "disk_usage_history"
+}
+
+// TextFromInteraction returns the plain-text response for an interaction,
+// preferring ResponseEntries (structured) over ResponseMessage (legacy flat string).
+// TextFromEntries reconstructs plain text from a ResponseEntries JSON blob,
+// falling back to fallback when entries are absent or contain no text.
+func TextFromEntries(responseEntries json.RawMessage, fallback string) string {
+	if len(responseEntries) > 0 {
+		var entries []struct {
+			Type    string `json:"type"`
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal(responseEntries, &entries); err == nil {
+			var sb strings.Builder
+			for _, e := range entries {
+				if e.Type == "text" {
+					sb.WriteString(e.Content)
+				}
+			}
+			if sb.Len() > 0 {
+				return sb.String()
+			}
+		}
+	}
+	return fallback
+}
+
+// TextFromInteraction returns the plain-text response for an interaction.
+// ResponseEntries became the primary source in the response_entries migration;
+// ResponseMessage is kept only for backwards compat with old interactions.
+func TextFromInteraction(i *Interaction) string {
+	return TextFromEntries(json.RawMessage(i.ResponseEntries), i.ResponseMessage)
 }

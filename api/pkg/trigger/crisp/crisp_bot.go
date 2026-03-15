@@ -390,7 +390,7 @@ func (c *CrispBot) handleTextMessage(ctx context.Context, client *crisp.Client, 
 	}
 
 	// Send response back to Crisp
-	err = c.sendMessage(ctx, client, websiteID, crispSessionID, resp.ResponseMessage)
+	err = c.sendMessage(ctx, client, websiteID, crispSessionID, types.TextFromInteraction(resp))
 	if err != nil {
 		return fmt.Errorf("failed to send message to Crisp: %w", err)
 	}

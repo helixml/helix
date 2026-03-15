@@ -564,7 +564,7 @@ func (s *HelixAPIServer) executeQuestionSet(_ http.ResponseWriter, req *http.Req
 					Question:      q.Question,
 					SessionID:     sessionID,
 					InteractionID: interaction.ID,
-					Response:      interaction.ResponseMessage,
+					Response:      types.TextFromInteraction(interaction),
 				}
 			}
 			mu.Unlock()

@@ -513,10 +513,10 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 	updatedSession, err := s.store.GetSession(ctx, session.ID)
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to fetch updated session for document IDs")
-		return resp.ResponseMessage, nil, nil
+		return types.TextFromInteraction(resp), nil, nil
 	}
 
-	return resp.ResponseMessage, updatedSession.Metadata.DocumentIDs, nil
+	return types.TextFromInteraction(resp), updatedSession.Metadata.DocumentIDs, nil
 }
 
 // handleAppTriggerThread - handles a default app/agent path where we use a thread to provide context to the agent.

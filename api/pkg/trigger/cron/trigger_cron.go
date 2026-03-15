@@ -546,11 +546,13 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		return "", err
 	}
 
+	responseText := types.TextFromInteraction(resp)
+
 	// Send success notification
 	err = notifier.Notify(ctx, &types.Notification{
 		Event:          types.EventCronTriggerComplete,
 		Session:        session,
-		Message:        resp.ResponseMessage,
+		Message:        responseText,
 		RenderMarkdown: true,
 		Emails:         trigger.Emails,
 	})
@@ -564,7 +566,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 
 	// Update execution with success
 	execution.Status = types.TriggerExecutionStatusSuccess
-	execution.Output = resp.ResponseMessage
+	execution.Output = responseText
 	execution.DurationMs = time.Since(startedAt).Milliseconds()
 
 	execution, err = str.UpdateTriggerExecution(ctx, execution)
@@ -581,7 +583,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		Str("app_id", app.ID).
 		Msg("app cron job completed")
 
-	return resp.ResponseMessage, nil
+	return responseText, nil
 }
 
 func executeSpecTaskAction(ctx context.Context, str store.Store, specTaskCreator SpecTaskCreator, notifier notification.Notifier, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {
