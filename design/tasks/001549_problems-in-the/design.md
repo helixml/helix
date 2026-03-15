@@ -53,3 +53,33 @@ Pass `compact={true}` wherever `ThinkingWidget` is rendered inside `InteractionM
 ## Pattern Found
 
 This codebase uses `MessageWithToolCalls` as the canonical rich-text renderer for agent responses. New places that display agent responses should use it instead of bare `InteractionMarkdown`/`Markdown`. The `EMPTY_SESSION` pattern for skipping RAG features is established in both `InlineCommentBubble` and `CommentLogSidebar` already.
+
+---
+
+## Appendix: Can We Drop `response_message` Now That `response_entries` Exists?
+
+**Short answer: No — not yet, and not as part of this task.**
+
+The system currently populates and transmits both fields simultaneously. Before `response_message` can be dropped from the wire, three consumers must be migrated:
+
+### Blockers
+
+1. **MCP server (`api/pkg/session/mcp_server.go`)** — Critical. The `get_turn` / `get_turns` MCP endpoints read `ResponseMessage` directly to reconstruct conversation history sent back to external LLM agents (Zed). Removing it breaks Zed's ability to see prior turns. Fix: reconstruct text from `response_entries` by concatenating all `type=text` entries.
+
+2. **Design review comment streaming (`DesignReviewContent.tsx`)** — The `interaction_update` and `session_update` handlers read `interaction.response_message` directly to build `accumulatedResponse`. Fix: read from `response_entries` instead, filtering to `type=text` entries.
+
+3. **Summary service (`api/pkg/`)** — Reads `ResponseMessage` to build summarisation prompts. Lower priority but must be updated.
+
+### Frontend fallback paths
+
+`useLiveInteraction` falls back to `response_message` when `response_entries` is absent (old interactions pre-dating the new format). This fallback is intentional for backwards compat and should stay until old interactions are either migrated or sufficiently old that they won't be rendered.
+
+### Migration path (future task)
+
+1. Update the MCP server to reconstruct text from `response_entries`.
+2. Update `DesignReviewContent.tsx` to use `response_entries` from completion events.
+3. Update the summary service.
+4. Stop setting `ResponseMessage` in the Go server for new interactions (keep reading it for old ones).
+5. Eventually omit `response_message` from WebSocket wire events when `response_entries` is present.
+
+This is **a separate task** from fixing the tool call rendering and thinking block size addressed here. The current task uses the regex fallback path in `MessageWithToolCalls` (which parses the flat joined string) — that's acceptable because the comment streaming code already joins entries into a flat string, and fixing that join is part of the larger migration above.
