@@ -6,7 +6,7 @@ As a user of Helix Desktop, when the chrome-devtools MCP launches Chrome, I want
 
 ## Problem
 
-Chrome launched by the chrome-devtools MCP starts with too narrow a default viewport (~800x600). Most websites require at least 1280px width to show desktop view. The current configuration in `zed_config.go` sets `CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080` as an environment variable, but chrome-devtools-mcp does NOT read this env var — it must be passed as a CLI argument `--viewport 1920x1080`.
+Chrome launched by the chrome-devtools MCP starts with too narrow a default window (~800x600). Most websites require at least 1280px width to show desktop view. Despite an existing intent to set the viewport to 1920x1080, it is not being applied correctly (see design.md).
 
 ## Acceptance Criteria
 
