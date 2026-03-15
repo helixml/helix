@@ -926,12 +926,7 @@ RUN mkdir -p /home/retro/.gemini && \
     echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.gemini/settings.json
 
 # Install Claude Code CLI (for ACP agent support)
-# Pinned to a specific version for reproducible dev/prod builds — do not use @latest.
-# Old versions used localhost:<random-port> for OAuth which Anthropic now rejects; 2.1.76+
-# uses https://platform.claude.com/oauth/code/callback instead.
-# To upgrade: bump the version here and run ./stack build-ubuntu.
-# The login flow also runs `npm install -g @latest` at auth time to self-heal old deployed images.
-RUN npm install -g @anthropic-ai/claude-code@2.1.76
+RUN npm install -g @anthropic-ai/claude-code@latest
 
 # Claude Code settings (bypassPermissions etc.) are written at runtime by
 # helix-workspace-setup.sh after symlinking ~/.claude to persistent storage.
