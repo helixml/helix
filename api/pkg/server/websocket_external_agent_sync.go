@@ -749,12 +749,12 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		return fmt.Errorf("failed to create interaction: %w", err)
 	}
 
-	// Store the session->interaction mapping
+	// Enqueue the interaction so handleMessageAdded routes responses correctly
 	apiServer.contextMappingsMutex.Lock()
 	if apiServer.sessionToWaitingInteraction == nil {
-		apiServer.sessionToWaitingInteraction = make(map[string]string)
+		apiServer.sessionToWaitingInteraction = make(map[string][]string)
 	}
-	apiServer.sessionToWaitingInteraction[createdSession.ID] = createdInteraction.ID
+	apiServer.sessionToWaitingInteraction[createdSession.ID] = append(apiServer.sessionToWaitingInteraction[createdSession.ID], createdInteraction.ID)
 	apiServer.contextMappingsMutex.Unlock()
 
 	log.Info().
@@ -1078,50 +1078,75 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				Msg("No interaction found to update with assistant response")
 		}
 	} else {
-		// For user messages, create new interaction
-		// User messages are infrequent (one per turn), no need to cache
-		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
-		if err != nil {
-			return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
+		// For user messages, check whether a pre-created Waiting interaction already exists
+		// for this session (e.g. created by sendMessageToSpecTaskAgent for approval flows).
+		// Zed echoes the sent user message back as message_added(role=user), which would
+		// otherwise create a duplicate interaction and overwrite the mapping, causing the
+		// assistant response to land in the wrong interaction (Bug 1 fix).
+		// Peek at the front of the FIFO queue (don't pop — message_completed does that)
+		apiServer.contextMappingsMutex.RLock()
+		var existingInteractionID string
+		if q := apiServer.sessionToWaitingInteraction[helixSessionID]; len(q) > 0 {
+			existingInteractionID = q[0]
 		}
+		apiServer.contextMappingsMutex.RUnlock()
 
-		interaction := &types.Interaction{
-			ID:            "", // Will be generated
-			Created:       time.Now(),
-			Updated:       time.Now(),
-			SessionID:     helixSessionID,
-			UserID:        helixSession.Owner,
-			GenerationID:  helixSession.GenerationID, // Must match session's generation for query to find it
-			Mode:          types.SessionModeInference,
-			PromptMessage: content,
-			State:         types.InteractionStateWaiting,
+		if existingInteractionID != "" {
+			// A pre-created Waiting interaction exists — this is the Zed echo of a message
+			// sent by sendMessageToSpecTaskAgent. Reuse the pre-created interaction and do
+			// NOT overwrite the mapping so the assistant response lands in the right place.
+			log.Info().
+				Str("session_id", sessionID).
+				Str("context_id", contextID).
+				Str("helix_session_id", helixSessionID).
+				Str("existing_interaction_id", existingInteractionID).
+				Msg("💬 [HELIX] Reusing pre-created interaction for Zed user-message echo (skipping duplicate creation)")
+		} else {
+			// No pre-created interaction — this is a genuine user message from Zed.
+			// Create a new interaction and map it so the AI response goes to it.
+			helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
+			if err != nil {
+				return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
+			}
+
+			interaction := &types.Interaction{
+				ID:            "", // Will be generated
+				Created:       time.Now(),
+				Updated:       time.Now(),
+				SessionID:     helixSessionID,
+				UserID:        helixSession.Owner,
+				GenerationID:  helixSession.GenerationID, // Must match session's generation for query to find it
+				Mode:          types.SessionModeInference,
+				PromptMessage: content,
+				State:         types.InteractionStateWaiting,
+			}
+
+			// Create the interaction in the store
+			createdInteraction, err := apiServer.Controller.Options.Store.CreateInteraction(context.Background(), interaction)
+			if err != nil {
+				return fmt.Errorf("failed to create interaction: %w", err)
+			}
+
+			log.Info().
+				Str("session_id", sessionID).
+				Str("context_id", contextID).
+				Str("helix_session_id", helixSessionID).
+				Str("interaction_id", createdInteraction.ID).
+				Str("role", role).
+				Msg("💬 [HELIX] Created interaction for user message from Zed")
+
+			// CRITICAL: Enqueue this interaction so the AI response goes to it
+			apiServer.contextMappingsMutex.Lock()
+			if apiServer.sessionToWaitingInteraction == nil {
+				apiServer.sessionToWaitingInteraction = make(map[string][]string)
+			}
+			apiServer.sessionToWaitingInteraction[helixSessionID] = append(apiServer.sessionToWaitingInteraction[helixSessionID], createdInteraction.ID)
+			apiServer.contextMappingsMutex.Unlock()
+			log.Info().
+				Str("helix_session_id", helixSessionID).
+				Str("interaction_id", createdInteraction.ID).
+				Msg("🗺️ [HELIX] Mapped session to new interaction from Zed user message")
 		}
-
-		// Create the interaction in the store
-		createdInteraction, err := apiServer.Controller.Options.Store.CreateInteraction(context.Background(), interaction)
-		if err != nil {
-			return fmt.Errorf("failed to create interaction: %w", err)
-		}
-
-		log.Info().
-			Str("session_id", sessionID).
-			Str("context_id", contextID).
-			Str("helix_session_id", helixSessionID).
-			Str("interaction_id", createdInteraction.ID).
-			Str("role", role).
-			Msg("💬 [HELIX] Created interaction for user message from Zed")
-
-		// CRITICAL: Map this interaction so the AI response goes to it!
-		apiServer.contextMappingsMutex.Lock()
-		if apiServer.sessionToWaitingInteraction == nil {
-			apiServer.sessionToWaitingInteraction = make(map[string]string)
-		}
-		apiServer.sessionToWaitingInteraction[helixSessionID] = createdInteraction.ID
-		apiServer.contextMappingsMutex.Unlock()
-		log.Info().
-			Str("helix_session_id", helixSessionID).
-			Str("interaction_id", createdInteraction.ID).
-			Msg("🗺️ [HELIX] Mapped session to new interaction from Zed user message")
 	}
 
 	return nil
@@ -1135,9 +1160,15 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 // previousEntries when the target interaction changes. This prevents patch computation
 // from using stale entries from the old interaction.
 func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context, helixSessionID string) *streamingContext {
-	// Check what interaction we SHOULD be targeting (from sessionToWaitingInteraction mapping)
+	// Check what interaction we SHOULD be targeting: peek at front of the FIFO queue.
+	// Do NOT pop here — message_completed pops after marking the interaction complete.
 	apiServer.contextMappingsMutex.RLock()
-	expectedInteractionID, hasMapping := apiServer.sessionToWaitingInteraction[helixSessionID]
+	var expectedInteractionID string
+	var hasMapping bool
+	if q := apiServer.sessionToWaitingInteraction[helixSessionID]; len(q) > 0 {
+		expectedInteractionID = q[0]
+		hasMapping = true
+	}
 	apiServer.contextMappingsMutex.RUnlock()
 
 	apiServer.streamingContextsMu.RLock()
@@ -1201,10 +1232,15 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 		return nil
 	}
 
-	// Find the target interaction (same logic as before)
+	// Find the target interaction: use front of FIFO queue if available
 	var targetInteraction *types.Interaction
 	apiServer.contextMappingsMutex.RLock()
-	mappedInteractionID, hasMappingForLookup := apiServer.sessionToWaitingInteraction[helixSessionID]
+	var mappedInteractionID string
+	var hasMappingForLookup bool
+	if q := apiServer.sessionToWaitingInteraction[helixSessionID]; len(q) > 0 {
+		mappedInteractionID = q[0]
+		hasMappingForLookup = true
+	}
 	apiServer.contextMappingsMutex.RUnlock()
 	if hasMappingForLookup {
 		for i := range interactions {
@@ -1850,17 +1886,38 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Int("interaction_count", len(interactions)).
 		Msg("🔍 [DEBUG] Loaded interactions for message_completed")
 
-	// Find the most recent waiting interaction
+	// PRIMARY: use the front of the FIFO queue — the interaction that was being processed.
+	// Pop it now so the next message_completed will target the next queued interaction.
+	// This fixes the off-by-one bug where sendMessageToSpecTaskAgent creates a second
+	// waiting interaction while the first is still streaming.
 	var targetInteractionID string
-	for i := len(interactions) - 1; i >= 0; i-- {
-		if interactions[i].State == types.InteractionStateWaiting {
-			targetInteractionID = interactions[i].ID
-			log.Info().
-				Str("helix_session_id", helixSessionID).
-				Str("interaction_id", interactions[i].ID).
-				Str("state", string(interactions[i].State)).
-				Msg("✅ [HELIX] Found waiting interaction to mark as complete")
-			break
+	apiServer.contextMappingsMutex.Lock()
+	if q := apiServer.sessionToWaitingInteraction[helixSessionID]; len(q) > 0 {
+		targetInteractionID = q[0]
+		if len(q) == 1 {
+			delete(apiServer.sessionToWaitingInteraction, helixSessionID)
+		} else {
+			apiServer.sessionToWaitingInteraction[helixSessionID] = q[1:]
+		}
+		log.Info().
+			Str("helix_session_id", helixSessionID).
+			Str("interaction_id", targetInteractionID).
+			Int("remaining_queue", len(apiServer.sessionToWaitingInteraction[helixSessionID])).
+			Msg("✅ [HELIX] Popped interaction from FIFO queue for message_completed")
+	}
+	apiServer.contextMappingsMutex.Unlock()
+
+	// FALLBACK: after API restart the in-memory queue is lost — find most recent waiting interaction in DB
+	if targetInteractionID == "" {
+		for i := len(interactions) - 1; i >= 0; i-- {
+			if interactions[i].State == types.InteractionStateWaiting {
+				targetInteractionID = interactions[i].ID
+				log.Info().
+					Str("helix_session_id", helixSessionID).
+					Str("interaction_id", interactions[i].ID).
+					Msg("✅ [HELIX] Fallback: found waiting interaction via DB scan (queue was empty)")
+				break
+			}
 		}
 	}
 
@@ -1976,6 +2033,23 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		}
 	}
 
+	// Signal the waiting HTTP handler that this interaction is complete.
+	// This is needed for non-streaming (blocking) requests that call waitForExternalAgentResponse.
+	// In the normal case, chat_response_done sends the signal. But for Stopped/cancelled turns,
+	// Zed sends message_completed without chat_response_done, so we must signal here.
+	// The doneChan is buffered(1) so a double-send (normal case) is harmless.
+	if messageRequestID != "" {
+		_, doneChan, _, exists := apiServer.getResponseChannel(helixSessionID, messageRequestID)
+		if exists {
+			select {
+			case doneChan <- true:
+				log.Debug().Str("request_id", messageRequestID).Msg("✅ [HELIX] Sent done signal from message_completed")
+			default:
+				log.Debug().Str("request_id", messageRequestID).Msg("Done channel already full (normal for streaming case)")
+			}
+		}
+	}
+
 	// FINALIZE COMMENT RESPONSE
 	// PRIMARY APPROACH: Use request_id from message data (echoed back by agent)
 	// This is the definitive link to the comment and doesn't rely on session ID matching
@@ -2002,17 +2076,6 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 				Str("session_id", sessionID).
 				Str("request_id", requestID).
 				Msg("✅ [HELIX] Finalized comment response via request_id from message data")
-
-			// Send completion signal to done channel for HTTP streaming clients
-			_, doneChan, _, exists := apiServer.getResponseChannel(sessionID, requestID)
-			if exists {
-				select {
-				case doneChan <- true:
-					log.Debug().Str("request_id", requestID).Msg("Sent done signal to channel")
-				default:
-					log.Debug().Msg("Done channel full")
-				}
-			}
 
 			// Clean up requestToCommenterMapping now that response is complete
 			if apiServer.requestToCommenterMapping != nil {
@@ -2221,12 +2284,15 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		Str("content_preview", truncateString(prompt.Content, 30)).
 		Msg("✅ [QUEUE] Created interaction for queue prompt")
 
-	// CRITICAL: Store the mapping so handleMessageAdded can find this interaction
+	// CRITICAL: Enqueue the interaction so handleMessageAdded routes the response correctly.
+	// Using append (not overwrite) prevents the race where sendMessageToSpecTaskAgent
+	// creates a second interaction while the first is still streaming, which would cause
+	// the first interaction's streaming content to land in the second interaction (off-by-one bug).
 	apiServer.contextMappingsMutex.Lock()
 	if apiServer.sessionToWaitingInteraction == nil {
-		apiServer.sessionToWaitingInteraction = make(map[string]string)
+		apiServer.sessionToWaitingInteraction = make(map[string][]string)
 	}
-	apiServer.sessionToWaitingInteraction[sessionID] = createdInteraction.ID
+	apiServer.sessionToWaitingInteraction[sessionID] = append(apiServer.sessionToWaitingInteraction[sessionID], createdInteraction.ID)
 	apiServer.contextMappingsMutex.Unlock()
 
 	// Determine agent name

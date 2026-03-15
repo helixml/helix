@@ -816,11 +816,11 @@ func (s *HelixAPIServer) sendCommentToAgentNow(
 	// Also capture the interaction ID so we can copy the response at finalization time.
 	comment.RequestID = requestID
 
-	// Look up the interaction that was just created for this session
+	// Look up the interaction that was just created for this session (peek front of FIFO queue)
 	sessionID := specTask.PlanningSessionID
 	s.contextMappingsMutex.Lock()
-	if interactionID, ok := s.sessionToWaitingInteraction[sessionID]; ok {
-		comment.InteractionID = interactionID
+	if q := s.sessionToWaitingInteraction[sessionID]; len(q) > 0 {
+		comment.InteractionID = q[len(q)-1]
 	}
 	s.contextMappingsMutex.Unlock()
 
@@ -1289,12 +1289,14 @@ func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
 		return "", fmt.Errorf("failed to create interaction: %w", err)
 	}
 
-	// Store session->interaction mapping so handleMessageAdded finds the right interaction
+	// Enqueue the interaction so handleMessageAdded routes the response correctly.
+	// Using append (not overwrite) prevents the race where this function is called
+	// while another interaction is still streaming, which would cause off-by-one errors.
 	s.contextMappingsMutex.Lock()
 	if s.sessionToWaitingInteraction == nil {
-		s.sessionToWaitingInteraction = make(map[string]string)
+		s.sessionToWaitingInteraction = make(map[string][]string)
 	}
-	s.sessionToWaitingInteraction[sessionID] = createdInteraction.ID
+	s.sessionToWaitingInteraction[sessionID] = append(s.sessionToWaitingInteraction[sessionID], createdInteraction.ID)
 	s.contextMappingsMutex.Unlock()
 
 	log.Info().

@@ -150,6 +150,29 @@ func (s *MySuite) SetupTest() { /* init ctrl, store, server */ }
 - **RBAC**: `authorizeUserToResource()` — unified AccessGrants
 - **Enterprise**: Support internal DNS, proxies, air-gapped, private CAs
 
+## Dev Environment (Helix-in-Helix)
+
+**`helix-4` is a symlink to `helix`** — they are the same directory. Always use `/home/retro/work/helix/`.
+
+When running as a spec task agent, the **inner Helix** at `http://localhost:8080` has the full sandbox running (helix-sandbox-nvidia-1 + Zed agent). You HAVE a complete dev environment — don't give up on testing.
+
+### Test Credentials (inner Helix at localhost:8080)
+- URL: `http://localhost:8080`
+- Email: `test@helix.local` / Password: `testpass123`
+- Or check `.env.usercreds` in the helix directory for real API keys
+
+### Go Local Tests (CGo fix)
+`go test ./pkg/server/...` requires CGo for tree-sitter. Fix:
+```bash
+sudo apt-get update && sudo apt-get install -y gcc libc6-dev
+CGO_ENABLED=1 go test -v -run TestSuiteName ./pkg/server/ -count=1
+```
+
+### Never Give Up on Testing
+- Always test changes end-to-end in the inner Helix browser (MCP Chrome DevTools available)
+- Check DB state: `docker exec helix-postgres-1 psql -U postgres -d postgres -c "SQL"`
+- Investigate logs yourself — don't tell user to check logs (exception: ask user to verify UI)
+
 ## Verification
 
 ### Testing
