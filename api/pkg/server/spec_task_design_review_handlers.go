@@ -1094,7 +1094,7 @@ func (s *HelixAPIServer) populateAgentResponseFromSession(ctx context.Context, c
 	}
 	// Walk backwards to find the most recent interaction with a response
 	for i := len(session.Interactions) - 1; i >= 0; i-- {
-		text := types.TextFromInteraction(&session.Interactions[i])
+		text := types.TextFromInteraction(session.Interactions[i])
 		if text != "" {
 			comment.AgentResponse = text
 			comment.AgentResponseEntries = session.Interactions[i].ResponseEntries
