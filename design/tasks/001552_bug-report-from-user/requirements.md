@@ -8,9 +8,8 @@ When users attempt to authenticate a Claude Pro/Max subscription in Helix, the O
 
 **Root cause**: Unknown — needs investigation. On a normal desktop, `claude auth login` works fine with a random port because RFC 8252 (OAuth for Native Apps) allows authorization servers to accept any loopback port. The same approach fails inside Helix's container. Likely causes:
 
-- The version of `claude` CLI installed in the helix-ubuntu image is outdated and uses an OAuth client ID whose registration does not include the loopback pattern.
-- OR the container environment causes `claude auth login` to construct the redirect URI in a way that differs from what Anthropic expects (e.g., different hostname, different path).
-- OR Anthropic recently tightened their OAuth policy so that only specific registered ports are accepted, breaking an older CLI version that used to work.
+- Most likely: the `claude` CLI in the helix-ubuntu image is stale. `Dockerfile.ubuntu-helix` line 929 runs `npm install -g @anthropic-ai/claude-code@latest`, but Docker layer caching means "latest" is only re-fetched when the cache is busted. A newer CLI version likely fixes the OAuth flow.
+- OR Anthropic recently tightened their OAuth policy, breaking older CLI versions.
 
 **Reference**: [GitHub issue #1911](https://github.com/helixml/helix/issues/1911)
 

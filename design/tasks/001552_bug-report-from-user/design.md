@@ -13,7 +13,7 @@
 
 `claude auth login` picks a random local port (e.g., 37907) and constructs a redirect URI `http://localhost:37907/callback`. On a normal desktop this works: RFC 8252 (OAuth for Native Apps) lets authorization servers accept any loopback port, so Anthropic's server accepts it for legitimate CLI installs.
 
-Inside Helix's container it fails. The most likely explanation is that the version of `claude` CLI installed in the helix-ubuntu image is outdated. Newer CLI versions may use a different OAuth client ID or a different auth flow that Anthropic currently supports. The investigation task below should confirm which version is installed and whether upgrading fixes it.
+Inside Helix's container it fails. `Dockerfile.ubuntu-helix` line 929 installs the CLI with `npm install -g @anthropic-ai/claude-code@latest`, but Docker layer caching means "latest" is resolved only when the cache is invalidated. The installed version is likely stale and uses an older OAuth client configuration. Busting the cache to force a fresh install of the current `@latest` is the primary fix.
 
 ## Fix Strategy
 
@@ -62,4 +62,4 @@ Update the installation step if a newer version resolves the issue.
 
 ## Decision
 
-Implement **Fix 1** first (change the auth command flags) since it's the smallest change. Add **Fix 2** (manual paste) in the same PR as a permanent fallback regardless of Fix 1's outcome. Skip Fix 3 unless Fix 1 is blocked.
+Start with **Fix 3** (bust the Docker cache) — it's a one-liner and most likely resolves the issue. Add **Fix 2** (manual paste) as a permanent fallback regardless, since it's cheap insurance against future CLI regressions. Only pursue Fix 1 (auth command flags) if Fix 3 doesn't resolve the OAuth error.
