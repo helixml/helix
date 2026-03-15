@@ -469,6 +469,14 @@ func NewServer(
 		}
 	}()
 
+	// Clear sessions stuck in "starting" state from a previous API crash.
+	// If the API just started, no session can legitimately be mid-startup.
+	if cleaned, err := store.ClearStaleStartingSessions(context.Background()); err != nil {
+		log.Error().Err(err).Msg("Failed to clear stale starting sessions")
+	} else if cleaned > 0 {
+		log.Info().Int64("cleaned", cleaned).Msg("Cleared stale 'starting' sessions from previous API crash")
+	}
+
 	// Assign admin alerter to server (initialized earlier for OIDC wiring)
 	if adminAlerter != nil {
 		apiServer.adminAlerter = adminAlerter
