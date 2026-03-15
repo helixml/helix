@@ -4073,6 +4073,21 @@ func (mr *MockStoreMockRecorder) ListSessions(ctx, query any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessions", reflect.TypeOf((*MockStore)(nil).ListSessions), ctx, query)
 }
 
+// ClearStaleStartingSessions mocks base method.
+func (m *MockStore) ClearStaleStartingSessions(ctx context.Context) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearStaleStartingSessions", ctx)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClearStaleStartingSessions indicates an expected call of ClearStaleStartingSessions.
+func (mr *MockStoreMockRecorder) ClearStaleStartingSessions(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearStaleStartingSessions", reflect.TypeOf((*MockStore)(nil).ClearStaleStartingSessions), ctx)
+}
+
 // ListSlots mocks base method.
 func (m *MockStore) ListSlots(ctx context.Context, runnerID string) ([]*types.RunnerSlot, error) {
 	m.ctrl.T.Helper()

@@ -308,6 +308,19 @@ func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projec
 }
 
 
+// ClearStaleStartingSessions clears external_agent_status and status_message
+// for sessions stuck in "starting" state. Called on API startup — if the API
+// just started, no session can legitimately be mid-startup.
+func (s *PostgresStore) ClearStaleStartingSessions(ctx context.Context) (int64, error) {
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Session{}).
+		Where("config->>'external_agent_status' = ?", "starting").
+		Updates(map[string]interface{}{
+			"config": gorm.Expr(`config || '{"external_agent_status":"","status_message":""}'::jsonb`),
+		})
+	return result.RowsAffected, result.Error
+}
+
 func (s *PostgresStore) notifySessionUpdates(ctx context.Context, operation StoreEventOperation, session *types.Session) error {
 	return s.publishStoreEvent(ctx, operation, session)
 }
