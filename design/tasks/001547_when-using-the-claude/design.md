@@ -1,60 +1,75 @@
 # Design: Claude Agent UX Parity in Zed
 
-## Root Cause
+## What `claude-agent-acp` Actually Is
 
-The daemon's `generateAgentServerConfig` (helix: `api/cmd/settings-sync-daemon/main.go` ~line 188) writes:
+`@zed-industries/claude-agent-acp` (github.com/zed-industries/claude-agent-acp) is an **ACP adapter for the Claude Agent SDK** — not the Claude Code CLI. It:
 
+- Uses `ANTHROPIC_API_KEY` or `~/.claude/.credentials.json` OAuth for auth
+- Dynamically queries available models from the SDK and reports them to the ACP client (Zed renders these as the model selector)
+- Advertises session modes including `bypassPermissions` — but **only if `!IS_ROOT || !!process.env.IS_SANDBOX`**
+- Reads a **managed settings file** at startup: `/etc/claude-code/managed-settings.json` (Linux), which can inject `env`, `model`, and `permissions.defaultMode`
+
+## Root Causes
+
+### 1. Bypass permissions hidden on root
+
+`src/acp-agent.ts`:
+```typescript
+const ALLOW_BYPASS = !IS_ROOT || !!process.env.IS_SANDBOX;
+// bypassPermissions mode only added to availableModes if ALLOW_BYPASS is true
+```
+
+Helix containers can run as root. The fix is to set `IS_SANDBOX=1` in the process environment.
+
+### 2. `agent_servers.claude.env` is the wrong injection point
+
+The daemon currently writes env vars via `agent_servers.claude.env` in Zed settings. This fights with user preferences (overwritten every 30s) and isn't the mechanism `claude-agent-acp` expects. The package has a dedicated managed settings path for this purpose.
+
+## Solution: Use the Managed Settings File
+
+Instead of writing `agent_servers.claude.env` in Zed settings, the daemon should write `/etc/claude-code/managed-settings.json`. This file is read by `claude-agent-acp` at process startup (before the ACP session begins) via `loadManagedSettings()` → `applyEnvironmentSettings()`.
+
+**`/etc/claude-code/managed-settings.json` for subscription mode:**
 ```json
 {
-  "agent_servers": {
-    "claude": {
-      "default_mode": "bypassPermissions",
-      "env": {
-        "ANTHROPIC_BASE_URL": "https://api.anthropic.com",
-        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-        "DISABLE_TELEMETRY": "1"
-      }
-    }
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+    "IS_SANDBOX": "1"
   }
 }
 ```
 
-Zed's model selector and bypass-permissions toggle are only rendered when the Claude Code ACP server reports `modes`, `models`, and `config_options` in its session initialization. These env vars (particularly `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`) suppress those reports, so Zed has nothing to render.
+**For API key mode:**
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://helix-proxy/v1",
+    "ANTHROPIC_API_KEY": "<user-api-key>",
+    "IS_SANDBOX": "1"
+  },
+  "model": "claude-sonnet-4-6"
+}
+```
 
-Zed's own native "Claude Agent" uses no such env overrides and shows the full UI.
+With this approach, the daemon stops writing `agent_servers.claude` entirely. Zed uses its built-in Claude agent defaults, which means:
+- User model/mode changes in the UI persist (daemon doesn't touch Zed settings)
+- `IS_SANDBOX=1` makes bypass permissions appear regardless of root status
+- `ANTHROPIC_BASE_URL` override still prevents the container's Hydra-injected URL from leaking in
 
-## Solution
-
-### For subscription mode: write nothing to `agent_servers.claude`
-
-The daemon already writes OAuth credentials to `~/.claude/.credentials.json`. Claude Code reads this file natively. If we stop writing `agent_servers.claude`, Zed falls back to its built-in Claude Code config — which reports the full set of modes, models, and config options to Zed, giving users the model selector and bypass-permissions toggle.
-
-**The one remaining problem:** Hydra injects `ANTHROPIC_BASE_URL` into all container environments (pointing at the Helix API proxy). Claude Code would inherit this and hit the proxy instead of `api.anthropic.com`, breaking subscription auth.
-
-**Fix:** Unset `ANTHROPIC_BASE_URL` in the shell environment for subscription-mode sessions *before* Zed starts, rather than patching it per-agent in `agent_servers.claude`. The cleanest options, in order of preference:
-
-1. **Hydra doesn't inject `ANTHROPIC_BASE_URL` in subscription-mode containers** — handled at container creation; the daemon never needs to care about it. (Cleanest; requires Hydra change.)
-2. **Daemon unsets it in `~/.config/zed/settings.json` at the `lsp.env` / top-level env level** — Zed propagates this to all child processes.
-3. **Daemon writes `unset ANTHROPIC_BASE_URL` to `~/.bashrc` or `~/.profile`** — Zed inherits the shell environment when launching Claude Code.
-4. **Write `ANTHROPIC_BASE_URL=https://api.anthropic.com` to Claude Code's own config** (`~/.claude/settings.json`) — keeps it out of Zed settings entirely.
-
-Option 1 is preferred; option 4 is a self-contained fallback if Hydra changes are out of scope.
-
-### For API key mode
-
-API key mode sets `ANTHROPIC_BASE_URL` (Helix proxy) and `ANTHROPIC_API_KEY` to route traffic through Helix. This also suppresses the ACP UI, but that's a separate concern — users on API key mode may or may not expect the same full UI. Out of scope for this task.
+The credentials file (`~/.claude/.credentials.json`) is still written by the daemon as before.
 
 ## Key Files
 
 | File | Change |
 |---|---|
-| `helix/api/cmd/settings-sync-daemon/main.go` | In the `claude_code` subscription branch, return `nil` (no `agent_servers` config) instead of the current env block |
-| `helix/api/pkg/...` (Hydra container creation) | Don't set `ANTHROPIC_BASE_URL` for subscription-mode sessions (preferred); OR |
-| `helix/api/cmd/settings-sync-daemon/main.go` | Write `ANTHROPIC_BASE_URL=https://api.anthropic.com` to `~/.claude/settings.json` instead of via Zed settings |
+| `helix/api/cmd/settings-sync-daemon/main.go` | Replace `generateAgentServerConfig` (which returns `agent_servers.claude`) with a function that writes `/etc/claude-code/managed-settings.json` |
+| `helix/api/cmd/settings-sync-daemon/main.go` | Stop writing `agent_servers` key to Zed settings entirely for claude_code runtime |
 
 ## Notes for Future Agents
 
-- The model selector and bypass-permissions toggle are advertised by the Claude Code ACP server via the ACP protocol (`modes`, `models`, `config_options` in session init response). They are not Zed-side features that can be configured in `agent_servers.claude`.
-- `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` is very likely what suppresses these reports — remove it and the UI should appear.
-- The daemon's `ClaudeCredentialsPath` (`~/.claude/.credentials.json`) and the `os.Stat` gate before writing subscription config are important correctness mechanisms — keep the credentials-sync logic, just stop writing `agent_servers.claude` env overrides.
-- Zed's built-in Claude Code uses the npm package `@zed-industries/claude-code-acp`; no `command` or `args` override is needed in `agent_servers.claude` for the built-in package to work.
+- `claude-agent-acp` is NOT Claude Code CLI. It's the Claude Agent SDK wrapped in ACP. Source: github.com/zed-industries/claude-agent-acp.
+- The managed settings file on Linux is `/etc/claude-code/managed-settings.json`. Writing here requires root or appropriate permissions in the container — the daemon likely has this.
+- `IS_SANDBOX=1` is the correct way to enable bypass permissions when running as root.
+- `ANTHROPIC_BASE_URL` must be overridden because Hydra injects a container-local proxy URL into all container environments. The managed settings `env` block overrides process env before the SDK initializes.
+- Models are reported dynamically by the SDK — the model selector appears automatically once auth works. No need to populate `favorite_models` in Zed settings.
+- `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` does NOT exist in `claude-agent-acp`. Earlier spec was wrong about this.
