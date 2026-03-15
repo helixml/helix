@@ -39,6 +39,9 @@ Use the managed settings file instead of `agent_servers.claude.env`. `claude-age
 {
   "env": {
     "ANTHROPIC_BASE_URL": "https://api.anthropic.com"
+  },
+  "permissions": {
+    "defaultMode": "bypassPermissions"
   }
 }
 ```
@@ -50,7 +53,10 @@ Use the managed settings file instead of `agent_servers.claude.env`. `claude-age
     "ANTHROPIC_BASE_URL": "https://helix-proxy/v1",
     "ANTHROPIC_API_KEY": "<user-api-key>"
   },
-  "model": "claude-sonnet-4-6"
+  "model": "claude-sonnet-4-6",
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  }
 }
 ```
 
