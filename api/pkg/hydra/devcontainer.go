@@ -712,10 +712,25 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 			// overwrites any Docker state changes made during the session.
 			// Golden builds are excluded: they need the latest golden snapshot
 			// for incremental rebuilds.
+			//
+			// If the directory exists but the golden copy completion marker is
+			// missing, the copy was interrupted (e.g. API crash mid-copy).
+			// Delete the partial copy so we re-copy from golden below.
 			sessionDirExists := false
 			if !req.GoldenBuild {
 				if info, err := os.Stat(sessionDir); err == nil && info.IsDir() {
-					sessionDirExists = true
+					if IsGoldenCopyComplete(volumeName) {
+						sessionDirExists = true
+					} else {
+						log.Warn().
+							Str("session_dir", sessionDir).
+							Str("volume", volumeName).
+							Msg("Found incomplete golden cache copy (missing completion marker), removing partial copy")
+						if err := os.RemoveAll(filepath.Dir(sessionDir)); err != nil {
+							log.Error().Err(err).Str("path", filepath.Dir(sessionDir)).
+								Msg("Failed to remove incomplete golden copy dir")
+						}
+					}
 				}
 			}
 
