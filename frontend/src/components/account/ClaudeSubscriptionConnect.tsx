@@ -337,7 +337,7 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
         await apiClient.v1ExternalAgentsExecCreate(sessionId, {
           command: ['npm', 'install', '-g', '@anthropic-ai/claude-code@latest'],
           background: false,
-          timeout: 120,
+          timeout: 300,
           env: {},
         })
         await apiClient.v1ExternalAgentsExecCreate(sessionId, {
