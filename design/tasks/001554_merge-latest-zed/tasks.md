@@ -2,10 +2,10 @@
 
 ## Setup
 
-- [ ] Add `upstream` remote pointing to `https://github.com/zed-industries/zed` if not already present
-- [ ] Fetch upstream: `git fetch upstream`
-- [ ] Check how many upstream commits to merge: `git log HEAD..upstream/main --oneline | wc -l`
-- [ ] Create branch: `git checkout -b upstream-merge-$(date +%Y-%m-%d)`
+- [~] Add `upstream` remote pointing to `https://github.com/zed-industries/zed` if not already present
+- [~] Fetch upstream: `git fetch upstream`
+- [~] Check how many upstream commits to merge: `git log HEAD..upstream/main --oneline | wc -l`
+- [~] Create branch: `git checkout -b upstream-merge-$(date +%Y-%m-%d)`
 
 ## Merge & Conflict Resolution
 
