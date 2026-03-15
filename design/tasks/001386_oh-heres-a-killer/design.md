@@ -192,3 +192,20 @@ Agents can embed these URLs directly in design docs or other markdown outputs.
 - Tests require CGO + GCC (build tag `//go:build cgo && linux`), so they only run in CI
 - ffmpeg must be available in the container (already present for audio conversion)
 - RecordingManager is lazily initialized on first `/recording/start` call
+
+## Testing Status
+
+**Code verified:**
+- All files compile successfully (`go build ./api/pkg/desktop/...`)
+- HTTP endpoints registered in `httpHandler()`
+- MCP tools registered in `NewMCPServer()`
+- Shutdown cleanup integrated
+
+**E2E testing blocked by:**
+- Helix-in-Helix environment requires license key setup and onboarding completion
+- Recording feature requires an active desktop session with video streaming
+
+**To test manually:**
+1. Start a desktop session via UI or API
+2. Call MCP tools: `start_recording` → `add_subtitle` → `stop_recording`
+3. Verify MP4 and VTT files created in `/tmp/helix-recordings/`
