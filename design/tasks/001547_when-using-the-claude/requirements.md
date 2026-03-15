@@ -2,11 +2,13 @@
 
 ## Background
 
-Helix's settings-sync-daemon writes `agent_servers.claude` with env overrides (`ANTHROPIC_BASE_URL`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `DISABLE_TELEMETRY`) and `default_mode: bypassPermissions` into Zed's `settings.json`. The result is that the model selector and bypass-permissions toggle do not appear in Zed's Claude agent panel for Helix-managed sessions, even though they appear in a standard Zed install.
+When a Helix session uses the `claude_code` runtime, the settings-sync-daemon writes `agent_servers.claude` to Zed's `settings.json`. The model selector and bypass-permissions toggle that appear when using the Claude agent normally in Zed do not appear in Helix sessions.
 
-The `claude-agent-acp` package (github.com/zed-industries/claude-agent-acp) is an ACP adapter for the **Claude Agent SDK** — not the Claude Code CLI. It advertises available models and session modes (including bypass permissions) dynamically. The exact reason these are suppressed in the Helix configuration needs to be confirmed during implementation, but the most likely culprits are the env var overrides interfering with SDK initialisation or model fetching.
+After tracing the Zed source code:
 
-The package also supports a dedicated managed settings file (`/etc/claude-code/managed-settings.json` on Linux) which is a cleaner injection point than `agent_servers.claude.env` in Zed settings.
+- `ExternalAgentSource` is **always `Builtin`** for Claude regardless of what's in `agent_servers.claude` — so this is not the gate on the UI.
+- The model selector and mode selector (including bypass permissions) in `thread_view.rs` are only rendered when the ACP server's session response contains `modes`/`models`. If the server returns `config_options` instead, those selectors are suppressed and a different config options UI is shown. If the session fails to establish, nothing appears.
+- The mechanism suppressing the UI in Helix sessions needs to be confirmed during implementation. One likely candidate: Zed explicitly sets `ANTHROPIC_API_KEY=""` before applying `settings_env`. An empty-string API key may behave differently from an unset one in the Claude Agent SDK, potentially causing session init to fail or the agent to not report modes and models.
 
 ## User Stories
 
@@ -20,4 +22,4 @@ The package also supports a dedicated managed settings file (`/etc/claude-code/m
 
 - **AC-1:** Bypass-permissions mode toggle appears in the Zed Claude agent panel for Helix-managed sessions.
 - **AC-2:** Model selector appears and lists available Claude models.
-- **AC-3:** The daemon does not overwrite user UI changes to model or mode on each sync cycle.
+- **AC-3:** The daemon does not overwrite user UI changes on each sync cycle.
