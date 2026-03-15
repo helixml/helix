@@ -11,11 +11,9 @@
 
 ## Why This Breaks
 
-The `claude auth login` command is Anthropic's own CLI tool. It picks a random local port for its OAuth callback server (e.g., 37907), then constructs a redirect URI like `http://localhost:37907/callback`. Anthropic's OAuth authorization server only accepts pre-registered redirect URIs. A random port is never registered, so the flow fails immediately.
+`claude auth login` picks a random local port (e.g., 37907) and constructs a redirect URI `http://localhost:37907/callback`. On a normal desktop this works: RFC 8252 (OAuth for Native Apps) lets authorization servers accept any loopback port, so Anthropic's server accepts it for legitimate CLI installs.
 
-This is a `claude` CLI behaviour — Helix doesn't control the port selection. The problem may be:
-- A regression in a recent version of the `claude` CLI installed in the helix-ubuntu image
-- OR Anthropic tightening their OAuth redirect URI allowlist
+Inside Helix's container it fails. The most likely explanation is that the version of `claude` CLI installed in the helix-ubuntu image is outdated. Newer CLI versions may use a different OAuth client ID or a different auth flow that Anthropic currently supports. The investigation task below should confirm which version is installed and whether upgrading fixes it.
 
 ## Fix Strategy
 

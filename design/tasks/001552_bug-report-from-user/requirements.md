@@ -6,7 +6,11 @@ When users attempt to authenticate a Claude Pro/Max subscription in Helix, the O
 
 > "Redirect URI http://localhost:37907/callback is not supported by client."
 
-**Root cause**: The `claude auth login` CLI command (run inside Helix's desktop container) starts a local HTTP callback server on a **random/dynamic port**. Anthropic's OAuth server only accepts pre-registered redirect URIs, and a random port will never match.
+**Root cause**: Unknown — needs investigation. On a normal desktop, `claude auth login` works fine with a random port because RFC 8252 (OAuth for Native Apps) allows authorization servers to accept any loopback port. The same approach fails inside Helix's container. Likely causes:
+
+- The version of `claude` CLI installed in the helix-ubuntu image is outdated and uses an OAuth client ID whose registration does not include the loopback pattern.
+- OR the container environment causes `claude auth login` to construct the redirect URI in a way that differs from what Anthropic expects (e.g., different hostname, different path).
+- OR Anthropic recently tightened their OAuth policy so that only specific registered ports are accepted, breaking an older CLI version that used to work.
 
 **Reference**: [GitHub issue #1911](https://github.com/helixml/helix/issues/1911)
 
