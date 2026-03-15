@@ -958,6 +958,8 @@ export default function DesignReviewContent({
             <Tabs
               value={activeTab}
               onChange={(_, value) => handleTabChange(value)}
+              variant="scrollable"
+              scrollButtons="auto"
               sx={{
                 minHeight: 48,
                 "& .MuiTab-root": {
