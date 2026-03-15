@@ -1,5 +1,6 @@
 # Implementation Tasks
 
-- [ ] In `frontend/src/components/tasks/BacklogFilterBar.tsx`, change the root `Box` `sx` prop to add `display: { xs: "none", md: "flex" }` so the entire filter bar (search + priority filter) is hidden on mobile screens
-- [ ] Verify the backlog table still shows all tasks (unfiltered) on mobile when the backlog is expanded
-- [ ] Verify on desktop the search and priority filter still work correctly (no regression)
+- [ ] In `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx`, add a mobile-only search bar `Box` (with `display: { xs: 'flex', md: 'none' }`) after the desktop header and before the error alert, wiring it to the existing `searchFilter` state and `setSearchFilter` setter
+- [ ] Verify on mobile that typing in the search bar filters task cards across the visible kanban column
+- [ ] Verify the clear (×) button resets the filter and shows all tasks
+- [ ] Verify on desktop the original search field in the header still works (no regression)
