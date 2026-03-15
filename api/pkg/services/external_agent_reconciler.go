@@ -41,6 +41,11 @@ func NewExternalAgentReconciler(
 func (r *ExternalAgentReconciler) Start(ctx context.Context) {
 	log.Info().Msg("Starting external agent reconciler")
 
+	// Clean up sessions that were stuck mid-startup when the API crashed.
+	// This must run before the first reconcile so the reconciler doesn't
+	// try to resume a session with stale "starting" status.
+	r.cleanupStaleStartingSessions(ctx)
+
 	ticker := time.NewTicker(ReconcileInterval)
 	defer ticker.Stop()
 
@@ -81,6 +86,64 @@ func (r *ExternalAgentReconciler) reconcile(ctx context.Context) {
 				Str("session_id", session.ID).
 				Msg("Failed to reconcile session")
 		}
+	}
+}
+
+// cleanupStaleStartingSessions finds sessions that were left in "starting" state
+// (e.g. because the API crashed during golden cache copy) and resets them so the
+// normal reconciler can restart them cleanly.
+//
+// When the API crashes mid-CreateDevContainer:
+//   - The session has external_agent_status="starting" and a stale status_message
+//     like "Unpacking build cache (52.2/58.7 GB)"
+//   - The container never launched (no running container on sandbox)
+//   - The golden cache copy on disk may be incomplete (handled by Hydra-side
+//     completion marker check in buildMounts)
+//
+// We clear the stale status so the frontend doesn't show a frozen progress bar,
+// and the reconciler's normal "container missing" path will restart the session.
+func (r *ExternalAgentReconciler) cleanupStaleStartingSessions(ctx context.Context) {
+	sessions, err := r.store.ListSessionsWithDesiredState(ctx, types.DesiredStateRunning)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list sessions for stale startup cleanup")
+		return
+	}
+
+	cleaned := 0
+	for _, session := range sessions {
+		if session.Metadata.ExternalAgentStatus != "starting" {
+			continue
+		}
+
+		// Session was mid-startup when the API died. Check if the container
+		// actually exists (unlikely but possible if only the goroutine died).
+		if r.executor.HasRunningContainer(ctx, session.ID) {
+			continue
+		}
+
+		log.Warn().
+			Str("session_id", session.ID).
+			Str("spec_task_id", session.Metadata.SpecTaskID).
+			Str("stale_status_message", session.Metadata.StatusMessage).
+			Msg("Clearing stale 'starting' session state from interrupted startup")
+
+		// Clear the frozen status message and reset agent status so the
+		// frontend stops showing the stale progress bar.
+		session.Metadata.StatusMessage = ""
+		session.Metadata.ExternalAgentStatus = ""
+		if _, err := r.store.UpdateSession(ctx, *session); err != nil {
+			log.Error().Err(err).
+				Str("session_id", session.ID).
+				Msg("Failed to clear stale starting session state")
+		} else {
+			cleaned++
+		}
+	}
+
+	if cleaned > 0 {
+		log.Info().
+			Int("cleaned", cleaned).
+			Msg("Cleared stale 'starting' sessions from previous API crash")
 	}
 }
 

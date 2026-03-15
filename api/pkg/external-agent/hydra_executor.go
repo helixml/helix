@@ -375,6 +375,9 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	h.updateSessionStatusMessage(ctx, agent.SessionID, "")
 
 	if err != nil {
+		// Reset agent status so the session isn't stuck in "starting" forever.
+		// The status message was already cleared on line 375 above.
+		h.setExternalAgentStatus(ctx, agent.SessionID, "")
 		return nil, fmt.Errorf("failed to create dev container via Hydra: %w", err)
 	}
 

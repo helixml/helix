@@ -21,6 +21,11 @@ const (
 
 	// sessionsBaseDir is where per-session Docker data lives.
 	sessionsBaseDir = "/container-docker/sessions"
+
+	// goldenCopyCompleteMarker is written to the session docker dir after a
+	// successful golden cache copy. If absent, the copy was interrupted
+	// (e.g. API crash) and the session dir must be deleted and re-copied.
+	goldenCopyCompleteMarker = ".golden-copy-complete"
 )
 
 // goldenDir returns the golden Docker data path for a project.
@@ -302,6 +307,13 @@ func SetupGoldenCopy(projectID, volumeName string, onProgress func(copied, total
 		onProgress(goldenSize, goldenSize)
 	}
 
+	// Write completion marker so we can detect interrupted copies on restart.
+	markerPath := filepath.Join(dockerDir, goldenCopyCompleteMarker)
+	if err := os.WriteFile(markerPath, []byte(time.Now().UTC().Format(time.RFC3339)), 0644); err != nil {
+		log.Warn().Err(err).Str("path", markerPath).
+			Msg("Failed to write golden copy completion marker")
+	}
+
 	elapsed := time.Since(start)
 	log.Info().
 		Str("golden", golden).
@@ -312,6 +324,16 @@ func SetupGoldenCopy(projectID, volumeName string, onProgress func(copied, total
 		Msg("Golden Docker cache copied to session")
 
 	return dockerDir, nil
+}
+
+// IsGoldenCopyComplete checks whether a session's Docker data directory
+// was fully copied from the golden cache. Returns false if the directory
+// exists but the copy was interrupted (e.g. by an API crash).
+func IsGoldenCopyComplete(volumeName string) bool {
+	dockerDir := filepath.Join(sessionOverlayDir(volumeName), "docker")
+	markerPath := filepath.Join(dockerDir, goldenCopyCompleteMarker)
+	_, err := os.Stat(markerPath)
+	return err == nil
 }
 
 // CleanupGoldenSession removes the session's Docker data directory.
