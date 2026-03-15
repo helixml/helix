@@ -876,6 +876,90 @@ func (s *WebSocketSyncSuite) TestAgentReady_WithPendingPrompt() {
 	time.Sleep(100 * time.Millisecond)
 }
 
+func (s *WebSocketSyncSuite) TestAgentReady_ReconnectSendsOpenThread() {
+	// Simulate a reconnect scenario: session has an existing ZedThreadID,
+	// agent_ready arrives with thread_id=null (fresh reconnect).
+	// Helix should send open_thread to re-establish Zed's subscription.
+	sessionID := "ses_reconnect"
+
+	s.server.externalAgentWSManager.initReadinessState(sessionID, false, nil)
+	defer s.server.externalAgentWSManager.cleanupReadinessState(sessionID)
+
+	// Register a fake connection with a SendChan we can inspect
+	sendChan := make(chan types.ExternalAgentCommand, 10)
+	conn := &ExternalAgentWSConnection{
+		SessionID: sessionID,
+		SendChan:  sendChan,
+	}
+	s.server.externalAgentWSManager.registerConnection(sessionID, conn)
+
+	// Session has an existing ZedThreadID from before the restart
+	session := &types.Session{
+		ID:    sessionID,
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			ZedThreadID: "thread-existing-abc",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil)
+	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
+	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
+
+	// Send agent_ready with no thread_id (fresh reconnect)
+	syncMsg := &types.SyncMessage{
+		EventType: "agent_ready",
+		Data: map[string]interface{}{
+			"agent_name": "zed-connection",
+		},
+	}
+
+	err := s.server.handleAgentReady(sessionID, syncMsg)
+	s.NoError(err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify open_thread command was sent
+	s.Require().Greater(len(sendChan), 0, "expected open_thread command to be sent")
+	cmd := <-sendChan
+	s.Equal("open_thread", cmd.Type)
+	s.Equal("thread-existing-abc", cmd.Data["acp_thread_id"])
+}
+
+func (s *WebSocketSyncSuite) TestAgentReady_NoOpenThreadWhenThreadIDPresent() {
+	// When agent_ready includes a thread_id (Zed loaded a specific thread),
+	// we should NOT send open_thread — Zed already has the subscription.
+	sessionID := "ses_already_loaded"
+
+	s.server.externalAgentWSManager.initReadinessState(sessionID, false, nil)
+	defer s.server.externalAgentWSManager.cleanupReadinessState(sessionID)
+
+	sendChan := make(chan types.ExternalAgentCommand, 10)
+	conn := &ExternalAgentWSConnection{
+		SessionID: sessionID,
+		SendChan:  sendChan,
+	}
+	s.server.externalAgentWSManager.registerConnection(sessionID, conn)
+
+	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
+
+	// agent_ready WITH thread_id — Zed already loaded the thread
+	syncMsg := &types.SyncMessage{
+		EventType: "agent_ready",
+		Data: map[string]interface{}{
+			"agent_name": "claude",
+			"thread_id":  "thread-already-loaded",
+		},
+	}
+
+	err := s.server.handleAgentReady(sessionID, syncMsg)
+	s.NoError(err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// No open_thread should be sent
+	s.Equal(0, len(sendChan), "should NOT send open_thread when agent_ready includes thread_id")
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // processPromptQueue tests
 // ──────────────────────────────────────────────────────────────────────────────

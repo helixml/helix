@@ -2538,6 +2538,32 @@ func (apiServer *HelixAPIServer) handleAgentReady(sessionID string, syncMsg *typ
 	// Mark as ready (this flushes queued messages and calls onReady)
 	apiServer.externalAgentWSManager.markSessionReady(sessionID, onReadyCallback)
 
+	// After container/API restart, Zed reconnects and sends agent_ready with thread_id=null.
+	// At this point, Zed has lost its thread event subscriptions (SUBSCRIBED_THREADS static
+	// is cleared on process restart). Without a subscription, messages the user types directly
+	// into Zed's agent panel won't sync back to Helix over the WebSocket.
+	//
+	// Fix: if the session has an existing ZedThreadID and the agent_ready came without a
+	// thread_id (meaning Zed reconnected fresh), send an open_thread command so Zed loads
+	// the thread and re-establishes its event subscription via ensure_thread_subscription().
+	if threadID == "" && connExists {
+		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), sessionID)
+		if err == nil && helixSession != nil && helixSession.Metadata.ZedThreadID != "" {
+			agentNameForOpen := apiServer.getAgentNameForSession(context.Background(), helixSession)
+			log.Info().
+				Str("session_id", sessionID).
+				Str("zed_thread_id", helixSession.Metadata.ZedThreadID).
+				Str("agent_name", agentNameForOpen).
+				Msg("🔄 [READINESS] Sending open_thread to re-establish Zed subscription after reconnect")
+			if err := apiServer.sendOpenThreadCommand(sessionID, helixSession.Metadata.ZedThreadID, agentNameForOpen); err != nil {
+				log.Warn().
+					Str("session_id", sessionID).
+					Err(err).
+					Msg("⚠️ [READINESS] Failed to send open_thread for reconnect subscription recovery")
+			}
+		}
+	}
+
 	// Process any pending prompts (including interrupt=true ones)
 	// When agent is ready/idle, we should process ALL pending prompts, not just non-interrupt ones
 	go apiServer.processAnyPendingPrompt(context.Background(), sessionID)
