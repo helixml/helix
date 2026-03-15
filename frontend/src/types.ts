@@ -154,6 +154,7 @@ export interface IKeycloakUser {
 
 export interface IUserConfig {
   // Removed stripe subscription fields - now come from wallet
+  pinned_project_ids?: string[]
 }
 
 export interface IHelixModel {

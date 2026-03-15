@@ -1162,6 +1162,10 @@ export interface ServerPhaseProgress {
   status?: string;
 }
 
+export interface ServerPinnedProjectsResponse {
+  pinned_project_ids?: string[];
+}
+
 export interface ServerPromptPinRequest {
   pinned?: boolean;
 }
@@ -2949,6 +2953,14 @@ export interface TypesInteraction {
   /** User prompt (multi-part) */
   prompt_message_content?: TypesMessageContent;
   rag_results?: TypesSessionRAGResult[];
+  /**
+   * ResponseEntries holds the structured response as an ordered list of typed entries.
+   * Each entry is either "text" (assistant prose) or "tool_call" (tool invocation),
+   * preserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.
+   * This is populated on completion alongside ResponseMessage (flat string, backward compat).
+   * The frontend uses this to render entries with the correct component in the correct order.
+   */
+  response_entries?: number[];
   /** e.g. json */
   response_format?: TypesResponseFormat;
   /** e.g. json */
@@ -3755,6 +3767,7 @@ export interface TypesPromptHistoryEntry {
   /**
    * Interrupt indicates this message should interrupt the current conversation
    * When false, message waits until current conversation completes
+   * Default is false: queue mode is the default, interrupt is explicit
    */
   interrupt?: boolean;
   /** Saved as a reusable template */
@@ -9979,6 +9992,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Remove a project from the current user's pinned projects
+     *
+     * @tags Projects
+     * @name V1ProjectsPinDelete
+     * @summary Unpin a project
+     * @request DELETE:/api/v1/projects/{id}/pin
+     * @secure
+     */
+    v1ProjectsPinDelete: (id: string, params: RequestParams = {}) =>
+      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/pin`,
+        method: "DELETE",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Pin a project for the current user so it appears at the top of the projects board
+     *
+     * @tags Projects
+     * @name V1ProjectsPinCreate
+     * @summary Pin a project
+     * @request POST:/api/v1/projects/{id}/pin
+     * @secure
+     */
+    v1ProjectsPinCreate: (id: string, params: RequestParams = {}) =>
+      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/pin`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get all repositories attached to a project
      *
      * @tags Projects
@@ -12927,6 +12978,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesUser, SystemHTTPError>({
         path: `/api/v1/users/me/onboarding`,
         method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the list of project IDs pinned by the current user
+     *
+     * @tags Users
+     * @name V1UsersMePinnedProjectsList
+     * @summary Get pinned project IDs
+     * @request GET:/api/v1/users/me/pinned-projects
+     * @secure
+     */
+    v1UsersMePinnedProjectsList: (params: RequestParams = {}) =>
+      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
+        path: `/api/v1/users/me/pinned-projects`,
+        method: "GET",
         secure: true,
         format: "json",
         ...params,

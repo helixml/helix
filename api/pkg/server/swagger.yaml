@@ -1860,6 +1860,13 @@ definitions:
       status:
         type: string
     type: object
+  server.PinnedProjectsResponse:
+    properties:
+      pinned_project_ids:
+        items:
+          type: string
+        type: array
+    type: object
   server.PromptPinRequest:
     properties:
       pinned:
@@ -4818,6 +4825,16 @@ definitions:
         items:
           $ref: '#/definitions/types.SessionRAGResult'
         type: array
+      response_entries:
+        description: |-
+          ResponseEntries holds the structured response as an ordered list of typed entries.
+          Each entry is either "text" (assistant prose) or "tool_call" (tool invocation),
+          preserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.
+          This is populated on completion alongside ResponseMessage (flat string, backward compat).
+          The frontend uses this to render entries with the correct component in the correct order.
+        items:
+          type: integer
+        type: array
       response_format:
         allOf:
         - $ref: '#/definitions/types.ResponseFormat'
@@ -6176,6 +6193,7 @@ definitions:
         description: |-
           Interrupt indicates this message should interrupt the current conversation
           When false, message waits until current conversation completes
+          Default is false: queue mode is the default, interrupt is explicit
         type: boolean
       is_template:
         description: Saved as a reusable template
@@ -15103,6 +15121,72 @@ paths:
       summary: Preview moving a project to an organization
       tags:
       - Projects
+  /api/v1/projects/{id}/pin:
+    delete:
+      consumes:
+      - application/json
+      description: Remove a project from the current user's pinned projects
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PinnedProjectsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Unpin a project
+      tags:
+      - Projects
+    post:
+      consumes:
+      - application/json
+      description: Pin a project for the current user so it appears at the top of
+        the projects board
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PinnedProjectsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Pin a project
+      tags:
+      - Projects
   /api/v1/projects/{id}/repositories:
     get:
       consumes:
@@ -19404,6 +19488,29 @@ paths:
       security:
       - BearerAuth: []
       summary: Complete onboarding
+      tags:
+      - Users
+  /api/v1/users/me/pinned-projects:
+    get:
+      description: Get the list of project IDs pinned by the current user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PinnedProjectsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get pinned project IDs
       tags:
       - Users
   /api/v1/users/search:
