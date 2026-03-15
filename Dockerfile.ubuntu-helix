@@ -925,8 +925,7 @@ RUN mkdir -p /home/retro/.qwen && \
 RUN mkdir -p /home/retro/.gemini && \
     echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.gemini/settings.json
 
-# Install Claude Code CLI (for ACP agent support)
-RUN npm install -g @anthropic-ai/claude-code@latest
+
 
 # Claude Code settings (bypassPermissions etc.) are written at runtime by
 # helix-workspace-setup.sh after symlinking ~/.claude to persistent storage.

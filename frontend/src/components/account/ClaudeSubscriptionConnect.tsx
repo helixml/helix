@@ -329,6 +329,17 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
     const sendLoginCommand = async () => {
       try {
         const apiClient = api.getApiClient()
+        // Upgrade claude CLI to latest before logging in.
+        // Old image versions used localhost:<random-port> for OAuth which Anthropic
+        // no longer accepts; newer versions use platform.claude.com/oauth/code/callback.
+        // Upgrading here self-heals already-deployed images without a full image rebuild.
+        // Run blocking (background: false) so it completes before claude auth login starts.
+        await apiClient.v1ExternalAgentsExecCreate(sessionId, {
+          command: ['npm', 'install', '-g', '@anthropic-ai/claude-code@latest'],
+          background: false,
+          timeout: 300,
+          env: {},
+        })
         await apiClient.v1ExternalAgentsExecCreate(sessionId, {
           command: ['claude', 'auth', 'login'],
           background: true,
@@ -428,7 +439,7 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
       <DialogContent sx={{ p: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {isRunning && loginCommandSent && (
           <Alert severity="info" sx={{ mx: 2, mt: 1, flexShrink: 0 }}>
-            Enter your email address in the browser below. Claude will email you a link — click it to get a code, then paste the code back here to authenticate.
+            A browser will open below. Sign in to your Claude account and complete the authentication flow in the browser.
           </Alert>
         )}
         {!isRunning ? (

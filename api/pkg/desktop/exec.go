@@ -63,6 +63,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		"claude":             true,
 		"cat":                true,
 		"test":               true,
+		"npm":                true, // needed to upgrade claude CLI at login time
 	}
 
 	cmdName := req.Command[0]
