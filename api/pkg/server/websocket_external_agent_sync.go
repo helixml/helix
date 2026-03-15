@@ -2033,6 +2033,23 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		}
 	}
 
+	// Signal the waiting HTTP handler that this interaction is complete.
+	// This is needed for non-streaming (blocking) requests that call waitForExternalAgentResponse.
+	// In the normal case, chat_response_done sends the signal. But for Stopped/cancelled turns,
+	// Zed sends message_completed without chat_response_done, so we must signal here.
+	// The doneChan is buffered(1) so a double-send (normal case) is harmless.
+	if messageRequestID != "" {
+		_, doneChan, _, exists := apiServer.getResponseChannel(helixSessionID, messageRequestID)
+		if exists {
+			select {
+			case doneChan <- true:
+				log.Debug().Str("request_id", messageRequestID).Msg("✅ [HELIX] Sent done signal from message_completed")
+			default:
+				log.Debug().Str("request_id", messageRequestID).Msg("Done channel already full (normal for streaming case)")
+			}
+		}
+	}
+
 	// FINALIZE COMMENT RESPONSE
 	// PRIMARY APPROACH: Use request_id from message data (echoed back by agent)
 	// This is the definitive link to the comment and doesn't rely on session ID matching
@@ -2059,17 +2076,6 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 				Str("session_id", sessionID).
 				Str("request_id", requestID).
 				Msg("✅ [HELIX] Finalized comment response via request_id from message data")
-
-			// Send completion signal to done channel for HTTP streaming clients
-			_, doneChan, _, exists := apiServer.getResponseChannel(sessionID, requestID)
-			if exists {
-				select {
-				case doneChan <- true:
-					log.Debug().Str("request_id", requestID).Msg("Sent done signal to channel")
-				default:
-					log.Debug().Msg("Done channel full")
-				}
-			}
 
 			// Clean up requestToCommenterMapping now that response is complete
 			if apiServer.requestToCommenterMapping != nil {
