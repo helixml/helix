@@ -469,6 +469,12 @@ func NewServer(
 		}
 	}()
 
+	// Start external agent reconciler — detects sessions left in "starting" state
+	// after API crash and clears stale status, then periodically ensures containers
+	// match their desired state.
+	reconciler := services.NewExternalAgentReconciler(store, externalAgentExecutor, apiServer.specDrivenTaskService)
+	go reconciler.Start(context.Background())
+
 	// Assign admin alerter to server (initialized earlier for OIDC wiring)
 	if adminAlerter != nil {
 		apiServer.adminAlerter = adminAlerter
