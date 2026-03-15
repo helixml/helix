@@ -1037,19 +1037,21 @@ export default function DesignReviewContent({
 
             {/* Git info and actions on the right */}
             <Box display="flex" alignItems="center" gap={1.5} pr={2}>
-              <Tooltip title={`Commit: ${review.git_commit_hash}`}>
-                <Chip
-                  icon={<GitBranch size={14} />}
-                  label={`${review.git_branch} @ ${review.git_commit_hash.substring(0, 7)}`}
-                  size="small"
-                  variant="outlined"
-                  sx={{ height: 24, fontSize: "0.7rem" }}
-                />
-              </Tooltip>
+              <Box sx={{ display: { xs: "none", sm: "flex" } }}>
+                <Tooltip title={`Commit: ${review.git_commit_hash}`}>
+                  <Chip
+                    icon={<GitBranch size={14} />}
+                    label={`${review.git_branch} @ ${review.git_commit_hash.substring(0, 7)}`}
+                    size="small"
+                    variant="outlined"
+                    sx={{ height: 24, fontSize: "0.7rem" }}
+                  />
+                </Tooltip>
+              </Box>
               <Typography
                 variant="caption"
                 color="text.secondary"
-                sx={{ whiteSpace: "nowrap" }}
+                sx={{ whiteSpace: "nowrap", display: { xs: "none", sm: "block" } }}
               >
                 {new Date(review.git_pushed_at).toLocaleString()}
               </Typography>
