@@ -899,7 +899,8 @@ func (s *HelixAPIServer) linkAgentResponseToComment(
 	}
 
 	// Update comment with agent response
-	comment.AgentResponse = interaction.ResponseMessage
+	comment.AgentResponse = types.TextFromInteraction(interaction)
+	comment.AgentResponseEntries = interaction.ResponseEntries
 	now := time.Now()
 	comment.AgentResponseAt = &now
 
@@ -910,7 +911,7 @@ func (s *HelixAPIServer) linkAgentResponseToComment(
 	log.Info().
 		Str("comment_id", comment.ID).
 		Str("interaction_id", interaction.ID).
-		Int("response_length", len(interaction.ResponseMessage)).
+		Int("response_length", len(comment.AgentResponse)).
 		Msg("Linked agent response to design review comment")
 
 	return nil
@@ -973,15 +974,19 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 	// AgentResponse directly. We need to copy it over at finalization time.
 	if comment.AgentResponse == "" && comment.InteractionID != "" {
 		interaction, interactionErr := s.Store.GetInteraction(ctx, comment.InteractionID)
-		if interactionErr == nil && interaction.ResponseMessage != "" {
-			comment.AgentResponse = interaction.ResponseMessage
-			now := time.Now()
-			comment.AgentResponseAt = &now
-			log.Info().
-				Str("comment_id", comment.ID).
-				Str("interaction_id", comment.InteractionID).
-				Int("response_length", len(interaction.ResponseMessage)).
-				Msg("📝 [HELIX] Populated comment AgentResponse from interaction at finalization")
+		if interactionErr == nil {
+			text := types.TextFromInteraction(interaction)
+			if text != "" {
+				comment.AgentResponse = text
+				comment.AgentResponseEntries = interaction.ResponseEntries
+				now := time.Now()
+				comment.AgentResponseAt = &now
+				log.Info().
+					Str("comment_id", comment.ID).
+					Str("interaction_id", comment.InteractionID).
+					Int("response_length", len(text)).
+					Msg("📝 [HELIX] Populated comment AgentResponse from interaction at finalization")
+			}
 		}
 	}
 
@@ -1089,14 +1094,16 @@ func (s *HelixAPIServer) populateAgentResponseFromSession(ctx context.Context, c
 	}
 	// Walk backwards to find the most recent interaction with a response
 	for i := len(session.Interactions) - 1; i >= 0; i-- {
-		if session.Interactions[i].ResponseMessage != "" {
-			comment.AgentResponse = session.Interactions[i].ResponseMessage
+		text := types.TextFromInteraction(&session.Interactions[i])
+		if text != "" {
+			comment.AgentResponse = text
+			comment.AgentResponseEntries = session.Interactions[i].ResponseEntries
 			now := time.Now()
 			comment.AgentResponseAt = &now
 			log.Info().
 				Str("comment_id", comment.ID).
 				Str("interaction_id", session.Interactions[i].ID).
-				Int("response_length", len(session.Interactions[i].ResponseMessage)).
+				Int("response_length", len(text)).
 				Msg("📝 [HELIX] Populated comment AgentResponse from latest session interaction")
 			return
 		}

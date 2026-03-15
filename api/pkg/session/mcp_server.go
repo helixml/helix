@@ -16,6 +16,30 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// textFromEntries reconstructs plain text from a ResponseEntries JSON blob,
+// falling back to the legacy responseMessage string when entries are absent.
+// Mirrors types.TextFromInteraction but works on raw wire JSON (anonymous structs).
+func textFromEntries(responseEntries json.RawMessage, responseMessage string) string {
+	if len(responseEntries) > 0 {
+		var entries []struct {
+			Type    string `json:"type"`
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal(responseEntries, &entries); err == nil {
+			var sb strings.Builder
+			for _, e := range entries {
+				if e.Type == "text" {
+					sb.WriteString(e.Content)
+				}
+			}
+			if sb.Len() > 0 {
+				return sb.String()
+			}
+		}
+	}
+	return responseMessage
+}
+
 // MCPServer provides MCP tools for session navigation and history search.
 // These tools help AI agents navigate conversation history, find past context,
 // and recall how they solved similar problems before.
@@ -782,9 +806,10 @@ func (m *MCPServer) handleGetTurn(ctx context.Context, request mcp.CallToolReque
 	var turnData struct {
 		Turn        int `json:"turn"`
 		Interaction struct {
-			PromptMessage   string `json:"prompt_message"`
-			ResponseMessage string `json:"response_message"`
-			Summary         string `json:"summary"`
+			PromptMessage   string          `json:"prompt_message"`
+			ResponseMessage string          `json:"response_message"`
+			ResponseEntries json.RawMessage `json:"response_entries"`
+			Summary         string          `json:"summary"`
 		} `json:"interaction"`
 		Previous *struct {
 			Turn    int    `json:"turn"`
@@ -812,9 +837,9 @@ func (m *MCPServer) handleGetTurn(ctx context.Context, request mcp.CallToolReque
 		sb.WriteString("\n\n")
 	}
 
-	if turnData.Interaction.ResponseMessage != "" {
+	if assistantText := textFromEntries(turnData.Interaction.ResponseEntries, turnData.Interaction.ResponseMessage); assistantText != "" {
 		sb.WriteString("ASSISTANT:\n")
-		sb.WriteString(turnData.Interaction.ResponseMessage)
+		sb.WriteString(assistantText)
 		sb.WriteString("\n\n")
 	}
 
@@ -885,10 +910,11 @@ func (m *MCPServer) handleGetTurns(ctx context.Context, request mcp.CallToolRequ
 	var turnsData struct {
 		SessionName string `json:"session_name"`
 		Turns       []struct {
-			Turn            int    `json:"turn"`
-			PromptMessage   string `json:"prompt_message"`
-			ResponseMessage string `json:"response_message"`
-			Summary         string `json:"summary"`
+			Turn            int             `json:"turn"`
+			PromptMessage   string          `json:"prompt_message"`
+			ResponseMessage string          `json:"response_message"`
+			ResponseEntries json.RawMessage `json:"response_entries"`
+			Summary         string          `json:"summary"`
 		} `json:"turns"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&turnsData); err != nil {
@@ -908,9 +934,9 @@ func (m *MCPServer) handleGetTurns(ctx context.Context, request mcp.CallToolRequ
 			sb.WriteString(t.PromptMessage)
 			sb.WriteString("\n\n")
 		}
-		if t.ResponseMessage != "" {
+		if responseText := textFromEntries(t.ResponseEntries, t.ResponseMessage); responseText != "" {
 			sb.WriteString("ASSISTANT:\n")
-			sb.WriteString(t.ResponseMessage)
+			sb.WriteString(responseText)
 			sb.WriteString("\n\n")
 		}
 	}
@@ -954,12 +980,13 @@ func (m *MCPServer) handleGetInteraction(ctx context.Context, request mcp.CallTo
 	}
 
 	var interaction struct {
-		ID              string `json:"id"`
-		SessionID       string `json:"session_id"`
-		Created         string `json:"created"`
-		PromptMessage   string `json:"prompt_message"`
-		ResponseMessage string `json:"response_message"`
-		Summary         string `json:"summary"`
+		ID              string          `json:"id"`
+		SessionID       string          `json:"session_id"`
+		Created         string          `json:"created"`
+		PromptMessage   string          `json:"prompt_message"`
+		ResponseMessage string          `json:"response_message"`
+		ResponseEntries json.RawMessage `json:"response_entries"`
+		Summary         string          `json:"summary"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&interaction); err != nil {
 		return mcp.NewToolResultError("failed to parse interaction: " + err.Error()), nil
@@ -980,9 +1007,9 @@ func (m *MCPServer) handleGetInteraction(ctx context.Context, request mcp.CallTo
 		sb.WriteString("\n\n")
 	}
 
-	if interaction.ResponseMessage != "" {
+	if responseText := textFromEntries(interaction.ResponseEntries, interaction.ResponseMessage); responseText != "" {
 		sb.WriteString("ASSISTANT:\n")
-		sb.WriteString(interaction.ResponseMessage)
+		sb.WriteString(responseText)
 		sb.WriteString("\n")
 	}
 

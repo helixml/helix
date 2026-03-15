@@ -1031,6 +1031,9 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			}
 
 			targetInteraction.ResponseMessage = acc.Content
+			if entriesJSON, entErr := json.Marshal(acc.Entries()); entErr == nil {
+				_ = json.Unmarshal(entriesJSON, &targetInteraction.ResponseEntries)
+			}
 			targetInteraction.LastZedMessageID = acc.LastMessageID
 			targetInteraction.LastZedMessageOffset = acc.Offset
 			targetInteraction.Updated = time.Now()
