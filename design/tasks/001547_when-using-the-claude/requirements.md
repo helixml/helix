@@ -2,20 +2,17 @@
 
 ## Background
 
-Helix's settings-sync-daemon writes an `agent_servers.claude` config to Zed's `settings.json`. This configuration is missing fields that Zed needs to render the model selector and bypass-permissions toggle in its UI. Users launching the built-in "Claude Agent" via Zed's agent panel get these controls; users whose session uses the daemon-written config don't.
+Helix's settings-sync-daemon writes `agent_servers.claude` with env overrides (`ANTHROPIC_BASE_URL`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, `DISABLE_TELEMETRY=1`, `default_mode: bypassPermissions`). These override what Zed's built-in Claude Code ACP package would otherwise do, and they suppress the model selector and bypass-permissions toggle — the Claude Code ACP server only reports `modes`, `models`, and `config_options` (the things Zed renders UI for) when running in a normal/unmodified configuration. Zed's native "Claude Agent" works because it uses those defaults.
 
 ## User Stories
 
-**US-1:** As a Helix user with a Claude subscription session, I want to see a model selector in the Zed Claude agent panel so I can choose which Claude model to use.
+**US-1:** As a Helix user with a Claude subscription session, I want the Zed Claude agent panel to show the model selector and bypass-permissions toggle, exactly as it does in a non-Helix Zed install.
 
-**US-2:** As a Helix user, I want to be able to toggle bypass-permissions mode in the Zed UI so I can control whether Claude asks me before running shell commands.
-
-**US-3:** As a Helix user, my model and mode preferences should survive the daemon's 30-second settings sync cycle (i.e., the daemon should not clobber selections I made in the UI).
+**US-2:** As a Helix user, I do not want the daemon to clobber Claude agent settings I've changed in the UI (e.g., model choice, permissions mode).
 
 ## Acceptance Criteria
 
-- **AC-1:** When the daemon configures Claude in subscription mode, `favorite_models` is populated with the available Claude models (e.g., `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`) so Zed renders the model selector.
-- **AC-2:** When the daemon configures Claude in API key mode, `favorite_models` lists the models available through the Helix proxy.
-- **AC-3:** The daemon does NOT hardcode `default_mode: "bypassPermissions"` on every sync; instead it preserves the value the user last set via the UI (treating `default_mode` as a user-owned preference).
-- **AC-4:** If a user has not yet chosen a mode, the daemon sets a sensible default (`bypassPermissions` for subscription, omitted or `ask` for API key mode) only on first write, not on subsequent syncs.
-- **AC-5:** The model selector and mode toggle are visible and functional in the Zed Claude agent panel for all Helix-managed Claude sessions.
+- **AC-1:** The Zed Claude agent panel shows the model selector and bypass-permissions toggle for Helix-managed Claude subscription sessions.
+- **AC-2:** The daemon does not write `agent_servers.claude` at all for subscription-mode sessions; Zed uses its built-in Claude Code defaults.
+- **AC-3:** Claude Code authenticates successfully using OAuth credentials from `~/.claude/.credentials.json` (already written by the daemon).
+- **AC-4:** Claude Code does not accidentally hit the Helix API proxy (which Hydra injects as `ANTHROPIC_BASE_URL` in all containers); it uses `https://api.anthropic.com` directly.

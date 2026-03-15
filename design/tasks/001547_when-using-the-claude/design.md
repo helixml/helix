@@ -2,87 +2,59 @@
 
 ## Root Cause
 
-The settings-sync-daemon's `generateAgentServerConfig` function (helix: `api/cmd/settings-sync-daemon/main.go` ~line 188) writes:
+The daemon's `generateAgentServerConfig` (helix: `api/cmd/settings-sync-daemon/main.go` ~line 188) writes:
 
 ```json
 {
   "agent_servers": {
     "claude": {
       "default_mode": "bypassPermissions",
-      "env": { ... }
+      "env": {
+        "ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+        "DISABLE_TELEMETRY": "1"
+      }
     }
   }
 }
 ```
 
-Zed reads `agent_servers.claude` into `BuiltinAgentServerSettings` (zed: `crates/settings_content/src/agent.rs`). Its model selector (`crates/agent_servers/src/claude.rs`) calls `favorite_model_ids()` which reads `settings.claude.favorite_models`. With that field absent, Zed has no list of models to display → model selector is invisible.
+Zed's model selector and bypass-permissions toggle are only rendered when the Claude Code ACP server reports `modes`, `models`, and `config_options` in its session initialization. These env vars (particularly `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`) suppress those reports, so Zed has nothing to render.
 
-The `default_mode` being hardcoded every 30 seconds also prevents the user from changing their preferred mode via the Zed UI (the daemon immediately overwrites it).
-
-## How Zed Uses These Fields
-
-| Field | Zed behavior when absent | Zed behavior when present |
-|---|---|---|
-| `favorite_models` | Model selector hidden / empty | Model selector lists these models |
-| `default_model` | No model pre-selected | Model pre-selected in dropdown |
-| `default_mode` | Agent uses its own default | Agent starts in the specified mode |
+Zed's own native "Claude Agent" uses no such env overrides and shows the full UI.
 
 ## Solution
 
-### 1. Populate `favorite_models` in daemon config
+### For subscription mode: write nothing to `agent_servers.claude`
 
-The daemon should write the list of Claude models that the session can use:
+The daemon already writes OAuth credentials to `~/.claude/.credentials.json`. Claude Code reads this file natively. If we stop writing `agent_servers.claude`, Zed falls back to its built-in Claude Code config — which reports the full set of modes, models, and config options to Zed, giving users the model selector and bypass-permissions toggle.
 
-- **Subscription mode:** Include the full set of models that Claude Code natively supports (these do not change often): `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`. The daemon can keep this as a hardcoded list or receive it from the API alongside the `CodeAgentConfig`.
-- **API key mode (Helix proxy):** Same approach — include the models that the Helix assistant is configured to expose. The `CodeAgentConfig` already carries the configured model; the daemon can write it as both `default_model` and the sole entry in `favorite_models`.
+**The one remaining problem:** Hydra injects `ANTHROPIC_BASE_URL` into all container environments (pointing at the Helix API proxy). Claude Code would inherit this and hit the proxy instead of `api.anthropic.com`, breaking subscription auth.
 
-### 2. Treat `default_mode` as a user-owned setting
+**Fix:** Unset `ANTHROPIC_BASE_URL` in the shell environment for subscription-mode sessions *before* Zed starts, rather than patching it per-agent in `agent_servers.claude`. The cleanest options, in order of preference:
 
-The daemon already has the concept of "user overrides" (settings that are preserved across sync cycles). `default_mode` should be added to the user-owned bucket so the daemon does not clobber it.
+1. **Hydra doesn't inject `ANTHROPIC_BASE_URL` in subscription-mode containers** — handled at container creation; the daemon never needs to care about it. (Cleanest; requires Hydra change.)
+2. **Daemon unsets it in `~/.config/zed/settings.json` at the `lsp.env` / top-level env level** — Zed propagates this to all child processes.
+3. **Daemon writes `unset ANTHROPIC_BASE_URL` to `~/.bashrc` or `~/.profile`** — Zed inherits the shell environment when launching Claude Code.
+4. **Write `ANTHROPIC_BASE_URL=https://api.anthropic.com` to Claude Code's own config** (`~/.claude/settings.json`) — keeps it out of Zed settings entirely.
 
-On first write (when no user preference exists), the daemon sets `default_mode: "bypassPermissions"` for subscription mode (matching current behaviour). On subsequent syncs it does not touch `default_mode` unless the underlying runtime changes.
+Option 1 is preferred; option 4 is a self-contained fallback if Hydra changes are out of scope.
 
-### 3. Resulting config shape
+### For API key mode
 
-**Subscription mode:**
-```json
-{
-  "agent_servers": {
-    "claude": {
-      "default_mode": "bypassPermissions",
-      "default_model": "claude-sonnet-4-6",
-      "favorite_models": ["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-6"],
-      "env": { ... }
-    }
-  }
-}
-```
-
-**API key mode (e.g., model = claude-sonnet-4-6):**
-```json
-{
-  "agent_servers": {
-    "claude": {
-      "default_model": "claude-sonnet-4-6",
-      "favorite_models": ["claude-sonnet-4-6"],
-      "env": { ... }
-    }
-  }
-}
-```
+API key mode sets `ANTHROPIC_BASE_URL` (Helix proxy) and `ANTHROPIC_API_KEY` to route traffic through Helix. This also suppresses the ACP UI, but that's a separate concern — users on API key mode may or may not expect the same full UI. Out of scope for this task.
 
 ## Key Files
 
 | File | Change |
 |---|---|
-| `helix/api/cmd/settings-sync-daemon/main.go` | `generateAgentServerConfig`: add `favorite_models` + `default_model`; make `default_mode` user-owned |
-| `helix/api/cmd/settings-sync-daemon/main.go` | User-overrides logic: add `agent_servers.claude.default_mode` to protected user fields |
-
-No Zed-side changes needed — Zed's model selector already works correctly once the settings fields are present.
+| `helix/api/cmd/settings-sync-daemon/main.go` | In the `claude_code` subscription branch, return `nil` (no `agent_servers` config) instead of the current env block |
+| `helix/api/pkg/...` (Hydra container creation) | Don't set `ANTHROPIC_BASE_URL` for subscription-mode sessions (preferred); OR |
+| `helix/api/cmd/settings-sync-daemon/main.go` | Write `ANTHROPIC_BASE_URL=https://api.anthropic.com` to `~/.claude/settings.json` instead of via Zed settings |
 
 ## Notes for Future Agents
 
-- The daemon's "user overrides" mechanism (already implemented for other fields) is the right pattern here — see `userOverrides` field in `SettingsDaemon` struct and how it's applied during the merge step.
-- The model list for subscription mode can be a hardcoded constant in the daemon; it changes rarely and aligns with what `@zed-industries/claude-code-acp` natively exposes.
-- `bypassPermissions` is a valid Claude Code ACP session mode ID (not a Zed-invented concept).
-- `default_model` in `BuiltinAgentServerSettings` (Zed) is the model ID string as reported by the Claude Code ACP server, not a Zed model ID.
+- The model selector and bypass-permissions toggle are advertised by the Claude Code ACP server via the ACP protocol (`modes`, `models`, `config_options` in session init response). They are not Zed-side features that can be configured in `agent_servers.claude`.
+- `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` is very likely what suppresses these reports — remove it and the UI should appear.
+- The daemon's `ClaudeCredentialsPath` (`~/.claude/.credentials.json`) and the `os.Stat` gate before writing subscription config are important correctness mechanisms — keep the credentials-sync logic, just stop writing `agent_servers.claude` env overrides.
+- Zed's built-in Claude Code uses the npm package `@zed-industries/claude-code-acp`; no `command` or `args` override is needed in `agent_servers.claude` for the built-in package to work.
