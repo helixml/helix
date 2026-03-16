@@ -466,10 +466,10 @@ func (v *VideoStreamer) startScanoutMode(ctx context.Context) error {
 // 0. HELIX_ENCODER env var override (for testing/benchmarking)
 // 1. NVIDIA NVENC (nvh264enc) - fastest, lowest latency
 // 2. Intel QSV (qsvh264enc) - Intel Quick Sync Video
-// 3. VA-API (vah264enc) - Intel/AMD VA-API
-// 4. VA-API Legacy (vaapih264enc) - older VA-API plugin
-// 5. VA-API LP (vah264lpenc) - Intel/AMD VA-API Low Power mode
-// 6. OpenH264 (openh264enc) - Cisco's software encoder (installed by default)
+// 3. VA-API (vah264enc) - Intel VA-API (skipped on AMD — runtime crash)
+// 4. VA-API Legacy (vaapih264enc) - older VA-API plugin (skipped on AMD)
+// 5. VA-API LP (vah264lpenc) - Intel VA-API Low Power mode (skipped on AMD)
+// 6. OpenH264 (openh264enc) - Cisco's software encoder (AMD default)
 // 7. x264 (x264enc) - software fallback (requires gst-plugins-ugly)
 func (v *VideoStreamer) selectEncoder() string {
 	// Check for explicit encoder override via environment variable
@@ -512,17 +512,25 @@ func (v *VideoStreamer) selectEncoder() string {
 	}
 
 	// Try VA-API (Intel/AMD) - check both new (vah264enc) and old (vaapih264enc) plugins
-	if checkGstElement("vah264enc") {
+	// Skip VA-API on AMD: the encoder element exists but crashes at runtime with
+	// "gst_buffer_insert_memory: assertion 'mem != NULL' failed". AMD's radeonsi
+	// VA-API driver has encoding support issues with GStreamer's gst-va plugin.
+	// OpenH264 is a reliable software fallback that produces browser-compatible H.264.
+	isAMD := os.Getenv("LIBVA_DRIVER_NAME") == "radeonsi"
+	if isAMD {
+		v.logger.Info("AMD GPU detected (LIBVA_DRIVER_NAME=radeonsi), skipping VA-API encoders (known runtime crash)")
+	}
+	if !isAMD && checkGstElement("vah264enc") {
 		v.logger.Info("using VA-API encoder (gst-va plugin)")
 		return "vaapi"
 	}
-	if checkGstElement("vaapih264enc") {
+	if !isAMD && checkGstElement("vaapih264enc") {
 		v.logger.Info("using VA-API encoder (gst-vaapi plugin)")
 		return "vaapi-legacy"
 	}
 
-	// Try VA-API Low Power mode (some Intel chips)
-	if checkGstElement("vah264lpenc") {
+	// Try VA-API Low Power mode (Intel chips only, skip on AMD)
+	if !isAMD && checkGstElement("vah264lpenc") {
 		v.logger.Info("using VA-API Low Power encoder")
 		return "vaapi-lp"
 	}
