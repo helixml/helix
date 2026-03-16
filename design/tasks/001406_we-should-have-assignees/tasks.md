@@ -2,7 +2,7 @@
 
 ## Backend
 
-- [ ] Add `AssigneeID` field to `SpecTask` struct in `api/pkg/types/simple_spec_task.go`
+- [~] Add `AssigneeID` field to `SpecTask` struct in `api/pkg/types/simple_spec_task.go`
 - [ ] Add `AssigneeID` field to `SpecTaskUpdateRequest` struct (pointer type for nullable)
 - [ ] Update `updateTask` handler in `api/pkg/server/spec_driven_task_handlers.go` to handle assignee updates
 - [ ] Add validation: assignee must be org member (query org membership before saving)
