@@ -41,8 +41,12 @@ var (
 	zfsAvailableFlag bool
 
 	// zfsParentDataset is the ZFS dataset under which golden zvols and session
-	// clones are created. Detected at startup from CONTAINER_DOCKER_PATH.
+	// clones are created. This is a dedicated dataset (e.g. prod/helix-zvols)
+	// created under the pool that contains CONTAINER_DOCKER_PATH's zvol.
 	zfsParentDataset string
+
+	// helixZvolsDatasetName is the name of our nested dataset for zvol organisation.
+	helixZvolsDatasetName = "helix-zvols"
 )
 
 // Command execution functions — override in tests for mocking.
@@ -91,12 +95,30 @@ func ZFSAvailable() bool {
 		}
 		zfsAvailableFlag = true
 
-		// Detect parent dataset from the CONTAINER_DOCKER_PATH mount
-		zfsParentDataset = detectParentDataset()
-		if zfsParentDataset == "" {
-			log.Warn().Msg("ZFS available but could not detect parent dataset for container-docker, disabling zvol cloning")
+		// Detect the pool root from CONTAINER_DOCKER_PATH, then ensure
+		// a dedicated helix-zvols dataset exists under it for cleanliness.
+		poolRoot := detectPoolRoot()
+		if poolRoot == "" {
+			log.Warn().Msg("ZFS available but could not detect pool for container-docker, disabling zvol cloning")
 			zfsAvailableFlag = false
 			return
+		}
+
+		zfsParentDataset = poolRoot + "/" + helixZvolsDatasetName
+
+		// Create the parent dataset if it doesn't exist.
+		// Set dedup=off so all child zvols inherit it.
+		if !zfsDatasetExists(zfsParentDataset) {
+			if err := runCmd("zfs", "create", "-o", "dedup=off", "-o", "compression=lz4", zfsParentDataset); err != nil {
+				log.Warn().Err(err).
+					Str("dataset", zfsParentDataset).
+					Msg("Failed to create helix-zvols dataset, disabling zvol cloning")
+				zfsAvailableFlag = false
+				return
+			}
+			log.Info().
+				Str("dataset", zfsParentDataset).
+				Msg("Created helix-zvols parent dataset")
 		}
 
 		log.Info().
@@ -113,9 +135,9 @@ func resetZFSState() {
 	zfsParentDataset = ""
 }
 
-// detectParentDataset finds the ZFS dataset that backs /container-docker.
-// We look for a zvol whose mount point (via the block device) matches.
-func detectParentDataset() string {
+// detectPoolRoot finds the ZFS pool root that contains the CONTAINER_DOCKER_PATH zvol.
+// e.g. if /prod/container-docker is backed by prod/container-docker zvol, returns "prod".
+func detectPoolRoot() string {
 	containerDockerPath := os.Getenv("CONTAINER_DOCKER_PATH")
 	if containerDockerPath == "" {
 		return ""
