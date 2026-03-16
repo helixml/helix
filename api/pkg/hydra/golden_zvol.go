@@ -560,6 +560,36 @@ func purgeContainerDirs(dockerDir string) {
 	os.Remove(filepath.Join(dockerDir, ".golden-build-result"))
 }
 
+// seedZvolFromGoldenDir copies the contents of the old file-based golden dir
+// into a freshly created zvol. This is the one-time migration path: it runs
+// once per project when transitioning from file-copy to zvol-clone golden cache.
+// Uses cp -a --reflink=auto for speed on XFS (reflinks share data blocks).
+func seedZvolFromGoldenDir(projectID, zvolMountPath string) error {
+	src := goldenDir(projectID) // /container-docker/golden/{projectID}/docker/
+	if _, err := os.Stat(src); err != nil {
+		return fmt.Errorf("golden dir %s not found: %w", src, err)
+	}
+
+	start := time.Now()
+	log.Info().
+		Str("src", src).
+		Str("dst", zvolMountPath).
+		Msg("Seeding zvol from golden dir (one-time migration, may take several minutes)")
+
+	// cp -a copies all contents of src/ into dst/
+	// The trailing /. ensures we copy contents, not the directory itself
+	if err := runCmd("cp", "-a", "--reflink=auto", src+"/.", zvolMountPath+"/"); err != nil {
+		return fmt.Errorf("cp golden dir to zvol failed: %w", err)
+	}
+
+	log.Info().
+		Str("project_id", projectID).
+		Dur("duration", time.Since(start)).
+		Msg("Seeded zvol from golden dir (migration complete for this project)")
+
+	return nil
+}
+
 // mountZvol mounts a zvol at the given path.
 func mountZvol(zvolName, mountPath string) error {
 	if err := os.MkdirAll(mountPath, 0755); err != nil {

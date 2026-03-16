@@ -1,7 +1,7 @@
 # Golden Cache Storage Architecture: ZFS Clone Options
 
 **Date**: 2026-03-16
-**Status**: Design exploration (no code changes yet)
+**Status**: Implementation in progress (`feature/zfs-clone-golden-cache` branch). NOT tested yet.
 
 ## Problem Statement
 
@@ -305,47 +305,91 @@ func SetupSessionDockerDir(projectID, volumeName string, onProgress ...) (string
 }
 ```
 
-### Migration Plan (this machine)
+### Migration Plan
 
-The tricky part: we currently have one big zvol (`prod/container-docker`, 2TB) with XFS containing both golden and session dirs. We need to move to per-project zvols.
+Migration is **fully automatic** — no manual steps required. The code handles all
+three environments (meta.helix.ml with ZFS, Mac app with ZFS, prod SaaS without ZFS)
+through the same fallback chain.
 
-**Phase 1: Create new structure alongside old**
-```bash
-# Create parent dataset for the new structure
-sudo zfs create prod/container-docker-v2
+#### How the fallback chain works
 
-# Create golden zvol for the active project (dedup=off — clones share blocks natively)
-sudo zfs create -V 500G -s -o dedup=off -o compression=lz4 \
-    -o volblocksize=64k prod/container-docker-v2/golden-prj_xxx
-sudo mkfs.xfs -f -q /dev/zvol/prod/container-docker-v2/golden-prj_xxx
-sudo mkdir -p /prod/container-docker-v2/golden-prj_xxx
-sudo mount /dev/zvol/prod/container-docker-v2/golden-prj_xxx \
-    /prod/container-docker-v2/golden-prj_xxx
+```
+resolveDockerDataDir():
+  1. ZFSAvailable()?  ──no──→  file-copy path (existing behavior, unchanged)
+     │ yes                      (prod SaaS, bare-metal Linux without ZFS)
+     ▼
+  2. GoldenZvolExists(projectID)?
+     │ yes ──→ SetupGoldenClone() → instant O(1) clone ✓
+     │ no
+     ▼
+  3. CreateSessionZvol() → fresh zvol with XFS
+     │
+     ├── golden build? AND old golden dir exists?
+     │   └── seedZvolFromGoldenDir() → one-time cp from old golden dir (~5 min)
+     │       (migration: only happens ONCE per project)
+     │
+     └── normal session → starts cold (no cache yet)
 
-# Copy existing golden data
-sudo cp -a /prod/container-docker/golden/prj_xxx/docker/* \
-    /prod/container-docker-v2/golden-prj_xxx/
-
-# Unmount, snapshot
-sudo umount /prod/container-docker-v2/golden-prj_xxx
-sudo zfs snapshot prod/container-docker-v2/golden-prj_xxx@gen1
+Promotion (after golden build succeeds):
+  - Session was on zvol → PromoteSessionToGoldenZvol() → zvol rename + snapshot
+  - Session was on file path → PromoteSessionToGolden() → dir rename (old behavior)
 ```
 
-**Phase 2: Deploy code that uses new structure**
-- Hydra detects `prod/container-docker-v2/golden-prj_xxx@gen1` exists
-- New sessions use `zfs clone` from the snapshot
-- Old sessions on the old zvol continue to work (existing session dirs still exist)
+#### meta.helix.ml (this machine)
 
-**Phase 3: Drain old sessions, decommission old zvol**
-- Once no sessions reference old `/prod/container-docker/sessions/*`
-- `sudo zfs destroy prod/container-docker` (frees the 2TB zvol)
+**Current state**: `prod/container-docker` is a single 2TB zvol with XFS, dedup=on.
+Golden dirs and session dirs all live inside it.
 
-### Mac App / VM Provisioning Changes
+**What happens on deploy**:
+1. `ZFSAvailable()` → true. `detectParentDataset()` finds `prod/container-docker` zvol
+   mounted at `CONTAINER_DOCKER_PATH`, returns parent dataset `prod`.
+2. New zvols will be created as siblings: `prod/golden-prj_xxx`, `prod/ses-ses_yyy`
+   (with `dedup=off`, `compression=lz4`).
+3. First golden build after deploy:
+   - No golden zvol exists → creates fresh session zvol `prod/ses-ses_xxx`
+   - Old golden dir exists → `seedZvolFromGoldenDir()` copies it in (one-time, ~5 min)
+   - Build runs on the zvol, completes, promotes → creates `prod/golden-prj_xxx@gen1`
+4. All subsequent sessions: instant clone from `prod/golden-prj_xxx@gen1`
+5. Old session dirs on the big zvol are cleaned up by `GCOrphanedSessions` (periodic)
+6. Eventually: old `prod/container-docker` zvol can be destroyed to reclaim space
 
-`init-zfs-pool.sh` changes:
-- Instead of one big `helix/container-docker` zvol, create `helix/container-docker` as a **dataset** (not zvol)
-- Golden zvols created on-demand by Hydra when first golden build completes
-- If ZFS not available (bare metal Linux without ZFS, cloud VMs), existing cp behavior works unchanged
+**No downtime**: existing sessions continue on the old zvol. New sessions use zvol clones.
+
+#### Mac app (VM with ZFS via init-zfs-pool.sh)
+
+**Current state**: `helix/container-docker` zvol with ext4, dedup=on.
+
+**What happens on deploy**:
+1. Same detection: parent dataset = `helix`
+2. New zvols: `helix/golden-prj_xxx`, `helix/ses-ses_yyy`
+3. Same migration flow — first golden build seeds from old golden dir, then clones
+
+**Future**: `init-zfs-pool.sh` can be updated to skip creating the single zvol entirely
+(Hydra creates per-project zvols on demand). But not required — the code works with
+either layout.
+
+#### Production SaaS (no ZFS)
+
+**What happens**: `ZFSAvailable()` → false (no `zfs` binary, or `zfs list` fails).
+Falls through to the existing file-copy path. Zero behavior change. The ZFS code paths
+are completely inert.
+
+#### Drain and decommission old zvol
+
+Once all sessions from the old zvol are cleaned up (GC handles this automatically):
+```bash
+# Check nothing's using the old paths
+ls /prod/container-docker/sessions/   # should be empty
+ls /prod/container-docker/golden/     # only referenced by file-copy fallback
+
+# Optional: destroy the old zvol to reclaim space
+# WARNING: only after confirming no sessions or golden builds reference it
+sudo umount /prod/container-docker
+sudo zfs destroy prod/container-docker
+```
+
+This is optional — the old zvol can coexist indefinitely. The file-copy fallback
+still works as a safety net.
 
 ### Open Questions
 

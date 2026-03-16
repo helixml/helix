@@ -688,6 +688,8 @@ func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerReque
 	// Strategy 1: ZFS zvol clone (instant)
 	if ZFSAvailable() {
 		if GoldenZvolExists(req.ProjectID) {
+			// Golden zvol exists — clone it (instant for normal sessions,
+			// incremental rebuild for golden builds)
 			dockerDir, err := SetupGoldenClone(req.ProjectID, sessionID)
 			if err != nil {
 				log.Warn().Err(err).
@@ -702,19 +704,35 @@ func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerReque
 					Msg("Using ZFS zvol clone for inner dockerd (instant golden cache)")
 				return dockerDir
 			}
-		} else if !req.GoldenBuild {
-			// No golden zvol yet — create a fresh session zvol so that when
-			// the golden build completes, we can promote it via ZFS rename.
+		} else {
+			// No golden zvol yet — create a fresh session zvol.
+			// For golden builds: this bootstraps the zvol infrastructure. On
+			// promotion, PromoteSessionToGoldenZvol renames this to the golden.
+			// For normal sessions: gives them their own zvol (no golden to clone).
+			//
+			// Migration: if an old file-based golden dir exists, we seed the
+			// new zvol from it (one-time copy, only happens once per project).
 			dockerDir, err := CreateSessionZvol(sessionID)
 			if err != nil {
 				log.Warn().Err(err).
 					Str("session_id", sessionID).
 					Msg("Failed to create session zvol, falling back to file-copy")
 			} else {
+				// Seed from old golden dir if it exists (migration path)
+				if req.GoldenBuild && GoldenExists(req.ProjectID) {
+					log.Info().
+						Str("project_id", req.ProjectID).
+						Str("session_id", sessionID).
+						Msg("Seeding new zvol from existing golden dir (one-time migration)")
+					if err := seedZvolFromGoldenDir(req.ProjectID, dockerDir); err != nil {
+						log.Warn().Err(err).Msg("Failed to seed zvol from golden dir, starting cold")
+					}
+				}
 				log.Info().
 					Str("session_id", sessionID).
 					Str("mount", dockerDir).
-					Msg("Using fresh ZFS zvol for inner dockerd (no golden cache yet)")
+					Bool("golden_build", req.GoldenBuild).
+					Msg("Using fresh ZFS zvol for inner dockerd")
 				return dockerDir
 			}
 		}
