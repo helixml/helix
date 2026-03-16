@@ -101,14 +101,6 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	// This handles both unprefixed models (e.g., "claude-haiku-4-5-20251001" → anthropic)
 	// and HuggingFace-style IDs (e.g., "Qwen/Qwen3-Coder") that might be incorrectly
 	// parsed as provider prefixes.
-	log.Info().
-		Str("model", chatCompletionRequest.Model).
-		Str("owner_id", ownerID).
-		Str("org_id", user.OrganizationID).
-		Str("project_id", user.ProjectID).
-		Str("spec_task_id", user.SpecTaskID).
-		Msg("chat completions: resolving provider for model")
-
 	var validatedProvider string
 	foundProvider := s.findProviderWithModel(r.Context(), chatCompletionRequest.Model, ownerID, user.OrganizationID)
 	if foundProvider != "" {
