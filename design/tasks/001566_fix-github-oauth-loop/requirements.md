@@ -16,14 +16,14 @@ Users can still view, disconnect, and refresh existing connections. New connecti
 
 ### 2. Pre-session OAuth prompt for agents
 
-Before a user starts a chat session with an agent, the frontend reads the agent's tool configurations and determines which OAuth providers and scopes are required. It then checks the user's existing connections against those requirements. If any required connection is missing or lacks the necessary scopes, the user is shown a prompt listing the missing providers with a "Connect" button for each. Each connect action initiates the OAuth flow with exactly the scopes that agent's tools require.
+Before a user starts a session with an agent — whether that is a new chat session or a new spec task — the frontend reads the agent's tool configurations and determines which OAuth providers and scopes are required. It then checks the user's existing connections against those requirements. If any required connection is missing or lacks the necessary scopes, the user is shown a prompt listing the missing providers with a "Connect" button for each. Each connect action initiates the OAuth flow with exactly the scopes that agent's tools require.
 
 This must be generic — driven entirely by what the agent spec declares, not hardcoded to any specific provider or scope set.
 
 ## Acceptance Criteria
 
 - [ ] The Connected Services page still shows the Available Integrations section but without Connect buttons. An info banner reads: "Use an integration in an agent when creating it and specify the scopes in order to connect to it as a user." Existing connections are still shown with disconnect and refresh options.
-- [ ] When opening an agent session, if the agent's tools require OAuth connections the user does not have (or has with insufficient scopes), the user sees a prompt naming each missing provider with a Connect button before the session starts.
+- [ ] When starting any agent session (new chat or new spec task), if the agent's tools require OAuth connections the user does not have (or has with insufficient scopes), the user sees a prompt naming each missing provider with a Connect button before the session starts.
 - [ ] The OAuth flow triggered from that prompt uses the exact provider and scopes declared in the agent's tool config, not hardcoded values.
 - [ ] If all required connections are already present with correct scopes, no prompt is shown and the session starts normally.
 - [ ] The existing contextual OAuth flows in `CreateProjectDialog` and `BrowseProvidersDialog` are unaffected.

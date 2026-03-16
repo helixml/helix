@@ -56,7 +56,7 @@ Response shape:
 
 ### Frontend: check requirements before session starts
 
-In the agent chat/session component, before allowing the user to send the first message (or on page load when an agent is loaded):
+Agent sessions can be created from two entry points: new chat sessions and new spec tasks. The OAuth requirement check must run in both. In each entry point, before allowing the user to proceed (send first message or submit the spec task):
 
 1. Call `GET /api/v1/apps/{id}/oauth-requirements`
 2. Call `GET /api/v1/oauth/connections` to get the user's current connections

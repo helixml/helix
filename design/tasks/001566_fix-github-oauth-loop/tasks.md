@@ -14,7 +14,8 @@
 
 ## Part 3: Frontend — Pre-session OAuth prompt
 
-- [ ] In the agent session/chat component, on load (when an agent app is set), call `GET /api/v1/apps/{id}/oauth-requirements` and `GET /api/v1/oauth/connections`
+- [ ] Identify both session entry points where an agent is loaded: new chat sessions and new spec tasks; the OAuth check must run in both
+- [ ] In each entry point, on load (when an agent app is set), call `GET /api/v1/apps/{id}/oauth-requirements` and `GET /api/v1/oauth/connections`
 - [ ] Compare requirements against existing connections: for each required `{provider, scopes}`, check whether the user has a connection for that provider whose stored scopes cover all required scopes
 - [ ] If any requirements are unmet, render a prompt (banner or dialog) listing each missing provider with a Connect button; block or discourage starting the session until all are satisfied
 - [ ] Each Connect button triggers the OAuth flow via `GET /api/v1/oauth/flow/start/{provider_id}?scopes=<scopes>` using the exact scopes from the requirement (reuse `useOAuthFlow` hook or the popup pattern from `BrowseProvidersDialog`)
