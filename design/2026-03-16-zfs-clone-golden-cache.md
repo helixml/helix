@@ -5,7 +5,7 @@
 
 ## Problem Statement
 
-The golden cache copy is a major bottleneck. When a session starts, we `cp -a --reflink=auto` the entire golden Docker data directory (~30-60GB) into a per-session directory. On XFS without reflink (our current zvol+XFS setup), this is a full byte-copy taking 30-60+ seconds and hammering disk I/O.
+The golden cache copy is a major bottleneck. When a session starts, we `cp -a --reflink=auto` the entire golden Docker data directory (~30-60GB) into a per-session directory. XFS reflinks are enabled and work on our zvol+XFS setup — the file *data* is shared copy-on-write at the XFS level. But reflink only eliminates the data copy; we still have to create every inode, directory entry, and xattr for every file in the tree. With millions of files in overlay2, that's millions of inode allocations and dentry creations, which still takes 30-60+ seconds and generates heavy metadata I/O.
 
 The current storage architecture also has severe secondary effects:
 
@@ -31,9 +31,9 @@ ZFS pool "prod" (nvme2n1, 3.6TB)
 
 Session startup: `cp -a --reflink=auto golden/prj_xxx/docker/ → sessions/docker-data-ses_xxx/docker/`
 
-XFS on a zvol doesn't support reflink (reflink is an XFS feature that requires XFS to manage its own CoW — ZFS zvols present as block devices and ZFS handles CoW at a layer below, so XFS reflink and ZFS CoW don't compose). So every session start does a full byte copy.
+XFS reflinks work here — the file data blocks are shared CoW at the XFS level, so we're not doing full data copies. But the copy still creates every inode and directory entry in the tree (millions of files across overlay2 layers). This metadata creation is what takes 30-60s and generates heavy I/O, compounded by the dedup write-path overhead (every new metadata block triggers a DDT hash lookup).
 
-The dedup "works" in that ZFS deduplicates the identical blocks across these copies at the block level, saving disk space (3.97x). But it costs 12GB of pinned RAM for the DDT and adds a hash lookup on every write.
+ZFS dedup on top of this provides additional block-level sharing (3.97x ratio) — catching cross-session and cross-project duplicates that XFS reflink can't see (reflink only shares within a single cp operation). But the DDT costs 12GB of pinned RAM and adds latency to every write.
 
 ## Constraints
 
@@ -194,24 +194,21 @@ Instead of zvol clones, keep the single XFS filesystem but use per-session loopb
 2. New session = `cp --reflink=auto golden.img sessions/ses_yyy.img` — if XFS reflink works, this is instant
 3. `losetup` + `mount` the copy, bind into container
 
-**Problem**: Our XFS is on a ZFS zvol. XFS reflink requires XFS to manage the CoW mapping. On a zvol, XFS *can* be formatted with `reflink=1` (and `mkfs.xfs -m reflink=1` succeeds), but the actual reflink behavior depends on the XFS allocator being able to share extents. This should work — XFS reflink operates within XFS regardless of the backing block device — but I need to verify.
+XFS reflinks already work on our zvol — `cp --reflink=auto` shares file data blocks via XFS CoW. But the bottleneck isn't data copying, it's *metadata* creation: each file in the tree needs a new inode, directory entry, and xattr allocation. With millions of overlay2 files, that's still 30-60s of metadata I/O.
 
-Wait — let me re-examine. The current mount shows `noquota` but I need to check if reflink was actually enabled at format time.
-
-**Actually**: Looking at the `mkfs.xfs` that was run on the zvol (from `init-zfs-pool.sh` line 89), it does NOT use `-m reflink=1`. It's just `mkfs.ext4` (later migrated to XFS, but the exact mkfs flags aren't clear). XFS reflink was only supported from XFS v5 onwards and requires formatting with `-m reflink=1`. If the filesystem was formatted without it, reflink silently falls back to full copy, which is exactly what's happening.
-
-**This means Option E might work if we reformat XFS with reflink=1.** But reformatting means migrating data, and we still have the XFS inode slab problem (one XFS instance caching 88M inodes).
+Using loopback image files would reduce the problem to a single-file reflink (one `.img` file), making the metadata cost O(1) instead of O(millions). But it adds another layer to an already deep stack.
 
 **Pros**:
-- Simplest conceptual change — just fix the XFS format
-- No ZFS zvol management
-- Works with existing code (reflink=auto already used)
+- Works today — no ZFS changes needed
+- Single-file reflink is genuinely instant (one inode, one reflink op)
+- No zvol management complexity
 
 **Cons**:
-- Requires reformatting the zvol's XFS — migration downtime
-- Doesn't solve the inode/dentry slab explosion (one filesystem, millions of files)
+- Doesn't solve the inode/dentry slab explosion (one XFS instance still caches all sessions' inodes once mounted)
 - Doesn't solve the dedup DDT overhead
-- Loopback mount adds a layer (block device → XFS → sparse file → losetup → ext4 → overlay2)
+- Adds a layer: block device → XFS → sparse file → losetup → ext4 → overlay2
+- Fixed-size image files (need to pre-allocate or resize)
+- Loop device management (losetup/cleanup)
 
 ## Recommendation
 
