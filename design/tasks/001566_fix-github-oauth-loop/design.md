@@ -56,12 +56,12 @@ Response shape:
 
 ### Frontend: check requirements before session starts
 
-Agent sessions can be created from two entry points: new chat sessions and new spec tasks. The OAuth requirement check must run in both. In each entry point, before allowing the user to proceed (send first message or submit the spec task):
+The OAuth requirement check must run whenever an agent session is loaded — new chat, new spec task, or returning to an existing running session. A token may have expired or been revoked while the session was in the background. In each case, on load:
 
 1. Call `GET /api/v1/apps/{id}/oauth-requirements`
 2. Call `GET /api/v1/oauth/connections` to get the user's current connections
 3. For each required `{provider, scopes}`, check if the user has a connection for that provider that covers all required scopes (reuse `getMissingScopes` logic, or implement equivalent client-side)
-4. If any requirements are unmet, render a banner or dialog listing the missing providers with a Connect button per provider
+4. If any requirements are unmet (missing connection or expired token), render a banner listing the affected providers with a Connect / Reconnect button per provider
 5. Each Connect button calls `GET /api/v1/oauth/flow/start/{provider_id}?scopes=<scopes>` with the exact scopes from the requirement — same pattern as `BrowseProvidersDialog`
 6. On successful OAuth callback, re-check requirements and hide the prompt if all are now satisfied
 
