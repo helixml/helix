@@ -166,7 +166,7 @@ _INSTALL_NVIDIA_TOOLKIT
 # See design/2026-01-12-sandbox-registry-based-images.md
 # ====================================================================
 # Copy sandbox-images directory containing:
-# - .ref: registry path for production (e.g., "registry.helixml.tech/helix/helix-sway:v1.2.3")
+# - .ref: registry path for production (e.g., "ghcr.io/helixml/helix-sway:v1.2.3")
 # - .version: image hash tag for dev (e.g., "abc123")
 # At runtime, startup script pulls from registry (production) or expects
 # images transferred via local dev registry (development)

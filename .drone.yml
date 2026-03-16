@@ -2136,8 +2136,8 @@ steps:
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
         mkdir -p sandbox-images
-        echo "registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-amd64" > sandbox-images/helix-sway.ref
-        echo "registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.ref
+        echo "ghcr.io/helixml/helix-sway:$${VERSION}-linux-amd64" > sandbox-images/helix-sway.ref
+        echo "ghcr.io/helixml/helix-ubuntu:$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.ref
         echo "$${VERSION}-linux-amd64" > sandbox-images/helix-sway.version
         echo "$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.version
     volumes:
@@ -2454,8 +2454,8 @@ steps:
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
         mkdir -p sandbox-images
-        echo "registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-arm64" > sandbox-images/helix-sway.ref
-        echo "registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64" > sandbox-images/helix-ubuntu.ref
+        echo "ghcr.io/helixml/helix-sway:$${VERSION}-linux-arm64" > sandbox-images/helix-sway.ref
+        echo "ghcr.io/helixml/helix-ubuntu:$${VERSION}-linux-arm64" > sandbox-images/helix-ubuntu.ref
         echo "$${VERSION}-linux-arm64" > sandbox-images/helix-sway.version
         echo "$${VERSION}-linux-arm64" > sandbox-images/helix-ubuntu.version
     volumes:
