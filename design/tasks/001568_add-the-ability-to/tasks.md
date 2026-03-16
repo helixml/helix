@@ -17,8 +17,8 @@
 
 ## Frontend
 
-- [~] Add `useProjectLabels`, `useAddLabel`, and `useRemoveLabel` hooks to `frontend/src/services/specTaskService.ts`
-- [~] Add label query key to `QUERY_KEYS` and invalidate `specTask` + `specTasks` on label mutation
-- [ ] Build label editor component on task detail view: display existing labels as deletable MUI `Chip` elements, add an autocomplete input that suggests from `useProjectLabels` and allows free entry
-- [ ] Add label filter control to task list view (multi-select autocomplete) that appends `labels=a,b` to the list query
-- [ ] Display label chips on task cards in the list view
+- [x] Add `useProjectLabels`, `useAddLabel`, and `useRemoveLabel` hooks to `frontend/src/services/specTaskService.ts`
+- [x] Add label query key to `QUERY_KEYS` and invalidate `specTask` + `specTasks` on label mutation
+- [x] Build label editor component on task detail view: display existing labels as deletable MUI `Chip` elements, add an autocomplete input that suggests from `useProjectLabels` and allows free entry
+- [x] Add label filter control to task list view (multi-select autocomplete) that appends `labels=a,b` to the list query
+- [x] Display label chips on task cards in the list view
