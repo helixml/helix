@@ -12,7 +12,7 @@ dependencies = [
     "protobuf>=5.28.3",
     "sentencepiece>=0.2.0",
     # Platform-specific PyTorch: CUDA on x86_64, CPU on ARM64
-    "torch==2.5.1+cu124; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "torch==2.8.0; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "torch>=2.5.1; sys_platform == 'linux' and platform_machine == 'aarch64'",
     "transformers>=4.46.3",
     "uvicorn>=0.32.1",
