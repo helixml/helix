@@ -421,29 +421,28 @@ postgresql:
 
   # PostgreSQL image configuration
   image:
-    registry: docker.io
-    repository: bitnamilegacy/postgresql
-    tag: "17"
+    repository: postgres
+    tag: "17-alpine"
     pullPolicy: IfNotPresent
 
   # For bundled PostgreSQL auth configuration (when enabled=true):
   auth:
-    # Password for the "postgres" admin user
-    postgresPassword: "secure-postgres-admin-password"
-    # Custom user credentials
     username: helix
     password: "secure-helix-db-password"
     database: helix
 
     # Option: Use existing secret for all auth credentials
     # existingSecret: "postgresql-auth-secret"
-    # postgresPasswordKey: "postgres-password"  # defaults to "postgres-password"
     # usernameKey: "username"                   # defaults to "username"
     # passwordKey: "password"                   # defaults to "password"
     # databaseKey: "database"                   # defaults to "database"
 
-  # PostgreSQL architecture
-  architecture: standalone
+  # Persistence configuration
+  persistence:
+    enabled: true
+    size: 8Gi
+    # storageClass: ""
+    # existingClaim: ""
 
   # For external PostgreSQL configuration (when enabled=false):
   # external:

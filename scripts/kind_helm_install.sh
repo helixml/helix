@@ -6,10 +6,10 @@ set -euo pipefail
 # the official one from the helixml/helix repository.
 USE_LOCAL_HELM_CHART=${USE_LOCAL_HELM_CHART:-""}
 
-# USE_EXTERNAL_POSTGRES=1 
+# USE_EXTERNAL_POSTGRES=1
 # This option is used to test the chart when using an external postgres instance.
 # The script will install an independent postgres instance using the official helm chart.
-# Both keycloak and helix will be configured to use the external postgres instance.
+# Helix will be configured to use the external postgres instance.
 USE_EXTERNAL_POSTGRES=${USE_EXTERNAL_POSTGRES:-""}
 
 # Function to check if a command is installed
@@ -104,40 +104,6 @@ EOF
 fi
 
 
-HELM_VALUES_KEYCLOAK=()
-HELM_VALUES_KEYCLOAK+=("--set" "auth.adminUser=admin")
-HELM_VALUES_KEYCLOAK+=("--set" "auth.adminPassword=oh-hallo-insecure-password")
-HELM_VALUES_KEYCLOAK+=("--set" "httpRelativePath=/auth/")
-if [ -n "$USE_EXTERNAL_POSTGRES" ] && [ "$USE_EXTERNAL_POSTGRES" != "false" ] && [ "$USE_EXTERNAL_POSTGRES" != "" ]; then
-  HELM_VALUES_KEYCLOAK+=("--set" "postgresql.enabled=false")
-  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.existingSecret=helix-external-postgres-app")
-  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.existingSecretHostKey=host")
-  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.existingSecretPortKey=port")
-  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.existingSecretUserKey=user")
-  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.existingSecretDatabaseKey=dbname")
-  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.existingSecretPasswordKey=password")
-fi
-
-# Install Keycloak using Helm with official image
-helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
-  --version "24.3.1" \
-  "${HELM_VALUES_KEYCLOAK[@]}"
-
-# # TODO: This is OOMKilled on my machine. Likely best fix is to update the base image.
-# # Install Keycloak using Helm with custom Helix image
-# export KEYCLOAK_VERSION=${HELIX_VERSION:-$(curl -s https://get.helixml.tech/latest.txt)}
-# helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
-#   --set global.security.allowInsecureImages=true \
-#   --version "24.3.1" \
-#   --set auth.adminUser=admin \
-#   --set auth.adminPassword=oh-hallo-insecure-password \
-#   --set image.registry=registry.helixml.tech \
-#   --set image.repository=helix/keycloak-bitnami \
-#   --set image.tag="${KEYCLOAK_VERSION}" \
-#   --set httpRelativePath="/auth/"
-
-wait_for_pod_ready_with_label "app.kubernetes.io/name=keycloak"
-
 if [ -n "$USE_LOCAL_HELM_CHART" ] && [ "$USE_LOCAL_HELM_CHART" != "false" ] && [ "$USE_LOCAL_HELM_CHART" != "" ]; then
   echo "Using local Helm chart..."
 
@@ -175,8 +141,6 @@ HELM_VALUES=()
 # Add base values
 HELM_VALUES+=("-f" "$DIR/values-example.yaml")
 HELM_VALUES+=("--set" "image.tag=${HELIX_VERSION}")
-HELM_VALUES+=("--set" "controlplane.keycloak.user=admin")
-HELM_VALUES+=("--set" "controlplane.keycloak.password=oh-hallo-insecure-password")
 
 if [ -n "$USE_EXTERNAL_POSTGRES" ] && [ "$USE_EXTERNAL_POSTGRES" != "false" ] && [ "$USE_EXTERNAL_POSTGRES" != "" ]; then
   HELM_VALUES+=("--set" "postgresql.enabled=false")
