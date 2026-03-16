@@ -9,11 +9,11 @@
 
 ## API
 
-- [~] Create `api/pkg/server/spec_task_label_handlers.go` with `listProjectLabels`, `addLabel`, and `removeLabel` handlers (with Swagger annotations)
-- [ ] Register the three new routes in the router: `GET /api/v1/projects/{projectId}/labels`, `POST /api/v1/spec-tasks/{taskId}/labels`, `DELETE /api/v1/spec-tasks/{taskId}/labels/{label}`
-- [ ] Add `labels` query param support to the existing `listSpecTasks` handler (parse comma-separated string, pass to filter)
-- [ ] Regenerate OpenAPI/Swagger spec (`make generate-swagger` or equivalent) and commit the updated `swagger.json` / `openapi.json`
-- [ ] Regenerate the TypeScript API client in `frontend/src/api/`
+- [x] Create `api/pkg/server/spec_task_label_handlers.go` with `listProjectLabels`, `addLabel`, and `removeLabel` handlers (with Swagger annotations)
+- [x] Register the three new routes in the router: `GET /api/v1/projects/{projectId}/labels`, `POST /api/v1/spec-tasks/{taskId}/labels`, `DELETE /api/v1/spec-tasks/{taskId}/labels/{label}`
+- [x] Add `labels` query param support to the existing `listSpecTasks` handler (parse comma-separated string, pass to filter)
+- [~] Regenerate OpenAPI/Swagger spec (`make generate-swagger` or equivalent) and commit the updated `swagger.json` / `openapi.json`
+- [~] Regenerate the TypeScript API client in `frontend/src/api/`
 
 ## Frontend
 
