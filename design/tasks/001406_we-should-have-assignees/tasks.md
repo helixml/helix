@@ -10,17 +10,18 @@
 
 ## Frontend
 
-- [~] Create `AssigneeSelector.tsx` component in `frontend/src/components/tasks/`
+- [x] Create `AssigneeSelector.tsx` component in `frontend/src/components/tasks/`
   - Popover with org members list
   - "Unassigned" option
   - Search filter for large teams
-- [ ] Update `TaskCard.tsx` to display assignee avatar
+- [x] Update `TaskCard.tsx` to display assignee avatar
   - Add avatar in card footer (near existing agent avatar)
   - Click handler to open AssigneeSelector
   - Tooltip with assignee name on hover
-- [ ] Add React Query hook to fetch org members for current project's organization
-- [ ] Wire up `updateSpecTask` mutation for assignee changes
-- [ ] Update `SpecTaskWithExtras` interface to include `assignee_id`
+- [x] Add React Query hook to fetch org members for current project's organization
+  - Note: Using existing account.organizationTools.organization.memberships
+- [x] Wire up `updateSpecTask` mutation for assignee changes
+- [x] Update `SpecTaskWithExtras` interface to include `assignee_id`
 
 ## Testing
 
