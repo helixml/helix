@@ -4,7 +4,7 @@
 
 ---
 
-I've been building [Helix](https://github.com/helixml/helix), an open-source platform for running AI coding agents in isolated desktop environments. Each agent gets its own VM-like container with a full Linux desktop, Docker-in-Docker, Zed IDE, the works. Think cloud dev environments, except the primary user is an AI with tool access, not a human.
+I've been building [Helix](https://github.com/helixml/helix), a source-available platform for running AI coding agents in isolated desktop environments. Each agent gets its own VM-like container with a full Linux desktop, Docker-in-Docker, Zed IDE, the works. Think cloud dev environments, except the primary user is an AI with tool access, not a human.
 
 It works. Users love it. The architecture is solid.
 
@@ -131,22 +131,41 @@ The tricky part is migrating a running system. I can't just delete the 2TB zvol 
 
 **When ZFS is not available**: existing file-copy path, unchanged. Zero behavior change for deployments without ZFS.
 
-The dedup stays `on` for workspace data (git repos etc.) where genuine cross-session duplication exists. It goes `off` only on the Docker data zvols where clones already provide block sharing.
+## "OpenZFS Dedup Is Good. Don't Use It."
 
-## The Dedup Table Is Still Garbage Though
+There's a [Despair Labs blog post](https://despairlabs.com/blog/posts/2024-10-27-openzfs-dedup-is-good-dont-use-it/) from 2024 with that title. I read it at the time, nodded sagely, and then proceeded to use dedup anyway because I thought my workload was special. Reader, my workload was not special.
 
-I want to be clear about something. ZFS dedup — even the "fast dedup" (BRT-based, `feature@fast_dedup`) in 2.4.0 — is still, in my considered opinion after running it in production for months, a loaded footgun.
+ZFS dedup — even the "fast dedup" (BRT-based, `feature@fast_dedup`) that shipped in 2.4.0, which I'm running from the arter97 PPA on Ubuntu because I'm apparently the kind of person who runs bleeding-edge ZFS kernel modules in production — is still, after months of hands-on experience, exactly what that blog post title says. Good. Don't use it.
 
-The theory is beautiful. Automatic block-level deduplication! Space savings! The practice:
+The theory is beautiful. Automatic block-level deduplication! The practice:
 
-- **12GB of permanently pinned RAM** for the DDT. Not pageable. Not shrinkable. Just... there. On a 500GB machine.
+- **12GB of permanently pinned RAM** for the DDT. Not pageable. Not shrinkable. Just... there. On a 500GB machine. Thanks.
 - **4-6x write amplification** on every write, because every block needs a DDT hash lookup and potentially a DDT update.
 - **Minutes of tail writes** after operations complete, because the TXG sync flushes accumulated DDT changes.
 - **76ms zvol latency** during DDT flush, destroying the performance of everything else on the same pool.
 
-The fast dedup is faster than the old dedup. It's still slow. The BRT (Block Reference Table) replaced the old ZAP-based DDT, and it's genuinely better — but "better than terrible" isn't "good". Every write still goes through a hash-lookup-and-maybe-insert pipeline that adds latency you can measure with `iostat`.
+The fast dedup is faster than the old dedup. The BRT replaced the old ZAP-based DDT. It's genuinely better. But "better than terrible" is still "measurably bad". Every write still goes through a hash-lookup-and-maybe-insert pipeline that you can see clear as day in `iostat`.
 
-For our use case — N copies of essentially the same Docker data directory — dedup works brilliantly *for storage efficiency* and terribly *for I/O performance*. Clones give you the same storage efficiency with none of the I/O overhead, because the sharing is structural (snapshot references) rather than content-addressed (hash table lookups).
+For Docker data directories — N sessions that are all copies of the same golden cache — dedup works brilliantly for storage and terribly for I/O. Clones give you the same storage efficiency with none of the overhead, because sharing is structural (snapshot references) rather than content-addressed (hash table lookups).
+
+The Despair Labs title was right all along. I just had to learn it the hard way, with my own NVMe, at 3am, watching 400 MB/s of DDT writes scroll by in `iostat` while a user's build sat at 76ms per write.
+
+## Where Dedup Actually Earns Its Keep
+
+Here's the thing though — I'm not turning dedup off everywhere. The Docker data zvols get `dedup=off` because clones handle block sharing for free. But the *workspace* directories keep `dedup=on`.
+
+Why? Each agent session gets a fresh `git clone` of the user's repository. Not a `git fetch` into a shared bare repo, not a reference clone with alternates — a full, independent clone. We have to do it this way because each agent might be working on a different branch, the upstream might have force-pushed, and we can't trust that a shared git object store won't get corrupted by concurrent access from agents that are actively committing and pushing to different refs.
+
+So we have hundreds of sessions, each with a full clone of the same repo. The repos are typically 500MB-2GB. That's genuine content duplication across different filesystem paths that ZFS has no structural way to share — each clone is at a different path, created by a different `git clone` invocation. There's no snapshot relationship. The blocks just happen to be identical.
+
+This is the one use case where dedup actually earns its 12GB of DDT RAM: catching block-level duplicates across unrelated filesystem trees. The workspace volumes are also much smaller and lower-churn than Docker data directories, so the DDT write amplification is proportionally less painful.
+
+| Dataset | dedup | Why |
+|---------|-------|-----|
+| Golden/session zvols (Docker data) | `off` | Clones share blocks via snapshot. DDT adds only overhead. |
+| Workspace volumes (git repos) | `on` | Genuine cross-session duplication. No structural sharing possible. |
+
+Dedup is a scalpel, not a sledgehammer. I was using it as a sledgehammer.
 
 ## Why This Matters For Agent Infrastructure
 
@@ -168,6 +187,6 @@ Sometimes the obvious thing is obvious for a reason.
 
 ---
 
-*The implementation is at [github.com/helixml/helix](https://github.com/helixml/helix) on the `feature/zfs-clone-golden-cache` branch. 31 unit tests with mocked ZFS commands, because I'm not deploying this to production until I've convinced myself the promotion and crash-recovery paths actually work. The design doc with measured I/O profiles and flow diagrams is in `design/2026-03-16-zfs-clone-golden-cache.md`.*
+*The implementation is at [github.com/helixml/helix](https://github.com/helixml/helix) on the `feature/zfs-clone-golden-cache` branch. 43 unit tests with mocked ZFS commands and real `cp` operations, because I'm not deploying this to production until I've convinced myself the migration, promotion, and crash-recovery paths actually work. The design doc with measured I/O profiles and flow diagrams is in `design/2026-03-16-zfs-clone-golden-cache.md`.*
 
-*I'm Luke, I build [Helix](https://helix.ml). We make open-source AI coding agents that run in isolated desktop environments. If your agents need somewhere to live, come talk to us.*
+*I'm Luke, I build [Helix](https://helix.ml). We make source-available AI coding agents that run in isolated desktop environments. If your agents need somewhere to live, come talk to us.*
