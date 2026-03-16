@@ -38,7 +38,7 @@ ZFS dedup on top of this provides additional block-level sharing (3.97x ratio) �
 ## Constraints
 
 1. **Live migration** — must work on this running machine without downtime
-2. **Non-ZFS fallback** — Mac app ext4 deployments, cloud VMs, etc. must still work
+2. **Non-ZFS fallback** — cloud VMs without ZFS, bare-metal Linux with ext4, etc. must still work. (The Mac app VM does have ZFS — `init-zfs-pool.sh` creates a pool with zvols for container-docker storage.)
 3. **Docker overlay2 needs a real filesystem** — Docker's overlay2 driver cannot run directly on a ZFS dataset (it needs ext4 or XFS as backing). So we can't just use ZFS datasets.
 4. **Dedup stays on** — the user wants to keep dedup because without it, N copies of Docker data dirs would use N * 30GB of actual disk. The problem is the copy *operation*, not the dedup *storage*.
 5. **Hydra runs inside sandbox container** — it doesn't have direct ZFS access. ZFS commands must run on the host (or the sandbox needs ZFS privileges).
@@ -146,7 +146,7 @@ Sandbox container:
 
 **Cons**:
 - Another moving part to deploy and manage
-- Mac app deployments would need this daemon installed in the VM
+- Mac app VM deployments would need this daemon installed (though the VM already has ZFS, so Option D is simpler there)
 - Slightly more complex than just giving the sandbox ZFS access
 
 ### Option D: Hybrid — privileged sandbox with ZFS delegation
