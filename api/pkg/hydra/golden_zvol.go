@@ -17,10 +17,11 @@ import (
 // startup by cloning the golden zvol snapshot instead of copying millions of files.
 //
 // Layout:
-//   prod/container-docker                          ← parent dataset
-//     ├─ prod/container-docker/golden-prj_xxx      ← zvol per project (golden)
-//     │     └─ @gen42                              ← snapshot after golden build
-//     └─ prod/container-docker/ses-ses_yyy          ← zvol clone per session
+//
+//	prod/container-docker                          ← parent dataset
+//	  ├─ prod/container-docker/golden-prj_xxx      ← zvol per project (golden)
+//	  │     └─ @gen42                              ← snapshot after golden build
+//	  └─ prod/container-docker/ses-ses_yyy          ← zvol clone per session
 //
 // Each zvol has XFS formatted on it. Clones share blocks with the snapshot
 // at the ZFS level (no DDT involvement, no metadata copy).
@@ -44,12 +45,41 @@ var (
 	zfsParentDataset string
 )
 
+// Command execution functions — override in tests for mocking.
+var (
+	// execCmdOutput runs a command and returns its stdout.
+	execCmdOutput = func(name string, args ...string) ([]byte, error) {
+		return exec.Command(name, args...).Output()
+	}
+
+	// execCmdCombinedOutput runs a command and returns combined stdout+stderr.
+	execCmdCombinedOutput = func(name string, args ...string) ([]byte, error) {
+		return exec.Command(name, args...).CombinedOutput()
+	}
+
+	// execCmdRun runs a command and returns only the error.
+	execCmdRun = func(name string, args ...string) error {
+		return exec.Command(name, args...).Run()
+	}
+
+	// readMountsFile reads the mount info file. Override in tests.
+	readMountsFile = func() ([]byte, error) {
+		return os.ReadFile("/proc/mounts")
+	}
+
+	// evalSymlinks resolves symlinks. Override in tests.
+	evalSymlinks = filepath.EvalSymlinks
+
+	// osMkdirAll creates directories. Override in tests.
+	osMkdirAll = os.MkdirAll
+)
+
 // ZFSAvailable returns true if ZFS commands work in this environment.
 // Result is cached after first call.
 func ZFSAvailable() bool {
 	zfsAvailableOnce.Do(func() {
 		// Check if zfs binary exists and can list datasets
-		out, err := exec.Command("zfs", "list", "-H", "-o", "name").CombinedOutput()
+		out, err := execCmdCombinedOutput("zfs", "list", "-H", "-o", "name")
 		if err != nil {
 			log.Info().Err(err).Str("output", string(out)).
 				Msg("ZFS not available, will use file-copy fallback for golden cache")
@@ -72,6 +102,13 @@ func ZFSAvailable() bool {
 	return zfsAvailableFlag
 }
 
+// resetZFSState resets cached ZFS state. Only for tests.
+func resetZFSState() {
+	zfsAvailableOnce = sync.Once{}
+	zfsAvailableFlag = false
+	zfsParentDataset = ""
+}
+
 // detectParentDataset finds the ZFS dataset that backs /container-docker.
 // We look for a zvol whose mount point (via the block device) matches.
 func detectParentDataset() string {
@@ -81,7 +118,7 @@ func detectParentDataset() string {
 	}
 
 	// Find which device is mounted at CONTAINER_DOCKER_PATH
-	mountData, err := os.ReadFile("/proc/mounts")
+	mountData, err := readMountsFile()
 	if err != nil {
 		return ""
 	}
@@ -110,18 +147,18 @@ func detectParentDataset() string {
 			}
 
 			// If it's a /dev/zd* device, resolve via zfs
-			out, err := exec.Command("zfs", "list", "-H", "-o", "name", "-t", "volume").Output()
+			out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume")
 			if err != nil {
 				return ""
 			}
 			for _, zvol := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 				zvolDev := fmt.Sprintf("/dev/zvol/%s", zvol)
 				// Check if this zvol's device matches
-				realDev, err := filepath.EvalSymlinks(zvolDev)
+				realDev, err := evalSymlinks(zvolDev)
 				if err != nil {
 					continue
 				}
-				realMountDev, err := filepath.EvalSymlinks(dev)
+				realMountDev, err := evalSymlinks(dev)
 				if err != nil {
 					realMountDev = dev
 				}
@@ -164,22 +201,20 @@ func zvolDevPath(zvolName string) string {
 
 // zfsDatasetExists checks if a ZFS dataset (volume, filesystem, or snapshot) exists.
 func zfsDatasetExists(name string) bool {
-	err := exec.Command("zfs", "list", "-H", "-o", "name", name).Run()
-	return err == nil
+	return execCmdRun("zfs", "list", "-H", "-o", "name", name) == nil
 }
 
 // zfsSnapshotExists checks if a ZFS snapshot exists.
 func zfsSnapshotExists(name string) bool {
-	err := exec.Command("zfs", "list", "-H", "-t", "snapshot", "-o", "name", name).Run()
-	return err == nil
+	return execCmdRun("zfs", "list", "-H", "-t", "snapshot", "-o", "name", name) == nil
 }
 
 // latestGoldenSnapshot returns the latest snapshot name for a project's golden zvol,
 // or empty string if none exists.
 func latestGoldenSnapshot(projectID string) string {
 	zvol := goldenZvolName(projectID)
-	out, err := exec.Command("zfs", "list", "-H", "-t", "snapshot", "-o", "name",
-		"-s", "creation", "-r", zvol).Output()
+	out, err := execCmdOutput("zfs", "list", "-H", "-t", "snapshot", "-o", "name",
+		"-s", "creation", "-r", zvol)
 	if err != nil {
 		return ""
 	}
@@ -342,7 +377,7 @@ func PromoteSessionToGoldenZvol(projectID, sessionID string) error {
 		// Destroy old snapshots on the (now-promoted) clone that reference the old golden
 		// The promote flipped the parent-child relationship, so old golden's snapshots
 		// are now children of the promoted clone.
-		out, _ := exec.Command("zfs", "list", "-H", "-t", "snapshot", "-o", "name", "-r", cloneName).Output()
+		out, _ := execCmdOutput("zfs", "list", "-H", "-t", "snapshot", "-o", "name", "-r", cloneName)
 		for _, snap := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 			if snap != "" {
 				_ = runCmd("zfs", "destroy", snap)
@@ -513,7 +548,7 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 	}
 
 	prefix := zfsParentDataset + "/ses-"
-	out, err := exec.Command("zfs", "list", "-H", "-o", "name", "-t", "volume", "-r", zfsParentDataset).Output()
+	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume", "-r", zfsParentDataset)
 	if err != nil {
 		return 0, err
 	}
@@ -569,14 +604,9 @@ const seedCompleteMarker = ".zvol-seed-complete"
 // Crash tolerant: if the API crashes mid-copy, the completion marker won't exist.
 // On restart, we wipe the partial contents and re-copy from scratch.
 func seedZvolFromGoldenDir(projectID, zvolMountPath string) error {
-	src := goldenDir(projectID) // /container-docker/golden/{projectID}/docker/
-	if _, err := os.Stat(src); err != nil {
-		return fmt.Errorf("golden dir %s not found: %w", src, err)
-	}
-
 	markerPath := filepath.Join(zvolMountPath, seedCompleteMarker)
 
-	// Already seeded (previous run completed successfully)
+	// Already seeded (previous run completed successfully) — skip everything
 	if _, err := os.Stat(markerPath); err == nil {
 		log.Info().
 			Str("project_id", projectID).
@@ -596,6 +626,11 @@ func seedZvolFromGoldenDir(projectID, zvolMountPath string) error {
 		for _, e := range entries {
 			os.RemoveAll(filepath.Join(zvolMountPath, e.Name()))
 		}
+	}
+
+	src := goldenDir(projectID) // /container-docker/golden/{projectID}/docker/
+	if _, err := os.Stat(src); err != nil {
+		return fmt.Errorf("golden dir %s not found: %w", src, err)
 	}
 
 	start := time.Now()
@@ -625,7 +660,7 @@ func seedZvolFromGoldenDir(projectID, zvolMountPath string) error {
 
 // mountZvol mounts a zvol at the given path.
 func mountZvol(zvolName, mountPath string) error {
-	if err := os.MkdirAll(mountPath, 0755); err != nil {
+	if err := osMkdirAll(mountPath, 0755); err != nil {
 		return fmt.Errorf("failed to create mount point %s: %w", mountPath, err)
 	}
 	devPath := zvolDevPath(zvolName)
@@ -634,14 +669,12 @@ func mountZvol(zvolName, mountPath string) error {
 
 // isMounted checks if a path is a mount point.
 func isMounted(path string) bool {
-	err := exec.Command("mountpoint", "-q", path).Run()
-	return err == nil
+	return execCmdRun("mountpoint", "-q", path) == nil
 }
 
 // runCmd runs a command and returns an error with the command's stderr on failure.
 func runCmd(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	out, err := cmd.CombinedOutput()
+	out, err := execCmdCombinedOutput(name, args...)
 	if err != nil {
 		return fmt.Errorf("%s %s: %w (output: %s)", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
