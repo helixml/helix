@@ -87,7 +87,7 @@ func (s *PostgresStore) GetProviderEndpoint(ctx context.Context, q *GetProviderE
 
 func (s *PostgresStore) ListProviderEndpoints(ctx context.Context, q *ListProviderEndpointsQuery) ([]*types.ProviderEndpoint, error) {
 	var providerEndpoints []*types.ProviderEndpoint
-	query := s.gdb.Debug().WithContext(ctx)
+	query := s.gdb.WithContext(ctx)
 
 	// If all is true, load all endpoints
 	if q.All {

@@ -44,7 +44,7 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 	// with OpenAI-compatible providers (Ollama, OpenRouter, etc.).
 	// Agent tasks with non-Anthropic providers should route through /v1/chat/completions
 	// via the Zed config (see mapHelixToZedProvider in zed_config.go).
-	if endpoint.Name != string(types.ProviderAnthropic) && !isAnthropicCompatible(endpoint) {
+	if !isAnthropicCompatible(endpoint) {
 		log.Warn().
 			Str("provider", endpoint.Name).
 			Str("base_url", endpoint.BaseURL).
