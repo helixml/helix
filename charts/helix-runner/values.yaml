@@ -10,7 +10,7 @@ replicaCount: 1
 deploymentStrategy: "auto"
 
 image:
-  repository: registry.helixml.tech/helix/runner
+  repository: ghcr.io/helixml/runner
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""

@@ -36,7 +36,7 @@ podDisruptionBudget:
   # maxUnavailable: 1
 
 image:
-  repository: registry.helixml.tech/helix/helix-sandbox
+  repository: ghcr.io/helixml/helix-sandbox
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""
@@ -89,7 +89,7 @@ desktopImages:
   # Registry to pull desktop images from
   # Default uses Helix public registry
   # For enterprise/air-gapped: set to your internal registry
-  registry: "registry.helixml.tech"
+  registry: "ghcr.io"
 
   # Default desktop image to use
   # Options: helix-sway (Sway compositor), helix-ubuntu (GNOME)
