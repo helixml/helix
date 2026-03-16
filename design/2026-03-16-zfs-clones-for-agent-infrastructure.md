@@ -175,6 +175,24 @@ Every session start was a 6-minute I/O storm. 5 minutes of golden copy plus 3 mi
 
 With zvol clones: session start is sub-second. No DDT involvement. No write amplification. The NVMe is available for actual container workloads instead of shuffling metadata.
 
+## Wait. What About The Workspaces?
+
+I was about to wrap up this post when the obvious follow-up hit me.
+
+I just explained that clones beat dedup for Docker data because we *know* the data is a copy — we're literally copying a golden snapshot. And I justified keeping dedup on for workspace volumes because "each session does a fresh `git clone`, the blocks just happen to be identical, there's no structural relationship."
+
+But... why are we doing fresh `git clone` every time?
+
+What if we had a "golden workspace" too? Pre-clone the repo once into a ZFS dataset — not a zvol, just a regular dataset, because git doesn't need XFS or ext4 the way Docker does. Snapshot it. Clone the dataset per session. Then `git pull` instead of `git clone`.
+
+A `git pull` on a repo that's a few commits behind is seconds, not minutes. And the ZFS clone shares all the unchanged objects at the block level — the entire `.git/objects` directory is shared copy-on-write until the agent writes something new. No DDT needed. No dedup overhead. Just... clones again. The same trick that works for Docker data works for git data. We just use ZFS datasets instead of zvols because there's no Docker overlay2 in the way.
+
+This would let us turn off dedup *entirely*. The only reason it's still on is the workspace volumes. If workspaces use clones too, the DDT goes to zero. All 12GB of pinned RAM freed. All write amplification gone. The entire pool runs at native NVMe speed.
+
+I haven't built this yet. But I'm going to. The golden workspace is essentially the same pattern as the golden Docker cache — snapshot a known-good state, clone per session, let ZFS handle the sharing. The implementation would be simpler, actually, since regular ZFS datasets don't need the zvol→mkfs→mount dance.
+
+Sometimes you solve one problem and the solution illuminates the next one.
+
 ## The Uncomfortable Truth About "Simple" Storage
 
 I spent months running a system where the storage architecture was quietly making everything 10x slower than it needed to be. The reflinks were "working" — no errors, data was shared, everything was correct. The dedup was "working" — 3.92x ratio, exactly as advertised. Every individual component was doing its job.
