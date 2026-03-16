@@ -101,13 +101,14 @@ func wrapNotFound(err error) error {
 
 // RegisterRepository registers a repository with Kodit for indexing.
 // Returns the source ID (int64), whether it was newly created, and any error.
-func (s *KoditService) RegisterRepository(ctx context.Context, cloneURL string) (int64, bool, error) {
+func (s *KoditService) RegisterRepository(ctx context.Context, cloneURL, upstreamURL string) (int64, bool, error) {
 	if !s.enabled {
 		return 0, false, fmt.Errorf("kodit service not enabled")
 	}
 
 	source, isNew, err := s.client.Repositories.Add(ctx, &service.RepositoryAddParams{
-		URL: cloneURL,
+		URL:         cloneURL,
+		UpstreamURL: upstreamURL,
 	})
 	if err != nil {
 		return 0, false, fmt.Errorf("failed to register repository: %w", err)

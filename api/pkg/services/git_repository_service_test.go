@@ -40,7 +40,7 @@ type fakeKodit struct {
 
 func (f *fakeKodit) IsEnabled() bool          { return f.enabled }
 func (f *fakeKodit) MCPDocumentation() string { return "" }
-func (f *fakeKodit) RegisterRepository(_ context.Context, _ string) (int64, bool, error) {
+func (f *fakeKodit) RegisterRepository(_ context.Context, _, _ string) (int64, bool, error) {
 	return 0, false, f.err
 }
 func (f *fakeKodit) DeleteRepository(_ context.Context, id int64) error {
