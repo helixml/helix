@@ -503,3 +503,154 @@ The ZFS clone approach addresses the root cause: we stop copying 30-60GB of meta
 - Per-zvol filesystem instances mean smaller inode caches (no 90GB XFS slab)
 - Session cleanup is `zfs destroy` (instant) instead of `rm -rf` (traverses millions of inodes)
 - Dedup explicitly `off` on golden/session zvols — clones provide the same block sharing without the DDT cost. Dedup stays `on` only for workspace/git data where cross-session duplication is genuine
+
+## Flow Diagrams
+
+### Session Startup — resolveDockerDataDir()
+
+```
+                         resolveDockerDataDir()
+                        (called on every session start)
+                                  │
+                           ZFSAvailable()?
+                            ╱           ╲
+                          yes            no
+                         ╱                 ╲
+                        ▼                   ▼
+           ┌─────────────────┐   ┌──────────────────────┐
+           │  ZFS PATH       │   │  FILE-COPY PATH      │
+           │  (meta.helix.ml │   │  (prod SaaS,         │
+           │   Mac app VM)   │   │   bare-metal no ZFS) │
+           └────────┬────────┘   └──────────┬───────────┘
+                    │                       │
+           GoldenZvolExists()?       GoldenExists()?
+            ╱      │       ╲          ╱          ╲
+          yes    no+old    no+none  yes           no
+           │    golden dir  │        │             │
+           │       │        │        ▼             ▼
+           │       │        │  cp -a --reflink   empty
+           │       │        │  =auto (~5 min)    bind mount
+           ▼       ▼        ▼
+         ┌───┐  ┌─────┐  ┌─────┐
+         │ A │  │  B  │  │  C  │
+         └───┘  └─────┘  └─────┘
+
+ A: INSTANT CLONE (steady state, <1 second)
+    SetupGoldenClone() → zfs clone golden@genN → ses-ses_yyy → mount
+
+ B: INLINE MIGRATION (one-time per project, ~5 min, blocks concurrent sessions)
+    MigrateGoldenToZvol() → create zvol → seed from old dir → snapshot
+    Then: SetupGoldenClone() → instant clone
+
+ C: FRESH ZVOL (no golden cache anywhere, ~2 seconds)
+    CreateSessionZvol() → create zvol → mkfs.xfs → mount (cold start)
+```
+
+### Golden Build Flow
+
+```
+Golden build starts → resolveDockerDataDir(GoldenBuild=true)
+                              │
+                       ZFSAvailable()?
+                        ╱           ╲
+                      yes            no → old file-copy golden build path
+                       │
+                GoldenZvolExists()?
+                 ╱           ╲
+               yes            no
+                │              │
+         clone from golden   CreateSessionZvol()
+         (incremental          │
+          rebuild)             ├── old golden dir? → seedZvolFromGoldenDir()
+                │              │
+                ▼              ▼
+           Build runs inside container on the zvol
+                        │
+                   Build succeeds?
+                    ╱         ╲
+                  yes          no → CleanupSessionZvol() + CleanupSessionDockerDir()
+                   │
+            session on zvol?
+             ╱         ╲
+           yes          no → PromoteSessionToGolden() (old dir rename)
+            │
+     PromoteSessionToGoldenZvol()
+            │
+            ├── acquire golden write lock
+            ├── umount session clone
+            │
+            ├── golden zvol exists? (rebuild)
+            │    ├── zfs promote clone
+            │    ├── destroy old snapshots
+            │    ├── zfs destroy -r old golden
+            │    └── zfs rename clone → golden
+            │
+            ├── no golden zvol? (first build)
+            │    └── zfs rename session → golden
+            │
+            ├── mount golden, purge containers, write version.json, umount
+            └── zfs snapshot golden-prj_xxx@genN
+```
+
+### Inline Migration — Concurrency
+
+```
+Session A ──→ GoldenZvolExists()? NO ──→ MigrateGoldenToZvol()
+                                              │
+                                         acquire lock ✓
+                                              │
+Session B ──→ GoldenZvolExists()? NO ──→ MigrateGoldenToZvol()
+                                              │
+                                         acquire lock ✗ BLOCKS
+                                              │
+Session C ──→ GoldenZvolExists()? NO ──→ MigrateGoldenToZvol()
+                                              │
+                                         acquire lock ✗ BLOCKS
+
+                    ... Session A migrating (~5 min) ...
+
+Session A: seed complete → snapshot → release lock ──→ SetupGoldenClone() ✓
+
+Session B: acquire lock ✓ → GoldenZvolExists()? YES → return ──→ SetupGoldenClone() ✓
+Session C: acquire lock ✓ → GoldenZvolExists()? YES → return ──→ SetupGoldenClone() ✓
+```
+
+### Cleanup & GC
+
+```
+GCOrphanedSessions() — runs every 10 minutes
+        │
+        ├── GCOrphanedSessionDirs()          old file-based session dirs
+        ├── GCStaleGoldenDirs()              old .old dirs, stale locks
+        │
+        └── ZFSAvailable()?
+              │
+              ├── GCOrphanedZvols(activeSessions)
+              │     for each prod/ses-* zvol:
+              │       active? → skip
+              │       .last-active < 7 days? → skip
+              │       else → CleanupSessionZvol() (umount + zfs destroy)
+              │
+              └── GCMigratedGoldenDirs()
+                    for each dir in /container-docker/golden/:
+                      GoldenZvolExists()? YES → rm -rf old dir
+                                          NO  → keep (not migrated yet)
+```
+
+### ZFS Dataset Layout (after migration)
+
+```
+prod                                          pool / parent dataset
+├── prod/container-docker                     OLD: 2TB zvol, dedup=on (draining)
+├── prod/golden-prj_01kg02...                 NEW: 500G zvol, dedup=OFF, XFS
+│   ├── @gen1                                 snapshot (immutable)
+│   └── @gen2                                 newer snapshot after rebuild
+├── prod/ses-ses_aaa                          clone of @gen2 (instant, CoW)
+├── prod/ses-ses_bbb                          another clone
+├── prod/ses-ses_ccc                          another clone
+└── prod/docker                               host Docker (unchanged)
+
+Block sharing: clones share ALL blocks with snapshot at ZFS level.
+No DDT. No metadata copy. No write amplification.
+Each clone has its own XFS instance → no 90GB shared inode slab.
+```
