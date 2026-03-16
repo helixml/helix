@@ -305,12 +305,6 @@ func (s *PostgresStore) runMigrations() error {
 		log.Err(err).Msg("failed to add DB FK for project_repositories -> git_repositories")
 	}
 
-	// Migrate existing project_id values to junction table
-	if err := s.migrateProjectRepositories(context.Background()); err != nil {
-		log.Err(err).Msg("failed to migrate project repositories to junction table")
-		// Don't return error - this is a one-time migration, data will be migrated on next startup
-	}
-
 	// Ensure default project exists for spec tasks
 	if err := s.ensureDefaultProject(context.Background()); err != nil {
 		log.Err(err).Msg("failed to ensure default project exists")
