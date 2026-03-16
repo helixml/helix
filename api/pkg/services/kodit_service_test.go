@@ -24,7 +24,7 @@ func TestDisabledServiceMethods(t *testing.T) {
 	ctx := t.Context()
 
 	// RegisterRepository returns an error when disabled.
-	id, isNew, err := svc.RegisterRepository(ctx, "https://example.com/repo.git")
+	id, isNew, err := svc.RegisterRepository(ctx, "https://example.com/repo.git", "")
 	if err == nil || id != 0 || isNew {
 		t.Errorf("RegisterRepository: want (0, false, error), got (%d, %v, %v)", id, isNew, err)
 	}
