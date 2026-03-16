@@ -352,26 +352,79 @@ sudo zfs snapshot prod/container-docker-v2/golden-prj_xxx@gen1
 
 5. **Sandbox image size**: Adding `zfsutils-linux` to the sandbox image adds ~20MB. Acceptable.
 
-## Current Machine Performance Snapshot (2026-03-16)
+## Measured Performance (2026-03-16)
 
-For reference — this is what we're trying to fix:
+### System State
 
 | Metric | Value | Problem? |
 |--------|-------|----------|
-| iowait | 44% | Yes — nearly half of CPU time waiting on disk |
-| Swap used | 8.3GB / 8.4GB (99%) | Yes — thrashing |
-| Slab total | 278GB / 500GB RAM | Yes — 56% of RAM in kernel slab |
-| SUnreclaim | 113GB | Yes — unpageable kernel memory |
-| xfs_inode slab | 90GB (88.5M objects) | Yes — one XFS instance caching all sessions' inodes |
-| dentry slab | 26GB (136M objects) | Related to above |
-| DDT in-core | 12.1GB (44.5M entries) | Contributes to unreclaimable slab |
-| ZFS ARC | 41GB | Reclaimable, but large |
-| Dedup ratio | 3.97x | Good ratio, but the DDT cost is too high |
-| nvme2n1 | Only disk with I/O; nvme1n1, nvme3n1 idle | Wasted capacity |
+| ZFS version | 2.4.0 (arter97 PPA, bleeding edge) | `feature@fast_dedup` active |
+| Dedup ratio | 3.97x (44.5M DDT entries, 15.5GB on disk) | Good ratio, high overhead |
+| Slab total | 278GB / 500GB RAM (56%) | xfs_inode 90GB, dentry 26GB, DDT+ARC ~50GB |
+| SUnreclaim | 113GB | Unpageable kernel memory |
+| Swap used | 6-8GB / 8.4GB | Thrashing when under I/O load |
+| nvme1n1, nvme3n1 | Idle (3.6TB + 1.8TB unused) | Wasted capacity |
 
-The ZFS clone approach addresses the root cause: we stop copying 30-60GB of data per session, which means:
-- No write amplification on session start
-- DDT stops growing (clones share blocks via snapshot, not dedup)
-- Could eventually reduce dedup overhead if cross-project sharing isn't needed
-- Per-zvol XFS/ext4 instances mean smaller inode caches per filesystem
+### Golden Cache Copy (59GB, 1.3M files + 198K dirs + 48K symlinks)
+
+| Measurement | Value |
+|-------------|-------|
+| Single-file reflink (413MB) | **3ms** — reflinks work perfectly |
+| Full `cp -a --reflink=auto` (warm cache) | **5 min 48 sec** |
+| sys time during copy | 2 min 53 sec (almost all metadata creation) |
+| zd16 (XFS zvol) writes during copy | 140-170 MB/s, 10-19K ops/sec |
+| nvme2n1 (ZFS pool) writes during copy | 400-800 MB/s |
+| Write amplification ratio | **4-6x** (pool writes vs zvol writes) |
+| DDT tail writes after copy completes | Continues **3+ minutes** at 30-90% util |
+
+### DDT Write Amplification Explained
+
+The dedup table (DDT) is a hash table mapping block checksums to their locations on disk. With `dedup=on`, every block written to the zvol triggers:
+
+1. **Hash computation** — ZFS checksums the block
+2. **DDT lookup** — search the 15.5GB on-disk DDT for a matching hash
+3. **If duplicate**: increment refcount in DDT entry (small write)
+4. **If unique**: write the block + insert a new DDT entry (two writes)
+5. **TXG sync** — every 5s, ZFS flushes accumulated DDT changes as a batch write
+
+Even though XFS reflinks avoid copying file *data* (the data blocks are shared at the XFS level), the copy still creates ~1.5M new filesystem metadata objects (inodes, dentries, xattrs). Each metadata block is a fresh write to the zvol, which goes through the full DDT pipeline. Since these metadata blocks are unique (they contain session-specific inode numbers, timestamps, etc.), they all create new DDT entries — no dedup benefit, just overhead.
+
+The result: a golden copy that writes ~20GB of metadata to the XFS zvol causes ~100GB of I/O to the backing NVMe due to DDT operations. The DDT writes then continue for minutes after the copy completes as ZFS flushes its in-memory DDT log to disk.
+
+### Spectask Startup I/O Profile (measured live)
+
+Started a spectask and traced I/O for 3 minutes:
+
+```
+14:40:20  nvme2n1: w=150 MB/s (golden copy + DDT)     zd16: w=143 MB/s
+14:40:30  nvme2n1: w=140 MB/s                          zd16: w=148 MB/s
+14:40:40  nvme2n1: w=150 MB/s                          zd16: w= 69 MB/s
+14:40:51  nvme2n1: w=400 MB/s (DDT catching up)        zd16: w=  0 MB/s (copy done)
+14:41:01  nvme2n1: w=230 MB/s (still DDT)              zd16: w=  0 MB/s
+14:41:12  nvme2n1: w=250 MB/s                          zd16: w=  0 MB/s
+...
+14:43:00  nvme2n1: w=  3 MB/s, util=56% (DDT tail)     zd16: w=  0 MB/s
+14:44:00  nvme2n1: w=  4 MB/s, util=81%                zd16: w=  0 MB/s
+14:45:00  nvme2n1: w=  2 MB/s, util=66%                zd16: w=  0 MB/s
+```
+
+Key observations:
+- Golden copy itself takes ~30-40s to write to zd16
+- DDT writes to nvme2n1 **continue for 3+ minutes** after the copy finishes
+- During DDT flush, zd16 w_await spikes to **76ms** (normally <1ms) — the contention between DDT I/O and zvol I/O on the same physical NVMe makes the container's filesystem slow
+- No userspace process shows significant I/O in `pidstat` — it's all kernel-level ZFS activity
+
+### Why This Matters for the Build Inside the Container
+
+The build running inside the desktop container writes to zd16 (its inner Docker overlay2 on the XFS zvol). When ZFS is simultaneously flushing DDT entries to nvme2n1, the zvol's write latency spikes 76x (from ~1ms to 76ms). This makes `docker build`, `npm install`, `go build` etc. inside the container feel sluggish even though the container's own I/O is modest.
+
+### What ZFS Clones Would Change
+
+The ZFS clone approach addresses the root cause: we stop copying 30-60GB of metadata per session, which means:
+- **Clone is O(1)** — one ZFS metadata operation instead of 1.5M inode/dentry creates
+- **No DDT entries created** — cloned blocks share via snapshot reference, not dedup hash
+- **No DDT tail writes** — nothing to flush
+- **No zvol contention** — container I/O latency stays at ~1ms
+- Per-zvol filesystem instances mean smaller inode caches (no 90GB XFS slab)
 - Session cleanup is `zfs destroy` (instant) instead of `rm -rf` (traverses millions of inodes)
+- Could eventually turn off dedup entirely — clones provide the same sharing without the DDT cost
