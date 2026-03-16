@@ -25,8 +25,8 @@
 
 ## Testing
 
-- [ ] Test assigning a member to a task
-- [ ] Test unassigning (setting to null)
-- [ ] Test reassigning to different member
-- [ ] Verify assignment persists after page reload
-- [ ] Verify non-org-member cannot be assigned (API validation)
+- [x] Test assigning a member to a task
+- [x] Test unassigning (setting to null)
+- [x] Test reassigning to different member
+- [x] Verify assignment persists after page reload
+- [x] Verify non-org-member cannot be assigned (API validation)

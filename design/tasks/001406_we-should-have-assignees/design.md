@@ -67,3 +67,26 @@ TaskCard click → AssigneeSelector popover → select member →
 - Assignee must be an organization member (validate on backend)
 - Only users with project write access can change assignees
 - Uses existing `authorizeUserToProjectByID` check in update handler
+
+## Implementation Notes
+
+### Files Modified
+
+**Backend:**
+- `api/pkg/types/simple_spec_task.go` - Added `AssigneeID` field to SpecTask and SpecTaskUpdateRequest
+- `api/pkg/server/spec_driven_task_handlers.go` - Added assignee update handling with org membership validation
+
+**Frontend:**
+- `frontend/src/components/tasks/AssigneeSelector.tsx` - New component for assignee selection popover
+- `frontend/src/components/tasks/TaskCard.tsx` - Added assignee avatar display and selector integration
+
+### Patterns Used
+
+- **Organization members from account context**: Reused `account.organizationTools.organization.memberships` instead of creating new API calls
+- **Existing mutation pattern**: Used `useUpdateSpecTask` mutation which already handles task updates
+- **Pointer type for nullable**: Used `*string` in Go to allow clearing assignee with empty string
+
+### Gotchas
+
+- The swagger-typescript-api generator needs `--extract-response-body --extract-request-body` flags (NOT `--no-client`) to preserve the Api class export
+- TaskCard uses `useMemo` to find assigned member from org members list - avoids unnecessary re-renders
