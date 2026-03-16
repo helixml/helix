@@ -76,6 +76,9 @@ import {
   useCloneGroups,
   useZedThreads,
   useSpecTasks,
+  useProjectLabels,
+  useAddLabel,
+  useRemoveLabel,
 } from "../../services/specTaskService";
 import {
   useGetProject,
@@ -148,6 +151,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     withDependsOn: true,
     enabled: !!task?.project_id,
   });
+
+  // Label state
+  const { data: projectLabels = [] } = useProjectLabels(
+    task?.project_id || "",
+  );
+  const addLabelMutation = useAddLabel();
+  const removeLabelMutation = useRemoveLabel();
+  const [labelInput, setLabelInput] = useState("");
 
   // Fetch zed threads for thread switching
   const { data: zedThreadsData } = useZedThreads(taskId);
@@ -1052,6 +1063,56 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             />
           </>
         )}
+      </Box>
+
+      {/* Labels */}
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          Labels
+        </Typography>
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 1 }}>
+          {(task?.labels || []).map((label) => (
+            <Chip
+              key={label}
+              label={label}
+              size="small"
+              onDelete={() =>
+                removeLabelMutation.mutate({ taskId, label })
+              }
+            />
+          ))}
+        </Box>
+        <Autocomplete
+          freeSolo
+          options={projectLabels.filter(
+            (l) => !(task?.labels || []).includes(l),
+          )}
+          inputValue={labelInput}
+          onInputChange={(_, value) => setLabelInput(value)}
+          onChange={(_, value) => {
+            if (value && typeof value === "string" && value.trim()) {
+              addLabelMutation.mutate({ taskId, label: value.trim() });
+              setLabelInput("");
+            }
+          }}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              size="small"
+              placeholder="Add label..."
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && labelInput.trim()) {
+                  e.preventDefault();
+                  addLabelMutation.mutate({
+                    taskId,
+                    label: labelInput.trim(),
+                  });
+                  setLabelInput("");
+                }
+              }}
+            />
+          )}
+        />
       </Box>
 
       <Box sx={{ mb: 4 }}>

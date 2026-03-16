@@ -23,8 +23,13 @@ const QUERY_KEYS = {
     projectId?: string,
     archivedOnly?: boolean,
     withDependsOn?: boolean,
+    labels?: string[],
   ) =>
-    ["spec-tasks", "list", { projectId, archivedOnly, withDependsOn }] as const,
+    [
+      "spec-tasks",
+      "list",
+      { projectId, archivedOnly, withDependsOn, labels },
+    ] as const,
   specTask: (id: string) => ["spec-tasks", id] as const,
   specTaskUsage: (id: string) => ["spec-tasks", id, "usage"] as const,
   taskProgress: (id: string) => ["spec-tasks", id, "progress"] as const,
@@ -48,6 +53,8 @@ const QUERY_KEYS = {
     ["projects", projectId, "tasks-progress"] as const,
   batchTaskUsage: (projectId: string) =>
     ["projects", projectId, "tasks-usage"] as const,
+  projectLabels: (projectId: string) =>
+    ["projects", projectId, "labels"] as const,
 };
 
 // Hook to fetch all spec tasks with react-query
@@ -55,6 +62,7 @@ export function useSpecTasks(options?: {
   projectId?: string;
   archivedOnly?: boolean;
   withDependsOn?: boolean;
+  labels?: string[];
   enabled?: boolean;
   refetchInterval?: number | false;
 }) {
@@ -65,12 +73,17 @@ export function useSpecTasks(options?: {
       options?.projectId,
       options?.archivedOnly,
       options?.withDependsOn,
+      options?.labels,
     ),
     queryFn: async () => {
       const response = await api.getApiClient().v1SpecTasksList({
         project_id: options?.projectId || "default",
         include_archived: options?.archivedOnly,
         with_depends_on: options?.withDependsOn,
+        labels:
+          options?.labels && options.labels.length > 0
+            ? options.labels.join(",")
+            : undefined,
       });
       return response.data || [];
     },
@@ -368,6 +381,79 @@ export function useCloneTask() {
   });
 }
 
+export function useProjectLabels(projectId: string) {
+  const api = useApi();
+
+  return useQuery({
+    queryKey: QUERY_KEYS.projectLabels(projectId),
+    queryFn: async () => {
+      const response = await api
+        .getApiClient()
+        .v1ProjectsLabelsDetail(projectId);
+      return (response.data as string[]) || [];
+    },
+    enabled: !!projectId,
+  });
+}
+
+export function useAddLabel() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      taskId,
+      label,
+    }: {
+      taskId: string;
+      label: string;
+    }) => {
+      const response = await api
+        .getApiClient()
+        .v1SpecTasksLabelsCreate(taskId, { label });
+      return response.data;
+    },
+    onSuccess: (data, { taskId }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTasksBase });
+      if (data?.project_id) {
+        queryClient.invalidateQueries({
+          queryKey: QUERY_KEYS.projectLabels(data.project_id),
+        });
+      }
+    },
+  });
+}
+
+export function useRemoveLabel() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      taskId,
+      label,
+    }: {
+      taskId: string;
+      label: string;
+    }) => {
+      const response = await api
+        .getApiClient()
+        .v1SpecTasksLabelsDelete(taskId, label);
+      return response.data;
+    },
+    onSuccess: (data, { taskId }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTasksBase });
+      if (data?.project_id) {
+        queryClient.invalidateQueries({
+          queryKey: QUERY_KEYS.projectLabels(data.project_id),
+        });
+      }
+    },
+  });
+}
+
 export function useDeleteSpecTask() {
   const api = useApi();
   const queryClient = useQueryClient();
@@ -442,6 +528,11 @@ const specTaskService = {
   useCloneGroups,
   useCloneGroupProgress,
   useReposWithoutProjects,
+
+  // Label hooks
+  useProjectLabels,
+  useAddLabel,
+  useRemoveLabel,
 
   // Mutation functions
   useUpdateSpecTask,

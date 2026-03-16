@@ -4238,6 +4238,49 @@ func (mr *MockStoreMockRecorder) ListSpecTasks(ctx, filters any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSpecTasks", reflect.TypeOf((*MockStore)(nil).ListSpecTasks), ctx, filters)
 }
 
+// ListProjectLabels mocks base method.
+func (m *MockStore) ListProjectLabels(ctx context.Context, projectID string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListProjectLabels", ctx, projectID)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListProjectLabels indicates an expected call of ListProjectLabels.
+func (mr *MockStoreMockRecorder) ListProjectLabels(ctx, projectID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProjectLabels", reflect.TypeOf((*MockStore)(nil).ListProjectLabels), ctx, projectID)
+}
+
+// AddSpecTaskLabel mocks base method.
+func (m *MockStore) AddSpecTaskLabel(ctx context.Context, taskID string, label string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddSpecTaskLabel", ctx, taskID, label)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AddSpecTaskLabel indicates an expected call of AddSpecTaskLabel.
+func (mr *MockStoreMockRecorder) AddSpecTaskLabel(ctx, taskID, label any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddSpecTaskLabel", reflect.TypeOf((*MockStore)(nil).AddSpecTaskLabel), ctx, taskID, label)
+}
+
+// RemoveSpecTaskLabel mocks base method.
+func (m *MockStore) RemoveSpecTaskLabel(ctx context.Context, taskID string, label string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveSpecTaskLabel", ctx, taskID, label)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RemoveSpecTaskLabel indicates an expected call of RemoveSpecTaskLabel.
+func (mr *MockStoreMockRecorder) RemoveSpecTaskLabel(ctx, taskID, label any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveSpecTaskLabel", reflect.TypeOf((*MockStore)(nil).RemoveSpecTaskLabel), ctx, taskID, label)
+}
+
 // ListStepInfos mocks base method.
 func (m *MockStore) ListStepInfos(ctx context.Context, query *ListStepInfosQuery) ([]*types.StepInfo, error) {
 	m.ctrl.T.Helper()
