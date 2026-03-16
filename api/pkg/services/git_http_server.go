@@ -25,8 +25,8 @@ type TriggerManager interface {
 	ProcessGitPushEvent(ctx context.Context, specTask *types.SpecTask, repo *types.GitRepository, commitHash string) error
 }
 
-// AuthorizationFunc is the function signature for authorization checks
-type AuthorizationFunc func(ctx context.Context, user *types.User, orgID string, resourceID string, resourceType types.Resource, action types.Action) error
+// AuthorizationToRepositoryFunc is the function signature for authorization checks
+type AuthorizationToRepositoryFunc func(ctx context.Context, user *types.User, repository *types.GitRepository, action types.Action) error
 
 // SpecTaskMessageSender is a function type for sending messages to spec task agents
 type SpecTaskMessageSender func(ctx context.Context, task *types.SpecTask, message string, docPath string) (string, error)
@@ -79,7 +79,7 @@ type GitHTTPServer struct {
 	maxRepoSize     int64
 	requestTimeout  time.Duration
 	testMode        bool
-	authorizeFn     AuthorizationFunc
+	authorizeFn     AuthorizationToRepositoryFunc
 	triggerManager  TriggerManager
 	wg              sync.WaitGroup
 }
@@ -99,7 +99,7 @@ func NewGitHTTPServer(
 	store store.Store,
 	gitRepoService *GitRepositoryService,
 	config GitHTTPServerConfig,
-	authorizeFn AuthorizationFunc,
+	authorizeFn AuthorizationToRepositoryFunc,
 	triggerManager TriggerManager,
 ) *GitHTTPServer {
 	// Note: gitcmd is already initialized by GitRepositoryService.Initialize()
@@ -795,12 +795,12 @@ func (s *GitHTTPServer) hasReadAccess(ctx context.Context, user *types.User, rep
 	}
 
 	// Use ActionGet for read access on projects (requires org membership)
-	err = s.authorizeFn(ctx, user, repo.OrganizationID, repo.ProjectID, types.ResourceProject, types.ActionGet)
+	err = s.authorizeFn(ctx, user, repo, types.ActionGet)
 	if err != nil {
-		log.Warn().Err(err).Str("repo_id", repoID).Str("project_id", repo.ProjectID).Str("org_id", repo.OrganizationID).Str("user_id", user.ID).Msg("hasReadAccess: authorization failed")
+		log.Warn().Err(err).Str("repo_id", repoID).Str("user_id", user.ID).Msg("hasReadAccess: authorization failed")
 		return false
 	}
-	log.Debug().Str("repo_id", repoID).Str("project_id", repo.ProjectID).Str("user_id", user.ID).Msg("hasReadAccess: authorized")
+	log.Debug().Str("repo_id", repoID).Str("user_id", user.ID).Msg("hasReadAccess: authorized")
 	return true
 }
 
@@ -823,12 +823,12 @@ func (s *GitHTTPServer) hasWriteAccess(ctx context.Context, user *types.User, re
 	}
 
 	// Use ActionUpdate for write access on projects (requires org membership)
-	err = s.authorizeFn(ctx, user, repo.OrganizationID, repo.ProjectID, types.ResourceProject, types.ActionUpdate)
+	err = s.authorizeFn(ctx, user, repo, types.ActionUpdate)
 	if err != nil {
-		log.Warn().Err(err).Str("repo_id", repoID).Str("project_id", repo.ProjectID).Str("org_id", repo.OrganizationID).Str("user_id", user.ID).Msg("hasWriteAccess: authorization failed")
+		log.Warn().Err(err).Str("repo_id", repoID).Str("org_id", repo.OrganizationID).Str("user_id", user.ID).Msg("hasWriteAccess: authorization failed")
 		return false
 	}
-	log.Debug().Str("repo_id", repoID).Str("project_id", repo.ProjectID).Str("user_id", user.ID).Msg("hasWriteAccess: authorized")
+	log.Debug().Str("repo_id", repoID).Str("user_id", user.ID).Msg("hasWriteAccess: authorized")
 	return true
 }
 
