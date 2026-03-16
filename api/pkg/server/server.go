@@ -91,12 +91,12 @@ type HelixAPIServer struct {
 	externalAgentExecutor       external_agent.Executor
 	externalAgentWSManager      *ExternalAgentWSManager
 	externalAgentRunnerManager  *ExternalAgentRunnerManager
-	contextMappings             map[string]string // Zed context_id -> Helix session_id mapping
-	contextMappingsMutex        sync.RWMutex      // Mutex for contextMappings (and related mappings below)
+	contextMappings             map[string]string   // Zed context_id -> Helix session_id mapping
+	contextMappingsMutex        sync.RWMutex        // Mutex for contextMappings (and related mappings below)
 	sessionToWaitingInteraction map[string][]string // Helix session_id -> FIFO queue of waiting interaction IDs
-	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
-	externalAgentSessionMapping map[string]string // External agent session_id -> Helix session_id mapping
-	externalAgentUserMapping    map[string]string // External agent session_id -> user_id mapping
+	requestToSessionMapping     map[string]string   // request_id -> Helix session_id mapping (for chat_message routing)
+	externalAgentSessionMapping map[string]string   // External agent session_id -> Helix session_id mapping
+	externalAgentUserMapping    map[string]string   // External agent session_id -> user_id mapping
 	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
 	sessionCommentTimeout     map[string]*time.Timer // planning_session_id -> timeout timer for current comment
 	sessionCommentMutex       sync.RWMutex           // Mutex for timeout operations
@@ -424,7 +424,7 @@ func NewServer(
 		store,
 		apiServer.gitRepositoryService,
 		*gitHTTPConfig, // Dereference the pointer
-		apiServer.authorizeUserToResource,
+		apiServer.authorizeUserToRepository,
 		apiServer.trigger,
 	)
 	log.Info().Msg("Initialized Git HTTP server (native git via gitea/gitcmd)")

@@ -232,7 +232,36 @@ func (apiServer *HelixAPIServer) authorizeUserToRepository(ctx context.Context, 
 		return nil
 	}
 
-	return apiServer.authorizeUserToResource(ctx, user, repository.OrganizationID, repository.ID, types.ResourceGitRepository, action)
+	err = apiServer.authorizeUserToResource(ctx, user, repository.OrganizationID, repository.ID, types.ResourceGitRepository, action)
+	if err != nil {
+		return err
+	}
+
+	// List projects that user has access to and check if the repository is attached to any of them
+	projects, err := apiServer.Store.ListProjects(ctx, &store.ListProjectsQuery{
+		OrganizationID: repository.OrganizationID,
+		UserID:         user.ID,
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, project := range projects {
+		projectRepositories, err := apiServer.Store.ListProjectRepositories(ctx, &types.ListProjectRepositoriesQuery{
+			ProjectID:    project.ID,
+			RepositoryID: repository.ID,
+		})
+		if err != nil {
+			return err
+		}
+		for _, projectRepository := range projectRepositories {
+			if projectRepository.RepositoryID == repository.ID {
+				return apiServer.authorizeUserToResource(ctx, user, project.OrganizationID, project.ID, types.ResourceProject, action)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (apiServer *HelixAPIServer) authorizeUserToSession(ctx context.Context, user *types.User, session *types.Session, action types.Action) error {

@@ -320,7 +320,6 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	// Attach the primary repository to the project
-	// This sets the project_id on the repository so it shows up in the project's repo list
 	if err := s.Store.AttachRepositoryToProject(r.Context(), created.ID, req.DefaultRepoID); err != nil {
 		log.Warn().
 			Err(err).
