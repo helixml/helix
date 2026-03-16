@@ -2,14 +2,14 @@
 
 ## Store
 
-- [~] Add `ListProjectLabels(ctx, projectID) ([]string, error)` to store interface and `store_spec_tasks.go` using raw SQL to unnest the JSONB `labels` column
-- [~] Add `AddSpecTaskLabel(ctx, taskID, label) error` to store interface and implementation (load task, append if missing, save)
-- [~] Add `RemoveSpecTaskLabel(ctx, taskID, label) error` to store interface and implementation (load task, filter out label, save)
-- [~] Add `Labels []string` to `ListSpecTasksFilter` struct and apply JSONB containment filter (`labels @> ?`) in `ListSpecTasks` for each selected label
+- [x] Add `ListProjectLabels(ctx, projectID) ([]string, error)` to store interface and `store_spec_tasks.go` using raw SQL to unnest the JSONB `labels` column
+- [x] Add `AddSpecTaskLabel(ctx, taskID, label) error` to store interface and implementation (load task, append if missing, save)
+- [x] Add `RemoveSpecTaskLabel(ctx, taskID, label) error` to store interface and implementation (load task, filter out label, save)
+- [x] Add `Labels []string` to `ListSpecTasksFilter` struct and apply JSONB containment filter (`labels @> ?`) in `ListSpecTasks` for each selected label
 
 ## API
 
-- [ ] Create `api/pkg/server/spec_task_label_handlers.go` with `listProjectLabels`, `addLabel`, and `removeLabel` handlers (with Swagger annotations)
+- [~] Create `api/pkg/server/spec_task_label_handlers.go` with `listProjectLabels`, `addLabel`, and `removeLabel` handlers (with Swagger annotations)
 - [ ] Register the three new routes in the router: `GET /api/v1/projects/{projectId}/labels`, `POST /api/v1/spec-tasks/{taskId}/labels`, `DELETE /api/v1/spec-tasks/{taskId}/labels/{label}`
 - [ ] Add `labels` query param support to the existing `listSpecTasks` handler (parse comma-separated string, pass to filter)
 - [ ] Regenerate OpenAPI/Swagger spec (`make generate-swagger` or equivalent) and commit the updated `swagger.json` / `openapi.json`
