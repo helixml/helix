@@ -2,10 +2,10 @@
 
 ## Store
 
-- [ ] Add `ListProjectLabels(ctx, projectID) ([]string, error)` to store interface and `store_spec_tasks.go` using raw SQL to unnest the JSONB `labels` column
-- [ ] Add `AddSpecTaskLabel(ctx, taskID, label) error` to store interface and implementation (load task, append if missing, save)
-- [ ] Add `RemoveSpecTaskLabel(ctx, taskID, label) error` to store interface and implementation (load task, filter out label, save)
-- [ ] Add `Labels []string` to `ListSpecTasksFilter` struct and apply JSONB containment filter (`labels @> ?`) in `ListSpecTasks` for each selected label
+- [~] Add `ListProjectLabels(ctx, projectID) ([]string, error)` to store interface and `store_spec_tasks.go` using raw SQL to unnest the JSONB `labels` column
+- [~] Add `AddSpecTaskLabel(ctx, taskID, label) error` to store interface and implementation (load task, append if missing, save)
+- [~] Add `RemoveSpecTaskLabel(ctx, taskID, label) error` to store interface and implementation (load task, filter out label, save)
+- [~] Add `Labels []string` to `ListSpecTasksFilter` struct and apply JSONB containment filter (`labels @> ?`) in `ListSpecTasks` for each selected label
 
 ## API
 
