@@ -3,6 +3,7 @@ package hydra
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -330,6 +331,9 @@ func (s *GoldenZvolSuite) SetupTest() {
 	s.tmpDir, err = os.MkdirTemp("", "golden-zvol-test-*")
 	require.NoError(s.T(), err)
 
+	// Point golden base dir to our temp dir for tests that need it
+	goldenBaseDirOverride = filepath.Join(s.tmpDir, "golden")
+
 	// Set up the ZFS parent dataset
 	resetZFSState()
 	zfsParentDataset = "testpool"
@@ -338,6 +342,7 @@ func (s *GoldenZvolSuite) SetupTest() {
 func (s *GoldenZvolSuite) TearDownTest() {
 	s.cleanup()
 	os.RemoveAll(s.tmpDir)
+	goldenBaseDirOverride = ""
 	resetZFSState()
 }
 
@@ -945,6 +950,343 @@ func (s *GoldenZvolSuite) TestFullLifecycle_SecondGoldenRebuild() {
 
 	// 4. zfs promote should have been called (to break clone dependency)
 	assert.True(s.T(), s.mock.hasCommand("zfs promote"))
+}
+
+// -----------------------------------------------------------------------
+// MigrateGoldenToZvol
+// -----------------------------------------------------------------------
+
+func (s *GoldenZvolSuite) TestMigrateGoldenToZvol_Success() {
+	zfsParentDataset = "prod"
+
+	// Create fake old golden dir with real files
+	goldenSrc := filepath.Join(s.tmpDir, "golden", "prj_abc", "docker")
+	require.NoError(s.T(), os.MkdirAll(filepath.Join(goldenSrc, "overlay2", "layer1"), 0755))
+	require.NoError(s.T(), os.WriteFile(filepath.Join(goldenSrc, "overlay2", "layer1", "data.tar"), []byte("layer-data"), 0644))
+	require.NoError(s.T(), os.WriteFile(filepath.Join(goldenSrc, "image.json"), []byte("{}"), 0644))
+
+	err := MigrateGoldenToZvol("prj_abc")
+	require.NoError(s.T(), err)
+
+	// Should have created golden zvol with dedup=off
+	createCmds := s.mock.commandsMatching("zfs create")
+	require.Len(s.T(), createCmds, 1)
+	assert.Contains(s.T(), createCmds[0].String(), "dedup=off")
+	assert.Contains(s.T(), createCmds[0].String(), "prod/golden-prj_abc")
+
+	// Should have formatted
+	assert.True(s.T(), s.mock.hasCommand("mkfs.xfs"))
+
+	// Should have mounted, seeded (cp), unmounted
+	assert.True(s.T(), s.mock.hasCommand("mount"))
+	assert.True(s.T(), s.mock.hasCommand("cp"))
+	assert.True(s.T(), s.mock.hasCommand("umount"))
+
+	// Should have taken snapshot @gen1
+	assert.True(s.T(), s.mock.hasCommand("zfs snapshot prod/golden-prj_abc@gen1"))
+	assert.True(s.T(), s.mock.datasets["prod/golden-prj_abc"])
+	assert.True(s.T(), s.mock.datasets["prod/golden-prj_abc@gen1"])
+}
+
+func (s *GoldenZvolSuite) TestMigrateGoldenToZvol_AlreadyMigrated() {
+	zfsParentDataset = "prod"
+
+	// Golden zvol already exists with snapshot
+	s.mock.addDataset("prod/golden-prj_abc")
+	s.mock.addSnapshot("prod/golden-prj_abc", "gen1")
+
+	err := MigrateGoldenToZvol("prj_abc")
+	require.NoError(s.T(), err)
+
+	// Should NOT have created anything — early return under lock
+	assert.False(s.T(), s.mock.hasCommand("zfs create"))
+	assert.False(s.T(), s.mock.hasCommand("mkfs.xfs"))
+	assert.False(s.T(), s.mock.hasCommand("cp"))
+}
+
+func (s *GoldenZvolSuite) TestMigrateGoldenToZvol_ConcurrentCallsSerialize() {
+	zfsParentDataset = "prod"
+
+	// Create fake old golden dir
+	goldenSrc := filepath.Join(s.tmpDir, "golden", "prj_abc", "docker")
+	require.NoError(s.T(), os.MkdirAll(goldenSrc, 0755))
+	require.NoError(s.T(), os.WriteFile(filepath.Join(goldenSrc, "data"), []byte("x"), 0644))
+
+	// Run two migrations concurrently
+	errs := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			errs <- MigrateGoldenToZvol("prj_abc")
+		}()
+	}
+
+	err1 := <-errs
+	err2 := <-errs
+	require.NoError(s.T(), err1)
+	require.NoError(s.T(), err2)
+
+	// Should only have created the zvol ONCE (second goroutine sees double-check)
+	createCmds := s.mock.commandsMatching("zfs create")
+	assert.Len(s.T(), createCmds, 1, "concurrent migrations should only create zvol once")
+
+	// Snapshot should exist
+	assert.True(s.T(), s.mock.datasets["prod/golden-prj_abc@gen1"])
+}
+
+func (s *GoldenZvolSuite) TestMigrateGoldenToZvol_PartialPreviousMigration() {
+	zfsParentDataset = "prod"
+
+	// Create fake old golden dir
+	goldenSrc := filepath.Join(s.tmpDir, "golden", "prj_abc", "docker")
+	require.NoError(s.T(), os.MkdirAll(goldenSrc, 0755))
+	require.NoError(s.T(), os.WriteFile(filepath.Join(goldenSrc, "data"), []byte("x"), 0644))
+
+	// Zvol exists but has no snapshot (partial previous migration)
+	s.mock.addDataset("prod/golden-prj_abc")
+
+	err := MigrateGoldenToZvol("prj_abc")
+	require.NoError(s.T(), err)
+
+	// Should have destroyed the partial zvol and recreated
+	assert.True(s.T(), s.mock.hasCommand("zfs destroy -r prod/golden-prj_abc"))
+	assert.True(s.T(), s.mock.hasCommand("zfs create"))
+	assert.True(s.T(), s.mock.datasets["prod/golden-prj_abc@gen1"])
+}
+
+func (s *GoldenZvolSuite) TestMigrateGoldenToZvol_SeedFailsCleansUp() {
+	zfsParentDataset = "prod"
+
+	// No golden dir → seed will fail with "not found"
+	// (goldenBaseDirOverride points to tmpDir/golden which has no prj_bad subdir)
+
+	err := MigrateGoldenToZvol("prj_bad")
+	assert.Error(s.T(), err)
+	assert.Contains(s.T(), err.Error(), "seed failed")
+
+	// Should have cleaned up: umount + destroy
+	assert.True(s.T(), s.mock.hasCommand("umount"))
+	assert.True(s.T(), s.mock.hasCommand("zfs destroy prod/golden-prj_bad"))
+}
+
+func (s *GoldenZvolSuite) TestMigrateGoldenToZvol_CreateFailsCleanly() {
+	zfsParentDataset = "prod"
+	s.mock.failOn("zfs create", fmt.Errorf("no space"))
+
+	err := MigrateGoldenToZvol("prj_abc")
+	assert.Error(s.T(), err)
+	assert.Contains(s.T(), err.Error(), "zfs create")
+
+	// No zvol should exist
+	assert.False(s.T(), s.mock.datasets["prod/golden-prj_abc"])
+}
+
+func (s *GoldenZvolSuite) TestMigrateGoldenToZvol_FormatFailsCleansUp() {
+	zfsParentDataset = "prod"
+
+	goldenSrc := filepath.Join(s.tmpDir, "golden", "prj_abc", "docker")
+	require.NoError(s.T(), os.MkdirAll(goldenSrc, 0755))
+
+	s.mock.failOn("mkfs.xfs", fmt.Errorf("device error"))
+
+	err := MigrateGoldenToZvol("prj_abc")
+	assert.Error(s.T(), err)
+	assert.Contains(s.T(), err.Error(), "mkfs.xfs")
+
+	// Should have destroyed the zvol
+	assert.True(s.T(), s.mock.hasCommand("zfs destroy prod/golden-prj_abc"))
+}
+
+// -----------------------------------------------------------------------
+// GCMigratedGoldenDirs
+// -----------------------------------------------------------------------
+
+func (s *GoldenZvolSuite) TestGCMigratedGoldenDirs_CleansUpMigrated() {
+	zfsParentDataset = "prod"
+
+	// Create old golden dirs for two projects
+	prjMigrated := filepath.Join(s.tmpDir, "golden", "prj_migrated")
+	prjNotMigrated := filepath.Join(s.tmpDir, "golden", "prj_not_migrated")
+	require.NoError(s.T(), os.MkdirAll(filepath.Join(prjMigrated, "docker"), 0755))
+	require.NoError(s.T(), os.MkdirAll(filepath.Join(prjNotMigrated, "docker"), 0755))
+	require.NoError(s.T(), os.WriteFile(filepath.Join(prjMigrated, "docker", "data"), []byte("old"), 0644))
+	require.NoError(s.T(), os.WriteFile(filepath.Join(prjNotMigrated, "docker", "data"), []byte("old"), 0644))
+
+	// Only prj_migrated has a golden zvol with snapshot
+	s.mock.addDataset("prod/golden-prj_migrated")
+	s.mock.addSnapshot("prod/golden-prj_migrated", "gen1")
+	// prj_not_migrated has no zvol
+
+	GCMigratedGoldenDirs()
+
+	// Migrated project's old dir should be gone
+	_, err := os.Stat(prjMigrated)
+	assert.True(s.T(), os.IsNotExist(err), "migrated golden dir should be deleted")
+
+	// Non-migrated project's old dir should still exist
+	_, err = os.Stat(prjNotMigrated)
+	assert.NoError(s.T(), err, "non-migrated golden dir should be kept")
+}
+
+func (s *GoldenZvolSuite) TestGCMigratedGoldenDirs_NoGoldenBaseDir() {
+	// Point to nonexistent dir — should be a no-op
+	goldenBaseDirOverride = filepath.Join(s.tmpDir, "nonexistent")
+
+	// Should not panic
+	GCMigratedGoldenDirs()
+}
+
+func (s *GoldenZvolSuite) TestGCMigratedGoldenDirs_IgnoresFiles() {
+	zfsParentDataset = "prod"
+
+	// Create a file (not dir) in the golden base
+	goldenBase := filepath.Join(s.tmpDir, "golden")
+	require.NoError(s.T(), os.MkdirAll(goldenBase, 0755))
+	require.NoError(s.T(), os.WriteFile(filepath.Join(goldenBase, "some-file.txt"), []byte("x"), 0644))
+
+	// Should not panic or try to delete files
+	GCMigratedGoldenDirs()
+
+	// File should still exist
+	_, err := os.Stat(filepath.Join(goldenBase, "some-file.txt"))
+	assert.NoError(s.T(), err)
+}
+
+// -----------------------------------------------------------------------
+// seedZvolFromGoldenDir with real filesystem operations
+// -----------------------------------------------------------------------
+
+func (s *GoldenZvolSuite) TestSeedZvol_RealCopy() {
+	zfsParentDataset = "prod"
+
+	// Create a golden dir with real files
+	goldenSrc := filepath.Join(s.tmpDir, "golden", "prj_real", "docker")
+	require.NoError(s.T(), os.MkdirAll(filepath.Join(goldenSrc, "overlay2", "abc123"), 0755))
+	require.NoError(s.T(), os.WriteFile(filepath.Join(goldenSrc, "overlay2", "abc123", "diff.tar"), []byte("layer-data-here"), 0644))
+	require.NoError(s.T(), os.WriteFile(filepath.Join(goldenSrc, "image.json"), []byte(`{"id":"sha256:abc"}`), 0644))
+
+	// Create zvol mount (just a temp dir in tests)
+	zvolMount := filepath.Join(s.tmpDir, "zvol-mount")
+	require.NoError(s.T(), os.MkdirAll(zvolMount, 0755))
+
+	// Override cp to do a REAL copy using the system cp
+	origCombined := execCmdCombinedOutput
+	execCmdCombinedOutput = func(name string, args ...string) ([]byte, error) {
+		s.mock.commands = append(s.mock.commands, cmdRecord{name, args})
+		if name == "cp" {
+			// Run real cp for this test
+			cmd := exec.Command(name, args...)
+			return cmd.CombinedOutput()
+		}
+		return origCombined(name, args...)
+	}
+	defer func() { execCmdCombinedOutput = origCombined }()
+
+	err := seedZvolFromGoldenDir("prj_real", zvolMount)
+	require.NoError(s.T(), err)
+
+	// Verify files were actually copied
+	data, err := os.ReadFile(filepath.Join(zvolMount, "overlay2", "abc123", "diff.tar"))
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), "layer-data-here", string(data))
+
+	data, err = os.ReadFile(filepath.Join(zvolMount, "image.json"))
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), `{"id":"sha256:abc"}`, string(data))
+
+	// Verify marker was written
+	_, err = os.Stat(filepath.Join(zvolMount, seedCompleteMarker))
+	assert.NoError(s.T(), err, "seed completion marker should exist")
+}
+
+func (s *GoldenZvolSuite) TestSeedZvol_RealCopy_CrashRecovery() {
+	zfsParentDataset = "prod"
+
+	// Create golden dir
+	goldenSrc := filepath.Join(s.tmpDir, "golden", "prj_crash", "docker")
+	require.NoError(s.T(), os.MkdirAll(goldenSrc, 0755))
+	require.NoError(s.T(), os.WriteFile(filepath.Join(goldenSrc, "good-data"), []byte("correct"), 0644))
+
+	zvolMount := filepath.Join(s.tmpDir, "zvol-mount-crash")
+	require.NoError(s.T(), os.MkdirAll(zvolMount, 0755))
+
+	// Simulate partial data from a previous crashed seed
+	require.NoError(s.T(), os.MkdirAll(filepath.Join(zvolMount, "overlay2", "stale"), 0755))
+	require.NoError(s.T(), os.WriteFile(filepath.Join(zvolMount, "corrupt-file"), []byte("bad"), 0644))
+	// No marker — simulates crash
+
+	// Use real cp
+	origCombined := execCmdCombinedOutput
+	execCmdCombinedOutput = func(name string, args ...string) ([]byte, error) {
+		s.mock.commands = append(s.mock.commands, cmdRecord{name, args})
+		if name == "cp" {
+			cmd := exec.Command(name, args...)
+			return cmd.CombinedOutput()
+		}
+		return origCombined(name, args...)
+	}
+	defer func() { execCmdCombinedOutput = origCombined }()
+
+	err := seedZvolFromGoldenDir("prj_crash", zvolMount)
+	require.NoError(s.T(), err)
+
+	// Partial data should be gone
+	_, err = os.Stat(filepath.Join(zvolMount, "corrupt-file"))
+	assert.True(s.T(), os.IsNotExist(err), "partial data should have been wiped")
+	_, err = os.Stat(filepath.Join(zvolMount, "overlay2", "stale"))
+	assert.True(s.T(), os.IsNotExist(err), "partial dirs should have been wiped")
+
+	// Correct data should be present
+	data, err := os.ReadFile(filepath.Join(zvolMount, "good-data"))
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), "correct", string(data))
+
+	// Marker should exist
+	_, err = os.Stat(filepath.Join(zvolMount, seedCompleteMarker))
+	assert.NoError(s.T(), err)
+}
+
+// -----------------------------------------------------------------------
+// Full lifecycle: migration → clone → golden rebuild → GC
+// -----------------------------------------------------------------------
+
+func (s *GoldenZvolSuite) TestFullLifecycle_MigrationToCloneToRebuild() {
+	zfsParentDataset = "prod"
+
+	// Create old golden dir
+	goldenSrc := filepath.Join(s.tmpDir, "golden", "prj_abc", "docker")
+	require.NoError(s.T(), os.MkdirAll(goldenSrc, 0755))
+	require.NoError(s.T(), os.WriteFile(filepath.Join(goldenSrc, "cached-layer"), []byte("data"), 0644))
+
+	// 1. Migrate old golden to zvol
+	err := MigrateGoldenToZvol("prj_abc")
+	require.NoError(s.T(), err)
+	assert.True(s.T(), s.mock.datasets["prod/golden-prj_abc@gen1"])
+
+	// 2. Clone for a normal session
+	path, err := SetupGoldenClone("prj_abc", "ses_user1")
+	require.NoError(s.T(), err)
+	assert.NotEmpty(s.T(), path)
+	assert.True(s.T(), s.mock.datasets["prod/ses-ses_user1"])
+
+	// 3. Clone for a golden rebuild
+	_, err = SetupGoldenClone("prj_abc", "ses_rebuild")
+	require.NoError(s.T(), err)
+
+	// 4. Golden rebuild completes → promote
+	err = PromoteSessionToGoldenZvol("prj_abc", "ses_rebuild")
+	require.NoError(s.T(), err)
+	assert.True(s.T(), s.mock.datasets["prod/golden-prj_abc@gen2"])
+	assert.False(s.T(), s.mock.datasets["prod/ses-ses_rebuild"])
+
+	// 5. Clean up user session
+	err = CleanupSessionZvol("ses_user1")
+	require.NoError(s.T(), err)
+	assert.False(s.T(), s.mock.datasets["prod/ses-ses_user1"])
+
+	// 6. GC should clean up old golden dir
+	GCMigratedGoldenDirs()
+	_, err = os.Stat(filepath.Join(s.tmpDir, "golden", "prj_abc"))
+	assert.True(s.T(), os.IsNotExist(err), "old golden dir should be cleaned up after migration")
 }
 
 // -----------------------------------------------------------------------

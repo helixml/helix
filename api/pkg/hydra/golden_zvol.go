@@ -72,6 +72,10 @@ var (
 
 	// osMkdirAll creates directories. Override in tests.
 	osMkdirAll = os.MkdirAll
+
+	// goldenBaseDirOverride overrides goldenBaseDir for tests.
+	// When non-empty, goldenDir() and GCMigratedGoldenDirs() use this instead.
+	goldenBaseDirOverride string
 )
 
 // ZFSAvailable returns true if ZFS commands work in this environment.
@@ -586,6 +590,19 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 	return cleaned, nil
 }
 
+// effectiveGoldenBaseDir returns the golden base directory, respecting test overrides.
+func effectiveGoldenBaseDir() string {
+	if goldenBaseDirOverride != "" {
+		return goldenBaseDirOverride
+	}
+	return goldenBaseDir
+}
+
+// effectiveGoldenDir returns the golden Docker data path, respecting test overrides.
+func effectiveGoldenDir(projectID string) string {
+	return filepath.Join(effectiveGoldenBaseDir(), projectID, "docker")
+}
+
 // MigrateGoldenToZvol creates a golden zvol from the old file-based golden dir.
 // This is the one-time migration path: blocks while copying (~5 min for 59GB),
 // but only the first caller pays this cost. Concurrent callers block on the
@@ -668,7 +685,8 @@ func MigrateGoldenToZvol(projectID string) error {
 // been migrated to zvol-based golden cache. Once a golden zvol exists with a snapshot,
 // the old golden dir at /container-docker/golden/{projectID}/ is dead weight.
 func GCMigratedGoldenDirs() {
-	entries, err := os.ReadDir(goldenBaseDir)
+	baseDir := effectiveGoldenBaseDir()
+	entries, err := os.ReadDir(baseDir)
 	if err != nil {
 		return // no golden base dir (e.g. fresh install, no ZFS backing)
 	}
@@ -682,7 +700,7 @@ func GCMigratedGoldenDirs() {
 			continue // zvol not ready yet — keep the file-based golden
 		}
 
-		oldDir := filepath.Join(goldenBaseDir, projectID)
+		oldDir := filepath.Join(baseDir, projectID)
 		log.Info().
 			Str("project_id", projectID).
 			Str("old_golden_dir", oldDir).
@@ -736,7 +754,7 @@ func seedZvolFromGoldenDir(projectID, zvolMountPath string) error {
 		}
 	}
 
-	src := goldenDir(projectID) // /container-docker/golden/{projectID}/docker/
+	src := effectiveGoldenDir(projectID)
 	if _, err := os.Stat(src); err != nil {
 		return fmt.Errorf("golden dir %s not found: %w", src, err)
 	}
