@@ -1,33 +1,27 @@
-# Requirements: Fix GitHub OAuth — Remove Generic Connect from Connected Services
+# Requirements: Fix GitHub OAuth — Contextual Connect Only
 
 ## Problem
 
-The "Connected Services" page (`OAuthConnections.tsx`) lets users initiate an OAuth connection to any provider (e.g. GitHub) without knowing what scopes are needed. This is the wrong place to connect: the required scopes depend entirely on what the user is trying to do (which agent, which repo feature), so any scope choice here would be a guess or a hack.
+The "Connected Services" page lets users initiate an OAuth connection to any provider without knowing what scopes are needed. Whatever scope choice is made there is a guess. The required scopes are only known by the feature initiating the connection (a specific agent, a repo browser, etc.).
 
-The correct pattern — already used by `CreateProjectDialog` and `BrowseProvidersDialog` — is to trigger the OAuth flow at the point of actual use, where the required scopes are known.
-
-Additionally, when an agent uses a skill that requires OAuth and the user doesn't have a valid connection, there is currently **no pre-session or in-session prompt** to initiate the OAuth flow — tool execution silently fails with a generic error.
+Additionally, when a user starts a session with an agent whose tools declare OAuth requirements, the system does nothing proactive — it attempts to get a token at tool-execution time, fails silently, and the user sees a generic error.
 
 ## Desired Behaviour
 
-### 1. Remove generic "Connect" from Connected Services page
+### 1. Remove "Connect" from the Connected Services page
 
-The Connected Services page should be **read-only for connections initiated elsewhere**. Users can:
-- View their existing OAuth connections (provider, profile, date connected)
-- Disconnect (delete) an existing connection
-- Refresh an expired token
+The page becomes read-only. Users can view, disconnect, and refresh existing connections, but cannot initiate new ones. OAuth connections are always created at the point of actual use, where the required provider and scopes are known.
 
-Users **cannot** initiate a new OAuth connection from this page. The "Connect" button / available integrations section is removed or disabled.
+### 2. Pre-session OAuth prompt for agents
 
-### 2. (Out of scope for this ticket — document as a gap) Pre-session OAuth prompt for agents
+Before a user starts a chat session with an agent, the frontend reads the agent's tool configurations and determines which OAuth providers and scopes are required. It then checks the user's existing connections against those requirements. If any required connection is missing or lacks the necessary scopes, the user is shown a prompt listing the missing providers with a "Connect" button for each. Each connect action initiates the OAuth flow with exactly the scopes that agent's tools require.
 
-When a user starts a session with an agent whose skills declare OAuth requirements, and the user has no valid connection with the required scopes, the system currently does nothing proactive — the tool call fails silently at runtime.
-
-A future ticket should implement a pre-session (or in-session) OAuth prompt: detect that an agent needs GitHub with `repo` scope, check the user's connections, and if missing, surface a "Connect GitHub" action with the correct scopes before the session runs.
+This must be generic — driven entirely by what the agent spec declares, not hardcoded to any specific provider or scope set.
 
 ## Acceptance Criteria
 
-- [ ] The Connected Services page no longer shows a "Connect" button or "Available Integrations" section that lets users initiate OAuth flows.
-- [ ] Existing connections are still displayed with disconnect and refresh options.
-- [ ] Users connecting GitHub for a specific purpose (repo browsing, project creation, agent skill) are prompted via the existing contextual dialogs (`BrowseProvidersDialog`, `CreateProjectDialog`, etc.) which already pass the correct scopes.
-- [ ] No regression in the project/agent OAuth flows that already work correctly.
+- [ ] The Connected Services page no longer has a "Connect" / "Available Integrations" section. Existing connections are still shown with disconnect and refresh options.
+- [ ] When opening an agent session, if the agent's tools require OAuth connections the user does not have (or has with insufficient scopes), the user sees a prompt naming each missing provider with a Connect button before the session starts.
+- [ ] The OAuth flow triggered from that prompt uses the exact provider and scopes declared in the agent's tool config, not hardcoded values.
+- [ ] If all required connections are already present with correct scopes, no prompt is shown and the session starts normally.
+- [ ] The existing contextual OAuth flows in `CreateProjectDialog` and `BrowseProvidersDialog` are unaffected.

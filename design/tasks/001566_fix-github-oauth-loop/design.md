@@ -1,65 +1,84 @@
-# Design: Remove Generic OAuth Connect from Connected Services Page
+# Design: Contextual OAuth — Remove Generic Connect, Add Pre-Session Prompt
 
-## Root Cause
-
-The OAuth scope problem is architectural, not a missing parameter. The Connected Services page is a generic account-settings view that has no knowledge of what any given agent or feature needs. Adding scope defaults there would be a hack that breaks for any provider or use case that needs different scopes.
-
-The correct fix is to remove the connect capability from that page entirely. OAuth connections should always be initiated by the feature that needs them, because only that feature knows the required scopes.
-
-## Current Architecture
-
-```
-Connected Services page (OAuthConnections.tsx)
-  └── "Connect" button → GET /api/v1/oauth/flow/start/{provider}   ← NO scopes = bug
-
-CreateProjectDialog.tsx
-  └── "Connect GitHub" → GET /api/v1/oauth/flow/start/{provider}?scopes=repo,...  ✓
-
-BrowseProvidersDialog.tsx
-  └── "Connect GitHub" → GET /api/v1/oauth/flow/start/{provider}?scopes=repo,...  ✓
-
-Agent skill execution (tools_api_run_action.go)
-  └── GetTokenForTool() checks scopes → silent error if missing  ← no user prompt yet
-```
-
-## Change: Simplify OAuthConnections.tsx to Read-Only
+## Part 1: Remove Connect from Connected Services Page
 
 **File:** `frontend/src/components/account/OAuthConnections.tsx`
 
-Remove or hide:
-- The "Available Integrations" section (lines ~782-816) that lists providers and shows Connect buttons
-- The `openConnectDialog()` / `startOAuthFlow()` functions (~lines 222-282)
-- Any UI that lets users initiate a new connection
+Remove:
+- The "Available Integrations" section (~lines 782-816) with Connect buttons
+- The `openConnectDialog()`, `startOAuthFlow()`, `connectProvider` functions (~lines 222-282) and any state they own
 
 Keep:
-- The "Connected Services" section listing existing connections
-- Disconnect (delete) button per connection
-- Refresh token button per connection
-- Status/profile info per connection
+- The "Connected Services" list showing existing connections with disconnect and refresh
 
-The page becomes a view for managing connections that were created elsewhere.
+---
 
-## Known Gap: No Pre-Session OAuth Prompt for Agents
+## Part 2: Pre-Session OAuth Prompt
 
-Skill YAML files declare OAuth requirements (`oauth.provider`, `oauth.scopes`). The backend reads these and validates scopes at tool execution time (`GetTokenForTool` in `oauth/manager.go`). However:
+### Where OAuth requirements live
 
-- There is no pre-session check that reads the agent's skill definitions and verifies the user has a valid connection before starting.
-- There is no in-session UI prompt that triggers OAuth when a tool call fails due to missing scopes.
-- The `ScopeError` type exists in `oauth/manager.go` but is not surfaced to the frontend.
+OAuth is defined at the **tool level** inside an agent's config, not at the agent level:
 
-This is a separate, larger feature. This ticket only removes the broken generic connect path. A follow-up ticket should implement contextual OAuth prompts during agent sessions.
+```
+App
+  └── assistants[]
+        └── apis[]                 ← ToolAPIConfig
+              ├── oauth_provider   string
+              └── oauth_scopes     []string
+        └── mcp_servers[]          ← ToolMCPClientConfig
+              ├── oauth_provider   string
+              └── oauth_scopes     []string
+```
+
+The frontend already loads the full app config via `GET /api/v1/apps/{id}`. The user's existing connections are available via `GET /api/v1/oauth/connections`.
+
+### Backend: new endpoint to aggregate OAuth requirements
+
+Add `GET /api/v1/apps/{id}/oauth-requirements` that:
+1. Loads the app config
+2. Iterates `assistants[].apis[]` and `assistants[].mcp_servers[]`
+3. Collects unique `{provider, scopes}` pairs across all tools
+4. Returns them as a list
+
+This keeps the aggregation logic server-side and avoids duplicating the nested traversal in the frontend. The backend already does equivalent traversal in `getAppOAuthTokenEnv()` (`app_handlers.go:1167`).
+
+Response shape:
+```json
+[
+  { "provider_name": "github", "scopes": ["repo", "user:read"] },
+  { "provider_name": "gitlab", "scopes": ["read_repository"] }
+]
+```
+
+### Frontend: check requirements before session starts
+
+In the agent chat/session component, before allowing the user to send the first message (or on page load when an agent is loaded):
+
+1. Call `GET /api/v1/apps/{id}/oauth-requirements`
+2. Call `GET /api/v1/oauth/connections` to get the user's current connections
+3. For each required `{provider, scopes}`, check if the user has a connection for that provider that covers all required scopes (reuse `getMissingScopes` logic, or implement equivalent client-side)
+4. If any requirements are unmet, render a banner or dialog listing the missing providers with a Connect button per provider
+5. Each Connect button calls `GET /api/v1/oauth/flow/start/{provider_id}?scopes=<scopes>` with the exact scopes from the requirement — same pattern as `BrowseProvidersDialog`
+6. On successful OAuth callback, re-check requirements and hide the prompt if all are now satisfied
+
+### Scope matching
+
+A connection satisfies a requirement if every required scope is present in the connection's stored `scopes` field. The backend already has `getMissingScopes()` (`oauth/manager.go`); the frontend can replicate this simple set-containment check or the new endpoint can optionally accept the user's token and return which requirements are unmet.
+
+---
 
 ## Key Files
 
 | File | Change |
 |------|--------|
-| `frontend/src/components/account/OAuthConnections.tsx` | Remove "Available Integrations" / connect flow; keep list + disconnect + refresh |
-
-No backend changes needed.
+| `frontend/src/components/account/OAuthConnections.tsx` | Remove connect UI; keep list + disconnect + refresh |
+| `api/pkg/server/app_handlers.go` | Add `GET /api/v1/apps/{id}/oauth-requirements` handler |
+| `api/pkg/server/server.go` or router file | Register new route |
+| `frontend/src/components/` (session/chat component) | Add pre-session OAuth requirement check and prompt |
 
 ## Notes for Implementors
 
-- The "Connected Services" list (rendering existing connections) is a separate section from the "Available Integrations" connect UI — they can be separated cleanly.
-- The `connectProvider` / `startOAuthFlow` / `openConnectDialog` functions can be deleted entirely from this component once the connect UI is gone.
-- Check if `OAuthConnectionsPage.tsx` (the page wrapper) references anything that also needs cleanup.
-- The OAuth popup/callback mechanism used by the contextual dialogs is unaffected.
+- The new endpoint should only be callable by authenticated users and should verify the app is accessible to the requesting user (same auth check as `getApp`).
+- Skill-based OAuth (YAML skills with `oauth.provider`) is already resolved server-side into `ToolAPIConfig` fields before session execution, so the endpoint can work entirely from the stored app config without needing to read YAML skill files.
+- The scope check in the frontend needs to handle the case where `provider_name` refers to a configured provider instance (e.g. a named GitHub provider), not just a raw type string — look at how `BrowseProvidersDialog` resolves provider IDs to confirm the right identifier to use.
+- The popup/callback OAuth mechanism from `useOAuthFlow.ts` is reusable as-is.
