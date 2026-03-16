@@ -242,10 +242,12 @@ Zvol properties:
 **Dedup strategy per dataset**:
 | Dataset | dedup | Rationale |
 |---------|-------|-----------|
-| `golden-prj_*` zvols | `off` | Clones share blocks via snapshot; DDT adds only overhead |
-| `ses-*` clone zvols | `off` | Inherited from golden; writes are session-unique anyway |
-| Workspace/git data | `on` | Genuine cross-session duplication (same repos cloned N times) |
-| Legacy `container-docker` zvol | `on` | Existing; will be drained and decommissioned |
+| `golden-prj_*` zvols | `off` | Clones share blocks via snapshot reference — DDT adds only overhead (4-6x write amplification, 76ms latency spikes) with zero benefit |
+| `ses-*` clone zvols | `off` | Inherited from golden. Session writes (build cache, container layers) are unique per-session — dedup would hash every block and find no matches, pure overhead |
+| Workspace/git data | `on` | **Genuine cross-session duplication**. Every session clones the same git repos into its own workspace directory. N sessions × same repo = N copies of the same files at different paths. Dedup catches this at the block level — this is the textbook use case where DDT overhead pays for itself |
+| Legacy `container-docker` zvol | `on` | Existing single-zvol setup; will be drained and decommissioned during migration |
+
+Note: dedup is a **dataset property** in ZFS, not pool-level. It can be set per-dataset and is inherited by children. This lets us keep dedup on for workspace data while disabling it on docker data zvols within the same pool.
 
 ### Lifecycle
 
