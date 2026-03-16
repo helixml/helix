@@ -363,7 +363,40 @@ else
     rm onlyoffice-desktopeditors_amd64.deb
     apt-get clean
     rm -rf /var/lib/apt/lists/*
-    echo "=== OnlyOffice Desktop Editors installed ==="
+
+    # OnlyOffice wrapper script for XWayland support
+    # OnlyOffice bundles Qt5 WITHOUT Wayland plugin - it requires X11 via XWayland.
+    # The wrapper sets DISPLAY, XAUTHORITY, and cursor theme environment variables.
+    echo "=== Creating OnlyOffice XWayland wrapper script ==="
+    cat > /usr/local/bin/onlyoffice-wrapper << 'WRAPPER_EOF'
+#!/bin/bash
+# OnlyOffice requires X11 via XWayland (Qt5 without Wayland plugin)
+export DISPLAY=:0
+
+# Find the Mutter XWayland auth file (name changes on each session)
+XAUTH_FILE=$(ls /run/user/1000/.mutter-Xwaylandauth.* 2>/dev/null | tail -1)
+if [ -n "$XAUTH_FILE" ]; then
+    export XAUTHORITY="$XAUTH_FILE"
+fi
+
+# Cursor theme for X11 apps - use Helix-Invisible for client-side cursor rendering
+export XCURSOR_THEME=Helix-Invisible
+export XCURSOR_SIZE=48
+
+# Required library path for bundled Qt5
+APP_PATH=/opt/onlyoffice/desktopeditors
+export LD_LIBRARY_PATH=$APP_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+
+exec $APP_PATH/DesktopEditors "$@"
+WRAPPER_EOF
+    chmod +x /usr/local/bin/onlyoffice-wrapper
+
+    # Replace the original launcher script to use our wrapper
+    mv /usr/bin/onlyoffice-desktopeditors /usr/bin/onlyoffice-desktopeditors.orig
+    ln -sf /usr/local/bin/onlyoffice-wrapper /usr/bin/onlyoffice-desktopeditors
+    ln -sf /usr/local/bin/onlyoffice-wrapper /usr/bin/desktopeditors
+
+    echo "=== OnlyOffice Desktop Editors installed with XWayland wrapper ==="
 fi
 _INSTALL_ONLYOFFICE
 
