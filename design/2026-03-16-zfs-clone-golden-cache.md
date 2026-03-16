@@ -234,10 +234,18 @@ prod/container-docker                        ← parent dataset (not a zvol anym
 ```
 
 Zvol properties:
-- `volsize=200G` (sparse/thin-provisioned via `-s`)
-- `dedup=on` (inherited from parent — still useful for cross-project sharing)
+- `volsize=500G` (sparse/thin-provisioned via `-s` — just a ceiling, actual allocation is thin)
+- `dedup=off` — **explicitly disabled on golden/session zvols**. Block sharing comes from ZFS clones (free, no DDT involvement). Dedup adds nothing here because cloned blocks already share via snapshot reference. Disabling dedup on these zvols eliminates DDT hash lookups and write amplification on the docker data path, which is where most of the I/O pain comes from.
 - `compression=lz4` (inherited)
-- `volblocksize=64K` (larger than default 16K — better throughput for Docker's large sequential overlay2 writes, fewer DDT entries)
+- `volblocksize=64K` (larger than default 16K — better throughput for Docker's large sequential overlay2 writes)
+
+**Dedup strategy per dataset**:
+| Dataset | dedup | Rationale |
+|---------|-------|-----------|
+| `golden-prj_*` zvols | `off` | Clones share blocks via snapshot; DDT adds only overhead |
+| `ses-*` clone zvols | `off` | Inherited from golden; writes are session-unique anyway |
+| Workspace/git data | `on` | Genuine cross-session duplication (same repos cloned N times) |
+| Legacy `container-docker` zvol | `on` | Existing; will be drained and decommissioned |
 
 ### Lifecycle
 
@@ -304,10 +312,10 @@ The tricky part: we currently have one big zvol (`prod/container-docker`, 2TB) w
 # Create parent dataset for the new structure
 sudo zfs create prod/container-docker-v2
 
-# Create golden zvol for the active project
-sudo zfs create -V 200G -s -o dedup=on -o compression=lz4 \
+# Create golden zvol for the active project (dedup=off — clones share blocks natively)
+sudo zfs create -V 500G -s -o dedup=off -o compression=lz4 \
     -o volblocksize=64k prod/container-docker-v2/golden-prj_xxx
-sudo mkfs.ext4 -q /dev/zvol/prod/container-docker-v2/golden-prj_xxx
+sudo mkfs.xfs -f -q /dev/zvol/prod/container-docker-v2/golden-prj_xxx
 sudo mkdir -p /prod/container-docker-v2/golden-prj_xxx
 sudo mount /dev/zvol/prod/container-docker-v2/golden-prj_xxx \
     /prod/container-docker-v2/golden-prj_xxx
@@ -341,7 +349,7 @@ sudo zfs snapshot prod/container-docker-v2/golden-prj_xxx@gen1
 
 1. **volblocksize**: Default 16K gives fine-grained dedup but many DDT entries. 64K or 128K would reduce DDT size by 4-8x at the cost of coarser dedup. Since clones share blocks exactly, dedup is mainly for cross-project sharing. Worth benchmarking.
 
-2. **Dedup long-term**: With clones providing intra-project sharing for free, the remaining value of dedup is cross-project block sharing. If most users have 1-2 projects, we could turn off dedup entirely and save 12GB+ of kernel memory. This is a separate decision from the clone architecture.
+2. **Dedup on golden/session zvols**: DECIDED — `dedup=off`. Clones share blocks via snapshot reference (no DDT needed). This eliminates the 4-6x write amplification on docker data writes and stops the DDT tail writes that cause 76ms zvol latency spikes. Dedup remains `on` for workspace/git data where genuine cross-session duplication exists.
 
 3. **Snapshot lifecycle**: When golden gen43 is built, we can't destroy `@gen42` until all clones from it are destroyed. Options:
    - Keep old snapshots until all their clones (sessions) are gone. GC cleans up.
@@ -427,4 +435,4 @@ The ZFS clone approach addresses the root cause: we stop copying 30-60GB of meta
 - **No zvol contention** — container I/O latency stays at ~1ms
 - Per-zvol filesystem instances mean smaller inode caches (no 90GB XFS slab)
 - Session cleanup is `zfs destroy` (instant) instead of `rm -rf` (traverses millions of inodes)
-- Could eventually turn off dedup entirely — clones provide the same sharing without the DDT cost
+- Dedup explicitly `off` on golden/session zvols — clones provide the same block sharing without the DDT cost. Dedup stays `on` only for workspace/git data where cross-session duplication is genuine

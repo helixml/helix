@@ -414,8 +414,11 @@ func CreateGoldenZvol(projectID string) (string, error) {
 		return "", fmt.Errorf("golden zvol %s already exists", zvolName)
 	}
 
-	// Create thin-provisioned zvol
-	if err := runCmd("zfs", "create", "-V", zvolDefaultSize, "-s", zvolName); err != nil {
+	// Create thin-provisioned zvol with dedup=off. Block sharing comes from
+	// ZFS clones (free, no DDT involvement), so dedup adds only overhead here.
+	if err := runCmd("zfs", "create", "-V", zvolDefaultSize, "-s",
+		"-o", "dedup=off", "-o", "compression=lz4",
+		zvolName); err != nil {
 		return "", fmt.Errorf("zfs create %s failed: %w", zvolName, err)
 	}
 
@@ -466,8 +469,10 @@ func CreateSessionZvol(sessionID string) (string, error) {
 		return mountPath, nil
 	}
 
-	// Create thin-provisioned zvol
-	if err := runCmd("zfs", "create", "-V", zvolDefaultSize, "-s", zvolName); err != nil {
+	// Create thin-provisioned zvol with dedup=off (same rationale as golden zvols).
+	if err := runCmd("zfs", "create", "-V", zvolDefaultSize, "-s",
+		"-o", "dedup=off", "-o", "compression=lz4",
+		zvolName); err != nil {
 		return "", fmt.Errorf("zfs create %s failed: %w", zvolName, err)
 	}
 
