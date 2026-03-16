@@ -18,13 +18,13 @@
 - [ ] Show a loading skeleton while spec docs are being fetched
 - [ ] Show a "No spec available yet" empty state if docs return 404/empty
 
-## 3. Collapse System Prompt in Chat Thread
+## 3. Collapse Agent Instructions in Chat Thread
 
-- [ ] Investigate whether `interaction.display_message` already excludes the system prompt (check backend behaviour)
+- [ ] Investigate whether `interaction.display_message` already excludes the agent instructions (check backend behaviour for the first message)
 - [ ] In `EmbeddedSessionView.tsx`, pass an `isFirstInteraction` boolean prop to the first `<Interaction>` component
 - [ ] In `Interaction.tsx`, accept `isFirstInteraction` prop
-- [ ] When `isFirstInteraction && interaction.system_prompt` is non-empty, wrap the system prompt content in a MUI `<Accordion defaultExpanded={false}>` labelled "System Prompt"
-- [ ] Ensure the user's actual message (without the system prompt prefix) remains visible above or alongside the collapsed accordion
+- [ ] When `isFirstInteraction && interaction.system_prompt` is non-empty, wrap those agent instructions in a MUI `<Accordion defaultExpanded={false}>` labelled "Agent Instructions" (note: `interaction.system_prompt` is the field name — technically it's the agent instructions portion of the first user message, not a true LLM system prompt)
+- [ ] Ensure the user's actual request (without the agent instructions prefix) remains visible above or alongside the collapsed accordion
 
 ## 4. Mobile Layout
 

@@ -7,7 +7,7 @@
 - **Right panel** (70% default): toggle between Desktop / File Diff / Details views
 
 `EmbeddedSessionView` → `Interaction` → renders each `TypesInteraction`.
-The first interaction's `display_message` (or `prompt_message`) contains the system prompt prepended to the user's original message, making it look like a wall of technical instructions.
+The first interaction's `display_message` (or `prompt_message`) contains the agent instructions prepended to the user's original message, making it look like a wall of technical instructions.
 
 The spec documents (requirements.md, design.md, tasks.md) live in the "Details" view (right panel), but that panel defaults to "Desktop" view when an active session exists — so the spec is not shown by default.
 
@@ -47,20 +47,20 @@ When `currentView === "spec"`, render a scrollable markdown view with three coll
 
 All three spec sections start **expanded** (the content is valuable), but each has a collapse toggle.
 
-### System Prompt Collapse in Chat Thread
+### Agent Instructions Collapse in Chat Thread
 
 In `EmbeddedSessionView` (or `Interaction.tsx`), for the **first interaction only**, detect if `prompt_message` is very long (>500 chars) or if `interaction.system_prompt` is set. If so:
 
-- Render a collapsed `<Accordion>` or similar for the system prompt portion
-- Label it: `"System Prompt"` with a `ExpandMore` icon
-- Show only the **user's actual message** (the part after the system prompt) by default
+- Render a collapsed `<Accordion>` or similar for the agent instructions portion
+- Label it: `"Agent Instructions"` with a `ExpandMore` icon
+- Show only the **user's actual message** (the part after the agent instructions) by default
 
-**Implementation approach**: The backend already stores `system_prompt` separately on `TypesInteraction`. The `prompt_message` field on the first interaction currently contains the combined `[system_prompt + user_message]`. We can use `interaction.system_prompt` to identify and hide the system portion.
+**Implementation approach**: The backend stores the agent instructions separately in `interaction.system_prompt` on `TypesInteraction` (note: despite the field name, this is technically the first user message sent to the LLM, not a true system prompt — it just contains agent instructions that read like one). The `prompt_message` field on the first interaction currently contains the combined `[agent instructions + user_message]`. We can use `interaction.system_prompt` to identify and collapse the instructions portion.
 
 - If `interaction.system_prompt` is present and non-empty: render it inside a `<Accordion defaultExpanded={false}>` above or below the visible user message
-- The visible user portion = `interaction.prompt_message` with the `system_prompt` prefix stripped (or just show `interaction.display_message` if it's cleaner)
+- The visible user portion = `interaction.prompt_message` with the `interaction.system_prompt` prefix stripped (or just show `interaction.display_message` if it's cleaner)
 
-**Note**: Investigate whether `display_message` already strips the system prompt — if so, displaying `display_message` instead of `prompt_message` in `EmbeddedSessionView` may be the simpler fix.
+**Note**: Investigate whether `display_message` already strips the agent instructions — if so, displaying `display_message` instead of `prompt_message` in `EmbeddedSessionView` may be the simpler fix.
 
 ## Data Flow
 
@@ -91,7 +91,7 @@ No additional API calls needed for the prompt.
 |---|---|
 | `SpecTaskDetailContent.tsx` | Add `"spec"` to the `currentView` type and `ToggleButtonGroup`. Add `renderSpecContent()` function. Change default view logic: if `task.design_docs_pushed_at`, default to `"spec"`. |
 | `EmbeddedSessionView.tsx` | Pass `isFirstInteraction` prop to `Interaction`. |
-| `Interaction.tsx` | When `isFirstInteraction && interaction.system_prompt`, render system prompt inside a collapsed `<Accordion>`. Show user message without the system prefix. |
+| `Interaction.tsx` | When `isFirstInteraction && interaction.system_prompt`, render agent instructions inside a collapsed `<Accordion>`. Show user message without the system prefix. |
 | `specTaskService.ts` | Add `useSpecTaskDocuments(taskId)` hook that fetches requirements, design, and tasks docs in parallel. |
 
 ## Key Decisions
@@ -99,8 +99,8 @@ No additional API calls needed for the prompt.
 **Decision: New "Spec" tab vs. enhancing "Details" tab**
 Chose a new tab because the Details tab already has its own purpose (priority, dependencies, metadata). A dedicated Spec tab makes it clear what the content is and can have its own behaviour (defaulting on when spec exists).
 
-**Decision: Collapse system prompt in chat vs. strip it**
-Chose collapse (not strip) so users can still inspect the full system prompt when curious. Stripping would hide information permanently.
+**Decision: Collapse agent instructions in chat vs. strip it**
+Chose collapse (not strip) so users can still inspect the full agent instructions when curious. Stripping would hide information permanently.
 
 **Decision: Show original prompt in Spec tab (not as a chat bubble)**
 The prompt is displayed in the Spec tab as a styled "context" block at the top, not just as a chat bubble. This gives it visual prominence and separates "what you asked" from "the conversation history."
@@ -112,6 +112,6 @@ Tasks in backlog or queued states don't have a spec yet. Defaulting to the Spec 
 
 - Use `TypesSpecTaskStatus` enum values for conditional logic (already imported in `SpecTaskDetailContent.tsx`)
 - Use the existing `Markdown` component for rendering spec docs (found in `InteractionInference.tsx`)
-- Use MUI `Accordion`/`AccordionSummary`/`AccordionDetails` for the system prompt collapse (consistent with `TestsEditor.tsx` pattern)
+- Use MUI `Accordion`/`AccordionSummary`/`AccordionDetails` for the agent instructions collapse (consistent with `TestsEditor.tsx` pattern)
 - Fetch spec docs with `useQuery` + `api.getApiClient().v1SpecTasksDocumentsDetail()` (follow patterns in `specTaskService.ts`)
 - The right panel `currentView` state is persisted to URL via `router.mergeParams({ view: newView })` — the new `"spec"` value should work automatically
