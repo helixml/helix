@@ -91,6 +91,8 @@ RUN apt-get update -y && \
     htop \
     binutils \
     socat \
+    zfsutils-linux \
+    xfsprogs \
     && rm -rf /var/lib/apt/lists/*
 
 # ====================================================================
