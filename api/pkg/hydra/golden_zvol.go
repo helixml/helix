@@ -302,6 +302,15 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 		return "", fmt.Errorf("zfs clone %s → %s failed: %w", snapshot, cloneName, err)
 	}
 
+	// Wait for device node to appear (kernel creates /dev/zvol/... asynchronously)
+	devPath := zvolDevPath(cloneName)
+	for i := 0; i < 30; i++ {
+		if _, err := os.Stat(devPath); err == nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
 	// Mount the clone
 	if err := mountZvol(cloneName, mountPath); err != nil {
 		// Cleanup the clone on mount failure
