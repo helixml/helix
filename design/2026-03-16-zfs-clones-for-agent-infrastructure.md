@@ -1,4 +1,4 @@
-# I mass-copied Docker data directories on ZFS with dedup on. Here's what happened to my NVMe.
+# 76ms writes on an NVMe: how ZFS dedup ate my agent infrastructure alive
 
 I build [Helix](https://github.com/helixml/helix), a source-available platform for AI coding agents. Each agent gets its own container with a full Linux desktop, Docker-in-Docker, Zed IDE, the lot. Think cloud dev environments but the primary user is an LLM with tool access, not a human with a keyboard.
 
