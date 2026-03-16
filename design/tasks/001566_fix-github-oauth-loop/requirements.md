@@ -8,9 +8,11 @@ Additionally, when a user starts a session with an agent whose tools declare OAu
 
 ## Desired Behaviour
 
-### 1. Remove "Connect" from the Connected Services page
+### 1. Remove Connect buttons from the Connected Services page
 
-The page becomes read-only. Users can view, disconnect, and refresh existing connections, but cannot initiate new ones. OAuth connections are always created at the point of actual use, where the required provider and scopes are known.
+The Available Integrations section stays, so users can see which providers exist, but the Connect buttons are removed. In their place, show an info banner explaining: *"Use an integration in an agent when creating it and specify the scopes in order to connect to it as a user."*
+
+Users can still view, disconnect, and refresh existing connections. New connections are always initiated at the point of actual use (agent session, project dialog, etc.) where the required scopes are known.
 
 ### 2. Pre-session OAuth prompt for agents
 
@@ -20,7 +22,7 @@ This must be generic — driven entirely by what the agent spec declares, not ha
 
 ## Acceptance Criteria
 
-- [ ] The Connected Services page no longer has a "Connect" / "Available Integrations" section. Existing connections are still shown with disconnect and refresh options.
+- [ ] The Connected Services page still shows the Available Integrations section but without Connect buttons. An info banner reads: "Use an integration in an agent when creating it and specify the scopes in order to connect to it as a user." Existing connections are still shown with disconnect and refresh options.
 - [ ] When opening an agent session, if the agent's tools require OAuth connections the user does not have (or has with insufficient scopes), the user sees a prompt naming each missing provider with a Connect button before the session starts.
 - [ ] The OAuth flow triggered from that prompt uses the exact provider and scopes declared in the agent's tool config, not hardcoded values.
 - [ ] If all required connections are already present with correct scopes, no prompt is shown and the session starts normally.

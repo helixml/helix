@@ -5,11 +5,15 @@
 **File:** `frontend/src/components/account/OAuthConnections.tsx`
 
 Remove:
-- The "Available Integrations" section (~lines 782-816) with Connect buttons
+- The Connect button from each provider card in the "Available Integrations" section
 - The `openConnectDialog()`, `startOAuthFlow()`, `connectProvider` functions (~lines 222-282) and any state they own
 
 Keep:
+- The "Available Integrations" section — provider cards are still displayed so users know what exists
 - The "Connected Services" list showing existing connections with disconnect and refresh
+
+Add:
+- An info banner in the Available Integrations section: *"Use an integration in an agent when creating it and specify the scopes in order to connect to it as a user."*
 
 ---
 

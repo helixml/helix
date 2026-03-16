@@ -2,7 +2,9 @@
 
 ## Part 1: Remove Connect from Connected Services page
 
-- [ ] In `frontend/src/components/account/OAuthConnections.tsx`, remove the "Available Integrations" section (~lines 782-816) and delete the `openConnectDialog`, `startOAuthFlow`, and `connectProvider` functions and any state they own
+- [ ] In `frontend/src/components/account/OAuthConnections.tsx`, remove the Connect button from each provider card in the "Available Integrations" section; keep the section itself so users can see available providers
+- [ ] Add an info banner to the Available Integrations section with the text: "Use an integration in an agent when creating it and specify the scopes in order to connect to it as a user."
+- [ ] Delete the `openConnectDialog`, `startOAuthFlow`, and `connectProvider` functions and any state they own (now unreferenced)
 - [ ] Verify the Connected Services list (existing connections with disconnect/refresh) still renders correctly
 
 ## Part 2: Backend — OAuth requirements endpoint
