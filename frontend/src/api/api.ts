@@ -1,5 +1,6 @@
 /* eslint-disable */
 /* tslint:disable */
+// @ts-nocheck
 /*
  * ---------------------------------------------------------------
  * ## THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API        ##
@@ -8,6 +9,455 @@
  * ## SOURCE: https://github.com/acacode/swagger-typescript-api ##
  * ---------------------------------------------------------------
  */
+
+export enum TypesTriggerType {
+  TriggerTypeSlack = "slack",
+  TriggerTypeTeams = "teams",
+  TriggerTypeCrisp = "crisp",
+  TriggerTypeAzureDevOps = "azure_devops",
+  TriggerTypeCron = "cron",
+}
+
+export enum TypesTriggerExecutionStatus {
+  TriggerExecutionStatusPending = "pending",
+  TriggerExecutionStatusRunning = "running",
+  TriggerExecutionStatusSuccess = "success",
+  TriggerExecutionStatusError = "error",
+}
+
+export enum TypesToolType {
+  ToolTypeAPI = "api",
+  ToolTypeBrowser = "browser",
+  ToolTypeZapier = "zapier",
+  ToolTypeCalculator = "calculator",
+  ToolTypeEmail = "email",
+  ToolTypeWebSearch = "web_search",
+  ToolTypeAzureDevOps = "azure_devops",
+  ToolTypeMCP = "mcp",
+  ToolTypeProjectManager = "project_manager",
+}
+
+export enum TypesTokenType {
+  TokenTypeNone = "",
+  TokenTypeRunner = "runner",
+  TokenTypeOIDC = "oidc",
+  TokenTypeAPIKey = "api_key",
+  TokenTypeSocket = "socket",
+  TokenTypeSession = "session",
+}
+
+export enum TypesTextSplitterType {
+  TextSplitterTypeMarkdown = "markdown",
+  TextSplitterTypeText = "text",
+}
+
+export enum TypesSpecTaskZedStatus {
+  SpecTaskZedStatusPending = "pending",
+  SpecTaskZedStatusActive = "active",
+  SpecTaskZedStatusDisconnected = "disconnected",
+  SpecTaskZedStatusCompleted = "completed",
+  SpecTaskZedStatusFailed = "failed",
+}
+
+export enum TypesSpecTaskWorkSessionStatus {
+  SpecTaskWorkSessionStatusPending = "pending",
+  SpecTaskWorkSessionStatusActive = "active",
+  SpecTaskWorkSessionStatusCompleted = "completed",
+  SpecTaskWorkSessionStatusFailed = "failed",
+  SpecTaskWorkSessionStatusCancelled = "cancelled",
+  SpecTaskWorkSessionStatusBlocked = "blocked",
+}
+
+export enum TypesSpecTaskStatus {
+  TaskStatusBacklog = "backlog",
+  TaskStatusQueuedImplementation = "queued_implementation",
+  TaskStatusQueuedSpecGeneration = "queued_spec_generation",
+  TaskStatusSpecGeneration = "spec_generation",
+  TaskStatusSpecReview = "spec_review",
+  TaskStatusSpecRevision = "spec_revision",
+  TaskStatusSpecApproved = "spec_approved",
+  TaskStatusImplementationQueued = "implementation_queued",
+  TaskStatusImplementation = "implementation",
+  TaskStatusImplementationReview = "implementation_review",
+  TaskStatusPullRequest = "pull_request",
+  TaskStatusDone = "done",
+  TaskStatusSpecFailed = "spec_failed",
+  TaskStatusImplementationFailed = "implementation_failed",
+}
+
+export enum TypesSpecTaskPriority {
+  SpecTaskPriorityLow = "low",
+  SpecTaskPriorityMedium = "medium",
+  SpecTaskPriorityHigh = "high",
+  SpecTaskPriorityCritical = "critical",
+}
+
+export enum TypesSpecTaskPhase {
+  SpecTaskPhasePlanning = "planning",
+  SpecTaskPhaseImplementation = "implementation",
+  SpecTaskPhaseValidation = "validation",
+}
+
+export enum TypesSpecTaskDesignReviewStatus {
+  SpecTaskDesignReviewStatusPending = "pending",
+  SpecTaskDesignReviewStatusInReview = "in_review",
+  SpecTaskDesignReviewStatusChangesRequested = "changes_requested",
+  SpecTaskDesignReviewStatusApproved = "approved",
+  SpecTaskDesignReviewStatusSuperseded = "superseded",
+}
+
+export enum TypesSpecTaskDesignReviewCommentType {
+  SpecTaskDesignReviewCommentTypeGeneral = "general",
+  SpecTaskDesignReviewCommentTypeQuestion = "question",
+  SpecTaskDesignReviewCommentTypeSuggestion = "suggestion",
+  SpecTaskDesignReviewCommentTypeCritical = "critical",
+  SpecTaskDesignReviewCommentTypePraise = "praise",
+}
+
+export enum TypesSessionType {
+  SessionTypeNone = "",
+  SessionTypeText = "text",
+  SessionTypeImage = "image",
+}
+
+export enum TypesSessionMode {
+  SessionModeNone = "",
+  SessionModeInference = "inference",
+  SessionModeFinetune = "finetune",
+  SessionModeAction = "action",
+}
+
+export enum TypesServiceConnectionType {
+  ServiceConnectionTypeGitHubApp = "github_app",
+  ServiceConnectionTypeADOServicePrincipal = "ado_service_principal",
+}
+
+export enum TypesSchedulingDecisionType {
+  SchedulingDecisionTypeQueued = "queued",
+  SchedulingDecisionTypeReuseWarmSlot = "reuse_warm_slot",
+  SchedulingDecisionTypeCreateNewSlot = "create_new_slot",
+  SchedulingDecisionTypeEvictStaleSlot = "evict_stale_slot",
+  SchedulingDecisionTypeRejected = "rejected",
+  SchedulingDecisionTypeError = "error",
+  SchedulingDecisionTypeUnschedulable = "unschedulable",
+}
+
+export enum TypesResponseFormatType {
+  ResponseFormatTypeJSONObject = "json_object",
+  ResponseFormatTypeText = "text",
+}
+
+export enum TypesResource {
+  ResourceTeam = "Team",
+  ResourceOrganization = "Organization",
+  ResourceRole = "Role",
+  ResourceMembership = "Membership",
+  ResourceMembershipRoleBinding = "MembershipRoleBinding",
+  ResourceApplication = "Application",
+  ResourceAccessGrants = "AccessGrants",
+  ResourceKnowledge = "Knowledge",
+  ResourceUser = "User",
+  ResourceAny = "*",
+  ResourceTypeDataset = "Dataset",
+  ResourceProject = "Project",
+  ResourceGitRepository = "GitRepository",
+  ResourceSpecTask = "SpecTask",
+  ResourceSession = "Session",
+  ResourcePrompt = "Prompt",
+  ResourceDesktop = "Desktop",
+}
+
+export enum TypesQuestionSetExecutionStatus {
+  QuestionSetExecutionStatusPending = "pending",
+  QuestionSetExecutionStatusRunning = "running",
+  QuestionSetExecutionStatusSuccess = "success",
+  QuestionSetExecutionStatusError = "error",
+}
+
+export enum TypesPullRequestState {
+  PullRequestStateOpen = "open",
+  PullRequestStateClosed = "closed",
+  PullRequestStateMerged = "merged",
+  PullRequestStateUnknown = "unknown",
+}
+
+export enum TypesProviderEndpointType {
+  ProviderEndpointTypeGlobal = "global",
+  ProviderEndpointTypeUser = "user",
+  ProviderEndpointTypeOrg = "org",
+  ProviderEndpointTypeTeam = "team",
+}
+
+export enum TypesProviderEndpointStatus {
+  ProviderEndpointStatusOK = "ok",
+  ProviderEndpointStatusError = "error",
+  ProviderEndpointStatusLoading = "loading",
+  ProviderEndpointStatusDisabled = "disabled",
+}
+
+export enum TypesProvider {
+  ProviderOpenAI = "openai",
+  ProviderTogetherAI = "togetherai",
+  ProviderAnthropic = "anthropic",
+  ProviderHelix = "helix",
+  ProviderVLLM = "vllm",
+}
+
+export enum TypesOwnerType {
+  OwnerTypeUser = "user",
+  OwnerTypeRunner = "runner",
+  OwnerTypeSystem = "system",
+  OwnerTypeSocket = "socket",
+  OwnerTypeOrg = "org",
+}
+
+export enum TypesOrganizationRole {
+  OrganizationRoleOwner = "owner",
+  OrganizationRoleMember = "member",
+}
+
+export enum TypesOAuthProviderType {
+  OAuthProviderTypeUnknown = "",
+  OAuthProviderTypeAtlassian = "atlassian",
+  OAuthProviderTypeGoogle = "google",
+  OAuthProviderTypeMicrosoft = "microsoft",
+  OAuthProviderTypeGitHub = "github",
+  OAuthProviderTypeGitLab = "gitlab",
+  OAuthProviderTypeAzureDevOps = "azure_devops",
+  OAuthProviderTypeSlack = "slack",
+  OAuthProviderTypeLinkedIn = "linkedin",
+  OAuthProviderTypeHubSpot = "hubspot",
+  OAuthProviderTypeCustom = "custom",
+}
+
+export enum TypesModelType {
+  ModelTypeChat = "chat",
+  ModelTypeImage = "image",
+  ModelTypeEmbed = "embed",
+}
+
+export enum TypesModality {
+  ModalityText = "text",
+  ModalityImage = "image",
+  ModalityFile = "file",
+}
+
+export enum TypesMessageContentType {
+  MessageContentTypeText = "text",
+}
+
+export enum TypesLLMCallStep {
+  LLMCallStepDefault = "default",
+  LLMCallStepIsActionable = "is_actionable",
+  LLMCallStepPrepareAPIRequest = "prepare_api_request",
+  LLMCallStepInterpretResponse = "interpret_response",
+  LLMCallStepGenerateTitle = "generate_title",
+  LLMCallStepSummarizeConversation = "summarize_conversation",
+}
+
+export enum TypesKnowledgeState {
+  KnowledgeStatePreparing = "preparing",
+  KnowledgeStatePending = "pending",
+  KnowledgeStateIndexing = "indexing",
+  KnowledgeStateReady = "ready",
+  KnowledgeStateError = "error",
+}
+
+export enum TypesInteractionState {
+  InteractionStateNone = "",
+  InteractionStateWaiting = "waiting",
+  InteractionStateEditing = "editing",
+  InteractionStateComplete = "complete",
+  InteractionStateError = "error",
+}
+
+export enum TypesImageURLDetail {
+  ImageURLDetailHigh = "high",
+  ImageURLDetailLow = "low",
+  ImageURLDetailAuto = "auto",
+}
+
+export enum TypesGitRepositoryType {
+  GitRepositoryTypeInternal = "internal",
+  GitRepositoryTypeCode = "code",
+}
+
+export enum TypesGitRepositoryStatus {
+  GitRepositoryStatusActive = "active",
+  GitRepositoryStatusCloning = "cloning",
+  GitRepositoryStatusError = "error",
+  GitRepositoryStatusArchived = "archived",
+  GitRepositoryStatusDeleted = "deleted",
+}
+
+export enum TypesFeedback {
+  FeedbackLike = "like",
+  FeedbackDislike = "dislike",
+}
+
+export enum TypesExternalRepositoryType {
+  ExternalRepositoryTypeGitHub = "github",
+  ExternalRepositoryTypeGitLab = "gitlab",
+  ExternalRepositoryTypeADO = "ado",
+  ExternalRepositoryTypeBitbucket = "bitbucket",
+}
+
+export enum TypesEffect {
+  EffectAllow = "allow",
+  EffectDeny = "deny",
+}
+
+export enum TypesCodeAgentRuntime {
+  CodeAgentRuntimeZedAgent = "zed_agent",
+  CodeAgentRuntimeQwenCode = "qwen_code",
+  CodeAgentRuntimeClaudeCode = "claude_code",
+  CodeAgentRuntimeGeminiCLI = "gemini_cli",
+  CodeAgentRuntimeCodexCLI = "codex_cli",
+}
+
+export enum TypesCodeAgentCredentialType {
+  CodeAgentCredentialTypeAPIKey = "api_key",
+  CodeAgentCredentialTypeSubscription = "subscription",
+}
+
+export enum TypesChatMessagePartType {
+  ChatMessagePartTypeText = "text",
+  ChatMessagePartTypeImageURL = "image_url",
+}
+
+export enum TypesBranchMode {
+  BranchModeNew = "new",
+  BranchModeExisting = "existing",
+}
+
+export enum TypesAuthProvider {
+  AuthProviderRegular = "regular",
+  AuthProviderOIDC = "oidc",
+}
+
+export enum TypesAuditEventType {
+  AuditEventTaskCreated = "task_created",
+  AuditEventTaskCloned = "task_cloned",
+  AuditEventTaskApproved = "task_approved",
+  AuditEventTaskCompleted = "task_completed",
+  AuditEventTaskArchived = "task_archived",
+  AuditEventTaskUnarchived = "task_unarchived",
+  AuditEventAgentPrompt = "agent_prompt",
+  AuditEventUserMessage = "user_message",
+  AuditEventAgentStarted = "agent_started",
+  AuditEventSpecGenerated = "spec_generated",
+  AuditEventSpecUpdated = "spec_updated",
+  AuditEventReviewComment = "review_comment",
+  AuditEventReviewCommentReply = "review_comment_reply",
+  AuditEventPRCreated = "pr_created",
+  AuditEventPRMerged = "pr_merged",
+  AuditEventGitPush = "git_push",
+  AuditEventProjectCreated = "project_created",
+  AuditEventProjectDeleted = "project_deleted",
+  AuditEventProjectSettingsUpdated = "project_settings_updated",
+  AuditEventProjectGuidelinesUpdated = "project_guidelines_updated",
+}
+
+export enum TypesAgentWorkState {
+  AgentWorkStateIdle = "idle",
+  AgentWorkStateWorking = "working",
+  AgentWorkStateDone = "done",
+}
+
+export enum TypesAgentType {
+  AgentTypeHelixBasic = "helix_basic",
+  AgentTypeHelixAgent = "helix_agent",
+  AgentTypeZedExternal = "zed_external",
+}
+
+export enum TypesAction {
+  ActionGet = "Get",
+  ActionList = "List",
+  ActionDelete = "Delete",
+  ActionUpdate = "Update",
+  ActionCreate = "Create",
+  ActionUseAction = "UseAction",
+}
+
+export enum TypesAPIKeyType {
+  APIkeytypeNone = "",
+  APIkeytypeAPI = "api",
+  APIkeytypeApp = "app",
+}
+
+export enum StripeSubscriptionStatus {
+  SubscriptionStatusActive = "active",
+  SubscriptionStatusCanceled = "canceled",
+  SubscriptionStatusIncomplete = "incomplete",
+  SubscriptionStatusIncompleteExpired = "incomplete_expired",
+  SubscriptionStatusPastDue = "past_due",
+  SubscriptionStatusPaused = "paused",
+  SubscriptionStatusTrialing = "trialing",
+  SubscriptionStatusUnpaid = "unpaid",
+}
+
+export enum OpenaiToolType {
+  ToolTypeFunction = "function",
+}
+
+export enum OpenaiServiceTier {
+  ServiceTierAuto = "auto",
+  ServiceTierDefault = "default",
+  ServiceTierFlex = "flex",
+  ServiceTierPriority = "priority",
+}
+
+export enum OpenaiImageURLDetail {
+  ImageURLDetailHigh = "high",
+  ImageURLDetailLow = "low",
+  ImageURLDetailAuto = "auto",
+}
+
+export enum OpenaiFinishReason {
+  FinishReasonStop = "stop",
+  FinishReasonLength = "length",
+  FinishReasonFunctionCall = "function_call",
+  FinishReasonToolCalls = "tool_calls",
+  FinishReasonContentFilter = "content_filter",
+  FinishReasonNull = "null",
+}
+
+export enum OpenaiChatMessagePartType {
+  ChatMessagePartTypeText = "text",
+  ChatMessagePartTypeImageURL = "image_url",
+}
+
+export enum OpenaiChatCompletionResponseFormatType {
+  ChatCompletionResponseFormatTypeJSONObject = "json_object",
+  ChatCompletionResponseFormatTypeJSONSchema = "json_schema",
+  ChatCompletionResponseFormatTypeText = "text",
+}
+
+export enum McpTaskSupport {
+  TaskSupportForbidden = "forbidden",
+  TaskSupportOptional = "optional",
+  TaskSupportRequired = "required",
+}
+
+export enum HydraDevContainerType {
+  DevContainerTypeSway = "sway",
+  DevContainerTypeUbuntu = "ubuntu",
+  DevContainerTypeHeadless = "headless",
+}
+
+export enum HydraDevContainerStatus {
+  DevContainerStatusStarting = "starting",
+  DevContainerStatusRunning = "running",
+  DevContainerStatusStopped = "stopped",
+  DevContainerStatusError = "error",
+}
+
+export enum GithubComHelixmlHelixApiPkgTypesRuntime {
+  RuntimeOllama = "ollama",
+  RuntimeDiffusers = "diffusers",
+  RuntimeAxolotl = "axolotl",
+  RuntimeVLLM = "vllm",
+}
 
 export interface ControllerMemoryEstimationResponse {
   cached?: boolean;
@@ -69,13 +519,6 @@ export interface GithubComHelixmlHelixApiPkgTypesConfig {
   rules?: TypesRule[];
 }
 
-export enum GithubComHelixmlHelixApiPkgTypesRuntime {
-  RuntimeOllama = "ollama",
-  RuntimeDiffusers = "diffusers",
-  RuntimeAxolotl = "axolotl",
-  RuntimeVLLM = "vllm",
-}
-
 export interface GormDeletedAt {
   time?: string;
   /** Valid is true if Time is not NULL */
@@ -86,19 +529,6 @@ export interface HydraContainerBlkioStats {
   read_bytes?: number;
   session_id?: string;
   write_bytes?: number;
-}
-
-export enum HydraDevContainerStatus {
-  DevContainerStatusStarting = "starting",
-  DevContainerStatusRunning = "running",
-  DevContainerStatusStopped = "stopped",
-  DevContainerStatusError = "error",
-}
-
-export enum HydraDevContainerType {
-  DevContainerTypeSway = "sway",
-  DevContainerTypeUbuntu = "ubuntu",
-  DevContainerTypeHeadless = "headless",
 }
 
 export interface HydraGPUInfo {
@@ -138,12 +568,6 @@ export interface McpMeta {
    * notifications.
    */
   progressToken?: any;
-}
-
-export enum McpTaskSupport {
-  TaskSupportForbidden = "forbidden",
-  TaskSupportOptional = "optional",
-  TaskSupportRequired = "required",
 }
 
 export interface McpTool {
@@ -448,12 +872,6 @@ export interface OpenaiChatCompletionResponseFormatJSONSchema {
   strict?: boolean;
 }
 
-export enum OpenaiChatCompletionResponseFormatType {
-  ChatCompletionResponseFormatTypeJSONObject = "json_object",
-  ChatCompletionResponseFormatTypeJSONSchema = "json_schema",
-  ChatCompletionResponseFormatTypeText = "text",
-}
-
 export interface OpenaiChatMessageImageURL {
   detail?: OpenaiImageURLDetail;
   url?: string;
@@ -463,11 +881,6 @@ export interface OpenaiChatMessagePart {
   image_url?: OpenaiChatMessageImageURL;
   text?: string;
   type?: OpenaiChatMessagePartType;
-}
-
-export enum OpenaiChatMessagePartType {
-  ChatMessagePartTypeText = "text",
-  ChatMessagePartTypeImageURL = "image_url",
 }
 
 export interface OpenaiCompletionTokensDetails {
@@ -484,15 +897,6 @@ export interface OpenaiContentFilterResults {
   self_harm?: OpenaiSelfHarm;
   sexual?: OpenaiSexual;
   violence?: OpenaiViolence;
-}
-
-export enum OpenaiFinishReason {
-  FinishReasonStop = "stop",
-  FinishReasonLength = "length",
-  FinishReasonFunctionCall = "function_call",
-  FinishReasonToolCalls = "tool_calls",
-  FinishReasonContentFilter = "content_filter",
-  FinishReasonNull = "null",
 }
 
 export interface OpenaiFunctionCall {
@@ -518,12 +922,6 @@ export interface OpenaiFunctionDefinition {
 export interface OpenaiHate {
   filtered?: boolean;
   severity?: string;
-}
-
-export enum OpenaiImageURLDetail {
-  ImageURLDetailHigh = "high",
-  ImageURLDetailLow = "low",
-  ImageURLDetailAuto = "auto",
 }
 
 export interface OpenaiJailBreak {
@@ -573,13 +971,6 @@ export interface OpenaiSelfHarm {
   severity?: string;
 }
 
-export enum OpenaiServiceTier {
-  ServiceTierAuto = "auto",
-  ServiceTierDefault = "default",
-  ServiceTierFlex = "flex",
-  ServiceTierPriority = "priority",
-}
-
 export interface OpenaiSexual {
   filtered?: boolean;
   severity?: string;
@@ -606,10 +997,6 @@ export interface OpenaiToolCall {
   /** Index is not nil only in chat completion chunk object */
   index?: number;
   type?: OpenaiToolType;
-}
-
-export enum OpenaiToolType {
-  ToolTypeFunction = "function",
 }
 
 export interface OpenaiTopLogProbs {
@@ -1414,17 +1801,6 @@ export interface SqlNullString {
   valid?: boolean;
 }
 
-export enum StripeSubscriptionStatus {
-  SubscriptionStatusActive = "active",
-  SubscriptionStatusCanceled = "canceled",
-  SubscriptionStatusIncomplete = "incomplete",
-  SubscriptionStatusIncompleteExpired = "incomplete_expired",
-  SubscriptionStatusPastDue = "past_due",
-  SubscriptionStatusPaused = "paused",
-  SubscriptionStatusTrialing = "trialing",
-  SubscriptionStatusUnpaid = "unpaid",
-}
-
 export interface SystemHTTPError {
   message?: string;
   statusCode?: number;
@@ -1435,12 +1811,6 @@ export interface TypesAPIError {
   message?: string;
   param?: string;
   type?: string;
-}
-
-export enum TypesAPIKeyType {
-  APIkeytypeNone = "",
-  APIkeytypeAPI = "api",
-  APIkeytypeApp = "app",
 }
 
 export interface TypesAccessGrant {
@@ -1462,15 +1832,6 @@ export interface TypesAccessGrant {
 
 export interface TypesAccountUpdateRequest {
   full_name?: string;
-}
-
-export enum TypesAction {
-  ActionGet = "Get",
-  ActionList = "List",
-  ActionDelete = "Delete",
-  ActionUpdate = "Update",
-  ActionCreate = "Create",
-  ActionUseAction = "UseAction",
 }
 
 export interface TypesAddOrganizationMemberRequest {
@@ -1498,18 +1859,6 @@ export interface TypesAdminResetPasswordRequest {
 export interface TypesAffectedProjectInfo {
   id?: string;
   name?: string;
-}
-
-export enum TypesAgentType {
-  AgentTypeHelixBasic = "helix_basic",
-  AgentTypeHelixAgent = "helix_agent",
-  AgentTypeZedExternal = "zed_external",
-}
-
-export enum TypesAgentWorkState {
-  AgentWorkStateIdle = "idle",
-  AgentWorkStateWorking = "working",
-  AgentWorkStateDone = "done",
 }
 
 export interface TypesAggregatedUsageMetric {
@@ -1850,29 +2199,6 @@ export interface TypesAssistantZapier {
   name?: string;
 }
 
-export enum TypesAuditEventType {
-  AuditEventTaskCreated = "task_created",
-  AuditEventTaskCloned = "task_cloned",
-  AuditEventTaskApproved = "task_approved",
-  AuditEventTaskCompleted = "task_completed",
-  AuditEventTaskArchived = "task_archived",
-  AuditEventTaskUnarchived = "task_unarchived",
-  AuditEventAgentPrompt = "agent_prompt",
-  AuditEventUserMessage = "user_message",
-  AuditEventAgentStarted = "agent_started",
-  AuditEventSpecGenerated = "spec_generated",
-  AuditEventSpecUpdated = "spec_updated",
-  AuditEventReviewComment = "review_comment",
-  AuditEventReviewCommentReply = "review_comment_reply",
-  AuditEventPRCreated = "pr_created",
-  AuditEventPRMerged = "pr_merged",
-  AuditEventGitPush = "git_push",
-  AuditEventProjectCreated = "project_created",
-  AuditEventProjectDeleted = "project_deleted",
-  AuditEventProjectSettingsUpdated = "project_settings_updated",
-  AuditEventProjectGuidelinesUpdated = "project_guidelines_updated",
-}
-
 export interface TypesAuditMetadata {
   branch_name?: string;
   /** Group ID linking related cloned tasks */
@@ -1907,11 +2233,6 @@ export interface TypesAuditMetadata {
   task_number?: number;
   /** Hash of technical design content */
   technical_design_hash?: string;
-}
-
-export enum TypesAuthProvider {
-  AuthProviderRegular = "regular",
-  AuthProviderOIDC = "oidc",
 }
 
 export interface TypesAuthenticatedResponse {
@@ -1949,11 +2270,6 @@ export interface TypesBoardSettings {
   wip_limits?: TypesWIPLimits;
 }
 
-export enum TypesBranchMode {
-  BranchModeNew = "new",
-  BranchModeExisting = "existing",
-}
-
 export interface TypesBrowseRemoteRepositoriesRequest {
   /** Base URL for self-hosted instances (for GitHub Enterprise, GitLab Enterprise, or Bitbucket Server) */
   base_url?: string;
@@ -1987,11 +2303,6 @@ export interface TypesChatMessagePart {
   image_url?: TypesChatMessageImageURL;
   text?: string;
   type?: TypesChatMessagePartType;
-}
-
-export enum TypesChatMessagePartType {
-  ChatMessagePartTypeText = "text",
-  ChatMessagePartTypeImageURL = "image_url",
 }
 
 export interface TypesCheckSampleProjectAccessRequest {
@@ -2185,19 +2496,6 @@ export interface TypesCodeAgentConfig {
   provider?: string;
   /** Runtime specifies which code agent runtime to use: "zed_agent" or "qwen_code" */
   runtime?: TypesCodeAgentRuntime;
-}
-
-export enum TypesCodeAgentCredentialType {
-  CodeAgentCredentialTypeAPIKey = "api_key",
-  CodeAgentCredentialTypeSubscription = "subscription",
-}
-
-export enum TypesCodeAgentRuntime {
-  CodeAgentRuntimeZedAgent = "zed_agent",
-  CodeAgentRuntimeQwenCode = "qwen_code",
-  CodeAgentRuntimeClaudeCode = "claude_code",
-  CodeAgentRuntimeGeminiCLI = "gemini_cli",
-  CodeAgentRuntimeCodexCLI = "codex_cli",
 }
 
 export interface TypesCommentQueueStatusResponse {
@@ -2433,11 +2731,6 @@ export interface TypesDynamicModelInfo {
   updated?: string;
 }
 
-export enum TypesEffect {
-  EffectAllow = "allow",
-  EffectDeny = "deny",
-}
-
 export interface TypesExecuteQuestionSetRequest {
   app_id?: string;
   question_set_id?: string;
@@ -2464,21 +2757,9 @@ export interface TypesExternalAgentConfig {
   zoom_level?: number;
 }
 
-export enum TypesExternalRepositoryType {
-  ExternalRepositoryTypeGitHub = "github",
-  ExternalRepositoryTypeGitLab = "gitlab",
-  ExternalRepositoryTypeADO = "ado",
-  ExternalRepositoryTypeBitbucket = "bitbucket",
-}
-
 export interface TypesExternalStatus {
   commits_ahead?: number;
   commits_behind?: number;
-}
-
-export enum TypesFeedback {
-  FeedbackLike = "like",
-  FeedbackDislike = "dislike",
 }
 
 export interface TypesFeedbackRequest {
@@ -2825,22 +3106,9 @@ export interface TypesGitRepositoryFileResponse {
   path?: string;
 }
 
-export enum TypesGitRepositoryStatus {
-  GitRepositoryStatusActive = "active",
-  GitRepositoryStatusCloning = "cloning",
-  GitRepositoryStatusError = "error",
-  GitRepositoryStatusArchived = "archived",
-  GitRepositoryStatusDeleted = "deleted",
-}
-
 export interface TypesGitRepositoryTreeResponse {
   entries?: TypesTreeEntry[];
   path?: string;
-}
-
-export enum TypesGitRepositoryType {
-  GitRepositoryTypeInternal = "internal",
-  GitRepositoryTypeCode = "code",
 }
 
 export interface TypesGitRepositoryUpdateRequest {
@@ -2910,12 +3178,6 @@ export interface TypesGuidelinesHistory {
   /** Set for user-level (personal workspace) guidelines */
   user_id?: string;
   version?: number;
-}
-
-export enum TypesImageURLDetail {
-  ImageURLDetailHigh = "high",
-  ImageURLDetailLow = "low",
-  ImageURLDetailAuto = "auto",
 }
 
 export interface TypesInteraction {
@@ -2995,14 +3257,6 @@ export interface TypesInteraction {
   updated?: string;
   usage?: TypesUsage;
   user_id?: string;
-}
-
-export enum TypesInteractionState {
-  InteractionStateNone = "",
-  InteractionStateWaiting = "waiting",
-  InteractionStateEditing = "editing",
-  InteractionStateComplete = "complete",
-  InteractionStateError = "error",
 }
 
 export interface TypesItem {
@@ -3136,14 +3390,6 @@ export interface TypesKnowledgeSourceWebAuth {
   username?: string;
 }
 
-export enum TypesKnowledgeState {
-  KnowledgeStatePreparing = "preparing",
-  KnowledgeStatePending = "pending",
-  KnowledgeStateIndexing = "indexing",
-  KnowledgeStateReady = "ready",
-  KnowledgeStateError = "error",
-}
-
 export interface TypesKnowledgeVersion {
   crawled_sources?: TypesCrawledSources;
   created?: string;
@@ -3187,15 +3433,6 @@ export interface TypesLLMCall {
   total_tokens?: number;
   updated?: string;
   user_id?: string;
-}
-
-export enum TypesLLMCallStep {
-  LLMCallStepDefault = "default",
-  LLMCallStepIsActionable = "is_actionable",
-  LLMCallStepPrepareAPIRequest = "prepare_api_request",
-  LLMCallStepInterpretResponse = "interpret_response",
-  LLMCallStepGenerateTitle = "generate_title",
-  LLMCallStepSummarizeConversation = "summarize_conversation",
 }
 
 export interface TypesListCommitsResponse {
@@ -3258,16 +3495,6 @@ export interface TypesMessageContent {
   parts?: any[];
 }
 
-export enum TypesMessageContentType {
-  MessageContentTypeText = "text",
-}
-
-export enum TypesModality {
-  ModalityText = "text",
-  ModalityImage = "image",
-  ModalityFile = "file",
-}
-
 export interface TypesModel {
   allocated_gpu_count?: number;
   /** EXPORTED ALLOCATION FIELDS: Set by NewModelForGPUAllocation based on scheduler's GPU allocation decision */
@@ -3318,12 +3545,6 @@ export interface TypesModelInfo {
   slug?: string;
   supported_parameters?: string[];
   supports_reasoning?: boolean;
-}
-
-export enum TypesModelType {
-  ModelTypeChat = "chat",
-  ModelTypeImage = "image",
-  ModelTypeEmbed = "embed",
 }
 
 export interface TypesMoveProjectPreviewItem {
@@ -3405,20 +3626,6 @@ export interface TypesOAuthProvider {
   type?: TypesOAuthProviderType;
   updated_at?: string;
   user_info_url?: string;
-}
-
-export enum TypesOAuthProviderType {
-  OAuthProviderTypeUnknown = "",
-  OAuthProviderTypeAtlassian = "atlassian",
-  OAuthProviderTypeGoogle = "google",
-  OAuthProviderTypeMicrosoft = "microsoft",
-  OAuthProviderTypeGitHub = "github",
-  OAuthProviderTypeGitLab = "gitlab",
-  OAuthProviderTypeAzureDevOps = "azure_devops",
-  OAuthProviderTypeSlack = "slack",
-  OAuthProviderTypeLinkedIn = "linkedin",
-  OAuthProviderTypeHubSpot = "hubspot",
-  OAuthProviderTypeCustom = "custom",
 }
 
 export interface TypesOAuthUserInfo {
@@ -3547,19 +3754,6 @@ export interface TypesOrganizationMembership {
   user?: TypesUser;
   /** composite key */
   user_id?: string;
-}
-
-export enum TypesOrganizationRole {
-  OrganizationRoleOwner = "owner",
-  OrganizationRoleMember = "member",
-}
-
-export enum TypesOwnerType {
-  OwnerTypeUser = "user",
-  OwnerTypeRunner = "runner",
-  OwnerTypeSystem = "system",
-  OwnerTypeSocket = "socket",
-  OwnerTypeOrg = "org",
 }
 
 export interface TypesPaginatedInteractions {
@@ -3844,14 +4038,6 @@ export interface TypesPromptHistorySyncResponse {
   synced?: number;
 }
 
-export enum TypesProvider {
-  ProviderOpenAI = "openai",
-  ProviderTogetherAI = "togetherai",
-  ProviderAnthropic = "anthropic",
-  ProviderHelix = "helix",
-  ProviderVLLM = "vllm",
-}
-
 export interface TypesProviderEndpoint {
   api_key?: string;
   /** Must be mounted to the container */
@@ -3886,20 +4072,6 @@ export interface TypesProviderEndpoint {
   vertex_region?: string;
 }
 
-export enum TypesProviderEndpointStatus {
-  ProviderEndpointStatusOK = "ok",
-  ProviderEndpointStatusError = "error",
-  ProviderEndpointStatusLoading = "loading",
-  ProviderEndpointStatusDisabled = "disabled",
-}
-
-export enum TypesProviderEndpointType {
-  ProviderEndpointTypeGlobal = "global",
-  ProviderEndpointTypeUser = "user",
-  ProviderEndpointTypeOrg = "org",
-  ProviderEndpointTypeTeam = "team",
-}
-
 export interface TypesPullRequest {
   author?: string;
   created_at?: string;
@@ -3912,13 +4084,6 @@ export interface TypesPullRequest {
   title?: string;
   updated_at?: string;
   url?: string;
-}
-
-export enum TypesPullRequestState {
-  PullRequestStateOpen = "open",
-  PullRequestStateClosed = "closed",
-  PullRequestStateMerged = "merged",
-  PullRequestStateUnknown = "unknown",
 }
 
 export interface TypesPullResponse {
@@ -3980,13 +4145,6 @@ export interface TypesQuestionSetExecution {
   results?: TypesQuestionResponse[];
   status?: TypesQuestionSetExecutionStatus;
   updated?: string;
-}
-
-export enum TypesQuestionSetExecutionStatus {
-  QuestionSetExecutionStatusPending = "pending",
-  QuestionSetExecutionStatusRunning = "running",
-  QuestionSetExecutionStatusSuccess = "success",
-  QuestionSetExecutionStatusError = "error",
 }
 
 export interface TypesQuotaResponse {
@@ -4069,26 +4227,6 @@ export interface TypesRepositoryInfo {
   private?: boolean;
 }
 
-export enum TypesResource {
-  ResourceTeam = "Team",
-  ResourceOrganization = "Organization",
-  ResourceRole = "Role",
-  ResourceMembership = "Membership",
-  ResourceMembershipRoleBinding = "MembershipRoleBinding",
-  ResourceApplication = "Application",
-  ResourceAccessGrants = "AccessGrants",
-  ResourceKnowledge = "Knowledge",
-  ResourceUser = "User",
-  ResourceAny = "*",
-  ResourceTypeDataset = "Dataset",
-  ResourceProject = "Project",
-  ResourceGitRepository = "GitRepository",
-  ResourceSpecTask = "SpecTask",
-  ResourceSession = "Session",
-  ResourcePrompt = "Prompt",
-  ResourceDesktop = "Desktop",
-}
-
 export interface TypesResourceSearchRequest {
   limit?: number;
   organization_id?: string;
@@ -4114,11 +4252,6 @@ export interface TypesResourceSearchResult {
 export interface TypesResponseFormat {
   schema?: OpenaiChatCompletionResponseFormatJSONSchema;
   type?: TypesResponseFormatType;
-}
-
-export enum TypesResponseFormatType {
-  ResponseFormatTypeJSONObject = "json_object",
-  ResponseFormatTypeText = "text",
 }
 
 export interface TypesRole {
@@ -4280,16 +4413,6 @@ export interface TypesSchedulingDecision {
   workload_id?: string;
 }
 
-export enum TypesSchedulingDecisionType {
-  SchedulingDecisionTypeQueued = "queued",
-  SchedulingDecisionTypeReuseWarmSlot = "reuse_warm_slot",
-  SchedulingDecisionTypeCreateNewSlot = "create_new_slot",
-  SchedulingDecisionTypeEvictStaleSlot = "evict_stale_slot",
-  SchedulingDecisionTypeRejected = "rejected",
-  SchedulingDecisionTypeError = "error",
-  SchedulingDecisionTypeUnschedulable = "unschedulable",
-}
-
 export interface TypesSchedulingEvent {
   description?: string;
   /** "slot_created", "slot_deleted", "eviction", "stabilization_start", "stabilization_end" */
@@ -4392,11 +4515,6 @@ export interface TypesServiceConnectionResponse {
   provider_type?: TypesExternalRepositoryType;
   type?: TypesServiceConnectionType;
   updated_at?: string;
-}
-
-export enum TypesServiceConnectionType {
-  ServiceConnectionTypeGitHubApp = "github_app",
-  ServiceConnectionTypeADOServicePrincipal = "ado_service_principal",
 }
 
 export interface TypesServiceConnectionUpdateRequest {
@@ -4540,8 +4658,6 @@ export interface TypesSessionMetadata {
   container_ip?: string;
   /** Container fields (Hydra executor) */
   container_name?: string;
-  /** "running" = should be running, "stopped" = can terminate */
-  desired_state?: string;
   /** Dev container ID for streaming */
   dev_container_id?: string;
   document_group_id?: string;
@@ -4620,13 +4736,6 @@ export interface TypesSessionMetadata {
   zed_thread_id?: string;
 }
 
-export enum TypesSessionMode {
-  SessionModeNone = "",
-  SessionModeInference = "inference",
-  SessionModeFinetune = "finetune",
-  SessionModeAction = "action",
-}
-
 export interface TypesSessionRAGResult {
   content?: string;
   content_offset?: number;
@@ -4660,12 +4769,6 @@ export interface TypesSessionSummary {
   summary?: string;
   type?: TypesSessionType;
   updated?: string;
-}
-
-export enum TypesSessionType {
-  SessionTypeNone = "",
-  SessionTypeText = "text",
-  SessionTypeImage = "image",
 }
 
 export interface TypesSkillDefinition {
@@ -4747,6 +4850,8 @@ export interface TypesSpecTask {
   agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
   archived?: boolean;
+  /** Team member assigned to work on this task */
+  assignee_id?: string;
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */
@@ -4892,6 +4997,8 @@ export interface TypesSpecTaskDesignReviewComment {
   agent_response?: string;
   /** When agent responded */
   agent_response_at?: string;
+  /** Agent's structured entries (for tool call rendering) */
+  agent_response_entries?: number[];
   /** The actual comment */
   comment_text?: string;
   /** Made optional - simplified to single type */
@@ -4950,14 +5057,6 @@ export interface TypesSpecTaskDesignReviewCommentListResponse {
   total?: number;
 }
 
-export enum TypesSpecTaskDesignReviewCommentType {
-  SpecTaskDesignReviewCommentTypeGeneral = "general",
-  SpecTaskDesignReviewCommentTypeQuestion = "question",
-  SpecTaskDesignReviewCommentTypeSuggestion = "suggestion",
-  SpecTaskDesignReviewCommentTypeCritical = "critical",
-  SpecTaskDesignReviewCommentTypePraise = "praise",
-}
-
 export interface TypesSpecTaskDesignReviewDetailResponse {
   comments?: TypesSpecTaskDesignReviewComment[];
   review?: TypesSpecTaskDesignReview;
@@ -4969,14 +5068,6 @@ export interface TypesSpecTaskDesignReviewListResponse {
   total?: number;
 }
 
-export enum TypesSpecTaskDesignReviewStatus {
-  SpecTaskDesignReviewStatusPending = "pending",
-  SpecTaskDesignReviewStatusInReview = "in_review",
-  SpecTaskDesignReviewStatusChangesRequested = "changes_requested",
-  SpecTaskDesignReviewStatusApproved = "approved",
-  SpecTaskDesignReviewStatusSuperseded = "superseded",
-}
-
 export interface TypesSpecTaskDesignReviewSubmitRequest {
   /** "approve" or "request_changes" */
   decision: "approve" | "request_changes";
@@ -4984,37 +5075,9 @@ export interface TypesSpecTaskDesignReviewSubmitRequest {
   review_id: string;
 }
 
-export enum TypesSpecTaskPhase {
-  SpecTaskPhasePlanning = "planning",
-  SpecTaskPhaseImplementation = "implementation",
-  SpecTaskPhaseValidation = "validation",
-}
-
-export enum TypesSpecTaskPriority {
-  SpecTaskPriorityLow = "low",
-  SpecTaskPriorityMedium = "medium",
-  SpecTaskPriorityHigh = "high",
-  SpecTaskPriorityCritical = "critical",
-}
-
-export enum TypesSpecTaskStatus {
-  TaskStatusBacklog = "backlog",
-  TaskStatusQueuedImplementation = "queued_implementation",
-  TaskStatusQueuedSpecGeneration = "queued_spec_generation",
-  TaskStatusSpecGeneration = "spec_generation",
-  TaskStatusSpecReview = "spec_review",
-  TaskStatusSpecRevision = "spec_revision",
-  TaskStatusSpecApproved = "spec_approved",
-  TaskStatusImplementationQueued = "implementation_queued",
-  TaskStatusImplementation = "implementation",
-  TaskStatusImplementationReview = "implementation_review",
-  TaskStatusPullRequest = "pull_request",
-  TaskStatusDone = "done",
-  TaskStatusSpecFailed = "spec_failed",
-  TaskStatusImplementationFailed = "implementation_failed",
-}
-
 export interface TypesSpecTaskUpdateRequest {
+  /** Pointer to allow clearing (set to empty string to unassign) */
+  assignee_id?: string;
   /** IDs of tasks this task depends on */
   depends_on?: string[];
   description?: string;
@@ -5036,6 +5099,8 @@ export interface TypesSpecTaskWithProject {
   agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
   archived?: boolean;
+  /** Team member assigned to work on this task */
+  assignee_id?: string;
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */
@@ -5175,23 +5240,6 @@ export interface TypesSpecTaskWorkSession {
   started_at?: string;
   status?: TypesSpecTaskWorkSessionStatus;
   updated_at?: string;
-}
-
-export enum TypesSpecTaskWorkSessionStatus {
-  SpecTaskWorkSessionStatusPending = "pending",
-  SpecTaskWorkSessionStatusActive = "active",
-  SpecTaskWorkSessionStatusCompleted = "completed",
-  SpecTaskWorkSessionStatusFailed = "failed",
-  SpecTaskWorkSessionStatusCancelled = "cancelled",
-  SpecTaskWorkSessionStatusBlocked = "blocked",
-}
-
-export enum TypesSpecTaskZedStatus {
-  SpecTaskZedStatusPending = "pending",
-  SpecTaskZedStatusActive = "active",
-  SpecTaskZedStatusDisconnected = "disconnected",
-  SpecTaskZedStatusCompleted = "completed",
-  SpecTaskZedStatusFailed = "failed",
 }
 
 export interface TypesSpecTaskZedThread {
@@ -5359,11 +5407,6 @@ export interface TypesTestStep {
   prompt?: string;
 }
 
-export enum TypesTextSplitterType {
-  TextSplitterTypeMarkdown = "markdown",
-  TextSplitterTypeText = "text",
-}
-
 export interface TypesTitleHistoryEntry {
   /** When the title was changed */
   changed_at?: string;
@@ -5373,15 +5416,6 @@ export interface TypesTitleHistoryEntry {
   title?: string;
   /** Turn number that triggered the change (1-indexed) */
   turn?: number;
-}
-
-export enum TypesTokenType {
-  TokenTypeNone = "",
-  TokenTypeRunner = "runner",
-  TokenTypeOIDC = "oidc",
-  TokenTypeAPIKey = "api_key",
-  TokenTypeSocket = "socket",
-  TokenTypeSession = "session",
 }
 
 export interface TypesTool {
@@ -5498,18 +5532,6 @@ export interface TypesToolProjectManagerConfig {
   project_id?: string;
 }
 
-export enum TypesToolType {
-  ToolTypeAPI = "api",
-  ToolTypeBrowser = "browser",
-  ToolTypeZapier = "zapier",
-  ToolTypeCalculator = "calculator",
-  ToolTypeEmail = "email",
-  ToolTypeWebSearch = "web_search",
-  ToolTypeAzureDevOps = "azure_devops",
-  ToolTypeMCP = "mcp",
-  ToolTypeProjectManager = "project_manager",
-}
-
 export interface TypesToolWebSearchConfig {
   enabled?: boolean;
   max_results?: number;
@@ -5580,25 +5602,10 @@ export interface TypesTriggerExecution {
   updated?: string;
 }
 
-export enum TypesTriggerExecutionStatus {
-  TriggerExecutionStatusPending = "pending",
-  TriggerExecutionStatusRunning = "running",
-  TriggerExecutionStatusSuccess = "success",
-  TriggerExecutionStatusError = "error",
-}
-
 export interface TypesTriggerStatus {
   message?: string;
   ok?: boolean;
   type?: TypesTriggerType;
-}
-
-export enum TypesTriggerType {
-  TriggerTypeSlack = "slack",
-  TriggerTypeTeams = "teams",
-  TriggerTypeCrisp = "crisp",
-  TriggerTypeAzureDevOps = "azure_devops",
-  TriggerTypeCron = "cron",
 }
 
 export interface TypesUnifiedSearchResponse {
@@ -5848,12 +5855,788 @@ export interface TypesZedInstanceStatus {
   zed_instance_id?: string;
 }
 
-import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, HeadersDefaults, ResponseType } from "axios";
-import axios from "axios";
+export type V1AdminAgentSandboxesDebugListData =
+  ServerAgentSandboxesDebugResponse;
+
+export type V1AdminAgentSandboxesEventsListData = string;
+
+export type V1AdminKoditQueueListData = ServerKoditAdminQueueListResponse;
+
+export type V1AdminKoditQueueDeleteData = Record<string, string>;
+
+export type V1AdminKoditQueuePriorityPartialUpdateData = Record<string, string>;
+
+export type V1AdminKoditRepositoriesListData = ServerKoditAdminRepoListResponse;
+
+export type V1AdminKoditRepositoriesBatchDeleteCreateData =
+  ServerKoditAdminBatchResponse;
+
+export type V1AdminKoditRepositoriesBatchRescanCreateData =
+  ServerKoditAdminBatchResponse;
+
+export type V1AdminKoditRepositoriesDetailData =
+  ServerKoditAdminRepoDetailResponse;
+
+export type V1AdminKoditRepositoriesDeleteData = Record<string, string>;
+
+export type V1AdminKoditRepositoriesRescanCreateData = Record<string, string>;
+
+export type V1AdminKoditRepositoriesSyncCreateData = Record<string, string>;
+
+export type V1AdminKoditRepositoriesTasksListData =
+  ServerKoditAdminRepositoryTasksResponse;
+
+export type V1AdminKoditStatsListData = ServerKoditAdminStatsResponse;
+
+export type V1AdminOrganizationDomainsListData = ServerOrganizationDomainInfo[];
+
+export type V1AdminOrgsListData = TypesOrgDetails[];
+
+export type V1AdminUsersDeleteData = Record<string, string>;
+
+export type V1AdminUsersApproveCreateData = TypesUser;
+
+export type V1AdminUsersPasswordUpdateData = TypesUser;
+
+export type V1ApiKeysListData = TypesApiKey[];
+
+/** Request body with name and type */
+export type V1ApiKeysCreatePayload = Record<string, any>;
+
+export type V1ApiKeysCreateData = string;
+
+export type V1ApiKeysDeleteData = string;
+
+export type V1AppsListData = TypesApp[];
+
+export type V1AppsCreateData = ServerAppCreateResponse;
+
+export type V1AppsTriggersListData = TypesTriggerConfiguration[];
+
+export type V1AppsDetailData = TypesApp;
+
+export type V1AppsUpdateData = TypesApp;
+
+export type V1AppsDeleteData = any;
+
+export type V1AppsAccessGrantsListData = TypesAccessGrant[];
+
+export type V1AppsAccessGrantsCreateData = TypesAccessGrant;
+
+export type V1AppsApiActionsCreateData = TypesRunAPIActionResponse;
+
+/** @format binary */
+export type V1AppsAvatarListData = File;
+
+/** Base64 encoded image data */
+export type V1AppsAvatarCreatePayload = string;
+
+export type V1AppsAvatarCreateData = any;
+
+export type V1AppsAvatarDeleteData = any;
+
+export type V1AppsDailyUsageListData = TypesAggregatedUsageMetric[];
+
+export type V1AppsDuplicateCreateData = any;
+
+export type V1AppsInteractionsListData = TypesPaginatedInteractions;
+
+export type V1AppsLlmCallsListData = TypesPaginatedLLMCalls;
+
+export type V1AppsMemoriesListData = TypesMemory[];
+
+export type V1AppsMemoriesDeleteData = any;
+
+export type V1AppsStepInfoListData = TypesStepInfo[];
+
+export type V1AppsTriggerStatusListData = TypesTriggerStatus;
+
+export type V1AppsUserAccessListData = TypesUserAppAccessResponse;
+
+export type V1AppsUsersDailyUsageListData = TypesAggregatedUsageMetric[];
+
+export type V1AuthAuthenticatedListData = TypesAuthenticatedResponse;
+
+export type V1AuthCallbackListData = any;
+
+export type V1AuthLoginCreateData = any;
+
+export type V1AuthLogoutCreateData = any;
+
+export type V1AuthPasswordResetCreateData = any;
+
+export type V1AuthPasswordResetCompleteCreateData = any;
+
+export type V1AuthPasswordUpdateCreateData = any;
+
+export type V1AuthRefreshCreateData = any;
+
+export type V1AuthRegisterCreateData = any;
+
+export type V1AuthSessionListData = TypesSessionInfo;
+
+export type V1AuthUpdateCreateData = TypesUserResponse;
+
+export type V1AuthUserListData = TypesUserResponse;
+
+/** @format binary */
+export type V1BandwidthProbeListData = File;
+
+export type V1ClaudeSubscriptionsListData = TypesClaudeSubscription[];
+
+export type V1ClaudeSubscriptionsCreateData = TypesClaudeSubscription;
+
+export type V1ClaudeSubscriptionsModelsListData = ServerClaudeModel[];
+
+export type V1ClaudeSubscriptionsPollLoginDetailData =
+  ServerClaudePollLoginResponse;
+
+export type V1ClaudeSubscriptionsStartLoginCreateData =
+  ServerClaudeLoginSessionResponse;
+
+export type V1ClaudeSubscriptionsDetailData = TypesClaudeSubscription;
+
+export type V1ClaudeSubscriptionsDeleteData = Record<string, string>;
+
+export type V1CloneGroupsProgressListData = TypesCloneGroupProgress;
+
+export type V1ConfigListData = TypesServerConfigForFrontend;
+
+export type V1ContextMenuListData = TypesContextMenuResponse;
+
+export type V1DashboardListData = TypesDashboardData;
+
+export type V1ExternalAgentsClipboardListData = TypesClipboardData;
+
+export type V1ExternalAgentsClipboardCreateData = any;
+
+export type V1ExternalAgentsConfigurePendingSessionCreateData = Record<
+  string,
+  string
+>;
+
+export type V1ExternalAgentsDiffListData = object;
+
+/** Command to execute */
+export type V1ExternalAgentsExecCreatePayload = object;
+
+export type V1ExternalAgentsExecCreateData = object;
+
+/** Input event(s). Single event: {type, keycode, state} or batch: {events: [...]} */
+export type V1ExternalAgentsInputCreatePayload = object;
+
+export type V1ExternalAgentsInputCreateData = object;
+
+export interface V1ExternalAgentsUploadCreatePayload {
+  /** File to upload */
+  file: File;
+}
+
+export type V1ExternalAgentsUploadCreateData = TypesSandboxFileUploadResponse;
+
+export type V1ExternalAgentsWorkspacesListData = object;
+
+export type V1FilestoreConfigListData = FilestoreConfig;
+
+export interface V1FilestoreDeleteDeleteData {
+  path?: string;
+}
+
+/** Request body with folder path */
+export interface V1FilestoreFolderCreatePayload {
+  path?: string;
+}
+
+export type V1FilestoreFolderCreateData = FilestoreItem;
+
+export type V1FilestoreGetListData = FilestoreItem;
+
+export type V1FilestoreListListData = FilestoreItem[];
+
+export type V1FilestoreRenameUpdateData = FilestoreItem;
+
+export interface V1FilestoreUploadCreatePayload {
+  /** Files to upload (multipart form data) */
+  files: File;
+}
+
+export interface V1FilestoreUploadCreateData {
+  success?: boolean;
+}
+
+/** @format binary */
+export type V1FilestoreViewerDetailData = File;
+
+export type V1GitProviderConnectionsListData = TypesGitProviderConnection[];
+
+export type V1GitProviderConnectionsCreateData = TypesGitProviderConnection;
+
+export type V1GitProviderConnectionsDeleteData = any;
+
+export type V1GitProviderConnectionsRepositoriesListData =
+  TypesListOAuthRepositoriesResponse;
+
+export type V1GitBrowseRemoteCreateData = TypesListOAuthRepositoriesResponse;
+
+export type V1GitRepositoriesListData = TypesGitRepository[];
+
+export type V1GitRepositoriesCreateData = TypesGitRepository;
+
+export type V1GitRepositoriesDetailData = TypesGitRepository;
+
+export type V1GitRepositoriesUpdateData = TypesGitRepository;
+
+export type V1GitRepositoriesDeleteData = any;
+
+export type V1GitRepositoriesAccessGrantsListData = TypesAccessGrant[];
+
+export type V1GitRepositoriesAccessGrantsCreateData = TypesAccessGrant;
+
+export type ListGitRepositoryBranchesData = string[];
+
+export type CreateGitRepositoryBranchData = TypesCreateBranchResponse;
+
+export type V1GitRepositoriesCloneCommandListData = ServerCloneCommandResponse;
+
+export type ListGitRepositoryCommitsData = TypesListCommitsResponse;
+
+export type GetGitRepositoryFileData = TypesGitRepositoryFileResponse;
+
+export type CreateOrUpdateGitRepositoryFileContentsData =
+  TypesGitRepositoryFileResponse;
+
+export type V1GitRepositoriesEnrichmentsListData =
+  ServerKoditEnrichmentListResponse;
+
+export type V1GitRepositoriesEnrichmentsDetailData = ServerKoditEnrichmentDTO;
+
+export type V1GitRepositoriesFileContentListData =
+  ServerKoditFileContentResponse;
+
+export type V1GitRepositoriesFilesListData = ServerKoditFilesResponse;
+
+export type V1GitRepositoriesGrepListData = ServerKoditGrepResponse;
+
+export type V1GitRepositoriesKeywordSearchListData = ServerKoditSearchResponse;
+
+export type V1GitRepositoriesKoditCommitsListData = ServerKoditCommitDTO[];
+
+export type V1GitRepositoriesKoditRescanCreateData = Record<string, string>;
+
+export type V1GitRepositoriesKoditStatusListData = ServerKoditIndexingStatusDTO;
+
+export type PullFromRemoteData = TypesPullResponse;
+
+export type ListGitRepositoryPullRequestsData = TypesPullRequest[];
+
+export type CreateGitRepositoryPullRequestData = TypesCreatePullRequestResponse;
+
+export type PushToRemoteData = TypesPushResponse;
+
+export type PushPullGitRepositoryData = ServerPushPullResponse;
+
+export type V1GitRepositoriesSearchSnippetsListData =
+  ServerKoditSearchResultDTO[];
+
+export type V1GitRepositoriesSemanticSearchListData = ServerKoditSearchResponse;
+
+export type SyncAllBranchesData = TypesSyncAllResponse;
+
+export type BrowseGitRepositoryTreeData = TypesGitRepositoryTreeResponse;
+
+export type V1GitRepositoriesWikiListData = ServerKoditWikiTreeResponse;
+
+export type V1GitRepositoriesWikiPageListData = ServerKoditWikiPageResponse;
+
+export type V1HelixModelsListData = TypesModel[];
+
+export type V1HelixModelsCreateData = TypesModel;
+
+export type V1HelixModelsMemoryEstimateListData =
+  ControllerMemoryEstimationResponse;
+
+export type V1HelixModelsMemoryEstimatesListData =
+  ControllerMemoryEstimationResponse[];
+
+export type V1HelixModelsUpdateData = TypesModel;
+
+export type V1HelixModelsDeleteData = string;
+
+export type V1KnowledgeListData = TypesKnowledge[];
+
+export type V1KnowledgeDetailData = TypesKnowledge;
+
+export type V1KnowledgeDeleteData = TypesKnowledge;
+
+export type V1KnowledgeCompleteCreateData = TypesKnowledge;
+
+/** @format binary */
+export type V1KnowledgeDownloadListData = File;
+
+export type V1KnowledgeRefreshCreateData = TypesKnowledge;
+
+export type V1KnowledgeVersionsListData = TypesKnowledgeVersion[];
+
+export type V1LicenseListData = ServerLicenseKeyRequest;
+
+export type V1LicenseCreateData = ServerLicenseKeyRequest;
+
+export type V1LlmCallsListData = TypesPaginatedLLMCalls;
+
+export type V1LogsDetailData = Record<string, any>;
+
+export type V1ModelInfoListData = TypesDynamicModelInfo[];
+
+export type V1ModelInfoCreateData = TypesDynamicModelInfo;
+
+export type V1ModelInfoDetailData = TypesDynamicModelInfo;
+
+export type V1ModelInfoUpdateData = TypesDynamicModelInfo;
+
+export type V1ModelInfoDeleteData = string;
+
+export type V1OauthConnectionsListData = TypesOAuthConnection[];
+
+export type V1OauthConnectionsDetailData = TypesOAuthConnection;
+
+export type V1OauthConnectionsDeleteData = any;
+
+export type V1OauthConnectionsRefreshCreateData = TypesOAuthConnection;
+
+export type V1OauthConnectionsRepositoriesListData =
+  TypesListOAuthRepositoriesResponse;
+
+export type V1OauthProvidersListData = TypesOAuthProvider[];
+
+export type V1OauthProvidersCreateData = TypesOAuthProvider;
+
+export type V1OauthProvidersDeleteData = any;
+
+export type V1OauthSharepointResolveSiteCreateData =
+  ServerSharePointSiteResolveResponse;
+
+export type V1OrganizationsListData = TypesOrganization[];
+
+export type V1OrganizationsCreateData = TypesOrganization;
+
+export type V1OrganizationsDetailData = TypesOrganization;
+
+export type V1OrganizationsUpdateData = TypesOrganization;
+
+export type V1OrganizationsDeleteData = any;
+
+export type V1OrganizationsApiKeysListData = TypesApiKey[];
+
+/** Request body with name */
+export type V1OrganizationsApiKeysCreatePayload = object;
+
+export type V1OrganizationsApiKeysCreateData = TypesApiKey;
+
+export type V1OrganizationsApiKeysDeleteData = string;
+
+export type V1OrganizationsGuidelinesHistoryListData = TypesGuidelinesHistory[];
+
+export type V1OrganizationsMembersListData = TypesOrganizationMembership[];
+
+export type V1OrganizationsMembersCreateData = TypesOrganizationMembership;
+
+export type V1OrganizationsMembersUpdateData = TypesOrganizationMembership;
+
+export type V1OrganizationsMembersDeleteData = any;
+
+export type V1OrganizationsRolesListData = TypesRole[];
+
+export type V1OrganizationsTeamsListData = TypesTeam[];
+
+export type V1OrganizationsTeamsCreateData = TypesTeam;
+
+export type V1OrganizationsTeamsUpdateData = TypesTeam;
+
+export type V1OrganizationsTeamsDeleteData = any;
+
+export type V1OrganizationsTeamsMembersListData = TypesTeamMembership[];
+
+export type V1OrganizationsTeamsMembersCreateData = TypesTeamMembership;
+
+export type V1ProjectsListData = TypesProject[];
+
+export type V1ProjectsCreateData = TypesProject;
+
+export type V1ProjectsQuickCreateCreateData = TypesProject;
+
+export type V1ProjectsDetailData = TypesProject;
+
+export type V1ProjectsUpdateData = TypesProject;
+
+export type V1ProjectsDeleteData = Record<string, string>;
+
+export type V1ProjectsAccessGrantsListData = TypesAccessGrant[];
+
+export type V1ProjectsAccessGrantsCreateData = TypesAccessGrant;
+
+export type V1ProjectsAuditLogsListData = TypesProjectAuditLogResponse;
+
+export type V1ProjectsDockerCacheDeleteData = Record<string, string>;
+
+export type V1ProjectsDockerCacheBuildCreateData = Record<string, string>;
+
+export type V1ProjectsDockerCacheCancelCreateData = Record<string, string>;
+
+export type V1ProjectsExploratorySessionListData = TypesSession;
+
+export type V1ProjectsExploratorySessionCreateData = TypesSession;
+
+export type V1ProjectsExploratorySessionDeleteData = Record<string, string>;
+
+export type V1ProjectsGuidelinesHistoryListData = TypesGuidelinesHistory[];
+
+export type V1ProjectsMoveCreateData = TypesProject;
+
+export type V1ProjectsMovePreviewCreateData = TypesMoveProjectPreviewResponse;
+
+export type V1ProjectsPinCreateData = ServerPinnedProjectsResponse;
+
+export type V1ProjectsPinDeleteData = ServerPinnedProjectsResponse;
+
+export type GetProjectRepositoriesData = TypesGitRepository[];
+
+export type V1ProjectsRepositoriesAttachUpdateData = Record<string, string>;
+
+export type V1ProjectsRepositoriesDetachUpdateData = Record<string, string>;
+
+export type V1ProjectsRepositoriesPrimaryUpdateData = Record<string, string>;
+
+export type V1ProjectsSecretsListData = TypesSecret[];
+
+export type V1ProjectsSecretsCreateData = TypesSecret;
+
+export type V1ProjectsStartupScriptHistoryListData =
+  ServicesStartupScriptVersion[];
+
+export type V1ProjectsTasksProgressListData = ServerBatchTaskProgressResponse;
+
+export type V1ProjectsTasksUsageListData = ServerBatchTaskUsageResponse;
+
+export type V1ProjectsUsageListData = TypesAggregatedUsageMetric[];
+
+export type V1PromptHistoryListData = TypesPromptHistoryListResponse;
+
+export type V1PromptHistoryPinnedListData = TypesPromptHistoryEntry[];
+
+export type V1PromptHistorySearchListData = TypesPromptHistoryEntry[];
+
+export type V1PromptHistorySyncCreateData = TypesPromptHistorySyncResponse;
+
+export type V1PromptHistoryPinUpdateData = Record<string, boolean>;
+
+export type V1PromptHistoryTagsUpdateData = Record<string, string>;
+
+export type V1PromptHistoryUseCreateData = Record<string, boolean>;
+
+export type V1ProviderEndpointsListData = TypesProviderEndpoint[];
+
+export type V1ProviderEndpointsCreateData = TypesProviderEndpoint;
+
+export type V1ProviderEndpointsUpdateData = TypesUpdateProviderEndpoint;
+
+export type V1ProviderEndpointsDeleteData = any;
+
+export type V1ProviderEndpointsDailyUsageListData =
+  TypesAggregatedUsageMetric[];
+
+export type V1ProviderEndpointsUsersDailyUsageListData =
+  TypesUsersAggregatedUsageMetric[];
+
+export type V1ProvidersListData = TypesProvider[];
+
+export type V1QuestionSetsListData = TypesQuestionSet[];
+
+export type V1QuestionSetsCreateData = TypesQuestionSet;
+
+export type V1QuestionSetsDetailData = TypesQuestionSet;
+
+export type V1QuestionSetsUpdateData = TypesQuestionSet;
+
+export type V1QuestionSetsDeleteData = any;
+
+export type V1QuestionSetsExecutionsListData = TypesQuestionSetExecution[];
+
+export type V1QuestionSetsExecutionsCreateData =
+  TypesExecuteQuestionSetResponse;
+
+export type V1QuestionSetsExecutionsDetailData = TypesQuestionSetExecution;
+
+export type V1QuotasListData = TypesQuotaResponse;
+
+export type V1RepositoriesWithoutProjectsListData = TypesGitRepository[];
+
+export type V1ResourceSearchCreateData = TypesResourceSearchResponse;
+
+export type V1SampleProjectsListData = ServerSampleProject[];
+
+export type V1SampleProjectsForkCreateData = ServerForkSampleProjectResponse;
+
+export type V1SampleProjectsSimpleListData = ServerSimpleSampleProject[];
+
+export type V1SampleProjectsSimpleCheckAccessCreateData =
+  TypesCheckSampleProjectAccessResponse;
+
+export type V1SampleProjectsSimpleForkCreateData =
+  TypesForkSimpleProjectResponse;
+
+export type V1SampleProjectsSimpleForkReposCreateData =
+  TypesForkRepositoriesResponse;
+
+export type V1SampleProjectsArchiveListData = Record<string, string>;
+
+export type V1SampleProjectsCodeListData = ServicesSampleProjectCode;
+
+export type V1SampleProjectsDetailData = ServerSampleProject;
+
+export type V1SamplesInitializeCreateData =
+  ServerInitializeSampleRepositoriesResponse;
+
+export type V1SamplesRepositoriesCreateData = TypesGitRepository;
+
+export type V1SandboxesListData = TypesSandboxInstance[];
+
+export type V1SandboxesRegisterCreateData = TypesSandboxInstance;
+
+export type V1SandboxesDeleteData = Record<string, string>;
+
+export type V1SandboxesContainersBlkioListData = HydraContainerBlkioStats;
+
+export type V1SandboxesDiskHistoryListData = TypesDiskUsageHistory[];
+
+export type V1SandboxesHeartbeatCreateData = Record<string, string>;
+
+export type V1SchedulerHeartbeatsListData = Record<string, any>;
+
+export type V1SearchListData = TypesUnifiedSearchResponse;
+
+export type V1SecretsListData = TypesSecret[];
+
+export type V1SecretsCreateData = TypesSecret;
+
+export type V1SecretsUpdateData = TypesSecret;
+
+export type V1SecretsDeleteData = TypesSecret;
+
+export type V1ServiceConnectionsListData = TypesServiceConnectionResponse[];
+
+export type V1ServiceConnectionsCreateData = TypesServiceConnectionResponse;
+
+export type V1ServiceConnectionsDetailData = TypesServiceConnectionResponse;
+
+export type V1ServiceConnectionsUpdateData = TypesServiceConnectionResponse;
+
+export type V1ServiceConnectionsDeleteData = any;
+
+export type V1ServiceConnectionsTestCreateData = Record<string, any>;
+
+export type V1SessionsListData = TypesPaginatedSessionsList;
+
+export type V1SessionsChatCreateData = TypesOpenAIResponse;
+
+export type V1SessionsDetailData = TypesSession;
+
+export type V1SessionsUpdateData = TypesSession;
+
+export type V1SessionsDeleteData = TypesSession;
+
+export type V1SessionsClaudeCredentialsListData = TypesClaudeOAuthCredentials;
+
+export type V1SessionsClaudeCredentialsUpdateData = Record<string, string>;
+
+export type V1SessionsExposeListData = ServerListExposedPortsResponse;
+
+export type V1SessionsExposeCreateData = ServerExposePortResponse;
+
+export type V1SessionsExposeDeleteData = Record<string, string>;
+
+export type V1SessionsInteractionsListData = TypesInteraction[];
+
+export type V1SessionsInteractionsDetailData = TypesInteraction;
+
+export type V1SessionsInteractionsFeedbackCreateData = TypesInteraction;
+
+export type V1SessionsRdpConnectionListData = Record<string, any>;
+
+export type V1SessionsResumeCreateData = Record<string, any>;
+
+export type V1SessionsSandboxStateListData = ServerSessionSandboxStateResponse;
+
+export type V1SessionsSearchListData = ServerSessionTOCResponse;
+
+export type V1SessionsStepInfoListData = TypesStepInfo[];
+
+export type V1SessionsStopExternalAgentDeleteData = Record<string, string>;
+
+export type V1SessionsTocListData = ServerSessionTOCResponse;
+
+export type V1SessionsTurnsDetailData = ServerInteractionWithContext;
+
+export type V1SessionsZedConfigListData = TypesZedConfigResponse;
+
+/** User settings overrides */
+export type V1SessionsZedConfigUserCreatePayload = Record<string, any>;
+
+export type V1SessionsZedConfigUserCreateData = Record<string, string>;
+
+export type V1SessionsZedSettingsListData = Record<string, any>;
+
+export type V1SkillsListData = TypesSkillsListResponse;
+
+export type V1SkillsReloadCreateData = Record<string, string>;
+
+export type V1SkillsValidateCreateData = TypesToolMCPClientConfig;
+
+export type V1SkillsDetailData = TypesSkillDefinition;
+
+export type V1SlotsDeleteData = Record<string, any>;
+
+export type V1SpecTasksListData = TypesSpecTask[];
+
+export type V1SpecTasksBoardSettingsListData = TypesBoardSettings;
+
+export type V1SpecTasksBoardSettingsUpdateData = TypesBoardSettings;
+
+export type V1SpecTasksFromPromptCreateData = TypesSpecTask;
+
+export type V1SpecTasksDesignDocsListData = ServerDesignDocsResponse;
+
+export type V1SpecTasksApproveImplementationCreateData = TypesSpecTask;
+
+export type V1SpecTasksDesignReviewsListData =
+  TypesSpecTaskDesignReviewListResponse;
+
+export type V1SpecTasksDesignReviewsDetailData =
+  TypesSpecTaskDesignReviewDetailResponse;
+
+export type V1SpecTasksDesignReviewsCommentQueueStatusListData =
+  TypesCommentQueueStatusResponse;
+
+export type V1SpecTasksDesignReviewsCommentsListData =
+  TypesSpecTaskDesignReviewCommentListResponse;
+
+export type V1SpecTasksDesignReviewsCommentsCreateData =
+  TypesSpecTaskDesignReviewComment;
+
+export type V1SpecTasksDesignReviewsCommentsResolveCreateData =
+  TypesSpecTaskDesignReviewComment;
+
+export type V1SpecTasksDesignReviewsSubmitCreateData =
+  TypesSpecTaskDesignReview;
+
+export type V1SpecTasksStopAgentCreateData = TypesSpecTask;
+
+export type V1SpecTasksDetailData = TypesSpecTask;
+
+export type V1SpecTasksUpdateData = TypesSpecTask;
+
+export type V1SpecTasksDeleteData = TypesSpecTask;
+
+export type V1SpecTasksApproveSpecsCreateData = TypesSpecTask;
+
+export type V1SpecTasksArchivePartialUpdateData = TypesSpecTask;
+
+export type V1SpecTasksCloneCreateData = TypesCloneTaskResponse;
+
+export type V1SpecTasksCloneGroupsListData = TypesCloneGroup[];
+
+export type V1SpecTasksProgressListData = ServerTaskProgressResponse;
+
+export type V1SpecTasksSpecsListData = ServerTaskSpecsResponse;
+
+export type V1SpecTasksStartPlanningCreateData = TypesSpecTask;
+
+export type V1SpecTasksUsageListData = TypesAggregatedUsageMetric[];
+
+export type V1SpecTasksZedInstanceListData = TypesZedInstanceStatus;
+
+export type V1SpecTasksZedInstanceDeleteData = Record<string, any>;
+
+export type V1SpecTasksZedThreadsListData = TypesSpecTaskZedThreadListResponse;
+
+export type V1SpecsSampleTypesListData = ServerSampleTypesResponse;
+
+export type V1SubscriptionManageCreateData = string;
+
+export type V1SubscriptionNewCreateData = string;
+
+export type V1SystemSettingsListData = TypesSystemSettingsResponse;
+
+export type V1SystemSettingsUpdateData = TypesSystemSettingsResponse;
+
+export type V1TeamsWebhookCreateData = string;
+
+export type V1TopUpsNewCreateData = string;
+
+export type V1TriggersListData = TypesTriggerConfiguration[];
+
+export type V1TriggersCreateData = TypesTriggerConfiguration;
+
+export type V1TriggersUpdateData = TypesTriggerConfiguration;
+
+export type V1TriggersDeleteData = TypesTriggerConfiguration;
+
+export type V1TriggersExecuteCreateData = TypesTriggerExecuteResponse;
+
+export type V1TriggersExecutionsListData = TypesTriggerExecution[];
+
+export type V1UsageListData = TypesAggregatedUsageMetric[];
+
+export type V1UsersListData = TypesPaginatedUsersList;
+
+export type V1UsersCreateData = TypesUser;
+
+export type V1UsersMeGuidelinesListData = TypesUserGuidelinesResponse;
+
+export type V1UsersMeGuidelinesUpdateData = TypesUserGuidelinesResponse;
+
+export type V1UsersMeGuidelinesHistoryListData = TypesGuidelinesHistory[];
+
+export type V1UsersMeOnboardingCreateData = TypesUser;
+
+export type V1UsersMePinnedProjectsListData = ServerPinnedProjectsResponse;
+
+export type V1UsersSearchListData = TypesUserSearchResponse;
+
+export type V1UsersTokenUsageListData = TypesUserTokenUsageResponse;
+
+export type V1UsersDetailData = TypesUser;
+
+export type V1WalletListData = TypesWallet;
+
+export type V1WorkSessionsZedThreadCreateData = TypesSpecTaskZedThread;
+
+export type V1ZedEventsCreateData = Record<string, any>;
+
+/** Heartbeat data */
+export type V1ZedInstancesHeartbeatCreatePayload = Record<string, any>;
+
+export type V1ZedInstancesHeartbeatCreateData = Record<string, any>;
+
+/** Thread event data */
+export type V1ZedInstancesThreadsEventsCreatePayload = Record<string, any>;
+
+export type V1ZedInstancesThreadsEventsCreateData = Record<string, any>;
+
+/** Activity data */
+export type V1ZedThreadsActivityCreatePayload = Record<string, any>;
+
+export type V1ZedThreadsActivityCreateData = TypesSpecTaskZedThread;
+
+export type ChatCompletionsCreateData = OpenaiChatCompletionResponse;
+
+export type EmbeddingsCreateData = TypesFlexibleEmbeddingResponse;
+
+export type ModelsListData = TypesOpenAIModelsList[];
 
 export type QueryParamsType = Record<string | number, any>;
+export type ResponseFormat = keyof Omit<Body, "body" | "bodyUsed">;
 
-export interface FullRequestParams extends Omit<AxiosRequestConfig, "data" | "params" | "url" | "responseType"> {
+export interface FullRequestParams extends Omit<RequestInit, "body"> {
   /** set parameter to `true` for call `securityWorker` for this request */
   secure?: boolean;
   /** request path */
@@ -5863,134 +6646,255 @@ export interface FullRequestParams extends Omit<AxiosRequestConfig, "data" | "pa
   /** query params */
   query?: QueryParamsType;
   /** format of response (i.e. response.json() -> format: "json") */
-  format?: ResponseType;
+  format?: ResponseFormat;
   /** request body */
   body?: unknown;
+  /** base url */
+  baseUrl?: string;
+  /** request cancellation token */
+  cancelToken?: CancelToken;
 }
 
-export type RequestParams = Omit<FullRequestParams, "body" | "method" | "query" | "path">;
+export type RequestParams = Omit<
+  FullRequestParams,
+  "body" | "method" | "query" | "path"
+>;
 
-export interface ApiConfig<SecurityDataType = unknown> extends Omit<AxiosRequestConfig, "data" | "cancelToken"> {
+export interface ApiConfig<SecurityDataType = unknown> {
+  baseUrl?: string;
+  baseApiParams?: Omit<RequestParams, "baseUrl" | "cancelToken" | "signal">;
   securityWorker?: (
     securityData: SecurityDataType | null,
-  ) => Promise<AxiosRequestConfig | void> | AxiosRequestConfig | void;
-  secure?: boolean;
-  format?: ResponseType;
+  ) => Promise<RequestParams | void> | RequestParams | void;
+  customFetch?: typeof fetch;
 }
+
+export interface HttpResponse<D extends unknown, E extends unknown = unknown>
+  extends Response {
+  data: D;
+  error: E;
+}
+
+type CancelToken = Symbol | string | number;
 
 export enum ContentType {
   Json = "application/json",
+  JsonApi = "application/vnd.api+json",
   FormData = "multipart/form-data",
   UrlEncoded = "application/x-www-form-urlencoded",
   Text = "text/plain",
 }
 
 export class HttpClient<SecurityDataType = unknown> {
-  public instance: AxiosInstance;
+  public baseUrl: string = "";
   private securityData: SecurityDataType | null = null;
   private securityWorker?: ApiConfig<SecurityDataType>["securityWorker"];
-  private secure?: boolean;
-  private format?: ResponseType;
+  private abortControllers = new Map<CancelToken, AbortController>();
+  private customFetch = (...fetchParams: Parameters<typeof fetch>) =>
+    fetch(...fetchParams);
 
-  constructor({ securityWorker, secure, format, ...axiosConfig }: ApiConfig<SecurityDataType> = {}) {
-    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "https://app.helix.ml" });
-    this.secure = secure;
-    this.format = format;
-    this.securityWorker = securityWorker;
+  private baseApiParams: RequestParams = {
+    credentials: "same-origin",
+    headers: {},
+    redirect: "follow",
+    referrerPolicy: "no-referrer",
+  };
+
+  constructor(apiConfig: ApiConfig<SecurityDataType> = {}) {
+    Object.assign(this, apiConfig);
   }
 
   public setSecurityData = (data: SecurityDataType | null) => {
     this.securityData = data;
   };
 
-  protected mergeRequestParams(params1: AxiosRequestConfig, params2?: AxiosRequestConfig): AxiosRequestConfig {
-    const method = params1.method || (params2 && params2.method);
+  protected encodeQueryParam(key: string, value: any) {
+    const encodedKey = encodeURIComponent(key);
+    return `${encodedKey}=${encodeURIComponent(typeof value === "number" ? value : `${value}`)}`;
+  }
 
+  protected addQueryParam(query: QueryParamsType, key: string) {
+    return this.encodeQueryParam(key, query[key]);
+  }
+
+  protected addArrayQueryParam(query: QueryParamsType, key: string) {
+    const value = query[key];
+    return value.map((v: any) => this.encodeQueryParam(key, v)).join("&");
+  }
+
+  protected toQueryString(rawQuery?: QueryParamsType): string {
+    const query = rawQuery || {};
+    const keys = Object.keys(query).filter(
+      (key) => "undefined" !== typeof query[key],
+    );
+    return keys
+      .map((key) =>
+        Array.isArray(query[key])
+          ? this.addArrayQueryParam(query, key)
+          : this.addQueryParam(query, key),
+      )
+      .join("&");
+  }
+
+  protected addQueryParams(rawQuery?: QueryParamsType): string {
+    const queryString = this.toQueryString(rawQuery);
+    return queryString ? `?${queryString}` : "";
+  }
+
+  private contentFormatters: Record<ContentType, (input: any) => any> = {
+    [ContentType.Json]: (input: any) =>
+      input !== null && (typeof input === "object" || typeof input === "string")
+        ? JSON.stringify(input)
+        : input,
+    [ContentType.JsonApi]: (input: any) =>
+      input !== null && (typeof input === "object" || typeof input === "string")
+        ? JSON.stringify(input)
+        : input,
+    [ContentType.Text]: (input: any) =>
+      input !== null && typeof input !== "string"
+        ? JSON.stringify(input)
+        : input,
+    [ContentType.FormData]: (input: any) => {
+      if (input instanceof FormData) {
+        return input;
+      }
+
+      return Object.keys(input || {}).reduce((formData, key) => {
+        const property = input[key];
+        formData.append(
+          key,
+          property instanceof Blob
+            ? property
+            : typeof property === "object" && property !== null
+              ? JSON.stringify(property)
+              : `${property}`,
+        );
+        return formData;
+      }, new FormData());
+    },
+    [ContentType.UrlEncoded]: (input: any) => this.toQueryString(input),
+  };
+
+  protected mergeRequestParams(
+    params1: RequestParams,
+    params2?: RequestParams,
+  ): RequestParams {
     return {
-      ...this.instance.defaults,
+      ...this.baseApiParams,
       ...params1,
       ...(params2 || {}),
       headers: {
-        ...((method && this.instance.defaults.headers[method.toLowerCase() as keyof HeadersDefaults]) || {}),
+        ...(this.baseApiParams.headers || {}),
         ...(params1.headers || {}),
         ...((params2 && params2.headers) || {}),
       },
     };
   }
 
-  protected stringifyFormItem(formItem: unknown) {
-    if (typeof formItem === "object" && formItem !== null) {
-      return JSON.stringify(formItem);
-    } else {
-      return `${formItem}`;
-    }
-  }
-
-  protected createFormData(input: Record<string, unknown>): FormData {
-    if (input instanceof FormData) {
-      return input;
-    }
-    return Object.keys(input || {}).reduce((formData, key) => {
-      const property = input[key];
-      const propertyContent: any[] = property instanceof Array ? property : [property];
-
-      for (const formItem of propertyContent) {
-        const isFileType = formItem instanceof Blob || formItem instanceof File;
-        formData.append(key, isFileType ? formItem : this.stringifyFormItem(formItem));
+  protected createAbortSignal = (
+    cancelToken: CancelToken,
+  ): AbortSignal | undefined => {
+    if (this.abortControllers.has(cancelToken)) {
+      const abortController = this.abortControllers.get(cancelToken);
+      if (abortController) {
+        return abortController.signal;
       }
+      return void 0;
+    }
 
-      return formData;
-    }, new FormData());
-  }
+    const abortController = new AbortController();
+    this.abortControllers.set(cancelToken, abortController);
+    return abortController.signal;
+  };
 
-  public request = async <T = any, _E = any>({
+  public abortRequest = (cancelToken: CancelToken) => {
+    const abortController = this.abortControllers.get(cancelToken);
+
+    if (abortController) {
+      abortController.abort();
+      this.abortControllers.delete(cancelToken);
+    }
+  };
+
+  public request = async <T = any, E = any>({
+    body,
     secure,
     path,
     type,
     query,
     format,
-    body,
+    baseUrl,
+    cancelToken,
     ...params
-  }: FullRequestParams): Promise<AxiosResponse<T>> => {
+  }: FullRequestParams): Promise<HttpResponse<T, E>> => {
     const secureParams =
-      ((typeof secure === "boolean" ? secure : this.secure) &&
+      ((typeof secure === "boolean" ? secure : this.baseApiParams.secure) &&
         this.securityWorker &&
         (await this.securityWorker(this.securityData))) ||
       {};
     const requestParams = this.mergeRequestParams(params, secureParams);
-    const responseFormat = format || this.format || undefined;
+    const queryString = query && this.toQueryString(query);
+    const payloadFormatter = this.contentFormatters[type || ContentType.Json];
+    const responseFormat = format || requestParams.format;
 
-    if (type === ContentType.FormData && body && body !== null && typeof body === "object") {
-      body = this.createFormData(body as Record<string, unknown>);
-    }
-
-    if (type === ContentType.Text && body && body !== null && typeof body !== "string") {
-      body = JSON.stringify(body);
-    }
-
-    return this.instance.request({
-      ...requestParams,
-      headers: {
-        ...(requestParams.headers || {}),
-        ...(type ? { "Content-Type": type } : {}),
+    return this.customFetch(
+      `${baseUrl || this.baseUrl || ""}${path}${queryString ? `?${queryString}` : ""}`,
+      {
+        ...requestParams,
+        headers: {
+          ...(requestParams.headers || {}),
+          ...(type && type !== ContentType.FormData
+            ? { "Content-Type": type }
+            : {}),
+        },
+        signal:
+          (cancelToken
+            ? this.createAbortSignal(cancelToken)
+            : requestParams.signal) || null,
+        body:
+          typeof body === "undefined" || body === null
+            ? null
+            : payloadFormatter(body),
       },
-      params: query,
-      responseType: responseFormat,
-      data: body,
-      url: path,
+    ).then(async (response) => {
+      const r = response as HttpResponse<T, E>;
+      r.data = null as unknown as T;
+      r.error = null as unknown as E;
+
+      const responseToParse = responseFormat ? response.clone() : response;
+      const data = !responseFormat
+        ? r
+        : await responseToParse[responseFormat]()
+            .then((data) => {
+              if (r.ok) {
+                r.data = data;
+              } else {
+                r.error = data;
+              }
+              return r;
+            })
+            .catch((e) => {
+              r.error = e;
+              return r;
+            });
+
+      if (cancelToken) {
+        this.abortControllers.delete(cancelToken);
+      }
+
+      if (!response.ok) throw data;
+      return data;
     });
   };
 }
 
 /**
- * @title HelixML API reference
- * @version 0.1
- * @baseUrl https://app.helix.ml
- * @contact Helix support <info@helix.ml> (https://app.helix.ml/)
- *
- * This is the HelixML API.
+ * @title No title
+ * @contact
  */
-export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
+export class Api<
+  SecurityDataType extends unknown,
+> extends HttpClient<SecurityDataType> {
   api = {
     /**
      * @description Retrieves debug data for agent sandboxes (Hydra-based) including GPU stats, dev containers, and connected clients
@@ -6008,7 +6912,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServerAgentSandboxesDebugResponse, SystemHTTPError>({
+      this.request<V1AdminAgentSandboxesDebugListData, SystemHTTPError>({
         path: `/api/v1/admin/agent-sandboxes/debug`,
         method: "GET",
         query: query,
@@ -6028,7 +6932,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1AdminAgentSandboxesEventsList: (params: RequestParams = {}) =>
-      this.request<string, SystemHTTPError>({
+      this.request<V1AdminAgentSandboxesEventsListData, SystemHTTPError>({
         path: `/api/v1/admin/agent-sandboxes/events`,
         method: "GET",
         secure: true,
@@ -6054,7 +6958,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServerKoditAdminQueueListResponse, TypesAPIError>({
+      this.request<V1AdminKoditQueueListData, TypesAPIError>({
         path: `/api/v1/admin/kodit/queue`,
         method: "GET",
         query: query,
@@ -6073,7 +6977,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1AdminKoditQueueDelete: (taskId: number, params: RequestParams = {}) =>
-      this.request<Record<string, string>, TypesAPIError>({
+      this.request<V1AdminKoditQueueDeleteData, TypesAPIError>({
         path: `/api/v1/admin/kodit/queue/${taskId}`,
         method: "DELETE",
         secure: true,
@@ -6095,7 +6999,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       body: ServerKoditAdminUpdatePriorityRequest,
       params: RequestParams = {},
     ) =>
-      this.request<Record<string, string>, TypesAPIError>({
+      this.request<V1AdminKoditQueuePriorityPartialUpdateData, TypesAPIError>({
         path: `/api/v1/admin/kodit/queue/${taskId}/priority`,
         method: "PATCH",
         body: body,
@@ -6123,100 +7027,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServerKoditAdminRepoListResponse, TypesAPIError>({
+      this.request<V1AdminKoditRepositoriesListData, TypesAPIError>({
         path: `/api/v1/admin/kodit/repositories`,
         method: "GET",
         query: query,
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Queue a Kodit repository for deletion. Admin only.
-     *
-     * @tags admin
-     * @name V1AdminKoditRepositoriesDelete
-     * @summary Delete Kodit repository (admin)
-     * @request DELETE:/api/v1/admin/kodit/repositories/{koditRepoId}
-     * @secure
-     */
-    v1AdminKoditRepositoriesDelete: (koditRepoId: number, params: RequestParams = {}) =>
-      this.request<Record<string, string>, TypesAPIError>({
-        path: `/api/v1/admin/kodit/repositories/${koditRepoId}`,
-        method: "DELETE",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get detailed information about a Kodit repository including summary stats. Admin only.
-     *
-     * @tags admin
-     * @name V1AdminKoditRepositoriesDetail
-     * @summary Get Kodit repository detail (admin)
-     * @request GET:/api/v1/admin/kodit/repositories/{koditRepoId}
-     * @secure
-     */
-    v1AdminKoditRepositoriesDetail: (koditRepoId: number, params: RequestParams = {}) =>
-      this.request<ServerKoditAdminRepoDetailResponse, TypesAPIError>({
-        path: `/api/v1/admin/kodit/repositories/${koditRepoId}`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Trigger a rescan of the HEAD commit for a Kodit repository. Admin only.
-     *
-     * @tags admin
-     * @name V1AdminKoditRepositoriesRescanCreate
-     * @summary Rescan Kodit repository HEAD (admin)
-     * @request POST:/api/v1/admin/kodit/repositories/{koditRepoId}/rescan
-     * @secure
-     */
-    v1AdminKoditRepositoriesRescanCreate: (koditRepoId: number, params: RequestParams = {}) =>
-      this.request<Record<string, string>, TypesAPIError>({
-        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/rescan`,
-        method: "POST",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Trigger a full sync (git fetch + branch scan + re-index) for a Kodit repository. Admin only.
-     *
-     * @tags admin
-     * @name V1AdminKoditRepositoriesSyncCreate
-     * @summary Sync Kodit repository (admin)
-     * @request POST:/api/v1/admin/kodit/repositories/{koditRepoId}/sync
-     * @secure
-     */
-    v1AdminKoditRepositoriesSyncCreate: (koditRepoId: number, params: RequestParams = {}) =>
-      this.request<Record<string, string>, TypesAPIError>({
-        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/sync`,
-        method: "POST",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Returns tracking statuses and pending queue tasks for a Kodit repository. Admin only.
-     *
-     * @tags admin
-     * @name V1AdminKoditRepositoriesTasksDetail
-     * @summary Get Kodit repository tasks (admin)
-     * @request GET:/api/v1/admin/kodit/repositories/{koditRepoId}/tasks
-     * @secure
-     */
-    v1AdminKoditRepositoriesTasksDetail: (koditRepoId: number, params: RequestParams = {}) =>
-      this.request<ServerKoditAdminRepositoryTasksResponse, TypesAPIError>({
-        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/tasks`,
-        method: "GET",
         secure: true,
         format: "json",
         ...params,
@@ -6231,8 +7045,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/admin/kodit/repositories/batch/delete
      * @secure
      */
-    v1AdminKoditRepositoriesBatchDeleteCreate: (body: ServerKoditAdminBatchRequest, params: RequestParams = {}) =>
-      this.request<ServerKoditAdminBatchResponse, TypesAPIError>({
+    v1AdminKoditRepositoriesBatchDeleteCreate: (
+      body: ServerKoditAdminBatchRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<
+        V1AdminKoditRepositoriesBatchDeleteCreateData,
+        TypesAPIError
+      >({
         path: `/api/v1/admin/kodit/repositories/batch/delete`,
         method: "POST",
         body: body,
@@ -6251,13 +7071,124 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/admin/kodit/repositories/batch/rescan
      * @secure
      */
-    v1AdminKoditRepositoriesBatchRescanCreate: (body: ServerKoditAdminBatchRequest, params: RequestParams = {}) =>
-      this.request<ServerKoditAdminBatchResponse, TypesAPIError>({
+    v1AdminKoditRepositoriesBatchRescanCreate: (
+      body: ServerKoditAdminBatchRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<
+        V1AdminKoditRepositoriesBatchRescanCreateData,
+        TypesAPIError
+      >({
         path: `/api/v1/admin/kodit/repositories/batch/rescan`,
         method: "POST",
         body: body,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get detailed information about a Kodit repository including summary stats. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesDetail
+     * @summary Get Kodit repository detail (admin)
+     * @request GET:/api/v1/admin/kodit/repositories/{koditRepoId}
+     * @secure
+     */
+    v1AdminKoditRepositoriesDetail: (
+      koditRepoId: number,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1AdminKoditRepositoriesDetailData, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Queue a Kodit repository for deletion. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesDelete
+     * @summary Delete Kodit repository (admin)
+     * @request DELETE:/api/v1/admin/kodit/repositories/{koditRepoId}
+     * @secure
+     */
+    v1AdminKoditRepositoriesDelete: (
+      koditRepoId: number,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1AdminKoditRepositoriesDeleteData, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Trigger a rescan of the HEAD commit for a Kodit repository. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesRescanCreate
+     * @summary Rescan Kodit repository HEAD (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/{koditRepoId}/rescan
+     * @secure
+     */
+    v1AdminKoditRepositoriesRescanCreate: (
+      koditRepoId: number,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1AdminKoditRepositoriesRescanCreateData, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/rescan`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Trigger a full sync (git fetch + branch scan + re-index) for a Kodit repository. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesSyncCreate
+     * @summary Sync Kodit repository (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/{koditRepoId}/sync
+     * @secure
+     */
+    v1AdminKoditRepositoriesSyncCreate: (
+      koditRepoId: number,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1AdminKoditRepositoriesSyncCreateData, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/sync`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns tracking statuses and pending queue tasks for a Kodit repository. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesTasksList
+     * @summary Get Kodit repository tasks (admin)
+     * @request GET:/api/v1/admin/kodit/repositories/{koditRepoId}/tasks
+     * @secure
+     */
+    v1AdminKoditRepositoriesTasksList: (
+      koditRepoId: number,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1AdminKoditRepositoriesTasksListData, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/tasks`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -6272,7 +7203,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1AdminKoditStatsList: (params: RequestParams = {}) =>
-      this.request<ServerKoditAdminStatsResponse, TypesAPIError>({
+      this.request<V1AdminKoditStatsListData, TypesAPIError>({
         path: `/api/v1/admin/kodit/stats`,
         method: "GET",
         secure: true,
@@ -6290,7 +7221,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1AdminOrganizationDomainsList: (params: RequestParams = {}) =>
-      this.request<ServerOrganizationDomainInfo[], any>({
+      this.request<V1AdminOrganizationDomainsListData, any>({
         path: `/api/v1/admin/organization-domains`,
         method: "GET",
         secure: true,
@@ -6307,7 +7238,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1AdminOrgsList: (params: RequestParams = {}) =>
-      this.request<TypesOrgDetails[], any>({
+      this.request<V1AdminOrgsListData, any>({
         path: `/api/v1/admin/orgs`,
         method: "GET",
         secure: true,
@@ -6324,7 +7255,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1AdminUsersDelete: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
+      this.request<V1AdminUsersDeleteData, SystemHTTPError>({
         path: `/api/v1/admin/users/${id}`,
         method: "DELETE",
         secure: true,
@@ -6342,7 +7273,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1AdminUsersApproveCreate: (id: string, params: RequestParams = {}) =>
-      this.request<TypesUser, SystemHTTPError>({
+      this.request<V1AdminUsersApproveCreateData, SystemHTTPError>({
         path: `/api/v1/admin/users/${id}/approve`,
         method: "POST",
         secure: true,
@@ -6359,36 +7290,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/admin/users/{id}/password
      * @secure
      */
-    v1AdminUsersPasswordUpdate: (id: string, request: TypesAdminResetPasswordRequest, params: RequestParams = {}) =>
-      this.request<TypesUser, SystemHTTPError>({
+    v1AdminUsersPasswordUpdate: (
+      id: string,
+      request: TypesAdminResetPasswordRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1AdminUsersPasswordUpdateData, SystemHTTPError>({
         path: `/api/v1/admin/users/${id}/password`,
         method: "PUT",
         body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Delete an API key
-     *
-     * @tags api-keys
-     * @name V1ApiKeysDelete
-     * @summary Delete an API key
-     * @request DELETE:/api/v1/api_keys
-     */
-    v1ApiKeysDelete: (
-      query: {
-        /** API key to delete */
-        key: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<string, any>({
-        path: `/api/v1/api_keys`,
-        method: "DELETE",
-        query: query,
         ...params,
       }),
 
@@ -6410,7 +7323,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesApiKey[], any>({
+      this.request<V1ApiKeysListData, any>({
         path: `/api/v1/api_keys`,
         method: "GET",
         query: query,
@@ -6426,12 +7339,37 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Create a new API key
      * @request POST:/api/v1/api_keys
      */
-    v1ApiKeysCreate: (request: Record<string, any>, params: RequestParams = {}) =>
-      this.request<string, any>({
+    v1ApiKeysCreate: (
+      request: V1ApiKeysCreatePayload,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ApiKeysCreateData, any>({
         path: `/api/v1/api_keys`,
         method: "POST",
         body: request,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Delete an API key
+     *
+     * @tags api-keys
+     * @name V1ApiKeysDelete
+     * @summary Delete an API key
+     * @request DELETE:/api/v1/api_keys
+     */
+    v1ApiKeysDelete: (
+      query: {
+        /** API key to delete */
+        key: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ApiKeysDeleteData, any>({
+        path: `/api/v1/api_keys`,
+        method: "DELETE",
+        query: query,
         ...params,
       }),
 
@@ -6451,7 +7389,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesApp[], any>({
+      this.request<V1AppsListData, any>({
         path: `/api/v1/apps`,
         method: "GET",
         query: query,
@@ -6467,7 +7405,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1AppsCreate: (request: TypesApp, params: RequestParams = {}) =>
-      this.request<ServerAppCreateResponse, any>({
+      this.request<V1AppsCreateData, any>({
         path: `/api/v1/apps`,
         method: "POST",
         body: request,
@@ -6480,30 +7418,15 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List triggers for the app
      *
      * @tags apps
-     * @name V1AppsTriggersDetail
+     * @name V1AppsTriggersList
      * @summary List app triggers
      * @request GET:/api/v1/apps/{app_id}/triggers
      * @secure
      */
-    v1AppsTriggersDetail: (appId: string, params: RequestParams = {}) =>
-      this.request<TypesTriggerConfiguration[], any>({
+    v1AppsTriggersList: (appId: string, params: RequestParams = {}) =>
+      this.request<V1AppsTriggersListData, any>({
         path: `/api/v1/apps/${appId}/triggers`,
         method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1AppsDelete
-     * @request DELETE:/api/v1/apps/{id}
-     * @secure
-     */
-    v1AppsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, any>({
-        path: `/api/v1/apps/${id}`,
-        method: "DELETE",
         secure: true,
         ...params,
       }),
@@ -6516,7 +7439,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1AppsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesApp, any>({
+      this.request<V1AppsDetailData, any>({
         path: `/api/v1/apps/${id}`,
         method: "GET",
         secure: true,
@@ -6531,7 +7454,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1AppsUpdate: (id: string, request: TypesApp, params: RequestParams = {}) =>
-      this.request<TypesApp, any>({
+      this.request<V1AppsUpdateData, any>({
         path: `/api/v1/apps/${id}`,
         method: "PUT",
         body: request,
@@ -6541,16 +7464,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * No description
+     *
+     * @name V1AppsDelete
+     * @request DELETE:/api/v1/apps/{id}
+     * @secure
+     */
+    v1AppsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<V1AppsDeleteData, any>({
+        path: `/api/v1/apps/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description List access grants for an app (organization owners and members can list access grants)
      *
      * @tags apps
-     * @name V1AppsAccessGrantsDetail
+     * @name V1AppsAccessGrantsList
      * @summary List app access grants
      * @request GET:/api/v1/apps/{id}/access-grants
      * @secure
      */
-    v1AppsAccessGrantsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesAccessGrant[], any>({
+    v1AppsAccessGrantsList: (id: string, params: RequestParams = {}) =>
+      this.request<V1AppsAccessGrantsListData, any>({
         path: `/api/v1/apps/${id}/access-grants`,
         method: "GET",
         secure: true,
@@ -6566,8 +7504,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/apps/{id}/access-grants
      * @secure
      */
-    v1AppsAccessGrantsCreate: (id: string, request: TypesCreateAccessGrantRequest, params: RequestParams = {}) =>
-      this.request<TypesAccessGrant, any>({
+    v1AppsAccessGrantsCreate: (
+      id: string,
+      request: TypesCreateAccessGrantRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1AppsAccessGrantsCreateData, any>({
         path: `/api/v1/apps/${id}/access-grants`,
         method: "POST",
         body: request,
@@ -6584,8 +7526,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/apps/{id}/api-actions
      * @secure
      */
-    v1AppsApiActionsCreate: (id: string, request: TypesRunAPIActionRequest, params: RequestParams = {}) =>
-      this.request<TypesRunAPIActionResponse, SystemHTTPError>({
+    v1AppsApiActionsCreate: (
+      id: string,
+      request: TypesRunAPIActionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1AppsApiActionsCreateData, SystemHTTPError>({
         path: `/api/v1/apps/${id}/api-actions`,
         method: "POST",
         body: request,
@@ -6596,33 +7542,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete the app's avatar image
-     *
-     * @tags apps
-     * @name V1AppsAvatarDelete
-     * @summary Delete app avatar
-     * @request DELETE:/api/v1/apps/{id}/avatar
-     * @secure
-     */
-    v1AppsAvatarDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, SystemHTTPError>({
-        path: `/api/v1/apps/${id}/avatar`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description Get the app's avatar image
      *
      * @tags apps
-     * @name V1AppsAvatarDetail
+     * @name V1AppsAvatarList
      * @summary Get app avatar
      * @request GET:/api/v1/apps/{id}/avatar
      * @secure
      */
-    v1AppsAvatarDetail: (id: string, params: RequestParams = {}) =>
-      this.request<File, SystemHTTPError>({
+    v1AppsAvatarList: (id: string, params: RequestParams = {}) =>
+      this.request<V1AppsAvatarListData, SystemHTTPError>({
         path: `/api/v1/apps/${id}/avatar`,
         method: "GET",
         secure: true,
@@ -6639,8 +7568,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/apps/{id}/avatar
      * @secure
      */
-    v1AppsAvatarCreate: (id: string, image: string, params: RequestParams = {}) =>
-      this.request<void, SystemHTTPError>({
+    v1AppsAvatarCreate: (
+      id: string,
+      image: V1AppsAvatarCreatePayload,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1AppsAvatarCreateData, SystemHTTPError>({
         path: `/api/v1/apps/${id}/avatar`,
         method: "POST",
         body: image,
@@ -6650,15 +7583,32 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Delete the app's avatar image
+     *
+     * @tags apps
+     * @name V1AppsAvatarDelete
+     * @summary Delete app avatar
+     * @request DELETE:/api/v1/apps/{id}/avatar
+     * @secure
+     */
+    v1AppsAvatarDelete: (id: string, params: RequestParams = {}) =>
+      this.request<V1AppsAvatarDeleteData, SystemHTTPError>({
+        path: `/api/v1/apps/${id}/avatar`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get app daily usage
      *
      * @tags apps
-     * @name V1AppsDailyUsageDetail
+     * @name V1AppsDailyUsageList
      * @summary Get app usage
      * @request GET:/api/v1/apps/{id}/daily-usage
      * @secure
      */
-    v1AppsDailyUsageDetail: (
+    v1AppsDailyUsageList: (
       id: string,
       query?: {
         /** Start date */
@@ -6668,7 +7618,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+      this.request<V1AppsDailyUsageListData, SystemHTTPError>({
         path: `/api/v1/apps/${id}/daily-usage`,
         method: "GET",
         query: query,
@@ -6693,7 +7643,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<void, any>({
+      this.request<V1AppsDuplicateCreateData, any>({
         path: `/api/v1/apps/${id}/duplicate`,
         method: "POST",
         query: query,
@@ -6705,12 +7655,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List interactions with pagination and optional session filtering for a specific app
      *
      * @tags interactions
-     * @name V1AppsInteractionsDetail
+     * @name V1AppsInteractionsList
      * @summary List interactions
      * @request GET:/api/v1/apps/{id}/interactions
      * @secure
      */
-    v1AppsInteractionsDetail: (
+    v1AppsInteractionsList: (
       id: string,
       query?: {
         /** Page number */
@@ -6726,7 +7676,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesPaginatedInteractions, any>({
+      this.request<V1AppsInteractionsListData, any>({
         path: `/api/v1/apps/${id}/interactions`,
         method: "GET",
         query: query,
@@ -6739,12 +7689,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List user's LLM calls with pagination and optional session filtering for a specific app
      *
      * @tags llm_calls
-     * @name V1AppsLlmCallsDetail
+     * @name V1AppsLlmCallsList
      * @summary List LLM calls
      * @request GET:/api/v1/apps/{id}/llm-calls
      * @secure
      */
-    v1AppsLlmCallsDetail: (
+    v1AppsLlmCallsList: (
       id: string,
       query?: {
         /** Page number */
@@ -6758,7 +7708,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesPaginatedLLMCalls, any>({
+      this.request<V1AppsLlmCallsListData, any>({
         path: `/api/v1/apps/${id}/llm-calls`,
         method: "GET",
         query: query,
@@ -6771,13 +7721,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List memories for a specific app and user
      *
      * @tags memories
-     * @name V1AppsMemoriesDetail
+     * @name V1AppsMemoriesList
      * @summary List app memories
      * @request GET:/api/v1/apps/{id}/memories
      * @secure
      */
-    v1AppsMemoriesDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesMemory[], any>({
+    v1AppsMemoriesList: (id: string, params: RequestParams = {}) =>
+      this.request<V1AppsMemoriesListData, any>({
         path: `/api/v1/apps/${id}/memories`,
         method: "GET",
         secure: true,
@@ -6794,8 +7744,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/apps/{id}/memories/{memory_id}
      * @secure
      */
-    v1AppsMemoriesDelete: (id: string, memoryId: string, params: RequestParams = {}) =>
-      this.request<void, any>({
+    v1AppsMemoriesDelete: (
+      id: string,
+      memoryId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1AppsMemoriesDeleteData, any>({
         path: `/api/v1/apps/${id}/memories/${memoryId}`,
         method: "DELETE",
         secure: true,
@@ -6806,12 +7760,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List step info for a specific app and interaction ID, used to build the timeline of events
      *
      * @tags step_info
-     * @name V1AppsStepInfoDetail
+     * @name V1AppsStepInfoList
      * @summary List step info
      * @request GET:/api/v1/apps/{id}/step-info
      * @secure
      */
-    v1AppsStepInfoDetail: (
+    v1AppsStepInfoList: (
       id: string,
       query?: {
         /** Interaction ID */
@@ -6819,7 +7773,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesStepInfo[], any>({
+      this.request<V1AppsStepInfoListData, any>({
         path: `/api/v1/apps/${id}/step-info`,
         method: "GET",
         query: query,
@@ -6832,12 +7786,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get the status of a specific trigger type for an app
      *
      * @tags apps
-     * @name V1AppsTriggerStatusDetail
+     * @name V1AppsTriggerStatusList
      * @summary Get app trigger status
      * @request GET:/api/v1/apps/{id}/trigger-status
      * @secure
      */
-    v1AppsTriggerStatusDetail: (
+    v1AppsTriggerStatusList: (
       id: string,
       query: {
         /** Trigger type (e.g., slack) */
@@ -6845,7 +7799,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesTriggerStatus, any>({
+      this.request<V1AppsTriggerStatusListData, any>({
         path: `/api/v1/apps/${id}/trigger-status`,
         method: "GET",
         query: query,
@@ -6857,13 +7811,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Returns the access rights the current user has for this app
      *
      * @tags apps
-     * @name V1AppsUserAccessDetail
+     * @name V1AppsUserAccessList
      * @summary Get current user's access level for an app
      * @request GET:/api/v1/apps/{id}/user-access
      * @secure
      */
-    v1AppsUserAccessDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesUserAppAccessResponse, any>({
+    v1AppsUserAccessList: (id: string, params: RequestParams = {}) =>
+      this.request<V1AppsUserAccessListData, any>({
         path: `/api/v1/apps/${id}/user-access`,
         method: "GET",
         secure: true,
@@ -6874,12 +7828,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get app users daily usage
      *
      * @tags apps
-     * @name V1AppsUsersDailyUsageDetail
+     * @name V1AppsUsersDailyUsageList
      * @summary Get app users daily usage
      * @request GET:/api/v1/apps/{id}/users-daily-usage
      * @secure
      */
-    v1AppsUsersDailyUsageDetail: (
+    v1AppsUsersDailyUsageList: (
       id: string,
       query?: {
         /** Start date */
@@ -6889,7 +7843,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+      this.request<V1AppsUsersDailyUsageListData, SystemHTTPError>({
         path: `/api/v1/apps/${id}/users-daily-usage`,
         method: "GET",
         query: query,
@@ -6908,7 +7862,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/auth/authenticated
      */
     v1AuthAuthenticatedList: (params: RequestParams = {}) =>
-      this.request<TypesAuthenticatedResponse, any>({
+      this.request<V1AuthAuthenticatedListData, any>({
         path: `/api/v1/auth/authenticated`,
         method: "GET",
         ...params,
@@ -6931,7 +7885,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<void, any>({
+      this.request<V1AuthCallbackListData, any>({
         path: `/api/v1/auth/callback`,
         method: "GET",
         query: query,
@@ -6946,8 +7900,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Login
      * @request POST:/api/v1/auth/login
      */
-    v1AuthLoginCreate: (request: TypesLoginRequest, params: RequestParams = {}) =>
-      this.request<void, any>({
+    v1AuthLoginCreate: (
+      request: TypesLoginRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1AuthLoginCreateData, any>({
         path: `/api/v1/auth/login`,
         method: "POST",
         body: request,
@@ -6964,7 +7921,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/auth/logout
      */
     v1AuthLogoutCreate: (params: RequestParams = {}) =>
-      this.request<void, any>({
+      this.request<V1AuthLogoutCreateData, any>({
         path: `/api/v1/auth/logout`,
         method: "POST",
         ...params,
@@ -6978,8 +7935,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Password Reset
      * @request POST:/api/v1/auth/password-reset
      */
-    v1AuthPasswordResetCreate: (request: TypesPasswordResetRequest, params: RequestParams = {}) =>
-      this.request<void, any>({
+    v1AuthPasswordResetCreate: (
+      request: TypesPasswordResetRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1AuthPasswordResetCreateData, any>({
         path: `/api/v1/auth/password-reset`,
         method: "POST",
         body: request,
@@ -6995,8 +7955,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Complete Password Reset
      * @request POST:/api/v1/auth/password-reset-complete
      */
-    v1AuthPasswordResetCompleteCreate: (request: TypesPasswordResetCompleteRequest, params: RequestParams = {}) =>
-      this.request<void, any>({
+    v1AuthPasswordResetCompleteCreate: (
+      request: TypesPasswordResetCompleteRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1AuthPasswordResetCompleteCreateData, any>({
         path: `/api/v1/auth/password-reset-complete`,
         method: "POST",
         body: request,
@@ -7013,8 +7976,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/auth/password-update
      * @secure
      */
-    v1AuthPasswordUpdateCreate: (request: TypesPasswordUpdateRequest, params: RequestParams = {}) =>
-      this.request<void, any>({
+    v1AuthPasswordUpdateCreate: (
+      request: TypesPasswordUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1AuthPasswordUpdateCreateData, any>({
         path: `/api/v1/auth/password-update`,
         method: "POST",
         body: request,
@@ -7032,7 +7998,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/auth/refresh
      */
     v1AuthRefreshCreate: (params: RequestParams = {}) =>
-      this.request<void, any>({
+      this.request<V1AuthRefreshCreateData, any>({
         path: `/api/v1/auth/refresh`,
         method: "POST",
         ...params,
@@ -7046,8 +8012,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Register
      * @request POST:/api/v1/auth/register
      */
-    v1AuthRegisterCreate: (request: TypesRegisterRequest, params: RequestParams = {}) =>
-      this.request<void, any>({
+    v1AuthRegisterCreate: (
+      request: TypesRegisterRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1AuthRegisterCreateData, any>({
         path: `/api/v1/auth/register`,
         method: "POST",
         body: request,
@@ -7064,7 +8033,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/auth/session
      */
     v1AuthSessionList: (params: RequestParams = {}) =>
-      this.request<TypesSessionInfo, string>({
+      this.request<V1AuthSessionListData, string>({
         path: `/api/v1/auth/session`,
         method: "GET",
         ...params,
@@ -7079,8 +8048,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/auth/update
      * @secure
      */
-    v1AuthUpdateCreate: (request: TypesAccountUpdateRequest, params: RequestParams = {}) =>
-      this.request<TypesUserResponse, any>({
+    v1AuthUpdateCreate: (
+      request: TypesAccountUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1AuthUpdateCreateData, any>({
         path: `/api/v1/auth/update`,
         method: "POST",
         body: request,
@@ -7098,7 +8070,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/auth/user
      */
     v1AuthUserList: (params: RequestParams = {}) =>
-      this.request<TypesUserResponse, any>({
+      this.request<V1AuthUserListData, any>({
         path: `/api/v1/auth/user`,
         method: "GET",
         ...params,
@@ -7120,7 +8092,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<File, SystemHTTPError>({
+      this.request<V1BandwidthProbeListData, SystemHTTPError>({
         path: `/api/v1/bandwidth-probe`,
         method: "GET",
         query: query,
@@ -7138,7 +8110,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ClaudeSubscriptionsList: (params: RequestParams = {}) =>
-      this.request<TypesClaudeSubscription[], SystemHTTPError>({
+      this.request<V1ClaudeSubscriptionsListData, SystemHTTPError>({
         path: `/api/v1/claude-subscriptions`,
         method: "GET",
         secure: true,
@@ -7155,48 +8127,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/claude-subscriptions
      * @secure
      */
-    v1ClaudeSubscriptionsCreate: (body: TypesCreateClaudeSubscriptionRequest, params: RequestParams = {}) =>
-      this.request<TypesClaudeSubscription, SystemHTTPError>({
+    v1ClaudeSubscriptionsCreate: (
+      body: TypesCreateClaudeSubscriptionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ClaudeSubscriptionsCreateData, SystemHTTPError>({
         path: `/api/v1/claude-subscriptions`,
         method: "POST",
         body: body,
         secure: true,
         type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Disconnect a Claude subscription
-     *
-     * @tags Claude
-     * @name V1ClaudeSubscriptionsDelete
-     * @summary Delete a Claude subscription
-     * @request DELETE:/api/v1/claude-subscriptions/{id}
-     * @secure
-     */
-    v1ClaudeSubscriptionsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
-        path: `/api/v1/claude-subscriptions/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get details of a specific Claude subscription (no secrets)
-     *
-     * @tags Claude
-     * @name V1ClaudeSubscriptionsDetail
-     * @summary Get a Claude subscription
-     * @request GET:/api/v1/claude-subscriptions/{id}
-     * @secure
-     */
-    v1ClaudeSubscriptionsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesClaudeSubscription, SystemHTTPError>({
-        path: `/api/v1/claude-subscriptions/${id}`,
-        method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -7211,7 +8151,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ClaudeSubscriptionsModelsList: (params: RequestParams = {}) =>
-      this.request<ServerClaudeModel[], any>({
+      this.request<V1ClaudeSubscriptionsModelsListData, any>({
         path: `/api/v1/claude-subscriptions/models`,
         method: "GET",
         secure: true,
@@ -7228,8 +8168,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/claude-subscriptions/poll-login/{sessionId}
      * @secure
      */
-    v1ClaudeSubscriptionsPollLoginDetail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<ServerClaudePollLoginResponse, SystemHTTPError>({
+    v1ClaudeSubscriptionsPollLoginDetail: (
+      sessionId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ClaudeSubscriptionsPollLoginDetailData, SystemHTTPError>({
         path: `/api/v1/claude-subscriptions/poll-login/${sessionId}`,
         method: "GET",
         secure: true,
@@ -7247,7 +8190,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ClaudeSubscriptionsStartLoginCreate: (params: RequestParams = {}) =>
-      this.request<ServerClaudeLoginSessionResponse, SystemHTTPError>({
+      this.request<V1ClaudeSubscriptionsStartLoginCreateData, SystemHTTPError>({
         path: `/api/v1/claude-subscriptions/start-login`,
         method: "POST",
         secure: true,
@@ -7256,16 +8199,51 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get details of a specific Claude subscription (no secrets)
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsDetail
+     * @summary Get a Claude subscription
+     * @request GET:/api/v1/claude-subscriptions/{id}
+     * @secure
+     */
+    v1ClaudeSubscriptionsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<V1ClaudeSubscriptionsDetailData, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Disconnect a Claude subscription
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsDelete
+     * @summary Delete a Claude subscription
+     * @request DELETE:/api/v1/claude-subscriptions/{id}
+     * @secure
+     */
+    v1ClaudeSubscriptionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<V1ClaudeSubscriptionsDeleteData, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get status breakdown and progress of all cloned tasks
      *
      * @tags CloneGroups
-     * @name V1CloneGroupsProgressDetail
+     * @name V1CloneGroupsProgressList
      * @summary Get progress of all tasks in a clone group
      * @request GET:/api/v1/clone-groups/{groupId}/progress
      * @secure
      */
-    v1CloneGroupsProgressDetail: (groupId: string, params: RequestParams = {}) =>
-      this.request<TypesCloneGroupProgress, TypesAPIError>({
+    v1CloneGroupsProgressList: (groupId: string, params: RequestParams = {}) =>
+      this.request<V1CloneGroupsProgressListData, TypesAPIError>({
         path: `/api/v1/clone-groups/${groupId}/progress`,
         method: "GET",
         secure: true,
@@ -7283,7 +8261,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ConfigList: (params: RequestParams = {}) =>
-      this.request<TypesServerConfigForFrontend, any>({
+      this.request<V1ConfigListData, any>({
         path: `/api/v1/config`,
         method: "GET",
         secure: true,
@@ -7307,7 +8285,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesContextMenuResponse, any>({
+      this.request<V1ContextMenuListData, any>({
         path: `/api/v1/context-menu`,
         method: "GET",
         query: query,
@@ -7322,7 +8300,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1DashboardList: (params: RequestParams = {}) =>
-      this.request<TypesDashboardData, any>({
+      this.request<V1DashboardListData, any>({
         path: `/api/v1/dashboard`,
         method: "GET",
         secure: true,
@@ -7333,13 +8311,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Fetch current clipboard content from remote desktop
      *
      * @tags ExternalAgents
-     * @name V1ExternalAgentsClipboardDetail
+     * @name V1ExternalAgentsClipboardList
      * @summary Get session clipboard content
      * @request GET:/api/v1/external-agents/{sessionID}/clipboard
      * @secure
      */
-    v1ExternalAgentsClipboardDetail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<TypesClipboardData, SystemHTTPError>({
+    v1ExternalAgentsClipboardList: (
+      sessionId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ExternalAgentsClipboardListData, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/clipboard`,
         method: "GET",
         secure: true,
@@ -7356,8 +8337,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/external-agents/{sessionID}/clipboard
      * @secure
      */
-    v1ExternalAgentsClipboardCreate: (sessionId: string, clipboard: TypesClipboardData, params: RequestParams = {}) =>
-      this.request<void, SystemHTTPError>({
+    v1ExternalAgentsClipboardCreate: (
+      sessionId: string,
+      clipboard: TypesClipboardData,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ExternalAgentsClipboardCreateData, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/clipboard`,
         method: "POST",
         body: clipboard,
@@ -7380,7 +8365,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       request: ServerConfigurePendingSessionRequest,
       params: RequestParams = {},
     ) =>
-      this.request<Record<string, string>, string>({
+      this.request<V1ExternalAgentsConfigurePendingSessionCreateData, string>({
         path: `/api/v1/external-agents/${sessionId}/configure-pending-session`,
         method: "POST",
         body: request,
@@ -7394,12 +8379,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Returns git diff information from the running desktop container. Shows changes between the current working directory and base branch, including uncommitted changes.
      *
      * @tags ExternalAgents
-     * @name V1ExternalAgentsDiffDetail
+     * @name V1ExternalAgentsDiffList
      * @summary Get file diff from container
      * @request GET:/api/v1/external-agents/{sessionID}/diff
      * @secure
      */
-    v1ExternalAgentsDiffDetail: (
+    v1ExternalAgentsDiffList: (
       sessionId: string,
       query?: {
         /** Base branch to compare against (default: main) */
@@ -7415,7 +8400,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<object, SystemHTTPError>({
+      this.request<V1ExternalAgentsDiffListData, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/diff`,
         method: "GET",
         query: query,
@@ -7433,8 +8418,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/external-agents/{sessionID}/exec
      * @secure
      */
-    v1ExternalAgentsExecCreate: (sessionId: string, body: object, params: RequestParams = {}) =>
-      this.request<object, SystemHTTPError>({
+    v1ExternalAgentsExecCreate: (
+      sessionId: string,
+      body: V1ExternalAgentsExecCreatePayload,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ExternalAgentsExecCreateData, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/exec`,
         method: "POST",
         body: body,
@@ -7453,8 +8442,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/external-agents/{sessionID}/input
      * @secure
      */
-    v1ExternalAgentsInputCreate: (sessionId: string, input: object, params: RequestParams = {}) =>
-      this.request<object, SystemHTTPError>({
+    v1ExternalAgentsInputCreate: (
+      sessionId: string,
+      input: V1ExternalAgentsInputCreatePayload,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ExternalAgentsInputCreateData, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/input`,
         method: "POST",
         body: input,
@@ -7475,17 +8468,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      */
     v1ExternalAgentsUploadCreate: (
       sessionId: string,
-      data: {
-        /** File to upload */
-        file: File;
-      },
+      data: V1ExternalAgentsUploadCreatePayload,
       query?: {
         /** Open file manager to show uploaded file (default: true) */
         open_file_manager?: boolean;
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesSandboxFileUploadResponse, SystemHTTPError>({
+      this.request<V1ExternalAgentsUploadCreateData, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/upload`,
         method: "POST",
         query: query,
@@ -7500,13 +8490,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Returns a list of git workspaces (repositories) in the container. Each workspace includes the repo name, path, current branch, and whether it has a helix-specs branch.
      *
      * @tags ExternalAgents
-     * @name V1ExternalAgentsWorkspacesDetail
+     * @name V1ExternalAgentsWorkspacesList
      * @summary Get workspaces from container
      * @request GET:/api/v1/external-agents/{sessionID}/workspaces
      * @secure
      */
-    v1ExternalAgentsWorkspacesDetail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<object, SystemHTTPError>({
+    v1ExternalAgentsWorkspacesList: (
+      sessionId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ExternalAgentsWorkspacesListData, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/workspaces`,
         method: "GET",
         secure: true,
@@ -7518,12 +8511,15 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Provides a WebSocket connection for sending input events directly to the screenshot-server
      *
      * @tags ExternalAgents
-     * @name V1ExternalAgentsWsInputDetail
+     * @name V1ExternalAgentsWsInputList
      * @summary Direct WebSocket input for PipeWire/GNOME sessions
      * @request GET:/api/v1/external-agents/{sessionID}/ws/input
      * @secure
      */
-    v1ExternalAgentsWsInputDetail: (sessionId: string, params: RequestParams = {}) =>
+    v1ExternalAgentsWsInputList: (
+      sessionId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<any, void | SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/ws/input`,
         method: "GET",
@@ -7535,12 +8531,15 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Provides a WebSocket connection for receiving H.264 video frames directly from the
      *
      * @tags ExternalAgents
-     * @name V1ExternalAgentsWsStreamDetail
+     * @name V1ExternalAgentsWsStreamList
      * @summary Direct WebSocket video streaming for PipeWire/GNOME sessions
      * @request GET:/api/v1/external-agents/{sessionID}/ws/stream
      * @secure
      */
-    v1ExternalAgentsWsStreamDetail: (sessionId: string, params: RequestParams = {}) =>
+    v1ExternalAgentsWsStreamList: (
+      sessionId: string,
+      params: RequestParams = {},
+    ) =>
       this.request<any, void | SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/ws/stream`,
         method: "GET",
@@ -7558,7 +8557,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1FilestoreConfigList: (params: RequestParams = {}) =>
-      this.request<FilestoreConfig, any>({
+      this.request<V1FilestoreConfigListData, any>({
         path: `/api/v1/filestore/config`,
         method: "GET",
         secure: true,
@@ -7583,12 +8582,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<
-        {
-          path?: string;
-        },
-        any
-      >({
+      this.request<V1FilestoreDeleteDeleteData, any>({
         path: `/api/v1/filestore/delete`,
         method: "DELETE",
         query: query,
@@ -7608,12 +8602,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1FilestoreFolderCreate: (
-      request: {
-        path?: string;
-      },
+      request: V1FilestoreFolderCreatePayload,
       params: RequestParams = {},
     ) =>
-      this.request<FilestoreItem, any>({
+      this.request<V1FilestoreFolderCreateData, any>({
         path: `/api/v1/filestore/folder`,
         method: "POST",
         body: request,
@@ -7639,7 +8631,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<FilestoreItem, any>({
+      this.request<V1FilestoreGetListData, any>({
         path: `/api/v1/filestore/get`,
         method: "GET",
         query: query,
@@ -7665,7 +8657,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<FilestoreItem[], any>({
+      this.request<V1FilestoreListListData, any>({
         path: `/api/v1/filestore/list`,
         method: "GET",
         query: query,
@@ -7693,7 +8685,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<FilestoreItem, any>({
+      this.request<V1FilestoreRenameUpdateData, any>({
         path: `/api/v1/filestore/rename`,
         method: "PUT",
         query: query,
@@ -7717,18 +8709,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         /** Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder') */
         path: string;
       },
-      data: {
-        /** Files to upload (multipart form data) */
-        files: File;
-      },
+      data: V1FilestoreUploadCreatePayload,
       params: RequestParams = {},
     ) =>
-      this.request<
-        {
-          success?: boolean;
-        },
-        any
-      >({
+      this.request<V1FilestoreUploadCreateData, any>({
         path: `/api/v1/filestore/upload`,
         method: "POST",
         query: query,
@@ -7758,7 +8742,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<File, any>({
+      this.request<V1FilestoreViewerDetailData, any>({
         path: `/api/v1/filestore/viewer/${path}`,
         method: "GET",
         query: query,
@@ -7777,7 +8761,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1GitProviderConnectionsList: (params: RequestParams = {}) =>
-      this.request<TypesGitProviderConnection[], TypesAPIError>({
+      this.request<V1GitProviderConnectionsListData, TypesAPIError>({
         path: `/api/v1/git-provider-connections`,
         method: "GET",
         secure: true,
@@ -7794,8 +8778,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/git-provider-connections
      * @secure
      */
-    v1GitProviderConnectionsCreate: (request: TypesGitProviderConnectionCreateRequest, params: RequestParams = {}) =>
-      this.request<TypesGitProviderConnection, TypesAPIError>({
+    v1GitProviderConnectionsCreate: (
+      request: TypesGitProviderConnectionCreateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1GitProviderConnectionsCreateData, TypesAPIError>({
         path: `/api/v1/git-provider-connections`,
         method: "POST",
         body: request,
@@ -7815,7 +8802,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1GitProviderConnectionsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, TypesAPIError>({
+      this.request<V1GitProviderConnectionsDeleteData, TypesAPIError>({
         path: `/api/v1/git-provider-connections/${id}`,
         method: "DELETE",
         secure: true,
@@ -7826,19 +8813,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List repositories from a saved PAT-based git provider connection
      *
      * @tags git-provider-connections
-     * @name V1GitProviderConnectionsRepositoriesDetail
+     * @name V1GitProviderConnectionsRepositoriesList
      * @summary Browse repositories from saved connection
      * @request GET:/api/v1/git-provider-connections/{id}/repositories
      * @secure
      */
-    v1GitProviderConnectionsRepositoriesDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesListOAuthRepositoriesResponse, TypesAPIError>({
-        path: `/api/v1/git-provider-connections/${id}/repositories`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
+    v1GitProviderConnectionsRepositoriesList: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1GitProviderConnectionsRepositoriesListData, TypesAPIError>(
+        {
+          path: `/api/v1/git-provider-connections/${id}/repositories`,
+          method: "GET",
+          secure: true,
+          format: "json",
+          ...params,
+        },
+      ),
 
     /**
      * @description List repositories from a remote provider (GitHub, GitLab, Azure DevOps) using PAT credentials
@@ -7849,8 +8841,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/git/browse-remote
      * @secure
      */
-    v1GitBrowseRemoteCreate: (request: TypesBrowseRemoteRepositoriesRequest, params: RequestParams = {}) =>
-      this.request<TypesListOAuthRepositoriesResponse, TypesAPIError>({
+    v1GitBrowseRemoteCreate: (
+      request: TypesBrowseRemoteRepositoriesRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1GitBrowseRemoteCreateData, TypesAPIError>({
         path: `/api/v1/git/browse-remote`,
         method: "POST",
         body: request,
@@ -7882,7 +8877,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesGitRepository[], TypesAPIError>({
+      this.request<V1GitRepositoriesListData, TypesAPIError>({
         path: `/api/v1/git/repositories`,
         method: "GET",
         query: query,
@@ -7900,10 +8895,55 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/git/repositories
      * @secure
      */
-    v1GitRepositoriesCreate: (repository: TypesGitRepositoryCreateRequest, params: RequestParams = {}) =>
-      this.request<TypesGitRepository, TypesAPIError>({
+    v1GitRepositoriesCreate: (
+      repository: TypesGitRepositoryCreateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1GitRepositoriesCreateData, TypesAPIError>({
         path: `/api/v1/git/repositories`,
         method: "POST",
+        body: repository,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get information about a specific git repository
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesDetail
+     * @summary Get git repository
+     * @request GET:/api/v1/git/repositories/{id}
+     * @secure
+     */
+    v1GitRepositoriesDetail: (id: string, params: RequestParams = {}) =>
+      this.request<V1GitRepositoriesDetailData, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update an existing git repository's metadata
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesUpdate
+     * @summary Update git repository
+     * @request PUT:/api/v1/git/repositories/{id}
+     * @secure
+     */
+    v1GitRepositoriesUpdate: (
+      id: string,
+      repository: TypesGitRepositoryUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1GitRepositoriesUpdateData, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}`,
+        method: "PUT",
         body: repository,
         secure: true,
         type: ContentType.Json,
@@ -7921,7 +8961,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1GitRepositoriesDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, TypesAPIError>({
+      this.request<V1GitRepositoriesDeleteData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}`,
         method: "DELETE",
         secure: true,
@@ -7929,54 +8969,19 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get information about a specific git repository
-     *
-     * @tags git-repositories
-     * @name V1GitRepositoriesDetail
-     * @summary Get git repository
-     * @request GET:/api/v1/git/repositories/{id}
-     * @secure
-     */
-    v1GitRepositoriesDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesGitRepository, TypesAPIError>({
-        path: `/api/v1/git/repositories/${id}`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Update an existing git repository's metadata
-     *
-     * @tags git-repositories
-     * @name V1GitRepositoriesUpdate
-     * @summary Update git repository
-     * @request PUT:/api/v1/git/repositories/{id}
-     * @secure
-     */
-    v1GitRepositoriesUpdate: (id: string, repository: TypesGitRepositoryUpdateRequest, params: RequestParams = {}) =>
-      this.request<TypesGitRepository, TypesAPIError>({
-        path: `/api/v1/git/repositories/${id}`,
-        method: "PUT",
-        body: repository,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description List access grants for a git repository (repository owners can list access grants)
      *
      * @tags gitrepositories
-     * @name V1GitRepositoriesAccessGrantsDetail
+     * @name V1GitRepositoriesAccessGrantsList
      * @summary List repository access grants
      * @request GET:/api/v1/git/repositories/{id}/access-grants
      * @secure
      */
-    v1GitRepositoriesAccessGrantsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesAccessGrant[], any>({
+    v1GitRepositoriesAccessGrantsList: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1GitRepositoriesAccessGrantsListData, any>({
         path: `/api/v1/git/repositories/${id}/access-grants`,
         method: "GET",
         secure: true,
@@ -7997,7 +9002,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       request: TypesCreateAccessGrantRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesAccessGrant, any>({
+      this.request<V1GitRepositoriesAccessGrantsCreateData, any>({
         path: `/api/v1/git/repositories/${id}/access-grants`,
         method: "POST",
         body: request,
@@ -8016,7 +9021,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     listGitRepositoryBranches: (id: string, params: RequestParams = {}) =>
-      this.request<string[], TypesAPIError>({
+      this.request<ListGitRepositoryBranchesData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/branches`,
         method: "GET",
         secure: true,
@@ -8033,8 +9038,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/git/repositories/{id}/branches
      * @secure
      */
-    createGitRepositoryBranch: (id: string, request: TypesCreateBranchRequest, params: RequestParams = {}) =>
-      this.request<TypesCreateBranchResponse, TypesAPIError>({
+    createGitRepositoryBranch: (
+      id: string,
+      request: TypesCreateBranchRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<CreateGitRepositoryBranchData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/branches`,
         method: "POST",
         body: request,
@@ -8048,12 +9057,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get the git clone command for a repository with authentication
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesCloneCommandDetail
+     * @name V1GitRepositoriesCloneCommandList
      * @summary Get clone command
      * @request GET:/api/v1/git/repositories/{id}/clone-command
      * @secure
      */
-    v1GitRepositoriesCloneCommandDetail: (
+    v1GitRepositoriesCloneCommandList: (
       id: string,
       query?: {
         /** Target directory for clone */
@@ -8061,7 +9070,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServerCloneCommandResponse, TypesAPIError>({
+      this.request<V1GitRepositoriesCloneCommandListData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/clone-command`,
         method: "GET",
         query: query,
@@ -8095,7 +9104,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesListCommitsResponse, TypesAPIError>({
+      this.request<ListGitRepositoryCommitsData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/commits`,
         method: "GET",
         query: query,
@@ -8123,7 +9132,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesGitRepositoryFileResponse, TypesAPIError>({
+      this.request<GetGitRepositoryFileData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/contents`,
         method: "GET",
         query: query,
@@ -8146,7 +9155,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       request: TypesUpdateGitRepositoryFileContentsRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesGitRepositoryFileResponse, TypesAPIError>({
+      this.request<CreateOrUpdateGitRepositoryFileContentsData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/contents`,
         method: "PUT",
         body: request,
@@ -8160,12 +9169,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get code intelligence enrichments for a repository from Kodit
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesEnrichmentsDetail
+     * @name V1GitRepositoriesEnrichmentsList
      * @summary Get repository enrichments
      * @request GET:/api/v1/git/repositories/{id}/enrichments
      * @secure
      */
-    v1GitRepositoriesEnrichmentsDetail: (
+    v1GitRepositoriesEnrichmentsList: (
       id: string,
       query?: {
         /** Filter by enrichment type (usage, developer, living_documentation) */
@@ -8175,7 +9184,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServerKoditEnrichmentListResponse, TypesAPIError>({
+      this.request<V1GitRepositoriesEnrichmentsListData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/enrichments`,
         method: "GET",
         query: query,
@@ -8188,15 +9197,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get a specific code intelligence enrichment by ID from Kodit
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesEnrichmentsDetail2
+     * @name V1GitRepositoriesEnrichmentsDetail
      * @summary Get enrichment by ID
      * @request GET:/api/v1/git/repositories/{id}/enrichments/{enrichmentId}
-     * @originalName v1GitRepositoriesEnrichmentsDetail
-     * @duplicate
      * @secure
      */
-    v1GitRepositoriesEnrichmentsDetail2: (id: string, enrichmentId: string, params: RequestParams = {}) =>
-      this.request<ServerKoditEnrichmentDTO, TypesAPIError>({
+    v1GitRepositoriesEnrichmentsDetail: (
+      id: string,
+      enrichmentId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1GitRepositoriesEnrichmentsDetailData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/enrichments/${enrichmentId}`,
         method: "GET",
         secure: true,
@@ -8208,12 +9219,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Read the content of a file from the repository, optionally with line range filtering
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesFileContentDetail
+     * @name V1GitRepositoriesFileContentList
      * @summary Read repository file
      * @request GET:/api/v1/git/repositories/{id}/file-content
      * @secure
      */
-    v1GitRepositoriesFileContentDetail: (
+    v1GitRepositoriesFileContentList: (
       id: string,
       query: {
         /** File path within the repository */
@@ -8225,7 +9236,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServerKoditFileContentResponse, TypesAPIError>({
+      this.request<V1GitRepositoriesFileContentListData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/file-content`,
         method: "GET",
         query: query,
@@ -8238,12 +9249,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List files in a repository matching a glob pattern
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesFilesDetail
+     * @name V1GitRepositoriesFilesList
      * @summary List repository files
      * @request GET:/api/v1/git/repositories/{id}/files
      * @secure
      */
-    v1GitRepositoriesFilesDetail: (
+    v1GitRepositoriesFilesList: (
       id: string,
       query?: {
         /** Glob pattern to filter files */
@@ -8251,7 +9262,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServerKoditFilesResponse, TypesAPIError>({
+      this.request<V1GitRepositoriesFilesListData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/files`,
         method: "GET",
         query: query,
@@ -8264,12 +9275,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Run pattern matching (grep) against repository files
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesGrepDetail
+     * @name V1GitRepositoriesGrepList
      * @summary Grep repository
      * @request GET:/api/v1/git/repositories/{id}/grep
      * @secure
      */
-    v1GitRepositoriesGrepDetail: (
+    v1GitRepositoriesGrepList: (
       id: string,
       query: {
         /** Search pattern (regex) */
@@ -8281,7 +9292,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServerKoditGrepResponse, TypesAPIError>({
+      this.request<V1GitRepositoriesGrepListData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/grep`,
         method: "GET",
         query: query,
@@ -8294,12 +9305,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Search repository code using BM25 keyword matching
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesKeywordSearchDetail
+     * @name V1GitRepositoriesKeywordSearchList
      * @summary Keyword search repository
      * @request GET:/api/v1/git/repositories/{id}/keyword-search
      * @secure
      */
-    v1GitRepositoriesKeywordSearchDetail: (
+    v1GitRepositoriesKeywordSearchList: (
       id: string,
       query: {
         /** Keywords to search for */
@@ -8311,7 +9322,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServerKoditSearchResponse, TypesAPIError>({
+      this.request<V1GitRepositoriesKeywordSearchListData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/keyword-search`,
         method: "GET",
         query: query,
@@ -8324,12 +9335,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get commits for a repository from Kodit (used for enrichment filtering)
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesKoditCommitsDetail
+     * @name V1GitRepositoriesKoditCommitsList
      * @summary Get repository commits from Kodit
      * @request GET:/api/v1/git/repositories/{id}/kodit-commits
      * @secure
      */
-    v1GitRepositoriesKoditCommitsDetail: (
+    v1GitRepositoriesKoditCommitsList: (
       id: string,
       query?: {
         /** Limit number of commits (default 100) */
@@ -8337,7 +9348,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServerKoditCommitDTO[], TypesAPIError>({
+      this.request<V1GitRepositoriesKoditCommitsListData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/kodit-commits`,
         method: "GET",
         query: query,
@@ -8363,7 +9374,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<Record<string, string>, TypesAPIError>({
+      this.request<V1GitRepositoriesKoditRescanCreateData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/kodit-rescan`,
         method: "POST",
         query: query,
@@ -8376,13 +9387,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get indexing status for a repository from Kodit
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesKoditStatusDetail
+     * @name V1GitRepositoriesKoditStatusList
      * @summary Get repository indexing status
      * @request GET:/api/v1/git/repositories/{id}/kodit-status
      * @secure
      */
-    v1GitRepositoriesKoditStatusDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServerKoditIndexingStatusDTO, TypesAPIError>({
+    v1GitRepositoriesKoditStatusList: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1GitRepositoriesKoditStatusListData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/kodit-status`,
         method: "GET",
         secure: true,
@@ -8409,7 +9423,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesPullResponse, TypesAPIError>({
+      this.request<PullFromRemoteData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/pull`,
         method: "POST",
         query: query,
@@ -8428,7 +9442,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     listGitRepositoryPullRequests: (id: string, params: RequestParams = {}) =>
-      this.request<TypesPullRequest[], TypesAPIError>({
+      this.request<ListGitRepositoryPullRequestsData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/pull-requests`,
         method: "GET",
         secure: true,
@@ -8445,8 +9459,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/git/repositories/{id}/pull-requests
      * @secure
      */
-    createGitRepositoryPullRequest: (id: string, request: TypesCreatePullRequestRequest, params: RequestParams = {}) =>
-      this.request<TypesCreatePullRequestResponse, TypesAPIError>({
+    createGitRepositoryPullRequest: (
+      id: string,
+      request: TypesCreatePullRequestRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<CreateGitRepositoryPullRequestData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/pull-requests`,
         method: "POST",
         body: request,
@@ -8473,7 +9491,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesPushResponse, TypesAPIError>({
+      this.request<PushToRemoteData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/push`,
         method: "POST",
         query: query,
@@ -8499,7 +9517,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServerPushPullResponse, TypesAPIError>({
+      this.request<PushPullGitRepositoryData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/push-pull`,
         method: "POST",
         query: query,
@@ -8512,12 +9530,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Search for code snippets in a repository from Kodit
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesSearchSnippetsDetail
+     * @name V1GitRepositoriesSearchSnippetsList
      * @summary Search repository snippets
      * @request GET:/api/v1/git/repositories/{id}/search-snippets
      * @secure
      */
-    v1GitRepositoriesSearchSnippetsDetail: (
+    v1GitRepositoriesSearchSnippetsList: (
       id: string,
       query: {
         /** Search query */
@@ -8527,7 +9545,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServerKoditSearchResultDTO[], TypesAPIError>({
+      this.request<V1GitRepositoriesSearchSnippetsListData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/search-snippets`,
         method: "GET",
         query: query,
@@ -8540,12 +9558,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Search repository code using vector similarity (semantic meaning)
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesSemanticSearchDetail
+     * @name V1GitRepositoriesSemanticSearchList
      * @summary Semantic search repository
      * @request GET:/api/v1/git/repositories/{id}/semantic-search
      * @secure
      */
-    v1GitRepositoriesSemanticSearchDetail: (
+    v1GitRepositoriesSemanticSearchList: (
       id: string,
       query: {
         /** Natural language search query */
@@ -8557,7 +9575,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServerKoditSearchResponse, TypesAPIError>({
+      this.request<V1GitRepositoriesSemanticSearchListData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/semantic-search`,
         method: "GET",
         query: query,
@@ -8583,7 +9601,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesSyncAllResponse, TypesAPIError>({
+      this.request<SyncAllBranchesData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/sync-all`,
         method: "POST",
         query: query,
@@ -8611,7 +9629,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesGitRepositoryTreeResponse, TypesAPIError>({
+      this.request<BrowseGitRepositoryTreeData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/tree`,
         method: "GET",
         query: query,
@@ -8624,13 +9642,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get the wiki navigation tree (titles and paths, no content) for a repository. Each node includes a link to fetch the full page content.
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesWikiDetail
+     * @name V1GitRepositoriesWikiList
      * @summary Get repository wiki tree
      * @request GET:/api/v1/git/repositories/{id}/wiki
      * @secure
      */
-    v1GitRepositoriesWikiDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServerKoditWikiTreeResponse, TypesAPIError>({
+    v1GitRepositoriesWikiList: (id: string, params: RequestParams = {}) =>
+      this.request<V1GitRepositoriesWikiListData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/wiki`,
         method: "GET",
         secure: true,
@@ -8642,12 +9660,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get a wiki page by hierarchical path as markdown content
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesWikiPageDetail
+     * @name V1GitRepositoriesWikiPageList
      * @summary Get wiki page
      * @request GET:/api/v1/git/repositories/{id}/wiki-page
      * @secure
      */
-    v1GitRepositoriesWikiPageDetail: (
+    v1GitRepositoriesWikiPageList: (
       id: string,
       query: {
         /** Wiki page path (e.g. architecture/database-layer.md) */
@@ -8655,7 +9673,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServerKoditWikiPageResponse, TypesAPIError>({
+      this.request<V1GitRepositoriesWikiPageListData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/wiki-page`,
         method: "GET",
         query: query,
@@ -8684,7 +9702,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesModel[], any>({
+      this.request<V1HelixModelsListData, any>({
         path: `/api/v1/helix-models`,
         method: "GET",
         query: query,
@@ -8702,45 +9720,9 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1HelixModelsCreate: (request: TypesModel, params: RequestParams = {}) =>
-      this.request<TypesModel, string>({
+      this.request<V1HelixModelsCreateData, string>({
         path: `/api/v1/helix-models`,
         method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description Delete a Helix model configuration. Requires admin privileges.
-     *
-     * @tags models
-     * @name V1HelixModelsDelete
-     * @summary Delete a Helix model
-     * @request DELETE:/api/v1/helix-models/{id}
-     * @secure
-     */
-    v1HelixModelsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<string, string>({
-        path: `/api/v1/helix-models/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Update an existing Helix model configuration. Requires admin privileges.
-     *
-     * @tags models
-     * @name V1HelixModelsUpdate
-     * @summary Update an existing Helix model
-     * @request PUT:/api/v1/helix-models/{id}
-     * @secure
-     */
-    v1HelixModelsUpdate: (id: string, request: TypesModel, params: RequestParams = {}) =>
-      this.request<TypesModel, string>({
-        path: `/api/v1/helix-models/${id}`,
-        method: "PUT",
         body: request,
         secure: true,
         type: ContentType.Json,
@@ -8771,7 +9753,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ControllerMemoryEstimationResponse, string>({
+      this.request<V1HelixModelsMemoryEstimateListData, string>({
         path: `/api/v1/helix-models/memory-estimate`,
         method: "GET",
         query: query,
@@ -8797,10 +9779,50 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ControllerMemoryEstimationResponse[], string>({
+      this.request<V1HelixModelsMemoryEstimatesListData, string>({
         path: `/api/v1/helix-models/memory-estimates`,
         method: "GET",
         query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Update an existing Helix model configuration. Requires admin privileges.
+     *
+     * @tags models
+     * @name V1HelixModelsUpdate
+     * @summary Update an existing Helix model
+     * @request PUT:/api/v1/helix-models/{id}
+     * @secure
+     */
+    v1HelixModelsUpdate: (
+      id: string,
+      request: TypesModel,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1HelixModelsUpdateData, string>({
+        path: `/api/v1/helix-models/${id}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Delete a Helix model configuration. Requires admin privileges.
+     *
+     * @tags models
+     * @name V1HelixModelsDelete
+     * @summary Delete a Helix model
+     * @request DELETE:/api/v1/helix-models/{id}
+     * @secure
+     */
+    v1HelixModelsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<V1HelixModelsDeleteData, string>({
+        path: `/api/v1/helix-models/${id}`,
+        method: "DELETE",
         secure: true,
         ...params,
       }),
@@ -8813,10 +9835,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1KnowledgeList: (params: RequestParams = {}) =>
-      this.request<TypesKnowledge[], any>({
+      this.request<V1KnowledgeListData, any>({
         path: `/api/v1/knowledge`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1KnowledgeDetail
+     * @request GET:/api/v1/knowledge/{id}
+     */
+    v1KnowledgeDetail: (id: string, params: RequestParams = {}) =>
+      this.request<V1KnowledgeDetailData, any>({
+        path: `/api/v1/knowledge/${id}`,
+        method: "GET",
         ...params,
       }),
 
@@ -8830,23 +9865,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1KnowledgeDelete: (id: string, params: RequestParams = {}) =>
-      this.request<TypesKnowledge, any>({
+      this.request<V1KnowledgeDeleteData, any>({
         path: `/api/v1/knowledge/${id}`,
         method: "DELETE",
         secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1KnowledgeDetail
-     * @request GET:/api/v1/knowledge/{id}
-     */
-    v1KnowledgeDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesKnowledge, any>({
-        path: `/api/v1/knowledge/${id}`,
-        method: "GET",
         ...params,
       }),
 
@@ -8860,7 +9882,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1KnowledgeCompleteCreate: (id: string, params: RequestParams = {}) =>
-      this.request<TypesKnowledge, any>({
+      this.request<V1KnowledgeCompleteCreateData, any>({
         path: `/api/v1/knowledge/${id}/complete`,
         method: "POST",
         secure: true,
@@ -8871,13 +9893,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Download all files from a filestore-backed knowledge as a zip file
      *
      * @tags knowledge
-     * @name V1KnowledgeDownloadDetail
+     * @name V1KnowledgeDownloadList
      * @summary Download knowledge files as zip
      * @request GET:/api/v1/knowledge/{id}/download
      * @secure
      */
-    v1KnowledgeDownloadDetail: (id: string, params: RequestParams = {}) =>
-      this.request<File, any>({
+    v1KnowledgeDownloadList: (id: string, params: RequestParams = {}) =>
+      this.request<V1KnowledgeDownloadListData, any>({
         path: `/api/v1/knowledge/${id}/download`,
         method: "GET",
         secure: true,
@@ -8894,7 +9916,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1KnowledgeRefreshCreate: (id: string, params: RequestParams = {}) =>
-      this.request<TypesKnowledge, any>({
+      this.request<V1KnowledgeRefreshCreateData, any>({
         path: `/api/v1/knowledge/${id}/refresh`,
         method: "POST",
         secure: true,
@@ -8905,13 +9927,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List knowledge versions
      *
      * @tags knowledge
-     * @name V1KnowledgeVersionsDetail
+     * @name V1KnowledgeVersionsList
      * @summary List knowledge versions
      * @request GET:/api/v1/knowledge/{id}/versions
      * @secure
      */
-    v1KnowledgeVersionsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesKnowledgeVersion[], any>({
+    v1KnowledgeVersionsList: (id: string, params: RequestParams = {}) =>
+      this.request<V1KnowledgeVersionsListData, any>({
         path: `/api/v1/knowledge/${id}/versions`,
         method: "GET",
         secure: true,
@@ -8927,7 +9949,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1LicenseList: (params: RequestParams = {}) =>
-      this.request<ServerLicenseKeyRequest, any>({
+      this.request<V1LicenseListData, any>({
         path: `/api/v1/license`,
         method: "GET",
         secure: true,
@@ -8945,7 +9967,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1LicenseCreate: (params: RequestParams = {}) =>
-      this.request<ServerLicenseKeyRequest, any>({
+      this.request<V1LicenseCreateData, any>({
         path: `/api/v1/license`,
         method: "POST",
         secure: true,
@@ -8976,7 +9998,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesPaginatedLLMCalls, any>({
+      this.request<V1LlmCallsListData, any>({
         path: `/api/v1/llm_calls`,
         method: "GET",
         query: query,
@@ -9006,7 +10028,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<Record<string, any>, string>({
+      this.request<V1LogsDetailData, string>({
         path: `/api/v1/logs/${slotId}`,
         method: "GET",
         query: query,
@@ -9033,7 +10055,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesDynamicModelInfo[], string>({
+      this.request<V1ModelInfoListData, string>({
         path: `/api/v1/model-info`,
         method: "GET",
         query: query,
@@ -9050,10 +10072,53 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/model-info
      * @secure
      */
-    v1ModelInfoCreate: (request: TypesDynamicModelInfo, params: RequestParams = {}) =>
-      this.request<TypesDynamicModelInfo, string>({
+    v1ModelInfoCreate: (
+      request: TypesDynamicModelInfo,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ModelInfoCreateData, string>({
         path: `/api/v1/model-info`,
         method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Get a specific dynamic model info by ID. Requires admin privileges.
+     *
+     * @tags model-info
+     * @name V1ModelInfoDetail
+     * @summary Get a dynamic model info by ID
+     * @request GET:/api/v1/model-info/{id}
+     * @secure
+     */
+    v1ModelInfoDetail: (id: string, params: RequestParams = {}) =>
+      this.request<V1ModelInfoDetailData, string>({
+        path: `/api/v1/model-info/${id}`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Update an existing dynamic model info configuration. Requires admin privileges.
+     *
+     * @tags model-info
+     * @name V1ModelInfoUpdate
+     * @summary Update an existing dynamic model info
+     * @request PUT:/api/v1/model-info/{id}
+     * @secure
+     */
+    v1ModelInfoUpdate: (
+      id: string,
+      request: TypesDynamicModelInfo,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ModelInfoUpdateData, string>({
+        path: `/api/v1/model-info/${id}`,
+        method: "PUT",
         body: request,
         secure: true,
         type: ContentType.Json,
@@ -9070,46 +10135,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ModelInfoDelete: (id: string, params: RequestParams = {}) =>
-      this.request<string, string>({
+      this.request<V1ModelInfoDeleteData, string>({
         path: `/api/v1/model-info/${id}`,
         method: "DELETE",
         secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get a specific dynamic model info by ID. Requires admin privileges.
-     *
-     * @tags model-info
-     * @name V1ModelInfoDetail
-     * @summary Get a dynamic model info by ID
-     * @request GET:/api/v1/model-info/{id}
-     * @secure
-     */
-    v1ModelInfoDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesDynamicModelInfo, string>({
-        path: `/api/v1/model-info/${id}`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Update an existing dynamic model info configuration. Requires admin privileges.
-     *
-     * @tags model-info
-     * @name V1ModelInfoUpdate
-     * @summary Update an existing dynamic model info
-     * @request PUT:/api/v1/model-info/{id}
-     * @secure
-     */
-    v1ModelInfoUpdate: (id: string, request: TypesDynamicModelInfo, params: RequestParams = {}) =>
-      this.request<TypesDynamicModelInfo, string>({
-        path: `/api/v1/model-info/${id}`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
         ...params,
       }),
 
@@ -9123,8 +10152,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1OauthConnectionsList: (params: RequestParams = {}) =>
-      this.request<TypesOAuthConnection[], any>({
+      this.request<V1OauthConnectionsListData, any>({
         path: `/api/v1/oauth/connections`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get a specific OAuth connection by ID. Users can only access their own connections unless they are admin.
+     *
+     * @tags oauth
+     * @name V1OauthConnectionsDetail
+     * @summary Get an OAuth connection
+     * @request GET:/api/v1/oauth/connections/{id}
+     * @secure
+     */
+    v1OauthConnectionsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<V1OauthConnectionsDetailData, any>({
+        path: `/api/v1/oauth/connections/${id}`,
         method: "GET",
         secure: true,
         ...params,
@@ -9140,26 +10186,9 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1OauthConnectionsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, any>({
+      this.request<V1OauthConnectionsDeleteData, any>({
         path: `/api/v1/oauth/connections/${id}`,
         method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get a specific OAuth connection by ID. Users can only access their own connections unless they are admin.
-     *
-     * @tags oauth
-     * @name V1OauthConnectionsDetail
-     * @summary Get an OAuth connection
-     * @request GET:/api/v1/oauth/connections/{id}
-     * @secure
-     */
-    v1OauthConnectionsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesOAuthConnection, any>({
-        path: `/api/v1/oauth/connections/${id}`,
-        method: "GET",
         secure: true,
         ...params,
       }),
@@ -9174,7 +10203,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1OauthConnectionsRefreshCreate: (id: string, params: RequestParams = {}) =>
-      this.request<TypesOAuthConnection, any>({
+      this.request<V1OauthConnectionsRefreshCreateData, any>({
         path: `/api/v1/oauth/connections/${id}/refresh`,
         method: "POST",
         secure: true,
@@ -9186,13 +10215,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List repositories accessible via an OAuth connection (GitHub repos, GitLab projects, etc.)
      *
      * @tags oauth
-     * @name V1OauthConnectionsRepositoriesDetail
+     * @name V1OauthConnectionsRepositoriesList
      * @summary List repositories from an OAuth connection
      * @request GET:/api/v1/oauth/connections/{id}/repositories
      * @secure
      */
-    v1OauthConnectionsRepositoriesDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesListOAuthRepositoriesResponse, any>({
+    v1OauthConnectionsRepositoriesList: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1OauthConnectionsRepositoriesListData, any>({
         path: `/api/v1/oauth/connections/${id}/repositories`,
         method: "GET",
         secure: true,
@@ -9210,7 +10242,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1OauthProvidersList: (params: RequestParams = {}) =>
-      this.request<TypesOAuthProvider[], any>({
+      this.request<V1OauthProvidersListData, any>({
         path: `/api/v1/oauth/providers`,
         method: "GET",
         secure: true,
@@ -9226,8 +10258,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/oauth/providers
      * @secure
      */
-    v1OauthProvidersCreate: (request: TypesOAuthProvider, params: RequestParams = {}) =>
-      this.request<TypesOAuthProvider, any>({
+    v1OauthProvidersCreate: (
+      request: TypesOAuthProvider,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1OauthProvidersCreateData, any>({
         path: `/api/v1/oauth/providers`,
         method: "POST",
         body: request,
@@ -9246,7 +10281,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1OauthProvidersDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, any>({
+      this.request<V1OauthProvidersDeleteData, any>({
         path: `/api/v1/oauth/providers/${id}`,
         method: "DELETE",
         secure: true,
@@ -9262,8 +10297,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/oauth/sharepoint/resolve-site
      * @secure
      */
-    v1OauthSharepointResolveSiteCreate: (request: ServerSharePointSiteResolveRequest, params: RequestParams = {}) =>
-      this.request<ServerSharePointSiteResolveResponse, any>({
+    v1OauthSharepointResolveSiteCreate: (
+      request: ServerSharePointSiteResolveRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1OauthSharepointResolveSiteCreateData, any>({
         path: `/api/v1/oauth/sharepoint/resolve-site`,
         method: "POST",
         body: request,
@@ -9281,7 +10319,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1OrganizationsList: (params: RequestParams = {}) =>
-      this.request<TypesOrganization[], any>({
+      this.request<V1OrganizationsListData, any>({
         path: `/api/v1/organizations`,
         method: "GET",
         secure: true,
@@ -9297,27 +10335,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/organizations
      * @secure
      */
-    v1OrganizationsCreate: (request: TypesOrganization, params: RequestParams = {}) =>
-      this.request<TypesOrganization, any>({
+    v1OrganizationsCreate: (
+      request: TypesOrganization,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1OrganizationsCreateData, any>({
         path: `/api/v1/organizations`,
         method: "POST",
         body: request,
         secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1OrganizationsDelete
-     * @request DELETE:/api/v1/organizations/{id}
-     * @secure
-     */
-    v1OrganizationsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, any>({
-        path: `/api/v1/organizations/${id}`,
-        method: "DELETE",
-        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -9328,7 +10355,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/organizations/{id}
      */
     v1OrganizationsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesOrganization, any>({
+      this.request<V1OrganizationsDetailData, any>({
         path: `/api/v1/organizations/${id}`,
         method: "GET",
         ...params,
@@ -9343,11 +10370,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/organizations/{id}
      * @secure
      */
-    v1OrganizationsUpdate: (id: string, request: TypesOrganization, params: RequestParams = {}) =>
-      this.request<TypesOrganization, any>({
+    v1OrganizationsUpdate: (
+      id: string,
+      request: TypesOrganization,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1OrganizationsUpdateData, any>({
         path: `/api/v1/organizations/${id}`,
         method: "PUT",
         body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1OrganizationsDelete
+     * @request DELETE:/api/v1/organizations/{id}
+     * @secure
+     */
+    v1OrganizationsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<V1OrganizationsDeleteData, any>({
+        path: `/api/v1/organizations/${id}`,
+        method: "DELETE",
         secure: true,
         ...params,
       }),
@@ -9356,13 +10403,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List API keys for an organization. Owners see all keys, members see only their own.
      *
      * @tags organizations
-     * @name V1OrganizationsApiKeysDetail
+     * @name V1OrganizationsApiKeysList
      * @summary List organization API keys
      * @request GET:/api/v1/organizations/{id}/api_keys
      * @secure
      */
-    v1OrganizationsApiKeysDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesApiKey[], any>({
+    v1OrganizationsApiKeysList: (id: string, params: RequestParams = {}) =>
+      this.request<V1OrganizationsApiKeysListData, any>({
         path: `/api/v1/organizations/${id}/api_keys`,
         method: "GET",
         secure: true,
@@ -9378,8 +10425,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/organizations/{id}/api_keys
      * @secure
      */
-    v1OrganizationsApiKeysCreate: (id: string, request: object, params: RequestParams = {}) =>
-      this.request<TypesApiKey, any>({
+    v1OrganizationsApiKeysCreate: (
+      id: string,
+      request: V1OrganizationsApiKeysCreatePayload,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1OrganizationsApiKeysCreateData, any>({
         path: `/api/v1/organizations/${id}/api_keys`,
         method: "POST",
         body: request,
@@ -9397,8 +10448,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/organizations/{id}/api_keys/{key}
      * @secure
      */
-    v1OrganizationsApiKeysDelete: (id: string, key: string, params: RequestParams = {}) =>
-      this.request<string, any>({
+    v1OrganizationsApiKeysDelete: (
+      id: string,
+      key: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1OrganizationsApiKeysDeleteData, any>({
         path: `/api/v1/organizations/${id}/api_keys/${key}`,
         method: "DELETE",
         secure: true,
@@ -9409,13 +10464,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get the version history of guidelines for an organization
      *
      * @tags Organizations
-     * @name V1OrganizationsGuidelinesHistoryDetail
+     * @name V1OrganizationsGuidelinesHistoryList
      * @summary Get organization guidelines history
      * @request GET:/api/v1/organizations/{id}/guidelines-history
      * @secure
      */
-    v1OrganizationsGuidelinesHistoryDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesGuidelinesHistory[], SystemHTTPError>({
+    v1OrganizationsGuidelinesHistoryList: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1OrganizationsGuidelinesHistoryListData, SystemHTTPError>({
         path: `/api/v1/organizations/${id}/guidelines-history`,
         method: "GET",
         secure: true,
@@ -9428,13 +10486,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List members of an organization
      *
      * @tags organizations
-     * @name V1OrganizationsMembersDetail
+     * @name V1OrganizationsMembersList
      * @summary List organization members
      * @request GET:/api/v1/organizations/{id}/members
      * @secure
      */
-    v1OrganizationsMembersDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesOrganizationMembership[], any>({
+    v1OrganizationsMembersList: (id: string, params: RequestParams = {}) =>
+      this.request<V1OrganizationsMembersListData, any>({
         path: `/api/v1/organizations/${id}/members`,
         method: "GET",
         secure: true,
@@ -9455,29 +10513,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       request: TypesAddOrganizationMemberRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesOrganizationMembership, any>({
+      this.request<V1OrganizationsMembersCreateData, any>({
         path: `/api/v1/organizations/${id}/members`,
         method: "POST",
         body: request,
         secure: true,
         type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description Remove a member from an organization
-     *
-     * @tags organizations
-     * @name V1OrganizationsMembersDelete
-     * @summary Remove an organization member
-     * @request DELETE:/api/v1/organizations/{id}/members/{user_id}
-     * @secure
-     */
-    v1OrganizationsMembersDelete: (id: string, userId: string, params: RequestParams = {}) =>
-      this.request<void, any>({
-        path: `/api/v1/organizations/${id}/members/${userId}`,
-        method: "DELETE",
-        secure: true,
         ...params,
       }),
 
@@ -9496,7 +10537,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       request: TypesUpdateOrganizationMemberRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesOrganizationMembership, any>({
+      this.request<V1OrganizationsMembersUpdateData, any>({
         path: `/api/v1/organizations/${id}/members/${userId}`,
         method: "PUT",
         body: request,
@@ -9506,16 +10547,37 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Remove a member from an organization
+     *
+     * @tags organizations
+     * @name V1OrganizationsMembersDelete
+     * @summary Remove an organization member
+     * @request DELETE:/api/v1/organizations/{id}/members/{user_id}
+     * @secure
+     */
+    v1OrganizationsMembersDelete: (
+      id: string,
+      userId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1OrganizationsMembersDeleteData, any>({
+        path: `/api/v1/organizations/${id}/members/${userId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description List all roles in an organization. Organization members can list roles.
      *
      * @tags organizations
-     * @name V1OrganizationsRolesDetail
+     * @name V1OrganizationsRolesList
      * @summary List roles in an organization
      * @request GET:/api/v1/organizations/{id}/roles
      * @secure
      */
-    v1OrganizationsRolesDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesRole[], any>({
+    v1OrganizationsRolesList: (id: string, params: RequestParams = {}) =>
+      this.request<V1OrganizationsRolesListData, any>({
         path: `/api/v1/organizations/${id}/roles`,
         method: "GET",
         secure: true,
@@ -9526,13 +10588,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List all teams in an organization. Organization members can list teams.
      *
      * @tags organizations
-     * @name V1OrganizationsTeamsDetail
+     * @name V1OrganizationsTeamsList
      * @summary List teams in an organization
      * @request GET:/api/v1/organizations/{id}/teams
      * @secure
      */
-    v1OrganizationsTeamsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesTeam[], any>({
+    v1OrganizationsTeamsList: (id: string, params: RequestParams = {}) =>
+      this.request<V1OrganizationsTeamsListData, any>({
         path: `/api/v1/organizations/${id}/teams`,
         method: "GET",
         secure: true,
@@ -9548,31 +10610,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/organizations/{id}/teams
      * @secure
      */
-    v1OrganizationsTeamsCreate: (id: string, request: TypesCreateTeamRequest, params: RequestParams = {}) =>
-      this.request<TypesTeam, any>({
+    v1OrganizationsTeamsCreate: (
+      id: string,
+      request: TypesCreateTeamRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1OrganizationsTeamsCreateData, any>({
         path: `/api/v1/organizations/${id}/teams`,
         method: "POST",
         body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Delete a team from an organization. Only organization owners can delete teams.
-     *
-     * @tags organizations
-     * @name V1OrganizationsTeamsDelete
-     * @summary Delete a team
-     * @request DELETE:/api/v1/organizations/{id}/teams/{team_id}
-     * @secure
-     */
-    v1OrganizationsTeamsDelete: (id: string, teamId: string, params: RequestParams = {}) =>
-      this.request<void, any>({
-        path: `/api/v1/organizations/${id}/teams/${teamId}`,
-        method: "DELETE",
-        secure: true,
         ...params,
       }),
 
@@ -9591,7 +10640,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       request: TypesUpdateTeamRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesTeam, any>({
+      this.request<V1OrganizationsTeamsUpdateData, any>({
         path: `/api/v1/organizations/${id}/teams/${teamId}`,
         method: "PUT",
         body: request,
@@ -9602,16 +10651,41 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Delete a team from an organization. Only organization owners can delete teams.
+     *
+     * @tags organizations
+     * @name V1OrganizationsTeamsDelete
+     * @summary Delete a team
+     * @request DELETE:/api/v1/organizations/{id}/teams/{team_id}
+     * @secure
+     */
+    v1OrganizationsTeamsDelete: (
+      id: string,
+      teamId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1OrganizationsTeamsDeleteData, any>({
+        path: `/api/v1/organizations/${id}/teams/${teamId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description List all members of a team.
      *
      * @tags organizations
-     * @name V1OrganizationsTeamsMembersDetail
+     * @name V1OrganizationsTeamsMembersList
      * @summary List members of a team
      * @request GET:/api/v1/organizations/{id}/teams/{team_id}/members
      * @secure
      */
-    v1OrganizationsTeamsMembersDetail: (id: string, teamId: string, params: RequestParams = {}) =>
-      this.request<TypesTeamMembership[], any>({
+    v1OrganizationsTeamsMembersList: (
+      id: string,
+      teamId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1OrganizationsTeamsMembersListData, any>({
         path: `/api/v1/organizations/${id}/teams/${teamId}/members`,
         method: "GET",
         secure: true,
@@ -9633,7 +10707,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       request: TypesAddTeamMemberRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesTeamMembership, any>({
+      this.request<V1OrganizationsTeamsMembersCreateData, any>({
         path: `/api/v1/organizations/${id}/teams/${teamId}/members`,
         method: "POST",
         body: request,
@@ -9659,7 +10733,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesProject[], SystemHTTPError>({
+      this.request<V1ProjectsListData, SystemHTTPError>({
         path: `/api/v1/projects`,
         method: "GET",
         query: query,
@@ -9678,8 +10752,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/projects
      * @secure
      */
-    v1ProjectsCreate: (request: TypesProjectCreateRequest, params: RequestParams = {}) =>
-      this.request<TypesProject, SystemHTTPError>({
+    v1ProjectsCreate: (
+      request: TypesProjectCreateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ProjectsCreateData, SystemHTTPError>({
         path: `/api/v1/projects`,
         method: "POST",
         body: request,
@@ -9690,18 +10767,22 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete a project by ID
+     * @description Create a minimal project for a repository that doesn't have one
      *
      * @tags Projects
-     * @name V1ProjectsDelete
-     * @summary Delete project
-     * @request DELETE:/api/v1/projects/{id}
+     * @name V1ProjectsQuickCreateCreate
+     * @summary Quick-create a project for a repository
+     * @request POST:/api/v1/projects/quick-create
      * @secure
      */
-    v1ProjectsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
-        path: `/api/v1/projects/${id}`,
-        method: "DELETE",
+    v1ProjectsQuickCreateCreate: (
+      request: ServerQuickCreateProjectRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ProjectsQuickCreateCreateData, TypesAPIError>({
+        path: `/api/v1/projects/quick-create`,
+        method: "POST",
+        body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -9718,7 +10799,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ProjectsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesProject, SystemHTTPError>({
+      this.request<V1ProjectsDetailData, SystemHTTPError>({
         path: `/api/v1/projects/${id}`,
         method: "GET",
         secure: true,
@@ -9736,8 +10817,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/projects/{id}
      * @secure
      */
-    v1ProjectsUpdate: (id: string, request: TypesProjectUpdateRequest, params: RequestParams = {}) =>
-      this.request<TypesProject, SystemHTTPError>({
+    v1ProjectsUpdate: (
+      id: string,
+      request: TypesProjectUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ProjectsUpdateData, SystemHTTPError>({
         path: `/api/v1/projects/${id}`,
         method: "PUT",
         body: request,
@@ -9748,16 +10833,35 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Delete a project by ID
+     *
+     * @tags Projects
+     * @name V1ProjectsDelete
+     * @summary Delete project
+     * @request DELETE:/api/v1/projects/{id}
+     * @secure
+     */
+    v1ProjectsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<V1ProjectsDeleteData, SystemHTTPError>({
+        path: `/api/v1/projects/${id}`,
+        method: "DELETE",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List access grants for a project (project owners and org owners can list access grants)
      *
      * @tags projects
-     * @name V1ProjectsAccessGrantsDetail
+     * @name V1ProjectsAccessGrantsList
      * @summary List project access grants
      * @request GET:/api/v1/projects/{id}/access-grants
      * @secure
      */
-    v1ProjectsAccessGrantsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesAccessGrant[], any>({
+    v1ProjectsAccessGrantsList: (id: string, params: RequestParams = {}) =>
+      this.request<V1ProjectsAccessGrantsListData, any>({
         path: `/api/v1/projects/${id}/access-grants`,
         method: "GET",
         secure: true,
@@ -9773,8 +10877,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/projects/{id}/access-grants
      * @secure
      */
-    v1ProjectsAccessGrantsCreate: (id: string, request: TypesCreateAccessGrantRequest, params: RequestParams = {}) =>
-      this.request<TypesAccessGrant, any>({
+    v1ProjectsAccessGrantsCreate: (
+      id: string,
+      request: TypesCreateAccessGrantRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ProjectsAccessGrantsCreateData, any>({
         path: `/api/v1/projects/${id}/access-grants`,
         method: "POST",
         body: request,
@@ -9787,12 +10895,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get paginated audit logs for a project
      *
      * @tags Projects
-     * @name V1ProjectsAuditLogsDetail
+     * @name V1ProjectsAuditLogsList
      * @summary List project audit logs
      * @request GET:/api/v1/projects/{id}/audit-logs
      * @secure
      */
-    v1ProjectsAuditLogsDetail: (
+    v1ProjectsAuditLogsList: (
       id: string,
       query?: {
         /** Filter by event type */
@@ -9814,7 +10922,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesProjectAuditLogResponse, TypesAPIError>({
+      this.request<V1ProjectsAuditLogsListData, TypesAPIError>({
         path: `/api/v1/projects/${id}/audit-logs`,
         method: "GET",
         query: query,
@@ -9834,7 +10942,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ProjectsDockerCacheDelete: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
+      this.request<V1ProjectsDockerCacheDeleteData, SystemHTTPError>({
         path: `/api/v1/projects/${id}/docker-cache`,
         method: "DELETE",
         secure: true,
@@ -9851,8 +10959,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/projects/{id}/docker-cache/build
      * @secure
      */
-    v1ProjectsDockerCacheBuildCreate: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
+    v1ProjectsDockerCacheBuildCreate: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ProjectsDockerCacheBuildCreateData, SystemHTTPError>({
         path: `/api/v1/projects/${id}/docker-cache/build`,
         method: "POST",
         secure: true,
@@ -9869,28 +10980,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/projects/{id}/docker-cache/cancel
      * @secure
      */
-    v1ProjectsDockerCacheCancelCreate: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
+    v1ProjectsDockerCacheCancelCreate: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ProjectsDockerCacheCancelCreateData, SystemHTTPError>({
         path: `/api/v1/projects/${id}/docker-cache/cancel`,
         method: "POST",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Stop the running exploratory session for a project (stops sandbox container, keeps session record)
-     *
-     * @tags Projects
-     * @name V1ProjectsExploratorySessionDelete
-     * @summary Stop project exploratory session
-     * @request DELETE:/api/v1/projects/{id}/exploratory-session
-     * @secure
-     */
-    v1ProjectsExploratorySessionDelete: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
-        path: `/api/v1/projects/${id}/exploratory-session`,
-        method: "DELETE",
         secure: true,
         format: "json",
         ...params,
@@ -9900,13 +10996,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get the active exploratory session for a project (returns null if none exists)
      *
      * @tags Projects
-     * @name V1ProjectsExploratorySessionDetail
+     * @name V1ProjectsExploratorySessionList
      * @summary Get project exploratory session
      * @request GET:/api/v1/projects/{id}/exploratory-session
      * @secure
      */
-    v1ProjectsExploratorySessionDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesSession, SystemHTTPError>({
+    v1ProjectsExploratorySessionList: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ProjectsExploratorySessionListData, SystemHTTPError>({
         path: `/api/v1/projects/${id}/exploratory-session`,
         method: "GET",
         secure: true,
@@ -9923,10 +11022,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/projects/{id}/exploratory-session
      * @secure
      */
-    v1ProjectsExploratorySessionCreate: (id: string, params: RequestParams = {}) =>
-      this.request<TypesSession, SystemHTTPError>({
+    v1ProjectsExploratorySessionCreate: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ProjectsExploratorySessionCreateData, SystemHTTPError>({
         path: `/api/v1/projects/${id}/exploratory-session`,
         method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Stop the running exploratory session for a project (stops sandbox container, keeps session record)
+     *
+     * @tags Projects
+     * @name V1ProjectsExploratorySessionDelete
+     * @summary Stop project exploratory session
+     * @request DELETE:/api/v1/projects/{id}/exploratory-session
+     * @secure
+     */
+    v1ProjectsExploratorySessionDelete: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ProjectsExploratorySessionDeleteData, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/exploratory-session`,
+        method: "DELETE",
         secure: true,
         format: "json",
         ...params,
@@ -9936,13 +11059,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get the version history of guidelines for a project
      *
      * @tags Projects
-     * @name V1ProjectsGuidelinesHistoryDetail
+     * @name V1ProjectsGuidelinesHistoryList
      * @summary Get project guidelines history
      * @request GET:/api/v1/projects/{id}/guidelines-history
      * @secure
      */
-    v1ProjectsGuidelinesHistoryDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesGuidelinesHistory[], SystemHTTPError>({
+    v1ProjectsGuidelinesHistoryList: (id: string, params: RequestParams = {}) =>
+      this.request<V1ProjectsGuidelinesHistoryListData, SystemHTTPError>({
         path: `/api/v1/projects/${id}/guidelines-history`,
         method: "GET",
         secure: true,
@@ -9960,8 +11083,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/projects/{id}/move
      * @secure
      */
-    v1ProjectsMoveCreate: (id: string, request: TypesMoveProjectRequest, params: RequestParams = {}) =>
-      this.request<TypesProject, SystemHTTPError>({
+    v1ProjectsMoveCreate: (
+      id: string,
+      request: TypesMoveProjectRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ProjectsMoveCreateData, SystemHTTPError>({
         path: `/api/v1/projects/${id}/move`,
         method: "POST",
         body: request,
@@ -9980,30 +11107,15 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/projects/{id}/move/preview
      * @secure
      */
-    v1ProjectsMovePreviewCreate: (id: string, request: TypesMoveProjectRequest, params: RequestParams = {}) =>
-      this.request<TypesMoveProjectPreviewResponse, SystemHTTPError>({
+    v1ProjectsMovePreviewCreate: (
+      id: string,
+      request: TypesMoveProjectRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ProjectsMovePreviewCreateData, SystemHTTPError>({
         path: `/api/v1/projects/${id}/move/preview`,
         method: "POST",
         body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Remove a project from the current user's pinned projects
-     *
-     * @tags Projects
-     * @name V1ProjectsPinDelete
-     * @summary Unpin a project
-     * @request DELETE:/api/v1/projects/{id}/pin
-     * @secure
-     */
-    v1ProjectsPinDelete: (id: string, params: RequestParams = {}) =>
-      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
-        path: `/api/v1/projects/${id}/pin`,
-        method: "DELETE",
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -10020,9 +11132,28 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ProjectsPinCreate: (id: string, params: RequestParams = {}) =>
-      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
+      this.request<V1ProjectsPinCreateData, SystemHTTPError>({
         path: `/api/v1/projects/${id}/pin`,
         method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Remove a project from the current user's pinned projects
+     *
+     * @tags Projects
+     * @name V1ProjectsPinDelete
+     * @summary Unpin a project
+     * @request DELETE:/api/v1/projects/{id}/pin
+     * @secure
+     */
+    v1ProjectsPinDelete: (id: string, params: RequestParams = {}) =>
+      this.request<V1ProjectsPinDeleteData, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/pin`,
+        method: "DELETE",
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -10039,7 +11170,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     getProjectRepositories: (id: string, params: RequestParams = {}) =>
-      this.request<TypesGitRepository[], SystemHTTPError>({
+      this.request<GetProjectRepositoriesData, SystemHTTPError>({
         path: `/api/v1/projects/${id}/repositories`,
         method: "GET",
         secure: true,
@@ -10057,8 +11188,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/projects/{id}/repositories/{repo_id}/attach
      * @secure
      */
-    v1ProjectsRepositoriesAttachUpdate: (id: string, repoId: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
+    v1ProjectsRepositoriesAttachUpdate: (
+      id: string,
+      repoId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ProjectsRepositoriesAttachUpdateData, SystemHTTPError>({
         path: `/api/v1/projects/${id}/repositories/${repoId}/attach`,
         method: "PUT",
         secure: true,
@@ -10076,8 +11211,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/projects/{id}/repositories/{repo_id}/detach
      * @secure
      */
-    v1ProjectsRepositoriesDetachUpdate: (id: string, repoId: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
+    v1ProjectsRepositoriesDetachUpdate: (
+      id: string,
+      repoId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ProjectsRepositoriesDetachUpdateData, SystemHTTPError>({
         path: `/api/v1/projects/${id}/repositories/${repoId}/detach`,
         method: "PUT",
         secure: true,
@@ -10095,8 +11234,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/projects/{id}/repositories/{repo_id}/primary
      * @secure
      */
-    v1ProjectsRepositoriesPrimaryUpdate: (id: string, repoId: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
+    v1ProjectsRepositoriesPrimaryUpdate: (
+      id: string,
+      repoId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ProjectsRepositoriesPrimaryUpdateData, SystemHTTPError>({
         path: `/api/v1/projects/${id}/repositories/${repoId}/primary`,
         method: "PUT",
         secure: true,
@@ -10109,13 +11252,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List all secrets associated with a specific project.
      *
      * @tags secrets
-     * @name V1ProjectsSecretsDetail
+     * @name V1ProjectsSecretsList
      * @summary List secrets for a project
      * @request GET:/api/v1/projects/{id}/secrets
      * @secure
      */
-    v1ProjectsSecretsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesSecret[], any>({
+    v1ProjectsSecretsList: (id: string, params: RequestParams = {}) =>
+      this.request<V1ProjectsSecretsListData, any>({
         path: `/api/v1/projects/${id}/secrets`,
         method: "GET",
         secure: true,
@@ -10131,8 +11274,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/projects/{id}/secrets
      * @secure
      */
-    v1ProjectsSecretsCreate: (id: string, request: TypesCreateSecretRequest, params: RequestParams = {}) =>
-      this.request<TypesSecret, any>({
+    v1ProjectsSecretsCreate: (
+      id: string,
+      request: TypesCreateSecretRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ProjectsSecretsCreateData, any>({
         path: `/api/v1/projects/${id}/secrets`,
         method: "POST",
         body: request,
@@ -10145,13 +11292,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get git commit history for project startup script
      *
      * @tags Projects
-     * @name V1ProjectsStartupScriptHistoryDetail
+     * @name V1ProjectsStartupScriptHistoryList
      * @summary Get startup script version history
      * @request GET:/api/v1/projects/{id}/startup-script/history
      * @secure
      */
-    v1ProjectsStartupScriptHistoryDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServicesStartupScriptVersion[], any>({
+    v1ProjectsStartupScriptHistoryList: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ProjectsStartupScriptHistoryListData, any>({
         path: `/api/v1/projects/${id}/startup-script/history`,
         method: "GET",
         secure: true,
@@ -10162,11 +11312,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get progress information for all spec-driven tasks in a project in a single request. This is more efficient than calling the individual progress endpoint for each task.
      *
      * @tags spec-driven-tasks
-     * @name V1ProjectsTasksProgressDetail
+     * @name V1ProjectsTasksProgressList
      * @summary Get progress for all tasks in a project
      * @request GET:/api/v1/projects/{id}/tasks-progress
      */
-    v1ProjectsTasksProgressDetail: (
+    v1ProjectsTasksProgressList: (
       id: string,
       query?: {
         /**
@@ -10177,7 +11327,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServerBatchTaskProgressResponse, TypesAPIError>({
+      this.request<V1ProjectsTasksProgressListData, TypesAPIError>({
         path: `/api/v1/projects/${id}/tasks-progress`,
         method: "GET",
         query: query,
@@ -10189,12 +11339,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get usage metrics for all spec-driven tasks in a project in a single request. This is more efficient than calling the individual usage endpoint for each task.
      *
      * @tags spec-driven-tasks
-     * @name V1ProjectsTasksUsageDetail
+     * @name V1ProjectsTasksUsageList
      * @summary Get usage for all tasks in a project
      * @request GET:/api/v1/projects/{id}/tasks-usage
      */
-    v1ProjectsTasksUsageDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServerBatchTaskUsageResponse, TypesAPIError>({
+    v1ProjectsTasksUsageList: (id: string, params: RequestParams = {}) =>
+      this.request<V1ProjectsTasksUsageListData, TypesAPIError>({
         path: `/api/v1/projects/${id}/tasks-usage`,
         method: "GET",
         format: "json",
@@ -10205,12 +11355,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get token usage metrics for a project (combined across all tasks)
      *
      * @tags Projects
-     * @name V1ProjectsUsageDetail
+     * @name V1ProjectsUsageList
      * @summary Get project token usage
      * @request GET:/api/v1/projects/{id}/usage
      * @secure
      */
-    v1ProjectsUsageDetail: (
+    v1ProjectsUsageList: (
       id: string,
       query?: {
         /**
@@ -10225,30 +11375,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+      this.request<V1ProjectsUsageListData, SystemHTTPError>({
         path: `/api/v1/projects/${id}/usage`,
         method: "GET",
         query: query,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a minimal project for a repository that doesn't have one
-     *
-     * @tags Projects
-     * @name V1ProjectsQuickCreateCreate
-     * @summary Quick-create a project for a repository
-     * @request POST:/api/v1/projects/quick-create
-     * @secure
-     */
-    v1ProjectsQuickCreateCreate: (request: ServerQuickCreateProjectRequest, params: RequestParams = {}) =>
-      this.request<TypesProject, TypesAPIError>({
-        path: `/api/v1/projects/quick-create`,
-        method: "POST",
-        body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -10279,69 +11409,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesPromptHistoryListResponse, SystemHTTPError>({
+      this.request<V1PromptHistoryListData, SystemHTTPError>({
         path: `/api/v1/prompt-history`,
         method: "GET",
         query: query,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Pin or unpin a prompt for quick access
-     *
-     * @tags PromptHistory
-     * @name V1PromptHistoryPinUpdate
-     * @summary Update prompt pin status
-     * @request PUT:/api/v1/prompt-history/{id}/pin
-     * @secure
-     */
-    v1PromptHistoryPinUpdate: (id: string, request: ServerPromptPinRequest, params: RequestParams = {}) =>
-      this.request<Record<string, boolean>, SystemHTTPError>({
-        path: `/api/v1/prompt-history/${id}/pin`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Update tags for a prompt
-     *
-     * @tags PromptHistory
-     * @name V1PromptHistoryTagsUpdate
-     * @summary Update prompt tags
-     * @request PUT:/api/v1/prompt-history/{id}/tags
-     * @secure
-     */
-    v1PromptHistoryTagsUpdate: (id: string, request: ServerPromptTagsRequest, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
-        path: `/api/v1/prompt-history/${id}/tags`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Increment usage count when a prompt is reused
-     *
-     * @tags PromptHistory
-     * @name V1PromptHistoryUseCreate
-     * @summary Increment prompt usage
-     * @request POST:/api/v1/prompt-history/{id}/use
-     * @secure
-     */
-    v1PromptHistoryUseCreate: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, boolean>, SystemHTTPError>({
-        path: `/api/v1/prompt-history/${id}/use`,
-        method: "POST",
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -10364,7 +11435,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesPromptHistoryEntry[], SystemHTTPError>({
+      this.request<V1PromptHistoryPinnedListData, SystemHTTPError>({
         path: `/api/v1/prompt-history/pinned`,
         method: "GET",
         query: query,
@@ -10392,7 +11463,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesPromptHistoryEntry[], SystemHTTPError>({
+      this.request<V1PromptHistorySearchListData, SystemHTTPError>({
         path: `/api/v1/prompt-history/search`,
         method: "GET",
         query: query,
@@ -10411,11 +11482,81 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/prompt-history/sync
      * @secure
      */
-    v1PromptHistorySyncCreate: (request: TypesPromptHistorySyncRequest, params: RequestParams = {}) =>
-      this.request<TypesPromptHistorySyncResponse, SystemHTTPError>({
+    v1PromptHistorySyncCreate: (
+      request: TypesPromptHistorySyncRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1PromptHistorySyncCreateData, SystemHTTPError>({
         path: `/api/v1/prompt-history/sync`,
         method: "POST",
         body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Pin or unpin a prompt for quick access
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryPinUpdate
+     * @summary Update prompt pin status
+     * @request PUT:/api/v1/prompt-history/{id}/pin
+     * @secure
+     */
+    v1PromptHistoryPinUpdate: (
+      id: string,
+      request: ServerPromptPinRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1PromptHistoryPinUpdateData, SystemHTTPError>({
+        path: `/api/v1/prompt-history/${id}/pin`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update tags for a prompt
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryTagsUpdate
+     * @summary Update prompt tags
+     * @request PUT:/api/v1/prompt-history/{id}/tags
+     * @secure
+     */
+    v1PromptHistoryTagsUpdate: (
+      id: string,
+      request: ServerPromptTagsRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1PromptHistoryTagsUpdateData, SystemHTTPError>({
+        path: `/api/v1/prompt-history/${id}/tags`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Increment usage count when a prompt is reused
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryUseCreate
+     * @summary Increment prompt usage
+     * @request POST:/api/v1/prompt-history/{id}/use
+     * @secure
+     */
+    v1PromptHistoryUseCreate: (id: string, params: RequestParams = {}) =>
+      this.request<V1PromptHistoryUseCreateData, SystemHTTPError>({
+        path: `/api/v1/prompt-history/${id}/use`,
+        method: "POST",
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -10440,7 +11581,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesProviderEndpoint[], any>({
+      this.request<V1ProviderEndpointsListData, any>({
         path: `/api/v1/provider-endpoints`,
         method: "GET",
         query: query,
@@ -10456,24 +11597,9 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ProviderEndpointsCreate: (params: RequestParams = {}) =>
-      this.request<TypesProviderEndpoint, any>({
+      this.request<V1ProviderEndpointsCreateData, any>({
         path: `/api/v1/provider-endpoints`,
         method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1ProviderEndpointsDelete
-     * @request DELETE:/api/v1/provider-endpoints/{id}
-     * @secure
-     */
-    v1ProviderEndpointsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, any>({
-        path: `/api/v1/provider-endpoints/${id}`,
-        method: "DELETE",
         secure: true,
         ...params,
       }),
@@ -10486,9 +11612,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ProviderEndpointsUpdate: (id: string, params: RequestParams = {}) =>
-      this.request<TypesUpdateProviderEndpoint, any>({
+      this.request<V1ProviderEndpointsUpdateData, any>({
         path: `/api/v1/provider-endpoints/${id}`,
         method: "PUT",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1ProviderEndpointsDelete
+     * @request DELETE:/api/v1/provider-endpoints/{id}
+     * @secure
+     */
+    v1ProviderEndpointsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<V1ProviderEndpointsDeleteData, any>({
+        path: `/api/v1/provider-endpoints/${id}`,
+        method: "DELETE",
         secure: true,
         ...params,
       }),
@@ -10497,12 +11638,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get provider daily usage
      *
      * @tags providers
-     * @name V1ProviderEndpointsDailyUsageDetail
+     * @name V1ProviderEndpointsDailyUsageList
      * @summary Get provider daily usage
      * @request GET:/api/v1/provider-endpoints/{id}/daily-usage
      * @secure
      */
-    v1ProviderEndpointsDailyUsageDetail: (
+    v1ProviderEndpointsDailyUsageList: (
       id: string,
       query?: {
         /** Start date */
@@ -10512,7 +11653,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+      this.request<V1ProviderEndpointsDailyUsageListData, SystemHTTPError>({
         path: `/api/v1/provider-endpoints/${id}/daily-usage`,
         method: "GET",
         query: query,
@@ -10526,12 +11667,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get provider daily usage per user
      *
      * @tags providers
-     * @name V1ProviderEndpointsUsersDailyUsageDetail
+     * @name V1ProviderEndpointsUsersDailyUsageList
      * @summary Get provider daily usage per user
      * @request GET:/api/v1/provider-endpoints/{id}/users-daily-usage
      * @secure
      */
-    v1ProviderEndpointsUsersDailyUsageDetail: (
+    v1ProviderEndpointsUsersDailyUsageList: (
       id: string,
       query?: {
         /** Start date */
@@ -10541,15 +11682,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesUsersAggregatedUsageMetric[], SystemHTTPError>({
-        path: `/api/v1/provider-endpoints/${id}/users-daily-usage`,
-        method: "GET",
-        query: query,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
+      this.request<V1ProviderEndpointsUsersDailyUsageListData, SystemHTTPError>(
+        {
+          path: `/api/v1/provider-endpoints/${id}/users-daily-usage`,
+          method: "GET",
+          query: query,
+          secure: true,
+          type: ContentType.Json,
+          format: "json",
+          ...params,
+        },
+      ),
 
     /**
      * No description
@@ -10559,7 +11702,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ProvidersList: (params: RequestParams = {}) =>
-      this.request<TypesProvider[], any>({
+      this.request<V1ProvidersListData, any>({
         path: `/api/v1/providers`,
         method: "GET",
         secure: true,
@@ -10582,7 +11725,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesQuestionSet[], SystemHTTPError>({
+      this.request<V1QuestionSetsListData, SystemHTTPError>({
         path: `/api/v1/question-sets`,
         method: "GET",
         query: query,
@@ -10600,10 +11743,55 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/question-sets
      * @secure
      */
-    v1QuestionSetsCreate: (questionSet: TypesQuestionSet, params: RequestParams = {}) =>
-      this.request<TypesQuestionSet, SystemHTTPError>({
+    v1QuestionSetsCreate: (
+      questionSet: TypesQuestionSet,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1QuestionSetsCreateData, SystemHTTPError>({
         path: `/api/v1/question-sets`,
         method: "POST",
+        body: questionSet,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get a question set by ID
+     *
+     * @tags question-sets
+     * @name V1QuestionSetsDetail
+     * @summary Get a question set by ID
+     * @request GET:/api/v1/question-sets/{id}
+     * @secure
+     */
+    v1QuestionSetsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<V1QuestionSetsDetailData, SystemHTTPError>({
+        path: `/api/v1/question-sets/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update a question set
+     *
+     * @tags question-sets
+     * @name V1QuestionSetsUpdate
+     * @summary Update a question set
+     * @request PUT:/api/v1/question-sets/{id}
+     * @secure
+     */
+    v1QuestionSetsUpdate: (
+      id: string,
+      questionSet: TypesQuestionSet,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1QuestionSetsUpdateData, SystemHTTPError>({
+        path: `/api/v1/question-sets/${id}`,
+        method: "PUT",
         body: questionSet,
         secure: true,
         type: ContentType.Json,
@@ -10621,7 +11809,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1QuestionSetsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, SystemHTTPError>({
+      this.request<V1QuestionSetsDeleteData, SystemHTTPError>({
         path: `/api/v1/question-sets/${id}`,
         method: "DELETE",
         secure: true,
@@ -10629,53 +11817,15 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get a question set by ID
-     *
-     * @tags question-sets
-     * @name V1QuestionSetsDetail
-     * @summary Get a question set by ID
-     * @request GET:/api/v1/question-sets/{id}
-     * @secure
-     */
-    v1QuestionSetsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesQuestionSet, SystemHTTPError>({
-        path: `/api/v1/question-sets/${id}`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Update a question set
-     *
-     * @tags question-sets
-     * @name V1QuestionSetsUpdate
-     * @summary Update a question set
-     * @request PUT:/api/v1/question-sets/{id}
-     * @secure
-     */
-    v1QuestionSetsUpdate: (id: string, questionSet: TypesQuestionSet, params: RequestParams = {}) =>
-      this.request<TypesQuestionSet, SystemHTTPError>({
-        path: `/api/v1/question-sets/${id}`,
-        method: "PUT",
-        body: questionSet,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description List executions for the question set
      *
      * @tags question-sets
-     * @name V1QuestionSetsExecutionsDetail
+     * @name V1QuestionSetsExecutionsList
      * @summary List question set executions
      * @request GET:/api/v1/question-sets/{id}/executions
      * @secure
      */
-    v1QuestionSetsExecutionsDetail: (
+    v1QuestionSetsExecutionsList: (
       id: string,
       query?: {
         /** Offset */
@@ -10685,7 +11835,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesQuestionSetExecution[], any>({
+      this.request<V1QuestionSetsExecutionsListData, any>({
         path: `/api/v1/question-sets/${id}/executions`,
         method: "GET",
         query: query,
@@ -10707,7 +11857,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       executeQuestionSetRequest: TypesExecuteQuestionSetRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesExecuteQuestionSetResponse, SystemHTTPError>({
+      this.request<V1QuestionSetsExecutionsCreateData, SystemHTTPError>({
         path: `/api/v1/question-sets/${id}/executions`,
         method: "POST",
         body: executeQuestionSetRequest,
@@ -10721,14 +11871,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get results for a question set execution
      *
      * @tags question-sets
-     * @name V1QuestionSetsExecutionsDetail2
+     * @name V1QuestionSetsExecutionsDetail
      * @summary Get question set execution results
      * @request GET:/api/v1/question-sets/{question_set_id}/executions/{id}
-     * @originalName v1QuestionSetsExecutionsDetail
-     * @duplicate
      * @secure
      */
-    v1QuestionSetsExecutionsDetail2: (
+    v1QuestionSetsExecutionsDetail: (
       id: string,
       questionSetId: string,
       query?: {
@@ -10737,7 +11885,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesQuestionSetExecution, any>({
+      this.request<V1QuestionSetsExecutionsDetailData, any>({
         path: `/api/v1/question-sets/${questionSetId}/executions/${id}`,
         method: "GET",
         query: query,
@@ -10761,7 +11909,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesQuotaResponse, any>({
+      this.request<V1QuotasListData, any>({
         path: `/api/v1/quotas`,
         method: "GET",
         query: query,
@@ -10785,7 +11933,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesGitRepository[], any>({
+      this.request<V1RepositoriesWithoutProjectsListData, any>({
         path: `/api/v1/repositories/without-projects`,
         method: "GET",
         query: query,
@@ -10803,8 +11951,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/resource-search
      * @secure
      */
-    v1ResourceSearchCreate: (request: TypesResourceSearchRequest, params: RequestParams = {}) =>
-      this.request<TypesResourceSearchResponse, any>({
+    v1ResourceSearchCreate: (
+      request: TypesResourceSearchRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ResourceSearchCreateData, any>({
         path: `/api/v1/resource-search`,
         method: "POST",
         body: request,
@@ -10824,59 +11975,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SampleProjectsList: (params: RequestParams = {}) =>
-      this.request<ServerSampleProject[], any>({
+      this.request<V1SampleProjectsListData, any>({
         path: `/api/v1/sample-projects`,
         method: "GET",
         secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get details of a specific sample project by ID
-     *
-     * @tags sample-projects
-     * @name V1SampleProjectsDetail
-     * @summary Get a specific sample project
-     * @request GET:/api/v1/sample-projects/{project_id}
-     * @secure
-     */
-    v1SampleProjectsDetail: (projectId: string, params: RequestParams = {}) =>
-      this.request<ServerSampleProject, any>({
-        path: `/api/v1/sample-projects/${projectId}`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get all files for a sample project as a flat map (for container initialization)
-     *
-     * @tags sample-projects
-     * @name V1SampleProjectsArchiveDetail
-     * @summary Get sample project code as archive
-     * @request GET:/api/v1/sample-projects/{projectId}/archive
-     */
-    v1SampleProjectsArchiveDetail: (projectId: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, TypesAPIError>({
-        path: `/api/v1/sample-projects/${projectId}/archive`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get the starter code and file structure for a sample project
-     *
-     * @tags sample-projects
-     * @name V1SampleProjectsCodeDetail
-     * @summary Get sample project starter code
-     * @request GET:/api/v1/sample-projects/{projectId}/code
-     */
-    v1SampleProjectsCodeDetail: (projectId: string, params: RequestParams = {}) =>
-      this.request<ServicesSampleProjectCode, TypesAPIError>({
-        path: `/api/v1/sample-projects/${projectId}/code`,
-        method: "GET",
-        format: "json",
         ...params,
       }),
 
@@ -10889,8 +11991,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/sample-projects/fork
      * @secure
      */
-    v1SampleProjectsForkCreate: (request: ServerForkSampleProjectRequest, params: RequestParams = {}) =>
-      this.request<ServerForkSampleProjectResponse, any>({
+    v1SampleProjectsForkCreate: (
+      request: ServerForkSampleProjectRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SampleProjectsForkCreateData, any>({
         path: `/api/v1/sample-projects/fork`,
         method: "POST",
         body: request,
@@ -10909,7 +12014,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SampleProjectsSimpleList: (params: RequestParams = {}) =>
-      this.request<ServerSimpleSampleProject[], any>({
+      this.request<V1SampleProjectsSimpleListData, any>({
         path: `/api/v1/sample-projects/simple`,
         method: "GET",
         secure: true,
@@ -10929,7 +12034,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       request: TypesCheckSampleProjectAccessRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesCheckSampleProjectAccessResponse, SystemHTTPError>({
+      this.request<
+        V1SampleProjectsSimpleCheckAccessCreateData,
+        SystemHTTPError
+      >({
         path: `/api/v1/sample-projects/simple/check-access`,
         method: "POST",
         body: request,
@@ -10948,8 +12056,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/sample-projects/simple/fork
      * @secure
      */
-    v1SampleProjectsSimpleForkCreate: (request: TypesForkSimpleProjectRequest, params: RequestParams = {}) =>
-      this.request<TypesForkSimpleProjectResponse, any>({
+    v1SampleProjectsSimpleForkCreate: (
+      request: TypesForkSimpleProjectRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SampleProjectsSimpleForkCreateData, any>({
         path: `/api/v1/sample-projects/simple/fork`,
         method: "POST",
         body: request,
@@ -10967,14 +12078,69 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/sample-projects/simple/fork-repos
      * @secure
      */
-    v1SampleProjectsSimpleForkReposCreate: (request: TypesForkRepositoriesRequest, params: RequestParams = {}) =>
-      this.request<TypesForkRepositoriesResponse, SystemHTTPError>({
+    v1SampleProjectsSimpleForkReposCreate: (
+      request: TypesForkRepositoriesRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SampleProjectsSimpleForkReposCreateData, SystemHTTPError>({
         path: `/api/v1/sample-projects/simple/fork-repos`,
         method: "POST",
         body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get all files for a sample project as a flat map (for container initialization)
+     *
+     * @tags sample-projects
+     * @name V1SampleProjectsArchiveList
+     * @summary Get sample project code as archive
+     * @request GET:/api/v1/sample-projects/{projectId}/archive
+     */
+    v1SampleProjectsArchiveList: (
+      projectId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SampleProjectsArchiveListData, TypesAPIError>({
+        path: `/api/v1/sample-projects/${projectId}/archive`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the starter code and file structure for a sample project
+     *
+     * @tags sample-projects
+     * @name V1SampleProjectsCodeList
+     * @summary Get sample project starter code
+     * @request GET:/api/v1/sample-projects/{projectId}/code
+     */
+    v1SampleProjectsCodeList: (projectId: string, params: RequestParams = {}) =>
+      this.request<V1SampleProjectsCodeListData, TypesAPIError>({
+        path: `/api/v1/sample-projects/${projectId}/code`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get details of a specific sample project by ID
+     *
+     * @tags sample-projects
+     * @name V1SampleProjectsDetail
+     * @summary Get a specific sample project
+     * @request GET:/api/v1/sample-projects/{project_id}
+     * @secure
+     */
+    v1SampleProjectsDetail: (projectId: string, params: RequestParams = {}) =>
+      this.request<V1SampleProjectsDetailData, any>({
+        path: `/api/v1/sample-projects/${projectId}`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
@@ -10987,8 +12153,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/samples/initialize
      * @secure
      */
-    v1SamplesInitializeCreate: (request: ServerInitializeSampleRepositoriesRequest, params: RequestParams = {}) =>
-      this.request<ServerInitializeSampleRepositoriesResponse, TypesAPIError>({
+    v1SamplesInitializeCreate: (
+      request: ServerInitializeSampleRepositoriesRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SamplesInitializeCreateData, TypesAPIError>({
         path: `/api/v1/samples/initialize`,
         method: "POST",
         body: request,
@@ -11007,8 +12176,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/samples/repositories
      * @secure
      */
-    v1SamplesRepositoriesCreate: (request: TypesCreateSampleRepositoryRequest, params: RequestParams = {}) =>
-      this.request<TypesGitRepository, TypesAPIError>({
+    v1SamplesRepositoriesCreate: (
+      request: TypesCreateSampleRepositoryRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SamplesRepositoriesCreateData, TypesAPIError>({
         path: `/api/v1/samples/repositories`,
         method: "POST",
         body: request,
@@ -11027,9 +12199,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/sandboxes
      */
     v1SandboxesList: (params: RequestParams = {}) =>
-      this.request<TypesSandboxInstance[], any>({
+      this.request<V1SandboxesListData, any>({
         path: `/api/v1/sandboxes`,
         method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Register a new sandbox or update an existing one
+     *
+     * @tags sandbox
+     * @name V1SandboxesRegisterCreate
+     * @summary Register a sandbox instance
+     * @request POST:/api/v1/sandboxes/register
+     */
+    v1SandboxesRegisterCreate: (
+      sandbox: TypesSandboxInstance,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SandboxesRegisterCreateData, any>({
+        path: `/api/v1/sandboxes/register`,
+        method: "POST",
+        body: sandbox,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -11043,7 +12236,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/sandboxes/{id}
      */
     v1SandboxesDelete: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, any>({
+      this.request<V1SandboxesDeleteData, any>({
         path: `/api/v1/sandboxes/${id}`,
         method: "DELETE",
         ...params,
@@ -11053,12 +12246,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get per-container disk I/O stats (write_bytes, read_bytes) from cgroup blkio counters
      *
      * @tags sandbox
-     * @name V1SandboxesContainersBlkioDetail
+     * @name V1SandboxesContainersBlkioList
      * @summary Get container blkio stats
      * @request GET:/api/v1/sandboxes/{id}/containers/{session_id}/blkio
      */
-    v1SandboxesContainersBlkioDetail: (id: string, sessionId: string, params: RequestParams = {}) =>
-      this.request<HydraContainerBlkioStats, any>({
+    v1SandboxesContainersBlkioList: (
+      id: string,
+      sessionId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SandboxesContainersBlkioListData, any>({
         path: `/api/v1/sandboxes/${id}/containers/${sessionId}/blkio`,
         method: "GET",
         format: "json",
@@ -11069,11 +12266,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get disk usage history for trending and alerts
      *
      * @tags sandbox
-     * @name V1SandboxesDiskHistoryDetail
+     * @name V1SandboxesDiskHistoryList
      * @summary Get disk usage history
      * @request GET:/api/v1/sandboxes/{id}/disk-history
      */
-    v1SandboxesDiskHistoryDetail: (
+    v1SandboxesDiskHistoryList: (
       id: string,
       query?: {
         /** Since timestamp (RFC3339) */
@@ -11081,7 +12278,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesDiskUsageHistory[], any>({
+      this.request<V1SandboxesDiskHistoryListData, any>({
         path: `/api/v1/sandboxes/${id}/disk-history`,
         method: "GET",
         query: query,
@@ -11097,29 +12294,15 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Update sandbox heartbeat
      * @request POST:/api/v1/sandboxes/{id}/heartbeat
      */
-    v1SandboxesHeartbeatCreate: (id: string, heartbeat: TypesSandboxHeartbeatRequest, params: RequestParams = {}) =>
-      this.request<Record<string, string>, any>({
+    v1SandboxesHeartbeatCreate: (
+      id: string,
+      heartbeat: TypesSandboxHeartbeatRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SandboxesHeartbeatCreateData, any>({
         path: `/api/v1/sandboxes/${id}/heartbeat`,
         method: "POST",
         body: heartbeat,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Register a new sandbox or update an existing one
-     *
-     * @tags sandbox
-     * @name V1SandboxesRegisterCreate
-     * @summary Register a sandbox instance
-     * @request POST:/api/v1/sandboxes/register
-     */
-    v1SandboxesRegisterCreate: (sandbox: TypesSandboxInstance, params: RequestParams = {}) =>
-      this.request<TypesSandboxInstance, any>({
-        path: `/api/v1/sandboxes/register`,
-        method: "POST",
-        body: sandbox,
         type: ContentType.Json,
         format: "json",
         ...params,
@@ -11135,7 +12318,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SchedulerHeartbeatsList: (params: RequestParams = {}) =>
-      this.request<Record<string, any>, any>({
+      this.request<V1SchedulerHeartbeatsListData, any>({
         path: `/api/v1/scheduler/heartbeats`,
         method: "GET",
         secure: true,
@@ -11164,7 +12347,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesUnifiedSearchResponse, SystemHTTPError>({
+      this.request<V1SearchListData, SystemHTTPError>({
         path: `/api/v1/search`,
         method: "GET",
         query: query,
@@ -11184,7 +12367,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SecretsList: (params: RequestParams = {}) =>
-      this.request<TypesSecret[], any>({
+      this.request<V1SecretsListData, any>({
         path: `/api/v1/secrets`,
         method: "GET",
         secure: true,
@@ -11201,9 +12384,32 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SecretsCreate: (request: TypesSecret, params: RequestParams = {}) =>
-      this.request<TypesSecret, any>({
+      this.request<V1SecretsCreateData, any>({
         path: `/api/v1/secrets`,
         method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Update an existing secret for the user.
+     *
+     * @tags secrets
+     * @name V1SecretsUpdate
+     * @summary Update an existing secret
+     * @request PUT:/api/v1/secrets/{id}
+     * @secure
+     */
+    v1SecretsUpdate: (
+      id: string,
+      request: TypesSecret,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SecretsUpdateData, any>({
+        path: `/api/v1/secrets/${id}`,
+        method: "PUT",
         body: request,
         secure: true,
         type: ContentType.Json,
@@ -11220,29 +12426,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SecretsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<TypesSecret, any>({
+      this.request<V1SecretsDeleteData, any>({
         path: `/api/v1/secrets/${id}`,
         method: "DELETE",
         secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Update an existing secret for the user.
-     *
-     * @tags secrets
-     * @name V1SecretsUpdate
-     * @summary Update an existing secret
-     * @request PUT:/api/v1/secrets/{id}
-     * @secure
-     */
-    v1SecretsUpdate: (id: string, request: TypesSecret, params: RequestParams = {}) =>
-      this.request<TypesSecret, any>({
-        path: `/api/v1/secrets/${id}`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
         ...params,
       }),
 
@@ -11262,7 +12449,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesServiceConnectionResponse[], TypesAPIError>({
+      this.request<V1ServiceConnectionsListData, TypesAPIError>({
         path: `/api/v1/service-connections`,
         method: "GET",
         query: query,
@@ -11280,31 +12467,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/service-connections
      * @secure
      */
-    v1ServiceConnectionsCreate: (request: TypesServiceConnectionCreateRequest, params: RequestParams = {}) =>
-      this.request<TypesServiceConnectionResponse, TypesAPIError>({
+    v1ServiceConnectionsCreate: (
+      request: TypesServiceConnectionCreateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ServiceConnectionsCreateData, TypesAPIError>({
         path: `/api/v1/service-connections`,
         method: "POST",
         body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Delete a service connection
-     *
-     * @tags service-connections
-     * @name V1ServiceConnectionsDelete
-     * @summary Delete service connection
-     * @request DELETE:/api/v1/service-connections/{id}
-     * @secure
-     */
-    v1ServiceConnectionsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<void, TypesAPIError>({
-        path: `/api/v1/service-connections/${id}`,
-        method: "DELETE",
-        secure: true,
         ...params,
       }),
 
@@ -11318,7 +12491,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ServiceConnectionsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesServiceConnectionResponse, TypesAPIError>({
+      this.request<V1ServiceConnectionsDetailData, TypesAPIError>({
         path: `/api/v1/service-connections/${id}`,
         method: "GET",
         secure: true,
@@ -11340,13 +12513,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       request: TypesServiceConnectionUpdateRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesServiceConnectionResponse, TypesAPIError>({
+      this.request<V1ServiceConnectionsUpdateData, TypesAPIError>({
         path: `/api/v1/service-connections/${id}`,
         method: "PUT",
         body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a service connection
+     *
+     * @tags service-connections
+     * @name V1ServiceConnectionsDelete
+     * @summary Delete service connection
+     * @request DELETE:/api/v1/service-connections/{id}
+     * @secure
+     */
+    v1ServiceConnectionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<V1ServiceConnectionsDeleteData, TypesAPIError>({
+        path: `/api/v1/service-connections/${id}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 
@@ -11360,7 +12550,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ServiceConnectionsTestCreate: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, any>, TypesAPIError>({
+      this.request<V1ServiceConnectionsTestCreateData, TypesAPIError>({
         path: `/api/v1/service-connections/${id}/test`,
         method: "POST",
         secure: true,
@@ -11397,7 +12587,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesPaginatedSessionsList, any>({
+      this.request<V1SessionsListData, any>({
         path: `/api/v1/sessions`,
         method: "GET",
         query: query,
@@ -11406,19 +12596,22 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete a session by ID
+     * No description
      *
-     * @tags sessions
-     * @name V1SessionsDelete
-     * @summary Delete a session by ID
-     * @request DELETE:/api/v1/sessions/{id}
+     * @name V1SessionsChatCreate
+     * @request POST:/api/v1/sessions/chat
      * @secure
      */
-    v1SessionsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<TypesSession, any>({
-        path: `/api/v1/sessions/${id}`,
-        method: "DELETE",
+    v1SessionsChatCreate: (
+      request: TypesSessionChatRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SessionsChatCreateData, any>({
+        path: `/api/v1/sessions/chat`,
+        method: "POST",
+        body: request,
         secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -11432,7 +12625,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SessionsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesSession, any>({
+      this.request<V1SessionsDetailData, any>({
         path: `/api/v1/sessions/${id}`,
         method: "GET",
         secure: true,
@@ -11448,8 +12641,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/sessions/{id}
      * @secure
      */
-    v1SessionsUpdate: (id: string, request: TypesSession, params: RequestParams = {}) =>
-      this.request<TypesSession, any>({
+    v1SessionsUpdate: (
+      id: string,
+      request: TypesSession,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SessionsUpdateData, any>({
         path: `/api/v1/sessions/${id}`,
         method: "PUT",
         body: request,
@@ -11459,16 +12656,33 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Delete a session by ID
+     *
+     * @tags sessions
+     * @name V1SessionsDelete
+     * @summary Delete a session by ID
+     * @request DELETE:/api/v1/sessions/{id}
+     * @secure
+     */
+    v1SessionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<V1SessionsDeleteData, any>({
+        path: `/api/v1/sessions/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get decrypted Claude credentials for use inside a desktop container. Only accepts runner/session-scoped tokens.
      *
      * @tags Claude
-     * @name V1SessionsClaudeCredentialsDetail
+     * @name V1SessionsClaudeCredentialsList
      * @summary Get Claude credentials for a session
      * @request GET:/api/v1/sessions/{id}/claude-credentials
      * @secure
      */
-    v1SessionsClaudeCredentialsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesClaudeOAuthCredentials, SystemHTTPError>({
+    v1SessionsClaudeCredentialsList: (id: string, params: RequestParams = {}) =>
+      this.request<V1SessionsClaudeCredentialsListData, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/claude-credentials`,
         method: "GET",
         secure: true,
@@ -11485,8 +12699,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/sessions/{id}/claude-credentials
      * @secure
      */
-    v1SessionsClaudeCredentialsUpdate: (id: string, body: TypesClaudeOAuthCredentials, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
+    v1SessionsClaudeCredentialsUpdate: (
+      id: string,
+      body: TypesClaudeOAuthCredentials,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SessionsClaudeCredentialsUpdateData, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/claude-credentials`,
         method: "PUT",
         body: body,
@@ -11500,12 +12718,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Returns all ports currently exposed from the session's dev container
      *
      * @tags sessions
-     * @name V1SessionsExposeDetail
+     * @name V1SessionsExposeList
      * @summary List exposed ports for a session
      * @request GET:/api/v1/sessions/{id}/expose
      */
-    v1SessionsExposeDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServerListExposedPortsResponse, string>({
+    v1SessionsExposeList: (id: string, params: RequestParams = {}) =>
+      this.request<V1SessionsExposeListData, string>({
         path: `/api/v1/sessions/${id}/expose`,
         method: "GET",
         format: "json",
@@ -11520,8 +12738,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Expose a port from the session's dev container
      * @request POST:/api/v1/sessions/{id}/expose
      */
-    v1SessionsExposeCreate: (id: string, request: ServerExposePortRequest, params: RequestParams = {}) =>
-      this.request<ServerExposePortResponse, string>({
+    v1SessionsExposeCreate: (
+      id: string,
+      request: ServerExposePortRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SessionsExposeCreateData, string>({
         path: `/api/v1/sessions/${id}/expose`,
         method: "POST",
         body: request,
@@ -11538,8 +12760,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Unexpose a port from the session's dev container
      * @request DELETE:/api/v1/sessions/{id}/expose/{port}
      */
-    v1SessionsExposeDelete: (id: string, port: number, params: RequestParams = {}) =>
-      this.request<Record<string, string>, string>({
+    v1SessionsExposeDelete: (
+      id: string,
+      port: number,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SessionsExposeDeleteData, string>({
         path: `/api/v1/sessions/${id}/expose/${port}`,
         method: "DELETE",
         format: "json",
@@ -11550,12 +12776,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List interactions for a session
      *
      * @tags interactions
-     * @name V1SessionsInteractionsDetail
+     * @name V1SessionsInteractionsList
      * @summary List interactions for a session
      * @request GET:/api/v1/sessions/{id}/interactions
      * @secure
      */
-    v1SessionsInteractionsDetail: (
+    v1SessionsInteractionsList: (
       id: string,
       query?: {
         /** Page number */
@@ -11565,7 +12791,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesInteraction[], any>({
+      this.request<V1SessionsInteractionsListData, any>({
         path: `/api/v1/sessions/${id}/interactions`,
         method: "GET",
         query: query,
@@ -11578,15 +12804,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get an interaction by ID
      *
      * @tags interactions
-     * @name V1SessionsInteractionsDetail2
+     * @name V1SessionsInteractionsDetail
      * @summary Get an interaction by ID
      * @request GET:/api/v1/sessions/{id}/interactions/{interaction_id}
-     * @originalName v1SessionsInteractionsDetail
-     * @duplicate
      * @secure
      */
-    v1SessionsInteractionsDetail2: (id: string, interactionId: string, params: RequestParams = {}) =>
-      this.request<TypesInteraction, any>({
+    v1SessionsInteractionsDetail: (
+      id: string,
+      interactionId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SessionsInteractionsDetailData, any>({
         path: `/api/v1/sessions/${id}/interactions/${interactionId}`,
         method: "GET",
         secure: true,
@@ -11609,7 +12837,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       feedback: TypesFeedbackRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesInteraction, any>({
+      this.request<V1SessionsInteractionsFeedbackCreateData, any>({
         path: `/api/v1/sessions/${id}/interactions/${interactionId}/feedback`,
         method: "POST",
         body: feedback,
@@ -11623,13 +12851,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get streaming connection details for accessing a session
      *
      * @tags sessions
-     * @name V1SessionsRdpConnectionDetail
+     * @name V1SessionsRdpConnectionList
      * @summary Get streaming connection info for a session
      * @request GET:/api/v1/sessions/{id}/rdp-connection
      * @secure
      */
-    v1SessionsRdpConnectionDetail: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, any>, any>({
+    v1SessionsRdpConnectionList: (id: string, params: RequestParams = {}) =>
+      this.request<V1SessionsRdpConnectionListData, any>({
         path: `/api/v1/sessions/${id}/rdp-connection`,
         method: "GET",
         secure: true,
@@ -11646,7 +12874,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SessionsResumeCreate: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, any>, any>({
+      this.request<V1SessionsResumeCreateData, any>({
         path: `/api/v1/sessions/${id}/resume`,
         method: "POST",
         secure: true,
@@ -11657,13 +12885,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Returns the current sandbox state for an external agent session (absent/running/starting)
      *
      * @tags Sessions
-     * @name V1SessionsSandboxStateDetail
+     * @name V1SessionsSandboxStateList
      * @summary Get sandbox state for a session
      * @request GET:/api/v1/sessions/{id}/sandbox-state
      * @secure
      */
-    v1SessionsSandboxStateDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServerSessionSandboxStateResponse, SystemHTTPError>({
+    v1SessionsSandboxStateList: (id: string, params: RequestParams = {}) =>
+      this.request<V1SessionsSandboxStateListData, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/sandbox-state`,
         method: "GET",
         secure: true,
@@ -11676,12 +12904,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Search for interactions within a session by content
      *
      * @tags Sessions
-     * @name V1SessionsSearchDetail
+     * @name V1SessionsSearchList
      * @summary Search session interactions
      * @request GET:/api/v1/sessions/{id}/search
      * @secure
      */
-    v1SessionsSearchDetail: (
+    v1SessionsSearchList: (
       id: string,
       query: {
         /** Search query */
@@ -11691,7 +12919,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServerSessionTOCResponse, SystemHTTPError>({
+      this.request<V1SessionsSearchListData, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/search`,
         method: "GET",
         query: query,
@@ -11704,12 +12932,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     /**
      * No description
      *
-     * @name V1SessionsStepInfoDetail
+     * @name V1SessionsStepInfoList
      * @request GET:/api/v1/sessions/{id}/step-info
      * @secure
      */
-    v1SessionsStepInfoDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesStepInfo[], any>({
+    v1SessionsStepInfoList: (id: string, params: RequestParams = {}) =>
+      this.request<V1SessionsStepInfoListData, any>({
         path: `/api/v1/sessions/${id}/step-info`,
         method: "GET",
         secure: true,
@@ -11725,8 +12953,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/sessions/{id}/stop-external-agent
      * @secure
      */
-    v1SessionsStopExternalAgentDelete: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
+    v1SessionsStopExternalAgentDelete: (
+      id: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SessionsStopExternalAgentDeleteData, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/stop-external-agent`,
         method: "DELETE",
         secure: true,
@@ -11738,13 +12969,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Returns a numbered list of interaction summaries for a session
      *
      * @tags Sessions
-     * @name V1SessionsTocDetail
+     * @name V1SessionsTocList
      * @summary Get session table of contents
      * @request GET:/api/v1/sessions/{id}/toc
      * @secure
      */
-    v1SessionsTocDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServerSessionTOCResponse, SystemHTTPError>({
+    v1SessionsTocList: (id: string, params: RequestParams = {}) =>
+      this.request<V1SessionsTocListData, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/toc`,
         method: "GET",
         secure: true,
@@ -11762,8 +12993,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/sessions/{id}/turns/{turn}
      * @secure
      */
-    v1SessionsTurnsDetail: (id: string, turn: number, params: RequestParams = {}) =>
-      this.request<ServerInteractionWithContext, SystemHTTPError>({
+    v1SessionsTurnsDetail: (
+      id: string,
+      turn: number,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SessionsTurnsDetailData, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/turns/${turn}`,
         method: "GET",
         secure: true,
@@ -11776,13 +13011,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get Helix-managed Zed MCP configuration for a session
      *
      * @tags Zed
-     * @name V1SessionsZedConfigDetail
+     * @name V1SessionsZedConfigList
      * @summary Get Zed configuration
      * @request GET:/api/v1/sessions/{id}/zed-config
      * @secure
      */
-    v1SessionsZedConfigDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesZedConfigResponse, SystemHTTPError>({
+    v1SessionsZedConfigList: (id: string, params: RequestParams = {}) =>
+      this.request<V1SessionsZedConfigListData, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/zed-config`,
         method: "GET",
         secure: true,
@@ -11800,8 +13035,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/sessions/{id}/zed-config/user
      * @secure
      */
-    v1SessionsZedConfigUserCreate: (id: string, overrides: Record<string, any>, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
+    v1SessionsZedConfigUserCreate: (
+      id: string,
+      overrides: V1SessionsZedConfigUserCreatePayload,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SessionsZedConfigUserCreateData, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/zed-config/user`,
         method: "POST",
         body: overrides,
@@ -11815,35 +13054,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get merged Helix + user Zed settings for a session
      *
      * @tags Zed
-     * @name V1SessionsZedSettingsDetail
+     * @name V1SessionsZedSettingsList
      * @summary Get merged Zed settings
      * @request GET:/api/v1/sessions/{id}/zed-settings
      * @secure
      */
-    v1SessionsZedSettingsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, any>, SystemHTTPError>({
+    v1SessionsZedSettingsList: (id: string, params: RequestParams = {}) =>
+      this.request<V1SessionsZedSettingsListData, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/zed-settings`,
         method: "GET",
         secure: true,
         type: ContentType.Json,
         format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1SessionsChatCreate
-     * @request POST:/api/v1/sessions/chat
-     * @secure
-     */
-    v1SessionsChatCreate: (request: TypesSessionChatRequest, params: RequestParams = {}) =>
-      this.request<TypesOpenAIResponse, any>({
-        path: `/api/v1/sessions/chat`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
         ...params,
       }),
 
@@ -11865,27 +13087,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesSkillsListResponse, any>({
+      this.request<V1SkillsListData, any>({
         path: `/api/v1/skills`,
         method: "GET",
         query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get details of a specific YAML skill
-     *
-     * @tags skills
-     * @name V1SkillsDetail
-     * @summary Get a skill by ID
-     * @request GET:/api/v1/skills/{id}
-     * @secure
-     */
-    v1SkillsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesSkillDefinition, any>({
-        path: `/api/v1/skills/${id}`,
-        method: "GET",
         secure: true,
         ...params,
       }),
@@ -11900,7 +13105,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SkillsReloadCreate: (params: RequestParams = {}) =>
-      this.request<Record<string, string>, any>({
+      this.request<V1SkillsReloadCreateData, any>({
         path: `/api/v1/skills/reload`,
         method: "POST",
         secure: true,
@@ -11916,13 +13121,33 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/skills/validate
      * @secure
      */
-    v1SkillsValidateCreate: (request: TypesAssistantMCP, params: RequestParams = {}) =>
-      this.request<TypesToolMCPClientConfig, any>({
+    v1SkillsValidateCreate: (
+      request: TypesAssistantMCP,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SkillsValidateCreateData, any>({
         path: `/api/v1/skills/validate`,
         method: "POST",
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Get details of a specific YAML skill
+     *
+     * @tags skills
+     * @name V1SkillsDetail
+     * @summary Get a skill by ID
+     * @request GET:/api/v1/skills/{id}
+     * @secure
+     */
+    v1SkillsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<V1SkillsDetailData, any>({
+        path: `/api/v1/skills/${id}`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
@@ -11936,7 +13161,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SlotsDelete: (slotId: string, params: RequestParams = {}) =>
-      this.request<Record<string, any>, any>({
+      this.request<V1SlotsDeleteData, any>({
         path: `/api/v1/slots/${slotId}`,
         method: "DELETE",
         secure: true,
@@ -11982,7 +13207,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesSpecTask[], TypesAPIError>({
+      this.request<V1SpecTasksListData, TypesAPIError>({
         path: `/api/v1/spec-tasks`,
         method: "GET",
         query: query,
@@ -11991,16 +13216,78 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get the Kanban board settings (WIP limits) for the default project
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksBoardSettingsList
+     * @summary Get board settings for spec tasks
+     * @request GET:/api/v1/spec-tasks/board-settings
+     * @secure
+     */
+    v1SpecTasksBoardSettingsList: (params: RequestParams = {}) =>
+      this.request<V1SpecTasksBoardSettingsListData, TypesAPIError>({
+        path: `/api/v1/spec-tasks/board-settings`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the Kanban board settings (WIP limits) for the default project
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksBoardSettingsUpdate
+     * @summary Update board settings for spec tasks
+     * @request PUT:/api/v1/spec-tasks/board-settings
+     * @secure
+     */
+    v1SpecTasksBoardSettingsUpdate: (
+      request: TypesBoardSettings,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SpecTasksBoardSettingsUpdateData, TypesAPIError>({
+        path: `/api/v1/spec-tasks/board-settings`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new task from a simple description and start spec generation
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksFromPromptCreate
+     * @summary Create spec-driven task from simple prompt
+     * @request POST:/api/v1/spec-tasks/from-prompt
+     */
+    v1SpecTasksFromPromptCreate: (
+      request: TypesCreateTaskRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SpecTasksFromPromptCreateData, TypesAPIError>({
+        path: `/api/v1/spec-tasks/from-prompt`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get the design documents from helix-specs worktree
      *
      * @tags SpecTasks
-     * @name V1SpecTasksDesignDocsDetail
+     * @name V1SpecTasksDesignDocsList
      * @summary Get design docs for SpecTask
      * @request GET:/api/v1/spec-tasks/{id}/design-docs
      * @secure
      */
-    v1SpecTasksDesignDocsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServerDesignDocsResponse, SystemHTTPError>({
+    v1SpecTasksDesignDocsList: (id: string, params: RequestParams = {}) =>
+      this.request<V1SpecTasksDesignDocsListData, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${id}/design-docs`,
         method: "GET",
         secure: true,
@@ -12017,8 +13304,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/spec-tasks/{spec_task_id}/approve-implementation
      * @secure
      */
-    v1SpecTasksApproveImplementationCreate: (specTaskId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTask, any>({
+    v1SpecTasksApproveImplementationCreate: (
+      specTaskId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SpecTasksApproveImplementationCreateData, any>({
         path: `/api/v1/spec-tasks/${specTaskId}/approve-implementation`,
         method: "POST",
         secure: true,
@@ -12029,13 +13319,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List all design reviews for a spec task
      *
      * @tags spec-tasks
-     * @name V1SpecTasksDesignReviewsDetail
+     * @name V1SpecTasksDesignReviewsList
      * @summary List design reviews
      * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews
      * @secure
      */
-    v1SpecTasksDesignReviewsDetail: (specTaskId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTaskDesignReviewListResponse, TypesAPIError>({
+    v1SpecTasksDesignReviewsList: (
+      specTaskId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SpecTasksDesignReviewsListData, TypesAPIError>({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews`,
         method: "GET",
         secure: true,
@@ -12047,15 +13340,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get a specific design review for a spec task with comments and spec task details
      *
      * @tags SpecTasks
-     * @name V1SpecTasksDesignReviewsDetail2
+     * @name V1SpecTasksDesignReviewsDetail
      * @summary Get design review details
      * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}
-     * @originalName v1SpecTasksDesignReviewsDetail
-     * @duplicate
      * @secure
      */
-    v1SpecTasksDesignReviewsDetail2: (specTaskId: string, reviewId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTaskDesignReviewDetailResponse, SystemHTTPError>({
+    v1SpecTasksDesignReviewsDetail: (
+      specTaskId: string,
+      reviewId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SpecTasksDesignReviewsDetailData, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}`,
         method: "GET",
         secure: true,
@@ -12068,17 +13363,20 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get the current comment being processed and the queue of pending comments for a review
      *
      * @tags SpecTasks
-     * @name V1SpecTasksDesignReviewsCommentQueueStatusDetail
+     * @name V1SpecTasksDesignReviewsCommentQueueStatusList
      * @summary Get comment queue status
      * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comment-queue-status
      * @secure
      */
-    v1SpecTasksDesignReviewsCommentQueueStatusDetail: (
+    v1SpecTasksDesignReviewsCommentQueueStatusList: (
       specTaskId: string,
       reviewId: string,
       params: RequestParams = {},
     ) =>
-      this.request<TypesCommentQueueStatusResponse, SystemHTTPError>({
+      this.request<
+        V1SpecTasksDesignReviewsCommentQueueStatusListData,
+        SystemHTTPError
+      >({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comment-queue-status`,
         method: "GET",
         secure: true,
@@ -12091,13 +13389,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get all comments for a specific design review
      *
      * @tags SpecTasks
-     * @name V1SpecTasksDesignReviewsCommentsDetail
+     * @name V1SpecTasksDesignReviewsCommentsList
      * @summary List design review comments
      * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments
      * @secure
      */
-    v1SpecTasksDesignReviewsCommentsDetail: (specTaskId: string, reviewId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTaskDesignReviewCommentListResponse, SystemHTTPError>({
+    v1SpecTasksDesignReviewsCommentsList: (
+      specTaskId: string,
+      reviewId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SpecTasksDesignReviewsCommentsListData, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comments`,
         method: "GET",
         secure: true,
@@ -12121,15 +13423,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       request: TypesSpecTaskDesignReviewCommentCreateRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesSpecTaskDesignReviewComment, SystemHTTPError>({
-        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comments`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
+      this.request<V1SpecTasksDesignReviewsCommentsCreateData, SystemHTTPError>(
+        {
+          path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comments`,
+          method: "POST",
+          body: request,
+          secure: true,
+          type: ContentType.Json,
+          format: "json",
+          ...params,
+        },
+      ),
 
     /**
      * @description Mark a design review comment as resolved
@@ -12146,7 +13450,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       commentId: string,
       params: RequestParams = {},
     ) =>
-      this.request<TypesSpecTaskDesignReviewComment, SystemHTTPError>({
+      this.request<
+        V1SpecTasksDesignReviewsCommentsResolveCreateData,
+        SystemHTTPError
+      >({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comments/${commentId}/resolve`,
         method: "POST",
         secure: true,
@@ -12170,7 +13477,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       request: TypesSpecTaskDesignReviewSubmitRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesSpecTaskDesignReview, SystemHTTPError>({
+      this.request<V1SpecTasksDesignReviewsSubmitCreateData, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/submit`,
         method: "POST",
         body: request,
@@ -12189,30 +13496,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/spec-tasks/{spec_task_id}/stop-agent
      * @secure
      */
-    v1SpecTasksStopAgentCreate: (specTaskId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTask, any>({
+    v1SpecTasksStopAgentCreate: (
+      specTaskId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SpecTasksStopAgentCreateData, any>({
         path: `/api/v1/spec-tasks/${specTaskId}/stop-agent`,
         method: "POST",
         secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Delete a spec task
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksDelete
-     * @summary Delete a spec task
-     * @request DELETE:/api/v1/spec-tasks/{taskId}
-     * @secure
-     */
-    v1SpecTasksDelete: (taskId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTask, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}`,
-        method: "DELETE",
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
         ...params,
       }),
 
@@ -12225,7 +13516,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/spec-tasks/{taskId}
      */
     v1SpecTasksDetail: (taskId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTask, TypesAPIError>({
+      this.request<V1SpecTasksDetailData, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}`,
         method: "GET",
         format: "json",
@@ -12241,11 +13532,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/spec-tasks/{taskId}
      * @secure
      */
-    v1SpecTasksUpdate: (taskId: string, request: TypesSpecTaskUpdateRequest, params: RequestParams = {}) =>
-      this.request<TypesSpecTask, TypesAPIError>({
+    v1SpecTasksUpdate: (
+      taskId: string,
+      request: TypesSpecTaskUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SpecTasksUpdateData, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}`,
         method: "PUT",
         body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a spec task
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksDelete
+     * @summary Delete a spec task
+     * @request DELETE:/api/v1/spec-tasks/{taskId}
+     * @secure
+     */
+    v1SpecTasksDelete: (taskId: string, params: RequestParams = {}) =>
+      this.request<V1SpecTasksDeleteData, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}`,
+        method: "DELETE",
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -12260,8 +13574,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Approve or reject generated specifications
      * @request POST:/api/v1/spec-tasks/{taskId}/approve-specs
      */
-    v1SpecTasksApproveSpecsCreate: (taskId: string, request: TypesSpecApprovalResponse, params: RequestParams = {}) =>
-      this.request<TypesSpecTask, TypesAPIError>({
+    v1SpecTasksApproveSpecsCreate: (
+      taskId: string,
+      request: TypesSpecApprovalResponse,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SpecTasksApproveSpecsCreateData, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/approve-specs`,
         method: "POST",
         body: request,
@@ -12284,7 +13602,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       request: TypesSpecTaskArchiveRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesSpecTask, TypesAPIError>({
+      this.request<V1SpecTasksArchivePartialUpdateData, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/archive`,
         method: "PATCH",
         body: request,
@@ -12303,8 +13621,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/spec-tasks/{taskId}/clone
      * @secure
      */
-    v1SpecTasksCloneCreate: (taskId: string, request: TypesCloneTaskRequest, params: RequestParams = {}) =>
-      this.request<TypesCloneTaskResponse, TypesAPIError>({
+    v1SpecTasksCloneCreate: (
+      taskId: string,
+      request: TypesCloneTaskRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SpecTasksCloneCreateData, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/clone`,
         method: "POST",
         body: request,
@@ -12318,13 +13640,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get all clone groups where this task was the source
      *
      * @tags SpecTasks
-     * @name V1SpecTasksCloneGroupsDetail
+     * @name V1SpecTasksCloneGroupsList
      * @summary List clone groups for a task
      * @request GET:/api/v1/spec-tasks/{taskId}/clone-groups
      * @secure
      */
-    v1SpecTasksCloneGroupsDetail: (taskId: string, params: RequestParams = {}) =>
-      this.request<TypesCloneGroup[], any>({
+    v1SpecTasksCloneGroupsList: (taskId: string, params: RequestParams = {}) =>
+      this.request<V1SpecTasksCloneGroupsListData, any>({
         path: `/api/v1/spec-tasks/${taskId}/clone-groups`,
         method: "GET",
         secure: true,
@@ -12336,12 +13658,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get detailed progress information for a spec-driven task including specification and implementation phases
      *
      * @tags spec-driven-tasks
-     * @name V1SpecTasksProgressDetail
+     * @name V1SpecTasksProgressList
      * @summary Get spec-driven task progress
      * @request GET:/api/v1/spec-tasks/{taskId}/progress
      */
-    v1SpecTasksProgressDetail: (taskId: string, params: RequestParams = {}) =>
-      this.request<ServerTaskProgressResponse, TypesAPIError>({
+    v1SpecTasksProgressList: (taskId: string, params: RequestParams = {}) =>
+      this.request<V1SpecTasksProgressListData, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/progress`,
         method: "GET",
         format: "json",
@@ -12352,12 +13674,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get the generated specifications for human review
      *
      * @tags spec-driven-tasks
-     * @name V1SpecTasksSpecsDetail
+     * @name V1SpecTasksSpecsList
      * @summary Get task specifications for review
      * @request GET:/api/v1/spec-tasks/{taskId}/specs
      */
-    v1SpecTasksSpecsDetail: (taskId: string, params: RequestParams = {}) =>
-      this.request<ServerTaskSpecsResponse, TypesAPIError>({
+    v1SpecTasksSpecsList: (taskId: string, params: RequestParams = {}) =>
+      this.request<V1SpecTasksSpecsListData, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/specs`,
         method: "GET",
         format: "json",
@@ -12383,7 +13705,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesSpecTask, TypesAPIError>({
+      this.request<V1SpecTasksStartPlanningCreateData, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/start-planning`,
         method: "POST",
         query: query,
@@ -12397,12 +13719,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get spec task usage
      *
      * @tags spec-tasks
-     * @name V1SpecTasksUsageDetail
+     * @name V1SpecTasksUsageList
      * @summary Get spec task usage
      * @request GET:/api/v1/spec-tasks/{taskId}/usage
      * @secure
      */
-    v1SpecTasksUsageDetail: (
+    v1SpecTasksUsageList: (
       taskId: string,
       query?: {
         /** Start date */
@@ -12414,12 +13736,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+      this.request<V1SpecTasksUsageListData, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${taskId}/usage`,
         method: "GET",
         query: query,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the current status and information about a Zed instance associated with a SpecTask
+     *
+     * @tags zed-integration
+     * @name V1SpecTasksZedInstanceList
+     * @summary Get Zed instance status for a SpecTask
+     * @request GET:/api/v1/spec-tasks/{taskId}/zed-instance
+     * @secure
+     */
+    v1SpecTasksZedInstanceList: (taskId: string, params: RequestParams = {}) =>
+      this.request<V1SpecTasksZedInstanceListData, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/zed-instance`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -12433,8 +13773,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/spec-tasks/{taskId}/zed-instance
      * @secure
      */
-    v1SpecTasksZedInstanceDelete: (taskId: string, params: RequestParams = {}) =>
-      this.request<Record<string, any>, TypesAPIError>({
+    v1SpecTasksZedInstanceDelete: (
+      taskId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SpecTasksZedInstanceDeleteData, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/zed-instance`,
         method: "DELETE",
         secure: true,
@@ -12444,93 +13787,19 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get the current status and information about a Zed instance associated with a SpecTask
-     *
-     * @tags zed-integration
-     * @name V1SpecTasksZedInstanceDetail
-     * @summary Get Zed instance status for a SpecTask
-     * @request GET:/api/v1/spec-tasks/{taskId}/zed-instance
-     * @secure
-     */
-    v1SpecTasksZedInstanceDetail: (taskId: string, params: RequestParams = {}) =>
-      this.request<TypesZedInstanceStatus, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}/zed-instance`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Get all Zed threads associated with a SpecTask
      *
      * @tags zed-integration
-     * @name V1SpecTasksZedThreadsDetail
+     * @name V1SpecTasksZedThreadsList
      * @summary List Zed threads for a SpecTask
      * @request GET:/api/v1/spec-tasks/{taskId}/zed-threads
      * @secure
      */
-    v1SpecTasksZedThreadsDetail: (taskId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTaskZedThreadListResponse, TypesAPIError>({
+    v1SpecTasksZedThreadsList: (taskId: string, params: RequestParams = {}) =>
+      this.request<V1SpecTasksZedThreadsListData, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/zed-threads`,
         method: "GET",
         secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get the Kanban board settings (WIP limits) for the default project
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksBoardSettingsList
-     * @summary Get board settings for spec tasks
-     * @request GET:/api/v1/spec-tasks/board-settings
-     * @secure
-     */
-    v1SpecTasksBoardSettingsList: (params: RequestParams = {}) =>
-      this.request<TypesBoardSettings, TypesAPIError>({
-        path: `/api/v1/spec-tasks/board-settings`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Update the Kanban board settings (WIP limits) for the default project
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksBoardSettingsUpdate
-     * @summary Update board settings for spec tasks
-     * @request PUT:/api/v1/spec-tasks/board-settings
-     * @secure
-     */
-    v1SpecTasksBoardSettingsUpdate: (request: TypesBoardSettings, params: RequestParams = {}) =>
-      this.request<TypesBoardSettings, TypesAPIError>({
-        path: `/api/v1/spec-tasks/board-settings`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a new task from a simple description and start spec generation
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksFromPromptCreate
-     * @summary Create spec-driven task from simple prompt
-     * @request POST:/api/v1/spec-tasks/from-prompt
-     */
-    v1SpecTasksFromPromptCreate: (request: TypesCreateTaskRequest, params: RequestParams = {}) =>
-      this.request<TypesSpecTask, TypesAPIError>({
-        path: `/api/v1/spec-tasks/from-prompt`,
-        method: "POST",
-        body: request,
-        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -12545,7 +13814,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SpecsSampleTypesList: (params: RequestParams = {}) =>
-      this.request<ServerSampleTypesResponse, any>({
+      this.request<V1SpecsSampleTypesListData, any>({
         path: `/api/v1/specs/sample-types`,
         method: "GET",
         secure: true,
@@ -12569,7 +13838,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<string, any>({
+      this.request<V1SubscriptionManageCreateData, any>({
         path: `/api/v1/subscription/manage`,
         method: "POST",
         query: query,
@@ -12595,7 +13864,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<string, any>({
+      this.request<V1SubscriptionNewCreateData, any>({
         path: `/api/v1/subscription/new`,
         method: "POST",
         query: query,
@@ -12613,7 +13882,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SystemSettingsList: (params: RequestParams = {}) =>
-      this.request<TypesSystemSettingsResponse, string>({
+      this.request<V1SystemSettingsListData, string>({
         path: `/api/v1/system/settings`,
         method: "GET",
         secure: true,
@@ -12629,8 +13898,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/system/settings
      * @secure
      */
-    v1SystemSettingsUpdate: (request: TypesSystemSettingsRequest, params: RequestParams = {}) =>
-      this.request<TypesSystemSettingsResponse, string>({
+    v1SystemSettingsUpdate: (
+      request: TypesSystemSettingsRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1SystemSettingsUpdateData, string>({
         path: `/api/v1/system/settings`,
         method: "PUT",
         body: request,
@@ -12648,7 +13920,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/teams/webhook/{appID}
      */
     v1TeamsWebhookCreate: (appId: string, params: RequestParams = {}) =>
-      this.request<string, string>({
+      this.request<V1TeamsWebhookCreateData, string>({
         path: `/api/v1/teams/webhook/${appId}`,
         method: "POST",
         type: ContentType.Json,
@@ -12665,8 +13937,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/top-ups/new
      * @secure
      */
-    v1TopUpsNewCreate: (request: ServerCreateTopUpRequest, params: RequestParams = {}) =>
-      this.request<string, any>({
+    v1TopUpsNewCreate: (
+      request: ServerCreateTopUpRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1TopUpsNewCreateData, any>({
         path: `/api/v1/top-ups/new`,
         method: "POST",
         body: request,
@@ -12693,7 +13968,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesTriggerConfiguration[], any>({
+      this.request<V1TriggersListData, any>({
         path: `/api/v1/triggers`,
         method: "GET",
         query: query,
@@ -12710,12 +13985,39 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/triggers
      * @secure
      */
-    v1TriggersCreate: (request: TypesTriggerConfiguration, params: RequestParams = {}) =>
-      this.request<TypesTriggerConfiguration, any>({
+    v1TriggersCreate: (
+      request: TypesTriggerConfiguration,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1TriggersCreateData, any>({
         path: `/api/v1/triggers`,
         method: "POST",
         body: request,
         secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Update triggers for the app, for example to change the cron schedule or enable/disable the trigger
+     *
+     * @tags apps
+     * @name V1TriggersUpdate
+     * @summary Update app triggers
+     * @request PUT:/api/v1/triggers/{trigger_id}
+     * @secure
+     */
+    v1TriggersUpdate: (
+      triggerId: string,
+      request: TypesTriggerConfiguration,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1TriggersUpdateData, any>({
+        path: `/api/v1/triggers/${triggerId}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -12729,27 +14031,9 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1TriggersDelete: (triggerId: string, params: RequestParams = {}) =>
-      this.request<TypesTriggerConfiguration, any>({
+      this.request<V1TriggersDeleteData, any>({
         path: `/api/v1/triggers/${triggerId}`,
         method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Update triggers for the app, for example to change the cron schedule or enable/disable the trigger
-     *
-     * @tags apps
-     * @name V1TriggersUpdate
-     * @summary Update app triggers
-     * @request PUT:/api/v1/triggers/{trigger_id}
-     * @secure
-     */
-    v1TriggersUpdate: (triggerId: string, request: TypesTriggerConfiguration, params: RequestParams = {}) =>
-      this.request<TypesTriggerConfiguration, any>({
-        path: `/api/v1/triggers/${triggerId}`,
-        method: "PUT",
-        body: request,
         secure: true,
         ...params,
       }),
@@ -12764,7 +14048,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1TriggersExecuteCreate: (triggerId: string, params: RequestParams = {}) =>
-      this.request<TypesTriggerExecuteResponse, any>({
+      this.request<V1TriggersExecuteCreateData, any>({
         path: `/api/v1/triggers/${triggerId}/execute`,
         method: "POST",
         secure: true,
@@ -12775,12 +14059,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description List executions for the trigger
      *
      * @tags apps
-     * @name V1TriggersExecutionsDetail
+     * @name V1TriggersExecutionsList
      * @summary List trigger executions
      * @request GET:/api/v1/triggers/{trigger_id}/executions
      * @secure
      */
-    v1TriggersExecutionsDetail: (
+    v1TriggersExecutionsList: (
       triggerId: string,
       query?: {
         /** Offset */
@@ -12790,7 +14074,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesTriggerExecution[], any>({
+      this.request<V1TriggersExecutionsListData, any>({
         path: `/api/v1/triggers/${triggerId}/executions`,
         method: "GET",
         query: query,
@@ -12824,7 +14108,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+      this.request<V1UsageListData, SystemHTTPError>({
         path: `/api/v1/usage`,
         method: "GET",
         query: query,
@@ -12862,7 +14146,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesPaginatedUsersList, any>({
+      this.request<V1UsersListData, any>({
         path: `/api/v1/users`,
         method: "GET",
         query: query,
@@ -12881,31 +14165,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/users
      * @secure
      */
-    v1UsersCreate: (request: TypesAdminCreateUserRequest, params: RequestParams = {}) =>
-      this.request<TypesUser, any>({
+    v1UsersCreate: (
+      request: TypesAdminCreateUserRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1UsersCreateData, any>({
         path: `/api/v1/users`,
         method: "POST",
         body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get user by ID
-     *
-     * @tags users
-     * @name V1UsersDetail
-     * @summary Get user details
-     * @request GET:/api/v1/users/{id}
-     * @secure
-     */
-    v1UsersDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesUser, any>({
-        path: `/api/v1/users/${id}`,
-        method: "GET",
-        secure: true,
         ...params,
       }),
 
@@ -12919,7 +14189,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1UsersMeGuidelinesList: (params: RequestParams = {}) =>
-      this.request<TypesUserGuidelinesResponse, SystemHTTPError>({
+      this.request<V1UsersMeGuidelinesListData, SystemHTTPError>({
         path: `/api/v1/users/me/guidelines`,
         method: "GET",
         secure: true,
@@ -12936,8 +14206,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/users/me/guidelines
      * @secure
      */
-    v1UsersMeGuidelinesUpdate: (request: TypesUpdateUserGuidelinesRequest, params: RequestParams = {}) =>
-      this.request<TypesUserGuidelinesResponse, SystemHTTPError>({
+    v1UsersMeGuidelinesUpdate: (
+      request: TypesUpdateUserGuidelinesRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1UsersMeGuidelinesUpdateData, SystemHTTPError>({
         path: `/api/v1/users/me/guidelines`,
         method: "PUT",
         body: request,
@@ -12957,7 +14230,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1UsersMeGuidelinesHistoryList: (params: RequestParams = {}) =>
-      this.request<TypesGuidelinesHistory[], SystemHTTPError>({
+      this.request<V1UsersMeGuidelinesHistoryListData, SystemHTTPError>({
         path: `/api/v1/users/me/guidelines-history`,
         method: "GET",
         secure: true,
@@ -12975,7 +14248,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1UsersMeOnboardingCreate: (params: RequestParams = {}) =>
-      this.request<TypesUser, SystemHTTPError>({
+      this.request<V1UsersMeOnboardingCreateData, SystemHTTPError>({
         path: `/api/v1/users/me/onboarding`,
         method: "POST",
         secure: true,
@@ -12993,7 +14266,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1UsersMePinnedProjectsList: (params: RequestParams = {}) =>
-      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
+      this.request<V1UsersMePinnedProjectsListData, SystemHTTPError>({
         path: `/api/v1/users/me/pinned-projects`,
         method: "GET",
         secure: true,
@@ -13023,7 +14296,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesUserSearchResponse, any>({
+      this.request<V1UsersSearchListData, any>({
         path: `/api/v1/users/search`,
         method: "GET",
         query: query,
@@ -13041,8 +14314,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1UsersTokenUsageList: (params: RequestParams = {}) =>
-      this.request<TypesUserTokenUsageResponse, any>({
+      this.request<V1UsersTokenUsageListData, any>({
         path: `/api/v1/users/token-usage`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get user by ID
+     *
+     * @tags users
+     * @name V1UsersDetail
+     * @summary Get user details
+     * @request GET:/api/v1/users/{id}
+     * @secure
+     */
+    v1UsersDetail: (id: string, params: RequestParams = {}) =>
+      this.request<V1UsersDetailData, any>({
+        path: `/api/v1/users/${id}`,
         method: "GET",
         secure: true,
         ...params,
@@ -13064,7 +14354,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesWallet, any>({
+      this.request<V1WalletListData, any>({
         path: `/api/v1/wallet`,
         method: "GET",
         query: query,
@@ -13086,7 +14376,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       request: TypesSpecTaskZedThreadCreateRequest,
       params: RequestParams = {},
     ) =>
-      this.request<TypesSpecTaskZedThread, TypesAPIError>({
+      this.request<V1WorkSessionsZedThreadCreateData, TypesAPIError>({
         path: `/api/v1/work-sessions/${sessionId}/zed-thread`,
         method: "POST",
         body: request,
@@ -13105,8 +14395,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/zed/events
      * @secure
      */
-    v1ZedEventsCreate: (request: TypesZedInstanceEvent, params: RequestParams = {}) =>
-      this.request<Record<string, any>, TypesAPIError>({
+    v1ZedEventsCreate: (
+      request: TypesZedInstanceEvent,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ZedEventsCreateData, TypesAPIError>({
         path: `/api/v1/zed/events`,
         method: "POST",
         body: request,
@@ -13125,8 +14418,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/zed/instances/{instanceId}/heartbeat
      * @secure
      */
-    v1ZedInstancesHeartbeatCreate: (instanceId: string, request: Record<string, any>, params: RequestParams = {}) =>
-      this.request<Record<string, any>, TypesAPIError>({
+    v1ZedInstancesHeartbeatCreate: (
+      instanceId: string,
+      request: V1ZedInstancesHeartbeatCreatePayload,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ZedInstancesHeartbeatCreateData, TypesAPIError>({
         path: `/api/v1/zed/instances/${instanceId}/heartbeat`,
         method: "POST",
         body: request,
@@ -13148,10 +14445,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1ZedInstancesThreadsEventsCreate: (
       instanceId: string,
       threadId: string,
-      request: Record<string, any>,
+      request: V1ZedInstancesThreadsEventsCreatePayload,
       params: RequestParams = {},
     ) =>
-      this.request<Record<string, any>, TypesAPIError>({
+      this.request<V1ZedInstancesThreadsEventsCreateData, TypesAPIError>({
         path: `/api/v1/zed/instances/${instanceId}/threads/${threadId}/events`,
         method: "POST",
         body: request,
@@ -13170,8 +14467,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/zed/threads/{threadId}/activity
      * @secure
      */
-    v1ZedThreadsActivityCreate: (threadId: string, request: Record<string, any>, params: RequestParams = {}) =>
-      this.request<TypesSpecTaskZedThread, TypesAPIError>({
+    v1ZedThreadsActivityCreate: (
+      threadId: string,
+      request: V1ZedThreadsActivityCreatePayload,
+      params: RequestParams = {},
+    ) =>
+      this.request<V1ZedThreadsActivityCreateData, TypesAPIError>({
         path: `/api/v1/zed/threads/${threadId}/activity`,
         method: "POST",
         body: request,
@@ -13191,8 +14492,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/v1/chat/completions
      * @secure
      */
-    chatCompletionsCreate: (request: OpenaiChatCompletionRequest, params: RequestParams = {}) =>
-      this.request<OpenaiChatCompletionResponse, any>({
+    chatCompletionsCreate: (
+      request: OpenaiChatCompletionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ChatCompletionsCreateData, any>({
         path: `/v1/chat/completions`,
         method: "POST",
         body: request,
@@ -13210,8 +14514,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/v1/embeddings
      * @secure
      */
-    embeddingsCreate: (request: TypesFlexibleEmbeddingRequest, params: RequestParams = {}) =>
-      this.request<TypesFlexibleEmbeddingResponse, any>({
+    embeddingsCreate: (
+      request: TypesFlexibleEmbeddingRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<EmbeddingsCreateData, any>({
         path: `/v1/embeddings`,
         method: "POST",
         body: request,
@@ -13236,7 +14543,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesOpenAIModelsList[], any>({
+      this.request<ModelsListData, any>({
         path: `/v1/models`,
         method: "GET",
         query: query,

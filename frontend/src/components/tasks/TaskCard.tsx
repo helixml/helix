@@ -18,6 +18,7 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
+  Avatar,
 } from "@mui/material";
 import {
   Description as SpecIcon,
@@ -36,7 +37,7 @@ import {
   RemoveCircleOutline as RemoveFromQueueIcon,
   Undo as UndoIcon,
 } from "@mui/icons-material";
-import { EllipsisVertical, Wand2 } from "lucide-react";
+import { EllipsisVertical, Wand2, UserCircle2 } from "lucide-react";
 import {
   useApproveImplementation,
   useStopAgent,
@@ -56,6 +57,9 @@ import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopVi
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
+import AssigneeSelector from "./AssigneeSelector";
+import useAccount from "../../hooks/useAccount";
+import { TypesOrganizationMembership, TypesUser } from "../../api/api";
 
 // Pulse animation for the active task spinner
 const pulseRing = keyframes`
@@ -178,6 +182,8 @@ interface SpecTaskWithExtras {
   // Task number for display
   task_number?: number;
   depends_on?: TaskDependency[];
+  // Assignee tracking
+  assignee_id?: string;
 }
 
 interface TaskDependency {
@@ -562,7 +568,41 @@ function TaskCardInner({
   const [showCloneBatchProgress, setShowCloneBatchProgress] = useState(false);
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [isRemovingFromQueue, setIsRemovingFromQueue] = useState(false);
+  const [assigneeAnchorEl, setAssigneeAnchorEl] = useState<null | HTMLElement>(null);
   const startPlanningButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Get account context for organization members
+  const account = useAccount();
+  const orgMembers = account.organizationTools.organization?.memberships || [];
+
+  // Find the assigned user from org members
+  const assignedMember = useMemo(() => {
+    if (!task.assignee_id) return null;
+    return orgMembers.find((m) => m.user_id === task.assignee_id);
+  }, [task.assignee_id, orgMembers]);
+
+  const assignedUser = assignedMember?.user as TypesUser | undefined;
+
+  // Get initials for avatar
+  const getAssigneeInitials = (user: TypesUser | undefined): string => {
+    if (!user) return "?";
+    const name = user.full_name || user.username || user.email || "";
+    const parts = name.split(" ");
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  };
+
+  // Handle assignee change
+  const handleAssigneeChange = (userId: string | null) => {
+    if (task.id) {
+      updateSpecTask.mutate({
+        id: task.id,
+        updates: { assignee_id: userId || "" },
+      });
+    }
+  };
 
   // Focus the Start Planning button when focusStartPlanning is true
   useEffect(() => {
@@ -985,7 +1025,48 @@ function TaskCardInner({
               </Typography>
             )}
           </Box>
+
+          {/* Assignee avatar */}
+          <Tooltip title={assignedUser ? `Assigned to ${assignedUser.full_name || assignedUser.username || assignedUser.email}` : "Unassigned - click to assign"}>
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                setAssigneeAnchorEl(e.currentTarget);
+              }}
+              sx={{
+                width: 24,
+                height: 24,
+                ml: "auto",
+              }}
+            >
+              {assignedUser ? (
+                <Avatar
+                  src={assignedUser.avatar_url}
+                  sx={{
+                    width: 20,
+                    height: 20,
+                    fontSize: "0.6rem",
+                  }}
+                >
+                  {getAssigneeInitials(assignedUser)}
+                </Avatar>
+              ) : (
+                <UserCircle2 size={18} style={{ opacity: 0.4 }} />
+              )}
+            </IconButton>
+          </Tooltip>
         </Box>
+
+        {/* Assignee selector popover */}
+        <AssigneeSelector
+          assigneeId={task.assignee_id}
+          members={orgMembers}
+          onAssigneeChange={handleAssigneeChange}
+          isLoading={updateSpecTask.isPending}
+          anchorEl={assigneeAnchorEl}
+          onClose={() => setAssigneeAnchorEl(null)}
+        />
 
         {/* Usage pulse chart - shows activity over last 3 days (only for active phases) */}
         {showMetrics &&

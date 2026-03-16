@@ -59,9 +59,10 @@ type CreateTaskRequest struct {
 type SpecTask struct {
 	ID             string `json:"id" gorm:"primaryKey"`
 	ProjectID      string `json:"project_id" gorm:"index"`
-	UserID         string `json:"user_id" gorm:"index"`         // Owner user ID for search
-	OrganizationID string `json:"organization_id" gorm:"index"` // Organization scope for search
-	Name           string `json:"name" gorm:"index"`            // Indexed for search prefix matching
+	UserID         string `json:"user_id" gorm:"index"`                        // Owner user ID for search
+	OrganizationID string `json:"organization_id" gorm:"index"`                // Organization scope for search
+	AssigneeID     string `json:"assignee_id,omitempty" gorm:"size:255;index"` // Team member assigned to work on this task
+	Name           string `json:"name" gorm:"index"`                           // Indexed for search prefix matching
 	Description    string `json:"description" gorm:"type:text"`
 
 	DependsOn []SpecTask `json:"depends_on,omitempty" gorm:"many2many:spec_task_dependencies;"`
@@ -233,6 +234,7 @@ type SpecTaskUpdateRequest struct {
 	UserShortTitle   *string          `json:"user_short_title,omitempty"`   // User override for tab title (pointer to allow clearing with empty string)
 	PublicDesignDocs *bool            `json:"public_design_docs,omitempty"` // Pointer to allow explicit false
 	DependsOn        []string         `json:"depends_on"`                   // IDs of tasks this task depends on
+	AssigneeID       *string          `json:"assignee_id,omitempty"`        // Pointer to allow clearing (set to empty string to unassign)
 }
 
 type SpecTaskStatus string
