@@ -143,61 +143,67 @@ func detectPoolRoot() string {
 		return ""
 	}
 
-	// Find which device is mounted at CONTAINER_DOCKER_PATH
+	// Find which device is mounted at the container-docker path.
+	// Inside the sandbox, CONTAINER_DOCKER_PATH is the *host* path (e.g. /prod/container-docker)
+	// but the volume is bind-mounted at /container-docker inside the container.
+	// Check both paths.
 	mountData, err := readMountsFile()
 	if err != nil {
 		return ""
 	}
+
+	candidatePaths := []string{containerDockerPath, "/container-docker"}
 
 	for _, line := range strings.Split(string(mountData), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
 			continue
 		}
-		if fields[1] == containerDockerPath {
-			// Found the mount. The device is fields[0], e.g. /dev/zd16
-			// or /dev/zvol/prod/container-docker
-			dev := fields[0]
+		matched := false
+		for _, cp := range candidatePaths {
+			if fields[1] == cp {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		// Found the mount. The device is fields[0], e.g. /dev/zd16
+		// or /dev/zvol/prod/container-docker
+		dev := fields[0]
 
-			// If it's a /dev/zvol/ path, extract the dataset name
-			if strings.HasPrefix(dev, "/dev/zvol/") {
-				dataset := strings.TrimPrefix(dev, "/dev/zvol/")
-				// The parent dataset is the parent of this zvol
-				// e.g. prod/container-docker → parent is prod
-				// But we want to create siblings, so we use the zvol's parent
-				parts := strings.Split(dataset, "/")
+		// If it's a /dev/zvol/ path, extract the dataset name
+		if strings.HasPrefix(dev, "/dev/zvol/") {
+			dataset := strings.TrimPrefix(dev, "/dev/zvol/")
+			parts := strings.Split(dataset, "/")
+			if len(parts) >= 2 {
+				return strings.Join(parts[:len(parts)-1], "/")
+			}
+			return dataset
+		}
+
+		// If it's a /dev/zd* device, resolve via zfs
+		out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume")
+		if err != nil {
+			return ""
+		}
+		for _, zvol := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			zvolDev := fmt.Sprintf("/dev/zvol/%s", zvol)
+			realDev, err := evalSymlinks(zvolDev)
+			if err != nil {
+				continue
+			}
+			realMountDev, err := evalSymlinks(dev)
+			if err != nil {
+				realMountDev = dev
+			}
+			if realDev == realMountDev {
+				parts := strings.Split(zvol, "/")
 				if len(parts) >= 2 {
 					return strings.Join(parts[:len(parts)-1], "/")
 				}
-				return dataset
-			}
-
-			// If it's a /dev/zd* device, resolve via zfs
-			out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume")
-			if err != nil {
-				return ""
-			}
-			for _, zvol := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-				zvolDev := fmt.Sprintf("/dev/zvol/%s", zvol)
-				// Check if this zvol's device matches
-				realDev, err := evalSymlinks(zvolDev)
-				if err != nil {
-					continue
-				}
-				realMountDev, err := evalSymlinks(dev)
-				if err != nil {
-					realMountDev = dev
-				}
-				if realDev == realMountDev {
-					// Found it — use the parent of this zvol for new zvols
-					parts := strings.Split(zvol, "/")
-					if len(parts) >= 2 {
-						// e.g. prod/container-docker → parent is "prod"
-						// We'll create golden zvols as prod/golden-prj_xxx
-						return strings.Join(parts[:len(parts)-1], "/")
-					}
-					return zvol
-				}
+				return zvol
 			}
 		}
 	}
