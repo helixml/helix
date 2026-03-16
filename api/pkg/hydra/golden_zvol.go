@@ -586,6 +586,114 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 	return cleaned, nil
 }
 
+// MigrateGoldenToZvol creates a golden zvol from the old file-based golden dir.
+// This is the one-time migration path: blocks while copying (~5 min for 59GB),
+// but only the first caller pays this cost. Concurrent callers block on the
+// golden lock and then find the zvol already exists.
+func MigrateGoldenToZvol(projectID string) error {
+	lock := getGoldenLock(projectID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	// Double-check under lock — another goroutine may have migrated already
+	if GoldenZvolExists(projectID) {
+		return nil
+	}
+
+	goldenName := goldenZvolName(projectID)
+
+	// Create the golden zvol
+	if zfsDatasetExists(goldenName) {
+		// Zvol exists but no snapshot (partial previous migration?) — destroy and retry
+		_ = runCmd("zfs", "destroy", "-r", goldenName)
+	}
+
+	if err := runCmd("zfs", "create", "-V", zvolDefaultSize, "-s",
+		"-o", "dedup=off", "-o", "compression=lz4",
+		goldenName); err != nil {
+		return fmt.Errorf("zfs create %s failed: %w", goldenName, err)
+	}
+
+	// Wait for device
+	devPath := zvolDevPath(goldenName)
+	for i := 0; i < 10; i++ {
+		if _, err := os.Stat(devPath); err == nil {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	// Format as XFS
+	if err := runCmd("mkfs.xfs", "-f", "-q", devPath); err != nil {
+		_ = runCmd("zfs", "destroy", goldenName)
+		return fmt.Errorf("mkfs.xfs failed: %w", err)
+	}
+
+	// Mount
+	mountPath := filepath.Join(zvolMountBase, "golden-"+projectID)
+	if err := mountZvol(goldenName, mountPath); err != nil {
+		_ = runCmd("zfs", "destroy", goldenName)
+		return fmt.Errorf("mount failed: %w", err)
+	}
+
+	// Seed from old golden dir
+	if err := seedZvolFromGoldenDir(projectID, mountPath); err != nil {
+		_ = runCmd("umount", mountPath)
+		_ = runCmd("zfs", "destroy", goldenName)
+		return fmt.Errorf("seed failed: %w", err)
+	}
+
+	// Unmount
+	if err := runCmd("umount", mountPath); err != nil {
+		return fmt.Errorf("umount after seed failed: %w", err)
+	}
+	_ = os.Remove(mountPath)
+
+	// Snapshot
+	snapName := fmt.Sprintf("%s@gen1", goldenName)
+	if err := runCmd("zfs", "snapshot", snapName); err != nil {
+		return fmt.Errorf("zfs snapshot failed: %w", err)
+	}
+
+	log.Info().
+		Str("project_id", projectID).
+		Str("golden", goldenName).
+		Str("snapshot", snapName).
+		Msg("Migrated file-based golden to ZFS zvol (one-time)")
+
+	return nil
+}
+
+// GCMigratedGoldenDirs removes old file-based golden dirs for projects that have
+// been migrated to zvol-based golden cache. Once a golden zvol exists with a snapshot,
+// the old golden dir at /container-docker/golden/{projectID}/ is dead weight.
+func GCMigratedGoldenDirs() {
+	entries, err := os.ReadDir(goldenBaseDir)
+	if err != nil {
+		return // no golden base dir (e.g. fresh install, no ZFS backing)
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		projectID := e.Name()
+		if !GoldenZvolExists(projectID) {
+			continue // zvol not ready yet — keep the file-based golden
+		}
+
+		oldDir := filepath.Join(goldenBaseDir, projectID)
+		log.Info().
+			Str("project_id", projectID).
+			Str("old_golden_dir", oldDir).
+			Msg("Removing old file-based golden dir (migrated to ZFS zvol)")
+		if err := os.RemoveAll(oldDir); err != nil {
+			log.Warn().Err(err).Str("path", oldDir).
+				Msg("Failed to remove old golden dir")
+		}
+	}
+}
+
 // purgeContainerDirs removes container-specific state from a mounted Docker data dir.
 // Same logic as PurgeContainersFromGolden but operates on an arbitrary mount path.
 func purgeContainerDirs(dockerDir string) {

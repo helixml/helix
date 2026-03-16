@@ -704,35 +704,71 @@ func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerReque
 					Msg("Using ZFS zvol clone for inner dockerd (instant golden cache)")
 				return dockerDir
 			}
+		} else if req.GoldenBuild {
+			// No golden zvol yet, but this IS a golden build — bootstrap the
+			// zvol infrastructure. Create a session zvol and seed it from the
+			// old file-based golden dir if one exists (one-time migration copy).
+			// On promotion, PromoteSessionToGoldenZvol renames this to the golden.
+			dockerDir, err := CreateSessionZvol(sessionID)
+			if err != nil {
+				log.Warn().Err(err).
+					Str("session_id", sessionID).
+					Msg("Failed to create session zvol for golden build, falling back to file-copy")
+			} else {
+				// Seed from old golden dir if it exists (migration path)
+				if GoldenExists(req.ProjectID) {
+					log.Info().
+						Str("project_id", req.ProjectID).
+						Str("session_id", sessionID).
+						Msg("Seeding new zvol from existing golden dir (one-time migration)")
+					if err := seedZvolFromGoldenDir(req.ProjectID, dockerDir); err != nil {
+						log.Warn().Err(err).Msg("Failed to seed zvol from golden dir, golden build starts cold")
+					}
+				}
+				log.Info().
+					Str("session_id", sessionID).
+					Str("mount", dockerDir).
+					Msg("Using ZFS zvol for golden build (bootstrapping zvol infrastructure)")
+				return dockerDir
+			}
+		} else if GoldenExists(req.ProjectID) {
+			// ZFS available, no golden zvol yet, but old file-based golden exists.
+			// Migrate inline: create golden zvol, seed from old dir, snapshot,
+			// then clone for this session. Blocks this one session (~5 min) but
+			// all subsequent sessions get instant clones.
+			if err := MigrateGoldenToZvol(req.ProjectID); err != nil {
+				log.Warn().Err(err).
+					Str("project_id", req.ProjectID).
+					Msg("Failed to migrate golden to zvol, falling back to file-copy")
+			} else {
+				// Migration complete — now clone
+				dockerDir, err := SetupGoldenClone(req.ProjectID, sessionID)
+				if err != nil {
+					log.Warn().Err(err).
+						Str("project_id", req.ProjectID).
+						Msg("ZFS clone after migration failed, falling back to file-copy")
+				} else {
+					log.Info().
+						Str("project_id", req.ProjectID).
+						Str("session_id", sessionID).
+						Str("mount", dockerDir).
+						Msg("Using ZFS clone after inline golden migration")
+					return dockerDir
+				}
+			}
 		} else {
-			// No golden zvol yet — create a fresh session zvol.
-			// For golden builds: this bootstraps the zvol infrastructure. On
-			// promotion, PromoteSessionToGoldenZvol renames this to the golden.
-			// For normal sessions: gives them their own zvol (no golden to clone).
-			//
-			// Migration: if an old file-based golden dir exists, we seed the
-			// new zvol from it (one-time copy, only happens once per project).
+			// ZFS available, no golden zvol, no old golden dir — truly fresh.
+			// Create a plain session zvol (cold start).
 			dockerDir, err := CreateSessionZvol(sessionID)
 			if err != nil {
 				log.Warn().Err(err).
 					Str("session_id", sessionID).
 					Msg("Failed to create session zvol, falling back to file-copy")
 			} else {
-				// Seed from old golden dir if it exists (migration path)
-				if req.GoldenBuild && GoldenExists(req.ProjectID) {
-					log.Info().
-						Str("project_id", req.ProjectID).
-						Str("session_id", sessionID).
-						Msg("Seeding new zvol from existing golden dir (one-time migration)")
-					if err := seedZvolFromGoldenDir(req.ProjectID, dockerDir); err != nil {
-						log.Warn().Err(err).Msg("Failed to seed zvol from golden dir, starting cold")
-					}
-				}
 				log.Info().
 					Str("session_id", sessionID).
 					Str("mount", dockerDir).
-					Bool("golden_build", req.GoldenBuild).
-					Msg("Using fresh ZFS zvol for inner dockerd")
+					Msg("Using fresh ZFS zvol for session (no golden cache exists)")
 				return dockerDir
 			}
 		}
@@ -1175,6 +1211,7 @@ func (dm *DevContainerManager) GCOrphanedSessions() {
 	}
 
 	// GC orphaned ZFS zvols (sessions that no longer have running containers)
+	// and clean up old file-based golden dirs that have been migrated to zvols
 	if ZFSAvailable() {
 		zvolsCleaned, err := GCOrphanedZvols(active)
 		if err != nil {
@@ -1183,6 +1220,8 @@ func (dm *DevContainerManager) GCOrphanedSessions() {
 		if zvolsCleaned > 0 {
 			log.Info().Int("removed", zvolsCleaned).Msg("Orphaned zvol GC completed")
 		}
+
+		GCMigratedGoldenDirs()
 	}
 }
 

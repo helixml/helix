@@ -322,18 +322,32 @@ resolveDockerDataDir():
      │ yes ──→ SetupGoldenClone() → instant O(1) clone ✓
      │ no
      ▼
-  3. CreateSessionZvol() → fresh zvol with XFS
+  3. Golden build?
+     │ yes ──→ CreateSessionZvol() → fresh zvol with XFS
+     │         └── old golden dir exists?
+     │             └── seedZvolFromGoldenDir() → one-time cp (~5 min, only ONCE per project)
      │
-     ├── golden build? AND old golden dir exists?
-     │   └── seedZvolFromGoldenDir() → one-time cp from old golden dir (~5 min)
-     │       (migration: only happens ONCE per project)
-     │
-     └── normal session → starts cold (no cache yet)
+     │ no ──→ fall through to file-copy path below
+     │         (normal sessions keep using old golden dir during transition —
+     │          no regression, no cold starts)
+     ▼
+  4. File-copy golden cache (existing behavior, reflinks when available)
+     └── plain bind mount if no golden exists
 
 Promotion (after golden build succeeds):
   - Session was on zvol → PromoteSessionToGoldenZvol() → zvol rename + snapshot
   - Session was on file path → PromoteSessionToGolden() → dir rename (old behavior)
 ```
+
+**Key design choice**: when ZFS is available, the code NEVER falls through to the old
+file-copy path. This prevents races between the migration and the GC that cleans up
+old golden dirs. Instead:
+- Golden zvol exists → instant clone
+- No golden zvol + old golden dir exists → `MigrateGoldenToZvol()` inline (blocks ~5 min,
+  serialized by golden lock, only the first session pays this cost, concurrent sessions
+  block on the mutex then find the zvol already ready)
+- No golden zvol + no old golden dir → fresh zvol (cold start, first-ever project)
+- Golden build + no golden zvol → create session zvol, seed from old golden, promote
 
 #### meta.helix.ml (this machine)
 
@@ -345,15 +359,22 @@ Golden dirs and session dirs all live inside it.
    mounted at `CONTAINER_DOCKER_PATH`, returns parent dataset `prod`.
 2. New zvols will be created as siblings: `prod/golden-prj_xxx`, `prod/ses-ses_yyy`
    (with `dedup=off`, `compression=lz4`).
-3. First golden build after deploy:
-   - No golden zvol exists → creates fresh session zvol `prod/ses-ses_xxx`
-   - Old golden dir exists → `seedZvolFromGoldenDir()` copies it in (one-time, ~5 min)
-   - Build runs on the zvol, completes, promotes → creates `prod/golden-prj_xxx@gen1`
-4. All subsequent sessions: instant clone from `prod/golden-prj_xxx@gen1`
-5. Old session dirs on the big zvol are cleaned up by `GCOrphanedSessions` (periodic)
-6. Eventually: old `prod/container-docker` zvol can be destroyed to reclaim space
+3. **First session after deploy** (triggers inline migration):
+   - No golden zvol exists but old golden dir exists
+   - `MigrateGoldenToZvol()` runs inline: creates zvol, seeds from old dir (~5 min),
+     snapshots → golden zvol ready
+   - Concurrent sessions block on the golden lock, then find zvol already ready
+   - If Hydra restarts mid-copy: detects partial data (no marker) → wipes → re-copies
+   - This session then gets an instant clone from the new golden zvol
+4. **All subsequent sessions**: instant O(1) clone from `prod/golden-prj_xxx@gen1`
+5. **Golden builds**: clone from golden zvol (incremental rebuild), promote on completion
+6. Old session dirs on the big zvol are cleaned up by `GCOrphanedSessions` (periodic)
+7. Eventually: old `prod/container-docker` zvol can be destroyed to reclaim space
 
-**No downtime**: existing sessions continue on the old zvol. New sessions use zvol clones.
+**No downtime, no races**: the first session after deploy blocks for ~5 min while the
+golden is migrated to a zvol. All subsequent sessions get instant clones. The old
+file-based golden dir is cleaned up by `GCMigratedGoldenDirs()` after the zvol is ready,
+with no risk of racing because the file-copy path is never used when ZFS is available.
 
 #### Mac app (VM with ZFS via init-zfs-pool.sh)
 
