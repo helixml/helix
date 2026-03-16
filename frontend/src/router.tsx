@@ -27,7 +27,6 @@ import SpecTaskDetailPage from './pages/SpecTaskDetailPage'
 import SpecTaskReviewPage from './pages/SpecTaskReviewPage'
 import TeamDesktopPage from './pages/TeamDesktopPage'
 import Projects from './pages/Projects'
-import ProjectSettings from './pages/ProjectSettings'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 import QuestionSets from './pages/QuestionSets'
@@ -206,9 +205,20 @@ const routes: IApplicationRoute[] = [
     drawer: false,
     title: 'Project Settings',
   },
-  render: () => (
-    <ProjectSettings />
-  ),
+  render: () => {
+    // Redirect to kanban board with project settings dialog open
+    const { params } = useRouter()
+    React.useEffect(() => {
+      const url = new URL(window.location.href)
+      // Build the kanban URL with dialog params
+      const kanbanPath = `/orgs/${params.org_id}/projects/${params.id}/specs`
+      url.pathname = kanbanPath
+      url.searchParams.set('dialog', 'project-settings')
+      url.searchParams.set('dialog_project_id', params.id)
+      window.location.replace(url.toString())
+    }, [])
+    return null
+  },
 }, {
   name: 'org_project-session',
   path: '/orgs/:org_id/projects/:id/session/:session_id',

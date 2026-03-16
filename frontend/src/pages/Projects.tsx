@@ -26,6 +26,7 @@ import PromptsListView from "../components/project/PromptsListView";
 import useAccount from "../hooks/useAccount";
 import useRouter from "../hooks/useRouter";
 import useSnackbar from "../hooks/useSnackbar";
+import { useSettingsDialog } from "../contexts/settingsDialog";
 import useApi from "../hooks/useApi";
 import useApps from "../hooks/useApps";
 import useSubscriptionGate from "../hooks/useSubscriptionGate";
@@ -55,6 +56,7 @@ const Projects: FC = () => {
   const api = useApi();
   const apps = useApps();
   const { paywallActive, navigateToBilling } = useSubscriptionGate();
+  const { openDialog } = useSettingsDialog();
 
   const isLoggedIn = !!account.user;
 
@@ -286,7 +288,7 @@ const Projects: FC = () => {
 
   const handleProjectSettings = () => {
     if (selectedProject) {
-      account.orgNavigate("project-settings", { id: selectedProject.id });
+      openDialog('project-settings', { projectId: selectedProject.id });
     }
     handleMenuClose();
   };
@@ -716,7 +718,7 @@ const Projects: FC = () => {
               onViewProject={handleViewProject}
               onMenuOpen={handleMenuOpen}
               onNavigateToSettings={(id) =>
-                account.orgNavigate("project-settings", { id })
+                openDialog('project-settings', { projectId: id })
               }
               onCreateEmpty={handleNewProject}
               onCreateFromSample={handleInstantiateSample}

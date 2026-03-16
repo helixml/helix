@@ -53,6 +53,7 @@ import useSnackbar from "../hooks/useSnackbar";
 import useRouter from "../hooks/useRouter";
 import useApps from "../hooks/useApps";
 import useSubscriptionGate from "../hooks/useSubscriptionGate";
+import { useSettingsDialog } from "../contexts/settingsDialog";
 import Paywall from "../components/subscription/Paywall";
 import EditIcon from "@mui/icons-material/Edit";
 import {
@@ -84,6 +85,7 @@ const SpecTasksPage: FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const { paywallActive, navigateToBilling } = useSubscriptionGate();
+  const { openDialog } = useSettingsDialog();
 
   // Get project ID from URL if in project context
   const projectId = router.params.id as string | undefined;
@@ -969,7 +971,7 @@ const SpecTasksPage: FC = () => {
             {projectId && (
               <MenuItem
                 onClick={() => {
-                  account.orgNavigate("project-settings", { id: projectId });
+                  openDialog('project-settings', { projectId });
                   setViewMenuAnchorEl(null);
                 }}
               >
@@ -1056,7 +1058,7 @@ const SpecTasksPage: FC = () => {
                   size="small"
                   variant="outlined"
                   onClick={() =>
-                    account.orgNavigate("project-settings", { id: projectId })
+                    openDialog('project-settings', { projectId })
                   }
                 >
                   Go to Settings
@@ -1080,7 +1082,7 @@ const SpecTasksPage: FC = () => {
                     size="small"
                     variant="outlined"
                     onClick={() =>
-                      account.orgNavigate("project-settings", { id: projectId })
+                      openDialog('project-settings', { projectId })
                     }
                   >
                     Configure Startup Script
