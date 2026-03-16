@@ -99,14 +99,15 @@ func (s *PostgresStore) ListProviderEndpoints(ctx context.Context, q *ListProvid
 	}
 
 	if q.Owner != "" {
-		query = query.Where("owner = ?", q.Owner)
-	}
-
-	// Filter by owner type: org endpoints for org context, user endpoints otherwise
-	if q.OwnerType == types.OwnerTypeOrg {
-		query = query.Where("owner = ? AND endpoint_type = ?", q.Owner, types.ProviderEndpointTypeOrg)
-	} else {
-		query = query.Where("owner = ? AND endpoint_type = ?", q.Owner, types.ProviderEndpointTypeUser)
+		// Filter by owner, matching both user and org endpoint types for this owner.
+		// This ensures org-scoped endpoints are found regardless of whether
+		// the caller sets OwnerType (e.g. provider_manager.GetClient doesn't).
+		if q.OwnerType != "" {
+			query = query.Where("owner = ? AND endpoint_type = ?", q.Owner, string(q.OwnerType))
+		} else {
+			query = query.Where("owner = ? AND endpoint_type IN ?", q.Owner,
+				[]string{string(types.ProviderEndpointTypeUser), string(types.ProviderEndpointTypeOrg)})
+		}
 	}
 
 	if q.WithGlobal {
