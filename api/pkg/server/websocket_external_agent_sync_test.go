@@ -2051,3 +2051,192 @@ func (s *WebSocketSyncSuite) TestLateJoinerCatchUp_ActiveStreamingContext() {
 	s.Equal("**Tool Call: list_files**", event.EntryPatches[1].Patch)
 	s.Equal("tool_call", event.EntryPatches[1].Type)
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// pickupWaitingInteraction tests
+// ──────────────────────────────────────────────────────────────────────────────
+
+func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_FallbackCreatesMapping() {
+	// Scenario: session created via session handler (NOT sendMessageToSpecTaskAgent),
+	// so requestToSessionMapping has no entry. The fallback should create one
+	// using the interaction ID as request_id.
+	sessionID := "ses_test123"
+	interactionID := "int_waiting1"
+
+	session := &types.Session{
+		ID:           sessionID,
+		GenerationID: 1,
+		Metadata:     types.SessionMetadata{},
+	}
+
+	interactions := []*types.Interaction{
+		{ID: "int_done", State: types.InteractionStateComplete, PromptMessage: "old"},
+		{ID: interactionID, State: types.InteractionStateWaiting, PromptMessage: "Fix the bug"},
+	}
+
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(interactions, int64(2), nil)
+
+	// Init readiness state so queueOrSend queues the command (not ready yet)
+	s.server.externalAgentWSManager.initReadinessState(sessionID, false, nil)
+	defer s.server.externalAgentWSManager.cleanupReadinessState(sessionID)
+
+	s.server.pickupWaitingInteraction(context.Background(), sessionID, session, "agent-1")
+
+	// Verify fallback created the mapping
+	s.Equal(sessionID, s.server.requestToSessionMapping[interactionID],
+		"fallback should map interaction ID → session ID")
+
+	// Verify sessionToWaitingInteraction populated
+	s.Contains(s.server.sessionToWaitingInteraction[sessionID], interactionID)
+
+	// Verify command was queued in pending queue
+	s.server.externalAgentWSManager.readinessMu.Lock()
+	state := s.server.externalAgentWSManager.readinessState[sessionID]
+	s.server.externalAgentWSManager.readinessMu.Unlock()
+	s.Require().NotNil(state)
+	s.Require().Len(state.PendingQueue, 1)
+	s.Equal("chat_message", state.PendingQueue[0].Type)
+	s.Equal(interactionID, state.PendingQueue[0].Data["request_id"])
+	s.Equal("Fix the bug", state.PendingQueue[0].Data["message"])
+}
+
+func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_UsesExistingMapping() {
+	// Scenario: sendMessageToSpecTaskAgent already populated requestToSessionMapping.
+	// pickupWaitingInteraction should use the existing request_id, not create a new one.
+	sessionID := "ses_test456"
+	existingReqID := "req_from_send"
+	interactionID := "int_waiting2"
+
+	s.server.requestToSessionMapping[existingReqID] = sessionID
+
+	session := &types.Session{
+		ID:           sessionID,
+		GenerationID: 1,
+		Metadata:     types.SessionMetadata{},
+	}
+
+	interactions := []*types.Interaction{
+		{ID: interactionID, State: types.InteractionStateWaiting, PromptMessage: "Deploy to prod"},
+	}
+
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(interactions, int64(1), nil)
+
+	s.server.externalAgentWSManager.initReadinessState(sessionID, false, nil)
+	defer s.server.externalAgentWSManager.cleanupReadinessState(sessionID)
+
+	s.server.pickupWaitingInteraction(context.Background(), sessionID, session, "agent-2")
+
+	// Existing mapping should still be there, unchanged
+	s.Equal(sessionID, s.server.requestToSessionMapping[existingReqID])
+
+	// No new mapping should be created for the interaction ID
+	_, fallbackExists := s.server.requestToSessionMapping[interactionID]
+	s.False(fallbackExists, "should not create fallback mapping when existing one found")
+
+	// Command should use the existing request_id
+	s.server.externalAgentWSManager.readinessMu.Lock()
+	state := s.server.externalAgentWSManager.readinessState[sessionID]
+	s.server.externalAgentWSManager.readinessMu.Unlock()
+	s.Require().Len(state.PendingQueue, 1)
+	s.Equal(existingReqID, state.PendingQueue[0].Data["request_id"])
+}
+
+func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_NoWaitingInteraction() {
+	// Scenario: all interactions are complete — nothing to pick up.
+	sessionID := "ses_test789"
+
+	session := &types.Session{
+		ID:           sessionID,
+		GenerationID: 1,
+		Metadata:     types.SessionMetadata{},
+	}
+
+	interactions := []*types.Interaction{
+		{ID: "int_done1", State: types.InteractionStateComplete, PromptMessage: "done"},
+		{ID: "int_done2", State: types.InteractionStateComplete, PromptMessage: "also done"},
+	}
+
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(interactions, int64(2), nil)
+
+	s.server.externalAgentWSManager.initReadinessState(sessionID, false, nil)
+	defer s.server.externalAgentWSManager.cleanupReadinessState(sessionID)
+
+	s.server.pickupWaitingInteraction(context.Background(), sessionID, session, "agent-3")
+
+	// No mappings should be created
+	s.Empty(s.server.requestToSessionMapping)
+	s.Empty(s.server.sessionToWaitingInteraction)
+
+	// No command should be queued
+	s.server.externalAgentWSManager.readinessMu.Lock()
+	state := s.server.externalAgentWSManager.readinessState[sessionID]
+	s.server.externalAgentWSManager.readinessMu.Unlock()
+	s.Empty(state.PendingQueue)
+}
+
+func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_WithSystemPrompt() {
+	// Verify system prompt is combined with user message correctly.
+	sessionID := "ses_sysprompt"
+	interactionID := "int_sysprompt"
+
+	session := &types.Session{
+		ID:           sessionID,
+		GenerationID: 1,
+		Metadata:     types.SessionMetadata{},
+	}
+
+	interactions := []*types.Interaction{
+		{
+			ID:            interactionID,
+			State:         types.InteractionStateWaiting,
+			SystemPrompt:  "You are a coding assistant.",
+			PromptMessage: "Fix the tests",
+		},
+	}
+
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(interactions, int64(1), nil)
+
+	s.server.externalAgentWSManager.initReadinessState(sessionID, false, nil)
+	defer s.server.externalAgentWSManager.cleanupReadinessState(sessionID)
+
+	s.server.pickupWaitingInteraction(context.Background(), sessionID, session, "agent-4")
+
+	s.server.externalAgentWSManager.readinessMu.Lock()
+	state := s.server.externalAgentWSManager.readinessState[sessionID]
+	s.server.externalAgentWSManager.readinessMu.Unlock()
+	s.Require().Len(state.PendingQueue, 1)
+	s.Equal("You are a coding assistant.\n\n**User Request:**\nFix the tests",
+		state.PendingQueue[0].Data["message"])
+}
+
+func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_ResumesExistingThread() {
+	// When session has a ZedThreadID, the command should include it for thread resume.
+	sessionID := "ses_resume"
+	interactionID := "int_resume"
+	zedThreadID := "thread-abc-123"
+
+	session := &types.Session{
+		ID:           sessionID,
+		GenerationID: 1,
+		Metadata: types.SessionMetadata{
+			ZedThreadID: zedThreadID,
+		},
+	}
+
+	interactions := []*types.Interaction{
+		{ID: interactionID, State: types.InteractionStateWaiting, PromptMessage: "Continue"},
+	}
+
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(interactions, int64(1), nil)
+
+	s.server.externalAgentWSManager.initReadinessState(sessionID, false, nil)
+	defer s.server.externalAgentWSManager.cleanupReadinessState(sessionID)
+
+	s.server.pickupWaitingInteraction(context.Background(), sessionID, session, "agent-5")
+
+	s.server.externalAgentWSManager.readinessMu.Lock()
+	state := s.server.externalAgentWSManager.readinessState[sessionID]
+	s.server.externalAgentWSManager.readinessMu.Unlock()
+	s.Require().Len(state.PendingQueue, 1)
+	s.Equal(zedThreadID, state.PendingQueue[0].Data["acp_thread_id"])
+}
