@@ -560,14 +560,42 @@ func purgeContainerDirs(dockerDir string) {
 	os.Remove(filepath.Join(dockerDir, ".golden-build-result"))
 }
 
+const seedCompleteMarker = ".zvol-seed-complete"
+
 // seedZvolFromGoldenDir copies the contents of the old file-based golden dir
 // into a freshly created zvol. This is the one-time migration path: it runs
 // once per project when transitioning from file-copy to zvol-clone golden cache.
-// Uses cp -a --reflink=auto for speed on XFS (reflinks share data blocks).
+//
+// Crash tolerant: if the API crashes mid-copy, the completion marker won't exist.
+// On restart, we wipe the partial contents and re-copy from scratch.
 func seedZvolFromGoldenDir(projectID, zvolMountPath string) error {
 	src := goldenDir(projectID) // /container-docker/golden/{projectID}/docker/
 	if _, err := os.Stat(src); err != nil {
 		return fmt.Errorf("golden dir %s not found: %w", src, err)
+	}
+
+	markerPath := filepath.Join(zvolMountPath, seedCompleteMarker)
+
+	// Already seeded (previous run completed successfully)
+	if _, err := os.Stat(markerPath); err == nil {
+		log.Info().
+			Str("project_id", projectID).
+			Msg("Zvol already seeded from golden dir (marker present), skipping")
+		return nil
+	}
+
+	// Wipe any partial contents from a previous interrupted seed.
+	// The zvol is freshly formatted XFS so this is safe — there's nothing
+	// valuable here that wasn't copied from the golden dir.
+	entries, _ := os.ReadDir(zvolMountPath)
+	if len(entries) > 0 {
+		log.Warn().
+			Str("zvol_mount", zvolMountPath).
+			Int("partial_entries", len(entries)).
+			Msg("Found partial seed data (previous crash?), wiping before re-seed")
+		for _, e := range entries {
+			os.RemoveAll(filepath.Join(zvolMountPath, e.Name()))
+		}
 	}
 
 	start := time.Now()
@@ -580,6 +608,11 @@ func seedZvolFromGoldenDir(projectID, zvolMountPath string) error {
 	// The trailing /. ensures we copy contents, not the directory itself
 	if err := runCmd("cp", "-a", "--reflink=auto", src+"/.", zvolMountPath+"/"); err != nil {
 		return fmt.Errorf("cp golden dir to zvol failed: %w", err)
+	}
+
+	// Write completion marker — only after successful copy
+	if err := os.WriteFile(markerPath, []byte(time.Now().Format(time.RFC3339)), 0644); err != nil {
+		log.Warn().Err(err).Msg("Failed to write seed completion marker (seed succeeded but restart may re-copy)")
 	}
 
 	log.Info().
