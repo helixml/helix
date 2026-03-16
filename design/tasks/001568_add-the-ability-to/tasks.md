@@ -12,13 +12,13 @@
 - [x] Create `api/pkg/server/spec_task_label_handlers.go` with `listProjectLabels`, `addLabel`, and `removeLabel` handlers (with Swagger annotations)
 - [x] Register the three new routes in the router: `GET /api/v1/projects/{projectId}/labels`, `POST /api/v1/spec-tasks/{taskId}/labels`, `DELETE /api/v1/spec-tasks/{taskId}/labels/{label}`
 - [x] Add `labels` query param support to the existing `listSpecTasks` handler (parse comma-separated string, pass to filter)
-- [~] Regenerate OpenAPI/Swagger spec (`make generate-swagger` or equivalent) and commit the updated `swagger.json` / `openapi.json`
-- [~] Regenerate the TypeScript API client in `frontend/src/api/`
+- [x] Regenerate OpenAPI/Swagger spec (`make generate-swagger` or equivalent) and commit the updated `swagger.json` / `openapi.json`
+- [x] Regenerate the TypeScript API client in `frontend/src/api/`
 
 ## Frontend
 
-- [ ] Add `useProjectLabels`, `useAddLabel`, and `useRemoveLabel` hooks to `frontend/src/services/specTaskService.ts`
-- [ ] Add label query key to `QUERY_KEYS` and invalidate `specTask` + `specTasks` on label mutation
+- [~] Add `useProjectLabels`, `useAddLabel`, and `useRemoveLabel` hooks to `frontend/src/services/specTaskService.ts`
+- [~] Add label query key to `QUERY_KEYS` and invalidate `specTask` + `specTasks` on label mutation
 - [ ] Build label editor component on task detail view: display existing labels as deletable MUI `Chip` elements, add an autocomplete input that suggests from `useProjectLabels` and allows free entry
 - [ ] Add label filter control to task list view (multi-select autocomplete) that appends `labels=a,b` to the list query
 - [ ] Display label chips on task cards in the list view
