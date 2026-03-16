@@ -6,11 +6,11 @@
 - [x] Add `AssigneeID` field to `SpecTaskUpdateRequest` struct (pointer type for nullable)
 - [x] Update `updateTask` handler in `api/pkg/server/spec_driven_task_handlers.go` to handle assignee updates
 - [x] Add validation: assignee must be org member (query org membership before saving)
-- [~] Run `./stack update_openapi` to regenerate API client
+- [x] Run `./stack update_openapi` to regenerate API client
 
 ## Frontend
 
-- [ ] Create `AssigneeSelector.tsx` component in `frontend/src/components/tasks/`
+- [~] Create `AssigneeSelector.tsx` component in `frontend/src/components/tasks/`
   - Popover with org members list
   - "Unassigned" option
   - Search filter for large teams
