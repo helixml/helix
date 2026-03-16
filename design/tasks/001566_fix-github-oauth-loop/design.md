@@ -86,3 +86,7 @@ A connection satisfies a requirement if every required scope is present in the c
 - Skill-based OAuth (YAML skills with `oauth.provider`) is already resolved server-side into `ToolAPIConfig` fields before session execution, so the endpoint can work entirely from the stored app config without needing to read YAML skill files.
 - The scope check in the frontend needs to handle the case where `provider_name` refers to a configured provider instance (e.g. a named GitHub provider), not just a raw type string — look at how `BrowseProvidersDialog` resolves provider IDs to confirm the right identifier to use.
 - The popup/callback OAuth mechanism from `useOAuthFlow.ts` is reusable as-is.
+
+## Repo Browsing — Already Working, No Changes Needed
+
+`BrowseProvidersDialog` (`frontend/src/components/project/BrowseProvidersDialog.tsx`) and `CreateProjectDialog` (`frontend/src/components/project/CreateProjectDialog.tsx`) already handle the missing-connection case correctly. Both pass `repo,read:org,read:user,user:email` scopes when triggering OAuth and check for a valid connection before showing repo content. `GitRepos.tsx` and other entry points that open `BrowseProvidersDialog` inherit this behaviour. No changes are required for these flows.
