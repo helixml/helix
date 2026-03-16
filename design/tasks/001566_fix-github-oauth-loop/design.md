@@ -1,54 +1,65 @@
-# Design: Fix GitHub OAuth Missing Repo Scope
+# Design: Remove Generic OAuth Connect from Connected Services Page
 
 ## Root Cause
 
-Two independent issues compound the problem:
+The OAuth scope problem is architectural, not a missing parameter. The Connected Services page is a generic account-settings view that has no knowledge of what any given agent or feature needs. Adding scope defaults there would be a hack that breaks for any provider or use case that needs different scopes.
 
-1. **`OAuthConnections.tsx` calls the OAuth start endpoint with no scope parameter.**
-   `GET /api/v1/oauth/flow/start/{provider}` — no `?scopes=` query string.
-   The backend (`oauth.go:203`) treats scopes as optional and passes an empty slice to `GetAuthorizationURL`, which sets `oauth2.Config.Scopes = []string{}`. GitHub then applies its own defaults (public-only access).
+The correct fix is to remove the connect capability from that page entirely. OAuth connections should always be initiated by the feature that needs them, because only that feature knows the required scopes.
 
-2. **Scope definitions are duplicated across frontend components rather than centralised.**
-   `CreateProjectDialog.tsx:193` and `BrowseProvidersDialog.tsx:408` each hardcode `repo,read:org,read:user,user:email` inline, so new entry points tend to omit them.
+## Current Architecture
 
-## Fix
+```
+Connected Services page (OAuthConnections.tsx)
+  └── "Connect" button → GET /api/v1/oauth/flow/start/{provider}   ← NO scopes = bug
 
-### Minimal fix (OAuthConnections.tsx)
+CreateProjectDialog.tsx
+  └── "Connect GitHub" → GET /api/v1/oauth/flow/start/{provider}?scopes=repo,...  ✓
 
-Update the `connectProvider` call in `OAuthConnections.tsx` (~line 282) to append scopes for GitHub (and GitLab, mirroring the pattern in `BrowseProvidersDialog`):
+BrowseProvidersDialog.tsx
+  └── "Connect GitHub" → GET /api/v1/oauth/flow/start/{provider}?scopes=repo,...  ✓
 
-```typescript
-// Before
-const response = await api.get(`/api/v1/oauth/flow/start/${normalizedProviderId}`)
-
-// After — determine scopes by provider type
-const scopesByProvider: Record<string, string> = {
-  github: 'repo,read:org,read:user,user:email',
-  gitlab: 'read_repository,write_repository,read_user',
-}
-const scopesParam = scopesByProvider[providerType]
-  ? `?scopes=${scopesByProvider[providerType]}`
-  : ''
-const response = await api.get(`/api/v1/oauth/flow/start/${normalizedProviderId}${scopesParam}`)
+Agent skill execution (tools_api_run_action.go)
+  └── GetTokenForTool() checks scopes → silent error if missing  ← no user prompt yet
 ```
 
-Where `providerType` is the normalised provider type string already available in the component context.
+## Change: Simplify OAuthConnections.tsx to Read-Only
 
-### Optional: centralise scope defaults (recommended follow-up)
+**File:** `frontend/src/components/account/OAuthConnections.tsx`
 
-Move the scope map into a shared helper (e.g. `src/utils/oauthScopes.ts`) so all three call sites import from one place. The `useOAuthFlow` hook is the natural home if it is used consistently.
+Remove or hide:
+- The "Available Integrations" section (lines ~782-816) that lists providers and shows Connect buttons
+- The `openConnectDialog()` / `startOAuthFlow()` functions (~lines 222-282)
+- Any UI that lets users initiate a new connection
+
+Keep:
+- The "Connected Services" section listing existing connections
+- Disconnect (delete) button per connection
+- Refresh token button per connection
+- Status/profile info per connection
+
+The page becomes a view for managing connections that were created elsewhere.
+
+## Known Gap: No Pre-Session OAuth Prompt for Agents
+
+Skill YAML files declare OAuth requirements (`oauth.provider`, `oauth.scopes`). The backend reads these and validates scopes at tool execution time (`GetTokenForTool` in `oauth/manager.go`). However:
+
+- There is no pre-session check that reads the agent's skill definitions and verifies the user has a valid connection before starting.
+- There is no in-session UI prompt that triggers OAuth when a tool call fails due to missing scopes.
+- The `ScopeError` type exists in `oauth/manager.go` but is not surfaced to the frontend.
+
+This is a separate, larger feature. This ticket only removes the broken generic connect path. A follow-up ticket should implement contextual OAuth prompts during agent sessions.
 
 ## Key Files
 
 | File | Change |
 |------|--------|
-| `frontend/src/components/account/OAuthConnections.tsx` | Add `?scopes=` parameter when starting OAuth (primary fix) |
-| `frontend/src/utils/oauthScopes.ts` *(optional new file)* | Centralise provider→scope mapping |
-| `frontend/src/hooks/useOAuthFlow.ts` | Already handles optional scopes correctly — no change needed |
+| `frontend/src/components/account/OAuthConnections.tsx` | Remove "Available Integrations" / connect flow; keep list + disconnect + refresh |
+
+No backend changes needed.
 
 ## Notes for Implementors
 
-- The backend already supports per-request scopes and the `getMissingScopes` / re-auth flow works correctly. No backend changes needed.
-- Scope strings must exactly match what GitHub accepts (lowercase, comma-separated, no spaces after encoding).
-- Existing connections without the repo scope will not be automatically re-authorised — users need to disconnect and reconnect, or the re-auth prompt triggered by `GetTokenForTool` will handle it on next use.
-- Pattern used by `BrowseProvidersDialog.tsx:400-408` is the reference implementation.
+- The "Connected Services" list (rendering existing connections) is a separate section from the "Available Integrations" connect UI — they can be separated cleanly.
+- The `connectProvider` / `startOAuthFlow` / `openConnectDialog` functions can be deleted entirely from this component once the connect UI is gone.
+- Check if `OAuthConnectionsPage.tsx` (the page wrapper) references anything that also needs cleanup.
+- The OAuth popup/callback mechanism used by the contextual dialogs is unaffected.

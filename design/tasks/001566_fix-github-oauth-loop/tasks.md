@@ -1,5 +1,7 @@
 # Implementation Tasks
 
-- [ ] In `frontend/src/components/account/OAuthConnections.tsx` (~line 282), update the `GET /api/v1/oauth/flow/start/{provider}` call to append `?scopes=repo,read:org,read:user,user:email` for GitHub providers (and equivalent scopes for GitLab), mirroring the pattern in `BrowseProvidersDialog.tsx:400-408`
-- [ ] (Optional) Extract the provider→scope mapping into `frontend/src/utils/oauthScopes.ts` and update `OAuthConnections.tsx`, `CreateProjectDialog.tsx`, and `BrowseProvidersDialog.tsx` to import from it, eliminating the three duplicate hardcoded scope strings
-- [ ] Manually verify: connect GitHub from Account > OAuth Connections — the GitHub consent screen must show repo/org/user scopes
+- [ ] In `frontend/src/components/account/OAuthConnections.tsx`, remove the "Available Integrations" section and all connect-initiation UI (the section around lines 782-816 that lists providers with Connect buttons)
+- [ ] Delete the `openConnectDialog()`, `startOAuthFlow()`, and `connectProvider` functions from `OAuthConnections.tsx` (~lines 222-282), and any state/hooks they depend on that are no longer used
+- [ ] Verify the Connected Services list (existing connections with disconnect/refresh) still renders correctly after removal
+- [ ] Check `frontend/src/pages/OAuthConnectionsPage.tsx` for any references to the removed connect functionality and clean up if needed
+- [ ] Manually verify: Account > Connected Services page shows existing connections only, with no way to initiate a new connection; existing contextual flows (BrowseProvidersDialog, CreateProjectDialog) still work
