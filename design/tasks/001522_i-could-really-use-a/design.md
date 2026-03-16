@@ -92,9 +92,20 @@ Decision: **Emit an `agent_interaction_completed` attention event inside `handle
 
 This is NOT the same as container stop detection. The container may keep running (idle timeout), and that's fine. What matters is "the agent finished its current task and the human should look."
 
+This applies to **every phase with an active agent session**, not just implementation. Any phase except backlog can have a running container (`planning_session_id` is set across spec generation, review, revision, implementation, etc.).
+
 **4. Refactor GlobalNotifications in-place, render unconditionally**
 
 Decision: **Refactor the existing `GlobalNotifications.tsx` in-place** — keep the bell icon, badge, and button code exactly as they are. Swap the `Popover` for a `Drawer`, swap the data source from status-polling to the attention events API. Make `Page.tsx` render it unconditionally (remove the `notifications` prop gate). No new component file for the bell — reuse what's there.
+
+**6. Kanban card visual treatment: widen existing code, don't add new**
+
+Decision: **`TaskCard.tsx` already has the exact amber-dot-goes-away-on-click pattern we need.** The `useAgentActivityCheck` hook tracks `agent_work_state` from the backend (`"idle"` / `"working"` / `"done"`). It shows a green pulsing dot when working, an amber dot when idle/done (needs attention), and `markAsSeen()` on card click dismisses the amber dot. However, it's currently gated to only `planning` and `implementation` phases in two places:
+
+1. The `enabled` arg: `showProgress && !!task.planning_session_id` where `showProgress = task.phase === "planning" || task.phase === "implementation"`
+2. The rendering JSX: `task.phase === "planning" || task.phase === "implementation"` guards on both the green and amber dot
+
+Fix: widen `enabled` to `!!task.planning_session_id` (any phase with a session), remove the phase guards from the rendering JSX, and sort cards with `needsAttention` to the top of their Kanban column.
 
 **5. Browser notifications: permission requested in the queue drawer**
 
@@ -138,7 +149,7 @@ CREATE INDEX idx_attention_events_user_active
 | Event Type | Trigger Point | Idempotency Key |
 |------------|--------------|-----------------|
 | `specs_pushed` | `git_http_server.go: processDesignDocsForBranch` | `taskID:specs_pushed:commitHash` |
-| `agent_interaction_completed` | `websocket_external_agent_sync.go: handleMessageCompleted` | `taskID:agent_interaction_completed:interactionID` |
+| `agent_interaction_completed` | `websocket_external_agent_sync.go: handleMessageCompleted` (any phase with a spectask session, not just implementation) | `taskID:agent_interaction_completed:interactionID` |
 | `spec_failed` | Orchestrator on status → `spec_failed` | `taskID:spec_failed` |
 | `implementation_failed` | Orchestrator on status → `implementation_failed` | `taskID:implementation_failed` |
 | `pr_ready` | `checkTaskForExternalPRActivity` on status → `pull_request` | `taskID:pr_ready:prID` |
@@ -195,6 +206,10 @@ If no Slack bot is configured for the project, this is a silent no-op.
 - `api/pkg/services/spec_task_orchestrator.go` — on transitions to `spec_failed`, `implementation_failed`, `pull_request`, emit corresponding attention events
 - `api/pkg/server/server.go` — register attention event API routes
 - `api/pkg/trigger/slack/slack_project_updates.go` — enhance reply messages to be more descriptive for review/failure statuses; add a public method for posting attention-event-specific replies that `AttentionService` can call for non-status-change events like `agent_interaction_completed`
+
+**Modified files (frontend — Kanban):**
+- `frontend/src/components/tasks/TaskCard.tsx` — widen `useAgentActivityCheck` enabled condition from `showProgress && !!task.planning_session_id` to `!!task.planning_session_id`; remove `task.phase === "planning" || task.phase === "implementation"` guards from green/amber dot rendering JSX so dots show in any phase with a session
+- `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx` — sort cards with `needsAttention` (from `agent_work_state`) to the top of their Kanban column
 
 ### Frontend
 

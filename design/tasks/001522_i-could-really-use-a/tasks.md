@@ -20,7 +20,13 @@
 - [ ] Add expired event cleanup to the orchestrator's periodic loop — call `CleanupExpiredAttentionEvents` once per hour
 - [ ] Edit `api/pkg/trigger/slack/slack_project_updates.go` — enhance `buildProjectUpdateReplyAttachment` to produce richer messages when status is `spec_review` ("📋 Specs ready for your review") or failure statuses ("❌ Spec generation failed — needs triage"). Add a public `PostAttentionEventReply(ctx, taskID, message, emoji)` method that `AttentionService` can call for non-status-change events like `agent_interaction_completed`.
 
-## Phase 3: Frontend — Attention Queue UI
+## Phase 3: Frontend — Kanban Visual Treatment
+
+- [ ] Edit `frontend/src/components/tasks/TaskCard.tsx` — widen `useAgentActivityCheck` enabled condition from `showProgress && !!task.planning_session_id` to `!!task.planning_session_id` so attention tracking works in every phase with a session, not just planning/implementation
+- [ ] Edit `frontend/src/components/tasks/TaskCard.tsx` — remove the `(task.phase === "planning" || task.phase === "implementation")` guards from both the green pulsing dot (`isActive`) and amber dot (`needsAttention`) rendering JSX, so dots show in any phase with a running session
+- [ ] Edit `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx` — sort cards with `needsAttention` (derived from `agent_work_state !== "working" && agent_work_state !== undefined`) to the top of their Kanban column, so tasks needing human attention float up visually
+
+## Phase 4: Frontend — Attention Queue UI
 
 - [ ] Create `frontend/src/hooks/useAttentionEvents.ts` — React Query hook: polls `GET /api/v1/attention-events?active=true` every 10s via `api.getApiClient()`, returns events sorted by `created_at` desc, exposes `acknowledge`, `dismiss`, `snooze`, `dismissAll` mutation wrappers that call the PATCH/POST endpoints and invalidate the query
 - [ ] Create `frontend/src/hooks/useBrowserNotifications.ts` — wraps browser `Notification` API: tracks `Notification.permission` state, `requestPermission()`, `fireNotification(title, body, onClick)`, localStorage opt-out flag (`helix_browser_notif_disabled`). Only fires for events not yet acknowledged.
@@ -32,9 +38,10 @@
 - [ ] Wire browser notifications — when `useAttentionEvents` returns new unacknowledged events, call `useBrowserNotifications.fireNotification()`. Clicking browser notification focuses tab and navigates via `account.orgNavigate('project-task-detail', ...)`.
 - [ ] Edit `frontend/src/components/system/Page.tsx` — render `GlobalNotifications` **unconditionally** (remove the `{notifications && ...}` prop gate so the existing bell icon appears on every page, not just `Projects.tsx`)
 
-## Phase 4: Verification
+## Phase 5: Verification
 
-- [ ] Test agent-interaction-completed detection: start a spectask, send the agent a message, wait for it to finish responding, verify `agent_interaction_completed` attention event appears in the queue and in the project's Slack thread — and that the task status stays `implementation`
+- [ ] Test agent-interaction-completed detection: start a spectask in any phase (not just implementation), send the agent a message, wait for it to finish responding, verify `agent_interaction_completed` attention event appears in the queue and in the project's Slack thread — and that the task status doesn't change
+- [ ] Test Kanban amber dot in all phases: verify the amber attention dot appears on TaskCard when agent finishes in spec_generation, spec_review, spec_revision, implementation — not just planning/implementation; verify clicking the card dismisses the dot; verify cards with attention sort to top of their column
 - [ ] Test specs-pushed detection: have agent push design docs, verify `specs_pushed` event appears in queue and Slack
 - [ ] Test idempotency: trigger same event twice (e.g., `handleMessageCompleted` called twice for same interaction), verify only one event row exists
 - [ ] Test Slack threading: verify attention event replies appear in the correct task thread in the project's configured Slack channel; verify no Slack message when project has no Slack bot configured

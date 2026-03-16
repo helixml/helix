@@ -46,15 +46,28 @@ As a user, I want to see an always-visible queue of events needing my attention,
 - Badge count visible at all times showing unacknowledged items
 - Items can be dismissed individually or all at once
 
-### US2: Detect "Agent Interaction Completed"
+### US2: Detect "Agent Interaction Completed" (All Phases)
 
-As a user, I want to be notified when the agent finishes its current interaction during implementation, so I know work is ready for my review.
+As a user, I want to be notified when the agent finishes its current interaction in any phase where an agent is running, so I know work is ready for my attention.
 
 **Acceptance Criteria:**
 - System detects `message_completed` events for spectask-linked sessions
-- This generates an attention event without changing the task's status (task stays in `implementation`)
+- This generates an attention event without changing the task's status
+- Applies to **every phase with a running container** — not just implementation. Any phase except `backlog` can have an active agent session (`planning_session_id` is set across spec generation, review, revision, implementation, etc.)
 - Event fires every time an interaction completes, not just once
 - Does NOT fire for non-spectask sessions (e.g., exploratory sessions without a task)
+
+### US6: Kanban Card Visual Treatment for Attention Events
+
+As a user, I want Kanban cards to visually indicate when they need my attention, so I can spot them without opening the queue drawer.
+
+**Note:** The `TaskCard.tsx` component **already has** an amber dot + `needsAttention` mechanism via `useAgentActivityCheck` that tracks `agent_work_state` from the backend. It shows a green pulsing dot when the agent is `"working"` and an amber dot when the agent is `"idle"` or `"done"`. Clicking the card calls `markAsSeen()` which dismisses the dot. However, this is currently **gated to only `planning` and `implementation` phases** (both in the `enabled` condition and in the rendering JSX).
+
+**Acceptance Criteria:**
+- Widen the existing `useAgentActivityCheck` enabled condition from `showProgress && !!task.planning_session_id` to `!!task.planning_session_id` — any phase with a session gets attention tracking
+- Remove the `task.phase === "planning" || task.phase === "implementation"` guards from the amber/green dot rendering JSX — let the dot show in any phase
+- Cards with `needsAttention === true` should sort to the top of their Kanban column
+- Existing `markAsSeen()` on card click behavior stays as-is (amber dot disappears when you look at it)
 
 ### US3: Browser Push Notifications
 
