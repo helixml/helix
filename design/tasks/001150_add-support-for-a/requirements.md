@@ -32,7 +32,7 @@ spec:
 
 **Acceptance Criteria:**
 - `helix apply -f project.yaml` creates or updates a project by name
-- Supports `--organization` flag to scope the project to an org
+- Requires `--organization` flag to scope the project to an org (personal orgs are not supported)
 - On update, project fields are merged/overwritten (name is the unique key)
 - Output prints the project ID on success
 - Errors if required fields (name) are missing
