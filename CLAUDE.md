@@ -161,6 +161,12 @@ When running as a spec task agent, the **inner Helix** at `http://localhost:8080
 - Email: `test@helix.local` / Password: `testpass123`
 - Or check `.env.usercreds` in the helix directory for real API keys
 
+### Browser Testing Setup (inner Helix)
+The inner Helix starts with **no users**. Before testing any UI:
+1. **Register the test account first** — go to `/login`, click "Register here", use `test@helix.local` / `testpass123`
+2. **Complete onboarding** — after registering you land on `/onboarding`; create an org before you can access any other pages
+3. Check DB to confirm: `docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT email FROM users LIMIT 5;"`
+
 ### Go Local Tests (CGo fix)
 `go test ./pkg/server/...` requires CGo for tree-sitter. Fix:
 ```bash
