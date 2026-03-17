@@ -73,11 +73,19 @@ const BacklogTableView: React.FC<BacklogTableViewProps> = ({
   const [priorityFilter, setPriorityFilter] = useState<TypesSpecTaskPriority[]>(
     [],
   );
+  const [labelFilter, setLabelFilter] = useState<string[]>([]);
 
   // Edit state
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingPrompt, setEditingPrompt] = useState("");
   const [loadingTaskId, setLoadingTaskId] = useState<string | null>(null);
+
+  // Derive available labels from loaded tasks
+  const availableLabels = useMemo(() => {
+    const labelSet = new Set<string>();
+    tasks.forEach((task) => (task.labels || []).forEach((l) => labelSet.add(l)));
+    return Array.from(labelSet).sort();
+  }, [tasks]);
 
   // Filter and sort tasks
   const filteredAndSortedTasks = useMemo(() => {
@@ -98,6 +106,13 @@ const BacklogTableView: React.FC<BacklogTableViewProps> = ({
       );
     }
 
+    // Apply label filter (task must have ALL selected labels)
+    if (labelFilter.length > 0) {
+      result = result.filter((task) =>
+        labelFilter.every((l) => (task.labels || []).includes(l)),
+      );
+    }
+
     // Sort by priority (critical first), then by created date (newest first)
     result.sort((a, b) => {
       const priorityA = PRIORITY_ORDER[a.priority || "medium"] ?? 2;
@@ -114,7 +129,7 @@ const BacklogTableView: React.FC<BacklogTableViewProps> = ({
     });
 
     return result;
-  }, [tasks, search, priorityFilter]);
+  }, [tasks, search, priorityFilter, labelFilter]);
 
   // Handle priority change
   const handlePriorityChange = async (
@@ -293,6 +308,9 @@ const BacklogTableView: React.FC<BacklogTableViewProps> = ({
         onSearchChange={setSearch}
         priorityFilter={priorityFilter}
         onPriorityFilterChange={setPriorityFilter}
+        labelFilter={labelFilter}
+        onLabelFilterChange={setLabelFilter}
+        availableLabels={availableLabels}
       />
 
       {/* Table */}

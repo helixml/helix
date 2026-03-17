@@ -985,6 +985,26 @@ func (s *HelixAPIServer) attachRepositoryToProject(_ http.ResponseWriter, r *htt
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	// Update default_repo_id if it is empty or stale (points to a repo no longer attached).
+	attachedRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{ProjectID: projectID})
+	if err != nil {
+		log.Error().Err(err).Str("project_id", projectID).Msg("failed to list repositories after attach")
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	defaultIsValid := false
+	for _, ar := range attachedRepos {
+		if ar.ID == project.DefaultRepoID {
+			defaultIsValid = true
+			break
+		}
+	}
+	if !defaultIsValid {
+		if err := s.Store.SetProjectPrimaryRepository(r.Context(), projectID, repoID); err != nil {
+			log.Error().Err(err).Str("project_id", projectID).Str("repo_id", repoID).Msg("failed to set default repo after attach")
+			return nil, system.NewHTTPError500(err.Error())
+		}
+	}
+
 	log.Info().
 		Str("user_id", user.ID).
 		Str("project_id", projectID).
@@ -1068,6 +1088,23 @@ func (s *HelixAPIServer) detachRepositoryFromProject(_ http.ResponseWriter, r *h
 			Str("repo_id", repoID).
 			Msg("failed to detach repository from project")
 		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// If the detached repo was the default, update default_repo_id to another attached repo or clear it.
+	if project.DefaultRepoID == repoID {
+		remainingRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{ProjectID: projectID})
+		if err != nil {
+			log.Error().Err(err).Str("project_id", projectID).Msg("failed to list repositories after detach")
+			return nil, system.NewHTTPError500(err.Error())
+		}
+		newDefault := ""
+		if len(remainingRepos) > 0 {
+			newDefault = remainingRepos[0].ID
+		}
+		if err := s.Store.SetProjectPrimaryRepository(r.Context(), projectID, newDefault); err != nil {
+			log.Error().Err(err).Str("project_id", projectID).Msg("failed to update default repo after detach")
+			return nil, system.NewHTTPError500(err.Error())
+		}
 	}
 
 	log.Info().

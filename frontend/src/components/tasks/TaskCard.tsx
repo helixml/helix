@@ -19,6 +19,7 @@ import {
   ListItemIcon,
   ListItemText,
   Avatar,
+  Chip,
 } from "@mui/material";
 import {
   Description as SpecIcon,
@@ -1067,6 +1068,15 @@ function TaskCardInner({
           anchorEl={assigneeAnchorEl}
           onClose={() => setAssigneeAnchorEl(null)}
         />
+
+        {/* Label chips */}
+        {task.labels && task.labels.length > 0 && (
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 1 }}>
+            {task.labels.map((label) => (
+              <Chip key={label} label={label} size="small" variant="outlined" sx={{ height: 18, fontSize: "0.65rem" }} />
+            ))}
+          </Box>
+        )}
 
         {/* Usage pulse chart - shows activity over last 3 days (only for active phases) */}
         {showMetrics &&

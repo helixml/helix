@@ -147,6 +147,7 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 // @Param   user_id query string false "Filter by user ID"
 // @Param   include_archived query bool false "Include archived tasks" default(false)
 // @Param   with_depends_on query bool false "Include depends on tasks" default(false)
+// @Param   labels query string false "Filter by labels (comma-separated, AND semantics)"
 // @Param   limit query int false "Limit number of results" default(50)
 // @Param   offset query int false "Offset for pagination" default(0)
 // @Success 200 {array} types.SpecTask
@@ -175,6 +176,15 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var labelFilter []string
+	if labelsParam := query.Get("labels"); labelsParam != "" {
+		for _, l := range strings.Split(labelsParam, ",") {
+			if trimmed := strings.TrimSpace(l); trimmed != "" {
+				labelFilter = append(labelFilter, trimmed)
+			}
+		}
+	}
+
 	filters := &types.SpecTaskFilters{
 		ProjectID:       projectID,
 		Status:          types.SpecTaskStatus(query.Get("status")),
@@ -184,6 +194,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		Offset:          parseIntQuery(query.Get("offset"), 0),
 		IncludeArchived: query.Get("include_archived") == "true",
 		ArchivedOnly:    query.Get("archived_only") == "true",
+		Labels:          labelFilter,
 	}
 
 	tasks, err := s.Store.ListSpecTasks(ctx, filters)

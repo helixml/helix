@@ -18,7 +18,7 @@ for arg in "$@"; do
     esac
 done
 
-APP_PATH="/Applications/Helix for Mac.app"
+APP_PATH="/Applications/Helix.app"
 DATA_DIR="$HOME/Library/Application Support/Helix"
 BUNDLE_ID="com.helixml.Helix"
 SPICE_SOCK="/tmp/helix-spice.sock"

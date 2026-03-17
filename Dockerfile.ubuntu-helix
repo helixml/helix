@@ -826,6 +826,14 @@ RUN mkdir -p /etc/skel/.config/google-chrome && \
 # Install chrome-devtools-mcp globally and pre-build fontconfig cache
 RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
 
+# URL capture script for Claude Code OAuth login flow.
+# When BROWSER=/usr/local/bin/helix-capture-browser, `claude auth login` writes
+# the OAuth URL to a file instead of opening a browser. The Helix frontend polls
+# for this file and opens the URL in the user's native browser.
+COPY desktop/shared/helix-capture-browser.sh /usr/local/bin/helix-capture-browser
+COPY desktop/shared/helix-claude-auth-wrapper.sh /usr/local/bin/helix-claude-auth-wrapper
+RUN chmod +x /usr/local/bin/helix-capture-browser /usr/local/bin/helix-claude-auth-wrapper
+
 # Install drone-ci-mcp (Helix's Drone CI MCP server for build log navigation)
 # Build and pack the package, then install globally from the tarball
 COPY mcp-servers/drone-ci/package.json mcp-servers/drone-ci/package-lock.json mcp-servers/drone-ci/tsconfig.json /tmp/drone-ci-mcp/

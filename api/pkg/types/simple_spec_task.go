@@ -221,6 +221,7 @@ type SpecTaskFilters struct {
 	DesignDocPath     string         `json:"design_doc_path,omitempty"`     // Filter by exact DesignDocPath (for git push detection)
 	BranchName        string         `json:"branch_name,omitempty"`         // Filter by exact BranchName (for uniqueness check)
 	PlanningSessionID string         `json:"planning_session_id,omitempty"` // Filter by PlanningSessionID (reverse lookup)
+	Labels            []string       `json:"labels,omitempty"`              // Filter tasks that have ALL of these labels (AND semantics)
 }
 
 // SpecTaskUpdateRequest represents a request to update a SpecTask
