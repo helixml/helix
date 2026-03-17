@@ -10,9 +10,9 @@ The root cause: the disk image bundles the Ubuntu 25.10 base OS and all Helix Do
 
 ## User Stories
 
-**As a user on a slow/high-latency connection,**
+**As a user,**
 I want upgrades to download only what changed since my last version,
-so that I can get updates in minutes rather than hours.
+so that updates are fast and don't waste bandwidth regardless of my connection speed.
 
 **As a user who just upgraded last week,**
 I want to receive a small patch rather than a full 18 GB disk,
