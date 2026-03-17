@@ -32,6 +32,7 @@ import {
 import { useTheme } from "@mui/material/styles";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import EditIcon from "@mui/icons-material/Edit";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { GitBranch } from "lucide-react";
 import CommentIcon from "@mui/icons-material/Comment";
 import ShareIcon from "@mui/icons-material/Share";
@@ -75,6 +76,8 @@ interface DesignReviewContentProps {
   initialTab?: DocumentType;
   /** Hide the title in header - use when embedded in a page with its own breadcrumbs */
   hideTitle?: boolean;
+  /** If provided, renders a "← Back to task" tab as the first tab in the tab strip */
+  onBack?: () => void;
 }
 
 const DOCUMENT_LABELS = {
@@ -90,6 +93,7 @@ export default function DesignReviewContent({
   onImplementationStarted,
   initialTab = "requirements",
   hideTitle = false,
+  onBack,
 }: DesignReviewContentProps) {
   const snackbar = useSnackbar();
   const api = useApi();
@@ -973,7 +977,13 @@ export default function DesignReviewContent({
             {/* Tabs on the left */}
             <Tabs
               value={activeTab}
-              onChange={(_, value) => handleTabChange(value)}
+              onChange={(_, value) => {
+                if (value === "back") {
+                  onBack?.();
+                } else {
+                  handleTabChange(value);
+                }
+              }}
               variant="scrollable"
               scrollButtons="auto"
               sx={{
@@ -988,6 +998,24 @@ export default function DesignReviewContent({
                 },
               }}
             >
+              {onBack && (
+                <Tab
+                  value="back"
+                  label={
+                    <Box display="flex" alignItems="center" gap={0.5}>
+                      <ArrowBackIcon sx={{ fontSize: 15 }} />
+                      Back to task
+                    </Box>
+                  }
+                  sx={{
+                    borderRight: "1px solid",
+                    borderColor: "divider",
+                    mr: 0.5,
+                    color: "text.secondary",
+                    "&:hover": { color: "text.primary" },
+                  }}
+                />
+              )}
               <Tab
                 label={
                   <Box display="flex" alignItems="center" gap={0.5}>
