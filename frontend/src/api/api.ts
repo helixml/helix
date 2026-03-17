@@ -670,6 +670,10 @@ export interface ServerClaudeLoginSessionResponse {
   session_id?: string;
 }
 
+export interface ServerClaudeLoginURLResponse {
+  login_url?: string;
+}
+
 export interface ServerClaudeModel {
   description?: string;
   id?: string;
@@ -4540,8 +4544,6 @@ export interface TypesSessionMetadata {
   container_ip?: string;
   /** Container fields (Hydra executor) */
   container_name?: string;
-  /** "running" = should be running, "stopped" = can terminate */
-  desired_state?: string;
   /** Dev container ID for streaming */
   dev_container_id?: string;
   document_group_id?: string;
@@ -4892,6 +4894,8 @@ export interface TypesSpecTaskDesignReviewComment {
   agent_response?: string;
   /** When agent responded */
   agent_response_at?: string;
+  /** Agent's structured entries (for tool call rendering) */
+  agent_response_entries?: number[];
   /** The actual comment */
   comment_text?: string;
   /** Made optional - simplified to single type */
@@ -7196,6 +7200,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesClaudeSubscription, SystemHTTPError>({
         path: `/api/v1/claude-subscriptions/${id}`,
         method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Starts claude auth login in the container with a custom browser that captures the OAuth URL, then returns that URL for the frontend to open in the native browser.
+     *
+     * @tags Claude
+     * @name V1ClaudeSubscriptionsGetLoginUrlList
+     * @summary Get Claude OAuth login URL
+     * @request GET:/api/v1/claude-subscriptions/get-login-url
+     * @secure
+     */
+    v1ClaudeSubscriptionsGetLoginUrlList: (
+      query: {
+        /** Login session ID from start-login */
+        session_id: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerClaudeLoginURLResponse, SystemHTTPError>({
+        path: `/api/v1/claude-subscriptions/get-login-url`,
+        method: "GET",
+        query: query,
         secure: true,
         format: "json",
         ...params,

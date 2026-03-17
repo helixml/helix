@@ -2295,6 +2295,70 @@
                 }
             }
         },
+        "/api/v1/claude-subscriptions/get-login-url": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Starts claude auth login in the container with a custom browser that captures\nthe OAuth URL, then returns that URL for the frontend to open in the native browser.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Claude"
+                ],
+                "summary": "Get Claude OAuth login URL",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Login session ID from start-login",
+                        "name": "session_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ClaudeLoginURLResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/claude-subscriptions/models": {
             "get": {
                 "security": [
@@ -17195,6 +17259,14 @@
                 }
             }
         },
+        "server.ClaudeLoginURLResponse": {
+            "type": "object",
+            "properties": {
+                "login_url": {
+                    "type": "string"
+                }
+            }
+        },
         "server.ClaudeModel": {
             "type": "object",
             "properties": {
@@ -26456,10 +26528,6 @@
                     "description": "Container fields (Hydra executor)",
                     "type": "string"
                 },
-                "desired_state": {
-                    "description": "\"running\" = should be running, \"stopped\" = can terminate",
-                    "type": "string"
-                },
                 "dev_container_id": {
                     "description": "Dev container ID for streaming",
                     "type": "string"
@@ -27258,6 +27326,13 @@
                 "agent_response_at": {
                     "description": "When agent responded",
                     "type": "string"
+                },
+                "agent_response_entries": {
+                    "description": "Agent's structured entries (for tool call rendering)",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 },
                 "comment_text": {
                     "description": "The actual comment",

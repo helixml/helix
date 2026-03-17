@@ -12,10 +12,10 @@ import CircularProgress from '@mui/material/CircularProgress'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
-import ExternalAgentDesktopViewer, { useSandboxState } from '../external-agent/ExternalAgentDesktopViewer'
 import { getTokenExpiryStatus } from './claudeSubscriptionUtils'
 
 interface ClaudeSubscriptionData {
@@ -85,8 +85,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const [loginDialogOpen, setLoginDialogOpen] = useState(false)
   const [loginSessionId, setLoginSessionId] = useState<string>('')
   const [loginStarting, setLoginStarting] = useState(false)
-  const [loginCommandSent, setLoginCommandSent] = useState(false)
-  const [loginPolling, setLoginPolling] = useState(false)
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Start interactive login flow
@@ -97,8 +95,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
       if (result && result.session_id) {
         setLoginSessionId(result.session_id)
         setLoginDialogOpen(true)
-        setLoginCommandSent(false)
-        setLoginPolling(false)
       }
     } catch (err: any) {
       snackbar.error('Failed to start login session: ' + (err?.message || 'unknown error'))
@@ -127,8 +123,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     }
     setLoginDialogOpen(false)
     setLoginSessionId('')
-    setLoginCommandSent(false)
-    setLoginPolling(false)
   }, [loginSessionId])
 
   // Clean up polling on unmount
@@ -219,8 +213,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
             sessionId={loginSessionId}
             open={loginDialogOpen}
             onClose={handleCloseLoginDialog}
-            loginCommandSent={loginCommandSent}
-            setLoginCommandSent={setLoginCommandSent}
             pollIntervalRef={pollIntervalRef}
             orgId={orgId}
             onCredentialsCaptured={() => {
@@ -281,8 +273,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
           sessionId={loginSessionId}
           open={loginDialogOpen}
           onClose={handleCloseLoginDialog}
-          loginCommandSent={loginCommandSent}
-          setLoginCommandSent={setLoginCommandSent}
           pollIntervalRef={pollIntervalRef}
           orgId={orgId}
           onCredentialsCaptured={() => {
@@ -297,74 +287,113 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   )
 }
 
-// Inner dialog component - needs to be separate to use useSandboxState hook
+// Inner dialog component that manages the full login flow:
+// 1. Poll until container is ready
+// 2. Install/upgrade claude CLI (npm install)
+// 3. Call get-login-url to start claude auth login in container, capture OAuth URL
+// 4. Open OAuth URL in the user's native browser (window.open is intercepted by Wails on macOS)
+// 5. Poll for credentials written to ~/.claude/.credentials.json
 interface ClaudeLoginDialogInnerProps {
   sessionId: string
   open: boolean
   onClose: () => void
-  loginCommandSent: boolean
-  setLoginCommandSent: (v: boolean) => void
   pollIntervalRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>
   onCredentialsCaptured: () => void
   orgId?: string
 }
 
+type LoginPhase =
+  | 'waiting'       // container starting
+  | 'installing'    // npm install running
+  | 'opening'       // calling get-login-url, about to open browser
+  | 'browser'       // browser opened, waiting for user to complete OAuth
+  | 'error'         // flow failed
+
 const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
   sessionId,
   open,
   onClose,
-  loginCommandSent,
-  setLoginCommandSent,
   pollIntervalRef,
   onCredentialsCaptured,
   orgId,
 }) => {
   const api = useApi()
-  const { isRunning } = useSandboxState(sessionId)
+  const [phase, setPhase] = useState<LoginPhase>('waiting')
+  const [loginUrl, setLoginUrl] = useState<string>('')
+  const [isRunning, setIsRunning] = useState(false)
+  const flowStartedRef = useRef(false)
+  const pollingStartedRef = useRef(false)
 
-  // Once the desktop is running, send the `claude auth login` command
+  // Poll every 3s until the container reports running status (same logic as useSandboxState)
   useEffect(() => {
-    if (!isRunning || loginCommandSent) return
-
-    const sendLoginCommand = async () => {
+    const checkRunning = async () => {
       try {
         const apiClient = api.getApiClient()
-        // Upgrade claude CLI to latest before logging in.
-        // Old image versions used localhost:<random-port> for OAuth which Anthropic
-        // no longer accepts; newer versions use platform.claude.com/oauth/code/callback.
-        // Upgrading here self-heals already-deployed images without a full image rebuild.
-        // Run blocking (background: false) so it completes before claude auth login starts.
+        const response = await apiClient.v1SessionsDetail(sessionId)
+        if (response.data) {
+          const status = response.data.config?.external_agent_status || ''
+          const desiredState = response.data.config?.desired_state || ''
+          const hasContainer = !!response.data.config?.container_name
+          if (status === 'running' || (hasContainer && desiredState === 'running')) {
+            setIsRunning(true)
+          }
+        }
+      } catch {
+        // Not ready yet
+      }
+    }
+    const interval = setInterval(checkRunning, 3000)
+    checkRunning()
+    return () => clearInterval(interval)
+  }, [sessionId])
+
+  // Once running, execute the login flow
+  useEffect(() => {
+    if (!isRunning || flowStartedRef.current) return
+    flowStartedRef.current = true
+
+    const runLoginFlow = async () => {
+      try {
+        const apiClient = api.getApiClient()
+
+        // Upgrade claude CLI to latest. Old image versions used localhost:<random-port>
+        // for OAuth which Anthropic no longer accepts; newer versions use
+        // platform.claude.com/oauth/code/callback. Upgrading here self-heals deployed images.
+        setPhase('installing')
         await apiClient.v1ExternalAgentsExecCreate(sessionId, {
           command: ['npm', 'install', '-g', '@anthropic-ai/claude-code@latest'],
           background: false,
           timeout: 300,
           env: {},
         })
-        await apiClient.v1ExternalAgentsExecCreate(sessionId, {
-          command: ['claude', 'auth', 'login'],
-          background: true,
-          env: {
-            WAYLAND_DISPLAY: 'wayland-0',
-          },
-        })
-        setLoginCommandSent(true)
+
+        // Start claude auth login in the container via a fake browser that captures
+        // the OAuth URL, then return it. This replaces the old approach of running
+        // claude auth login with WAYLAND_DISPLAY and showing an embedded desktop stream.
+        setPhase('opening')
+        const urlResult = await apiClient.v1ClaudeSubscriptionsGetLoginUrlList({ session_id: sessionId })
+        const oauthUrl = urlResult.data?.login_url
+        if (!oauthUrl) {
+          throw new Error('No login URL returned from container')
+        }
+
+        // Open in native browser. On macOS in the Wails app, window.open is intercepted
+        // and routed to the system browser (Safari/Chrome). On web, opens a new tab.
+        window.open(oauthUrl, '_blank')
+        setLoginUrl(oauthUrl)
+        setPhase('browser')
       } catch (err: any) {
-        console.error('Failed to send claude auth login command:', err)
+        console.error('Claude login flow failed:', err)
+        setPhase('error')
       }
     }
 
-    // Small delay to let GNOME initialize
-    const timeout = setTimeout(sendLoginCommand, 3000)
-    return () => clearTimeout(timeout)
-  }, [isRunning, loginCommandSent, sessionId])
+    runLoginFlow()
+  }, [isRunning, sessionId])
 
-  // Once login command is sent, start polling for credentials.
-  // Use a ref guard instead of state in deps to prevent the effect cleanup
-  // from killing the interval on re-render (state change -> re-render -> cleanup -> no interval).
-  const pollingStartedRef = useRef(false)
+  // Poll for credentials once the browser is open
   useEffect(() => {
-    if (!loginCommandSent || pollingStartedRef.current) return
-
+    if (phase !== 'browser' || pollingStartedRef.current) return
     pollingStartedRef.current = true
 
     const pollForCredentials = async () => {
@@ -386,12 +415,14 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
 
           await api.post('/api/v1/claude-subscriptions', {
             name: 'My Claude Subscription',
-            credentials: {
-              claudeAiOauth: creds,
-            },
+            credentials: { claudeAiOauth: creds },
             ...(orgId ? { owner_type: 'org', owner_id: orgId } : {}),
           })
 
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current)
+            pollIntervalRef.current = null
+          }
           onCredentialsCaptured()
         }
       } catch {
@@ -408,55 +439,61 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
       }
       pollingStartedRef.current = false
     }
-  }, [loginCommandSent, sessionId, orgId])
+  }, [phase, sessionId, orgId])
+
+  const phaseLabel = (): string => {
+    switch (phase) {
+      case 'waiting':    return 'Starting session...'
+      case 'installing': return 'Installing Claude CLI...'
+      case 'opening':    return 'Opening browser...'
+      case 'browser':    return 'Waiting for sign-in to complete...'
+      case 'error':      return 'Failed to open browser'
+    }
+  }
 
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      maxWidth="lg"
-      fullWidth
-      PaperProps={{
-        sx: { height: '95vh', maxHeight: '95vh' },
-      }}
-    >
-      <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Box>
-          <Typography variant="h6">Sign in to Claude</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Complete the login in the browser below. Your credentials will automatically be reused in desktop sessions configured to use Claude Code.
-          </Typography>
-        </Box>
-        {loginCommandSent && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <CircularProgress size={16} />
-            <Typography variant="body2" color="text.secondary">
-              Waiting for login...
-            </Typography>
-          </Box>
-        )}
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>
+        <Typography variant="h6">Sign in to Claude</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Complete the login in your browser. Your credentials will automatically be reused in desktop sessions configured to use Claude Code.
+        </Typography>
       </DialogTitle>
-      <DialogContent sx={{ p: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {isRunning && loginCommandSent && (
-          <Alert severity="info" sx={{ mx: 2, mt: 1, flexShrink: 0 }}>
-            A browser will open below. Sign in to your Claude account and complete the authentication flow in the browser.
-          </Alert>
-        )}
-        {!isRunning ? (
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 2 }}>
-            <CircularProgress />
-            <Typography variant="body2" color="text.secondary">
-              Starting desktop session...
-            </Typography>
-          </Box>
-        ) : (
-          <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-            <ExternalAgentDesktopViewer
-              sessionId={sessionId}
-              mode="stream"
-            />
-          </Box>
-        )}
+      <DialogContent>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, py: 1 }}>
+          {phase === 'browser' ? (
+            <>
+              <Alert severity="info" icon={<OpenInNewIcon />}>
+                A browser window has opened. Sign in to your Claude account and complete the authentication.
+              </Alert>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CircularProgress size={16} />
+                <Typography variant="body2" color="text.secondary">
+                  Waiting for sign-in to complete...
+                </Typography>
+              </Box>
+              {loginUrl && (
+                <Typography variant="caption" color="text.secondary">
+                  If the browser did not open,{' '}
+                  <a href={loginUrl} target="_blank" rel="noopener noreferrer">
+                    click here to open the sign-in page
+                  </a>
+                </Typography>
+              )}
+            </>
+          ) : phase === 'error' ? (
+            <Alert severity="error">
+              Failed to start the login flow. Please try again.
+            </Alert>
+          ) : (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <CircularProgress size={16} />
+              <Typography variant="body2" color="text.secondary">
+                {phaseLabel()}
+              </Typography>
+            </Box>
+          )}
+        </Box>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>

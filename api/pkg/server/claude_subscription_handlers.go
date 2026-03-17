@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -632,4 +633,144 @@ func (apiServer *HelixAPIServer) pollClaudeLogin(_ http.ResponseWriter, req *htt
 		Found:       true,
 		Credentials: execResult.Output,
 	}, nil
+}
+
+// ClaudeLoginURLResponse is returned when getting the Claude OAuth login URL
+type ClaudeLoginURLResponse struct {
+	LoginURL string `json:"login_url"`
+}
+
+// claudeLoginURLScript creates a fake browser script, runs claude auth login in the
+// background, waits for the OAuth URL to be captured, and prints it to stdout.
+// This allows the frontend to open the URL in the user's native browser instead of
+// inside a streamed container window.
+const claudeLoginURLScript = `
+echo '#!/bin/sh' > /tmp/helix-browser.sh
+echo 'echo "$@" > /tmp/helix-claude-url' >> /tmp/helix-browser.sh
+chmod +x /tmp/helix-browser.sh
+BROWSER=/tmp/helix-browser.sh nohup claude auth login > /tmp/helix-claude-login.log 2>&1 &
+for i in $(seq 1 20); do
+  sleep 1
+  if [ -f /tmp/helix-claude-url ] && [ -s /tmp/helix-claude-url ]; then
+    cat /tmp/helix-claude-url
+    exit 0
+  fi
+done
+exit 1
+`
+
+// @Summary Get Claude OAuth login URL
+// @Description Starts claude auth login in the container with a custom browser that captures
+// @Description the OAuth URL, then returns that URL for the frontend to open in the native browser.
+// @Tags Claude
+// @Produce json
+// @Param session_id query string true "Login session ID from start-login"
+// @Success 200 {object} ClaudeLoginURLResponse
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/claude-subscriptions/get-login-url [get]
+func (apiServer *HelixAPIServer) getClaudeLoginURL(_ http.ResponseWriter, req *http.Request) (*ClaudeLoginURLResponse, *system.HTTPError) {
+	user := getRequestUser(req)
+	if user == nil {
+		return nil, system.NewHTTPError401("authentication required")
+	}
+
+	sessionID := req.URL.Query().Get("session_id")
+	if sessionID == "" {
+		return nil, system.NewHTTPError400("session_id query parameter is required")
+	}
+
+	// Verify session ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+	if session.Owner != user.ID {
+		return nil, system.NewHTTPError403("access denied")
+	}
+
+	// Connect to desktop container via RevDial
+	runnerID := fmt.Sprintf("desktop-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	if err != nil {
+		return nil, system.NewHTTPError500("desktop container not ready: " + err.Error())
+	}
+	defer revDialConn.Close()
+
+	// Run the URL capture script in the container.
+	// Timeout is 22s: script waits up to 20s for the URL, plus a couple seconds overhead.
+	execReq := map[string]interface{}{
+		"command": []string{"bash", "-c", claudeLoginURLScript},
+		"timeout": 22,
+	}
+	execBody, _ := json.Marshal(execReq)
+
+	httpReq, err := http.NewRequest("POST", "http://localhost:9876/exec", bytes.NewReader(execBody))
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to create exec request")
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	if err := httpReq.Write(revDialConn); err != nil {
+		return nil, system.NewHTTPError500("failed to send exec request: " + err.Error())
+	}
+
+	execResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to read exec response: " + err.Error())
+	}
+	defer execResp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(execResp.Body)
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to read exec body: " + err.Error())
+	}
+
+	var execResult struct {
+		Success  bool   `json:"success"`
+		Output   string `json:"output"`
+		ExitCode int    `json:"exit_code"`
+	}
+	if err := json.Unmarshal(bodyBytes, &execResult); err != nil {
+		return nil, system.NewHTTPError500("failed to parse exec result")
+	}
+
+	if !execResult.Success || execResult.ExitCode != 0 || execResult.Output == "" {
+		log.Error().
+			Str("session_id", sessionID).
+			Bool("success", execResult.Success).
+			Int("exit_code", execResult.ExitCode).
+			Str("output", execResult.Output).
+			Msg("Failed to capture Claude OAuth URL from container")
+		return nil, system.NewHTTPError500("failed to get OAuth URL from container")
+	}
+
+	// Extract the URL: it should be the first https:// line in the output
+	loginURL := ""
+	for _, line := range strings.Split(execResult.Output, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "https://") {
+			loginURL = line
+			break
+		}
+	}
+
+	if loginURL == "" {
+		log.Error().
+			Str("session_id", sessionID).
+			Str("output", execResult.Output).
+			Msg("No HTTPS URL found in claude auth login output")
+		return nil, system.NewHTTPError500("could not extract OAuth URL from output")
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("user_id", user.ID).
+		Msg("Captured Claude OAuth login URL for native browser")
+
+	return &ClaudeLoginURLResponse{LoginURL: loginURL}, nil
 }
