@@ -497,9 +497,8 @@ const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
         // that works from any browser (unlike the BROWSER-invoked URL which uses
         // localhost redirect back to the container).
         await apiClient.v1ExternalAgentsExecCreate(sessionId, {
-          command: ['sh', '-c', 'BROWSER=/usr/local/bin/helix-capture-browser claude auth login > /tmp/claude-auth-stdout.txt 2>&1 &'],
-          background: false,
-          timeout: 5,
+          command: ['helix-claude-auth-wrapper'],
+          background: true,
           env: {},
         })
         setLoginCommandSent(true)
