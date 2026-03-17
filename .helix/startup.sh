@@ -20,12 +20,26 @@
 set -xeuo pipefail
 
 # Add Go bin to PATH permanently for tools like swag, mockgen
+# We add to both ~/.bashrc (interactive shells) and /etc/environment (all sessions)
 if ! grep -q 'export PATH=.*go/bin' ~/.bashrc 2>/dev/null; then
     echo '' >> ~/.bashrc
     echo '# Go bin path for swag, mockgen, etc.' >> ~/.bashrc
     echo 'export PATH="$PATH:$HOME/go/bin"' >> ~/.bashrc
     echo "Added ~/go/bin to ~/.bashrc"
 fi
+
+# Also add to /etc/environment so non-interactive terminal tools get it
+# This ensures mockgen etc. are available in all contexts
+if ! grep -q '/home/retro/go/bin' /etc/environment 2>/dev/null; then
+    # Append to existing PATH in /etc/environment
+    if grep -q '^PATH=' /etc/environment; then
+        sudo sed -i 's|^PATH="\(.*\)"|PATH="\1:/home/retro/go/bin"|' /etc/environment
+    else
+        echo 'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/retro/go/bin"' | sudo tee -a /etc/environment > /dev/null
+    fi
+    echo "Added ~/go/bin to /etc/environment"
+fi
+
 # Also set for current script
 export PATH="$PATH:$HOME/go/bin"
 
