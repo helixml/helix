@@ -8,15 +8,12 @@
 
 ## Frontend
 
-- [~] In `ClaudeSubscriptionConnect.tsx`, after the container reaches `isRunning`, call the new `get-login-url` endpoint to retrieve the OAuth URL
-- [ ] Open the OAuth URL with `window.open(url, '_blank')` (works in both web and macOS/Wails WKWebView context)
-- [ ] Remove the `ExternalAgentDesktopViewer` from the Claude login dialog (no longer showing the desktop stream)
-- [ ] Update dialog UI states:
-  - "Starting authentication..." (container starting, before URL)
-  - "Complete sign-in in your browser..." (URL opened, waiting for callback)
-  - On success: close dialog, show snackbar, call `onConnected`
-- [ ] Keep the polling logic unchanged (still polls `poll-login/{sessionId}` every 3s)
-- [ ] If `get-login-url` times out or fails, fall back to showing `ExternalAgentDesktopViewer` with the existing embedded-desktop flow
+- [x] In `ClaudeSubscriptionConnect.tsx`, after the container reaches `isRunning`, call the new `get-login-url` endpoint to retrieve the OAuth URL
+- [x] Open the OAuth URL with `window.open(url, '_blank')` (works in both web and macOS/Wails WKWebView context)
+- [x] Remove the `ExternalAgentDesktopViewer` from the Claude login dialog (no longer showing the desktop stream)
+- [x] Update dialog UI states: "Starting session..." → "Installing Claude CLI..." → "Opening browser..." → "Waiting for sign-in..." with fallback URL link
+- [x] Keep the polling logic unchanged (still polls `poll-login/{sessionId}` every 3s)
+- [x] Show fallback link if browser didn't open (the `loginUrl` shown as clickable link)
 
 ## Testing
 
