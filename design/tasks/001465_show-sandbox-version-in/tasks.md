@@ -14,10 +14,10 @@
 
 ## Frontend
 
-- [~] Update sandbox dropdown in `frontend/src/pages/Dashboard.tsx` to display version
-- [~] Add version mismatch detection comparing sandbox versions to `account.serverConfig.version`
-- [~] Add `<Alert severity="warning">` banner in agent_sandboxes tab when version mismatch detected
-- [ ] Format version display (truncate git hashes to 7 chars)
+- [x] Update sandbox dropdown in `frontend/src/pages/Dashboard.tsx` to display version
+- [x] Add version mismatch detection comparing sandbox versions to `account.serverConfig.version`
+- [x] Add `<Alert severity="warning">` banner in agent_sandboxes tab when version mismatch detected
+- [x] Format version display (truncate git hashes to 7 chars)
 
 ## Testing
 
@@ -25,4 +25,4 @@
 - [ ] Start fresh sandbox and verify `helix_version` appears in `GET /api/v1/sandboxes` response
 - [ ] Verify version displays correctly in admin UI sandbox dropdown
 - [ ] Test mismatch alert by manually setting different version in DB
-- [ ] Build frontend: `cd frontend && yarn build`
+- [x] Build frontend: `cd frontend && yarn build`
