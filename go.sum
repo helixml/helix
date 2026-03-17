@@ -538,6 +538,8 @@ github.com/hashicorp/golang-lru/v2 v2.0.7/go.mod h1:QeFd9opnmA6QUJc5vARoKUSoFhyf
 github.com/hashicorp/hcl v1.0.0/go.mod h1:E5yfLk+7swimpb2L/Alb/PJmXilQ/rhwaUYs4T20WEQ=
 github.com/helixml/kodit v1.1.9 h1:Wv8wG4NNaXe611SZD3gVTWneaPMlwJHTceoROL/Srq8=
 github.com/helixml/kodit v1.1.9/go.mod h1:9tK32lOc9WWIpj/UVortRkkYg3FYKxh6eFODSZpY63Q=
+github.com/helixml/kodit v1.2.0 h1:CHbK9cxe1VH/kw2UNwAeSj2qCP5Qea4bHA2anxhyzI0=
+github.com/helixml/kodit v1.2.0/go.mod h1:7eAxW0jhqp2feKjQubpC5TB81cUz/+V6nLeXCJoue/k=
 github.com/helixml/langchaingo v0.1.15 h1:6cEwRQgEri4aDrvDnSESmsMY9H35UUoWuOEukSP3lJw=
 github.com/helixml/langchaingo v0.1.15/go.mod h1:EeervIv/DNYhSfQSMaql20wMFvhgF7lDaVaatp8lVPw=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
@@ -765,6 +767,8 @@ github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
 github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJwooC2xJA040=
 github.com/opencontainers/image-spec v1.1.1/go.mod h1:qpqAh3Dmcf36wStyyWU+kCeDgrGnAve2nCC8+7h8Q0M=
+github.com/otiai10/gosseract/v2 v2.4.1 h1:G8AyBpXEeSlcq8TI85LH/pM5SXk8Djy2GEXisgyblRw=
+github.com/otiai10/gosseract/v2 v2.4.1/go.mod h1:1gNWP4Hgr2o7yqWfs6r5bZxAatjOIdqWxJLWsTsembk=
 github.com/patrickmn/go-cache v2.1.0+incompatible h1:HRMgzkcYKYpi3C8ajMPV8OFXaaRUnok+kx1WdO15EQc=
 github.com/patrickmn/go-cache v2.1.0+incompatible/go.mod h1:3Qf8kWWT7OJRJbdiICTKqZju1ZixQ/KpMGzzAfe6+WQ=
 github.com/pborman/getopt v0.0.0-20170112200414-7148bc3a4c30/go.mod h1:85jBQOZwpVEaDAr341tbn15RS4fCAsIst0qp7i8ex1o=
@@ -928,6 +932,8 @@ github.com/tiktoken-go/tokenizer v0.6.2 h1:t0GN2DvcUZSFWT/62YOgoqb10y7gSXBGs0A+4
 github.com/tiktoken-go/tokenizer v0.6.2/go.mod h1:6UCYI/DtOallbmL7sSy30p6YQv60qNyU/4aVigPOx6w=
 github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc h1:9lRDQMhESg+zvGYmW5DyG0UqvY96Bu5QYsTLvCHdrgo=
 github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc/go.mod h1:bciPuU6GHm1iF1pBvUfxfsH0Wmnc2VbpgvbI9ZWuIRs=
+github.com/tsawler/tabula v1.6.6 h1:B2W1Iindrg58/VTLp30LPA2NCzxgxAE6Ne6RG693GHY=
+github.com/tsawler/tabula v1.6.6/go.mod h1:CzvlQnJQLM2C6Cq0gRhP5z9kq9u9iM6s494QEHCmCbw=
 github.com/typesense/typesense-go/v2 v2.0.0 h1:+MksOnrVioDqsGpz8RXkOUqhVN+yFxZwJlGDQHr/64I=
 github.com/typesense/typesense-go/v2 v2.0.0/go.mod h1:7V1ZBSfmdciL6yb2bPtWha+W53gV5WZhyOSpVgDJfao=
 github.com/ugorji/go/codec v1.2.12 h1:9LC83zGrHhuUA9l16C9AHXAqEV/2wBQ4nkvumAE65EE=
