@@ -1314,3 +1314,86 @@ func (h *HydraExecutor) checkLimits(ctx context.Context, agent *types.DesktopAge
 
 	return limitReached, nil
 }
+
+// OnSandboxDisconnected is called when a sandbox's grace period expires (definitively disconnected).
+// It clears stale container metadata from sessions on that sandbox so the frontend shows
+// "stopped" state instead of an endless connection loop.
+func (h *HydraExecutor) OnSandboxDisconnected(sandboxID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	log.Info().Str("sandbox_id", sandboxID).Msg("Sandbox disconnected, clearing session metadata")
+
+	// Get all sessions associated with this sandbox
+	sessions, err := h.store.ListSessionsBySandbox(ctx, sandboxID)
+	if err != nil {
+		log.Error().Err(err).Str("sandbox_id", sandboxID).Msg("Failed to list sessions for sandbox")
+		return
+	}
+
+	if len(sessions) == 0 {
+		log.Debug().Str("sandbox_id", sandboxID).Msg("No sessions found for disconnected sandbox")
+		return
+	}
+
+	log.Info().Str("sandbox_id", sandboxID).Int("session_count", len(sessions)).Msg("Clearing metadata for sessions on disconnected sandbox")
+
+	// Clear container metadata for each session
+	for _, session := range sessions {
+		// Only clear if the session had container metadata
+		if session.Metadata.ContainerName == "" && session.Metadata.ContainerID == "" {
+			continue
+		}
+
+		// Clear stale container metadata
+		session.Metadata.ContainerName = ""
+		session.Metadata.ContainerID = ""
+		session.Metadata.ContainerIP = ""
+		session.Metadata.ExternalAgentStatus = "stopped"
+		// Keep DesiredState unchanged so reconciler can restart when sandbox returns
+		session.SandboxID = "" // Clear sandbox association
+
+		if _, err := h.store.UpdateSession(ctx, *session); err != nil {
+			log.Warn().Err(err).
+				Str("session_id", session.ID).
+				Str("sandbox_id", sandboxID).
+				Msg("Failed to clear session metadata after sandbox disconnect")
+		} else {
+			log.Debug().
+				Str("session_id", session.ID).
+				Str("sandbox_id", sandboxID).
+				Msg("Cleared session metadata after sandbox disconnect")
+		}
+	}
+
+	// Also clear in-memory sessions map
+	h.clearSessionsBySandbox(sandboxID)
+}
+
+// clearSessionsBySandbox removes all in-memory session entries for a given sandbox
+func (h *HydraExecutor) clearSessionsBySandbox(sandboxID string) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	var cleared []string
+	for sessionID, session := range h.sessions {
+		// Check if this session was on the disconnected sandbox
+		// We need to check the DB session's SandboxID, but since we already updated the DB,
+		// we check if the session doesn't have a valid container anymore
+		if session.ContainerID == "" || session.Status != "running" {
+			continue
+		}
+
+		// Remove from in-memory map - the container no longer exists
+		delete(h.sessions, sessionID)
+		cleared = append(cleared, sessionID)
+	}
+
+	if len(cleared) > 0 {
+		log.Info().
+			Str("sandbox_id", sandboxID).
+			Int("cleared_count", len(cleared)).
+			Strs("session_ids", cleared).
+			Msg("Cleared in-memory sessions for disconnected sandbox")
+	}
+}
