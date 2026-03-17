@@ -2222,6 +2222,11 @@ definitions:
       gop_buffer_size:
         type: integer
     type: object
+  server.addLabelRequest:
+    properties:
+      label:
+        type: string
+    type: object
   services.SampleProjectCode:
     properties:
       description:
@@ -7497,9 +7502,6 @@ definitions:
       container_name:
         description: Container fields (Hydra executor)
         type: string
-      desired_state:
-        description: '"running" = should be running, "stopped" = can terminate'
-        type: string
       dev_container_id:
         description: Dev container ID for streaming
         type: string
@@ -8078,6 +8080,11 @@ definitions:
       agent_response_at:
         description: When agent responded
         type: string
+      agent_response_entries:
+        description: Agent's structured entries (for tool call rendering)
+        items:
+          type: integer
+        type: array
       comment_text:
         description: The actual comment
         type: string
@@ -15531,6 +15538,40 @@ paths:
       summary: Get project token usage
       tags:
       - Projects
+  /api/v1/projects/{projectId}/labels:
+    get:
+      description: Returns a sorted list of unique labels across all spec tasks in
+        a project
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: List all labels used in a project
+      tags:
+      - spec-driven-tasks
   /api/v1/projects/quick-create:
     post:
       consumes:
@@ -18016,6 +18057,10 @@ paths:
         in: query
         name: with_depends_on
         type: boolean
+      - description: Filter by labels (comma-separated, AND semantics)
+        in: query
+        name: labels
+        type: string
       - default: 50
         description: Limit number of results
         in: query
@@ -18631,6 +18676,90 @@ paths:
       summary: List clone groups for a task
       tags:
       - SpecTasks
+  /api/v1/spec-tasks/{taskId}/labels:
+    post:
+      consumes:
+      - application/json
+      description: Adds a label to a spec task (idempotent - no error if label already
+        exists)
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Label to add
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.addLabelRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: Add a label to a spec task
+      tags:
+      - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/labels/{label}:
+    delete:
+      description: Removes a label from a spec task (no-op if label does not exist)
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Label to remove
+        in: path
+        name: label
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      summary: Remove a label from a spec task
+      tags:
+      - spec-driven-tasks
   /api/v1/spec-tasks/{taskId}/progress:
     get:
       description: Get detailed progress information for a spec-driven task including

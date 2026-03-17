@@ -349,6 +349,11 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 	if filters.PlanningSessionID != "" {
 		db = db.Where("planning_session_id = ?", filters.PlanningSessionID)
 	}
+	// Labels filter - tasks must have ALL specified labels (AND semantics via JSONB containment)
+	for _, label := range filters.Labels {
+		labelJSON := `["` + label + `"]`
+		db = db.Where("labels @> ?::jsonb", labelJSON)
+	}
 
 	if filters.Limit > 0 {
 		db = db.Limit(filters.Limit)
@@ -419,4 +424,79 @@ func (f *SpecTaskSubscriptionFilter) Matches(task *types.SpecTask) bool {
 
 type SpecTaskSubscription interface {
 	Unsubscribe()
+}
+
+// ListProjectLabels returns all unique labels used across spec tasks in a project, sorted alphabetically.
+func (s *PostgresStore) ListProjectLabels(ctx context.Context, projectID string) ([]string, error) {
+	if projectID == "" {
+		return nil, fmt.Errorf("project ID is required")
+	}
+
+	var labels []string
+	err := s.gdb.WithContext(ctx).Raw(`
+		SELECT DISTINCT jsonb_array_elements_text(labels) AS label
+		FROM spec_tasks
+		WHERE project_id = ? AND (archived = false OR archived IS NULL)
+		ORDER BY label
+	`, projectID).Scan(&labels).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to list project labels: %w", err)
+	}
+	if labels == nil {
+		labels = []string{}
+	}
+	return labels, nil
+}
+
+// AddSpecTaskLabel adds a label to a spec task. No-op if the label already exists.
+func (s *PostgresStore) AddSpecTaskLabel(ctx context.Context, taskID string, label string) error {
+	if taskID == "" {
+		return fmt.Errorf("task ID is required")
+	}
+	if label == "" {
+		return fmt.Errorf("label is required")
+	}
+
+	task, err := s.GetSpecTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+
+	for _, l := range task.Labels {
+		if l == label {
+			return nil // already present
+		}
+	}
+
+	task.Labels = append(task.Labels, label)
+	return s.UpdateSpecTask(ctx, task)
+}
+
+// RemoveSpecTaskLabel removes a label from a spec task. No-op if the label does not exist.
+func (s *PostgresStore) RemoveSpecTaskLabel(ctx context.Context, taskID string, label string) error {
+	if taskID == "" {
+		return fmt.Errorf("task ID is required")
+	}
+	if label == "" {
+		return fmt.Errorf("label is required")
+	}
+
+	task, err := s.GetSpecTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+
+	filtered := task.Labels[:0]
+	for _, l := range task.Labels {
+		if l != label {
+			filtered = append(filtered, l)
+		}
+	}
+
+	if len(filtered) == len(task.Labels) {
+		return nil // label not found, no-op
+	}
+
+	task.Labels = filtered
+	return s.UpdateSpecTask(ctx, task)
 }
