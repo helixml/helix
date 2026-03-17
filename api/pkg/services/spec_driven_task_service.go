@@ -347,7 +347,10 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	if project != nil && project.KoditEnabled {
 		koditDoc = s.koditService.MCPDocumentation()
 	}
-	planningPrompt := BuildPlanningPrompt(task, guidelines, koditDoc)
+
+	// Build repository section listing local + Kodit repos for the agent
+	repoSection := s.buildRepositorySectionForTask(ctx, task, project)
+	planningPrompt := BuildPlanningPrompt(task, guidelines, koditDoc, repoSection)
 
 	// Get CodeAgentRuntime from the app config (needed for session resume to select correct agent)
 	codeAgentRuntime := s.getCodeAgentRuntimeForTask(ctx, task)
@@ -824,6 +827,9 @@ Follow these guidelines when making changes:
 - Make your changes
 - Push: `+"`git push origin %s`", branchName, branchName)
 
+	// Build repository section listing local + Kodit repos for the agent
+	repoSection := s.buildRepositorySectionForTask(ctx, task, project)
+
 	promptWithBranch := fmt.Sprintf(`%s
 %s
 ---
@@ -831,13 +837,13 @@ Follow these guidelines when making changes:
 **Working in /home/retro/work/:** All code repositories are in /home/retro/work/. That's where you make changes.
 
 **Primary Project Directory:** /home/retro/work/%s/
-
+%s
 **Shell commands:** Specify is_background (true or false) on all shell commands - it's required. Use true for long-running operations (builds, servers, installs).
 
 %s
 
 **For persistent installs:** Add commands to /home/retro/work/helix-specs/.helix/startup.sh (runs at sandbox startup, must be idempotent). Push directly to helix-specs branch.
-`, userPrompt, guidelinesSection, primaryRepoName, gitInstructions)
+`, userPrompt, guidelinesSection, primaryRepoName, repoSection, gitInstructions)
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
@@ -1262,6 +1268,43 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 	}
 
 	return nil
+}
+
+// buildRepositorySectionForTask fetches project and org repos, then builds the repository section
+func (s *SpecDrivenTaskService) buildRepositorySectionForTask(ctx context.Context, task *types.SpecTask, project *types.Project) string {
+	if task.ProjectID == "" {
+		return ""
+	}
+
+	// Fetch project repos
+	projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: task.ProjectID,
+	})
+	if err != nil {
+		return ""
+	}
+
+	// Fetch Kodit org repos if enabled
+	var koditOrgRepos []*types.GitRepository
+	if project != nil && project.KoditEnabled && project.OrganizationID != "" {
+		orgRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			OrganizationID: project.OrganizationID,
+		})
+		if err == nil {
+			for _, repo := range orgRepos {
+				if repo.KoditIndexing {
+					koditOrgRepos = append(koditOrgRepos, repo)
+				}
+			}
+		}
+	}
+
+	primaryRepoID := ""
+	if project != nil {
+		primaryRepoID = project.DefaultRepoID
+	}
+
+	return BuildRepositorySection(projectRepos, koditOrgRepos, primaryRepoID)
 }
 
 // Helper functions

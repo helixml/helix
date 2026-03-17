@@ -45,6 +45,7 @@ func getTaskDirName(task *types.SpecTask) string {
 type ApprovalPromptData struct {
 	Guidelines            string // Formatted guidelines section
 	KoditSection          string // Dynamic MCP tool documentation from kodit (empty when disabled)
+	RepositorySection     string // Available repositories section (local + Kodit repos)
 	PrimaryRepoName       string // Name of the primary repository (e.g., "my-app")
 	TaskDirName           string // Design doc directory name
 	BranchName            string // Feature branch name
@@ -126,7 +127,7 @@ If you use an internal to-do tool instead of tasks.md, users cannot see your pro
 
 1. **/home/retro/work/helix-specs/** = Design docs and progress tracking (push to helix-specs branch)
 2. **/home/retro/work/{{.PrimaryRepoName}}/** = Code changes (push to feature branch) - THIS IS YOUR PRIMARY PROJECT
-
+{{.RepositorySection}}
 ## Task Checklist
 
 Your checklist: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/tasks.md
@@ -311,7 +312,8 @@ git checkout {{.BaseBranch}} && git pull origin {{.BaseBranch}} && git merge {{.
 // This is the single source of truth for this prompt - used by WebSocket and database approaches
 // guidelines contains concatenated organization + project guidelines (can be empty)
 // primaryRepoName is the name of the primary project repository (e.g., "my-app")
-func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines, primaryRepoName, koditSection string) string {
+// repoSection is the pre-built repository access section (from BuildRepositorySection)
+func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines, primaryRepoName, koditSection, repoSection string) string {
 	taskDirName := getTaskDirName(task)
 
 	// Build guidelines section if provided
@@ -365,6 +367,7 @@ The whole point of cloning is to SKIP re-asking questions that were already answ
 	data := ApprovalPromptData{
 		Guidelines:            guidelinesSection,
 		KoditSection:          koditSection,
+		RepositorySection:     repoSection,
 		PrimaryRepoName:       primaryRepoName,
 		TaskDirName:           taskDirName,
 		BranchName:            branchName,
@@ -484,7 +487,10 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	if project != nil && project.KoditEnabled {
 		koditDoc = s.koditService.MCPDocumentation()
 	}
-	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName, koditDoc)
+
+	// Build repository section
+	repoSection := s.buildRepositorySectionForTask(ctx, task, project)
+	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection)
 
 	log.Info().
 		Str("session_id", sessionID).
@@ -542,6 +548,43 @@ func (s *AgentInstructionService) getGuidelinesForTask(ctx context.Context, task
 	}
 
 	return guidelines, project
+}
+
+// buildRepositorySectionForTask fetches project and org repos, then builds the repository section
+func (s *AgentInstructionService) buildRepositorySectionForTask(ctx context.Context, task *types.SpecTask, project *types.Project) string {
+	if task.ProjectID == "" {
+		return ""
+	}
+
+	// Fetch project repos
+	projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: task.ProjectID,
+	})
+	if err != nil {
+		return ""
+	}
+
+	// Fetch Kodit org repos if enabled
+	var koditOrgRepos []*types.GitRepository
+	if project != nil && project.KoditEnabled && project.OrganizationID != "" {
+		orgRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			OrganizationID: project.OrganizationID,
+		})
+		if err == nil {
+			for _, repo := range orgRepos {
+				if repo.KoditIndexing {
+					koditOrgRepos = append(koditOrgRepos, repo)
+				}
+			}
+		}
+	}
+
+	primaryRepoID := ""
+	if project != nil {
+		primaryRepoID = project.DefaultRepoID
+	}
+
+	return BuildRepositorySection(projectRepos, koditOrgRepos, primaryRepoID)
 }
 
 // SendImplementationReviewRequest notifies agent that implementation is ready for review
