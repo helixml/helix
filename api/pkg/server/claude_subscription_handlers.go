@@ -704,7 +704,7 @@ func (apiServer *HelixAPIServer) getClaudeLoginURL(_ http.ResponseWriter, req *h
 	// Run the URL capture script in the container.
 	// Timeout is 22s: script waits up to 20s for the URL, plus a couple seconds overhead.
 	execReq := map[string]interface{}{
-		"command": []string{"bash", "-c", claudeLoginURLScript},
+		"command": []string{"sh", "-c", claudeLoginURLScript},
 		"timeout": 22,
 	}
 	execBody, _ := json.Marshal(execReq)
@@ -736,6 +736,12 @@ func (apiServer *HelixAPIServer) getClaudeLoginURL(_ http.ResponseWriter, req *h
 		ExitCode int    `json:"exit_code"`
 	}
 	if err := json.Unmarshal(bodyBytes, &execResult); err != nil {
+		log.Error().
+			Str("session_id", sessionID).
+			Str("raw_body", string(bodyBytes)).
+			Int("http_status", execResp.StatusCode).
+			Err(err).
+			Msg("Failed to parse exec result from container")
 		return nil, system.NewHTTPError500("failed to parse exec result")
 	}
 

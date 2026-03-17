@@ -304,7 +304,6 @@ interface ClaudeLoginDialogInnerProps {
 
 type LoginPhase =
   | 'waiting'       // container starting
-  | 'installing'    // npm install running
   | 'opening'       // calling get-login-url, about to open browser
   | 'browser'       // browser opened, waiting for user to complete OAuth
   | 'error'         // flow failed
@@ -356,20 +355,8 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
       try {
         const apiClient = api.getApiClient()
 
-        // Upgrade claude CLI to latest. Old image versions used localhost:<random-port>
-        // for OAuth which Anthropic no longer accepts; newer versions use
-        // platform.claude.com/oauth/code/callback. Upgrading here self-heals deployed images.
-        setPhase('installing')
-        await apiClient.v1ExternalAgentsExecCreate(sessionId, {
-          command: ['npm', 'install', '-g', '@anthropic-ai/claude-code@latest'],
-          background: false,
-          timeout: 300,
-          env: {},
-        })
-
         // Start claude auth login in the container via a fake browser that captures
-        // the OAuth URL, then return it. This replaces the old approach of running
-        // claude auth login with WAYLAND_DISPLAY and showing an embedded desktop stream.
+        // the OAuth URL, then return it. Claude Code is pre-installed in the image.
         setPhase('opening')
         const urlResult = await apiClient.v1ClaudeSubscriptionsGetLoginUrlList({ session_id: sessionId })
         const oauthUrl = urlResult.data?.login_url
@@ -443,11 +430,10 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
 
   const phaseLabel = (): string => {
     switch (phase) {
-      case 'waiting':    return 'Starting session...'
-      case 'installing': return 'Installing Claude CLI...'
-      case 'opening':    return 'Opening browser...'
-      case 'browser':    return 'Waiting for sign-in to complete...'
-      case 'error':      return 'Failed to open browser'
+      case 'waiting':  return 'Starting session...'
+      case 'opening':  return 'Opening browser...'
+      case 'browser':  return 'Waiting for sign-in to complete...'
+      case 'error':    return 'Failed to open browser'
     }
   }
 

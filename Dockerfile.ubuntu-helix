@@ -826,6 +826,10 @@ RUN mkdir -p /etc/skel/.config/google-chrome && \
 # Install chrome-devtools-mcp globally and pre-build fontconfig cache
 RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
 
+# Install Claude Code CLI so it's available for the Claude OAuth login flow without
+# requiring a runtime npm install (which runs as non-root and would fail EACCES).
+RUN npm install -g @anthropic-ai/claude-code@latest
+
 # Install drone-ci-mcp (Helix's Drone CI MCP server for build log navigation)
 # Build and pack the package, then install globally from the tarball
 COPY mcp-servers/drone-ci/package.json mcp-servers/drone-ci/package-lock.json mcp-servers/drone-ci/tsconfig.json /tmp/drone-ci-mcp/
