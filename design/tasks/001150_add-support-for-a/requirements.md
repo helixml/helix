@@ -1,16 +1,16 @@
-# Requirements: Declarative Project & Project Template Support
+# Requirements: Declarative Project YAML
 
 ## Overview
 
-Add support for `project.yaml` and `project_template.yaml` files that can be applied via `helix apply -f`, and update the k8s operator to handle these new resource kinds along with fixing existing issues.
+Add a single `project.yaml` format that declaratively defines a Helix project, including its inline agent configuration. The same file works for both `helix apply -f project.yaml` (CLI) and `kubectl apply -f project.yaml` (k8s operator). Sharing a project template is simply sharing a `project.yaml` file.
 
 ---
 
 ## User Stories
 
-### 1. Declarative Project Management
+### 1. Define and apply a project
 
-**As a developer**, I want to define my Helix project in a `project.yaml` file so that I can version-control my project configuration and apply it idempotently.
+**As a developer**, I want to declare my entire Helix project — including its agent — in a single YAML file so I can version-control it and apply it idempotently.
 
 ```yaml
 apiVersion: helix.ml/v1alpha1
@@ -24,87 +24,83 @@ spec:
   technologies:
     - Go
     - PostgreSQL
-  default_helix_app_id: app_abc123
   guidelines: |
-    Use conventional commits.
-    All PRs require tests.
+    Use conventional commits. All PRs require tests.
+  agent:
+    name: "Project Assistant"
+    description: "Helps work on this project"
+    model: claude-sonnet-4-6
+    provider: anthropic
+    system_prompt: |
+      You are a coding assistant for this Go/PostgreSQL project.
+      Follow the project guidelines and use conventional commits.
+    tools:
+      web_search: true
+      browser: false
+    mcps:
+      - name: github
+        transport: stdio
+        command: npx
+        args: ["-y", "@modelcontextprotocol/server-github"]
+        env:
+          GITHUB_TOKEN: "${GITHUB_TOKEN}"
+    knowledge:
+      - name: project-docs
+        source:
+          web:
+            urls:
+              - https://docs.example.com
 ```
 
 **Acceptance Criteria:**
 - `helix apply -f project.yaml` creates or updates a project by name
 - Requires `--organization` flag to scope the project to an org (personal orgs are not supported)
-- On update, project fields are merged/overwritten (name is the unique key)
-- Output prints the project ID on success
-- Errors if required fields (name) are missing
+- On update, project fields are merged/overwritten (name is the unique key within the org)
+- The inline `agent` block creates or updates a Helix App (agent) linked to the project as its default agent
+- Agent name is used as idempotency key: existing agent with same name is updated, otherwise created
+- Output prints the project ID and agent app ID on success
+- Errors if required fields (`metadata.name`, `spec.agent.model`) are missing
 
 ---
 
-### 2. Declarative Project Template (Sample Project)
+### 2. Use a project YAML as a template
 
-**As an org admin**, I want to define a `project_template.yaml` that adds a new sample project to my organization's list of available templates, so teams can fork it.
-
-```yaml
-apiVersion: helix.ml/v1alpha1
-kind: ProjectTemplate
-metadata:
-  name: fastapi-service
-spec:
-  description: "FastAPI microservice template"
-  github_repo: "myorg/fastapi-template"
-  default_branch: main
-  technologies:
-    - Python
-    - FastAPI
-    - PostgreSQL
-  difficulty: intermediate
-  category: api
-  task_prompts:
-    - title: "Add health check endpoint"
-      prompt: "Add a /health endpoint that returns service status and DB connectivity"
-      type: feature
-      priority: high
-    - title: "Add authentication middleware"
-      prompt: "Implement JWT authentication middleware for protected routes"
-      type: feature
-      priority: high
-```
+**As an org admin**, I want to share a `project.yaml` file that others can fork to create their own project from a common starting point.
 
 **Acceptance Criteria:**
-- `helix apply -f project_template.yaml` creates or updates an org-scoped sample project template
-- Templates are stored in the database (not hardcoded), scoped to an organization or globally
-- `helix project samples` lists both built-in and org-defined templates
-- Users can `helix project fork <template-id>` from org templates
-- `--organization` flag scopes the template to that org; omitting it requires admin and makes it global
+- A `project.yaml` file, applied with `--template` flag, registers the project as a sample/template available to org members
+- `helix project samples` lists org-registered templates alongside built-in ones
+- `helix project fork <template-name>` creates a new project from a registered template
+- Without `--template`, `helix apply -f project.yaml` creates a live project (not a template listing)
 
 ---
 
-### 3. K8s Operator: Project CRD
+### 3. K8s operator: apply via kubectl
 
-**As a platform engineer**, I want to manage Helix projects as Kubernetes CRDs so that I can use GitOps tooling to deploy and manage project configuration.
+**As a platform engineer**, I want to `kubectl apply -f project.yaml` and have the operator create the Helix project and its agent.
 
 **Acceptance Criteria:**
 - A `Project` CRD exists in the operator (`helix.ml/v1alpha1`, kind `Project`)
-- The operator reconciles `Project` resources with the Helix API
-- Deletion of a k8s `Project` resource soft-deletes the Helix project (or is configurable)
-- The project name is namespaced: `k8s.<namespace>.<name>` (consistent with AIApp pattern)
+- The operator reconciles `Project` resources with the Helix API (create/update/delete)
+- Project name is namespaced as `k8s.<namespace>.<name>` (consistent with AIApp pattern)
+- Agent defined in `spec.agent` is created/updated linked to the project
+- `ProjectStatus` reports `Ready`, `ProjectID`, `AgentAppID`, `LastSyncedAt`
 
 ---
 
-### 4. K8s Operator: Bug Fixes & Improvements
-
-**As a platform engineer**, I want the operator to correctly convert all AIApp fields and have better observability.
+### 4. K8s Operator: Bug Fixes
 
 **Acceptance Criteria:**
-- Fix: `GPTScripts` are currently not converted (the loop mistakenly iterates `Zapier` again)
-- Fix: `Knowledge` sources are not converted from operator CRD to Helix types
-- Add: `AIAppStatus` exposes `Ready`, `AppID`, and `LastSyncedAt` as status conditions
-- Add: Support `HELIX_TLS_SKIP_VERIFY` environment variable (already noted as TODO in code)
+- Fix: GPTScript conversion loop iterates `assistant.Zapier` instead of `assistant.GPTScripts`
+- Fix: Knowledge sources not converted from operator CRD types to Helix API types
+- Add: `HELIX_TLS_SKIP_VERIFY` env var support (already TODO'd in code)
 - Add: `OrganizationID` field in `AIAppSpec` so apps can be org-scoped from k8s
+- Add: `AIAppStatus` exposes `Ready`, `AppID`, `LastSyncedAt`, `Message`
 
 ---
 
 ## Out of Scope
 
-- Declarative management of SpecTasks via YAML (handled separately)
-- Importing projects from GitHub metadata automatically
-- Multi-document YAML files (multiple resources in one file separated by `---`)
+- Multi-document YAML (multiple resources in one file separated by `---`)
+- Declarative SpecTask management via YAML
+- Automatic import from GitHub repo metadata
