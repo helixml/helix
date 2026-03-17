@@ -99,6 +99,66 @@ func (g *GoldenBuildService) updateSandboxCacheStatus(ctx context.Context, proje
 	}
 }
 
+// RecoverStaleBuilds scans for projects with "building" status in the DB and
+// re-attaches monitoring goroutines. Called on API startup to recover from
+// restarts that killed the monitoring goroutines mid-build.
+func (g *GoldenBuildService) RecoverStaleBuilds(ctx context.Context) {
+	projects, err := g.store.ListProjectsWithActiveGoldenBuild(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Golden build recovery: failed to list projects with active builds")
+		return
+	}
+
+	if len(projects) == 0 {
+		return
+	}
+
+	log.Info().Int("count", len(projects)).Msg("Golden build recovery: found projects with stale 'building' status")
+
+	for _, project := range projects {
+		if project.Metadata.DockerCacheStatus == nil {
+			continue
+		}
+		for sbID, sbState := range project.Metadata.DockerCacheStatus.Sandboxes {
+			if sbState.Status != "building" || sbState.BuildSessionID == "" {
+				continue
+			}
+
+			sessionID := sbState.BuildSessionID
+			key := buildKey(project.ID, sbID)
+
+			// Check if the container is still running
+			if g.containerExecutor.HasRunningContainer(ctx, sessionID) {
+				// Container still alive — re-attach the monitoring goroutine
+				log.Info().
+					Str("project_id", project.ID).
+					Str("sandbox_id", sbID).
+					Str("session_id", sessionID).
+					Msg("Golden build recovery: container still running, re-attaching monitor")
+
+				g.mu.Lock()
+				g.building[key] = time.Now()
+				g.mu.Unlock()
+
+				go g.waitForGoldenBuildCompletion(ctx, project.ID, sbID, sessionID)
+			} else {
+				// Container gone — reset the status
+				log.Info().
+					Str("project_id", project.ID).
+					Str("sandbox_id", sbID).
+					Str("session_id", sessionID).
+					Msg("Golden build recovery: container gone, resetting status")
+
+				g.updateSandboxCacheStatus(ctx, project.ID, sbID, func(s *types.SandboxCacheState) {
+					s.Status = "none"
+					s.BuildSessionID = ""
+					s.Error = "Build interrupted by API restart"
+				})
+			}
+		}
+	}
+}
+
 // TriggerGoldenBuild starts golden builds on all online sandboxes if the setting is enabled
 // and no build is already running on each sandbox. Called when code is merged to main.
 func (g *GoldenBuildService) TriggerGoldenBuild(ctx context.Context, project *types.Project) {
