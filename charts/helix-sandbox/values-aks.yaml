@@ -53,6 +53,12 @@ probes:
   readiness:
     enabled: false
 
+# GPU configuration
+# resourceName is empty because the AMD Radeon PRO V710 is a visualization GPU
+# that does not expose /dev/kfd, so the ROCm device plugin cannot detect it.
+# The sandbox runs as a privileged container and accesses /dev/dri directly.
+# If you are using the ROCm device plugin with a compute GPU (e.g., MI300X),
+# set resourceName to "amd.com/gpu" so the scheduler enforces GPU availability.
 gpu:
   vendor: "amd"
   amd:
