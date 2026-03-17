@@ -2,9 +2,9 @@
 
 ## Backend
 
-- [~] Add `GET /api/v1/claude-subscriptions/get-login-url?session_id={id}` endpoint in `claude_subscription_handlers.go` that execs `BROWSER=echo claude auth login` in the running container, captures stdout, extracts the OAuth URL line, and returns `{"login_url": "https://..."}`
-- [~] Register the new route in the server router (same file as other claude-subscription routes)
-- [ ] Regenerate OpenAPI client: `./stack update_openapi`
+- [x] Add `GET /api/v1/claude-subscriptions/get-login-url?session_id={id}` endpoint in `claude_subscription_handlers.go` that execs `BROWSER=echo claude auth login` in the running container, captures stdout, extracts the OAuth URL line, and returns `{"login_url": "https://..."}`
+- [x] Register the new route in the server router (same file as other claude-subscription routes)
+- [~] Regenerate OpenAPI client: `./stack update_openapi`
 
 ## Frontend
 
