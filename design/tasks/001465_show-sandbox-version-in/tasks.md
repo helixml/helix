@@ -10,13 +10,13 @@
 
 ## API & OpenAPI
 
-- [~] Run `./stack update_openapi` to regenerate swagger docs and frontend types
+- [x] Run `./stack update_openapi` to regenerate swagger docs and frontend types
 
 ## Frontend
 
-- [ ] Update sandbox dropdown in `frontend/src/pages/Dashboard.tsx` to display version
-- [ ] Add version mismatch detection comparing sandbox versions to `account.serverConfig.version`
-- [ ] Add `<Alert severity="warning">` banner in agent_sandboxes tab when version mismatch detected
+- [~] Update sandbox dropdown in `frontend/src/pages/Dashboard.tsx` to display version
+- [~] Add version mismatch detection comparing sandbox versions to `account.serverConfig.version`
+- [~] Add `<Alert severity="warning">` banner in agent_sandboxes tab when version mismatch detected
 - [ ] Format version display (truncate git hashes to 7 chars)
 
 ## Testing
