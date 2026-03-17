@@ -3892,6 +3892,21 @@ func (mr *MockStoreMockRecorder) ListProjects(ctx, query any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProjects", reflect.TypeOf((*MockStore)(nil).ListProjects), ctx, query)
 }
 
+// ListProjectsWithActiveGoldenBuild mocks base method.
+func (m *MockStore) ListProjectsWithActiveGoldenBuild(ctx context.Context) ([]*types.Project, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListProjectsWithActiveGoldenBuild", ctx)
+	ret0, _ := ret[0].([]*types.Project)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListProjectsWithActiveGoldenBuild indicates an expected call of ListProjectsWithActiveGoldenBuild.
+func (mr *MockStoreMockRecorder) ListProjectsWithActiveGoldenBuild(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProjectsWithActiveGoldenBuild", reflect.TypeOf((*MockStore)(nil).ListProjectsWithActiveGoldenBuild), ctx)
+}
+
 // ListPromptHistory mocks base method.
 func (m *MockStore) ListPromptHistory(ctx context.Context, userID string, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error) {
 	m.ctrl.T.Helper()

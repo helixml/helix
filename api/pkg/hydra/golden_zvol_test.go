@@ -1334,6 +1334,91 @@ func (s *GoldenZvolSuite) TestFullLifecycle_MigrationToCloneToRebuild() {
 }
 
 // -----------------------------------------------------------------------
+// GetGoldenSize with ZFS zvol
+// -----------------------------------------------------------------------
+
+func (s *GoldenZvolSuite) TestGetGoldenSize_ZvolPath() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+
+	// Golden zvol exists with snapshot
+	s.mock.addDataset("prod/helix-zvols/golden-prj_abc")
+	s.mock.addSnapshot("prod/helix-zvols/golden-prj_abc", "gen1")
+
+	// Mock zfs list -o used to return size in bytes
+	origOutput := execCmdOutput
+	execCmdOutput = func(name string, args ...string) ([]byte, error) {
+		s.mock.commands = append(s.mock.commands, cmdRecord{name, args})
+		if name == "zfs" && contains(args, "used") && contains(args, "-p") {
+			return []byte("32212254720\n"), nil // 30GB in bytes
+		}
+		return origOutput(name, args...)
+	}
+	defer func() { execCmdOutput = origOutput }()
+
+	size := GetGoldenSize("prj_abc")
+	assert.Equal(s.T(), int64(32212254720), size)
+	assert.True(s.T(), s.mock.hasCommand("zfs list"))
+}
+
+func (s *GoldenZvolSuite) TestGetGoldenSize_FallsBackToFileCopy() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+	// No golden zvol — should fall back to du
+
+	size := GetGoldenSize("prj_nonexistent")
+	assert.Equal(s.T(), int64(0), size) // dir doesn't exist → 0
+}
+
+// -----------------------------------------------------------------------
+// monitorGoldenBuild result file paths
+// -----------------------------------------------------------------------
+
+func (s *GoldenZvolSuite) TestMonitorGoldenBuild_ZvolResultPath() {
+	// Verify the zvol result path is correct
+	sessionID := "ses_abc123"
+	expected := filepath.Join(zvolMountBase, sessionID, ".golden-build-result")
+	assert.Equal(s.T(), "/container-docker/zvol-mounts/ses_abc123/.golden-build-result", expected)
+}
+
+// -----------------------------------------------------------------------
+// Cleanup uses correct path per storage type
+// -----------------------------------------------------------------------
+
+func (s *GoldenZvolSuite) TestCleanup_ZvolSessionUsesZvolCleanup() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+
+	// Session exists as zvol
+	s.mock.addDataset("prod/helix-zvols/ses-ses_001")
+	s.mock.setMounted("/container-docker/zvol-mounts/ses_001")
+
+	// zfsDatasetExists should return true for the zvol
+	assert.True(s.T(), zfsDatasetExists(sessionZvolName("ses_001")))
+
+	// Cleanup should use zvol path
+	err := CleanupSessionZvol("ses_001")
+	require.NoError(s.T(), err)
+
+	assert.True(s.T(), s.mock.hasCommand("zfs destroy prod/helix-zvols/ses-ses_001"))
+}
+
+func (s *GoldenZvolSuite) TestCleanup_NonZvolSessionSkipsZvolCleanup() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+
+	// Session does NOT exist as zvol (file-copy session)
+	assert.False(s.T(), zfsDatasetExists(sessionZvolName("ses_filecopy")))
+
+	// CleanupSessionZvol should be a no-op
+	err := CleanupSessionZvol("ses_filecopy")
+	require.NoError(s.T(), err)
+
+	// Should NOT have tried to destroy anything
+	assert.False(s.T(), s.mock.hasCommand("zfs destroy"))
+}
+
+// -----------------------------------------------------------------------
 // Dedup settings verification
 // -----------------------------------------------------------------------
 

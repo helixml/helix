@@ -1131,6 +1131,13 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 			// Write a timestamp so GC knows when this session was last active.
 			// Directory mtime doesn't update when files deep inside are modified,
 			// so we use an explicit marker file.
+			// Write to both possible locations (zvol mount and file-copy dir).
+			if ZFSAvailable() {
+				zvolMount := sessionZvolMountPath(sessionID)
+				if isMounted(zvolMount) {
+					TouchSessionLastActive(zvolMount)
+				}
+			}
 			sessionDir := filepath.Join("/container-docker/sessions", dockerDataVolume)
 			TouchSessionLastActive(sessionDir)
 			log.Info().
@@ -1516,7 +1523,12 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 	defer cancel()
 
 	dockerDataVolume := fmt.Sprintf("docker-data-%s", dc.SessionID)
-	resultFile := filepath.Join(sessionsBaseDir, dockerDataVolume, "docker", ".golden-build-result")
+
+	// Check both possible locations for the result file:
+	// - ZFS zvol mount: /container-docker/zvol-mounts/{sessionID}/.golden-build-result
+	// - File-copy path: /container-docker/sessions/docker-data-{sessionID}/docker/.golden-build-result
+	zvolResultFile := filepath.Join(zvolMountBase, dc.SessionID, ".golden-build-result")
+	fileCopyResultFile := filepath.Join(sessionsBaseDir, dockerDataVolume, "docker", ".golden-build-result")
 
 	// Poll for the result file. The workspace-setup script writes this after
 	// the startup script completes and dockerd is stopped.
@@ -1540,7 +1552,11 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 			return
 
 		case <-ticker.C:
-			data, err := os.ReadFile(resultFile)
+			// Try ZFS zvol path first, then file-copy path
+			data, err := os.ReadFile(zvolResultFile)
+			if err != nil {
+				data, err = os.ReadFile(fileCopyResultFile)
+			}
 			if err != nil {
 				continue // File doesn't exist yet — build still running
 			}
@@ -1604,10 +1620,11 @@ done:
 			Dur("build_duration", buildDuration).
 			Msg("Golden build failed, not promoting")
 		// Clean up the failed session's Docker data
-		if ZFSAvailable() {
+		if ZFSAvailable() && zfsDatasetExists(sessionZvolName(dc.SessionID)) {
 			_ = CleanupSessionZvol(dc.SessionID)
+		} else {
+			_ = CleanupSessionDockerDir(dockerDataVolume)
 		}
-		_ = CleanupSessionDockerDir(dockerDataVolume)
 	}
 
 	// Store the result so the API can query it after the container is gone.

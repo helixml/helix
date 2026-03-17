@@ -471,6 +471,10 @@ func NewServer(
 	)
 	apiServer.specTaskOrchestrator.SetGoldenBuildService(apiServer.goldenBuildService)
 
+	// Recover golden builds that were in progress when the API last restarted.
+	// Re-attaches monitoring goroutines for still-running builds, resets stale ones.
+	go apiServer.goldenBuildService.RecoverStaleBuilds(context.Background())
+
 	// Start orchestrator
 	go func() {
 		if err := apiServer.specTaskOrchestrator.Start(context.Background()); err != nil {

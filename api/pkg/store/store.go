@@ -576,6 +576,7 @@ type Store interface {
 	CreateProject(ctx context.Context, project *types.Project) (*types.Project, error)
 	GetProject(ctx context.Context, projectID string) (*types.Project, error)
 	ListProjects(ctx context.Context, query *ListProjectsQuery) ([]*types.Project, error)
+	ListProjectsWithActiveGoldenBuild(ctx context.Context) ([]*types.Project, error)
 	GetProjectsCount(ctx context.Context, query *GetProjectsCountQuery) (int64, error)
 	UpdateProject(ctx context.Context, project *types.Project) error
 	DeleteProject(ctx context.Context, projectID string) error
