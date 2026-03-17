@@ -20,6 +20,16 @@ As a user who is already signed in to Claude in my browser, I want the flow to c
 **US-4 — Non-macOS / web context preserved**
 As a user on the web version of Helix, I want the existing embedded-desktop login flow to remain available as a fallback, since the native-browser approach requires Wails/macOS-specific integration.
 
+## How credentials flow into spec task sessions
+
+This is a separate, already-working mechanism that this task does not change:
+
+1. **Login flow (this task):** User authenticates → `claude auth login` writes `~/.claude/.credentials.json` in the temporary login container → the Helix API polls for it → stores the OAuth tokens encrypted in the `claude_subscriptions` DB table.
+
+2. **Session runtime flow (unchanged):** When a real spec task / desktop session starts, the `settings-sync-daemon` runs inside the Ubuntu container. It calls `GET /api/v1/sessions/{id}/claude-credentials`, which decrypts and returns the stored tokens. The daemon writes them to `~/.claude/.credentials.json` inside that container. Claude Code (subscription mode, no `baseURL`) reads from this file to authenticate directly with Anthropic. The daemon also watches for token refreshes and pushes updated tokens back to the API via `PUT /api/v1/sessions/{id}/claude-credentials`.
+
+So fixing the login flow (step 1) automatically makes credentials available in all subsequent sessions (step 2) — there is no additional work needed to "pass" credentials into the VM.
+
 ## Acceptance Criteria
 
 - [ ] Clicking "Connect" during onboarding completes the Claude OAuth flow successfully on the macOS app
@@ -29,3 +39,4 @@ As a user on the web version of Helix, I want the existing embedded-desktop logi
 - [ ] Cancelling the flow cleans up any temporary session/container
 - [ ] The existing embedded-desktop login still works for the web context (no regression)
 - [ ] Re-authentication (expired token) also uses the same improved flow
+- [ ] After login, a new spec task using the Claude Code runtime has working credentials (via settings-sync-daemon — no change needed here)
