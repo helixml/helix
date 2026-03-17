@@ -171,7 +171,21 @@ func detectPoolRoot() string {
 		}
 		// Found the mount. The device is fields[0], e.g. /dev/zd16
 		// or /dev/zvol/prod/container-docker
+		// or just "prod" (ZFS dataset mounted directly, fstype=zfs)
 		dev := fields[0]
+		fstype := ""
+		if len(fields) >= 3 {
+			fstype = fields[2]
+		}
+
+		// If it's a ZFS dataset mount (fstype=zfs, device is the pool/dataset name)
+		// e.g. "prod /container-docker zfs rw,..."
+		if fstype == "zfs" && !strings.HasPrefix(dev, "/dev/") {
+			// Device field is the dataset name (e.g. "prod" or "prod/data")
+			// The pool root is the first component
+			parts := strings.Split(dev, "/")
+			return parts[0]
+		}
 
 		// If it's a /dev/zvol/ path, extract the dataset name
 		if strings.HasPrefix(dev, "/dev/zvol/") {
