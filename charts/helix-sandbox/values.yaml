@@ -230,6 +230,33 @@ persistence:
     accessModes:
       - ReadWriteOnce
 
+# Health check probes
+# The sandbox uses exec probes by default to verify the nested dockerd is running.
+# On some platforms (e.g., AKS with cgroup v2), exec probes fail because the
+# DinD container modifies cgroup subtrees. In those cases, disable probes or
+# switch to an alternative probe type.
+probes:
+  liveness:
+    enabled: true
+    exec:
+      command:
+        - docker
+        - info
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+  readiness:
+    enabled: true
+    exec:
+      command:
+        - docker
+        - info
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 10
+    failureThreshold: 3
+
 # Debugging options
 debug:
   # Keep dead containers for inspection (don't auto-remove)
