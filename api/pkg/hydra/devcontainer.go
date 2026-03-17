@@ -1587,8 +1587,20 @@ done:
 		if ZFSAvailable() && zfsDatasetExists(sessionZvolName(dc.SessionID)) {
 			// Session was on a ZFS zvol — promote via ZFS rename+snapshot (instant)
 			promoteErr = PromoteSessionToGoldenZvol(dc.ProjectID, dc.SessionID)
+		} else if ZFSAvailable() {
+			// Session was on file-copy path but ZFS is available.
+			// Promote to file-based golden first, then migrate to zvol
+			// so subsequent sessions get instant clones.
+			promoteErr = PromoteSessionToGolden(dc.ProjectID, dockerDataVolume, dc.SessionID)
+			if promoteErr == nil {
+				if err := MigrateGoldenToZvol(dc.ProjectID); err != nil {
+					log.Warn().Err(err).
+						Str("project_id", dc.ProjectID).
+						Msg("Golden promoted to file dir but failed to migrate to zvol (will retry on next session)")
+				}
+			}
 		} else {
-			// File-copy fallback
+			// No ZFS — file-copy promotion only
 			promoteErr = PromoteSessionToGolden(dc.ProjectID, dockerDataVolume, dc.SessionID)
 		}
 		if promoteErr != nil {
