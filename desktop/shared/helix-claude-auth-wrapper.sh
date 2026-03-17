@@ -19,6 +19,8 @@ if ! command -v claude &>/dev/null; then
     exit 1
 fi
 
-# No trailing & — this script is already backgrounded by the exec handler.
-# Running claude in the foreground of the script avoids orphan/zombie processes.
-claude auth login > /tmp/claude-auth-stdout.txt 2>&1
+# Use `script` to create a pseudo-TTY so Node.js (claude) uses line buffering
+# instead of full buffering. Without this, stdout is never flushed to the file
+# and the poll handler can't find the platform OAuth URL.
+# -q: quiet, -e: return child exit code, -f: flush after each write, -c: command
+script -qefc "claude auth login" /tmp/claude-auth-stdout.txt
