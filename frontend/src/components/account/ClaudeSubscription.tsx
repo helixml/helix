@@ -240,7 +240,7 @@ const ClaudeSubscription: FC = () => {
                   onClick={handleStartLogin}
                   disabled={loginStarting}
                 >
-                  {loginStarting ? 'Starting...' : 'Login with Browser'}
+                  {loginStarting ? <><CircularProgress size={14} sx={{ mr: 0.5 }} /> Starting...</> : 'Login with Browser'}
                 </Button>
                 <Button
                   variant="outlined"
@@ -324,7 +324,7 @@ const ClaudeSubscription: FC = () => {
                       onClick={handleStartLogin}
                       disabled={loginStarting}
                     >
-                      {loginStarting ? 'Starting...' : isExpired ? 'Re-authenticate' : 'Re-login'}
+                      {loginStarting ? <><CircularProgress size={14} sx={{ mr: 0.5 }} /> Starting...</> : isExpired ? 'Re-authenticate' : 'Re-login'}
                     </Button>
                     <IconButton
                       color="error"
