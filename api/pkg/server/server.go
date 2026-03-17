@@ -274,6 +274,15 @@ func NewServer(
 	// Set it after initializing it as it depends on the external agent executor
 	externalAgentExecutor.SetQuotaManager(quotaManager)
 
+	// Wire up callback to clear session metadata when sandbox disconnects
+	// The key format is "hydra-{sandboxID}" - we strip the prefix to get the sandbox ID
+	connectionManager.SetOnGracePeriodExpired(func(key string) {
+		if strings.HasPrefix(key, "hydra-") {
+			sandboxID := strings.TrimPrefix(key, "hydra-")
+			externalAgentExecutor.OnSandboxDisconnected(sandboxID)
+		}
+	})
+
 	// Initialize external agent runner connection manager
 	externalAgentRunnerManager := NewExternalAgentRunnerManager()
 
@@ -461,6 +470,10 @@ func NewServer(
 		apiServer.specDrivenTaskService,
 	)
 	apiServer.specTaskOrchestrator.SetGoldenBuildService(apiServer.goldenBuildService)
+
+	// Recover golden builds that were in progress when the API last restarted.
+	// Re-attaches monitoring goroutines for still-running builds, resets stale ones.
+	go apiServer.goldenBuildService.RecoverStaleBuilds(context.Background())
 
 	// Start orchestrator
 	go func() {

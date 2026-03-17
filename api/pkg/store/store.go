@@ -235,6 +235,7 @@ type Store interface {
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
 	ClearStaleStartingSessions(ctx context.Context) (int64, error)
+	ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error) // For cleanup on sandbox disconnect
 
 	// interactions
 	ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error)
@@ -536,6 +537,7 @@ type Store interface {
 	UpdateGitRepository(ctx context.Context, repo *types.GitRepository) error
 	DeleteGitRepository(ctx context.Context, id string) error
 	ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error)
+	CountGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64, excludeRepoID string) (int64, error)
 
 	// spec-driven task multi-session management
 	CreateImplementationSessions(ctx context.Context, specTaskID string, config *types.SpecTaskImplementationSessionsCreateRequest) ([]*types.SpecTaskWorkSession, error)
@@ -574,6 +576,7 @@ type Store interface {
 	CreateProject(ctx context.Context, project *types.Project) (*types.Project, error)
 	GetProject(ctx context.Context, projectID string) (*types.Project, error)
 	ListProjects(ctx context.Context, query *ListProjectsQuery) ([]*types.Project, error)
+	ListProjectsWithActiveGoldenBuild(ctx context.Context) ([]*types.Project, error)
 	GetProjectsCount(ctx context.Context, query *GetProjectsCountQuery) (int64, error)
 	UpdateProject(ctx context.Context, project *types.Project) error
 	DeleteProject(ctx context.Context, projectID string) error

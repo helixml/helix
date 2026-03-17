@@ -1407,6 +1407,69 @@ func (suite *OpenAIChatSuite) TestChatCompletions_ProviderPrefix_SystemProvider(
 	suite.Equal(http.StatusOK, rec.Code)
 }
 
+func (suite *OpenAIChatSuite) TestChatCompletions_ProviderPrefix_GlobalEndpointFromDB() {
+	// Test that a global provider endpoint (e.g., admin-created Ollama) is found
+	// via ListProviderEndpoints with WithGlobal=true. This tests the store query
+	// fix where global endpoints from other owners are visible to all users.
+
+	ctrl := gomock.NewController(suite.T())
+	storeMock := store.NewMockStore(ctrl)
+
+	// isKnownProvider checks: types.IsGlobalProvider -> no, GetProviderEndpoint (system) -> no,
+	// GetProviderEndpoint (user) -> no, then ListProviderEndpoints (WithGlobal) -> found
+	storeMock.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		Name:      "ollama",
+		Owner:     string(types.OwnerTypeSystem),
+		OwnerType: types.OwnerTypeSystem,
+	}).Return(nil, store.ErrNotFound)
+
+	ownerID, _ := getTestOwnerID(suite.authCtx)
+	storeMock.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		Name:  "ollama",
+		Owner: ownerID,
+	}).Return(nil, store.ErrNotFound)
+
+	// ListProviderEndpoints returns the admin-created global Ollama endpoint.
+	// Called by both isKnownProvider and findProviderWithModel, so use AnyTimes.
+	storeMock.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+		Owner:      ownerID,
+		WithGlobal: true,
+	}).Return([]*types.ProviderEndpoint{
+		{
+			Name:         "ollama",
+			Owner:        "admin-user-id",
+			EndpointType: types.ProviderEndpointTypeGlobal,
+			BaseURL:      "http://ollama:11434",
+		},
+	}, nil).AnyTimes()
+
+	originalStore := suite.server.Store
+	suite.server.Store = storeMock
+	defer func() { suite.server.Store = originalStore }()
+
+	req, err := http.NewRequest("POST", "/v1/chat/completions", bytes.NewBufferString(`{
+		"model": "ollama/mistral:7b-instruct",
+		"stream": false,
+		"messages": [{"role": "user", "content": "hello"}]
+	}`))
+	suite.NoError(err)
+	req = req.WithContext(suite.authCtx)
+	rec := httptest.NewRecorder()
+
+	suite.providerManager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(suite.openAiClient, nil)
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true).AnyTimes()
+	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
+			suite.Equal("mistral:7b-instruct", req.Model) // Prefix stripped
+			return oai.ChatCompletionResponse{
+				Choices: []oai.ChatCompletionChoice{{Message: oai.ChatCompletionMessage{Content: "hi"}, FinishReason: "stop"}},
+			}, nil
+		})
+
+	suite.server.createChatCompletion(rec, req)
+	suite.Equal(http.StatusOK, rec.Code)
+}
+
 func (suite *OpenAIChatSuite) TestChatCompletions_App_CustomQueryParams() {
 	// Create test server
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -5,7 +5,7 @@ set -euo pipefail
 # Helix Desktop VM - Lightweight Provisioning (Pre-built ARM64 Images)
 # =============================================================================
 #
-# Creates a VM using install.sh + pre-built ARM64 images from registry.helixml.tech
+# Creates a VM using install.sh + pre-built ARM64 images from ghcr.io/helixml
 # instead of building all Docker images from source.
 #
 # Savings vs provision-vm.sh:
@@ -686,20 +686,20 @@ if ! step_done "fix_arm64_images"; then
     run_ssh "sudo systemctl start docker" || true
 
     # Get all helix registry images from the compose file
-    COMPOSE_IMAGES=$(run_ssh "cd ~/helix && docker compose config --images 2>/dev/null" 2>/dev/null | grep "registry.helixml.tech/helix/" || echo "")
+    COMPOSE_IMAGES=$(run_ssh "cd ~/helix && docker compose config --images 2>/dev/null" 2>/dev/null | grep -E "(registry\.helixml\.tech/helix|ghcr\.io/helixml)/" || echo "")
     if [ -z "$COMPOSE_IMAGES" ]; then
         # Fallback: known images
-        COMPOSE_IMAGES="registry.helixml.tech/helix/controlplane:${HELIX_VERSION}
-registry.helixml.tech/helix/typesense:${HELIX_VERSION}
-registry.helixml.tech/helix/haystack:${HELIX_VERSION}
-registry.helixml.tech/helix/helix-sandbox:${HELIX_VERSION}"
+        COMPOSE_IMAGES="ghcr.io/helixml/controlplane:${HELIX_VERSION}
+ghcr.io/helixml/typesense:${HELIX_VERSION}
+ghcr.io/helixml/haystack:${HELIX_VERSION}
+ghcr.io/helixml/helix-sandbox:${HELIX_VERSION}"
     fi
 
     for FULL in $COMPOSE_IMAGES; do
         # Extract image name for logging
-        IMAGE_NAME=$(echo "$FULL" | sed 's|registry.helixml.tech/helix/||' | cut -d: -f1)
+        IMAGE_NAME=$(echo "$FULL" | sed 's|ghcr.io/helixml/||' | cut -d: -f1)
         TAG=$(echo "$FULL" | cut -d: -f2)
-        ARM64="registry.helixml.tech/helix/${IMAGE_NAME}:${TAG}-linux-arm64"
+        ARM64="ghcr.io/helixml/${IMAGE_NAME}:${TAG}-linux-arm64"
         log "  Checking ${IMAGE_NAME}..."
         if ! run_ssh "docker pull ${FULL} 2>/dev/null"; then
             log "  Multi-arch pull failed for ${IMAGE_NAME}, trying arm64-specific tag..."
@@ -713,8 +713,8 @@ registry.helixml.tech/helix/helix-sandbox:${HELIX_VERSION}"
     done
 
     # Also handle sandbox (may not be in compose file since sandbox.sh runs it separately)
-    SANDBOX_FULL="registry.helixml.tech/helix/helix-sandbox:${HELIX_VERSION}"
-    SANDBOX_ARM64="registry.helixml.tech/helix/helix-sandbox:${HELIX_VERSION}-linux-arm64"
+    SANDBOX_FULL="ghcr.io/helixml/helix-sandbox:${HELIX_VERSION}"
+    SANDBOX_ARM64="ghcr.io/helixml/helix-sandbox:${HELIX_VERSION}-linux-arm64"
     if ! run_ssh "docker image inspect ${SANDBOX_FULL} >/dev/null 2>&1"; then
         log "  Checking helix-sandbox (standalone)..."
         if ! run_ssh "docker pull ${SANDBOX_FULL} 2>/dev/null"; then
@@ -805,9 +805,9 @@ if ! step_done "prime_stack"; then
         log "Pulling helix-ubuntu into sandbox's inner dockerd..."
         # Try multi-arch tag first, fall back to arm64-specific tag
         PULL_TAG=""
-        if run_ssh "docker exec helix-sandbox docker pull registry.helixml.tech/helix/helix-ubuntu:${HELIX_VERSION} 2>&1"; then
+        if run_ssh "docker exec helix-sandbox docker pull ghcr.io/helixml/helix-ubuntu:${HELIX_VERSION} 2>&1"; then
             PULL_TAG="${HELIX_VERSION}"
-        elif run_ssh "docker exec helix-sandbox docker pull registry.helixml.tech/helix/helix-ubuntu:${HELIX_VERSION}-linux-arm64 2>&1"; then
+        elif run_ssh "docker exec helix-sandbox docker pull ghcr.io/helixml/helix-ubuntu:${HELIX_VERSION}-linux-arm64 2>&1"; then
             PULL_TAG="${HELIX_VERSION}-linux-arm64"
         else
             log "WARNING: Failed to pull helix-ubuntu into sandbox"
@@ -815,7 +815,7 @@ if ! step_done "prime_stack"; then
 
         if [ -n "$PULL_TAG" ]; then
             # Tag with version for Hydra to find (never use :latest — Hydra rejects it)
-            run_ssh "docker exec helix-sandbox docker tag registry.helixml.tech/helix/helix-ubuntu:${PULL_TAG} helix-ubuntu:${HELIX_VERSION}" || true
+            run_ssh "docker exec helix-sandbox docker tag ghcr.io/helixml/helix-ubuntu:${PULL_TAG} helix-ubuntu:${HELIX_VERSION}" || true
             log "helix-ubuntu tagged as ${HELIX_VERSION}"
 
             # Create version file so the sandbox heartbeat reports available desktop images.
@@ -825,7 +825,7 @@ if ! step_done "prime_stack"; then
 
             # Create .ref file so sandbox startup can re-pull the image if it's missing
             # (e.g., if the disk image was compressed before Docker fully flushed)
-            run_ssh "echo 'registry.helixml.tech/helix/helix-ubuntu:${PULL_TAG}' > ~/helix/sandbox-images/helix-ubuntu.ref"
+            run_ssh "echo 'ghcr.io/helixml/helix-ubuntu:${PULL_TAG}' > ~/helix/sandbox-images/helix-ubuntu.ref"
             log "Created sandbox-images/helix-ubuntu.version and .ref"
         fi
     fi

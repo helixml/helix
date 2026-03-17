@@ -1299,6 +1299,7 @@ export default function DesignReviewContent({
                   setSelectedText("");
                 }}
                 isNarrowViewport={isNarrowViewport}
+                isSubmitting={createCommentMutation.isPending}
               />
             </Box>
           </Box>

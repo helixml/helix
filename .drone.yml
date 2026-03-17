@@ -2056,6 +2056,16 @@ steps:
         cp /drone/src/go.sum "$${E2E_DIR}/helix-go.sum"
         cp -r /drone/src/api "$${E2E_DIR}/helix-api"
 
+        # Sync kodit version from helix into the E2E test server's go.mod.
+        # The E2E test server has its own go.mod that may pin an older kodit;
+        # go mod tidy in the Docker build will update go.sum automatically.
+        KODIT_VERSION=$$(grep 'github.com/helixml/kodit' /drone/src/go.mod | awk '{print $$2}')
+        if [ -n "$${KODIT_VERSION}" ]; then
+          sed -i "s|github.com/helixml/kodit v[^ ]*|github.com/helixml/kodit $${KODIT_VERSION}|" \
+            "$${E2E_DIR}/helix-ws-test-server/go.mod"
+          echo "Synced kodit to $${KODIT_VERSION} in E2E test server go.mod"
+        fi
+
         # Verify helix-api has expected structure (not nested from stale cp -r)
         if [ ! -d "$${E2E_DIR}/helix-api/pkg" ]; then
           echo "ERROR: helix-api structure is wrong — expected helix-api/pkg/ at top level"
@@ -2136,8 +2146,8 @@ steps:
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
         mkdir -p sandbox-images
-        echo "registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-amd64" > sandbox-images/helix-sway.ref
-        echo "registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.ref
+        echo "ghcr.io/helixml/helix-sway:$${VERSION}-linux-amd64" > sandbox-images/helix-sway.ref
+        echo "ghcr.io/helixml/helix-ubuntu:$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.ref
         echo "$${VERSION}-linux-amd64" > sandbox-images/helix-sway.version
         echo "$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.version
     volumes:
@@ -2454,8 +2464,8 @@ steps:
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
         mkdir -p sandbox-images
-        echo "registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-arm64" > sandbox-images/helix-sway.ref
-        echo "registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64" > sandbox-images/helix-ubuntu.ref
+        echo "ghcr.io/helixml/helix-sway:$${VERSION}-linux-arm64" > sandbox-images/helix-sway.ref
+        echo "ghcr.io/helixml/helix-ubuntu:$${VERSION}-linux-arm64" > sandbox-images/helix-ubuntu.ref
         echo "$${VERSION}-linux-arm64" > sandbox-images/helix-sway.version
         echo "$${VERSION}-linux-arm64" > sandbox-images/helix-ubuntu.version
     volumes:

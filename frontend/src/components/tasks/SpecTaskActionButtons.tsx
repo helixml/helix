@@ -1,4 +1,4 @@
-import React, { RefObject } from "react";
+import React, { RefObject, useState } from "react";
 import {
   Box,
   Button,
@@ -40,7 +40,7 @@ interface SpecTaskActionButtonsProps {
   /** Ref for the Start Planning button (for focus management) */
   startPlanningButtonRef?: RefObject<HTMLButtonElement>;
   /** Called when Review Spec is clicked */
-  onReviewSpec?: () => void;
+  onReviewSpec?: () => Promise<void> | void;
   /** Called when Reject/Archive is clicked */
   onReject?: (shiftKey?: boolean) => void;
   /** Whether the connected project has an external repo (affects Accept vs Open PR text) */
@@ -159,6 +159,7 @@ export default function SpecTaskActionButtons({
 }: SpecTaskActionButtonsProps) {
   const approveImplementationMutation = useApproveImplementation(task.id);
   const stopAgentMutation = useStopAgent(task.id);
+  const [isReviewingSpec, setIsReviewingSpec] = useState(false);
 
   const isArchived = task.archived ?? false;
   const isInline = variant === "inline";
@@ -268,18 +269,19 @@ export default function SpecTaskActionButtons({
             tooltip={isArchived ? "Task is archived" : ""}
             color="info"
             icon={
-              isQueued ? (
+              isQueued || isReviewingSpec ? (
                 <CircularProgress size={18} color="inherit" />
               ) : (
                 <SpecIcon sx={{ fontSize: 18 }} />
               )
             }
             label={isQueued ? "Queued" : "Review Spec"}
-            onClick={(e) => {
+            onClick={async (e) => {
               e.stopPropagation();
-              onReviewSpec();
+              setIsReviewingSpec(true);
+              try { await onReviewSpec(); } finally { setIsReviewingSpec(false); }
             }}
-            disabled={isArchived || isQueued}
+            disabled={isArchived || isQueued || isReviewingSpec}
             sx={{
               animation: "pulse-glow 2s infinite",
               "@keyframes pulse-glow": {
@@ -301,17 +303,18 @@ export default function SpecTaskActionButtons({
               variant="contained"
               color="info"
               startIcon={
-                isQueued ? (
+                isQueued || isReviewingSpec ? (
                   <CircularProgress size={16} color="inherit" />
                 ) : (
                   <SpecIcon />
                 )
               }
-              onClick={(e) => {
+              onClick={async (e) => {
                 e.stopPropagation();
-                onReviewSpec();
+                setIsReviewingSpec(true);
+                try { await onReviewSpec(); } finally { setIsReviewingSpec(false); }
               }}
-              disabled={isArchived || isQueued}
+              disabled={isArchived || isQueued || isReviewingSpec}
               fullWidth={!isInline}
               sx={{
                 ...buttonSx,
@@ -387,11 +390,12 @@ export default function SpecTaskActionButtons({
               variant="outlined"
               color="primary"
               disabled={isArchived}
-              icon={<SpecIcon sx={{ fontSize: 18 }} />}
+              icon={isReviewingSpec ? <CircularProgress size={18} color="inherit" /> : <SpecIcon sx={{ fontSize: 18 }} />}
               label="View Spec"
-              onClick={(e) => {
+              onClick={async (e) => {
                 e.stopPropagation();
-                onReviewSpec();
+                setIsReviewingSpec(true);
+                try { await onReviewSpec(); } finally { setIsReviewingSpec(false); }
               }}
             />
           )}
@@ -475,12 +479,13 @@ export default function SpecTaskActionButtons({
                 <Button
                   size={buttonSize}
                   variant="outlined"
-                  startIcon={<SpecIcon />}
-                  onClick={(e) => {
+                  startIcon={isReviewingSpec ? <CircularProgress size={16} color="inherit" /> : <SpecIcon />}
+                  onClick={async (e) => {
                     e.stopPropagation();
-                    onReviewSpec();
+                    setIsReviewingSpec(true);
+                    try { await onReviewSpec(); } finally { setIsReviewingSpec(false); }
                   }}
-                  disabled={isArchived}
+                  disabled={isArchived || isReviewingSpec}
                   sx={buttonSx}
                 >
                   View Spec

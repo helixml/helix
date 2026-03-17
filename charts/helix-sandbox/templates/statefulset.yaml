@@ -112,7 +112,7 @@ spec:
               value: {{ .Values.desktopImages.imageOverride | quote }}
             {{- else }}
             - name: ZED_IMAGE
-              value: "{{ .Values.desktopImages.registry }}/helix/{{ .Values.desktopImages.default }}:{{ .Values.desktopImages.tag }}"
+              value: "{{ .Values.desktopImages.registry }}/helixml/{{ .Values.desktopImages.default }}:{{ .Values.desktopImages.tag }}"
             {{- end }}
             - name: HELIX_SANDBOX_REGISTRY
               value: {{ .Values.desktopImages.registry | quote }}

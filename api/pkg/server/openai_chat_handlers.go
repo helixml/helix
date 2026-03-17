@@ -102,7 +102,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	// and HuggingFace-style IDs (e.g., "Qwen/Qwen3-Coder") that might be incorrectly
 	// parsed as provider prefixes.
 	var validatedProvider string
-	foundProvider := s.findProviderWithModel(r.Context(), chatCompletionRequest.Model, ownerID)
+	foundProvider := s.findProviderWithModel(r.Context(), chatCompletionRequest.Model, ownerID, user.OrganizationID)
 	if foundProvider != "" {
 		validatedProvider = foundProvider
 		log.Debug().
@@ -116,7 +116,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		providerFromModel, modelWithoutPrefix := model.ParseProviderFromModel(chatCompletionRequest.Model)
 		if providerFromModel != "" {
 			// Check if this prefix is a known provider (global or user-defined)
-			if s.isKnownProvider(r.Context(), providerFromModel, ownerID) {
+			if s.isKnownProvider(r.Context(), providerFromModel, ownerID, user.OrganizationID) {
 				validatedProvider = providerFromModel
 				chatCompletionRequest.Model = modelWithoutPrefix
 			}
@@ -298,8 +298,8 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	}
 }
 
-// isKnownProvider checks if a provider name exists as a global or user-defined provider
-func (s *HelixAPIServer) isKnownProvider(ctx context.Context, providerName, ownerID string) bool {
+// isKnownProvider checks if a provider name exists as a global, user-defined, or org-scoped provider
+func (s *HelixAPIServer) isKnownProvider(ctx context.Context, providerName, ownerID, orgID string) bool {
 	// Check global providers first (fast path)
 	if types.IsGlobalProvider(providerName) {
 		return true
@@ -320,6 +320,16 @@ func (s *HelixAPIServer) isKnownProvider(ctx context.Context, providerName, owne
 	})
 	if err == nil {
 		return true
+	}
+	// Check for org-scoped providers (endpoint owned by the org, not the user)
+	if orgID != "" && orgID != ownerID {
+		_, err = s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{
+			Name:  providerName,
+			Owner: orgID,
+		})
+		if err == nil {
+			return true
+		}
 	}
 	// Check for admin-created global endpoints (owned by other users but endpoint_type = 'global')
 	// These are visible to all users but owned by the admin who created them
@@ -346,7 +356,7 @@ func (s *HelixAPIServer) isKnownProvider(ctx context.Context, providerName, owne
 // incorrectly parsed as provider prefixes when there's also a provider named "Qwen".
 //
 // Returns the provider name if found, empty string otherwise.
-func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, ownerID string) string {
+func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, ownerID, orgID string) string {
 	// First check global providers from env vars (these are not in the database)
 	// Their cache key uses "system" as owner
 	globalProviders, err := s.providerManager.ListProviders(ctx, "")
@@ -370,7 +380,7 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 		}
 	}
 
-	// Now check database-stored provider endpoints (user + global from DB)
+	// Check database-stored provider endpoints for the user (user + global from DB)
 	providers, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      ownerID,
 		WithGlobal: true,
@@ -378,6 +388,19 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to list provider endpoints for model lookup")
 		return ""
+	}
+
+	// Also check org-scoped endpoints if the user belongs to an org
+	if orgID != "" && orgID != ownerID {
+		orgProviders, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+			Owner:      orgID,
+			WithGlobal: false, // Global already covered above
+		})
+		if err != nil {
+			log.Warn().Err(err).Str("org_id", orgID).Msg("failed to list org provider endpoints for model lookup")
+		} else {
+			providers = append(providers, orgProviders...)
+		}
 	}
 
 	// Check each provider's model list for the full model name
