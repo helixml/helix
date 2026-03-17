@@ -4,13 +4,13 @@
 
 - [x] Add `HelixVersion string` field to `SandboxHeartbeatRequest` in `api/pkg/types/types.go`
 - [x] Add `HelixVersion string` field to `SandboxInstance` struct in `api/pkg/types/types.go` with gorm tag
-- [~] Update `HeartbeatRequest` struct in `api/cmd/sandbox-heartbeat/main.go` to include `HelixVersion`
-- [~] Import `data` package in sandbox-heartbeat and call `GetHelixVersion()` when building heartbeat payload
-- [ ] Update `UpdateSandboxHeartbeat` in `api/pkg/store/store_sandbox.go` to persist `helix_version`
+- [x] Update `HeartbeatRequest` struct in `api/cmd/sandbox-heartbeat/main.go` to include `HelixVersion`
+- [x] Import `data` package in sandbox-heartbeat and call `GetHelixVersion()` when building heartbeat payload
+- [x] Update `UpdateSandboxHeartbeat` in `api/pkg/store/store_sandbox.go` to persist `helix_version`
 
 ## API & OpenAPI
 
-- [ ] Run `./stack update_openapi` to regenerate swagger docs and frontend types
+- [~] Run `./stack update_openapi` to regenerate swagger docs and frontend types
 
 ## Frontend
 
