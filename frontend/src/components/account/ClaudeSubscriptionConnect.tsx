@@ -153,9 +153,9 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                 color="warning"
                 onClick={handleStartLogin}
                 disabled={loginStarting}
-                startIcon={<ErrorOutlineIcon />}
+                startIcon={loginStarting ? <CircularProgress size={14} /> : <ErrorOutlineIcon />}
               >
-                {loginStarting ? <><CircularProgress size={14} sx={{ mr: 0.5 }} /> Starting...</> : 'Re-authenticate'}
+                {loginStarting ? 'Starting...' : 'Re-authenticate'}
               </Button>
             ) : (
               <Button
@@ -258,7 +258,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
               onClick={handleStartLogin}
               disabled={loginStarting}
             >
-              {loginStarting ? 'Starting...' : isExpired ? 'Re-authenticate' : 'Re-login'}
+              {loginStarting ? <><CircularProgress size={14} sx={{ mr: 0.5 }} /> Starting...</> : isExpired ? 'Re-authenticate' : 'Re-login'}
             </Button>
           </>
         ) : (
