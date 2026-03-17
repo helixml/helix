@@ -1,23 +1,8 @@
 {
-    "schemes": [
-        "https"
-    ],
     "swagger": "2.0",
     "info": {
-        "description": "This is the HelixML API.",
-        "title": "HelixML API reference",
-        "contact": {
-            "name": "Helix support",
-            "url": "https://app.helix.ml/",
-            "email": "info@helix.ml"
-        },
-        "version": "0.1",
-        "x-logo": {
-            "altText": "Helix logo",
-            "url": "https://avatars.githubusercontent.com/u/149581110?s=200\u0026v=4"
-        }
+        "contact": {}
     },
-    "host": "app.helix.ml",
     "paths": {
         "/api/v1/admin/agent-sandboxes/debug": {
             "get": {
@@ -24375,6 +24360,10 @@
                     "description": "GPU configuration",
                     "type": "string"
                 },
+                "helix_version": {
+                    "description": "Helix version running on this sandbox (git commit hash or release version)",
+                    "type": "string"
+                },
                 "privileged_mode_enabled": {
                     "description": "Privileged mode (host Docker access for development)",
                     "type": "boolean"
@@ -24404,6 +24393,10 @@
                 },
                 "gpu_vendor": {
                     "description": "GPU configuration",
+                    "type": "string"
+                },
+                "helix_version": {
+                    "description": "Helix version running on this sandbox (git commit hash or release version)",
                     "type": "string"
                 },
                 "hostname": {
@@ -28206,13 +28199,6 @@
                     "type": "string"
                 }
             }
-        }
-    },
-    "securityDefinitions": {
-        "ApiKeyAuth": {
-            "type": "apiKey",
-            "name": "Authorization",
-            "in": "header"
         }
     }
 }

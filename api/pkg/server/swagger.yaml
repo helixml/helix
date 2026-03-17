@@ -6653,6 +6653,10 @@ definitions:
       gpu_vendor:
         description: GPU configuration
         type: string
+      helix_version:
+        description: Helix version running on this sandbox (git commit hash or release
+          version)
+        type: string
       privileged_mode_enabled:
         description: Privileged mode (host Docker access for development)
         type: boolean
@@ -6676,6 +6680,10 @@ definitions:
         type: object
       gpu_vendor:
         description: GPU configuration
+        type: string
+      helix_version:
+        description: Helix version running on this sandbox (git commit hash or release
+          version)
         type: string
       hostname:
         description: Hostname for DNS resolution
@@ -9383,18 +9391,8 @@ definitions:
       zed_instance_id:
         type: string
     type: object
-host: app.helix.ml
 info:
-  contact:
-    email: info@helix.ml
-    name: Helix support
-    url: https://app.helix.ml/
-  description: This is the HelixML API.
-  title: HelixML API reference
-  version: "0.1"
-  x-logo:
-    altText: Helix logo
-    url: https://avatars.githubusercontent.com/u/149581110?s=200&v=4
+  contact: {}
 paths:
   /api/v1/admin/agent-sandboxes/debug:
     get:
@@ -18953,11 +18951,4 @@ paths:
             type: array
       security:
       - BearerAuth: []
-schemes:
-- https
-securityDefinitions:
-  ApiKeyAuth:
-    in: header
-    name: Authorization
-    type: apiKey
 swagger: "2.0"

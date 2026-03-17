@@ -9,16 +9,8 @@ const docTemplate = `{
     "info": {
         "description": "{{escape .Description}}",
         "title": "{{.Title}}",
-        "contact": {
-            "name": "Helix support",
-            "url": "https://app.helix.ml/",
-            "email": "info@helix.ml"
-        },
-        "version": "{{.Version}}",
-        "x-logo": {
-            "altText": "Helix logo",
-            "url": "https://avatars.githubusercontent.com/u/149581110?s=200\u0026v=4"
-        }
+        "contact": {},
+        "version": "{{.Version}}"
     },
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
@@ -24379,6 +24371,10 @@ const docTemplate = `{
                     "description": "GPU configuration",
                     "type": "string"
                 },
+                "helix_version": {
+                    "description": "Helix version running on this sandbox (git commit hash or release version)",
+                    "type": "string"
+                },
                 "privileged_mode_enabled": {
                     "description": "Privileged mode (host Docker access for development)",
                     "type": "boolean"
@@ -24408,6 +24404,10 @@ const docTemplate = `{
                 },
                 "gpu_vendor": {
                     "description": "GPU configuration",
+                    "type": "string"
+                },
+                "helix_version": {
+                    "description": "Helix version running on this sandbox (git commit hash or release version)",
                     "type": "string"
                 },
                 "hostname": {
@@ -28211,24 +28211,17 @@ const docTemplate = `{
                 }
             }
         }
-    },
-    "securityDefinitions": {
-        "ApiKeyAuth": {
-            "type": "apiKey",
-            "name": "Authorization",
-            "in": "header"
-        }
     }
 }`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
-	Version:          "0.1",
-	Host:             "app.helix.ml",
+	Version:          "",
+	Host:             "",
 	BasePath:         "",
-	Schemes:          []string{"https"},
-	Title:            "HelixML API reference",
-	Description:      "This is the HelixML API.",
+	Schemes:          []string{},
+	Title:            "",
+	Description:      "",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

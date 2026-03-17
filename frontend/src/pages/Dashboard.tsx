@@ -1,5 +1,7 @@
 import ClearIcon from "@mui/icons-material/Clear";
 import StorageIcon from "@mui/icons-material/Storage";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Container from "@mui/material/Container";
 import Divider from "@mui/material/Divider";
@@ -658,6 +660,36 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
 
                 {tab === "agent_sandboxes" && account.admin && (
                     <Box sx={{ width: "100%" }}>
+                        {/* Version Mismatch Alert */}
+                        {(() => {
+                            const controlPlaneVersion = account.serverConfig?.version;
+                            if (!controlPlaneVersion || !sandboxInstances) return null;
+                            
+                            const mismatchedSandboxes = sandboxInstances.filter(
+                                (s) => s.helix_version && s.status === "online" && s.helix_version !== controlPlaneVersion
+                            );
+                            
+                            if (mismatchedSandboxes.length === 0) return null;
+                            
+                            const formatVersion = (v: string) => v.length > 7 ? v.substring(0, 7) : v;
+                            
+                            return (
+                                <Alert 
+                                    severity="warning" 
+                                    icon={<WarningAmberIcon />}
+                                    sx={{ mb: 2 }}
+                                >
+                                    <strong>Version Mismatch:</strong> {mismatchedSandboxes.length} sandbox{mismatchedSandboxes.length > 1 ? "es" : ""} running different version than control plane (v{formatVersion(controlPlaneVersion)}):
+                                    {" "}
+                                    {mismatchedSandboxes.map((s, i) => (
+                                        <span key={s.id}>
+                                            {i > 0 && ", "}
+                                            <strong>{s.hostname || s.id}</strong> (v{formatVersion(s.helix_version || "unknown")})
+                                        </span>
+                                    ))}
+                                </Alert>
+                            );
+                        })()}
                         {/* Sandbox Selector */}
                         <Box sx={{ mb: 3, display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
                             <FormControl size="small" sx={{ minWidth: 400 }}>
@@ -673,12 +705,18 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
                                     <MenuItem value="">
                                         <em>All Sandboxes</em>
                                     </MenuItem>
-                                    {sandboxInstances?.map((instance) => (
-                                        <MenuItem key={instance.id} value={instance.id}>
-                                            {instance.gpu_vendor ? "🖥️" : "💻"}{" "}
-                                            {instance.hostname || instance.id} ({instance.active_sandboxes || 0}/{instance.max_sandboxes || 10} sessions)
-                                        </MenuItem>
-                                    ))}
+                                    {sandboxInstances?.map((instance) => {
+                                        const version = instance.helix_version;
+                                        const shortVersion = version && version.length > 7 ? version.substring(0, 7) : version;
+                                        return (
+                                            <MenuItem key={instance.id} value={instance.id}>
+                                                {instance.gpu_vendor ? "🖥️" : "💻"}{" "}
+                                                {instance.hostname || instance.id}
+                                                {shortVersion && ` (v${shortVersion})`}
+                                                {" "}- {instance.active_sandboxes || 0}/{instance.max_sandboxes || 10} sessions
+                                            </MenuItem>
+                                        );
+                                    })}
                                 </Select>
                             </FormControl>
                             {sandboxInstances && sandboxInstances.length > 0 && (
