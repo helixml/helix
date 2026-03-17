@@ -1131,6 +1131,13 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 			// Write a timestamp so GC knows when this session was last active.
 			// Directory mtime doesn't update when files deep inside are modified,
 			// so we use an explicit marker file.
+			// Write to both possible locations (zvol mount and file-copy dir).
+			if ZFSAvailable() {
+				zvolMount := sessionZvolMountPath(sessionID)
+				if isMounted(zvolMount) {
+					TouchSessionLastActive(zvolMount)
+				}
+			}
 			sessionDir := filepath.Join("/container-docker/sessions", dockerDataVolume)
 			TouchSessionLastActive(sessionDir)
 			log.Info().
@@ -1613,10 +1620,11 @@ done:
 			Dur("build_duration", buildDuration).
 			Msg("Golden build failed, not promoting")
 		// Clean up the failed session's Docker data
-		if ZFSAvailable() {
+		if ZFSAvailable() && zfsDatasetExists(sessionZvolName(dc.SessionID)) {
 			_ = CleanupSessionZvol(dc.SessionID)
+		} else {
+			_ = CleanupSessionDockerDir(dockerDataVolume)
 		}
-		_ = CleanupSessionDockerDir(dockerDataVolume)
 	}
 
 	// Store the result so the API can query it after the container is gone.
