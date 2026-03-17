@@ -462,6 +462,24 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
                 CURRENT_BRANCH=$(git -C "$WORKTREE_PATH" branch --show-current 2>/dev/null || echo "unknown")
                 echo "  Current branch: $CURRENT_BRANCH"
 
+                # Pull latest changes from remote to get updated startup script
+                echo "  Pulling latest changes from remote..."
+                HELIX_SPECS_STASHED=false
+                if ! git -C "$WORKTREE_PATH" diff --quiet 2>/dev/null; then
+                    echo "  Stashing local changes..."
+                    git -C "$WORKTREE_PATH" stash push -m "helix-workspace-setup" 2>&1 && HELIX_SPECS_STASHED=true
+                fi
+
+                if git -C "$WORKTREE_PATH" pull origin helix-specs 2>&1; then
+                    echo "  ✅ helix-specs updated"
+                else
+                    echo "  ⚠️ Failed to pull helix-specs (continuing with local version)"
+                fi
+
+                if [ "$HELIX_SPECS_STASHED" = true ]; then
+                    git -C "$WORKTREE_PATH" stash pop 2>&1 || echo "  ⚠️ Failed to restore stashed changes"
+                fi
+
                 # Pre-create task directory if specified (prevents "parent directory doesn't exist" errors)
                 if [ -n "$HELIX_SPEC_DIR_NAME" ]; then
                     TASK_DIR="$WORKTREE_PATH/design/tasks/$HELIX_SPEC_DIR_NAME"
@@ -501,29 +519,30 @@ echo "========================================="
 echo "Additional setup..."
 echo "========================================="
 
-# Create Claude Code state symlink for persistence across container restarts.
-# The Dockerfile writes settings.json to /home/retro/.claude/ with permissions
-# config (allow all tools). We must preserve it when symlinking to persistent storage.
+# Claude Code ACP state: symlink ~/.claude to persistent storage and write
+# settings.json with bypassPermissions. The ACP adapter (bundled in Zed as an
+# npm package) reads ~/.claude/settings.json for permissions.defaultMode —
+# without it, ACP falls back to "default" mode and prompts for every tool use.
+# NOTE: Don't gate on `command -v claude` — the claude CLI may not be on PATH
+# since ACP uses Zed's bundled npm package, not the standalone binary.
 CLAUDE_STATE_DIR=$WORK_DIR/.claude-state
-if command -v claude &> /dev/null; then
-    mkdir -p $CLAUDE_STATE_DIR
-    # Preserve any files the settings-sync-daemon already wrote to ~/.claude
-    # (e.g., .credentials.json) before replacing with the symlink.
-    # Without this, credentials get deleted and Zed startup blocks for ~20s
-    # waiting for the daemon's next 30s poll to re-write them.
-    if [ -d ~/.claude ] && [ ! -L ~/.claude ]; then
-        cp -a ~/.claude/. $CLAUDE_STATE_DIR/ 2>/dev/null || true
-    fi
-    # Symlink ~/.claude to persistent storage so credentials and state
-    # survive container restarts.
-    rm -rf ~/.claude
-    ln -sf $CLAUDE_STATE_DIR ~/.claude
-    # Write correct permissions before Zed/Claude Code starts.
-    # This runs synchronously before Zed launch, so Claude Code
-    # always sees bypassPermissions on first read.
-    echo '{"permissions":{"allow":["Bash","Read","Edit"],"defaultMode":"bypassPermissions"},"skipDangerousModePermissionPrompt":true,"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}' > ~/.claude/settings.json
-    echo "  Claude: ~/.claude -> $CLAUDE_STATE_DIR (settings written)"
+mkdir -p $CLAUDE_STATE_DIR
+# Preserve any files the settings-sync-daemon already wrote to ~/.claude
+# (e.g., .credentials.json) before replacing with the symlink.
+# Without this, credentials get deleted and Zed startup blocks for ~20s
+# waiting for the daemon's next 30s poll to re-write them.
+if [ -d ~/.claude ] && [ ! -L ~/.claude ]; then
+    cp -a ~/.claude/. $CLAUDE_STATE_DIR/ 2>/dev/null || true
 fi
+# Symlink ~/.claude to persistent storage so credentials and state
+# survive container restarts.
+rm -rf ~/.claude
+ln -sf $CLAUDE_STATE_DIR ~/.claude
+# Write correct permissions before Zed/Claude Code starts.
+# This runs synchronously before Zed launch, so Claude Code ACP
+# always sees bypassPermissions on first read.
+echo '{"permissions":{"defaultMode":"bypassPermissions"},"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}' > ~/.claude/settings.json
+echo "  Claude: ~/.claude -> $CLAUDE_STATE_DIR (settings written)"
 
 # Initialize workspace with README if empty
 if [ ! -f "$WORK_DIR/README.md" ] && [ -z "$(ls -A "$WORK_DIR" 2>/dev/null | grep -v '^\.')" ]; then

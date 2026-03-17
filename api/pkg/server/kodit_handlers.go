@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/kodit/domain/enrichment"
 	"github.com/helixml/kodit/domain/repository"
+	"github.com/helixml/kodit/domain/snippet"
+	"github.com/helixml/kodit/domain/task"
 	"github.com/helixml/kodit/domain/tracking"
 	"github.com/rs/zerolog/log"
 )
@@ -66,9 +69,14 @@ type KoditIndexingStatusData struct {
 
 // KoditIndexingStatusAttributes holds the indexing status fields.
 type KoditIndexingStatusAttributes struct {
-	Status    string    `json:"status"`
-	Message   string    `json:"message"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Status         string    `json:"status"`
+	Message        string    `json:"message"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	TasksTotal     int       `json:"tasks_total"`
+	TasksCompleted int       `json:"tasks_completed"`
+	TasksActive    int       `json:"tasks_active"`
+	TasksPending   int       `json:"tasks_pending"`
+	TasksFailed    int       `json:"tasks_failed"`
 }
 
 // KoditCommitDTO is the JSON representation of a commit.
@@ -84,6 +92,125 @@ type KoditCommitAttributes struct {
 	Message     string    `json:"message"`
 	AuthoredAt  time.Time `json:"authored_at"`
 	CommittedAt time.Time `json:"committed_at"`
+}
+
+// =============================================================================
+// New endpoint DTOs — JSON:API-style envelopes with links
+// =============================================================================
+
+// KoditWikiTreeResponse is the JSON envelope for the wiki navigation tree.
+type KoditWikiTreeResponse struct {
+	Data  []KoditWikiTreeNodeDTO `json:"data"`
+	Links map[string]string      `json:"links"`
+}
+
+// KoditWikiTreeNodeDTO is the JSON representation of a wiki tree node.
+type KoditWikiTreeNodeDTO struct {
+	Slug     string                 `json:"slug"`
+	Title    string                 `json:"title"`
+	Path     string                 `json:"path"`
+	Links    map[string]string      `json:"links"`
+	Children []KoditWikiTreeNodeDTO `json:"children,omitempty"`
+}
+
+// KoditWikiPageResponse is the JSON envelope for a single wiki page.
+type KoditWikiPageResponse struct {
+	Data  KoditWikiPageDTO  `json:"data"`
+	Links map[string]string `json:"links"`
+}
+
+// KoditWikiPageDTO is the JSON representation of a wiki page with content.
+type KoditWikiPageDTO struct {
+	Slug    string `json:"slug"`
+	Title   string `json:"title"`
+	Content string `json:"content"`
+}
+
+// KoditSearchResponse is the JSON envelope for search results (semantic/keyword).
+type KoditSearchResponse struct {
+	Data  []KoditFileResultDTO `json:"data"`
+	Meta  KoditSearchMeta      `json:"meta"`
+	Links map[string]string    `json:"links"`
+}
+
+// KoditSearchMeta holds metadata about a search response.
+type KoditSearchMeta struct {
+	Query    string `json:"query"`
+	Limit    int    `json:"limit"`
+	Language string `json:"language,omitempty"`
+	Count    int    `json:"count"`
+}
+
+// KoditFileResultDTO is the JSON representation of a search result with links.
+type KoditFileResultDTO struct {
+	Path     string            `json:"path"`
+	Language string            `json:"language"`
+	Lines    string            `json:"lines,omitempty"`
+	Score    float64           `json:"score"`
+	Preview  string            `json:"preview"`
+	Links    map[string]string `json:"links"`
+}
+
+// KoditGrepResponse is the JSON envelope for grep results.
+type KoditGrepResponse struct {
+	Data  []KoditGrepResultDTO `json:"data"`
+	Meta  KoditGrepMeta        `json:"meta"`
+	Links map[string]string    `json:"links"`
+}
+
+// KoditGrepMeta holds metadata about a grep response.
+type KoditGrepMeta struct {
+	Pattern string `json:"pattern"`
+	Glob    string `json:"glob,omitempty"`
+	Limit   int    `json:"limit"`
+	Count   int    `json:"count"`
+}
+
+// KoditGrepResultDTO is the JSON representation of a grep result with links.
+type KoditGrepResultDTO struct {
+	Path     string                `json:"path"`
+	Language string                `json:"language"`
+	Matches  []KoditGrepMatchDTO   `json:"matches"`
+	Links    map[string]string     `json:"links"`
+}
+
+// KoditGrepMatchDTO is the JSON representation of a single grep match.
+type KoditGrepMatchDTO struct {
+	Line    int    `json:"line"`
+	Content string `json:"content"`
+}
+
+// KoditFilesResponse is the JSON envelope for file listing.
+type KoditFilesResponse struct {
+	Data  []KoditFileEntryDTO `json:"data"`
+	Meta  KoditFilesMeta      `json:"meta"`
+	Links map[string]string   `json:"links"`
+}
+
+// KoditFilesMeta holds metadata about a file listing response.
+type KoditFilesMeta struct {
+	Pattern string `json:"pattern"`
+	Count   int    `json:"count"`
+}
+
+// KoditFileEntryDTO is the JSON representation of a file entry with links.
+type KoditFileEntryDTO struct {
+	Path  string            `json:"path"`
+	Size  int64             `json:"size"`
+	Links map[string]string `json:"links"`
+}
+
+// KoditFileContentResponse is the JSON envelope for file content.
+type KoditFileContentResponse struct {
+	Data  KoditFileContentDTO `json:"data"`
+	Links map[string]string   `json:"links"`
+}
+
+// KoditFileContentDTO is the JSON representation of file content.
+type KoditFileContentDTO struct {
+	Path      string `json:"path"`
+	Content   string `json:"content"`
+	CommitSHA string `json:"commit_sha"`
 }
 
 // =============================================================================
@@ -165,6 +292,88 @@ func commitsToDTO(commits []repository.Commit) []KoditCommitDTO {
 }
 
 // =============================================================================
+// New endpoint DTO conversion helpers
+// =============================================================================
+
+// repoAPIBase returns the base URL path for repository API endpoints.
+func repoAPIBase(repoID string) string {
+	return "/api/v1/git/repositories/" + repoID
+}
+
+func wikiTreeNodeToDTO(node services.KoditWikiTreeNode, repoID string) KoditWikiTreeNodeDTO {
+	children := make([]KoditWikiTreeNodeDTO, 0, len(node.Children))
+	for _, child := range node.Children {
+		children = append(children, wikiTreeNodeToDTO(child, repoID))
+	}
+	base := repoAPIBase(repoID)
+	return KoditWikiTreeNodeDTO{
+		Slug:     node.Slug,
+		Title:    node.Title,
+		Path:     node.Path,
+		Children: children,
+		Links: map[string]string{
+			"page": base + "/wiki-page?path=" + url.QueryEscape(node.Path),
+		},
+	}
+}
+
+func fileResultsToDTO(results []services.KoditFileResult, repoID string) []KoditFileResultDTO {
+	base := repoAPIBase(repoID)
+	dtos := make([]KoditFileResultDTO, 0, len(results))
+	for _, r := range results {
+		dtos = append(dtos, KoditFileResultDTO{
+			Path:     r.Path,
+			Language: r.Language,
+			Lines:    r.Lines,
+			Score:    r.Score,
+			Preview:  r.Preview,
+			Links: map[string]string{
+				"file_content": base + "/file-content?path=" + url.QueryEscape(r.Path),
+			},
+		})
+	}
+	return dtos
+}
+
+func grepResultsToDTO(results []services.KoditGrepResult, repoID string) []KoditGrepResultDTO {
+	base := repoAPIBase(repoID)
+	dtos := make([]KoditGrepResultDTO, 0, len(results))
+	for _, r := range results {
+		matches := make([]KoditGrepMatchDTO, 0, len(r.Matches))
+		for _, m := range r.Matches {
+			matches = append(matches, KoditGrepMatchDTO{
+				Line:    m.Line,
+				Content: m.Content,
+			})
+		}
+		dtos = append(dtos, KoditGrepResultDTO{
+			Path:     r.Path,
+			Language: r.Language,
+			Matches:  matches,
+			Links: map[string]string{
+				"file_content": base + "/file-content?path=" + url.QueryEscape(r.Path),
+			},
+		})
+	}
+	return dtos
+}
+
+func fileEntriesToDTO(entries []services.KoditFileEntry, repoID string) []KoditFileEntryDTO {
+	base := repoAPIBase(repoID)
+	dtos := make([]KoditFileEntryDTO, 0, len(entries))
+	for _, e := range entries {
+		dtos = append(dtos, KoditFileEntryDTO{
+			Path: e.Path,
+			Size: e.Size,
+			Links: map[string]string{
+				"file_content": base + "/file-content?path=" + url.QueryEscape(e.Path),
+			},
+		})
+	}
+	return dtos
+}
+
+// =============================================================================
 // Handler helpers
 // =============================================================================
 
@@ -182,6 +391,12 @@ func (apiServer *HelixAPIServer) ensureKoditRepoID(w http.ResponseWriter, r *htt
 	// Check if Kodit indexing is enabled
 	if !repository.KoditIndexing {
 		http.Error(w, "Kodit indexing not enabled for this repository", http.StatusNotFound)
+		return 0, nil, false
+	}
+
+	// Early exit if the kodit service itself isn't running
+	if apiServer.koditService == nil || !apiServer.koditService.IsEnabled() {
+		http.Error(w, "Kodit service is not enabled", http.StatusNotFound)
 		return 0, nil, false
 	}
 
@@ -236,8 +451,8 @@ func extractKoditRepoID(metadata map[string]interface{}) int64 {
 
 // reRegisterWithKodit attempts to register a repository with Kodit and update its metadata.
 func (apiServer *HelixAPIServer) reRegisterWithKodit(r *http.Request, repository *types.GitRepository) (int64, error) {
-	if apiServer.koditService == nil {
-		return 0, fmt.Errorf("kodit service not available")
+	if apiServer.koditService == nil || !apiServer.koditService.IsEnabled() {
+		return 0, fmt.Errorf("kodit service not available or not enabled")
 	}
 
 	user := getRequestUser(r)
@@ -252,13 +467,14 @@ func (apiServer *HelixAPIServer) reRegisterWithKodit(r *http.Request, repository
 
 	koditCloneURL := apiServer.gitRepositoryService.BuildAuthenticatedCloneURL(repository.ID, apiKey)
 
-	koditRepoID, _, err := apiServer.koditService.RegisterRepository(r.Context(), koditCloneURL)
+	log.Debug().
+		Str("repo_id", repository.ID).
+		Str("clone_url", koditCloneURL).
+		Msg("Attempting to re-register repository with Kodit")
+
+	koditRepoID, _, err := apiServer.koditService.RegisterRepository(r.Context(), koditCloneURL, repository.ExternalURL)
 	if err != nil {
 		return 0, fmt.Errorf("failed to register repository with Kodit: %w", err)
-	}
-
-	if koditRepoID == 0 {
-		return 0, fmt.Errorf("kodit service returned zero ID")
 	}
 
 	// Update repository metadata with Kodit ID
@@ -510,8 +726,459 @@ func (apiServer *HelixAPIServer) getRepositoryIndexingStatus(w http.ResponseWrit
 		return
 	}
 
+	dto := indexingStatusToDTO(summary)
+
+	// Enrich with task progress when actively indexing
+	summaryStatus := summary.Status()
+	if summaryStatus != snippet.IndexStatusCompleted && summaryStatus != snippet.IndexStatusCompletedWithErrors && summaryStatus != snippet.IndexStatusFailed {
+		tasks, err := apiServer.koditService.RepositoryTasks(r.Context(), koditRepoID)
+		if err == nil {
+			completed := 0
+			active := 0
+			failed := 0
+			for _, ts := range tasks.Statuses {
+				state := task.ReportingState(ts.State)
+				switch {
+				case state == task.ReportingStateCompleted || state == task.ReportingStateSkipped:
+					completed++
+				case state == task.ReportingStateStarted || state == task.ReportingStateInProgress:
+					active++
+				case state == task.ReportingStateFailed:
+					failed++
+				}
+			}
+			total := completed + active + failed + len(tasks.PendingTasks)
+			dto.Data.Attributes.TasksTotal = total
+			dto.Data.Attributes.TasksCompleted = completed
+			dto.Data.Attributes.TasksActive = active
+			dto.Data.Attributes.TasksPending = len(tasks.PendingTasks)
+			dto.Data.Attributes.TasksFailed = failed
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(indexingStatusToDTO(summary))
+	json.NewEncoder(w).Encode(dto)
+}
+
+// getRepositoryWikiTree returns the wiki navigation tree for a repository
+// @Summary Get repository wiki tree
+// @Description Get the wiki navigation tree (titles and paths, no content) for a repository. Each node includes a link to fetch the full page content.
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Success 200 {object} KoditWikiTreeResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/wiki [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getRepositoryWikiTree(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	if !ok {
+		return
+	}
+
+	nodes, err := apiServer.koditService.GetWikiTree(r.Context(), koditRepoID)
+	if err != nil {
+		handleKoditError(w, err, "Failed to fetch wiki tree")
+		return
+	}
+
+	dtos := make([]KoditWikiTreeNodeDTO, 0, len(nodes))
+	for _, n := range nodes {
+		dtos = append(dtos, wikiTreeNodeToDTO(n, repoID))
+	}
+
+	base := repoAPIBase(repoID)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(KoditWikiTreeResponse{
+		Data: dtos,
+		Links: map[string]string{
+			"self": base + "/wiki",
+		},
+	})
+}
+
+// getRepositoryWikiPage returns a single wiki page by path
+// @Summary Get wiki page
+// @Description Get a wiki page by hierarchical path as markdown content
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param path query string true "Wiki page path (e.g. architecture/database-layer.md)"
+// @Success 200 {object} KoditWikiPageResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/wiki-page [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getRepositoryWikiPage(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	pagePath := r.URL.Query().Get("path")
+	if pagePath == "" {
+		http.Error(w, "path query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	if !ok {
+		return
+	}
+
+	page, err := apiServer.koditService.GetWikiPage(r.Context(), koditRepoID, pagePath)
+	if err != nil {
+		handleKoditError(w, err, "Failed to fetch wiki page")
+		return
+	}
+
+	base := repoAPIBase(repoID)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(KoditWikiPageResponse{
+		Data: KoditWikiPageDTO{
+			Slug:    page.Slug,
+			Title:   page.Title,
+			Content: page.Content,
+		},
+		Links: map[string]string{
+			"self": base + "/wiki-page?path=" + url.QueryEscape(pagePath),
+			"tree": base + "/wiki",
+		},
+	})
+}
+
+// semanticSearchRepository performs vector similarity search
+// @Summary Semantic search repository
+// @Description Search repository code using vector similarity (semantic meaning)
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param query query string true "Natural language search query"
+// @Param limit query int false "Maximum results (default 10, max 100)"
+// @Param language query string false "Filter by language extension (e.g. .go, .ts)"
+// @Success 200 {object} KoditSearchResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/semantic-search [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) semanticSearchRepository(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	query := r.URL.Query().Get("query")
+	if query == "" {
+		http.Error(w, "query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	limit := 10
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	language := r.URL.Query().Get("language")
+
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	if !ok {
+		return
+	}
+
+	results, err := apiServer.koditService.SemanticSearch(r.Context(), koditRepoID, query, limit, language)
+	if err != nil {
+		handleKoditError(w, err, "Failed to perform semantic search")
+		return
+	}
+
+	base := repoAPIBase(repoID)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(KoditSearchResponse{
+		Data: fileResultsToDTO(results, repoID),
+		Meta: KoditSearchMeta{
+			Query:    query,
+			Limit:    limit,
+			Language: language,
+			Count:    len(results),
+		},
+		Links: map[string]string{
+			"self": base + "/semantic-search",
+		},
+	})
+}
+
+// keywordSearchRepository performs BM25 keyword search
+// @Summary Keyword search repository
+// @Description Search repository code using BM25 keyword matching
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param keywords query string true "Keywords to search for"
+// @Param limit query int false "Maximum results (default 10, max 100)"
+// @Param language query string false "Filter by language extension (e.g. .go, .ts)"
+// @Success 200 {object} KoditSearchResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/keyword-search [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) keywordSearchRepository(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	keywords := r.URL.Query().Get("keywords")
+	if keywords == "" {
+		http.Error(w, "keywords parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	limit := 10
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	language := r.URL.Query().Get("language")
+
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	if !ok {
+		return
+	}
+
+	results, err := apiServer.koditService.KeywordSearch(r.Context(), koditRepoID, keywords, limit, language)
+	if err != nil {
+		handleKoditError(w, err, "Failed to perform keyword search")
+		return
+	}
+
+	base := repoAPIBase(repoID)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(KoditSearchResponse{
+		Data: fileResultsToDTO(results, repoID),
+		Meta: KoditSearchMeta{
+			Query:    keywords,
+			Limit:    limit,
+			Language: language,
+			Count:    len(results),
+		},
+		Links: map[string]string{
+			"self": base + "/keyword-search",
+		},
+	})
+}
+
+// grepRepository runs git grep against a repository
+// @Summary Grep repository
+// @Description Run pattern matching (grep) against repository files
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param pattern query string true "Search pattern (regex)"
+// @Param glob query string false "Glob pattern to filter files (e.g. *.go)"
+// @Param limit query int false "Maximum results (default 50, max 200)"
+// @Success 200 {object} KoditGrepResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/grep [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) grepRepository(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	pattern := r.URL.Query().Get("pattern")
+	if pattern == "" {
+		http.Error(w, "pattern parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	glob := r.URL.Query().Get("glob")
+
+	limit := 50
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	if !ok {
+		return
+	}
+
+	results, err := apiServer.koditService.GrepSearch(r.Context(), koditRepoID, pattern, glob, limit)
+	if err != nil {
+		handleKoditError(w, err, "Failed to perform grep search")
+		return
+	}
+
+	base := repoAPIBase(repoID)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(KoditGrepResponse{
+		Data: grepResultsToDTO(results, repoID),
+		Meta: KoditGrepMeta{
+			Pattern: pattern,
+			Glob:    glob,
+			Limit:   limit,
+			Count:   len(results),
+		},
+		Links: map[string]string{
+			"self": base + "/grep",
+		},
+	})
+}
+
+// listRepositoryFiles lists files matching a glob pattern
+// @Summary List repository files
+// @Description List files in a repository matching a glob pattern
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param pattern query string false "Glob pattern to filter files"
+// @Success 200 {object} KoditFilesResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/files [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) listRepositoryFiles(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	pattern := r.URL.Query().Get("pattern")
+	if pattern == "" {
+		pattern = "**/*"
+	}
+
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	if !ok {
+		return
+	}
+
+	entries, err := apiServer.koditService.ListFiles(r.Context(), koditRepoID, pattern)
+	if err != nil {
+		handleKoditError(w, err, "Failed to list files")
+		return
+	}
+
+	base := repoAPIBase(repoID)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(KoditFilesResponse{
+		Data: fileEntriesToDTO(entries, repoID),
+		Meta: KoditFilesMeta{
+			Pattern: pattern,
+			Count:   len(entries),
+		},
+		Links: map[string]string{
+			"self": base + "/files",
+		},
+	})
+}
+
+// readRepositoryFile reads the content of a file from the repository
+// @Summary Read repository file
+// @Description Read the content of a file from the repository, optionally with line range filtering
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param path query string true "File path within the repository"
+// @Param start_line query int false "Start line (1-indexed, inclusive)"
+// @Param end_line query int false "End line (1-indexed, inclusive)"
+// @Success 200 {object} KoditFileContentResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/file-content [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) readRepositoryFile(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	filePath := r.URL.Query().Get("path")
+	if filePath == "" {
+		http.Error(w, "path parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	var startLine, endLine int
+	if s := r.URL.Query().Get("start_line"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil {
+			startLine = v
+		}
+	}
+	if s := r.URL.Query().Get("end_line"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil {
+			endLine = v
+		}
+	}
+
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID)
+	if !ok {
+		return
+	}
+
+	content, err := apiServer.koditService.ReadFile(r.Context(), koditRepoID, filePath, startLine, endLine)
+	if err != nil {
+		handleKoditError(w, err, "Failed to read file")
+		return
+	}
+
+	base := repoAPIBase(repoID)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(KoditFileContentResponse{
+		Data: KoditFileContentDTO{
+			Path:      content.Path,
+			Content:   content.Content,
+			CommitSHA: content.CommitSHA,
+		},
+		Links: map[string]string{
+			"self":  base + "/file-content?path=" + url.QueryEscape(filePath),
+			"files": base + "/files",
+		},
+	})
 }
 
 // rescanRepository triggers a rescan of a specific commit in Kodit

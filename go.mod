@@ -43,14 +43,14 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/hashicorp/go-retryablehttp v0.7.8
-	github.com/helixml/kodit v0.0.0-20260220184326-67ad35fe5b6b
+	github.com/helixml/kodit v1.1.9
 	github.com/infracloudio/msbotbuilder-go v0.2.5
 	github.com/inhies/go-bytesize v0.0.0-20220417184213-4913239db9cf
 	github.com/jfrog/froggit-go v1.20.1
 	github.com/joho/godotenv v1.5.1
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/lib/pq v1.10.9
-	github.com/mark3labs/mcp-go v0.44.0
+	github.com/mark3labs/mcp-go v0.45.0
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/mendableai/firecrawl-go v0.0.0-20240815202540-ebd79458547a
 	github.com/microsoft/azure-devops-go-api/azuredevops/v7 v7.1.0
@@ -63,10 +63,10 @@ require (
 	github.com/pgvector/pgvector-go v0.2.3
 	github.com/puzpuzpuz/xsync/v3 v3.4.1
 	github.com/robfig/cron/v3 v3.0.2-0.20210106135023-bc59245fe10e
-	github.com/rs/zerolog v1.31.0
+	github.com/rs/zerolog v1.34.0
 	github.com/russross/blackfriday/v2 v2.1.0
 	github.com/sashabaranov/go-openai v1.41.2
-	github.com/slack-go/slack v0.12.2
+	github.com/slack-go/slack v0.19.0
 	github.com/sourcegraph/conc v0.3.0
 	github.com/sourcegraph/go-diff v0.7.0
 	github.com/spf13/cobra v1.10.2
@@ -80,22 +80,22 @@ require (
 	go.uber.org/mock v0.4.0
 	gocloud.dev v0.41.0
 	golang.org/x/crypto v0.48.0
-	golang.org/x/exp v0.0.0-20260212183809-81e46e3db34a
+	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa
 	golang.org/x/oauth2 v0.32.0
 	golang.org/x/term v0.40.0
 	google.golang.org/api v0.228.0
+	google.golang.org/genai v1.49.0
 	gopkg.in/go-jose/go-jose.v2 v2.6.3
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/datatypes v1.2.1
 	gorm.io/driver/postgres v1.6.0
+	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
 	gotest.tools/v3 v3.5.1
 )
 
 require (
-	github.com/go-chi/chi/v5 v5.2.5 // indirect
-	github.com/go-chi/cors v1.2.2 // indirect
 	github.com/go-openapi/swag/conv v0.25.4 // indirect
 	github.com/go-openapi/swag/jsonname v0.25.4 // indirect
 	github.com/go-openapi/swag/jsonutils v0.25.4 // indirect
@@ -165,8 +165,8 @@ require (
 	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
-	github.com/knights-analytics/hugot v0.6.2 // indirect
-	github.com/knights-analytics/ortgenai v0.0.3 // indirect
+	github.com/knights-analytics/hugot v0.6.4 // indirect
+	github.com/knights-analytics/ortgenai v0.1.0 // indirect
 	github.com/ktrysmt/go-bitbucket v0.9.80 // indirect
 	github.com/lestrrat-go/backoff/v2 v2.0.7 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.0 // indirect
@@ -215,7 +215,6 @@ require (
 	golang.org/x/image v0.36.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	gopkg.in/ini.v1 v1.67.1 // indirect
-	gorm.io/driver/sqlite v1.6.0 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 )
 
@@ -299,7 +298,7 @@ require (
 	github.com/nats-io/nkeys v0.4.9 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/nikolalohinski/gonja v1.5.3 // indirect
-	github.com/oapi-codegen/runtime v1.1.2 // indirect
+	github.com/oapi-codegen/runtime v1.2.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/perimeterx/marshmallow v1.1.5 // indirect
 	github.com/pjbgf/sha1cd v0.5.0 // indirect

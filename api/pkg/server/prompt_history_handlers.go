@@ -153,13 +153,22 @@ func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx contex
 		}
 
 		if isIdle {
-			log.Info().
-				Str("session_id", sessionID).
-				Int("interrupt_count", pending.interruptCount).
-				Int("queue_count", pending.queueCount).
-				Msg("📤 [QUEUE] Session is idle, processing pending prompts")
-			// When session is idle from sync/list, process ALL pending (interrupt first)
-			apiServer.processAnyPendingPrompt(ctx, sessionID)
+			if pending.interruptCount > 0 {
+				log.Info().
+					Str("session_id", sessionID).
+					Int("interrupt_count", pending.interruptCount).
+					Msg("📤 [QUEUE] Session is idle with interrupt prompts, sending interrupt")
+				apiServer.processInterruptPrompt(ctx, sessionID)
+			} else {
+				// Queue-mode messages when idle: use processPromptQueue for consistent semantics.
+				// This ensures queue-mode messages always go through the same code path as
+				// post-message_completed dispatch (Bug 2 fix).
+				log.Info().
+					Str("session_id", sessionID).
+					Int("queue_count", pending.queueCount).
+					Msg("📤 [QUEUE] Session is idle with queue-mode prompts, dispatching via processPromptQueue")
+				apiServer.processPromptQueue(ctx, sessionID)
+			}
 		} else if pending.interruptCount > 0 {
 			// Session is busy but there are interrupt prompts - these should interrupt the agent
 			log.Info().

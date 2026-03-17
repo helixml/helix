@@ -476,7 +476,6 @@ func (apiServer *HelixAPIServer) startClaudeLogin(_ http.ResponseWriter, req *ht
 			Stream:       true,
 			AgentType:    "zed_external",
 			SessionRole:  "exploratory",
-			DesiredState: types.DesiredStateRunning,
 		},
 	}
 

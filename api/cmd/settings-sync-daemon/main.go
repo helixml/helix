@@ -48,8 +48,9 @@ type SettingsDaemon struct {
 	lastCredWrite time.Time
 
 	// Current state
-	helixSettings map[string]interface{}
-	userOverrides map[string]interface{}
+	helixSettings         map[string]interface{}
+	helixSettingsBaseline map[string]interface{} // Pre-injection snapshot for deepEqual comparison
+	userOverrides         map[string]interface{}
 }
 
 // CodeAgentConfig mirrors the API response structure for code agent configuration
@@ -240,34 +241,26 @@ func (d *SettingsDaemon) rewriteLocalhostURLsInExternalSync(externalSync map[str
 	}
 }
 
-// injectLanguageModelAPIKey adds the API token to language_models config.
-// Zed reads api_key from settings.json to authenticate LLM API calls.
-// The token comes from HELIX_API_TOKEN env var (set by Hydra when starting the desktop).
-func (d *SettingsDaemon) injectLanguageModelAPIKey() {
-	if d.apiToken == "" {
-		log.Printf("Warning: HELIX_API_TOKEN not set, language models may not authenticate")
-		return
-	}
-
-	languageModels, ok := d.helixSettings["language_models"].(map[string]interface{})
-	if !ok {
-		return
-	}
-
-	// Inject api_key into each provider's config
-	for provider, config := range languageModels {
-		if providerConfig, ok := config.(map[string]interface{}); ok {
-			providerConfig["api_key"] = d.apiToken
-			log.Printf("Injected api_key into language_models.%s", provider)
-		}
-	}
-}
-
 // injectAvailableModels adds the configured model to the provider's available_models list.
 // Zed only recognizes models that are either built-in (gpt-4, claude-3, etc.) or listed
 // in available_models. Without this, custom models like "helix/qwen3:8b" are rejected.
+//
+// IMPORTANT: For providers with native Zed support (e.g. "anthropic"), we skip injection
+// entirely. Zed already has built-in definitions for all Claude models with correct context
+// lengths, cache config, beta headers, thinking mode, etc. Injecting a Custom model from
+// available_models would override the built-in with worse metadata.
 func (d *SettingsDaemon) injectAvailableModels() {
 	if d.codeAgentConfig == nil || d.codeAgentConfig.Model == "" {
+		return
+	}
+
+	// Skip injection for providers where Zed has built-in model definitions.
+	// Zed's built-ins have correct context lengths (e.g. 200K for claude-opus-4-6),
+	// cache configuration, beta headers, thinking mode support, etc.
+	// Injecting into available_models creates a degraded Custom model that's missing all that.
+	if d.codeAgentConfig.APIType == "anthropic" {
+		log.Printf("Skipping available_models injection for %s — Zed has built-in definitions for %s provider models",
+			d.codeAgentConfig.Model, d.codeAgentConfig.APIType)
 		return
 	}
 
@@ -292,7 +285,7 @@ func (d *SettingsDaemon) injectAvailableModels() {
 	// Use token limits from model_info.json if available, otherwise use sensible defaults
 	maxTokens := d.codeAgentConfig.MaxTokens
 	if maxTokens == 0 {
-		maxTokens = 128000 // Default context window if not found in model_info
+		maxTokens = 200000 // Default context window for custom models if not found in model_info (200K matches most current frontier models)
 	}
 
 	modelEntry := AvailableModel{
@@ -719,51 +712,31 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	// Sync Claude credentials if available
 	d.syncClaudeCredentials()
 
-	d.helixSettings = map[string]interface{}{
-		"context_servers": config.ContextServers,
-		// Use grayscale text rendering - subpixel antialiasing doesn't work well
-		// over video streaming since the client display's subpixel layout is unknown
-		"text_rendering_mode": "grayscale",
-		// Disable dev container suggestions - Helix runs Zed inside its own containers
-		// Note: remote settings use #[serde(flatten)] in Zed, so fields go at the top level
-		"suggest_dev_container": false,
-	}
-
-	// Inject API keys and custom models before writing settings
-	d.injectKoditAuth()
+	// Start from hardcoded Helix defaults, then layer on API response fields
+	d.helixSettings = helixDefaults()
+	d.helixSettings["context_servers"] = config.ContextServers
 	if config.LanguageModels != nil {
 		d.helixSettings["language_models"] = config.LanguageModels
-		d.injectLanguageModelAPIKey()
-		d.injectAvailableModels() // Add custom model to available_models so Zed recognizes it
 	}
 	if config.Assistant != nil {
 		d.helixSettings["assistant"] = config.Assistant
 	}
-	// Note: external_sync is NOT written to settings.json because:
-	// 1. Zed's settings schema doesn't include it (causes "Property external_sync is not allowed" warning)
-	// 2. Zed reads external_sync config from environment variables instead (ZED_EXTERNAL_SYNC_ENABLED, ZED_HELIX_URL, etc.)
-	// if config.ExternalSync != nil {
-	// 	d.helixSettings["external_sync"] = config.ExternalSync
-	// }
 	if config.Agent != nil {
 		d.helixSettings["agent"] = config.Agent
 	}
-
-	// Always auto-approve tool actions — our fork of Zed respects this for all
-	// agents including Claude Code. This is the Zed-level safety net that
-	// auto-approves permission prompts the ACP sends to Zed.
-	// Note: always_allow_tool_actions is deprecated in Zed; use tool_permissions.default instead.
-	agentSection, ok := d.helixSettings["agent"].(map[string]interface{})
-	if !ok {
-		agentSection = map[string]interface{}{}
-	}
-	agentSection["tool_permissions"] = map[string]interface{}{
-		"default": "allow",
-	}
-	d.helixSettings["agent"] = agentSection
 	if config.Theme != "" {
 		d.helixSettings["theme"] = config.Theme
 	}
+	injectAgentToolPermissions(d.helixSettings)
+
+	// Save baseline before inject mutations (for deepEqual comparison in checkHelixUpdates)
+	d.helixSettingsBaseline = copyMap(d.helixSettings)
+
+	// Inject custom models (mutates d.helixSettings)
+	// Note: API keys are NOT injected into settings.json — Zed reads ANTHROPIC_API_KEY /
+	// OPENAI_API_KEY from container env vars (set by DesktopAgentAPIEnvVars).
+	d.injectKoditAuth()
+	d.injectAvailableModels()
 
 	d.userOverrides = make(map[string]interface{})
 
@@ -798,6 +771,56 @@ var SECURITY_PROTECTED_FIELDS = map[string]bool{
 	"external_sync": true, // Deprecated: Zed reads this from env vars, not settings.json
 }
 
+// USER_PREFERENCE_FIELDS are settings the daemon writes as initial defaults
+// but never overwrites once the user has changed them via Zed UI.
+// The on-disk value is always preserved in mergeSettings().
+var USER_PREFERENCE_FIELDS = map[string]bool{
+	"theme": true,
+}
+
+// helixDefaults returns the static Helix-owned settings that must be present
+// in every settings.json. Both syncFromHelix() and checkHelixUpdates() use
+// this as the base, then layer on API response fields.
+func helixDefaults() map[string]interface{} {
+	return map[string]interface{}{
+		// Use grayscale text rendering - subpixel antialiasing doesn't work well
+		// over video streaming since the client display's subpixel layout is unknown
+		"text_rendering_mode": "grayscale",
+		// Disable dev container suggestions - Helix runs Zed inside its own containers
+		"suggest_dev_container": false,
+		// Disable auto-formatting globally - it mangles JS/TS/TSX in our codebases.
+		// Go keeps format_on_save via per-language override (gofmt is expected).
+		"format_on_save": "off",
+		"languages": map[string]interface{}{
+			"Go": map[string]interface{}{
+				"format_on_save": "on",
+			},
+		},
+	}
+}
+
+// injectAgentToolPermissions sets tool_permissions.default = "allow" on the
+// agent section. Extracted so both syncFromHelix and checkHelixUpdates use it.
+func injectAgentToolPermissions(settings map[string]interface{}) {
+	agentSection, ok := settings["agent"].(map[string]interface{})
+	if !ok {
+		agentSection = map[string]interface{}{}
+	}
+	agentSection["tool_permissions"] = map[string]interface{}{
+		"default": "allow",
+	}
+	settings["agent"] = agentSection
+}
+
+// copyMap returns a shallow copy of a map[string]interface{}.
+func copyMap(m map[string]interface{}) map[string]interface{} {
+	copy := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		copy[k] = v
+	}
+	return copy
+}
+
 // mergeSettings combines Helix settings with user overrides, then injects code agent config
 func (d *SettingsDaemon) mergeSettings(helix, user map[string]interface{}) map[string]interface{} {
 	merged := make(map[string]interface{})
@@ -820,26 +843,42 @@ func (d *SettingsDaemon) mergeSettings(helix, user map[string]interface{}) map[s
 		}
 	}
 
+	// Deep merge languages (same pattern as context_servers)
+	if userLangs, ok := user["languages"].(map[string]interface{}); ok {
+		if helixLangs, ok := merged["languages"].(map[string]interface{}); ok {
+			for lang, config := range userLangs {
+				helixLangs[lang] = config
+			}
+		} else {
+			merged["languages"] = userLangs
+		}
+	}
+
 	for k, v := range user {
-		if k != "context_servers" {
+		if k != "context_servers" && k != "languages" {
 			merged[k] = v
 		}
 	}
 
-	// Preserve telemetry from on-disk config
+	// Preserve security-protected and user-preference fields from on-disk config.
+	// Security-protected fields (telemetry) are never synced.
+	// User-preference fields (theme) are set as initial defaults but never overwritten.
 	if existingData, err := os.ReadFile(SettingsPath); err == nil {
 		var existing map[string]interface{}
 		if err := json.Unmarshal(existingData, &existing); err == nil {
 			if value, exists := existing["telemetry"]; exists {
 				merged["telemetry"] = value
 			}
+			for field := range USER_PREFERENCE_FIELDS {
+				if value, exists := existing[field]; exists {
+					merged[field] = value
+				}
+			}
 		}
 	}
 
 	// Inject code agent configuration (if using qwen custom agent)
 	// For Anthropic/Azure, Zed's built-in agent is used (no agent_servers needed)
-	// Note: We don't set "default_agent" because Zed doesn't have that setting (deprecated).
-	// Thread_service.rs dynamically selects the agent based on agent_name from Helix.
 	agentServers := d.generateAgentServerConfig()
 	if agentServers != nil {
 		merged["agent_servers"] = agentServers
@@ -852,6 +891,7 @@ func (d *SettingsDaemon) mergeSettings(helix, user map[string]interface{}) map[s
 func extractUserOverrides(current, helix map[string]interface{}) map[string]interface{} {
 	overrides := make(map[string]interface{})
 
+	// Deep diff context_servers (per-server)
 	if currentServers, ok := current["context_servers"].(map[string]interface{}); ok {
 		helixServers, _ := helix["context_servers"].(map[string]interface{})
 		userServers := make(map[string]interface{})
@@ -869,8 +909,26 @@ func extractUserOverrides(current, helix map[string]interface{}) map[string]inte
 		}
 	}
 
+	// Deep diff languages (per-language, same pattern as context_servers)
+	if currentLangs, ok := current["languages"].(map[string]interface{}); ok {
+		helixLangs, _ := helix["languages"].(map[string]interface{})
+		userLangs := make(map[string]interface{})
+
+		for lang, config := range currentLangs {
+			if helixConfig, inHelix := helixLangs[lang]; !inHelix {
+				userLangs[lang] = config
+			} else if !deepEqual(config, helixConfig) {
+				userLangs[lang] = config
+			}
+		}
+
+		if len(userLangs) > 0 {
+			overrides["languages"] = userLangs
+		}
+	}
+
 	for k, v := range current {
-		if k == "context_servers" || SECURITY_PROTECTED_FIELDS[k] {
+		if k == "context_servers" || k == "languages" || SECURITY_PROTECTED_FIELDS[k] || USER_PREFERENCE_FIELDS[k] {
 			continue
 		}
 		if helixVal, inHelix := helix[k]; !inHelix || !deepEqual(v, helixVal) {
@@ -911,8 +969,11 @@ func (d *SettingsDaemon) startWatcher() error {
 		}
 	}
 
-	// Watch the settings file
-	if err := watcher.Add(SettingsPath); err != nil {
+	// Watch the settings DIRECTORY (not the file itself) so atomic renames
+	// in writeSettings() don't kill the watcher. On Linux, inotify watches
+	// inodes — os.Rename() replaces the inode, making a file-level watcher
+	// permanently dead. Same pattern as the Claude credentials watcher below.
+	if err := watcher.Add(settingsDir); err != nil {
 		return err
 	}
 
@@ -947,7 +1008,7 @@ func (d *SettingsDaemon) startWatcher() error {
 						credsDebounce = time.AfterFunc(DebounceTime, func() {
 							d.onCredentialsChanged()
 						})
-					} else if event.Name == SettingsPath {
+					} else if filepath.Base(event.Name) == filepath.Base(SettingsPath) {
 						// Zed settings file changed
 						if settingsDebounce != nil {
 							settingsDebounce.Stop()
@@ -1081,38 +1142,38 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 		return err
 	}
 
-	newHelixSettings := map[string]interface{}{
-		"context_servers": config.ContextServers,
-	}
+	// Build new helix settings from defaults + API response
+	// Skip USER_PREFERENCE_FIELDS — those are read from disk, not the API
+	newHelixSettings := helixDefaults()
+	newHelixSettings["context_servers"] = config.ContextServers
 	if config.LanguageModels != nil {
 		newHelixSettings["language_models"] = config.LanguageModels
 	}
 	if config.Assistant != nil {
 		newHelixSettings["assistant"] = config.Assistant
 	}
-	// Note: external_sync is NOT written - Zed reads it from environment variables
 	if config.Agent != nil {
 		newHelixSettings["agent"] = config.Agent
 	}
-	if config.Theme != "" {
-		newHelixSettings["theme"] = config.Theme
-	}
+	// Note: theme is a USER_PREFERENCE_FIELD — not set here, preserved from disk in mergeSettings
+	injectAgentToolPermissions(newHelixSettings)
 
 	// Update Claude subscription availability and sync credentials
 	d.claudeSubscriptionAvailable = config.ClaudeSubscriptionAvailable
 	d.syncClaudeCredentials()
 
-	// Check if Helix settings or code agent config changed
+	// Compare against the pre-injection baseline to avoid spurious diffs
+	// caused by injectAvailableModels mutations
 	codeAgentChanged := !deepEqual(config.CodeAgentConfig, d.codeAgentConfig)
-	if !deepEqual(newHelixSettings, d.helixSettings) || codeAgentChanged {
+	if !deepEqual(newHelixSettings, d.helixSettingsBaseline) || codeAgentChanged {
 		log.Println("Detected Helix config change, updating settings.json")
+		d.helixSettingsBaseline = copyMap(newHelixSettings)
 		d.helixSettings = newHelixSettings
 		d.codeAgentConfig = config.CodeAgentConfig
 
-		// Inject API keys and custom models
+		// Inject custom models (mutates d.helixSettings)
 		d.injectKoditAuth()
-		d.injectLanguageModelAPIKey()
-		d.injectAvailableModels() // Add custom model to available_models so Zed recognizes it
+		d.injectAvailableModels()
 
 		// Merge with user overrides and write
 		merged := d.mergeSettings(d.helixSettings, d.userOverrides)

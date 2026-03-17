@@ -22,14 +22,14 @@ import (
 // It exposes screenshot, clipboard, and input tools to AI agents.
 type MCPServer struct {
 	mcpServer     *server.MCPServer
-	sseServer     *server.SSEServer
+	httpServer    *server.StreamableHTTPServer
 	screenshotURL string // URL to the local screenshot HTTP endpoint
 	logger        *slog.Logger
 }
 
 // MCPConfig holds configuration for the MCP server
 type MCPConfig struct {
-	// Port for the MCP SSE server (default: 9877)
+	// Port for the MCP server (default: 9877)
 	Port string
 	// ScreenshotURL is the local screenshot endpoint (default: http://localhost:9876/screenshot)
 	ScreenshotURL string
@@ -203,9 +203,9 @@ func NewMCPServer(cfg MCPConfig, logger *slog.Logger) *MCPServer {
 	)
 	m.mcpServer.AddTool(getWorkspacesTool, m.handleGetWorkspaces)
 
-	// Create SSE server
-	m.sseServer = server.NewSSEServer(m.mcpServer,
-		server.WithBasePath("/mcp"),
+	// Create Streamable HTTP server for direct POST support (compatible with Zed's HttpTransport)
+	m.httpServer = server.NewStreamableHTTPServer(m.mcpServer,
+		server.WithStateLess(true),
 	)
 
 	return m
@@ -1072,10 +1072,10 @@ func formatSwayWorkspaces(data []byte) string {
 
 // ServeHTTP serves MCP requests
 func (m *MCPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	m.sseServer.ServeHTTP(w, r)
+	m.httpServer.ServeHTTP(w, r)
 }
 
-// Run starts the MCP SSE server
+// Run starts the MCP server
 func (m *MCPServer) Run(ctx context.Context, port string) error {
 	if port == "" {
 		port = "9877"
@@ -1083,7 +1083,7 @@ func (m *MCPServer) Run(ctx context.Context, port string) error {
 
 	httpServer := &http.Server{
 		Addr:    ":" + port,
-		Handler: m.sseServer,
+		Handler: m.httpServer,
 	}
 
 	m.logger.Info("MCP server starting", "port", port)

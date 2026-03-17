@@ -73,6 +73,36 @@ func (mr *MockStoreMockRecorder) CleanupStaleAgentRunners(ctx, staleThreshold an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStaleAgentRunners", reflect.TypeOf((*MockStore)(nil).CleanupStaleAgentRunners), ctx, staleThreshold)
 }
 
+// ClearStaleStartingSessions mocks base method.
+func (m *MockStore) ClearStaleStartingSessions(ctx context.Context) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearStaleStartingSessions", ctx)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClearStaleStartingSessions indicates an expected call of ClearStaleStartingSessions.
+func (mr *MockStoreMockRecorder) ClearStaleStartingSessions(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearStaleStartingSessions", reflect.TypeOf((*MockStore)(nil).ClearStaleStartingSessions), ctx)
+}
+
+// CountGitRepositoriesByKoditRepoID mocks base method.
+func (m *MockStore) CountGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64, excludeRepoID string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountGitRepositoriesByKoditRepoID", ctx, koditRepoID, excludeRepoID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountGitRepositoriesByKoditRepoID indicates an expected call of CountGitRepositoriesByKoditRepoID.
+func (mr *MockStoreMockRecorder) CountGitRepositoriesByKoditRepoID(ctx, koditRepoID, excludeRepoID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountGitRepositoriesByKoditRepoID", reflect.TypeOf((*MockStore)(nil).CountGitRepositoriesByKoditRepoID), ctx, koditRepoID, excludeRepoID)
+}
+
 // CountUsers mocks base method.
 func (m *MockStore) CountUsers(ctx context.Context) (int64, error) {
 	m.ctrl.T.Helper()
@@ -4071,21 +4101,6 @@ func (m *MockStore) ListSessions(ctx context.Context, query ListSessionsQuery) (
 func (mr *MockStoreMockRecorder) ListSessions(ctx, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessions", reflect.TypeOf((*MockStore)(nil).ListSessions), ctx, query)
-}
-
-// ListSessionsWithDesiredState mocks base method.
-func (m *MockStore) ListSessionsWithDesiredState(ctx context.Context, desiredState string) ([]*types.Session, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListSessionsWithDesiredState", ctx, desiredState)
-	ret0, _ := ret[0].([]*types.Session)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListSessionsWithDesiredState indicates an expected call of ListSessionsWithDesiredState.
-func (mr *MockStoreMockRecorder) ListSessionsWithDesiredState(ctx, desiredState any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessionsWithDesiredState", reflect.TypeOf((*MockStore)(nil).ListSessionsWithDesiredState), ctx, desiredState)
 }
 
 // ListSessionsBySandbox mocks base method.

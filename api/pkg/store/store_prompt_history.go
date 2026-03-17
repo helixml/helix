@@ -20,8 +20,8 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 		// Convert timestamp from milliseconds to time.Time
 		createdAt := time.UnixMilli(entry.Timestamp)
 
-		// Default interrupt to true if not specified
-		interrupt := true
+		// Default interrupt to false if not specified (queue mode is the safe default)
+		interrupt := false
 		if entry.Interrupt != nil {
 			interrupt = *entry.Interrupt
 		}

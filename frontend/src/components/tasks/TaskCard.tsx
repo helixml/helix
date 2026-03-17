@@ -34,11 +34,13 @@ import {
   Archive as ArchiveIcon,
   Unarchive as UnarchiveIcon,
   RemoveCircleOutline as RemoveFromQueueIcon,
+  Undo as UndoIcon,
 } from "@mui/icons-material";
 import { EllipsisVertical, Wand2 } from "lucide-react";
 import {
   useApproveImplementation,
   useStopAgent,
+  useMoveToBacklog,
 } from "../../services/specTaskWorkflowService";
 import {
   useUpdateSpecTask,
@@ -572,6 +574,7 @@ function TaskCardInner({
   }, [focusStartPlanning, task.status]);
   const approveImplementationMutation = useApproveImplementation(task.id!);
   const stopAgentMutation = useStopAgent(task.id!);
+  const moveToBacklogMutation = useMoveToBacklog(task.id!);
   const updateSpecTask = useUpdateSpecTask();
   const deleteSpecTask = useDeleteSpecTask();
 
@@ -602,6 +605,10 @@ function TaskCardInner({
     task.status === "queued_implementation" ||
     task.status === "queued_spec_generation" ||
     task.status === "spec_approved";
+
+  // Can move to backlog from any phase except backlog itself and queued states
+  const canMoveToBacklog =
+    !isQueued && task.phase !== "backlog" && task.status !== "backlog";
 
   const handleRemoveFromQueue = async () => {
     if (!task.id) return;
@@ -815,6 +822,28 @@ function TaskCardInner({
                 </ListItemIcon>
                 <ListItemText>
                   {isRemovingFromQueue ? "Removing..." : "Remove from queue"}
+                </ListItemText>
+              </MenuItem>
+            )}
+            {canMoveToBacklog && (
+              <MenuItem
+                disabled={moveToBacklogMutation.isPending}
+                onClick={() => {
+                  setMenuAnchorEl(null);
+                  moveToBacklogMutation.mutate();
+                }}
+              >
+                <ListItemIcon>
+                  {moveToBacklogMutation.isPending ? (
+                    <CircularProgress size={16} />
+                  ) : (
+                    <UndoIcon sx={{ fontSize: 16 }} />
+                  )}
+                </ListItemIcon>
+                <ListItemText>
+                  {moveToBacklogMutation.isPending
+                    ? "Moving..."
+                    : "Move to Backlog"}
                 </ListItemText>
               </MenuItem>
             )}

@@ -150,6 +150,7 @@ func (s *PostgresStore) UpdateWallet(ctx context.Context, wallet *types.Wallet) 
 			"subscription_status":               wallet.SubscriptionStatus,
 			"subscription_current_period_start": wallet.SubscriptionCurrentPeriodStart,
 			"subscription_current_period_end":   wallet.SubscriptionCurrentPeriodEnd,
+			"subscription_cancel_at_period_end": wallet.SubscriptionCancelAtPeriodEnd,
 			"subscription_created":              wallet.SubscriptionCreated,
 		},
 	).Error

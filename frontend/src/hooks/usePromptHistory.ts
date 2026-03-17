@@ -668,6 +668,12 @@ export function usePromptHistory({
 
   // Clear current draft
   const clearDraft = useCallback(() => {
+    // Cancel any pending debounced save — otherwise it fires after clearDraft
+    // and writes the sent content back to localStorage
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = null
+    }
     setDraftState('')
     clearDraftStorage(sessionId)
     setHistoryIndex(-1)

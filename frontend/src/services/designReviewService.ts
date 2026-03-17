@@ -45,6 +45,7 @@ export interface DesignReviewComment {
   // Agent integration fields
   request_id?: string // For correlating streaming responses
   agent_response?: string
+  agent_response_entries?: Array<{ type: 'text' | 'tool_call'; content: string; message_id: string; tool_name?: string; tool_status?: string }>
   agent_response_at?: string
   interaction_id?: string
   // Resolution fields

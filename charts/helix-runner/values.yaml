@@ -10,10 +10,10 @@ replicaCount: 1
 deploymentStrategy: "auto"
 
 image:
-  repository: registry.helixml.tech/helix/runner
+  repository: ghcr.io/helixml/runner
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "latest"
+  tag: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -33,7 +33,22 @@ runner:
   huggingfaceToken: ""
   # Alternative: read Hugging Face token from a Kubernetes secret (leave huggingfaceToken empty when using this)
   huggingfaceTokenExistingSecret: ""
-  huggingfaceTokenExistingSecretKey: ""  # defaults to "token" if not specified 
+  huggingfaceTokenExistingSecretKey: ""  # defaults to "token" if not specified
+  # Enable/disable the embedded Ollama runtime on the runner
+  # Set to false if using an external LLM provider and don't need local model pulling
+  ollamaEnabled: true
+  # Additional environment variables to set on the runner container
+  # Useful for proxy configuration, custom CA certs, etc.
+  # Note: cannot override env vars already defined in the template (API_TOKEN, HF_TOKEN, RUNTIME_OLLAMA_ENABLED)
+  # Example:
+  #   extraEnv:
+  #     - name: HTTPS_PROXY
+  #       value: "http://proxy:8080"
+  #     - name: HTTP_PROXY
+  #       value: "http://proxy:8080"
+  #     - name: NO_PROXY
+  #       value: "localhost,127.0.0.1,10.0.0.0/8"
+  extraEnv: []
 
 # GPU configuration
 # Number of GPUs this runner should manage

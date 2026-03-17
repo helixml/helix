@@ -2,6 +2,7 @@ package browser
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -189,6 +190,20 @@ func (b *Browser) PutBrowser(browser *rod.Browser) error {
 	return nil
 }
 
+// noProxyClient is a shared HTTP client that bypasses any configured proxy.
+// Used for internal service communication (e.g., Chrome browser) where
+// requests should never go through an external HTTP proxy.
+var noProxyClient = &http.Client{
+	Transport: &http.Transport{
+		Proxy: nil, // explicitly bypass proxy
+	},
+}
+
+// chromeVersionResponse is the JSON structure returned by Chrome's /json/version endpoint.
+type chromeVersionResponse struct {
+	WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
+}
+
 func (b *Browser) getChromeURL() (string, error) {
 	chromeURL := b.cfg.RAG.Crawler.ChromeURL
 
@@ -215,31 +230,56 @@ func (b *Browser) getChromeURL() (string, error) {
 	// Replace the hostname with the IP address in the original URL
 	resolvedURL := strings.Replace(chromeURL, parsedURL.Hostname(), ip, 1)
 
-	// Use the resolved URL for the request
-	req, err := http.NewRequest("GET", resolvedURL+"/json/version", nil)
+	// Use a no-proxy HTTP client for internal Chrome service communication.
+	// This also replaces the previous launcher.ResolveURL() call which used
+	// http.Get() (affected by HTTP_PROXY) and made a redundant second request
+	// to the same /json/version endpoint.
+	versionURL, err := url.JoinPath(resolvedURL, "/json/version")
+	if err != nil {
+		return "", fmt.Errorf("error building version URL for Chrome (%s): %w", resolvedURL, err)
+	}
+	req, err := http.NewRequest("GET", versionURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("error creating request for Chrome URL (%s): %w", resolvedURL, err)
 	}
 	req.Header.Set("Host", parsedURL.Hostname()) // Set the original hostname in the Host header
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := noProxyClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("error checking Chrome URL (%s): %w", resolvedURL, err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		bts, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return "", fmt.Errorf("error reading Chrome URL (%s) response: %w", resolvedURL, err)
-		}
-		return "", fmt.Errorf("error checking Chrome URL (%s): %s", resolvedURL, string(bts))
-	}
-
-	u, err := launcher.ResolveURL(resolvedURL)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("error resolving Chrome URL (%s): %w", resolvedURL, err)
+		return "", fmt.Errorf("error reading Chrome URL (%s) response: %w", resolvedURL, err)
 	}
 
-	return u, nil
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("error checking Chrome URL (%s): %s", resolvedURL, string(body))
+	}
+
+	// Extract the WebSocket debugger URL from the /json/version response
+	var versionInfo chromeVersionResponse
+	if err := json.Unmarshal(body, &versionInfo); err != nil {
+		return "", fmt.Errorf("error parsing Chrome version response from %s: %w", resolvedURL, err)
+	}
+
+	if versionInfo.WebSocketDebuggerURL == "" {
+		return "", fmt.Errorf("Chrome at %s returned empty webSocketDebuggerUrl", resolvedURL)
+	}
+
+	// Replace the host in the WebSocket URL with our resolved host
+	wsURL, err := url.Parse(versionInfo.WebSocketDebuggerURL)
+	if err != nil {
+		return "", fmt.Errorf("error parsing webSocketDebuggerUrl (%s): %w", versionInfo.WebSocketDebuggerURL, err)
+	}
+
+	resolvedParsed, err := url.Parse(resolvedURL)
+	if err != nil {
+		return "", fmt.Errorf("error parsing resolved URL (%s): %w", resolvedURL, err)
+	}
+	wsURL.Host = resolvedParsed.Host
+
+	return wsURL.String(), nil
 }

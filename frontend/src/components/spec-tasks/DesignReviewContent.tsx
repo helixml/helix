@@ -42,6 +42,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { useQueryClient } from "@tanstack/react-query";
 import ReconnectingWebSocket from "reconnecting-websocket";
+import { applyPatch } from "../../utils/patchUtils";
 import {
   useDesignReview,
   useDesignReviewComments,
@@ -191,6 +192,7 @@ export default function DesignReviewContent({
   const [streamingResponse, setStreamingResponse] = useState<{
     commentId: string;
     content: string;
+    entries: Array<{ type: 'text' | 'tool_call'; content: string; message_id: string; tool_name?: string; tool_status?: string }>;
   } | null>(null);
   const account = useAccount();
   const queryClient = useQueryClient();
@@ -303,6 +305,9 @@ export default function DesignReviewContent({
     });
 
     let accumulatedResponse = "";
+    // Track per-entry streaming content with type metadata
+    type StreamEntry = { type: 'text' | 'tool_call'; content: string; message_id: string; tool_name?: string; tool_status?: string };
+    let streamEntries: StreamEntry[] = [];
 
     const messageHandler = (event: MessageEvent) => {
       try {
@@ -313,6 +318,72 @@ export default function DesignReviewContent({
           parsedData.type,
         );
 
+        // Handle interaction_patch events (entry-based streaming from Go server)
+        if (
+          parsedData.type === "interaction_patch" &&
+          parsedData.entry_patches
+        ) {
+          const entryPatches = parsedData.entry_patches as Array<{
+            index: number;
+            patch: string;
+            patch_offset: number;
+            total_length: number;
+            type?: string;
+            tool_name?: string;
+            tool_status?: string;
+          }>;
+          const entryCount = parsedData.entry_count as number;
+
+          // Grow array if new entries appeared
+          while (streamEntries.length < entryCount) {
+            streamEntries.push({ type: 'text', content: '', message_id: String(streamEntries.length) });
+          }
+          // Apply per-entry patches and capture type metadata
+          for (const ep of entryPatches) {
+            if (ep.index < streamEntries.length) {
+              streamEntries[ep.index].content = applyPatch(
+                streamEntries[ep.index].content,
+                ep.patch_offset,
+                ep.patch,
+                ep.total_length,
+              );
+              if (ep.type) streamEntries[ep.index].type = ep.type as 'text' | 'tool_call';
+              if (ep.tool_name) streamEntries[ep.index].tool_name = ep.tool_name;
+              if (ep.tool_status) streamEntries[ep.index].tool_status = ep.tool_status;
+            }
+          }
+          // Join text entries for flat content fallback
+          accumulatedResponse = streamEntries.filter(e => e.content).map(e => e.content).join("\n\n");
+
+          console.log(
+            "[DRWS-DEBUG] interaction_patch received, entry_count:",
+            entryCount,
+            "reconstructed length:",
+            accumulatedResponse.length,
+          );
+
+          // Find the comment that's currently being processed
+          const currentQueueStatus = queueStatusRef.current;
+          const currentComments = allCommentsRef.current;
+
+          const targetCommentId =
+            currentQueueStatus?.current_comment_id ||
+            currentComments.find((c) => c.request_id && !c.agent_response)
+              ?.id ||
+            [...currentComments]
+              .reverse()
+              .find((c) => !c.agent_response && !c.resolved)?.id;
+
+          if (targetCommentId) {
+            setStreamingResponse({
+              commentId: targetCommentId,
+              content: accumulatedResponse,
+              entries: [...streamEntries],
+            });
+          }
+        }
+
+        // Handle session_update events (full interaction updates)
         if (
           parsedData.type === "session_update" &&
           parsedData.session?.interactions
@@ -373,6 +444,7 @@ export default function DesignReviewContent({
               setStreamingResponse({
                 commentId: targetCommentId,
                 content: accumulatedResponse,
+                entries: [...streamEntries],
               });
             } else {
               console.warn(
@@ -393,12 +465,65 @@ export default function DesignReviewContent({
                 queryKey: designReviewKeys.detail(specTaskId, reviewId),
               });
               setStreamingResponse(null);
+              // Reset entry tracking for next streaming response
+              streamEntries = [];
             }
           }
-        } else {
-          console.log(
-            "[DRWS-DEBUG] Ignoring message - not a session_update with interactions",
-          );
+        }
+
+        // Handle interaction_update events (sent on completion)
+        if (
+          parsedData.type === "interaction_update" &&
+          parsedData.interaction
+        ) {
+          const interaction = parsedData.interaction;
+          console.log("[DRWS-DEBUG] interaction_update received:", {
+            state: interaction.state,
+            responseLength: interaction.response_message?.length,
+          });
+
+          if (interaction.response_message) {
+            accumulatedResponse = interaction.response_message;
+            // Use structured entries from the wire if available, else flat text entry
+            if (interaction.response_entries?.length) {
+              streamEntries = interaction.response_entries;
+            } else {
+              streamEntries = [{ type: 'text', content: interaction.response_message, message_id: '0' }];
+            }
+
+            const currentQueueStatus = queueStatusRef.current;
+            const currentComments = allCommentsRef.current;
+
+            const targetCommentId =
+              currentQueueStatus?.current_comment_id ||
+              currentComments.find((c) => c.request_id && !c.agent_response)
+                ?.id ||
+              [...currentComments]
+                .reverse()
+                .find((c) => !c.agent_response && !c.resolved)?.id;
+
+            if (targetCommentId) {
+              setStreamingResponse({
+                commentId: targetCommentId,
+                content: accumulatedResponse,
+                entries: [...streamEntries],
+              });
+            }
+          }
+
+          if (interaction.state === "complete") {
+            console.log(
+              "[DRWS-DEBUG] interaction_update complete - invalidating queries",
+            );
+            queryClient.invalidateQueries({
+              queryKey: designReviewKeys.comments(specTaskId, reviewId),
+            });
+            queryClient.invalidateQueries({
+              queryKey: designReviewKeys.detail(specTaskId, reviewId),
+            });
+            setStreamingResponse(null);
+            streamEntries = [];
+          }
         }
       } catch (error) {
         console.error("[DRWS-DEBUG] Error parsing WebSocket message:", error);
@@ -412,7 +537,7 @@ export default function DesignReviewContent({
       rws.removeEventListener("message", messageHandler);
       rws.close();
     };
-  }, [planningSessionId, specTaskId, reviewId]);
+  }, [planningSessionId, specTaskId, reviewId, account.user]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -849,6 +974,8 @@ export default function DesignReviewContent({
             <Tabs
               value={activeTab}
               onChange={(_, value) => handleTabChange(value)}
+              variant="scrollable"
+              scrollButtons="auto"
               sx={{
                 minHeight: 48,
                 "& .MuiTab-root": {
@@ -928,19 +1055,21 @@ export default function DesignReviewContent({
 
             {/* Git info and actions on the right */}
             <Box display="flex" alignItems="center" gap={1.5} pr={2}>
-              <Tooltip title={`Commit: ${review.git_commit_hash}`}>
-                <Chip
-                  icon={<GitBranch size={14} />}
-                  label={`${review.git_branch} @ ${review.git_commit_hash.substring(0, 7)}`}
-                  size="small"
-                  variant="outlined"
-                  sx={{ height: 24, fontSize: "0.7rem" }}
-                />
-              </Tooltip>
+              <Box sx={{ display: { xs: "none", sm: "flex" } }}>
+                <Tooltip title={`Commit: ${review.git_commit_hash}`}>
+                  <Chip
+                    icon={<GitBranch size={14} />}
+                    label={`${review.git_branch} @ ${review.git_commit_hash.substring(0, 7)}`}
+                    size="small"
+                    variant="outlined"
+                    sx={{ height: 24, fontSize: "0.7rem" }}
+                  />
+                </Tooltip>
+              </Box>
               <Typography
                 variant="caption"
                 color="text.secondary"
-                sx={{ whiteSpace: "nowrap" }}
+                sx={{ whiteSpace: "nowrap", display: { xs: "none", sm: "block" } }}
               >
                 {new Date(review.git_pushed_at).toLocaleString()}
               </Typography>
@@ -1087,7 +1216,7 @@ export default function DesignReviewContent({
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
-                    code({ node, inline, className, children, ...props }: any) {
+                    code({ node, inline, className, children, ref, ...props }: any) {
                       const match = /language-(\w+)/.exec(className || "");
                       return !inline && match ? (
                         <SyntaxHighlighter
@@ -1139,6 +1268,11 @@ export default function DesignReviewContent({
                         ? streamingResponse.content
                         : undefined
                     }
+                    streamingEntries={
+                      isCurrentlyStreaming
+                        ? streamingResponse.entries
+                        : undefined
+                    }
                     commentRef={(el) => {
                       if (el) {
                         commentRefs.current.set(comment.id!, el);
@@ -1165,6 +1299,7 @@ export default function DesignReviewContent({
                   setSelectedText("");
                 }}
                 isNarrowViewport={isNarrowViewport}
+                isSubmitting={createCommentMutation.isPending}
               />
             </Box>
           </Box>
@@ -1175,6 +1310,7 @@ export default function DesignReviewContent({
           show={showCommentLog}
           comments={activeDocComments}
           onResolveComment={handleResolveComment}
+          streamingResponse={streamingResponse}
         />
       </Box>
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/kodit"
 	"github.com/helixml/kodit/infrastructure/provider"
 	"github.com/rs/zerolog/log"
@@ -23,12 +24,12 @@ type koditResult struct {
 
 // initKodit creates the kodit client, service, and MCP backend.
 // When kodit is disabled in config it returns a disabled service and nil closer.
-func initKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryService) (*koditResult, error) {
+func initKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryService, store store.Store) (*koditResult, error) {
 	if !cfg.Kodit.Enabled || gitRepoService == nil {
 		log.Info().Msg("Kodit code intelligence service disabled")
 		return &koditResult{
 			service:    services.NewDisabledKoditService(),
-			mcpBackend: NewKoditMCPBackend(nil, false),
+			mcpBackend: NewKoditMCPBackend(nil, false, store),
 		}, nil
 	}
 
@@ -38,6 +39,9 @@ func initKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 
 	var koditOpts []kodit.Option
 	koditOpts = append(koditOpts, kodit.WithPostgresVectorchord(cfg.Kodit.DatabaseURL))
+
+	// Default to the new Chunking implementation
+	koditOpts = append(koditOpts, kodit.WithSimpleChunking())
 
 	// Data directory (for cloned repos, model cache, etc.)
 	dataDir := cfg.Kodit.DataDir
@@ -70,6 +74,9 @@ func initKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 		koditOpts = append(koditOpts, kodit.WithWorkerCount(cfg.Kodit.WorkerCount))
 	}
 
+	// Pass helix's zerolog logger to kodit so log output is consistent.
+	koditOpts = append(koditOpts, kodit.WithLogger(log.Logger))
+
 	koditClient, err := kodit.New(koditOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize kodit client: %w", err)
@@ -85,7 +92,7 @@ func initKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 
 	return &koditResult{
 		service:    svc,
-		mcpBackend: NewKoditMCPBackend(koditClient, true),
+		mcpBackend: NewKoditMCPBackend(koditClient, true, store),
 		closer:     koditClient,
 	}, nil
 }

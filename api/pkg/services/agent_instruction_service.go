@@ -17,13 +17,15 @@ import (
 type AgentInstructionService struct {
 	store         store.Store
 	messageSender SpecTaskMessageSender
+	koditService  KoditServicer
 }
 
 // NewAgentInstructionService creates a new agent instruction service
-func NewAgentInstructionService(store store.Store, messageSender SpecTaskMessageSender) *AgentInstructionService {
+func NewAgentInstructionService(store store.Store, messageSender SpecTaskMessageSender, koditService KoditServicer) *AgentInstructionService {
 	return &AgentInstructionService{
 		store:         store,
 		messageSender: messageSender,
+		koditService:  koditService,
 	}
 }
 
@@ -42,6 +44,7 @@ func getTaskDirName(task *types.SpecTask) string {
 // ApprovalPromptData contains all data for the approval/implementation prompt
 type ApprovalPromptData struct {
 	Guidelines            string // Formatted guidelines section
+	KoditSection          string // Dynamic MCP tool documentation from kodit (empty when disabled)
 	PrimaryRepoName       string // Name of the primary repository (e.g., "my-app")
 	TaskDirName           string // Design doc directory name
 	BranchName            string // Feature branch name
@@ -147,18 +150,9 @@ git add -A && git commit -m "Progress update" && git push origin helix-specs
 3. For each task in tasks.md: mark [~], push helix-specs, do the work, mark [x], push again
 4. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
 
-## Kodit MCP Server - Discover Patterns
-
-You have access to **Kodit**, an MCP server for code intelligence. Use it during implementation:
-
-- Find how similar features are implemented in other repos
-- Discover existing utilities, helpers, or patterns to reuse
-- Search private/internal codebases the organization has indexed
-- Understand conventions before writing new code
-
-When you find useful patterns via Kodit, document them in design.md so future cloned tasks benefit.
-
-## Visual Testing & Screenshots (For UI/Frontend Tasks)
+{{if .KoditSection}}
+{{.KoditSection}}
+{{end}}## Visual Testing & Screenshots (For UI/Frontend Tasks)
 
 You can test your UI changes and capture screenshots as proof of work:
 
@@ -317,7 +311,7 @@ git checkout {{.BaseBranch}} && git pull origin {{.BaseBranch}} && git merge {{.
 // This is the single source of truth for this prompt - used by WebSocket and database approaches
 // guidelines contains concatenated organization + project guidelines (can be empty)
 // primaryRepoName is the name of the primary project repository (e.g., "my-app")
-func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines, primaryRepoName string) string {
+func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines, primaryRepoName, koditSection string) string {
 	taskDirName := getTaskDirName(task)
 
 	// Build guidelines section if provided
@@ -370,6 +364,7 @@ The whole point of cloning is to SKIP re-asking questions that were already answ
 
 	data := ApprovalPromptData{
 		Guidelines:            guidelinesSection,
+		KoditSection:          koditSection,
 		PrimaryRepoName:       primaryRepoName,
 		TaskDirName:           taskDirName,
 		BranchName:            branchName,
@@ -484,8 +479,12 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	primaryRepoName string,
 ) error {
 	// Fetch guidelines from project and organization
-	guidelines := s.getGuidelinesForTask(ctx, task)
-	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName)
+	guidelines, project := s.getGuidelinesForTask(ctx, task)
+	koditDoc := ""
+	if project != nil && project.KoditEnabled {
+		koditDoc = s.koditService.MCPDocumentation()
+	}
+	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName, koditDoc)
 
 	log.Info().
 		Str("session_id", sessionID).
@@ -508,14 +507,14 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 }
 
 // getGuidelinesForTask fetches concatenated organization/user + project guidelines
-func (s *AgentInstructionService) getGuidelinesForTask(ctx context.Context, task *types.SpecTask) string {
+func (s *AgentInstructionService) getGuidelinesForTask(ctx context.Context, task *types.SpecTask) (string, *types.Project) {
 	if task.ProjectID == "" {
-		return ""
+		return "", nil
 	}
 
 	project, err := s.store.GetProject(ctx, task.ProjectID)
 	if err != nil || project == nil {
-		return ""
+		return "", nil
 	}
 
 	guidelines := ""
@@ -542,7 +541,7 @@ func (s *AgentInstructionService) getGuidelinesForTask(ctx context.Context, task
 		guidelines += project.Guidelines
 	}
 
-	return guidelines
+	return guidelines, project
 }
 
 // SendImplementationReviewRequest notifies agent that implementation is ready for review

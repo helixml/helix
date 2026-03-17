@@ -1,6 +1,5 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { stringify as stringifyYaml } from 'yaml'
-import bluebird from 'bluebird'
 import {
   IApp,
   IAppFlatState,
@@ -868,7 +867,7 @@ export const useApp = (appId: string) => {
         showLoading: true,
       })
       
-      await bluebird.all([
+      await Promise.all([
         loadServerKnowledge(),
         // Load other data that doesn't depend on the app's organization status
         // endpointProviders.loadData(),

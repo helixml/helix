@@ -59,10 +59,11 @@ type ListSessionsQuery struct {
 }
 
 type ListAPIKeysQuery struct {
-	Owner     string           `json:"owner"`
-	OwnerType types.OwnerType  `json:"owner_type"`
-	Type      types.APIKeyType `json:"type"`
-	AppID     string           `json:"app_id"`
+	Owner          string           `json:"owner"`
+	OwnerType      types.OwnerType  `json:"owner_type"`
+	Type           types.APIKeyType `json:"type"`
+	AppID          string           `json:"app_id"`
+	OrganizationID string           `json:"organization_id"`
 }
 
 type ListToolsQuery struct {
@@ -233,8 +234,8 @@ type Store interface {
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
-	ListSessionsWithDesiredState(ctx context.Context, desiredState string) ([]*types.Session, error) // For reconciliation
-	ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error)           // For cleanup on sandbox disconnect
+	ClearStaleStartingSessions(ctx context.Context) (int64, error)
+	ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error) // For cleanup on sandbox disconnect
 
 	// interactions
 	ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error)
@@ -536,6 +537,7 @@ type Store interface {
 	UpdateGitRepository(ctx context.Context, repo *types.GitRepository) error
 	DeleteGitRepository(ctx context.Context, id string) error
 	ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error)
+	CountGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64, excludeRepoID string) (int64, error)
 
 	// spec-driven task multi-session management
 	CreateImplementationSessions(ctx context.Context, specTaskID string, config *types.SpecTaskImplementationSessionsCreateRequest) ([]*types.SpecTaskWorkSession, error)

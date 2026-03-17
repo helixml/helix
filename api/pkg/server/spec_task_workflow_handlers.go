@@ -344,7 +344,7 @@ func (s *HelixAPIServer) ensurePullRequestForTask(ctx context.Context, repo *typ
 	}
 
 	// Create new PR
-	description := fmt.Sprintf("> **Helix**: %s\n", task.Description)
+	description := fmt.Sprintf("> **Helix**: %s\n\n---\n[Created by Helix](https://helix.ml)\n", task.Description)
 	prID, err := s.gitRepositoryService.CreatePullRequest(ctx, repo.ID, task.Name, description, branch, repo.DefaultBranch)
 	if err != nil {
 		return fmt.Errorf("failed to create PR: %w", err)
@@ -425,16 +425,34 @@ func (s *HelixAPIServer) stopAgentSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Stop external agent if exists
-	if specTask.ExternalAgentID != "" {
-		// TODO: Call executor to stop the agent
-		log.Info().Str("external_agent_id", specTask.ExternalAgentID).Msg("Stopping external agent")
-	}
+	// Stop the container via Hydra executor if there's an active session
+	if specTask.PlanningSessionID != "" && s.externalAgentExecutor != nil {
+		log.Info().
+			Str("task_id", specTask.ID).
+			Str("session_id", specTask.PlanningSessionID).
+			Str("user_id", user.ID).
+			Msg("Stopping agent container via Hydra")
 
-	log.Info().
-		Str("task_id", specTask.ID).
-		Str("user_id", user.ID).
-		Msg("Agent stop requested")
+		if err := s.externalAgentExecutor.StopDesktop(ctx, specTask.PlanningSessionID); err != nil {
+			log.Warn().
+				Err(err).
+				Str("session_id", specTask.PlanningSessionID).
+				Msg("Failed to stop agent container (may already be stopped)")
+			// Don't return error - container might already be gone
+		} else {
+			log.Info().
+				Str("task_id", specTask.ID).
+				Str("session_id", specTask.PlanningSessionID).
+				Msg("Agent container stopped successfully")
+		}
+	} else {
+		log.Info().
+			Str("task_id", specTask.ID).
+			Str("user_id", user.ID).
+			Bool("has_session", specTask.PlanningSessionID != "").
+			Bool("has_executor", s.externalAgentExecutor != nil).
+			Msg("Agent stop requested (no container to stop)")
+	}
 
 	// Return task
 	w.Header().Set("Content-Type", "application/json")

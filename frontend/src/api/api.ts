@@ -818,6 +818,149 @@ export interface ServerInteractionWithContext {
   turn?: number;
 }
 
+export interface ServerKoditAdminActiveTaskDTO {
+  current?: number;
+  message?: string;
+  operation?: string;
+  repo_name?: string;
+  repository_id?: number;
+  state?: string;
+  total?: number;
+  updated_at?: string;
+}
+
+export interface ServerKoditAdminBatchRequest {
+  ids?: number[];
+}
+
+export interface ServerKoditAdminBatchResponse {
+  failed?: ServerKoditBatchError[];
+  succeeded?: number[];
+}
+
+export interface ServerKoditAdminPaginationMeta {
+  page?: number;
+  per_page?: number;
+  total?: number;
+  total_pages?: number;
+}
+
+export interface ServerKoditAdminPendingTaskDTO {
+  created_at?: string;
+  id?: number;
+  operation?: string;
+  priority?: number;
+}
+
+export interface ServerKoditAdminQueueListResponse {
+  active_tasks?: ServerKoditAdminActiveTaskDTO[];
+  data?: ServerKoditAdminQueueTaskDTO[];
+  meta?: ServerKoditAdminPaginationMeta;
+  stats?: ServerKoditAdminQueueStats;
+}
+
+export interface ServerKoditAdminQueueStats {
+  by_operation?: Record<string, number>;
+  by_priority_level?: Record<string, number>;
+  newest_task_time?: string;
+  oldest_task_age?: string;
+  oldest_task_time?: string;
+  total?: number;
+}
+
+export interface ServerKoditAdminQueueTaskDTO {
+  created_at?: string;
+  id?: number;
+  operation?: string;
+  priority?: number;
+  repo_name?: string;
+  repository_id?: number;
+}
+
+export interface ServerKoditAdminRepoAttributes {
+  created_at?: string;
+  helix_repo_id?: string;
+  helix_repo_name?: string;
+  remote_url?: string;
+  status?: string;
+  status_message?: string;
+  updated_at?: string;
+}
+
+export interface ServerKoditAdminRepoDTO {
+  attributes?: ServerKoditAdminRepoAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ServerKoditAdminRepoDetailAttributes {
+  branch_count?: number;
+  commit_count?: number;
+  created_at?: string;
+  default_branch?: string;
+  enrichment_count?: number;
+  helix_repo_id?: string;
+  helix_repo_name?: string;
+  /** Last time Kodit scanned this repository */
+  last_scanned_at?: string;
+  latest_commit_author?: string;
+  latest_commit_date?: string;
+  latest_commit_message?: string;
+  /** Latest commit tracked by Kodit */
+  latest_commit_sha?: string;
+  remote_url?: string;
+  status?: string;
+  status_message?: string;
+  tag_count?: number;
+  updated_at?: string;
+}
+
+export interface ServerKoditAdminRepoDetailDTO {
+  attributes?: ServerKoditAdminRepoDetailAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ServerKoditAdminRepoDetailResponse {
+  data?: ServerKoditAdminRepoDetailDTO;
+}
+
+export interface ServerKoditAdminRepoListResponse {
+  data?: ServerKoditAdminRepoDTO[];
+  meta?: ServerKoditAdminPaginationMeta;
+}
+
+export interface ServerKoditAdminRepositoryTasksResponse {
+  pending_tasks?: ServerKoditAdminPendingTaskDTO[];
+  statuses?: ServerKoditAdminTaskStatusDTO[];
+}
+
+export interface ServerKoditAdminStatsResponse {
+  commits?: number;
+  enrichments?: number;
+  pending_tasks?: number;
+  repositories?: number;
+}
+
+export interface ServerKoditAdminTaskStatusDTO {
+  current?: number;
+  error?: string;
+  message?: string;
+  operation?: string;
+  state?: string;
+  total?: number;
+  updated_at?: string;
+}
+
+export interface ServerKoditAdminUpdatePriorityRequest {
+  priority?: number;
+}
+
+export interface ServerKoditBatchError {
+  id?: number;
+  message?: string;
+}
+
 export interface ServerKoditCommitAttributes {
   authored_at?: string;
   committed_at?: string;
@@ -850,9 +993,76 @@ export interface ServerKoditEnrichmentListResponse {
   data?: ServerKoditEnrichmentDTO[];
 }
 
+export interface ServerKoditFileContentDTO {
+  commit_sha?: string;
+  content?: string;
+  path?: string;
+}
+
+export interface ServerKoditFileContentResponse {
+  data?: ServerKoditFileContentDTO;
+  links?: Record<string, string>;
+}
+
+export interface ServerKoditFileEntryDTO {
+  links?: Record<string, string>;
+  path?: string;
+  size?: number;
+}
+
+export interface ServerKoditFileResultDTO {
+  language?: string;
+  lines?: string;
+  links?: Record<string, string>;
+  path?: string;
+  preview?: string;
+  score?: number;
+}
+
+export interface ServerKoditFilesMeta {
+  count?: number;
+  pattern?: string;
+}
+
+export interface ServerKoditFilesResponse {
+  data?: ServerKoditFileEntryDTO[];
+  links?: Record<string, string>;
+  meta?: ServerKoditFilesMeta;
+}
+
+export interface ServerKoditGrepMatchDTO {
+  content?: string;
+  line?: number;
+}
+
+export interface ServerKoditGrepMeta {
+  count?: number;
+  glob?: string;
+  limit?: number;
+  pattern?: string;
+}
+
+export interface ServerKoditGrepResponse {
+  data?: ServerKoditGrepResultDTO[];
+  links?: Record<string, string>;
+  meta?: ServerKoditGrepMeta;
+}
+
+export interface ServerKoditGrepResultDTO {
+  language?: string;
+  links?: Record<string, string>;
+  matches?: ServerKoditGrepMatchDTO[];
+  path?: string;
+}
+
 export interface ServerKoditIndexingStatusAttributes {
   message?: string;
   status?: string;
+  tasks_active?: number;
+  tasks_completed?: number;
+  tasks_failed?: number;
+  tasks_pending?: number;
+  tasks_total?: number;
   updated_at?: string;
 }
 
@@ -866,11 +1076,48 @@ export interface ServerKoditIndexingStatusData {
   type?: string;
 }
 
+export interface ServerKoditSearchMeta {
+  count?: number;
+  language?: string;
+  limit?: number;
+  query?: string;
+}
+
+export interface ServerKoditSearchResponse {
+  data?: ServerKoditFileResultDTO[];
+  links?: Record<string, string>;
+  meta?: ServerKoditSearchMeta;
+}
+
 export interface ServerKoditSearchResultDTO {
   content?: string;
   id?: string;
   language?: string;
   type?: string;
+}
+
+export interface ServerKoditWikiPageDTO {
+  content?: string;
+  slug?: string;
+  title?: string;
+}
+
+export interface ServerKoditWikiPageResponse {
+  data?: ServerKoditWikiPageDTO;
+  links?: Record<string, string>;
+}
+
+export interface ServerKoditWikiTreeNodeDTO {
+  children?: ServerKoditWikiTreeNodeDTO[];
+  links?: Record<string, string>;
+  path?: string;
+  slug?: string;
+  title?: string;
+}
+
+export interface ServerKoditWikiTreeResponse {
+  data?: ServerKoditWikiTreeNodeDTO[];
+  links?: Record<string, string>;
 }
 
 export interface ServerLicenseKeyRequest {
@@ -913,6 +1160,10 @@ export interface ServerPhaseProgress {
   session_id?: string;
   started_at?: string;
   status?: string;
+}
+
+export interface ServerPinnedProjectsResponse {
+  pinned_project_ids?: string[];
 }
 
 export interface ServerPromptPinRequest {
@@ -2102,9 +2353,13 @@ export interface TypesCrispTrigger {
 }
 
 export interface TypesCronTrigger {
+  /** "session" (default) or "spec_task" */
+  action?: string;
   emails?: string[];
   enabled?: boolean;
   input?: string;
+  /** Target project for spec_task action */
+  project_id?: string;
   schedule?: string;
 }
 
@@ -2490,6 +2745,11 @@ export interface TypesGitRepository {
   external_type?: TypesExternalRepositoryType;
   /** Full URL to external repo (e.g., https://github.com/org/repo) */
   external_url?: string;
+  /**
+   * GitProviderConnectionID - references a GitProviderConnection (saved PAT) for authentication
+   * When set, the encrypted token is decrypted and used for clone/push operations
+   */
+  git_provider_connection_id?: string;
   github?: TypesGitHub;
   gitlab?: TypesGitLab;
   id?: string;
@@ -2536,6 +2796,8 @@ export interface TypesGitRepositoryCreateRequest {
   external_type?: TypesExternalRepositoryType;
   /** Full URL to external repo (e.g., https://github.com/org/repo) */
   external_url?: string;
+  /** GitProviderConnectionID - references a saved PAT connection for authentication */
+  git_provider_connection_id?: string;
   github?: TypesGitHub;
   gitlab?: TypesGitLab;
   initial_files?: Record<string, string>;
@@ -2691,6 +2953,14 @@ export interface TypesInteraction {
   /** User prompt (multi-part) */
   prompt_message_content?: TypesMessageContent;
   rag_results?: TypesSessionRAGResult[];
+  /**
+   * ResponseEntries holds the structured response as an ordered list of typed entries.
+   * Each entry is either "text" (assistant prose) or "tool_call" (tool invocation),
+   * preserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.
+   * This is populated on completion alongside ResponseMessage (flat string, backward compat).
+   * The frontend uses this to render entries with the correct component in the correct order.
+   */
+  response_entries?: number[];
   /** e.g. json */
   response_format?: TypesResponseFormat;
   /** e.g. json */
@@ -3252,11 +3522,15 @@ export interface TypesOrganization {
   /** Incremented on each update */
   guidelines_version?: number;
   id?: string;
+  /** Whether the current user is a member of the organization */
+  member?: boolean;
   /** Memberships in the organization */
   memberships?: TypesOrganizationMembership[];
   name?: string;
   /** Who created the org */
   owner?: string;
+  /** Number of projects in the organization */
+  project_count?: number;
   /** Roles in the organization */
   roles?: TypesRole[];
   /** Teams in the organization */
@@ -3374,6 +3648,7 @@ export interface TypesProject {
   /** Incremented on each update */
   guidelines_version?: number;
   id?: string;
+  kodit_enabled?: boolean;
   metadata?: TypesProjectMetadata;
   /** Indexed for search prefix matching */
   name?: string;
@@ -3465,6 +3740,8 @@ export interface TypesProjectUpdateRequest {
   github_repo_url?: string;
   /** Project-specific AI agent guidelines */
   guidelines?: string;
+  /** Whether Kodit code intelligence is enabled */
+  kodit_enabled?: boolean;
   metadata?: TypesProjectMetadata;
   name?: string;
   /** Project manager agent */
@@ -3490,6 +3767,7 @@ export interface TypesPromptHistoryEntry {
   /**
    * Interrupt indicates this message should interrupt the current conversation
    * When false, message waits until current conversation completes
+   * Default is false: queue mode is the default, interrupt is explicit
    */
   interrupt?: boolean;
   /** Saved as a reusable template */
@@ -3600,6 +3878,12 @@ export interface TypesProviderEndpoint {
   /** If we can't fetch models */
   status?: TypesProviderEndpointStatus;
   updated?: string;
+  vertex_credentials_file?: string;
+  /** Service account JSON string; takes precedence over file */
+  vertex_credentials_json?: string;
+  /** Google Vertex AI fields — when VertexProjectID is set, this endpoint routes through Vertex */
+  vertex_project_id?: string;
+  vertex_region?: string;
 }
 
 export enum TypesProviderEndpointStatus {
@@ -4059,6 +4343,8 @@ export interface TypesServerConfigForFrontend {
    * can be the prefix to the bucket
    */
   registration_enabled?: boolean;
+  /** Require an active subscription before allowing to use the product */
+  require_active_subscription?: boolean;
   rudderstack_data_plane_url?: string;
   rudderstack_write_key?: string;
   sentry_dsn_frontend?: string;
@@ -4984,6 +5270,16 @@ export interface TypesSystemSettingsRequest {
   /** Kodit enrichment model configuration */
   kodit_enrichment_provider?: string;
   max_concurrent_desktops?: number;
+  optimus_generation_model?: string;
+  optimus_generation_model_provider?: string;
+  optimus_reasoning_model?: string;
+  optimus_reasoning_model_effort?: string;
+  optimus_reasoning_model_provider?: string;
+  optimus_small_generation_model?: string;
+  optimus_small_generation_model_provider?: string;
+  optimus_small_reasoning_model?: string;
+  optimus_small_reasoning_model_effort?: string;
+  optimus_small_reasoning_model_provider?: string;
   providers_management_enabled?: boolean;
   rag_embeddings_model?: string;
   /** RAG embedding model configuration */
@@ -5005,6 +5301,17 @@ export interface TypesSystemSettingsResponse {
   kodit_enrichment_provider?: string;
   /** Per user */
   max_concurrent_desktops?: number;
+  optimus_generation_model?: string;
+  optimus_generation_model_provider?: string;
+  optimus_reasoning_model?: string;
+  optimus_reasoning_model_effort?: string;
+  /** Optimus configuration */
+  optimus_reasoning_model_provider?: string;
+  optimus_small_generation_model?: string;
+  optimus_small_generation_model_provider?: string;
+  optimus_small_reasoning_model?: string;
+  optimus_small_reasoning_model_effort?: string;
+  optimus_small_reasoning_model_provider?: string;
   providers_management_enabled?: boolean;
   rag_embeddings_model?: string;
   /** true if both provider and model are configured */
@@ -5356,6 +5663,11 @@ export interface TypesUpdateProviderEndpoint {
   headers?: Record<string, string>;
   models?: string[];
   name?: string;
+  vertex_credentials_file?: string;
+  vertex_credentials_json?: string;
+  /** Google Vertex AI fields */
+  vertex_project_id?: string;
+  vertex_region?: string;
 }
 
 export interface TypesUpdateTeamRequest {
@@ -5392,8 +5704,6 @@ export interface TypesUser {
   onboarding_completed_at?: string;
   /** Organization this API key is scoped to (ephemeral keys) */
   organization_id?: string;
-  /** bcrypt hash of the password */
-  password_hash?: number[];
   /** When running in Helix Code sandbox */
   project_id?: string;
   sb?: boolean;
@@ -5473,6 +5783,7 @@ export interface TypesWallet {
   org_id?: string;
   stripe_customer_id?: string;
   stripe_subscription_id?: string;
+  subscription_cancel_at_period_end?: boolean;
   subscription_created?: number;
   subscription_current_period_end?: number;
   subscription_current_period_start?: number;
@@ -5722,6 +6033,250 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description List all pending tasks across all repositories with pagination. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditQueueList
+     * @summary List Kodit task queue (admin)
+     * @request GET:/api/v1/admin/kodit/queue
+     * @secure
+     */
+    v1AdminKoditQueueList: (
+      query?: {
+        /** Page number (default 1) */
+        page?: number;
+        /** Items per page (default 25, max 100) */
+        per_page?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditAdminQueueListResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/queue`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a specific task from the Kodit task queue by ID. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditQueueDelete
+     * @summary Delete Kodit queue task (admin)
+     * @request DELETE:/api/v1/admin/kodit/queue/{taskId}
+     * @secure
+     */
+    v1AdminKoditQueueDelete: (taskId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/queue/${taskId}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the priority of a specific task in the Kodit task queue. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditQueuePriorityPartialUpdate
+     * @summary Update Kodit queue task priority (admin)
+     * @request PATCH:/api/v1/admin/kodit/queue/{taskId}/priority
+     * @secure
+     */
+    v1AdminKoditQueuePriorityPartialUpdate: (
+      taskId: number,
+      body: ServerKoditAdminUpdatePriorityRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/queue/${taskId}/priority`,
+        method: "PATCH",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List all Kodit-indexed repositories with pagination. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesList
+     * @summary List Kodit repositories (admin)
+     * @request GET:/api/v1/admin/kodit/repositories
+     * @secure
+     */
+    v1AdminKoditRepositoriesList: (
+      query?: {
+        /** Page number (default 1) */
+        page?: number;
+        /** Items per page (default 25, max 100) */
+        per_page?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditAdminRepoListResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Queue a Kodit repository for deletion. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesDelete
+     * @summary Delete Kodit repository (admin)
+     * @request DELETE:/api/v1/admin/kodit/repositories/{koditRepoId}
+     * @secure
+     */
+    v1AdminKoditRepositoriesDelete: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get detailed information about a Kodit repository including summary stats. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesDetail
+     * @summary Get Kodit repository detail (admin)
+     * @request GET:/api/v1/admin/kodit/repositories/{koditRepoId}
+     * @secure
+     */
+    v1AdminKoditRepositoriesDetail: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<ServerKoditAdminRepoDetailResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Trigger a rescan of the HEAD commit for a Kodit repository. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesRescanCreate
+     * @summary Rescan Kodit repository HEAD (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/{koditRepoId}/rescan
+     * @secure
+     */
+    v1AdminKoditRepositoriesRescanCreate: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/rescan`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Trigger a full sync (git fetch + branch scan + re-index) for a Kodit repository. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesSyncCreate
+     * @summary Sync Kodit repository (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/{koditRepoId}/sync
+     * @secure
+     */
+    v1AdminKoditRepositoriesSyncCreate: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<Record<string, string>, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/sync`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns tracking statuses and pending queue tasks for a Kodit repository. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesTasksDetail
+     * @summary Get Kodit repository tasks (admin)
+     * @request GET:/api/v1/admin/kodit/repositories/{koditRepoId}/tasks
+     * @secure
+     */
+    v1AdminKoditRepositoriesTasksDetail: (koditRepoId: number, params: RequestParams = {}) =>
+      this.request<ServerKoditAdminRepositoryTasksResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/${koditRepoId}/tasks`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Queue multiple Kodit repositories for deletion. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesBatchDeleteCreate
+     * @summary Batch delete Kodit repositories (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/batch/delete
+     * @secure
+     */
+    v1AdminKoditRepositoriesBatchDeleteCreate: (body: ServerKoditAdminBatchRequest, params: RequestParams = {}) =>
+      this.request<ServerKoditAdminBatchResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/batch/delete`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Trigger a HEAD commit rescan for multiple Kodit repositories. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditRepositoriesBatchRescanCreate
+     * @summary Batch rescan Kodit repositories (admin)
+     * @request POST:/api/v1/admin/kodit/repositories/batch/rescan
+     * @secure
+     */
+    v1AdminKoditRepositoriesBatchRescanCreate: (body: ServerKoditAdminBatchRequest, params: RequestParams = {}) =>
+      this.request<ServerKoditAdminBatchResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/repositories/batch/rescan`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns aggregate counts: repositories, enrichments, commits, pending tasks. Admin only.
+     *
+     * @tags admin
+     * @name V1AdminKoditStatsList
+     * @summary Get Kodit system stats (admin)
+     * @request GET:/api/v1/admin/kodit/stats
+     * @secure
+     */
+    v1AdminKoditStatsList: (params: RequestParams = {}) =>
+      this.request<ServerKoditAdminStatsResponse, TypesAPIError>({
+        path: `/api/v1/admin/kodit/stats`,
+        method: "GET",
+        secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -7650,6 +8205,122 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Read the content of a file from the repository, optionally with line range filtering
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesFileContentDetail
+     * @summary Read repository file
+     * @request GET:/api/v1/git/repositories/{id}/file-content
+     * @secure
+     */
+    v1GitRepositoriesFileContentDetail: (
+      id: string,
+      query: {
+        /** File path within the repository */
+        path: string;
+        /** Start line (1-indexed, inclusive) */
+        start_line?: number;
+        /** End line (1-indexed, inclusive) */
+        end_line?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditFileContentResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/file-content`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List files in a repository matching a glob pattern
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesFilesDetail
+     * @summary List repository files
+     * @request GET:/api/v1/git/repositories/{id}/files
+     * @secure
+     */
+    v1GitRepositoriesFilesDetail: (
+      id: string,
+      query?: {
+        /** Glob pattern to filter files */
+        pattern?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditFilesResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/files`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Run pattern matching (grep) against repository files
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesGrepDetail
+     * @summary Grep repository
+     * @request GET:/api/v1/git/repositories/{id}/grep
+     * @secure
+     */
+    v1GitRepositoriesGrepDetail: (
+      id: string,
+      query: {
+        /** Search pattern (regex) */
+        pattern: string;
+        /** Glob pattern to filter files (e.g. *.go) */
+        glob?: string;
+        /** Maximum results (default 50, max 200) */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditGrepResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/grep`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Search repository code using BM25 keyword matching
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesKeywordSearchDetail
+     * @summary Keyword search repository
+     * @request GET:/api/v1/git/repositories/{id}/keyword-search
+     * @secure
+     */
+    v1GitRepositoriesKeywordSearchDetail: (
+      id: string,
+      query: {
+        /** Keywords to search for */
+        keywords: string;
+        /** Maximum results (default 10, max 100) */
+        limit?: number;
+        /** Filter by language extension (e.g. .go, .ts) */
+        language?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditSearchResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/keyword-search`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get commits for a repository from Kodit (used for enrichment filtering)
      *
      * @tags git-repositories
@@ -7866,6 +8537,36 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Search repository code using vector similarity (semantic meaning)
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesSemanticSearchDetail
+     * @summary Semantic search repository
+     * @request GET:/api/v1/git/repositories/{id}/semantic-search
+     * @secure
+     */
+    v1GitRepositoriesSemanticSearchDetail: (
+      id: string,
+      query: {
+        /** Natural language search query */
+        query: string;
+        /** Maximum results (default 10, max 100) */
+        limit?: number;
+        /** Filter by language extension (e.g. .go, .ts) */
+        language?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditSearchResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/semantic-search`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Syncs all branches from the upstream remote repository to the local repository
      *
      * @tags git-repositories
@@ -7912,6 +8613,50 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesGitRepositoryTreeResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/tree`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the wiki navigation tree (titles and paths, no content) for a repository. Each node includes a link to fetch the full page content.
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesWikiDetail
+     * @summary Get repository wiki tree
+     * @request GET:/api/v1/git/repositories/{id}/wiki
+     * @secure
+     */
+    v1GitRepositoriesWikiDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerKoditWikiTreeResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/wiki`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get a wiki page by hierarchical path as markdown content
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesWikiPageDetail
+     * @summary Get wiki page
+     * @request GET:/api/v1/git/repositories/{id}/wiki-page
+     * @secure
+     */
+    v1GitRepositoriesWikiPageDetail: (
+      id: string,
+      query: {
+        /** Wiki page path (e.g. architecture/database-layer.md) */
+        path: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerKoditWikiPageResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/wiki-page`,
         method: "GET",
         query: query,
         secure: true,
@@ -8608,6 +9353,59 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List API keys for an organization. Owners see all keys, members see only their own.
+     *
+     * @tags organizations
+     * @name V1OrganizationsApiKeysDetail
+     * @summary List organization API keys
+     * @request GET:/api/v1/organizations/{id}/api_keys
+     * @secure
+     */
+    v1OrganizationsApiKeysDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesApiKey[], any>({
+        path: `/api/v1/organizations/${id}/api_keys`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a new API key scoped to the organization. Any member can create keys.
+     *
+     * @tags organizations
+     * @name V1OrganizationsApiKeysCreate
+     * @summary Create an organization API key
+     * @request POST:/api/v1/organizations/{id}/api_keys
+     * @secure
+     */
+    v1OrganizationsApiKeysCreate: (id: string, request: object, params: RequestParams = {}) =>
+      this.request<TypesApiKey, any>({
+        path: `/api/v1/organizations/${id}/api_keys`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Delete an API key. Owners can delete any org key, members only their own.
+     *
+     * @tags organizations
+     * @name V1OrganizationsApiKeysDelete
+     * @summary Delete an organization API key
+     * @request DELETE:/api/v1/organizations/{id}/api_keys/{key}
+     * @secure
+     */
+    v1OrganizationsApiKeysDelete: (id: string, key: string, params: RequestParams = {}) =>
+      this.request<string, any>({
+        path: `/api/v1/organizations/${id}/api_keys/${key}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get the version history of guidelines for an organization
      *
      * @tags Organizations
@@ -9187,6 +9985,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/projects/${id}/move/preview`,
         method: "POST",
         body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Remove a project from the current user's pinned projects
+     *
+     * @tags Projects
+     * @name V1ProjectsPinDelete
+     * @summary Unpin a project
+     * @request DELETE:/api/v1/projects/{id}/pin
+     * @secure
+     */
+    v1ProjectsPinDelete: (id: string, params: RequestParams = {}) =>
+      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/pin`,
+        method: "DELETE",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Pin a project for the current user so it appears at the top of the projects board
+     *
+     * @tags Projects
+     * @name V1ProjectsPinCreate
+     * @summary Pin a project
+     * @request POST:/api/v1/projects/{id}/pin
+     * @secure
+     */
+    v1ProjectsPinCreate: (id: string, params: RequestParams = {}) =>
+      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/pin`,
+        method: "POST",
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -11754,6 +12590,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** Organization ID */
         org_id?: string;
+        /** Custom return URL path (e.g. /onboarding) */
+        return_url?: string;
       },
       params: RequestParams = {},
     ) =>
@@ -12146,6 +12984,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get the list of project IDs pinned by the current user
+     *
+     * @tags Users
+     * @name V1UsersMePinnedProjectsList
+     * @summary Get pinned project IDs
+     * @request GET:/api/v1/users/me/pinned-projects
+     * @secure
+     */
+    v1UsersMePinnedProjectsList: (params: RequestParams = {}) =>
+      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
+        path: `/api/v1/users/me/pinned-projects`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Search users by email, name, or username
      *
      * @tags users
@@ -12365,9 +13221,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * No description
+     * @description List models from a specific provider, or aggregate from all providers if none specified. If the request includes an anthropic-version header, proxies to the upstream Anthropic provider.
      *
+     * @tags models
      * @name ModelsList
+     * @summary List models
      * @request GET:/v1/models
      * @secure
      */

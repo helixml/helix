@@ -238,6 +238,7 @@ ARG DE_PACKAGES=" \
     gstreamer1.0-plugins-base \
     gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad \
+    libopenh264-8 \
     gstreamer1.0-gl \
     gstreamer1.0-vaapi \
     mesa-va-drivers \
@@ -925,8 +926,7 @@ RUN mkdir -p /home/retro/.qwen && \
 RUN mkdir -p /home/retro/.gemini && \
     echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.gemini/settings.json
 
-# Install Claude Code CLI (for ACP agent support)
-RUN npm install -g @anthropic-ai/claude-code@latest
+
 
 # Claude Code settings (bypassPermissions etc.) are written at runtime by
 # helix-workspace-setup.sh after symlinking ~/.claude to persistent storage.

@@ -16,6 +16,8 @@ import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
 import useCreateBlankAgent from '../hooks/useCreateBlankAgent'
+import useSubscriptionGate from '../hooks/useSubscriptionGate'
+import Paywall from '../components/subscription/Paywall'
 
 import {
   IApp,
@@ -26,6 +28,7 @@ const Apps: FC = () => {
   const apps = useApps()
   const snackbar = useSnackbar()
   const createBlankAgent = useCreateBlankAgent()
+  const { paywallActive, navigateToBilling } = useSubscriptionGate()
 
   const {
     params,
@@ -128,14 +131,15 @@ const Apps: FC = () => {
           mb: 4,
         }}
       >
-        <AppsTable
-          authenticated={ !!account.user }
-          data={ apps.apps }
-          onEdit={ onEditApp }
-          onDelete={ setDeletingApp }
-          orgId={ account.organizationTools.organization?.id || '' }
-        />
-                        
+        <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
+          <AppsTable
+            authenticated={ !!account.user }
+            data={ apps.apps }
+            onEdit={ onEditApp }
+            onDelete={ setDeletingApp }
+            orgId={ account.organizationTools.organization?.id || '' }
+          />
+        </Paywall>
       </Container>
       {
         deletingApp && (

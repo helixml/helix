@@ -10,7 +10,6 @@ import {
   Button,
   Box,
   Typography,
-  Modal,
   IconButton,
   Tooltip,
 } from '@mui/material';
@@ -18,8 +17,10 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import useApi from '../../hooks/useApi';
 import { TypesPaginatedLLMCalls, TypesLLMCall } from '../../api/api';
+import { useGetConfig } from '../../services/userService';
 import JsonView from '../widgets/JsonView';
 import { useListLLMCalls } from '../../services/llmCallsService';
+import DarkDialog from '../dialog/DarkDialog';
 
 interface LLMCallsTableProps {
   sessionFilter: string;
@@ -32,8 +33,7 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
   const [modalOpen, setModalOpen] = useState(false);
 
   const { data: llmCalls, isLoading, error, refetch } = useListLLMCalls(sessionFilter, "", page, rowsPerPage, true);
-
-  const win = (window as any)
+  const { data: serverConfig } = useGetConfig();
 
   const handleChangePage = (event: unknown, newPage: number) => {
     setPage(newPage);
@@ -94,7 +94,7 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
               </TableRow>
             </TableHead>
             <TableBody>
-              { win.DISABLE_LLM_CALL_LOGGING ? (
+              { serverConfig?.disable_llm_call_logging ? (
                 <TableRow>
                   <TableCell colSpan={6}>LLM call logging is disabled by the administrator.</TableCell>
                 </TableRow>
@@ -197,31 +197,24 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
           onRowsPerPageChange={handleChangeRowsPerPage}
         />
       </Box>
-      <Modal
+      <DarkDialog
         open={modalOpen}
         onClose={handleCloseModal}
-        aria-labelledby="json-modal-title"
-        aria-describedby="json-modal-description"
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            maxHeight: '80vh',
+          },
+        }}
       >
-        <Box sx={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          width: '80%',
-          maxHeight: '80%',
-          bgcolor: 'background.paper',
-          border: '2px solid #000',
-          boxShadow: 24,
-          p: 4,
-          overflow: 'auto',
-        }}>
-          <Typography id="json-modal-title" variant="h6" component="h2" gutterBottom>
+        <Box sx={{ p: 3, overflow: 'auto' }}>
+          <Typography variant="h6" component="h2" gutterBottom>
             JSON Content
           </Typography>
           <JsonView data={modalContent} />
         </Box>
-      </Modal>
+      </DarkDialog>
     </>
   );
 };

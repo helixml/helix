@@ -43,6 +43,15 @@ spec:
             - name: http
               containerPort: 7317
               protocol: TCP
+          {{- if or .Values.global.extraEnv .Values.chrome.extraEnv }}
+          env:
+            {{- with .Values.global.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- with .Values.chrome.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

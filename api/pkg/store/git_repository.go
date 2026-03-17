@@ -88,6 +88,21 @@ func (s *PostgresStore) UpdateGitRepository(ctx context.Context, repo *types.Git
 	return s.gdb.WithContext(ctx).Model(&types.GitRepository{}).Where("id = ?", repo.ID).Save(repo).Error
 }
 
+// CountGitRepositoriesByKoditRepoID counts how many git repositories (excluding
+// excludeRepoID) reference the given kodit_repo_id in their JSONB metadata.
+func (s *PostgresStore) CountGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64, excludeRepoID string) (int64, error) {
+	var count int64
+	err := s.gdb.WithContext(ctx).
+		Model(&types.GitRepository{}).
+		Where("id != ?", excludeRepoID).
+		Where("(metadata->>'kodit_repo_id')::bigint = ?", koditRepoID).
+		Count(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("count git repositories by kodit repo ID: %w", err)
+	}
+	return count, nil
+}
+
 // DeleteGitRepository deletes a git repository record
 func (s *PostgresStore) DeleteGitRepository(ctx context.Context, id string) error {
 	if id == "" {

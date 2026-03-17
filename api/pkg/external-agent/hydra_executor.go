@@ -375,6 +375,9 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	h.updateSessionStatusMessage(ctx, agent.SessionID, "")
 
 	if err != nil {
+		// Reset agent status so the session isn't stuck in "starting" forever.
+		// The status message was already cleared on line 375 above.
+		h.setExternalAgentStatus(ctx, agent.SessionID, "")
 		return nil, fmt.Errorf("failed to create dev container via Hydra: %w", err)
 	}
 
@@ -860,7 +863,7 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	// Pass license key to nested Helix instances (Helix-in-Helix development)
 	// This hides the "Get your free Community License Key" banner
 	if h.licenseKey != "" {
-		env = append(env, fmt.Sprintf("HELIX_LICENSE_KEY=%s", h.licenseKey))
+		env = append(env, fmt.Sprintf("LICENSE_KEY=%s", h.licenseKey))
 	}
 
 	// SECURITY: Runner token is NOT passed to containers - users must never see it

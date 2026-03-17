@@ -48,31 +48,11 @@ import useApi from '../../hooks/useApi'
 import { AppsContext, CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { findOAuthConnectionForProvider, findOAuthProviderForType, hasRequiredScopes, PROVIDER_TYPES } from '../../utils/oauthProviders'
-import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
-import { useListProviders } from '../../services/providersService'
-import { TypesProviderEndpointType } from '../../api/api'
+import { RECOMMENDED_CODING_MODELS } from '../../constants/models'
 import CodingAgentForm from '../agent/CodingAgentForm'
 import type { CodingAgentFormHandle } from '../agent/CodingAgentForm'
 
-// Recommended models for zed_external agents (state-of-the-art coding models)
-const RECOMMENDED_MODELS = [
-  // Anthropic
-  'claude-opus-4-5-20251101',
-  'claude-sonnet-4-5-20250929',
-  'claude-haiku-4-5-20251001',
-  // OpenAI
-  'openai/gpt-5.1-codex',
-  'openai/gpt-oss-120b',
-  // Google Gemini
-  'gemini-2.5-pro',
-  'gemini-2.5-flash',
-  // Zhipu GLM
-  'glm-4.6',
-  // Qwen (Coder + Large)
-  'Qwen/Qwen3-Coder-480B-A35B-Instruct',
-  'Qwen/Qwen3-Coder-30B-A3B-Instruct',
-  'Qwen/Qwen3-235B-A22B-fp8-tput',
-]
+
 
 type RepoMode = 'auto' | 'select' | 'create' | 'link'
 
@@ -107,19 +87,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const queryClient = useQueryClient()
   const { apps, loadApps } = useContext(AppsContext)
   const createProjectMutation = useCreateProject()
-
-  // Claude subscription + provider state
-  const { data: claudeSubscriptions } = useClaudeSubscriptions()
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
-  const { data: providerEndpoints } = useListProviders({ loadModels: false })
-  const hasAnthropicProvider = useMemo(() => {
-    if (!providerEndpoints) return false
-    return providerEndpoints.some(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser && p.name === 'anthropic')
-  }, [providerEndpoints])
-  const userProviderCount = useMemo(() => {
-    if (!providerEndpoints) return 0
-    return providerEndpoints.filter(p => p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser).length
-  }, [providerEndpoints])
 
   // OAuth connections for GitHub browse
   const { data: oauthConnections } = useListOAuthConnections()
@@ -337,14 +304,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       }
     }
   }, [open, apps, sortedApps, selectedAgentId])
-
-  // Auto-default to Claude Code when it's the only available AI provider
-  useEffect(() => {
-    if (hasClaudeSubscription && !hasAnthropicProvider && userProviderCount === 0) {
-      setCodeAgentRuntime('claude_code')
-      setClaudeCodeMode('subscription')
-    }
-  }, [hasClaudeSubscription, hasAnthropicProvider, userProviderCount])
 
   // Detect OAuth popup closure and refresh connections
   useEffect(() => {
@@ -759,8 +718,8 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                             dense
                           >
                             {filteredGithubRepos.map((repo, index) => {
-                              const isSelected = selectedOAuthRepo?.full_name === repo.full_name ||
-                                selectedOAuthRepo?.id === repo.id
+                              const isSelected = selectedOAuthRepo?.full_name === repo.full_name
+
                               return (
                                 <ListItem key={repo.id || repo.full_name || index} disablePadding>
                                   <ListItemButton
@@ -1105,9 +1064,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                   setNewAgentName(nextValue.agentName)
                 }}
                 disabled={creatingAgent || createProjectMutation.isPending || creatingRepo}
-                hasClaudeSubscription={hasClaudeSubscription}
-                hasAnthropicProvider={hasAnthropicProvider}
-                recommendedModels={RECOMMENDED_MODELS}
+                recommendedModels={RECOMMENDED_CODING_MODELS}
                 createAgentDescription="Code development agent for spec tasks"
                 onCreateStateChange={setCreatingAgent}
                 onAgentCreated={(app) => {

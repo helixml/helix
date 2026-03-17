@@ -9,6 +9,7 @@ import {
 import {
   Check,
   AlertCircle,
+  AlertTriangle,
   RefreshCw,
   Clock,
 } from 'lucide-react'
@@ -100,20 +101,26 @@ const KoditStatusPill: FC<KoditStatusPillProps> = ({
     )
   }
 
-  if (status === 'completed') {
+  if (status === 'completed' || status === 'completed_with_errors') {
+    const hasErrors = status === 'completed_with_errors'
     const formattedDate = formatLastUpdated(updatedAt)
-    const tooltipContent = formattedDate
-      ? `Last synced: ${formattedDate}`
-      : 'Repository is indexed and up to date'
+    const tooltipContent = hasErrors
+      ? (message || 'Indexing completed with some errors')
+      : formattedDate
+        ? `Last synced: ${formattedDate}`
+        : 'Repository is indexed and up to date'
 
     return (
       <Box sx={{ display: 'flex', alignItems: 'center' }}>
         <Tooltip title={tooltipContent} arrow placement="top">
           <Chip
-            icon={<Check size={14} />}
-            label={formattedDate ? `Synced ${formattedDate}` : 'Up to date'}
+            icon={hasErrors ? <AlertTriangle size={14} /> : <Check size={14} />}
+            label={hasErrors
+              ? (formattedDate ? `Synced ${formattedDate} (with errors)` : 'Completed with errors')
+              : (formattedDate ? `Synced ${formattedDate}` : 'Up to date')
+            }
             size="small"
-            color="success"
+            color={hasErrors ? 'warning' : 'success'}
             sx={{
               '& .MuiChip-icon': {
                 color: 'inherit',
@@ -148,9 +155,19 @@ const KoditStatusPill: FC<KoditStatusPillProps> = ({
   }
 
   if (status === 'indexing' || status === 'in_progress') {
+    const tasksTotal = attrs?.tasks_total || 0
+    const tasksCompleted = attrs?.tasks_completed || 0
+    const tasksPending = attrs?.tasks_pending || 0
+    const progressLabel = tasksTotal > 0
+      ? `Indexing ${tasksCompleted}/${tasksTotal}`
+      : 'Indexing...'
+    const tooltipDetail = tasksTotal > 0
+      ? `${tasksCompleted} of ${tasksTotal} tasks completed${tasksPending > 0 ? `, ${tasksPending} queued` : ''}`
+      : (message || 'Repository is being indexed...')
+
     return (
       <Box sx={{ display: 'flex', alignItems: 'center' }}>
-        <Tooltip title={message || 'Repository is being indexed...'} arrow placement="top">
+        <Tooltip title={tooltipDetail} arrow placement="top">
           <Chip
             icon={
               <Box
@@ -167,7 +184,7 @@ const KoditStatusPill: FC<KoditStatusPillProps> = ({
                 <RefreshCw size={14} />
               </Box>
             }
-            label="Indexing..."
+            label={progressLabel}
             size="small"
             color="warning"
             sx={{
@@ -183,12 +200,15 @@ const KoditStatusPill: FC<KoditStatusPillProps> = ({
   }
 
   if (status === 'queued' || status === 'pending') {
+    const tasksPending = attrs?.tasks_pending || 0
+    const pendingLabel = tasksPending > 0 ? `Queued (${tasksPending} tasks)` : 'Queued'
+
     return (
       <Box sx={{ display: 'flex', alignItems: 'center' }}>
         <Tooltip title={message || 'Repository is queued for indexing'} arrow placement="top">
           <Chip
             icon={<Clock size={14} />}
-            label="Queued"
+            label={pendingLabel}
             size="small"
             color="info"
             sx={{
@@ -203,15 +223,17 @@ const KoditStatusPill: FC<KoditStatusPillProps> = ({
     )
   }
 
-  // Default: unknown state
+  // Default: unrecognized status — show message if available
   return (
     <Box sx={{ display: 'flex', alignItems: 'center' }}>
-      <Chip
-        label="Unknown"
-        size="small"
-        color="default"
-        variant="outlined"
-      />
+      <Tooltip title={message || `Status: ${status || 'unknown'}`} arrow placement="top">
+        <Chip
+          label={status || 'Unknown'}
+          size="small"
+          color="default"
+          variant="outlined"
+        />
+      </Tooltip>
       {refreshButton}
     </Box>
   )

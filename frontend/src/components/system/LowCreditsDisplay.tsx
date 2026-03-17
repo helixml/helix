@@ -69,9 +69,6 @@ const LowCreditsDisplay: React.FC = () => {
     if (isOrgContext && wallet.org_id) {
       // Navigate to organization billing page
       router.navigate('org_billing', { org_id: orgId })
-    } else {
-      // Navigate to personal account/billing page
-      router.navigate('account')
     }
   }
 

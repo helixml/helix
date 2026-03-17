@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
@@ -31,6 +32,7 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 		nil, // externalAgentExecutor not needed for tests
 		nil, // registerRequestMapping not needed for tests
 		nil, // gitRepositoryService not needed for tests
+		NewDisabledKoditService(),
 	)
 	service.SetTestMode(true)
 
@@ -104,6 +106,7 @@ func TestSpecDrivenTaskService_HandleSpecGenerationComplete(t *testing.T) {
 		nil, // externalAgentExecutor not needed for tests
 		nil, // registerRequestMapping not needed for tests
 		nil, // gitRepositoryService not needed for tests
+		NewDisabledKoditService(),
 	)
 	service.SetTestMode(true)
 
@@ -144,14 +147,124 @@ func TestSpecDrivenTaskService_HandleSpecGenerationComplete(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestGenerateTaskNameFromPrompt(t *testing.T) {
+	tests := []struct {
+		name     string
+		prompt   string
+		expected string
+	}{
+		{
+			name:     "short prompt unchanged",
+			prompt:   "Fix the login bug",
+			expected: "Fix the login bug",
+		},
+		{
+			name:     "exactly 60 chars unchanged",
+			prompt:   "This prompt is exactly sixty characters long, no truncation!",
+			expected: "This prompt is exactly sixty characters long, no truncation!",
+		},
+		{
+			name:     "long ASCII prompt truncated to 57 + ellipsis",
+			prompt:   "This is a very long prompt that exceeds the sixty character limit and should be truncated",
+			expected: "This is a very long prompt that exceeds the sixty charact...",
+		},
+		{
+			name:     "multi-byte UTF-8 chars not split by truncation",
+			prompt:   "Create a health check — monitor dashboard — verify alerts — ensure everything works correctly end to end",
+			expected: "Create a health check — monitor dashboard — verify alerts...",
+		},
+		{
+			name:     "em-dash at truncation boundary stays valid UTF-8",
+			prompt:   "Check that em-dashes like — are handled at the boundary—this should not corrupt",
+			expected: "Check that em-dashes like — are handled at the boundary—t...",
+		},
+		{
+			name:     "CJK characters truncated by rune count not byte count",
+			prompt:   "创建一个健康检查系统来监控所有的服务状态并且确保所有的服务都正常运行创建一个健康检查系统来监控所有的服务状态并且确保所有的服务都正常运行",
+			expected: "创建一个健康检查系统来监控所有的服务状态并且确保所有的服务都正常运行创建一个健康检查系统来监控所有的服务状态并且确...",
+		},
+		{
+			name:     "newlines collapsed to spaces",
+			prompt:   "Line one\nLine two\nLine three",
+			expected: "Line one Line two Line three",
+		},
+		{
+			name:     "tabs and multiple spaces collapsed",
+			prompt:   "Tabbed\t\ttext   with   extra   spaces",
+			expected: "Tabbed text with extra spaces",
+		},
+		{
+			name:     "hash with markdown headings and multi-byte chars",
+			prompt:   "## Health Check — Monitor cluster status, verify alerts — ensure uptime SLA compliance",
+			expected: "## Health Check — Monitor cluster status, verify alerts —...",
+		},
+		{
+			name:     "empty prompt",
+			prompt:   "",
+			expected: "",
+		},
+		{
+			name:     "whitespace only",
+			prompt:   "   \n\t  ",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := generateTaskNameFromPrompt(tt.prompt)
+			assert.Equal(t, tt.expected, result)
+
+			// Every result must be valid UTF-8 (the original bug: invalid UTF-8 reaching Postgres)
+			assert.True(t, isValidUTF8(result), "result should be valid UTF-8: %q", result)
+
+			// Truncated results should not exceed 60 runes
+			if len([]rune(result)) > 60 {
+				t.Errorf("result exceeds 60 runes: got %d", len([]rune(result)))
+			}
+		})
+	}
+}
+
+// TestGenerateTaskNameFromPrompt_ByteTruncationRegression verifies that the old byte-level
+// truncation bug (name[:57]) is fixed. With the old code, an em-dash (3-byte UTF-8: 0xe2 0x80 0x94)
+// at the right position would be split, producing invalid UTF-8 that Postgres rejects with
+// SQLSTATE 22021: "invalid byte sequence for encoding UTF8: 0xe2 0x80 0x2e"
+func TestGenerateTaskNameFromPrompt_ByteTruncationRegression(t *testing.T) {
+	// Construct a prompt where an em-dash lands exactly at byte position 55-57.
+	// With old byte slicing (name[:57]), this would split the em-dash's 3 bytes,
+	// and the appended "..." (0x2e 0x2e 0x2e) would create the invalid sequence 0xe2 0x80 0x2e.
+	//
+	// "aaaa...a" (55 ASCII bytes) + "—" (3 bytes: 0xe2 0x80 0x94) + more text
+	// Old code: name[:57] = "aaaa...a" + 0xe2 0x80  (incomplete!)  + "..." = invalid UTF-8
+	// New code: runes[:57] = "aaaa...a" + "—" + ... correctly handled
+	prompt := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa—this triggers the old bug"
+
+	result := generateTaskNameFromPrompt(prompt)
+
+	assert.True(t, utf8.ValidString(result), "result must be valid UTF-8, got: %q (bytes: %x)", result, []byte(result))
+	assert.LessOrEqual(t, len([]rune(result)), 60)
+}
+
+func isValidUTF8(s string) bool {
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			return false
+		}
+		i += size
+	}
+	return true
+}
+
 func TestSpecDrivenTaskService_SelectZedAgent(t *testing.T) {
 	// Test with agents available
-	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"agent1", "agent2"}, nil, nil, nil, nil)
+	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"agent1", "agent2"}, nil, nil, nil, nil, NewDisabledKoditService())
 	agent := service.selectZedAgent()
 	assert.Equal(t, "agent1", agent)
 
 	// Test with no agents
-	serviceNoAgents := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{}, nil, nil, nil, nil)
+	serviceNoAgents := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{}, nil, nil, nil, nil, NewDisabledKoditService())
 	serviceNoAgents.SetTestMode(true)
 	agent = serviceNoAgents.selectZedAgent()
 	assert.Equal(t, "", agent)

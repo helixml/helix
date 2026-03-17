@@ -1266,6 +1266,253 @@ definitions:
       turn:
         type: integer
     type: object
+  server.KoditAdminActiveTaskDTO:
+    properties:
+      current:
+        type: integer
+      message:
+        type: string
+      operation:
+        type: string
+      repo_name:
+        type: string
+      repository_id:
+        type: integer
+      state:
+        type: string
+      total:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  server.KoditAdminBatchRequest:
+    properties:
+      ids:
+        items:
+          type: integer
+        type: array
+    type: object
+  server.KoditAdminBatchResponse:
+    properties:
+      failed:
+        items:
+          $ref: '#/definitions/server.KoditBatchError'
+        type: array
+      succeeded:
+        items:
+          type: integer
+        type: array
+    type: object
+  server.KoditAdminPaginationMeta:
+    properties:
+      page:
+        type: integer
+      per_page:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
+  server.KoditAdminPendingTaskDTO:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      operation:
+        type: string
+      priority:
+        type: integer
+    type: object
+  server.KoditAdminQueueListResponse:
+    properties:
+      active_tasks:
+        items:
+          $ref: '#/definitions/server.KoditAdminActiveTaskDTO'
+        type: array
+      data:
+        items:
+          $ref: '#/definitions/server.KoditAdminQueueTaskDTO'
+        type: array
+      meta:
+        $ref: '#/definitions/server.KoditAdminPaginationMeta'
+      stats:
+        $ref: '#/definitions/server.KoditAdminQueueStats'
+    type: object
+  server.KoditAdminQueueStats:
+    properties:
+      by_operation:
+        additionalProperties:
+          type: integer
+        type: object
+      by_priority_level:
+        additionalProperties:
+          type: integer
+        type: object
+      newest_task_time:
+        type: string
+      oldest_task_age:
+        type: string
+      oldest_task_time:
+        type: string
+      total:
+        type: integer
+    type: object
+  server.KoditAdminQueueTaskDTO:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      operation:
+        type: string
+      priority:
+        type: integer
+      repo_name:
+        type: string
+      repository_id:
+        type: integer
+    type: object
+  server.KoditAdminRepoAttributes:
+    properties:
+      created_at:
+        type: string
+      helix_repo_id:
+        type: string
+      helix_repo_name:
+        type: string
+      remote_url:
+        type: string
+      status:
+        type: string
+      status_message:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  server.KoditAdminRepoDTO:
+    properties:
+      attributes:
+        $ref: '#/definitions/server.KoditAdminRepoAttributes'
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  server.KoditAdminRepoDetailAttributes:
+    properties:
+      branch_count:
+        type: integer
+      commit_count:
+        type: integer
+      created_at:
+        type: string
+      default_branch:
+        type: string
+      enrichment_count:
+        type: integer
+      helix_repo_id:
+        type: string
+      helix_repo_name:
+        type: string
+      last_scanned_at:
+        description: Last time Kodit scanned this repository
+        type: string
+      latest_commit_author:
+        type: string
+      latest_commit_date:
+        type: string
+      latest_commit_message:
+        type: string
+      latest_commit_sha:
+        description: Latest commit tracked by Kodit
+        type: string
+      remote_url:
+        type: string
+      status:
+        type: string
+      status_message:
+        type: string
+      tag_count:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  server.KoditAdminRepoDetailDTO:
+    properties:
+      attributes:
+        $ref: '#/definitions/server.KoditAdminRepoDetailAttributes'
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  server.KoditAdminRepoDetailResponse:
+    properties:
+      data:
+        $ref: '#/definitions/server.KoditAdminRepoDetailDTO'
+    type: object
+  server.KoditAdminRepoListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditAdminRepoDTO'
+        type: array
+      meta:
+        $ref: '#/definitions/server.KoditAdminPaginationMeta'
+    type: object
+  server.KoditAdminRepositoryTasksResponse:
+    properties:
+      pending_tasks:
+        items:
+          $ref: '#/definitions/server.KoditAdminPendingTaskDTO'
+        type: array
+      statuses:
+        items:
+          $ref: '#/definitions/server.KoditAdminTaskStatusDTO'
+        type: array
+    type: object
+  server.KoditAdminStatsResponse:
+    properties:
+      commits:
+        type: integer
+      enrichments:
+        type: integer
+      pending_tasks:
+        type: integer
+      repositories:
+        type: integer
+    type: object
+  server.KoditAdminTaskStatusDTO:
+    properties:
+      current:
+        type: integer
+      error:
+        type: string
+      message:
+        type: string
+      operation:
+        type: string
+      state:
+        type: string
+      total:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  server.KoditAdminUpdatePriorityRequest:
+    properties:
+      priority:
+        type: integer
+    type: object
+  server.KoditBatchError:
+    properties:
+      id:
+        type: integer
+      message:
+        type: string
+    type: object
   server.KoditCommitAttributes:
     properties:
       authored_at:
@@ -1317,12 +1564,134 @@ definitions:
           $ref: '#/definitions/server.KoditEnrichmentDTO'
         type: array
     type: object
+  server.KoditFileContentDTO:
+    properties:
+      commit_sha:
+        type: string
+      content:
+        type: string
+      path:
+        type: string
+    type: object
+  server.KoditFileContentResponse:
+    properties:
+      data:
+        $ref: '#/definitions/server.KoditFileContentDTO'
+      links:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  server.KoditFileEntryDTO:
+    properties:
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      path:
+        type: string
+      size:
+        type: integer
+    type: object
+  server.KoditFileResultDTO:
+    properties:
+      language:
+        type: string
+      lines:
+        type: string
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      path:
+        type: string
+      preview:
+        type: string
+      score:
+        type: number
+    type: object
+  server.KoditFilesMeta:
+    properties:
+      count:
+        type: integer
+      pattern:
+        type: string
+    type: object
+  server.KoditFilesResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditFileEntryDTO'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      meta:
+        $ref: '#/definitions/server.KoditFilesMeta'
+    type: object
+  server.KoditGrepMatchDTO:
+    properties:
+      content:
+        type: string
+      line:
+        type: integer
+    type: object
+  server.KoditGrepMeta:
+    properties:
+      count:
+        type: integer
+      glob:
+        type: string
+      limit:
+        type: integer
+      pattern:
+        type: string
+    type: object
+  server.KoditGrepResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditGrepResultDTO'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      meta:
+        $ref: '#/definitions/server.KoditGrepMeta'
+    type: object
+  server.KoditGrepResultDTO:
+    properties:
+      language:
+        type: string
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      matches:
+        items:
+          $ref: '#/definitions/server.KoditGrepMatchDTO'
+        type: array
+      path:
+        type: string
+    type: object
   server.KoditIndexingStatusAttributes:
     properties:
       message:
         type: string
       status:
         type: string
+      tasks_active:
+        type: integer
+      tasks_completed:
+        type: integer
+      tasks_failed:
+        type: integer
+      tasks_pending:
+        type: integer
+      tasks_total:
+        type: integer
       updated_at:
         type: string
     type: object
@@ -1340,6 +1709,30 @@ definitions:
       type:
         type: string
     type: object
+  server.KoditSearchMeta:
+    properties:
+      count:
+        type: integer
+      language:
+        type: string
+      limit:
+        type: integer
+      query:
+        type: string
+    type: object
+  server.KoditSearchResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditFileResultDTO'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      meta:
+        $ref: '#/definitions/server.KoditSearchMeta'
+    type: object
   server.KoditSearchResultDTO:
     properties:
       content:
@@ -1350,6 +1743,52 @@ definitions:
         type: string
       type:
         type: string
+    type: object
+  server.KoditWikiPageDTO:
+    properties:
+      content:
+        type: string
+      slug:
+        type: string
+      title:
+        type: string
+    type: object
+  server.KoditWikiPageResponse:
+    properties:
+      data:
+        $ref: '#/definitions/server.KoditWikiPageDTO'
+      links:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  server.KoditWikiTreeNodeDTO:
+    properties:
+      children:
+        items:
+          $ref: '#/definitions/server.KoditWikiTreeNodeDTO'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      path:
+        type: string
+      slug:
+        type: string
+      title:
+        type: string
+    type: object
+  server.KoditWikiTreeResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/server.KoditWikiTreeNodeDTO'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
     type: object
   server.LicenseKeyRequest:
     properties:
@@ -1420,6 +1859,13 @@ definitions:
         type: string
       status:
         type: string
+    type: object
+  server.PinnedProjectsResponse:
+    properties:
+      pinned_project_ids:
+        items:
+          type: string
+        type: array
     type: object
   server.PromptPinRequest:
     properties:
@@ -3381,6 +3827,9 @@ definitions:
     type: object
   types.CronTrigger:
     properties:
+      action:
+        description: '"session" (default) or "spec_task"'
+        type: string
       emails:
         items:
           type: string
@@ -3388,6 +3837,9 @@ definitions:
       enabled:
         type: boolean
       input:
+        type: string
+      project_id:
+        description: Target project for spec_task action
         type: string
       schedule:
         type: string
@@ -4026,6 +4478,11 @@ definitions:
       external_url:
         description: Full URL to external repo (e.g., https://github.com/org/repo)
         type: string
+      git_provider_connection_id:
+        description: |-
+          GitProviderConnectionID - references a GitProviderConnection (saved PAT) for authentication
+          When set, the encrypted token is decrypted and used for clone/push operations
+        type: string
       github:
         $ref: '#/definitions/types.GitHub'
       gitlab:
@@ -4096,6 +4553,10 @@ definitions:
         description: '"github", "gitlab", "ado", "bitbucket", etc.'
       external_url:
         description: Full URL to external repo (e.g., https://github.com/org/repo)
+        type: string
+      git_provider_connection_id:
+        description: GitProviderConnectionID - references a saved PAT connection for
+          authentication
         type: string
       github:
         $ref: '#/definitions/types.GitHub'
@@ -4363,6 +4824,16 @@ definitions:
       rag_results:
         items:
           $ref: '#/definitions/types.SessionRAGResult'
+        type: array
+      response_entries:
+        description: |-
+          ResponseEntries holds the structured response as an ordered list of typed entries.
+          Each entry is either "text" (assistant prose) or "tool_call" (tool invocation),
+          preserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.
+          This is populated on completion alongside ResponseMessage (flat string, backward compat).
+          The frontend uses this to render entries with the correct component in the correct order.
+        items:
+          type: integer
         type: array
       response_format:
         allOf:
@@ -5310,6 +5781,9 @@ definitions:
         type: integer
       id:
         type: string
+      member:
+        description: Whether the current user is a member of the organization
+        type: boolean
       memberships:
         description: Memberships in the organization
         items:
@@ -5320,6 +5794,9 @@ definitions:
       owner:
         description: Who created the org
         type: string
+      project_count:
+        description: Number of projects in the organization
+        type: integer
       roles:
         description: Roles in the organization
         items:
@@ -5514,6 +5991,8 @@ definitions:
         type: integer
       id:
         type: string
+      kodit_enabled:
+        type: boolean
       metadata:
         $ref: '#/definitions/types.ProjectMetadata'
       name:
@@ -5669,6 +6148,9 @@ definitions:
       guidelines:
         description: Project-specific AI agent guidelines
         type: string
+      kodit_enabled:
+        description: Whether Kodit code intelligence is enabled
+        type: boolean
       metadata:
         $ref: '#/definitions/types.ProjectMetadata'
       name:
@@ -5711,6 +6193,7 @@ definitions:
         description: |-
           Interrupt indicates this message should interrupt the current conversation
           When false, message waits until current conversation completes
+          Default is false: queue mode is the default, interrupt is explicit
         type: boolean
       is_template:
         description: Saved as a reusable template
@@ -5889,6 +6372,17 @@ definitions:
         - $ref: '#/definitions/types.ProviderEndpointStatus'
         description: If we can't fetch models
       updated:
+        type: string
+      vertex_credentials_file:
+        type: string
+      vertex_credentials_json:
+        description: Service account JSON string; takes precedence over file
+        type: string
+      vertex_project_id:
+        description: Google Vertex AI fields — when VertexProjectID is set, this endpoint
+          routes through Vertex
+        type: string
+      vertex_region:
         type: string
     type: object
   types.ProviderEndpointStatus:
@@ -6683,6 +7177,9 @@ definitions:
           it's a low level filestore path
           if we are using an object storage thing - then this URL
           can be the prefix to the bucket
+        type: boolean
+      require_active_subscription:
+        description: Require an active subscription before allowing to use the product
         type: boolean
       rudderstack_data_plane_url:
         type: string
@@ -8250,6 +8747,26 @@ definitions:
         type: string
       max_concurrent_desktops:
         type: integer
+      optimus_generation_model:
+        type: string
+      optimus_generation_model_provider:
+        type: string
+      optimus_reasoning_model:
+        type: string
+      optimus_reasoning_model_effort:
+        type: string
+      optimus_reasoning_model_provider:
+        type: string
+      optimus_small_generation_model:
+        type: string
+      optimus_small_generation_model_provider:
+        type: string
+      optimus_small_reasoning_model:
+        type: string
+      optimus_small_reasoning_model_effort:
+        type: string
+      optimus_small_reasoning_model_provider:
+        type: string
       providers_management_enabled:
         type: boolean
       rag_embeddings_model:
@@ -8284,6 +8801,27 @@ definitions:
       max_concurrent_desktops:
         description: Per user
         type: integer
+      optimus_generation_model:
+        type: string
+      optimus_generation_model_provider:
+        type: string
+      optimus_reasoning_model:
+        type: string
+      optimus_reasoning_model_effort:
+        type: string
+      optimus_reasoning_model_provider:
+        description: Optimus configuration
+        type: string
+      optimus_small_generation_model:
+        type: string
+      optimus_small_generation_model_provider:
+        type: string
+      optimus_small_reasoning_model:
+        type: string
+      optimus_small_reasoning_model_effort:
+        type: string
+      optimus_small_reasoning_model_provider:
+        type: string
       providers_management_enabled:
         type: boolean
       rag_embeddings_model:
@@ -8861,6 +9399,15 @@ definitions:
         type: array
       name:
         type: string
+      vertex_credentials_file:
+        type: string
+      vertex_credentials_json:
+        type: string
+      vertex_project_id:
+        description: Google Vertex AI fields
+        type: string
+      vertex_region:
+        type: string
     type: object
   types.UpdateTeamRequest:
     properties:
@@ -8916,11 +9463,6 @@ definitions:
       organization_id:
         description: Organization this API key is scoped to (ephemeral keys)
         type: string
-      password_hash:
-        description: bcrypt hash of the password
-        items:
-          type: integer
-        type: array
       project_id:
         description: When running in Helix Code sandbox
         type: string
@@ -9049,6 +9591,8 @@ definitions:
         type: string
       stripe_subscription_id:
         type: string
+      subscription_cancel_at_period_end:
+        type: boolean
       subscription_created:
         type: integer
       subscription_current_period_end:
@@ -9231,6 +9775,381 @@ paths:
       summary: Get sandbox real-time events (SSE)
       tags:
       - Admin
+  /api/v1/admin/kodit/queue:
+    get:
+      description: List all pending tasks across all repositories with pagination.
+        Admin only.
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 25, max 100)
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminQueueListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List Kodit task queue (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/queue/{taskId}:
+    delete:
+      description: Delete a specific task from the Kodit task queue by ID. Admin only.
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Delete Kodit queue task (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/queue/{taskId}/priority:
+    patch:
+      consumes:
+      - application/json
+      description: Update the priority of a specific task in the Kodit task queue.
+        Admin only.
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: integer
+      - description: New priority
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.KoditAdminUpdatePriorityRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update Kodit queue task priority (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories:
+    get:
+      description: List all Kodit-indexed repositories with pagination. Admin only.
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 25, max 100)
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminRepoListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List Kodit repositories (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/{koditRepoId}:
+    delete:
+      description: Queue a Kodit repository for deletion. Admin only.
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Delete Kodit repository (admin)
+      tags:
+      - admin
+    get:
+      description: Get detailed information about a Kodit repository including summary
+        stats. Admin only.
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminRepoDetailResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get Kodit repository detail (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/{koditRepoId}/rescan:
+    post:
+      description: Trigger a rescan of the HEAD commit for a Kodit repository. Admin
+        only.
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Rescan Kodit repository HEAD (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/{koditRepoId}/sync:
+    post:
+      description: Trigger a full sync (git fetch + branch scan + re-index) for a
+        Kodit repository. Admin only.
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Sync Kodit repository (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/{koditRepoId}/tasks:
+    get:
+      description: Returns tracking statuses and pending queue tasks for a Kodit repository.
+        Admin only.
+      parameters:
+      - description: Kodit Repository ID
+        in: path
+        name: koditRepoId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminRepositoryTasksResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get Kodit repository tasks (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/batch/delete:
+    post:
+      consumes:
+      - application/json
+      description: Queue multiple Kodit repositories for deletion. Admin only.
+      parameters:
+      - description: Repository IDs to delete
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.KoditAdminBatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminBatchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Batch delete Kodit repositories (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/repositories/batch/rescan:
+    post:
+      consumes:
+      - application/json
+      description: Trigger a HEAD commit rescan for multiple Kodit repositories. Admin
+        only.
+      parameters:
+      - description: Repository IDs to rescan
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.KoditAdminBatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminBatchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Batch rescan Kodit repositories (admin)
+      tags:
+      - admin
+  /api/v1/admin/kodit/stats:
+    get:
+      description: 'Returns aggregate counts: repositories, enrichments, commits,
+        pending tasks. Admin only.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditAdminStatsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get Kodit system stats (admin)
+      tags:
+      - admin
   /api/v1/admin/organization-domains:
     get:
       description: List all organizations that have auto-join domains configured
@@ -11750,6 +12669,182 @@ paths:
       summary: Get enrichment by ID
       tags:
       - git-repositories
+  /api/v1/git/repositories/{id}/file-content:
+    get:
+      description: Read the content of a file from the repository, optionally with
+        line range filtering
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: File path within the repository
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: Start line (1-indexed, inclusive)
+        in: query
+        name: start_line
+        type: integer
+      - description: End line (1-indexed, inclusive)
+        in: query
+        name: end_line
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditFileContentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Read repository file
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/files:
+    get:
+      description: List files in a repository matching a glob pattern
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Glob pattern to filter files
+        in: query
+        name: pattern
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditFilesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List repository files
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/grep:
+    get:
+      description: Run pattern matching (grep) against repository files
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Search pattern (regex)
+        in: query
+        name: pattern
+        required: true
+        type: string
+      - description: Glob pattern to filter files (e.g. *.go)
+        in: query
+        name: glob
+        type: string
+      - description: Maximum results (default 50, max 200)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditGrepResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Grep repository
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/keyword-search:
+    get:
+      description: Search repository code using BM25 keyword matching
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Keywords to search for
+        in: query
+        name: keywords
+        required: true
+        type: string
+      - description: Maximum results (default 10, max 100)
+        in: query
+        name: limit
+        type: integer
+      - description: Filter by language extension (e.g. .go, .ts)
+        in: query
+        name: language
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditSearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Keyword search repository
+      tags:
+      - git-repositories
   /api/v1/git/repositories/{id}/kodit-commits:
     get:
       description: Get commits for a repository from Kodit (used for enrichment filtering)
@@ -12106,6 +13201,52 @@ paths:
       summary: Search repository snippets
       tags:
       - git-repositories
+  /api/v1/git/repositories/{id}/semantic-search:
+    get:
+      description: Search repository code using vector similarity (semantic meaning)
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Natural language search query
+        in: query
+        name: query
+        required: true
+        type: string
+      - description: Maximum results (default 10, max 100)
+        in: query
+        name: limit
+        type: integer
+      - description: Filter by language extension (e.g. .go, .ts)
+        in: query
+        name: language
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditSearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Semantic search repository
+      tags:
+      - git-repositories
   /api/v1/git/repositories/{id}/sync-all:
     post:
       description: Syncs all branches from the upstream remote repository to the local
@@ -12181,6 +13322,78 @@ paths:
       security:
       - BearerAuth: []
       summary: Browse repository tree
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/wiki:
+    get:
+      description: Get the wiki navigation tree (titles and paths, no content) for
+        a repository. Each node includes a link to fetch the full page content.
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditWikiTreeResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get repository wiki tree
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/wiki-page:
+    get:
+      description: Get a wiki page by hierarchical path as markdown content
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Wiki page path (e.g. architecture/database-layer.md)
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.KoditWikiPageResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get wiki page
       tags:
       - git-repositories
   /api/v1/helix-models:
@@ -12987,6 +14200,78 @@ paths:
       security:
       - BearerAuth: []
       summary: Update an organization
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/api_keys:
+    get:
+      description: List API keys for an organization. Owners see all keys, members
+        see only their own.
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.ApiKey'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List organization API keys
+      tags:
+      - organizations
+    post:
+      description: Create a new API key scoped to the organization. Any member can
+        create keys.
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Request body with name
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ApiKey'
+      security:
+      - BearerAuth: []
+      summary: Create an organization API key
+      tags:
+      - organizations
+  /api/v1/organizations/{id}/api_keys/{key}:
+    delete:
+      description: Delete an API key. Owners can delete any org key, members only
+        their own.
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: API key to delete
+        in: path
+        name: key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Delete an organization API key
       tags:
       - organizations
   /api/v1/organizations/{id}/guidelines-history:
@@ -13834,6 +15119,72 @@ paths:
       security:
       - BearerAuth: []
       summary: Preview moving a project to an organization
+      tags:
+      - Projects
+  /api/v1/projects/{id}/pin:
+    delete:
+      consumes:
+      - application/json
+      description: Remove a project from the current user's pinned projects
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PinnedProjectsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Unpin a project
+      tags:
+      - Projects
+    post:
+      consumes:
+      - application/json
+      description: Pin a project for the current user so it appears at the top of
+        the projects board
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PinnedProjectsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Pin a project
       tags:
       - Projects
   /api/v1/projects/{id}/repositories:
@@ -17642,6 +18993,10 @@ paths:
         in: query
         name: org_id
         type: string
+      - description: Custom return URL path (e.g. /onboarding)
+        in: query
+        name: return_url
+        type: string
       responses:
         "200":
           description: Subscription session URL
@@ -18135,6 +19490,29 @@ paths:
       summary: Complete onboarding
       tags:
       - Users
+  /api/v1/users/me/pinned-projects:
+    get:
+      description: Get the list of project IDs pinned by the current user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PinnedProjectsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get pinned project IDs
+      tags:
+      - Users
   /api/v1/users/search:
     get:
       description: Search users by email, name, or username
@@ -18447,6 +19825,9 @@ paths:
       - embeddings
   /v1/models:
     get:
+      description: List models from a specific provider, or aggregate from all providers
+        if none specified. If the request includes an anthropic-version header, proxies
+        to the upstream Anthropic provider.
       parameters:
       - description: Provider
         in: query
@@ -18461,6 +19842,9 @@ paths:
             type: array
       security:
       - BearerAuth: []
+      summary: List models
+      tags:
+      - models
 schemes:
 - https
 securityDefinitions:

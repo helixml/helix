@@ -1,4 +1,4 @@
-import { FC, useState, useEffect } from "react";
+import React, { FC, useState, useEffect } from "react";
 import { styled } from "@mui/system";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -9,6 +9,23 @@ import ClickLink from "../widgets/ClickLink";
 import Row from "../widgets/Row";
 import Cell from "../widgets/Cell";
 import Markdown from "./Markdown";
+import StreamingIndicator from "./StreamingIndicator";
+import {
+  parseToolCallBlocks,
+  CollapsibleToolCall,
+} from "./CollapsibleToolCall";
+
+/**
+ * A structured response entry from the Go API.
+ * Preserves the type and ordering of each entry as Zed originally had them.
+ */
+export interface ResponseEntry {
+  type: "text" | "tool_call";
+  content: string;
+  message_id: string;
+  tool_name?: string;
+  tool_status?: string;
+}
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -25,9 +42,8 @@ import useAccount from "../../hooks/useAccount";
 import useRouter from "../../hooks/useRouter";
 import { useUpdateInteractionFeedback } from "../../services/interactionsService";
 
-import { emitEvent } from "../../utils/analytics";
 
-import { IServerConfig } from "../../types";
+import { TypesServerConfigForFrontend } from "../../api/api";
 
 import { TypesInteraction, TypesSession, TypesFeedback } from "../../api/api";
 
@@ -52,14 +68,126 @@ const ImagePreview = styled("img")({
   },
 });
 
+/**
+ * Renders a message that may contain tool call blocks.
+ *
+ * If structured `responseEntries` are provided (from the Go API's ResponseEntries
+ * field), renders each entry with the correct component in the correct order.
+ * Otherwise falls back to regex parsing of the flat text (for old interactions).
+ */
+export const MessageWithToolCalls: FC<{
+  text: string;
+  responseEntries?: ResponseEntry[];
+  session: TypesSession;
+  getFileURL: (url: string) => string;
+  showBlinker: boolean;
+  isStreaming: boolean;
+  onFilterDocument?: (docId: string) => void;
+  compactThinking?: boolean;
+}> = ({
+  text,
+  responseEntries,
+  session,
+  getFileURL,
+  showBlinker,
+  isStreaming,
+  onFilterDocument,
+  compactThinking = false,
+}) => {
+  // Structured path: use response_entries from the Go API (preserves type + order)
+  if (responseEntries && responseEntries.length > 0) {
+    return (
+      <>
+        {responseEntries.map((entry, i) => {
+          if (entry.type === "tool_call") {
+            const isLast = i === responseEntries.length - 1;
+            const toolName = entry.tool_name || "Tool Call";
+            const status = entry.tool_status || (isLast && isStreaming ? "Running" : "Completed");
+            const body = entry.content || "";
+            return (
+              <React.Fragment key={`tc-${i}`}>
+                <CollapsibleToolCall
+                  toolName={toolName}
+                  status={status}
+                  body={body}
+                />
+                {isLast && showBlinker && isStreaming && <StreamingIndicator />}
+              </React.Fragment>
+            );
+          }
+          // text entry
+          return (
+            <Markdown
+              key={`md-${i}`}
+              text={entry.content}
+              session={session}
+              getFileURL={getFileURL}
+              showBlinker={showBlinker && i === responseEntries.length - 1}
+              isStreaming={isStreaming && i === responseEntries.length - 1}
+              onFilterDocument={onFilterDocument}
+              compactThinking={compactThinking}
+            />
+          );
+        })}
+      </>
+    );
+  }
+
+  // Fallback: regex parsing of flat text (old interactions without response_entries)
+  const segments = parseToolCallBlocks(text);
+
+  // If no tool calls found, render plain markdown (fast path)
+  if (segments.length === 1 && segments[0].type === "markdown") {
+    return (
+      <Markdown
+        text={text}
+        session={session}
+        getFileURL={getFileURL}
+        showBlinker={showBlinker}
+        isStreaming={isStreaming}
+        onFilterDocument={onFilterDocument}
+        compactThinking={compactThinking}
+      />
+    );
+  }
+
+  return (
+    <>
+      {segments.map((segment, i) => {
+        if (segment.type === "toolcall" && segment.toolName && segment.status) {
+          return (
+            <CollapsibleToolCall
+              key={`tc-${i}`}
+              toolName={segment.toolName}
+              status={segment.status}
+              body={segment.body || ""}
+            />
+          );
+        }
+        return (
+          <Markdown
+            key={`md-${i}`}
+            text={segment.content}
+            session={session}
+            getFileURL={getFileURL}
+            showBlinker={showBlinker && i === segments.length - 1}
+            isStreaming={isStreaming && i === segments.length - 1}
+            onFilterDocument={onFilterDocument}
+            compactThinking={compactThinking}
+          />
+        );
+      })}
+    </>
+  );
+};
+
 export const InteractionInference: FC<{
   imageURLs?: string[];
   message?: string;
   error?: string;
-  serverConfig?: IServerConfig;
+  serverConfig?: TypesServerConfigForFrontend;
   interaction: TypesInteraction;
   session: TypesSession;
-  upgrade?: boolean;
   isFromAssistant?: boolean;
   onFilterDocument?: (docId: string) => void;
   onRegenerate?: (interactionID: string, message: string) => void;
@@ -77,7 +205,6 @@ export const InteractionInference: FC<{
   serverConfig,
   interaction,
   session,
-  upgrade,
   isFromAssistant: isFromAssistant,
   onFilterDocument,
   onRegenerate,
@@ -251,8 +378,9 @@ export const InteractionInference: FC<{
                     },
                   }}
                 >
-                  <Markdown
-                    text={message}
+                  <MessageWithToolCalls
+                    text={message || ""}
+                    responseEntries={isFromAssistant ? (interaction as any)?.response_entries : undefined}
                     session={session}
                     getFileURL={getFileURL}
                     showBlinker={false}
@@ -435,7 +563,7 @@ export const InteractionInference: FC<{
               to view the details.
             </Alert>
           </Cell>
-          {!upgrade && onRegenerate && !message && (
+          {onRegenerate && !message && (
             <Cell
               sx={{
                 ml: 2,
@@ -454,27 +582,6 @@ export const InteractionInference: FC<{
                 }
               >
                 Retry
-              </Button>
-            </Cell>
-          )}
-          {upgrade && (
-            <Cell
-              sx={{
-                ml: 2,
-              }}
-            >
-              <Button
-                variant="contained"
-                color="secondary"
-                size="small"
-                onClick={() => {
-                  emitEvent({
-                    name: "queue_upgrade_clicked",
-                  });
-                  router.navigate("account");
-                }}
-              >
-                Upgrade
               </Button>
             </Cell>
           )}

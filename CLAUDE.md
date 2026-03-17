@@ -150,6 +150,35 @@ func (s *MySuite) SetupTest() { /* init ctrl, store, server */ }
 - **RBAC**: `authorizeUserToResource()` — unified AccessGrants
 - **Enterprise**: Support internal DNS, proxies, air-gapped, private CAs
 
+## Dev Environment (Helix-in-Helix)
+
+**`helix-4` is a symlink to `helix`** — they are the same directory. Always use `/home/retro/work/helix/`.
+
+When running as a spec task agent, the **inner Helix** at `http://localhost:8080` has the full sandbox running (helix-sandbox-nvidia-1 + Zed agent). You HAVE a complete dev environment — don't give up on testing.
+
+### Test Credentials (inner Helix at localhost:8080)
+- URL: `http://localhost:8080`
+- Email: `test@helix.local` / Password: `testpass123`
+- Or check `.env.usercreds` in the helix directory for real API keys
+
+### Browser Testing Setup (inner Helix)
+The inner Helix starts with **no users**. Before testing any UI:
+1. **Register the test account first** — go to `/login`, click "Register here", use `test@helix.local` / `testpass123`
+2. **Complete onboarding** — after registering you land on `/onboarding`; create an org before you can access any other pages
+3. Check DB to confirm: `docker exec helix-postgres-1 psql -U postgres -d postgres -c "SELECT email FROM users LIMIT 5;"`
+
+### Go Local Tests (CGo fix)
+`go test ./pkg/server/...` requires CGo for tree-sitter. Fix:
+```bash
+sudo apt-get update && sudo apt-get install -y gcc libc6-dev
+CGO_ENABLED=1 go test -v -run TestSuiteName ./pkg/server/ -count=1
+```
+
+### Never Give Up on Testing
+- Always test changes end-to-end in the inner Helix browser (MCP Chrome DevTools available)
+- Check DB state: `docker exec helix-postgres-1 psql -U postgres -d postgres -c "SQL"`
+- Investigate logs yourself — don't tell user to check logs (exception: ask user to verify UI)
+
 ## Verification
 
 ### Testing
@@ -183,14 +212,18 @@ export HELIX_API_KEY=`grep HELIX_API_KEY .env.usercreds | cut -d= -f2-`
 - Design docs: `design/YYYY-MM-DD-name.md`
 
 ## CI (Drone)
-Credentials in `.env` (`DRONE_SERVER_URL`, `DRONE_ACCESS_TOKEN`).
+**ALWAYS use the Drone MCP tools** (`drone_build_info`, `drone_fetch_logs`, `drone_search_logs`, `drone_tail_logs`, `drone_read_logs`) when they are available. Do NOT try to extract credentials from `.env` files or use raw `curl` — the MCP tools handle authentication automatically.
+
+Workflow for investigating CI failures:
+1. `drone_build_info` — get build overview, see which steps failed
+2. `drone_fetch_logs` — download logs for the failing step
+3. `drone_search_logs` — search for `FAIL:`, `panic:`, `error` patterns
+4. `drone_tail_logs` / `drone_read_logs` — read specific sections around failures
+
+Fallback (only if Drone MCP tools are unavailable): credentials are in `.env` (`DRONE_SERVER_URL`, `DRONE_ACCESS_TOKEN`).
 ```bash
-# Check build status
 curl -s -H "Authorization: Bearer $DRONE_ACCESS_TOKEN" \
   "$DRONE_SERVER_URL/api/repos/helixml/helix/builds?branch=BRANCH&limit=3" | jq -r '.[] | "\(.number): \(.status)"'
-# Get failing step logs
-curl -s -H "Authorization: Bearer $DRONE_ACCESS_TOKEN" \
-  "$DRONE_SERVER_URL/api/repos/helixml/helix/builds/BUILD/logs/1/STEP" | jq -r '.[].out' | grep -E "FAIL|Error|panic"
 ```
 
 ## Database

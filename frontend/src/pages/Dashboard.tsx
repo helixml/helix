@@ -22,13 +22,12 @@ import RunnerSummary from "../components/session/RunnerSummary";
 import SessionBadgeKey from "../components/session/SessionBadgeKey";
 import SessionToolbar from "../components/session/SessionToolbar";
 import SessionSummary from "../components/session/SessionSummary";
-import Page from "../components/system/Page";
+// Page wrapper removed - Dashboard is now rendered inside FullScreenDialog
 import JsonWindowLink from "../components/widgets/JsonWindowLink";
 import Window from "../components/widgets/Window";
 import useAccount from "../hooks/useAccount";
 import useApi from "../hooks/useApi";
 import { useGetDashboardData } from "../services/dashboardService";
-import useRouter from "../hooks/useRouter";
 import { ISessionSummary } from "../types";
 import {
     TypesInteraction,
@@ -48,6 +47,9 @@ import ServiceConnectionsTable from "../components/dashboard/ServiceConnectionsT
 import AgentSandboxes from "../components/admin/AgentSandboxes";
 import AdminOrgsTable from "../components/dashboard/AdminOrgsTable";
 import UsersTable from "../components/dashboard/UsersTable";
+import KoditAdminTable from "../components/dashboard/KoditAdminTable";
+import KoditAdminRepoDetail from "../components/dashboard/KoditAdminRepoDetail";
+import KoditAdminQueue from "../components/dashboard/KoditAdminQueue";
 import Chip from "@mui/material/Chip";
 import { useFloatingRunnerState } from "../contexts/floatingRunnerState";
 import LaunchIcon from "@mui/icons-material/Launch";
@@ -57,9 +59,12 @@ import SchedulerHealthIndicators from "../components/dashboard/SchedulerHealthIn
 
 const START_ACTIVE = true;
 
-const Dashboard: FC = () => {
+interface DashboardProps {
+    tab?: string
+}
+
+const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls" }) => {
     const account = useAccount();
-    const router = useRouter();
     const api = useApi();
     const floatingRunnerState = useFloatingRunnerState();
 
@@ -69,9 +74,11 @@ const Dashboard: FC = () => {
     const [active, setActive] = useState(START_ACTIVE);
     const [sessionFilter, setSessionFilter] = useState("");
     const [selectedSandboxId, setSelectedSandboxId] = useState<string>("");
+    const [sessionIdParam, setSessionIdParam] = useState<string>("");
+    const [repoId, setRepoId] = useState<string>("");
     const apiClient = api.getApiClient();
 
-    const { session_id, tab, filter_sessions } = router.params;
+    const session_id = sessionIdParam;
 
     // Fetch list of registered sandbox instances for the agent_sandboxes tab
     const { data: sandboxInstances, isLoading: isLoadingSandboxes } = useQuery({
@@ -87,14 +94,12 @@ const Dashboard: FC = () => {
     // Don't auto-select - default to "All Sandboxes" view for aggregate monitoring
 
     const onViewSession = useCallback((session_id: string) => {
-        router.setParams({
-            session_id,
-        });
+        setSessionIdParam(session_id);
     }, []);
 
     const onCloseViewingSession = useCallback(() => {
         setViewingSession(undefined);
-        router.removeParams(["session_id"]);
+        setSessionIdParam("");
     }, []);
 
     useEffect(() => {
@@ -113,71 +118,56 @@ const Dashboard: FC = () => {
     const { data: dashboardData, isLoading: isLoadingDashboardData } =
         useGetDashboardData();
 
-    useEffect(() => {
-        if (filter_sessions) {
-            setSessionFilter(filter_sessions);
-        }
-    }, [filter_sessions]);
-
     const handleFilterChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const newFilter = event.target.value;
-        setSessionFilter(newFilter);
-        if (newFilter) {
-            router.setParams({ filter_sessions: newFilter });
-        } else {
-            router.removeParams(["filter_sessions"]);
-        }
+        setSessionFilter(event.target.value);
     };
 
     const clearFilter = () => {
         setSessionFilter("");
-        router.removeParams(["filter_sessions"]);
     };
 
     if (!account.user) return null;
     if (isLoadingDashboardData) return null;
 
     return (
-        <Page
-            breadcrumbTitle="Admin Panel"
-            topbarContent={
-                <Box
-                    sx={{
-                        width: "100%",
-                        display: "flex",
-                        flexDirection: "row",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                    }}
-                >
-                    <Box sx={{ flex: 1 }}></Box>
-                    {account.serverConfig.version && (
-                        <Typography
-                            variant="body2"
-                            sx={{
-                                color: "rgba(255, 255, 255, 0.7)",
-                                position: "absolute",
-                                left: "50%",
-                                transform: "translateX(-50%)",
-                                textAlign: "center",
-                            }}
-                        >
-                            Helix Control Plane version:{" "}
-                            {account.serverConfig.version}
-                        </Typography>
-                    )}
-                    <Box
+        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            {/* Version info bar */}
+            <Box
+                sx={{
+                    width: "100%",
+                    display: "flex",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    px: 3,
+                    py: 1,
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                    flexShrink: 0,
+                }}
+            >
+                <Box sx={{ flex: 1 }}></Box>
+                {account.serverConfig.version && (
+                    <Typography
+                        variant="body2"
                         sx={{
-                            flex: 1,
-                            display: "flex",
-                            justifyContent: "flex-end",
+                            color: "rgba(255, 255, 255, 0.7)",
+                            textAlign: "center",
                         }}
                     >
-                        {tab === "runners" && <SessionBadgeKey />}
-                    </Box>
+                        Helix Control Plane version:{" "}
+                        {account.serverConfig.version}
+                    </Typography>
+                )}
+                <Box
+                    sx={{
+                        flex: 1,
+                        display: "flex",
+                        justifyContent: "flex-end",
+                    }}
+                >
+                    {tab === "runners" && <SessionBadgeKey />}
                 </Box>
-            }
-        >
+            </Box>
             <Container
                 maxWidth="xl"
                 sx={{
@@ -729,6 +719,24 @@ const Dashboard: FC = () => {
                     </Box>
                 )}
 
+                {tab === "kodit" && account.admin && !repoId && (
+                    <Box sx={{ width: "100%", p: 2 }}>
+                        <KoditAdminTable onViewDetail={(id) => setRepoId(id)} />
+                    </Box>
+                )}
+
+                {tab === "kodit" && account.admin && repoId && (
+                    <Box sx={{ width: "100%", p: 2 }}>
+                        <KoditAdminRepoDetail koditRepoId={repoId} onBack={() => setRepoId("")} />
+                    </Box>
+                )}
+
+                {tab === "kodit_queue" && account.admin && (
+                    <Box sx={{ width: "100%", p: 2 }}>
+                        <KoditAdminQueue />
+                    </Box>
+                )}
+
                 {viewingSession && (
                     <Window
                         open
@@ -766,7 +774,7 @@ const Dashboard: FC = () => {
                     </Window>
                 )}
             </Container>
-        </Page>
+        </Box>
     );
 };
 

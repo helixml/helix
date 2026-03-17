@@ -245,7 +245,9 @@ func (g *GPUManager) fetchFreeMemory() uint64 {
 					Uint64("used_bytes", actualUsedMemory).
 					Msg("Successfully parsed GPU used memory across all GPUs")
 				virtualFreeMemory := g.gpuMemory - actualUsedMemory
-				if virtualFreeMemory < freeMemory {
+				// Use virtualFreeMemory if no user limit is set (freeMemory == 0),
+				// or if actual free memory is less than the user-configured limit.
+				if freeMemory == 0 || virtualFreeMemory < freeMemory {
 					freeMemory = virtualFreeMemory
 				}
 			}

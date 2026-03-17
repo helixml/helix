@@ -1,10 +1,13 @@
-import React, { FC, useState, useEffect, useRef } from 'react'
+import React, { FC, useState, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogTitle,
   DialogContent,
+  DialogContentText,
   DialogActions,
   Button,
+  IconButton,
+  Tooltip,
   Box,
   Typography,
   CircularProgress,
@@ -21,65 +24,106 @@ import {
   InputAdornment,
   FormControlLabel,
   Switch,
-} from '@mui/material'
-import GitHubIcon from '@mui/icons-material/GitHub'
-import { Search, Brain, ExternalLink, CheckCircle, Cloud, Key } from 'lucide-react'
-import { SiGitlab, SiBitbucket } from 'react-icons/si'
+} from "@mui/material";
+import GitHubIcon from "@mui/icons-material/GitHub";
+import {
+  Search,
+  Brain,
+  ExternalLink,
+  CheckCircle,
+  Cloud,
+  Key,
+  Trash2,
+} from "lucide-react";
+import { SiGitlab, SiBitbucket } from "react-icons/si";
 
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useListOAuthConnections,
   useListOAuthProviders,
   useListOAuthConnectionRepositories,
   oauthConnectionsQueryKey,
   oauthProvidersQueryKey,
-} from '../../services/oauthProvidersService'
+} from "../../services/oauthProvidersService";
 import {
   useGitProviderConnections,
   useCreateGitProviderConnection,
   useDeleteGitProviderConnection,
-} from '../../services/gitProviderConnectionService'
-import { TypesRepositoryInfo, TypesExternalRepositoryType } from '../../api/api'
-import useApi from '../../hooks/useApi'
-import useSnackbar from '../../hooks/useSnackbar'
-import useAccount from '../../hooks/useAccount'
-import useRouter from '../../hooks/useRouter'
-import { matchesProviderType, mapProviderToRepoType, PROVIDER_TYPES } from '../../utils/oauthProviders'
+} from "../../services/gitProviderConnectionService";
+import {
+  TypesRepositoryInfo,
+  TypesExternalRepositoryType,
+} from "../../api/api";
+import useApi from "../../hooks/useApi";
+import useSnackbar from "../../hooks/useSnackbar";
+import useAccount from "../../hooks/useAccount";
+import useRouter from "../../hooks/useRouter";
+import { useSettingsDialog } from "../../contexts/settingsDialog";
+import {
+  matchesProviderType,
+  mapProviderToRepoType,
+  PROVIDER_TYPES,
+} from "../../utils/oauthProviders";
 
 interface BrowseProvidersDialogProps {
-  open: boolean
-  onClose: () => void
-  onSelectRepository: (repo: TypesRepositoryInfo, providerType: string, oauthConnectionId?: string) => void
-  isLinking?: boolean
+  open: boolean;
+  onClose: () => void;
+  onSelectRepository: (
+    repo: TypesRepositoryInfo,
+    providerType: string,
+    oauthConnectionId?: string,
+    patConnectionId?: string,
+  ) => void;
+  isLinking?: boolean;
   // If provided, shows warning that repo will be visible to org members
-  organizationName?: string
+  organizationName?: string;
 }
 
-type ProviderType = 'github' | 'gitlab' | 'azure-devops' | 'bitbucket'
-type ViewMode = 'providers' | 'choose-method' | 'pat-entry' | 'browse-repos' | 'browse-pat-repos'
+type ProviderType = "github" | "gitlab" | "azure-devops" | "bitbucket";
+type ViewMode =
+  | "providers"
+  | "choose-method"
+  | "pat-entry"
+  | "browse-repos"
+  | "browse-pat-repos";
 
 interface ProviderConfig {
-  id: ProviderType
-  name: string
-  icon: React.ReactNode
-  color: string
+  id: ProviderType;
+  name: string;
+  icon: React.ReactNode;
+  color: string;
 }
 
 interface PatCredentials {
-  pat: string
-  username?: string // For Bitbucket
-  orgUrl?: string
-  gitlabBaseUrl?: string
-  githubBaseUrl?: string
-  bitbucketBaseUrl?: string
+  pat: string;
+  username?: string; // For Bitbucket
+  orgUrl?: string;
+  gitlabBaseUrl?: string;
+  githubBaseUrl?: string;
+  bitbucketBaseUrl?: string;
 }
 
 const PROVIDERS: ProviderConfig[] = [
-  { id: 'github', name: 'GitHub', icon: <GitHubIcon />, color: '#f0f0f0' },
-  { id: 'gitlab', name: 'GitLab', icon: <SiGitlab size={24} />, color: '#FC6D26' },
-  { id: 'azure-devops', name: 'Azure DevOps', icon: <Cloud size={24} />, color: '#0078D7' },
-  { id: 'bitbucket', name: 'Bitbucket', icon: <SiBitbucket size={24} />, color: '#0052CC' },
-]
+  { id: "github", name: "GitHub", icon: <GitHubIcon />, color: "#f0f0f0" },
+  {
+    id: "gitlab",
+    name: "GitLab",
+    icon: <SiGitlab size={24} />,
+    color: "#FC6D26",
+  },
+  {
+    id: "azure-devops",
+    name: "Azure DevOps",
+    icon: <Cloud size={24} />,
+    color: "#0078D7",
+  },
+  {
+    id: "bitbucket",
+    name: "Bitbucket",
+    icon: <SiBitbucket size={24} />,
+    color: "#0052CC",
+  },
+];
 
 const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   open,
@@ -88,294 +132,388 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   isLinking = false,
   organizationName,
 }) => {
-  const api = useApi()
-  const snackbar = useSnackbar()
-  const account = useAccount()
-  const router = useRouter()
-  const queryClient = useQueryClient()
-  const oauthPopupRef = useRef<Window | null>(null)
-  const [viewMode, setViewMode] = useState<ViewMode>('providers')
-  const [selectedProvider, setSelectedProvider] = useState<ProviderType | null>(null)
-  const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null)
-  const [selectedPatConnectionId, setSelectedPatConnectionId] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [koditIndexing, setKoditIndexing] = useState(true)
-  const [selectedRepo, setSelectedRepo] = useState<TypesRepositoryInfo | null>(null)
+  const api = useApi();
+  const snackbar = useSnackbar();
+  const account = useAccount();
+  const router = useRouter();
+  const settingsDialog = useSettingsDialog();
+  const queryClient = useQueryClient();
+  const oauthPopupRef = useRef<Window | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("providers");
+  const [selectedProvider, setSelectedProvider] = useState<ProviderType | null>(
+    null,
+  );
+  const [selectedConnectionId, setSelectedConnectionId] = useState<
+    string | null
+  >(null);
+  const [selectedPatConnectionId, setSelectedPatConnectionId] = useState<
+    string | null
+  >(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [koditIndexing, setKoditIndexing] = useState(true);
+  const [selectedRepo, setSelectedRepo] = useState<TypesRepositoryInfo | null>(
+    null,
+  );
 
   // PAT entry state
-  const [pat, setPat] = useState('')
-  const [orgUrl, setOrgUrl] = useState('') // For Azure DevOps
-  const [gitlabBaseUrl, setGitlabBaseUrl] = useState('') // For self-hosted GitLab
-  const [githubBaseUrl, setGithubBaseUrl] = useState('') // For GitHub Enterprise
-  const [bitbucketUsername, setBitbucketUsername] = useState('') // For Bitbucket
-  const [bitbucketBaseUrl, setBitbucketBaseUrl] = useState('') // For Bitbucket Server
-  const [patCredentials, setPatCredentials] = useState<PatCredentials | null>(null)
-  const [saveConnection, setSaveConnection] = useState(true) // Save PAT for future use
+  const [pat, setPat] = useState("");
+  const [orgUrl, setOrgUrl] = useState(""); // For Azure DevOps
+  const [gitlabBaseUrl, setGitlabBaseUrl] = useState(""); // For self-hosted GitLab
+  const [githubBaseUrl, setGithubBaseUrl] = useState(""); // For GitHub Enterprise
+  const [bitbucketUsername, setBitbucketUsername] = useState(""); // For Bitbucket
+  const [bitbucketBaseUrl, setBitbucketBaseUrl] = useState(""); // For Bitbucket Server
+  const [patCredentials, setPatCredentials] = useState<PatCredentials | null>(
+    null,
+  );
+  const [saveConnection, setSaveConnection] = useState(true); // Save PAT for future use
+  const [patToDisconnect, setPatToDisconnect] = useState<string | null>(null);
+
+  // PAT submit validation state (shown inline on PAT entry form)
+  const [patSubmitError, setPatSubmitError] = useState<string | null>(null);
+  const [patSubmitLoading, setPatSubmitLoading] = useState(false);
 
   // PAT-based repos
-  const [patRepos, setPatRepos] = useState<TypesRepositoryInfo[]>([])
-  const [patReposLoading, setPatReposLoading] = useState(false)
-  const [patReposError, setPatReposError] = useState<string | null>(null)
+  const [patRepos, setPatRepos] = useState<TypesRepositoryInfo[]>([]);
+  const [patReposLoading, setPatReposLoading] = useState(false);
+  const [patReposError, setPatReposError] = useState<string | null>(null);
 
-  const { data: oauthConnections, isLoading: oauthConnectionsLoading } = useListOAuthConnections()
-  const { data: providers, isLoading: providersLoading } = useListOAuthProviders()
-  const { data: patConnections, isLoading: patConnectionsLoading } = useGitProviderConnections()
-  const createPatConnection = useCreateGitProviderConnection()
-  const deletePatConnection = useDeleteGitProviderConnection()
+  const { data: oauthConnections, isLoading: oauthConnectionsLoading } =
+    useListOAuthConnections();
+  const { data: providers, isLoading: providersLoading } =
+    useListOAuthProviders();
+  const { data: patConnections, isLoading: patConnectionsLoading } =
+    useGitProviderConnections();
+  const createPatConnection = useCreateGitProviderConnection();
+  const deletePatConnection = useDeleteGitProviderConnection();
 
-  const connectionsLoading = oauthConnectionsLoading || patConnectionsLoading || providersLoading
+  const connectionsLoading =
+    oauthConnectionsLoading || patConnectionsLoading || providersLoading;
 
   // Get repositories for selected OAuth connection
-  const { data: repositoriesData, isLoading: reposLoading, error: reposError } =
-    useListOAuthConnectionRepositories(selectedConnectionId || '')
+  const {
+    data: repositoriesData,
+    isLoading: reposLoading,
+    error: reposError,
+  } = useListOAuthConnectionRepositories(selectedConnectionId || "");
 
-  const repositories = repositoriesData?.repositories || []
+  const repositories = repositoriesData?.repositories || [];
 
   // Reset state when dialog closes, refresh connections when it opens
   useEffect(() => {
     if (open) {
       // Refresh OAuth providers and connections when dialog opens to ensure we have latest data
-      queryClient.invalidateQueries({ queryKey: oauthProvidersQueryKey() })
-      queryClient.invalidateQueries({ queryKey: oauthConnectionsQueryKey() })
+      queryClient.invalidateQueries({ queryKey: oauthProvidersQueryKey() });
+      queryClient.invalidateQueries({ queryKey: oauthConnectionsQueryKey() });
     } else {
-      setViewMode('providers')
-      setSelectedProvider(null)
-      setSelectedConnectionId(null)
-      setSelectedPatConnectionId(null)
-      setSearchQuery('')
-      setSelectedRepo(null)
-      setKoditIndexing(true)
-      setPat('')
-      setOrgUrl('')
-      setGitlabBaseUrl('')
-      setGithubBaseUrl('')
-      setBitbucketUsername('')
-      setBitbucketBaseUrl('')
-      setPatCredentials(null)
-      setPatRepos([])
-      setPatReposError(null)
-      setSaveConnection(true)
+      setViewMode("providers");
+      setSelectedProvider(null);
+      setSelectedConnectionId(null);
+      setSelectedPatConnectionId(null);
+      setSearchQuery("");
+      setSelectedRepo(null);
+      setKoditIndexing(true);
+      setPat("");
+      setOrgUrl("");
+      setGitlabBaseUrl("");
+      setGithubBaseUrl("");
+      setBitbucketUsername("");
+      setBitbucketBaseUrl("");
+      setPatCredentials(null);
+      setPatRepos([]);
+      setPatReposError(null);
+      setPatSubmitError(null);
+      setPatSubmitLoading(false);
+      setSaveConnection(true);
     }
-  }, [open])
+  }, [open]);
 
   // Track if we're waiting for OAuth connection after popup
-  const waitingForOAuthRef = useRef(false)
+  const waitingForOAuthRef = useRef(false);
 
   // Detect OAuth popup closure and refresh connections
   useEffect(() => {
     const checkPopupClosed = () => {
       if (oauthPopupRef.current && oauthPopupRef.current.closed) {
-        oauthPopupRef.current = null
+        oauthPopupRef.current = null;
         // Mark that we're waiting for connection data to refresh
-        waitingForOAuthRef.current = true
+        waitingForOAuthRef.current = true;
         // Refresh OAuth connections after popup closes
-        queryClient.invalidateQueries({ queryKey: oauthConnectionsQueryKey() })
+        queryClient.invalidateQueries({ queryKey: oauthConnectionsQueryKey() });
       }
-    }
+    };
 
-    const interval = setInterval(checkPopupClosed, 500)
-    return () => clearInterval(interval)
-  }, [queryClient])
+    const interval = setInterval(checkPopupClosed, 500);
+    return () => clearInterval(interval);
+  }, [queryClient]);
 
   // Auto-navigate to browse-repos when OAuth connection is established
   useEffect(() => {
     // Only act if we're waiting for OAuth and on the choose-method screen
-    if (!waitingForOAuthRef.current || viewMode !== 'choose-method' || !selectedProvider) {
-      return
+    if (
+      !waitingForOAuthRef.current ||
+      viewMode !== "choose-method" ||
+      !selectedProvider
+    ) {
+      return;
     }
 
     // Check if a connection now exists for the selected provider
-    const connection = oauthConnections?.find(conn =>
-      matchesProviderType(conn.provider?.type, conn.provider?.name, selectedProvider)
-    )
+    const connection = oauthConnections?.find((conn) =>
+      matchesProviderType(
+        conn.provider?.type,
+        conn.provider?.name,
+        selectedProvider,
+      ),
+    );
 
     if (connection) {
       // Connection established - navigate to repo browser
-      waitingForOAuthRef.current = false
-      setSelectedConnectionId(connection.id || null)
-      setViewMode('browse-repos')
+      waitingForOAuthRef.current = false;
+      setSelectedConnectionId(connection.id || null);
+      setViewMode("browse-repos");
     }
-  }, [oauthConnections, viewMode, selectedProvider])
+  }, [oauthConnections, viewMode, selectedProvider]);
 
   // Find OAuth connection for a provider type
   const getOAuthConnectionForProvider = (providerType: ProviderType) => {
-    return oauthConnections?.find(conn =>
-      matchesProviderType(conn.provider?.type, conn.provider?.name, providerType)
-    )
-  }
+    return oauthConnections?.find((conn) =>
+      matchesProviderType(
+        conn.provider?.type,
+        conn.provider?.name,
+        providerType,
+      ),
+    );
+  };
 
   // Find PAT connection for a provider type
   const getPatConnectionForProvider = (providerType: ProviderType) => {
-    return patConnections?.find(conn =>
-      matchesProviderType(conn.provider_type, null, providerType)
-    )
-  }
+    return patConnections?.find((conn) =>
+      matchesProviderType(conn.provider_type, null, providerType),
+    );
+  };
 
   // Get any connection (OAuth or PAT) for a provider type
   const getConnectionForProvider = (providerType: ProviderType) => {
-    return getOAuthConnectionForProvider(providerType) || getPatConnectionForProvider(providerType)
-  }
+    return (
+      getOAuthConnectionForProvider(providerType) ||
+      getPatConnectionForProvider(providerType)
+    );
+  };
 
   // Find provider ID for OAuth flow (must be enabled or enabled not explicitly set to false)
   const getProviderIdForType = (providerType: ProviderType) => {
-    const provider = providers?.find(p => {
-      if (p.enabled === false) return false
-      return matchesProviderType(p.type, p.name, providerType)
-    })
-    return provider?.id
-  }
+    const provider = providers?.find((p) => {
+      if (p.enabled === false) return false;
+      return matchesProviderType(p.type, p.name, providerType);
+    });
+    return provider?.id;
+  };
 
-  // Fetch repos using PAT via backend API
-  const fetchReposWithPat = async (provider: ProviderType, creds: PatCredentials) => {
-    setPatReposLoading(true)
-    setPatReposError(null)
-    setPatRepos([])
+  // Fetch repos using PAT via backend API.
+  // Returns null on success, or an error message string on failure.
+  const fetchReposWithPat = async (
+    provider: ProviderType,
+    creds: PatCredentials,
+  ): Promise<string | null> => {
+    setPatReposLoading(true);
+    setPatReposError(null);
+    setPatRepos([]);
 
     try {
-      const apiClient = api.getApiClient()
+      const apiClient = api.getApiClient();
       const response = await apiClient.v1GitBrowseRemoteCreate({
         provider_type: mapProviderToRepoType(provider),
         token: creds.pat,
         username: creds.username,
         organization_url: creds.orgUrl,
-        base_url: creds.gitlabBaseUrl || creds.githubBaseUrl || creds.bitbucketBaseUrl,
-      })
+        base_url:
+          creds.gitlabBaseUrl || creds.githubBaseUrl || creds.bitbucketBaseUrl,
+      });
 
-      const repos = response.data?.repositories || []
-      setPatRepos(repos)
+      const repos = response.data?.repositories || [];
+      setPatRepos(repos);
+      return null;
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to fetch repositories'
-      setPatReposError(typeof message === 'string' ? message : JSON.stringify(message))
+      const rawData = err?.response?.data;
+      const message =
+        (typeof rawData === "string" && rawData) ||
+        rawData?.message ||
+        err?.message ||
+        "Failed to fetch repositories";
+      const errorStr =
+        typeof message === "string" ? message : JSON.stringify(message);
+      setPatReposError(errorStr);
+      return errorStr;
     } finally {
-      setPatReposLoading(false)
+      setPatReposLoading(false);
     }
-  }
+  };
 
   // Fetch repos for a saved PAT connection
   const fetchReposForSavedConnection = async (connectionId: string) => {
-    setPatReposLoading(true)
-    setPatReposError(null)
-    setPatRepos([])
+    setPatReposLoading(true);
+    setPatReposError(null);
+    setPatRepos([]);
 
     try {
-      const apiClient = api.getApiClient()
-      const response = await apiClient.v1GitProviderConnectionsRepositoriesDetail(connectionId)
-      const repos = response.data?.repositories || []
-      setPatRepos(repos)
+      const apiClient = api.getApiClient();
+      const response =
+        await apiClient.v1GitProviderConnectionsRepositoriesDetail(
+          connectionId,
+        );
+      const repos = response.data?.repositories || [];
+      setPatRepos(repos);
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to fetch repositories'
-      setPatReposError(typeof message === 'string' ? message : JSON.stringify(message))
+      const rawData = err?.response?.data;
+      const message =
+        (typeof rawData === "string" && rawData) ||
+        rawData?.message ||
+        err?.message ||
+        "Failed to fetch repositories";
+      setPatReposError(
+        typeof message === "string" ? message : JSON.stringify(message),
+      );
     } finally {
-      setPatReposLoading(false)
+      setPatReposLoading(false);
     }
-  }
+  };
 
   const handleProviderClick = (providerType: ProviderType) => {
     // Always show the choose-method screen so users can pick OAuth or PAT
-    setSelectedProvider(providerType)
-    setViewMode('choose-method')
-  }
+    setSelectedProvider(providerType);
+    setViewMode("choose-method");
+  };
 
   // Handle choosing OAuth connection method
   const handleChooseOAuth = async () => {
-    if (!selectedProvider) return
+    if (!selectedProvider) return;
 
-    const oauthConnection = getOAuthConnectionForProvider(selectedProvider)
+    const oauthConnection = getOAuthConnectionForProvider(selectedProvider);
     if (oauthConnection) {
       // Already connected - browse repos
-      setSelectedConnectionId(oauthConnection.id || null)
-      setViewMode('browse-repos')
+      setSelectedConnectionId(oauthConnection.id || null);
+      setViewMode("browse-repos");
     } else {
       // Start OAuth flow with appropriate scopes for repository access
-      const providerId = getProviderIdForType(selectedProvider)
+      const providerId = getProviderIdForType(selectedProvider);
       if (providerId) {
         // Request scopes based on provider type
         // GitHub needs 'repo' scope for read/write access to repositories
         // GitLab needs 'read_repository,write_repository' scopes
-        let scopesParam = ''
-        if (selectedProvider === 'github') {
-          scopesParam = '?scopes=repo,read:org,read:user,user:email'
-        } else if (selectedProvider === 'gitlab') {
-          scopesParam = '?scopes=read_repository,write_repository,read_user'
+        let scopesParam = "";
+        if (selectedProvider === "github") {
+          scopesParam = "?scopes=repo,read:org,read:user,user:email";
+        } else if (selectedProvider === "gitlab") {
+          scopesParam = "?scopes=read_repository,write_repository,read_user";
         }
 
         try {
           // Fetch the OAuth authorization URL
-          const response = await api.get(`/api/v1/oauth/flow/start/${providerId}${scopesParam}`)
-          const authUrl = response.auth_url || response?.data?.auth_url
+          const response = await api.get(
+            `/api/v1/oauth/flow/start/${providerId}${scopesParam}`,
+          );
+          const authUrl = response.auth_url || response?.data?.auth_url;
           if (authUrl) {
             // Open in popup and track it
-            const width = 800
-            const height = 700
-            const left = (window.innerWidth - width) / 2
-            const top = (window.innerHeight - height) / 2
+            const width = 800;
+            const height = 700;
+            const left = (window.innerWidth - width) / 2;
+            const top = (window.innerHeight - height) / 2;
             oauthPopupRef.current = window.open(
               authUrl,
-              'oauth-popup',
-              `width=${width},height=${height},left=${left},top=${top}`
-            )
+              "oauth-popup",
+              `width=${width},height=${height},left=${left},top=${top}`,
+            );
           }
         } catch (err) {
-          console.error('Failed to start OAuth flow:', err)
-          snackbar.error('Failed to start authorization')
+          console.error("Failed to start OAuth flow:", err);
+          snackbar.error("Failed to start authorization");
         }
       }
     }
-  }
+  };
 
   // Handle choosing PAT connection method
   const handleChoosePat = () => {
-    if (!selectedProvider) return
+    if (!selectedProvider) return;
 
-    const patConnection = getPatConnectionForProvider(selectedProvider)
+    const patConnection = getPatConnectionForProvider(selectedProvider);
     if (patConnection) {
       // Already have saved PAT - browse repos
-      setSelectedPatConnectionId(patConnection.id || null)
-      setViewMode('browse-pat-repos')
-      fetchReposForSavedConnection(patConnection.id || '')
+      setSelectedPatConnectionId(patConnection.id || null);
+      setViewMode("browse-pat-repos");
+      fetchReposForSavedConnection(patConnection.id || "");
     } else {
       // Show PAT entry form
-      setViewMode('pat-entry')
+      setViewMode("pat-entry");
     }
-  }
+  };
 
   const handlePatSubmit = async () => {
-    if (!pat.trim() || !selectedProvider) return
+    if (!pat.trim() || !selectedProvider) return;
+
+    setPatSubmitError(null);
+    setPatSubmitLoading(true);
 
     const creds: PatCredentials = {
       pat,
-      username: selectedProvider === 'bitbucket' ? bitbucketUsername : undefined,
-      orgUrl: selectedProvider === 'azure-devops' ? orgUrl : undefined,
-      gitlabBaseUrl: selectedProvider === 'gitlab' ? gitlabBaseUrl : undefined,
-      githubBaseUrl: selectedProvider === 'github' ? githubBaseUrl : undefined,
-      bitbucketBaseUrl: selectedProvider === 'bitbucket' ? bitbucketBaseUrl : undefined,
-    }
-    setPatCredentials(creds)
-    setViewMode('browse-pat-repos')
+      username:
+        selectedProvider === "bitbucket" ? bitbucketUsername : undefined,
+      orgUrl: selectedProvider === "azure-devops" ? orgUrl : undefined,
+      gitlabBaseUrl: selectedProvider === "gitlab" ? gitlabBaseUrl : undefined,
+      githubBaseUrl: selectedProvider === "github" ? githubBaseUrl : undefined,
+      bitbucketBaseUrl:
+        selectedProvider === "bitbucket" ? bitbucketBaseUrl : undefined,
+    };
 
-    // Fetch repos
-    await fetchReposWithPat(selectedProvider, creds)
+    try {
+      // Validate token by attempting to fetch repos BEFORE switching views
+      setPatCredentials(creds);
+      const fetchError = await fetchReposWithPat(selectedProvider, creds);
 
-    // Save connection if requested
-    if (saveConnection) {
-      try {
-        await createPatConnection.mutateAsync({
-          provider_type: mapProviderToRepoType(selectedProvider) as any,
-          token: pat,
-          auth_username: creds.username,
-          organization_url: creds.orgUrl,
-          base_url: creds.gitlabBaseUrl || creds.githubBaseUrl || creds.bitbucketBaseUrl,
-        })
-        snackbar.success('Connection saved for future use')
-      } catch (err) {
-        // Don't fail the flow if saving fails
-        console.error('Failed to save connection:', err)
+      if (fetchError) {
+        // Token is invalid — stay on PAT entry form and show error inline
+        setPatSubmitError(fetchError);
+        setPatCredentials(null);
+        return;
       }
+
+      // Token is valid — switch to repo browser
+      setViewMode("browse-pat-repos");
+
+      // Save connection if requested
+      if (saveConnection) {
+        try {
+          await createPatConnection.mutateAsync({
+            provider_type: mapProviderToRepoType(selectedProvider) as any,
+            token: pat,
+            auth_username: creds.username,
+            organization_url: creds.orgUrl,
+            base_url:
+              creds.gitlabBaseUrl ||
+              creds.githubBaseUrl ||
+              creds.bitbucketBaseUrl,
+          });
+          snackbar.success("Connection saved for future use");
+        } catch (err: any) {
+          const rawData = err?.response?.data;
+          const errorMsg =
+            (typeof rawData === "string" && rawData) ||
+            rawData?.message ||
+            err?.message ||
+            "Failed to save connection";
+          snackbar.error(
+            typeof errorMsg === "string" ? errorMsg : JSON.stringify(errorMsg),
+          );
+        }
+      }
+    } finally {
+      setPatSubmitLoading(false);
     }
-  }
+  };
 
   const handleSelectRepo = () => {
-    if (!selectedRepo || !selectedProvider) return
+    if (!selectedRepo || !selectedProvider) return;
 
     // For PAT-based selection, include credentials
     if (patCredentials) {
@@ -387,83 +525,101 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         gitlabBaseUrl: patCredentials.gitlabBaseUrl,
         githubBaseUrl: patCredentials.githubBaseUrl,
         bitbucketBaseUrl: patCredentials.bitbucketBaseUrl,
-      })
-      onSelectRepository(selectedRepo, providerWithCreds)
+      });
+      onSelectRepository(selectedRepo, providerWithCreds);
+    } else if (selectedPatConnectionId) {
+      // Saved PAT connection - pass the connection ID so the backend can
+      // look up and decrypt the stored token
+      onSelectRepository(
+        selectedRepo,
+        selectedProvider,
+        undefined,
+        selectedPatConnectionId,
+      );
     } else {
       // OAuth-based selection - pass connection ID
-      onSelectRepository(selectedRepo, selectedProvider, selectedConnectionId)
+      onSelectRepository(selectedRepo, selectedProvider, selectedConnectionId);
     }
-  }
+  };
 
   const handleBack = () => {
-    if (viewMode === 'browse-pat-repos' && patCredentials) {
+    if (viewMode === "browse-pat-repos" && patCredentials) {
       // Coming from PAT entry - go back to PAT entry
-      setViewMode('pat-entry')
-      setPatRepos([])
-      setPatReposError(null)
-      setSelectedRepo(null)
-    } else if (viewMode === 'browse-pat-repos' || viewMode === 'browse-repos') {
+      setViewMode("pat-entry");
+      setPatRepos([]);
+      setPatReposError(null);
+      setSelectedRepo(null);
+    } else if (viewMode === "browse-pat-repos" || viewMode === "browse-repos") {
       // Coming from repo browser - go back to choose-method
-      setViewMode('choose-method')
-      setSelectedConnectionId(null)
-      setSelectedPatConnectionId(null)
-      setSearchQuery('')
-      setSelectedRepo(null)
-      setPatRepos([])
-      setPatReposError(null)
-    } else if (viewMode === 'pat-entry') {
+      setViewMode("choose-method");
+      setSelectedConnectionId(null);
+      setSelectedPatConnectionId(null);
+      setSearchQuery("");
+      setSelectedRepo(null);
+      setPatRepos([]);
+      setPatReposError(null);
+    } else if (viewMode === "pat-entry") {
       // Coming from PAT entry - go back to choose-method
-      setViewMode('choose-method')
-      setPat('')
-      setOrgUrl('')
-      setGitlabBaseUrl('')
-      setGithubBaseUrl('')
-      setBitbucketUsername('')
-      setBitbucketBaseUrl('')
-    } else if (viewMode === 'choose-method') {
+      setViewMode("choose-method");
+      setPat("");
+      setOrgUrl("");
+      setGitlabBaseUrl("");
+      setGithubBaseUrl("");
+      setBitbucketUsername("");
+      setBitbucketBaseUrl("");
+    } else if (viewMode === "choose-method") {
       // Coming from choose-method - go back to providers list
-      setViewMode('providers')
-      setSelectedProvider(null)
+      setViewMode("providers");
+      setSelectedProvider(null);
     } else {
       // Default: go back to providers list
-      setViewMode('providers')
-      setSelectedProvider(null)
-      setSelectedConnectionId(null)
-      setSelectedPatConnectionId(null)
-      setSearchQuery('')
-      setSelectedRepo(null)
-      setPat('')
-      setOrgUrl('')
-      setGitlabBaseUrl('')
-      setGithubBaseUrl('')
-      setBitbucketUsername('')
-      setBitbucketBaseUrl('')
-      setPatCredentials(null)
-      setPatRepos([])
-      setPatReposError(null)
+      setViewMode("providers");
+      setSelectedProvider(null);
+      setSelectedConnectionId(null);
+      setSelectedPatConnectionId(null);
+      setSearchQuery("");
+      setSelectedRepo(null);
+      setPat("");
+      setOrgUrl("");
+      setGitlabBaseUrl("");
+      setGithubBaseUrl("");
+      setBitbucketUsername("");
+      setBitbucketBaseUrl("");
+      setPatCredentials(null);
+      setPatRepos([]);
+      setPatReposError(null);
     }
-  }
+  };
 
   // Get the right repo list based on mode
-  const currentRepos = viewMode === 'browse-pat-repos' ? patRepos : repositories
-  const currentLoading = viewMode === 'browse-pat-repos' ? patReposLoading : reposLoading
-  const currentError = viewMode === 'browse-pat-repos' ? patReposError : (reposError instanceof Error ? reposError.message : reposError ? 'Failed to load repositories' : null)
+  const currentRepos =
+    viewMode === "browse-pat-repos" ? patRepos : repositories;
+  const currentLoading =
+    viewMode === "browse-pat-repos" ? patReposLoading : reposLoading;
+  const currentError =
+    viewMode === "browse-pat-repos"
+      ? patReposError
+      : reposError instanceof Error
+        ? reposError.message
+        : reposError
+          ? "Failed to load repositories"
+          : null;
 
   // Filter repositories by search query
-  const filteredRepos = currentRepos.filter(repo => {
-    if (!searchQuery) return true
-    const query = searchQuery.toLowerCase()
+  const filteredRepos = currentRepos.filter((repo) => {
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
     return (
       repo.name?.toLowerCase().includes(query) ||
       repo.full_name?.toLowerCase().includes(query) ||
       repo.description?.toLowerCase().includes(query)
-    )
-  })
+    );
+  });
 
-  const currentProvider = PROVIDERS.find(p => p.id === selectedProvider)
+  const currentProvider = PROVIDERS.find((p) => p.id === selectedProvider);
 
   // Provider selection view
-  if (viewMode === 'providers') {
+  if (viewMode === "providers") {
     return (
       <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
         <DialogTitle>Connect & Browse Repositories</DialogTitle>
@@ -473,33 +629,46 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
           </Typography>
 
           {connectionsLoading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
               <CircularProgress />
             </Box>
           ) : (
             <List>
               {PROVIDERS.map((provider, index) => {
-                const oauthConnection = getOAuthConnectionForProvider(provider.id)
-                const patConnection = getPatConnectionForProvider(provider.id)
-                const isConnected = !!(oauthConnection || patConnection)
-                const hasOAuth = !!getProviderIdForType(provider.id)
+                const oauthConnection = getOAuthConnectionForProvider(
+                  provider.id,
+                );
+                const patConnection = getPatConnectionForProvider(provider.id);
+                const isConnected = !!(oauthConnection || patConnection);
+                const hasOAuth = !!getProviderIdForType(provider.id);
 
                 // Get display name for connection
                 const getConnectionDisplayName = () => {
                   if (oauthConnection) {
-                    return oauthConnection.profile?.name || oauthConnection.profile?.email || 'user'
+                    return (
+                      oauthConnection.profile?.name ||
+                      oauthConnection.profile?.email ||
+                      "user"
+                    );
                   }
                   if (patConnection) {
-                    return patConnection.username || patConnection.email || patConnection.name || 'user'
+                    return (
+                      patConnection.username ||
+                      patConnection.email ||
+                      patConnection.name ||
+                      "user"
+                    );
                   }
-                  return 'user'
-                }
+                  return "user";
+                };
 
                 return (
                   <React.Fragment key={provider.id}>
                     {index > 0 && <Divider />}
                     <ListItem disablePadding>
-                      <ListItemButton onClick={() => handleProviderClick(provider.id)}>
+                      <ListItemButton
+                        onClick={() => handleProviderClick(provider.id)}
+                      >
                         <ListItemIcon sx={{ color: provider.color }}>
                           {provider.icon}
                         </ListItemIcon>
@@ -509,8 +678,8 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                             isConnected
                               ? `Connected as ${getConnectionDisplayName()}`
                               : hasOAuth
-                                ? 'Click to connect via OAuth'
-                                : 'Click to enter access token'
+                                ? "Click to connect via OAuth"
+                                : "Click to enter access token"
                           }
                         />
                         {isConnected ? (
@@ -539,7 +708,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                       </ListItemButton>
                     </ListItem>
                   </React.Fragment>
-                )
+                );
               })}
             </List>
           )}
@@ -548,19 +717,27 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
           <Button onClick={onClose}>Cancel</Button>
         </DialogActions>
       </Dialog>
-    )
+    );
   }
 
   // Choose connection method view
-  if (viewMode === 'choose-method') {
-    const oauthConnection = selectedProvider ? getOAuthConnectionForProvider(selectedProvider) : null
-    const patConnection = selectedProvider ? getPatConnectionForProvider(selectedProvider) : null
-    const hasOAuth = selectedProvider ? !!getProviderIdForType(selectedProvider) : false
+  if (viewMode === "choose-method") {
+    const oauthConnection = selectedProvider
+      ? getOAuthConnectionForProvider(selectedProvider)
+      : null;
+    const patConnection = selectedProvider
+      ? getPatConnectionForProvider(selectedProvider)
+      : null;
+    const hasOAuth = selectedProvider
+      ? !!getProviderIdForType(selectedProvider)
+      : false;
 
     return (
       <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Box sx={{ color: currentProvider?.color }}>{currentProvider?.icon}</Box>
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <Box sx={{ color: currentProvider?.color }}>
+            {currentProvider?.icon}
+          </Box>
           Connect to {currentProvider?.name}
         </DialogTitle>
         <DialogContent>
@@ -576,10 +753,14 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                 disabled={!hasOAuth}
                 sx={{
                   border: 2,
-                  borderColor: hasOAuth && !oauthConnection ? 'primary.main' : 'divider',
+                  borderColor:
+                    hasOAuth && !oauthConnection ? "primary.main" : "divider",
                   borderRadius: 1,
                   opacity: hasOAuth ? 1 : 0.5,
-                  bgcolor: hasOAuth && !oauthConnection ? 'action.hover' : 'transparent',
+                  bgcolor:
+                    hasOAuth && !oauthConnection
+                      ? "action.hover"
+                      : "transparent",
                 }}
               >
                 <ListItemIcon>
@@ -587,19 +768,24 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                 </ListItemIcon>
                 <ListItemText
                   primary={
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                       Connect via OAuth
                       {hasOAuth && !oauthConnection && (
-                        <Chip label="Recommended" size="small" color="primary" sx={{ height: 20 }} />
+                        <Chip
+                          label="Recommended"
+                          size="small"
+                          color="primary"
+                          sx={{ height: 20 }}
+                        />
                       )}
                     </Box>
                   }
                   secondary={
                     oauthConnection
-                      ? `Connected as ${oauthConnection.profile?.name || oauthConnection.profile?.email || 'user'}`
+                      ? `Connected as ${oauthConnection.profile?.name || oauthConnection.profile?.email || "user"}`
                       : hasOAuth
-                        ? 'Securely authorize access through your browser'
-                        : 'OAuth not configured by administrator'
+                        ? "Securely authorize access through your browser"
+                        : "OAuth not configured by administrator"
                   }
                 />
                 {oauthConnection && (
@@ -620,7 +806,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                 onClick={handleChoosePat}
                 sx={{
                   border: 1,
-                  borderColor: 'divider',
+                  borderColor: "divider",
                   borderRadius: 1,
                 }}
               >
@@ -631,22 +817,72 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                   primary="Use Personal Access Token"
                   secondary={
                     patConnection
-                      ? `Saved token for ${patConnection.username || patConnection.email || 'user'}`
-                      : 'Enter a token manually for authentication'
+                      ? `Saved token for ${patConnection.username || patConnection.email || "user"}`
+                      : "Enter a token manually for authentication"
                   }
                 />
                 {patConnection && (
-                  <Chip
-                    icon={<CheckCircle size={14} />}
-                    label="Saved"
-                    size="small"
-                    color="success"
-                    variant="outlined"
-                  />
+                  <>
+                    <Chip
+                      icon={<CheckCircle size={14} />}
+                      label="Saved"
+                      size="small"
+                      color="success"
+                      variant="outlined"
+                    />
+                    <Tooltip title="Remove saved token">
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPatToDisconnect(patConnection.id || null);
+                        }}
+                        sx={{ ml: 0.5 }}
+                      >
+                        <Trash2 size={16} />
+                      </IconButton>
+                    </Tooltip>
+                  </>
                 )}
               </ListItemButton>
             </ListItem>
           </List>
+
+          {/* Disconnect PAT confirmation dialog */}
+          <Dialog
+            open={!!patToDisconnect}
+            onClose={() => setPatToDisconnect(null)}
+          >
+            <DialogTitle>Disconnect Token</DialogTitle>
+            <DialogContent>
+              <DialogContentText>
+                Remove this saved token? You can re-enter it later.
+              </DialogContentText>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setPatToDisconnect(null)}>Cancel</Button>
+              <Button
+                color="error"
+                variant="contained"
+                disabled={deletePatConnection.isPending}
+                onClick={async () => {
+                  if (!patToDisconnect) return;
+                  try {
+                    await deletePatConnection.mutateAsync(patToDisconnect);
+                    snackbar.success("Token disconnected");
+                    setPatToDisconnect(null);
+                  } catch (err) {
+                    snackbar.error("Failed to disconnect token");
+                  }
+                }}
+              >
+                {deletePatConnection.isPending
+                  ? "Disconnecting..."
+                  : "Disconnect"}
+              </Button>
+            </DialogActions>
+          </Dialog>
 
           {/* Help text when OAuth is not available */}
           {!hasOAuth && (
@@ -654,21 +890,29 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               OAuth is not configured for {currentProvider?.name}.
               {account.admin ? (
                 <>
-                  {' '}You can{' '}
+                  {" "}
+                  You can{" "}
                   <Button
                     size="small"
                     onClick={() => {
-                      onClose()
-                      router.navigate('dashboard', { tab: 'oauth_providers' })
+                      onClose();
+                      settingsDialog.openDialog("admin", {
+                        tab: "oauth_providers",
+                      });
                     }}
-                    sx={{ textTransform: 'none', p: 0, minWidth: 'auto', verticalAlign: 'baseline' }}
+                    sx={{
+                      textTransform: "none",
+                      p: 0,
+                      minWidth: "auto",
+                      verticalAlign: "baseline",
+                    }}
                   >
                     configure OAuth providers
-                  </Button>
-                  {' '}in the admin dashboard, or use a Personal Access Token.
+                  </Button>{" "}
+                  in the admin dashboard, or use a Personal Access Token.
                 </>
               ) : (
-                ' Contact your administrator to enable OAuth integration, or use a Personal Access Token.'
+                " Contact your administrator to enable OAuth integration, or use a Personal Access Token."
               )}
             </Alert>
           )}
@@ -678,24 +922,32 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
           <Button onClick={onClose}>Cancel</Button>
         </DialogActions>
       </Dialog>
-    )
+    );
   }
 
   // PAT entry view
-  if (viewMode === 'pat-entry') {
+  if (viewMode === "pat-entry") {
     return (
       <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Box sx={{ color: currentProvider?.color }}>{currentProvider?.icon}</Box>
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <Box sx={{ color: currentProvider?.color }}>
+            {currentProvider?.icon}
+          </Box>
           Connect to {currentProvider?.name}
         </DialogTitle>
         <DialogContent>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
             <Typography variant="body2" color="text.secondary">
               Enter your personal access token to browse and link repositories.
             </Typography>
 
-            {selectedProvider === 'azure-devops' && (
+            {patSubmitError && (
+              <Alert severity="error" onClose={() => setPatSubmitError(null)}>
+                {patSubmitError}
+              </Alert>
+            )}
+
+            {selectedProvider === "azure-devops" && (
               <TextField
                 label="Organization URL"
                 fullWidth
@@ -706,7 +958,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               />
             )}
 
-            {selectedProvider === 'github' && (
+            {selectedProvider === "github" && (
               <TextField
                 label="GitHub Enterprise URL (optional)"
                 fullWidth
@@ -717,7 +969,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               />
             )}
 
-            {selectedProvider === 'gitlab' && (
+            {selectedProvider === "gitlab" && (
               <TextField
                 label="GitLab Base URL (optional)"
                 fullWidth
@@ -728,7 +980,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               />
             )}
 
-            {selectedProvider === 'bitbucket' && (
+            {selectedProvider === "bitbucket" && (
               <>
                 <TextField
                   label="Username"
@@ -750,19 +1002,26 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
             )}
 
             <TextField
-              label={selectedProvider === 'bitbucket' ? 'App Password' : 'Personal Access Token'}
+              label={
+                selectedProvider === "bitbucket"
+                  ? "App Password"
+                  : "Personal Access Token"
+              }
               fullWidth
               type="password"
               value={pat}
-              onChange={(e) => setPat(e.target.value)}
+              onChange={(e) => {
+                setPat(e.target.value);
+                if (patSubmitError) setPatSubmitError(null);
+              }}
               helperText={
-                selectedProvider === 'github'
-                  ? 'Create a token at GitHub → Settings → Developer settings → Personal access tokens'
-                  : selectedProvider === 'gitlab'
-                    ? 'Create a token at GitLab → Preferences → Access Tokens'
-                    : selectedProvider === 'bitbucket'
-                      ? 'Create an App Password at Bitbucket → Personal settings → App passwords'
-                      : 'Create a token at Azure DevOps → User settings → Personal access tokens'
+                selectedProvider === "github"
+                  ? "Create a token at GitHub → Settings → Developer settings → Personal access tokens"
+                  : selectedProvider === "gitlab"
+                    ? "Create a token at GitLab → Preferences → Access Tokens"
+                    : selectedProvider === "bitbucket"
+                      ? "Create an App Password at Bitbucket → Personal settings → App passwords"
+                      : "Create a token at Azure DevOps → User settings → Personal access tokens"
               }
             />
 
@@ -784,30 +1043,37 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleBack}>Back</Button>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={handleBack} disabled={patSubmitLoading}>
+            Back
+          </Button>
+          <Button onClick={onClose} disabled={patSubmitLoading}>
+            Cancel
+          </Button>
           <Button
             variant="contained"
             color="secondary"
             onClick={handlePatSubmit}
             disabled={
+              patSubmitLoading ||
               !pat.trim() ||
-              (selectedProvider === 'azure-devops' && !orgUrl.trim()) ||
-              (selectedProvider === 'bitbucket' && !bitbucketUsername.trim())
+              (selectedProvider === "azure-devops" && !orgUrl.trim()) ||
+              (selectedProvider === "bitbucket" && !bitbucketUsername.trim())
             }
           >
-            Browse Repositories
+            {patSubmitLoading ? "Validating..." : "Browse Repositories"}
           </Button>
         </DialogActions>
       </Dialog>
-    )
+    );
   }
 
   // Repository browser view (OAuth or PAT)
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Box sx={{ color: currentProvider?.color }}>{currentProvider?.icon}</Box>
+      <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Box sx={{ color: currentProvider?.color }}>
+          {currentProvider?.icon}
+        </Box>
         Browse {currentProvider?.name} Repositories
       </DialogTitle>
       <DialogContent>
@@ -835,37 +1101,49 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         )}
 
         {currentLoading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+          <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
             <CircularProgress />
           </Box>
         ) : filteredRepos.length === 0 ? (
-          <Box sx={{ textAlign: 'center', py: 4 }}>
+          <Box sx={{ textAlign: "center", py: 4 }}>
             <Typography color="text.secondary">
-              {searchQuery ? 'No repositories match your search' : 'No repositories found'}
+              {searchQuery
+                ? "No repositories match your search"
+                : "No repositories found"}
             </Typography>
           </Box>
         ) : (
-          <List sx={{ maxHeight: 400, overflow: 'auto' }}>
+          <List sx={{ maxHeight: 400, overflow: "auto" }}>
             {filteredRepos.map((repo, index) => (
               <React.Fragment key={repo.id || repo.full_name || index}>
                 {index > 0 && <Divider />}
                 <ListItem disablePadding>
                   <ListItemButton
-                    selected={selectedRepo?.id === repo.id || selectedRepo?.full_name === repo.full_name}
+                    selected={
+                      selectedRepo?.id === repo.id ||
+                      selectedRepo?.full_name === repo.full_name
+                    }
                     onClick={() => setSelectedRepo(repo)}
                   >
                     <ListItemIcon>
-                      <Avatar sx={{ width: 32, height: 32, bgcolor: 'action.hover' }}>
-                        {repo.name?.[0]?.toUpperCase() || 'R'}
+                      <Avatar
+                        sx={{ width: 32, height: 32, bgcolor: "action.hover" }}
+                      >
+                        {repo.name?.[0]?.toUpperCase() || "R"}
                       </Avatar>
                     </ListItemIcon>
                     <ListItemText
                       primary={repo.full_name || repo.name}
-                      secondary={repo.description || 'No description'}
+                      secondary={repo.description || "No description"}
                       secondaryTypographyProps={{ noWrap: true }}
                     />
                     {repo.private && (
-                      <Chip label="Private" size="small" variant="outlined" sx={{ ml: 1 }} />
+                      <Chip
+                        label="Private"
+                        size="small"
+                        variant="outlined"
+                        sx={{ ml: 1 }}
+                      />
                     )}
                   </ListItemButton>
                 </ListItem>
@@ -875,7 +1153,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         )}
 
         {selectedRepo && (
-          <Box sx={{ mt: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
+          <Box sx={{ mt: 2, p: 2, bgcolor: "action.hover", borderRadius: 1 }}>
             <Typography variant="subtitle2" gutterBottom>
               Selected: {selectedRepo.full_name || selectedRepo.name}
             </Typography>
@@ -889,15 +1167,18 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                 />
               }
               label={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                   <Brain size={16} />
-                  <Typography variant="body2">Enable Code Intelligence</Typography>
+                  <Typography variant="body2">
+                    Enable Code Intelligence
+                  </Typography>
                 </Box>
               }
             />
             {organizationName && (
               <Alert severity="info" sx={{ mt: 2 }}>
-                This repository will be accessible to all members of <strong>{organizationName}</strong>.
+                This repository will be accessible to all members of{" "}
+                <strong>{organizationName}</strong>.
               </Alert>
             )}
           </Box>
@@ -912,11 +1193,11 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
           onClick={handleSelectRepo}
           disabled={!selectedRepo || isLinking}
         >
-          {isLinking ? <CircularProgress size={20} /> : 'Link Repository'}
+          {isLinking ? <CircularProgress size={20} /> : "Link Repository"}
         </Button>
       </DialogActions>
     </Dialog>
-  )
-}
+  );
+};
 
-export default BrowseProvidersDialog
+export default BrowseProvidersDialog;

@@ -373,29 +373,33 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 
 	// Create repository object
 	gitRepo := &types.GitRepository{
-		ID:                repoID,
-		Name:              request.Name,
-		Description:       request.Description,
-		OwnerID:           request.OwnerID,
-		OrganizationID:    orgID,
-		ProjectID:         request.ProjectID,
-		RepoType:          request.RepoType,
-		Status:            types.GitRepositoryStatusActive,
-		CloneURL:          s.generateCloneURL(repoID),
-		IsExternal:        isExternal,
-		ExternalURL:       request.ExternalURL,
-		ExternalType:      request.ExternalType,
-		Username:          request.Username,
-		Password:          request.Password,
-		LocalPath:         repoPath,
-		DefaultBranch:     defaultBranch,
-		LastActivity:      time.Now(),
-		CreatedAt:         time.Now(),
-		UpdatedAt:         time.Now(),
-		Metadata:          request.Metadata,
-		AzureDevOps:       request.AzureDevOps,
-		KoditIndexing:     request.KoditIndexing,
-		OAuthConnectionID: request.OAuthConnectionID,
+		ID:                      repoID,
+		Name:                    request.Name,
+		Description:             request.Description,
+		OwnerID:                 request.OwnerID,
+		OrganizationID:          orgID,
+		ProjectID:               request.ProjectID,
+		RepoType:                request.RepoType,
+		Status:                  types.GitRepositoryStatusActive,
+		CloneURL:                s.generateCloneURL(repoID),
+		IsExternal:              isExternal,
+		ExternalURL:             request.ExternalURL,
+		ExternalType:            request.ExternalType,
+		Username:                request.Username,
+		Password:                request.Password,
+		LocalPath:               repoPath,
+		DefaultBranch:           defaultBranch,
+		LastActivity:            time.Now(),
+		CreatedAt:               time.Now(),
+		UpdatedAt:               time.Now(),
+		Metadata:                request.Metadata,
+		AzureDevOps:             request.AzureDevOps,
+		GitHub:                  request.GitHub,
+		GitLab:                  request.GitLab,
+		Bitbucket:               request.Bitbucket,
+		KoditIndexing:           request.KoditIndexing,
+		OAuthConnectionID:       request.OAuthConnectionID,
+		GitProviderConnectionID: request.GitProviderConnectionID,
 	}
 
 	if gitRepo.ExternalURL == "" {
@@ -515,7 +519,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		if koditCloneURL != "" {
 			// Register repository with Kodit (non-blocking - failures are logged but don't fail repo creation)
 			go func() {
-				koditRepoID, _, err := s.koditService.RegisterRepository(context.Background(), koditCloneURL)
+				koditRepoID, _, err := s.koditService.RegisterRepository(context.Background(), koditCloneURL, request.ExternalURL)
 				if err != nil {
 					log.Error().
 						Err(err).
@@ -864,7 +868,7 @@ func (s *GitRepositoryService) UpdateRepository(
 		}
 		koditCloneURL := s.BuildAuthenticatedCloneURL(repoID, koditAPIKey)
 
-		koditRepoID, _, err := s.koditService.RegisterRepository(ctx, koditCloneURL)
+		koditRepoID, _, err := s.koditService.RegisterRepository(ctx, koditCloneURL, existing.ExternalURL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to register repository with Kodit: %w", err)
 		}
@@ -897,18 +901,39 @@ func (s *GitRepositoryService) UpdateRepository(
 	return existing, nil
 }
 
-// DeleteRepository deletes a repository
+// DeleteRepository deletes a repository from the filesystem, database, and Kodit.
 func (s *GitRepositoryService) DeleteRepository(ctx context.Context, repoID string) error {
-	repoPath := filepath.Join(s.gitRepoBase, repoID)
-
-	// Delete repository directory
-	if err := os.RemoveAll(repoPath); err != nil {
-		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository directory")
-		// Continue to delete metadata even if filesystem deletion fails
+	// Fetch the repo first so we can read kodit metadata before deleting.
+	repo, err := s.store.GetGitRepository(ctx, repoID)
+	if err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to fetch repository before deletion")
+		// Continue — we still want to clean up the filesystem and DB record.
 	}
 
-	err := s.store.DeleteGitRepository(ctx, repoID)
-	if err != nil {
+	// Delete from Kodit only if no other git repository shares the same kodit index.
+	if repo != nil && s.koditService != nil && s.koditService.IsEnabled() {
+		koditRepoID := koditRepoIDFromMetadata(repo.Metadata)
+		if koditRepoID != 0 {
+			others, err := s.store.CountGitRepositoriesByKoditRepoID(ctx, koditRepoID, repoID)
+			if err != nil {
+				log.Warn().Err(err).Str("repo_id", repoID).Int64("kodit_repo_id", koditRepoID).Msg("failed to count other repos sharing kodit index")
+			} else if others == 0 {
+				if err := s.koditService.DeleteRepository(ctx, koditRepoID); err != nil {
+					log.Warn().Err(err).Str("repo_id", repoID).Int64("kodit_repo_id", koditRepoID).Msg("failed to delete repository from Kodit")
+				}
+			} else {
+				log.Info().Str("repo_id", repoID).Int64("kodit_repo_id", koditRepoID).Int64("other_repos", others).Msg("skipping Kodit deletion — other repos share this index")
+			}
+		}
+	}
+
+	// Delete repository directory
+	repoPath := filepath.Join(s.gitRepoBase, repoID)
+	if err := os.RemoveAll(repoPath); err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository directory")
+	}
+
+	if err := s.store.DeleteGitRepository(ctx, repoID); err != nil {
 		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository metadata")
 	}
 
@@ -917,6 +942,34 @@ func (s *GitRepositoryService) DeleteRepository(ctx context.Context, repoID stri
 		Msg("deleted git repository")
 
 	return nil
+}
+
+// koditRepoIDFromMetadata extracts the kodit_repo_id from repository metadata,
+// handling int64, float64 (JSON), int, and string formats.
+func koditRepoIDFromMetadata(metadata map[string]any) int64 {
+	if metadata == nil {
+		return 0
+	}
+	raw, ok := metadata["kodit_repo_id"]
+	if !ok {
+		return 0
+	}
+	switch v := raw.(type) {
+	case int64:
+		return v
+	case float64:
+		return int64(v)
+	case int:
+		return int64(v)
+	case string:
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return 0
+		}
+		return id
+	default:
+		return 0
+	}
 }
 
 // incrementRepositoryName intelligently increments a repository name suffix

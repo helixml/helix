@@ -122,6 +122,13 @@ type RetryableClient struct {
 	apiKey         string
 	models         []string
 	billingEnabled bool
+	isAnthropic    bool // true if this client is for an Anthropic-compatible provider
+}
+
+// SetIsAnthropic marks this client as an Anthropic-compatible provider.
+// This is used to determine the correct API format for model listing.
+func (c *RetryableClient) SetIsAnthropic(isAnthropic bool) {
+	c.isAnthropic = isAnthropic
 }
 
 // APIKey - returns the API key used by the client, used for testing
@@ -180,6 +187,11 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	// Trim trailing whitespace from message content to prevent API errors
 	request = trimMessageContent(request)
 
+	// Use native genai SDK for Google providers
+	if isGoogleProvider(c.baseURL) {
+		return c.createGoogleChatCompletion(ctx, request)
+	}
+
 	// Perform request with retries
 	err = retry.Do(func() error {
 		resp, err = c.apiClient.CreateChatCompletion(ctx, request)
@@ -237,15 +249,20 @@ func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, reques
 		return nil, err
 	}
 
+	// Trim trailing whitespace from message content to prevent API errors
+	request = trimMessageContent(request)
+
+	// Use native genai SDK for Google providers
+	if isGoogleProvider(c.baseURL) {
+		return c.createGoogleChatCompletionStream(ctx, request)
+	}
+
 	// Always include usage
 	if request.StreamOptions == nil {
 		request.StreamOptions = &openai.StreamOptions{}
 	}
 
 	request.StreamOptions.IncludeUsage = true
-
-	// Trim trailing whitespace from message content to prevent API errors
-	request = trimMessageContent(request)
 
 	return c.apiClient.CreateChatCompletionStream(ctx, request)
 }
@@ -274,7 +291,7 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 			log.Error().Err(err).Msg("failed to list models from Google")
 			return nil, err
 		}
-	case isAnthropicProvider(c.baseURL):
+	case c.isAnthropic:
 		models, err = c.listAnthropicModels(ctx)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to list models from Anthropic")
