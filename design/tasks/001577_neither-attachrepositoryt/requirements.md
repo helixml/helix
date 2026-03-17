@@ -4,17 +4,21 @@
 
 `default_repo_id` on a project is not kept in sync when repositories are attached or detached. This causes `hasExternalRepo` to return `false` in the frontend even when an external repo is attached, because the lookup `projectRepositories.find(r => r.id === defaultRepoId)` returns `undefined` when `default_repo_id` still points to a detached repo.
 
+## Approach
+
+TDD. For each user story: write a failing test first, confirm it is red, then implement until it is green.
+
 ## User Stories
 
 **US-1:** As a user who detaches the current default repo and attaches a new one, I expect the pull_request column to appear in the Kanban board without needing to manually do anything else.
+- Red test: `TestDetachRepo_UpdatesDefaultToRemainingRepo` — detach the default repo while another is attached, assert `SetProjectPrimaryRepository` is called with the remaining repo ID. Fails until handler is fixed.
+- Red test: `TestAttachRepo_SetsDefaultWhenStale` — attach a new repo when `default_repo_id` references a now-detached repo, assert `SetProjectPrimaryRepository` is called with the new repo ID. Fails until handler is fixed.
 
 **US-2:** As a user who attaches a repository to a project that has no valid default repo (or whose `default_repo_id` references a detached repo), the newly attached repo should automatically become the default.
+- Red test: `TestAttachRepo_SetsDefaultWhenEmpty` — attach a repo to a project where `DefaultRepoID == ""`, assert `SetProjectPrimaryRepository` is called with the new repo ID. Fails until handler is fixed.
 
 **US-3:** As a user who detaches a non-default repo, I expect the default repo to remain unchanged.
-
-## Approach
-
-TDD: write failing tests for each acceptance criterion first, confirm they are red, then implement until they are green.
+- Red test: `TestDetachRepo_KeepsDefaultWhenNotDefault` — detach a repo that is not the default, assert `SetProjectPrimaryRepository` is NOT called. Fails until handler is fixed.
 
 ## Acceptance Criteria
 
