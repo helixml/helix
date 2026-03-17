@@ -443,7 +443,50 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             freeSolo
             options={projectLabels.filter((l) => !taskLabels.includes(l))}
             value={taskLabels}
-            onChange={(_, newValue) => setTaskLabels(newValue as string[])}
+            filterOptions={(options, params) => {
+              const filtered = options.filter((o) =>
+                o.toLowerCase().includes(params.inputValue.toLowerCase()),
+              );
+              const trimmed = params.inputValue.trim();
+              if (
+                trimmed &&
+                !taskLabels.some(
+                  (l) => l.toLowerCase() === trimmed.toLowerCase(),
+                ) &&
+                !options.some(
+                  (o) => o.toLowerCase() === trimmed.toLowerCase(),
+                )
+              ) {
+                filtered.push(`__create__:${trimmed}`);
+              }
+              return filtered;
+            }}
+            onChange={(_, newValue) => {
+              const resolved = (newValue as string[]).map((v) =>
+                v.startsWith("__create__:") ? v.slice("__create__:".length) : v,
+              );
+              setTaskLabels(resolved);
+            }}
+            getOptionLabel={(option) =>
+              option.startsWith("__create__:")
+                ? option.slice("__create__:".length)
+                : option
+            }
+            renderOption={(props, option) => {
+              if (option.startsWith("__create__:")) {
+                const label = option.slice("__create__:".length);
+                return (
+                  <li {...props} key="__create__">
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                      <Typography variant="body2" color="primary">
+                        + Create &ldquo;{label}&rdquo;
+                      </Typography>
+                    </Box>
+                  </li>
+                );
+              }
+              return <li {...props} key={option}>{option}</li>;
+            }}
             renderTags={(value, getTagProps) =>
               value.map((label, index) => (
                 <Chip

@@ -1089,27 +1089,55 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           )}
           inputValue={labelInput}
           onInputChange={(_, value) => setLabelInput(value)}
-          onChange={(_, value) => {
-            if (value && typeof value === "string" && value.trim()) {
-              addLabelMutation.mutate({ taskId, label: value.trim() });
-              setLabelInput("");
+          filterOptions={(options, params) => {
+            const filtered = options.filter((o) =>
+              o.toLowerCase().includes(params.inputValue.toLowerCase()),
+            );
+            const trimmed = params.inputValue.trim();
+            if (
+              trimmed &&
+              !options.some((o) => o.toLowerCase() === trimmed.toLowerCase())
+            ) {
+              filtered.push(`__create__:${trimmed}`);
             }
+            return filtered;
+          }}
+          onChange={(_, value) => {
+            if (value && typeof value === "string") {
+              const label = value.startsWith("__create__:")
+                ? value.slice("__create__:".length)
+                : value.trim();
+              if (label) {
+                addLabelMutation.mutate({ taskId, label });
+                setLabelInput("");
+              }
+            }
+          }}
+          getOptionLabel={(option) =>
+            option.startsWith("__create__:")
+              ? option.slice("__create__:".length)
+              : option
+          }
+          renderOption={(props, option) => {
+            if (option.startsWith("__create__:")) {
+              const label = option.slice("__create__:".length);
+              return (
+                <li {...props} key="__create__">
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Typography variant="body2" color="primary">
+                      + Create &ldquo;{label}&rdquo;
+                    </Typography>
+                  </Box>
+                </li>
+              );
+            }
+            return <li {...props} key={option}>{option}</li>;
           }}
           renderInput={(params) => (
             <TextField
               {...params}
               size="small"
               placeholder="Add label..."
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && labelInput.trim()) {
-                  e.preventDefault();
-                  addLabelMutation.mutate({
-                    taskId,
-                    label: labelInput.trim(),
-                  });
-                  setLabelInput("");
-                }
-              }}
             />
           )}
         />
