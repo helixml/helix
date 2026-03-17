@@ -1385,6 +1385,10 @@ export interface ServerVideoStreamingStats {
   gop_buffer_size?: number;
 }
 
+export interface ServerAddLabelRequest {
+  label?: string;
+}
+
 export interface ServicesSampleProjectCode {
   description?: string;
   /** filepath -> content */
@@ -4540,8 +4544,6 @@ export interface TypesSessionMetadata {
   container_ip?: string;
   /** Container fields (Hydra executor) */
   container_name?: string;
-  /** "running" = should be running, "stopped" = can terminate */
-  desired_state?: string;
   /** Dev container ID for streaming */
   dev_container_id?: string;
   document_group_id?: string;
@@ -4892,6 +4894,8 @@ export interface TypesSpecTaskDesignReviewComment {
   agent_response?: string;
   /** When agent responded */
   agent_response_at?: string;
+  /** Agent's structured entries (for tool call rendering) */
+  agent_response_entries?: number[];
   /** The actual comment */
   comment_text?: string;
   /** Made optional - simplified to single type */
@@ -10236,6 +10240,22 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns a sorted list of unique labels across all spec tasks in a project
+     *
+     * @tags spec-driven-tasks
+     * @name V1ProjectsLabelsDetail
+     * @summary List all labels used in a project
+     * @request GET:/api/v1/projects/{projectId}/labels
+     */
+    v1ProjectsLabelsDetail: (projectId: string, params: RequestParams = {}) =>
+      this.request<string[], TypesAPIError>({
+        path: `/api/v1/projects/${projectId}/labels`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Create a minimal project for a repository that doesn't have one
      *
      * @tags Projects
@@ -11969,6 +11989,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
          * @default false
          */
         with_depends_on?: boolean;
+        /** Filter by labels (comma-separated, AND semantics) */
+        labels?: string;
         /**
          * Limit number of results
          * @default 50
@@ -12328,6 +12350,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/${taskId}/clone-groups`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Adds a label to a spec task (idempotent - no error if label already exists)
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksLabelsCreate
+     * @summary Add a label to a spec task
+     * @request POST:/api/v1/spec-tasks/{taskId}/labels
+     */
+    v1SpecTasksLabelsCreate: (taskId: string, request: ServerAddLabelRequest, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/labels`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Removes a label from a spec task (no-op if label does not exist)
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksLabelsDelete
+     * @summary Remove a label from a spec task
+     * @request DELETE:/api/v1/spec-tasks/{taskId}/labels/{label}
+     */
+    v1SpecTasksLabelsDelete: (taskId: string, label: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/labels/${label}`,
+        method: "DELETE",
         format: "json",
         ...params,
       }),

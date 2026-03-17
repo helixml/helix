@@ -27,6 +27,7 @@ import {
   InputLabel,
   Avatar,
   InputAdornment,
+  Autocomplete,
 } from "@mui/material";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -623,6 +624,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   // Local search filter state (use prop as initial value, but manage locally)
   const [searchFilter, setSearchFilter] = useState(searchFilterProp);
 
+  // Label filter state
+  const [labelFilter, setLabelFilter] = useState<string[]>([]);
+
   // Backlog table view state
   const [backlogExpanded, setBacklogExpanded] = useState(false);
 
@@ -768,11 +772,23 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     );
   };
 
-  // Apply search filter to tasks
-  const filteredTasks = useMemo(
-    () => filterTasks(tasks, searchFilter),
-    [tasks, searchFilter],
-  );
+  // Derive available labels from all loaded tasks
+  const availableLabels = useMemo(() => {
+    const labelSet = new Set<string>();
+    tasks.forEach((task) => (task.labels || []).forEach((l) => labelSet.add(l)));
+    return Array.from(labelSet).sort();
+  }, [tasks]);
+
+  // Apply search + label filters to tasks
+  const filteredTasks = useMemo(() => {
+    let result = filterTasks(tasks, searchFilter);
+    if (labelFilter.length > 0) {
+      result = result.filter((task) =>
+        labelFilter.every((l) => (task.labels || []).includes(l)),
+      );
+    }
+    return result;
+  }, [tasks, searchFilter, labelFilter]);
 
   // Kanban columns configuration - Linear color scheme
   // Pull Request column only shown for external repos (ADO)
@@ -1366,6 +1382,37 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
               ),
             }}
           />
+          {/* Label filter */}
+          {availableLabels.length > 0 && (
+            <Autocomplete
+              multiple
+              size="small"
+              options={availableLabels}
+              value={labelFilter}
+              onChange={(_, value) => setLabelFilter(value)}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  placeholder={labelFilter.length === 0 ? "Filter labels..." : ""}
+                  sx={{
+                    "& .MuiOutlinedInput-root": { height: "auto", minHeight: 36 },
+                  }}
+                />
+              )}
+              renderTags={(value, getTagProps) =>
+                value.map((option, index) => (
+                  <Chip
+                    {...getTagProps({ index })}
+                    key={option}
+                    label={option}
+                    size="small"
+                    sx={{ height: 20, fontSize: "0.7rem" }}
+                  />
+                ))
+              }
+              sx={{ width: 200 }}
+            />
+          )}
         </Box>
       </Box>
 
