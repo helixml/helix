@@ -2,12 +2,12 @@
 
 ## Left panel tab strip
 
-- [ ] Add `leftTab: 'chat' | 'spec'` state to `SpecTaskDetailContent.tsx`
-- [ ] Compute default tab: `'spec'` when `task.phase` is `'planning'` or `'review'` AND `hasDesignReview` is true; otherwise `'chat'`
-- [ ] Render a two-tab strip ("Chat" / "Spec") at the top of the left panel, only showing "Spec" tab when `hasDesignReview` is true
-- [ ] Wire "Spec" tab `onClick` to call the existing `handleReviewSpec()` function
-- [ ] On mount (or when `task.phase`/`hasDesignReview` change), set `leftTab` to the computed default and auto-trigger `handleReviewSpec()` if default is `'spec'`
-- [ ] Keep "Chat" tab rendering `EmbeddedSessionView` exactly as before
+- [~] Add `leftTab: 'chat' | 'spec'` state to `SpecTaskDetailContent.tsx`
+- [~] Compute default tab: `'spec'` when `task.status` is `spec_review` or `spec_revision` AND `design_docs_pushed_at` exists; otherwise `'chat'`
+- [~] Render a two-tab strip ("Chat" / "Spec") at the top of the left panel, only showing "Spec" tab when `design_docs_pushed_at` exists
+- [~] Wire "Spec" tab `onClick` to call the existing `handleReviewSpec()` function
+- [~] On mount (or when task status/design_docs_pushed_at change), auto-trigger `handleReviewSpec()` if task is in spec_review/spec_revision with design docs
+- [~] Keep "Chat" tab rendering `EmbeddedSessionView` exactly as before
 
 ## Back navigation from spec review
 
