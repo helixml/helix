@@ -15,8 +15,8 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
-import ExternalAgentDesktopViewer, { useSandboxState } from '../external-agent/ExternalAgentDesktopViewer'
-import { getTokenExpiryStatus } from './claudeSubscriptionUtils'
+import { useSandboxState } from '../external-agent/ExternalAgentDesktopViewer'
+import { getTokenExpiryStatus, openExternalUrl } from './claudeSubscriptionUtils'
 
 interface ClaudeSubscriptionData {
   id: string
@@ -86,7 +86,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const [loginSessionId, setLoginSessionId] = useState<string>('')
   const [loginStarting, setLoginStarting] = useState(false)
   const [loginCommandSent, setLoginCommandSent] = useState(false)
-  const [loginPolling, setLoginPolling] = useState(false)
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Start interactive login flow
@@ -98,7 +97,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
         setLoginSessionId(result.session_id)
         setLoginDialogOpen(true)
         setLoginCommandSent(false)
-        setLoginPolling(false)
       }
     } catch (err: any) {
       snackbar.error('Failed to start login session: ' + (err?.message || 'unknown error'))
@@ -128,7 +126,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     setLoginDialogOpen(false)
     setLoginSessionId('')
     setLoginCommandSent(false)
-    setLoginPolling(false)
   }, [loginSessionId])
 
   // Clean up polling on unmount
@@ -309,6 +306,8 @@ interface ClaudeLoginDialogInnerProps {
   orgId?: string
 }
 
+const POLL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
+
 const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
   sessionId,
   open,
@@ -321,6 +320,9 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
 }) => {
   const api = useApi()
   const { isRunning } = useSandboxState(sessionId)
+  const [authUrl, setAuthUrl] = useState<string | null>(null)
+  const [loginError, setLoginError] = useState<string | null>(null)
+  const browserOpenedRef = useRef(false)
 
   // Once the desktop is running, send the `claude auth login` command
   useEffect(() => {
@@ -329,36 +331,37 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
     const sendLoginCommand = async () => {
       try {
         const apiClient = api.getApiClient()
-        // Upgrade claude CLI to latest before logging in.
-        // Old image versions used localhost:<random-port> for OAuth which Anthropic
-        // no longer accepts; newer versions use platform.claude.com/oauth/code/callback.
-        // Upgrading here self-heals already-deployed images without a full image rebuild.
-        // Run blocking (background: false) so it completes before claude auth login starts.
+        // Install claude CLI from NPM (not baked into image).
+        // Run blocking so it completes before claude auth login starts.
         await apiClient.v1ExternalAgentsExecCreate(sessionId, {
           command: ['npm', 'install', '-g', '@anthropic-ai/claude-code@latest'],
           background: false,
           timeout: 300,
           env: {},
         })
+        // Run claude auth login with a URL-capture script instead of a real browser.
+        // The script writes the OAuth URL to a file; we poll for it and open it
+        // in the user's native browser instead of the in-VM GNOME browser.
         await apiClient.v1ExternalAgentsExecCreate(sessionId, {
           command: ['claude', 'auth', 'login'],
           background: true,
           env: {
-            WAYLAND_DISPLAY: 'wayland-0',
+            BROWSER: '/usr/local/bin/helix-capture-browser',
           },
         })
         setLoginCommandSent(true)
       } catch (err: any) {
         console.error('Failed to send claude auth login command:', err)
+        setLoginError(err?.message || 'Failed to start Claude login. Please try again.')
       }
     }
 
-    // Small delay to let GNOME initialize
+    // Small delay to let the container initialize
     const timeout = setTimeout(sendLoginCommand, 3000)
     return () => clearTimeout(timeout)
   }, [isRunning, loginCommandSent, sessionId])
 
-  // Once login command is sent, start polling for credentials.
+  // Once login command is sent, start polling for credentials (and OAuth URL).
   // Use a ref guard instead of state in deps to prevent the effect cleanup
   // from killing the interval on re-render (state change -> re-render -> cleanup -> no interval).
   const pollingStartedRef = useRef(false)
@@ -366,13 +369,26 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
     if (!loginCommandSent || pollingStartedRef.current) return
 
     pollingStartedRef.current = true
+    const pollStartTime = Date.now()
 
     const pollForCredentials = async () => {
+      // Timeout after 5 minutes to avoid spinning forever
+      if (Date.now() - pollStartTime > POLL_TIMEOUT_MS) {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current)
+          pollIntervalRef.current = null
+        }
+        setLoginError('Authentication timed out. Please try again.')
+        return
+      }
+
       try {
-        const result = await api.get<{ found: boolean; credentials: string }>(
+        const result = await api.get<{ found: boolean; credentials: string; url?: string }>(
           `/api/v1/claude-subscriptions/poll-login/${sessionId}`,
           {}
         )
+
+        // Check for credentials first
         if (result && result.found && result.credentials) {
           let parsed: any
           try {
@@ -393,6 +409,14 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
           })
 
           onCredentialsCaptured()
+          return
+        }
+
+        // Check for OAuth URL to open in native browser
+        if (result?.url && !browserOpenedRef.current) {
+          setAuthUrl(result.url)
+          browserOpenedRef.current = true
+          openExternalUrl(result.url)
         }
       } catch {
         // Ignore polling errors
@@ -414,47 +438,53 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="lg"
+      maxWidth="sm"
       fullWidth
-      PaperProps={{
-        sx: { height: '95vh', maxHeight: '95vh' },
-      }}
     >
-      <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Box>
-          <Typography variant="h6">Sign in to Claude</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Complete the login in the browser below. Your credentials will automatically be reused in desktop sessions configured to use Claude Code.
-          </Typography>
-        </Box>
-        {loginCommandSent && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <CircularProgress size={16} />
-            <Typography variant="body2" color="text.secondary">
-              Waiting for login...
-            </Typography>
-          </Box>
-        )}
+      <DialogTitle>
+        <Typography variant="h6">Sign in to Claude</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Your credentials will automatically be reused in desktop sessions configured to use Claude Code.
+        </Typography>
       </DialogTitle>
-      <DialogContent sx={{ p: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {isRunning && loginCommandSent && (
-          <Alert severity="info" sx={{ mx: 2, mt: 1, flexShrink: 0 }}>
-            A browser will open below. Sign in to your Claude account and complete the authentication flow in the browser.
+      <DialogContent>
+        {loginError ? (
+          <Alert severity="error" sx={{ my: 2 }}>
+            {loginError}
           </Alert>
-        )}
-        {!isRunning ? (
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 2 }}>
+        ) : !isRunning || !loginCommandSent ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4, gap: 2 }}>
             <CircularProgress />
             <Typography variant="body2" color="text.secondary">
-              Starting desktop session...
+              Preparing authentication...
+            </Typography>
+          </Box>
+        ) : !authUrl ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4, gap: 2 }}>
+            <CircularProgress />
+            <Typography variant="body2" color="text.secondary">
+              Waiting for Claude login page...
             </Typography>
           </Box>
         ) : (
-          <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-            <ExternalAgentDesktopViewer
-              sessionId={sessionId}
-              mode="stream"
-            />
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Alert severity="info">
+              Your browser will open to Claude's sign-in page. Enter your email address &mdash;
+              Claude will email you a magic link. Click the link to get a code, then paste the
+              code back in the browser to complete authentication.
+            </Alert>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <CircularProgress size={16} />
+              <Typography variant="body2" color="text.secondary">
+                Waiting for authentication to complete...
+              </Typography>
+            </Box>
+            <Typography variant="caption" color="text.secondary">
+              {"Didn't open? "}
+              <a href={authUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}>
+                Click here to open the sign-in page
+              </a>
+            </Typography>
           </Box>
         )}
       </DialogContent>
