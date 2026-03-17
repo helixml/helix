@@ -16,7 +16,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import { useSandboxState } from '../external-agent/ExternalAgentDesktopViewer'
-import { getTokenExpiryStatus } from './claudeSubscriptionUtils'
+import { getTokenExpiryStatus, openExternalUrl } from './claudeSubscriptionUtils'
 
 interface ClaudeSubscriptionData {
   id: string
@@ -86,7 +86,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const [loginSessionId, setLoginSessionId] = useState<string>('')
   const [loginStarting, setLoginStarting] = useState(false)
   const [loginCommandSent, setLoginCommandSent] = useState(false)
-  const [loginPolling, setLoginPolling] = useState(false)
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Start interactive login flow
@@ -98,7 +97,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
         setLoginSessionId(result.session_id)
         setLoginDialogOpen(true)
         setLoginCommandSent(false)
-        setLoginPolling(false)
       }
     } catch (err: any) {
       snackbar.error('Failed to start login session: ' + (err?.message || 'unknown error'))
@@ -128,7 +126,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     setLoginDialogOpen(false)
     setLoginSessionId('')
     setLoginCommandSent(false)
-    setLoginPolling(false)
   }, [loginSessionId])
 
   // Clean up polling on unmount
@@ -309,16 +306,7 @@ interface ClaudeLoginDialogInnerProps {
   orgId?: string
 }
 
-// Open URL in external browser, works in both WKWebView (desktop app) and regular browsers.
-// In the desktop app the Helix frontend runs in an iframe inside WKWebView — window.open()
-// is silently suppressed. The Wails host listens for 'open-external-url' postMessages.
-function openExternalUrl(url: string) {
-  if (window.parent !== window) {
-    window.parent.postMessage({ type: 'open-external-url', url }, '*')
-  } else {
-    window.open(url, '_blank')
-  }
-}
+const POLL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
 const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
   sessionId,
@@ -351,13 +339,6 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
           timeout: 300,
           env: {},
         })
-        // Clean up stale URL file from any previous login attempt in this container
-        await apiClient.v1ExternalAgentsExecCreate(sessionId, {
-          command: ['rm', '-f', '/tmp/claude-auth-url.txt'],
-          background: false,
-          timeout: 5,
-          env: {},
-        }).catch(() => {})
         // Run claude auth login with a URL-capture script instead of a real browser.
         // The script writes the OAuth URL to a file; we poll for it and open it
         // in the user's native browser instead of the in-VM GNOME browser.
@@ -388,8 +369,19 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
     if (!loginCommandSent || pollingStartedRef.current) return
 
     pollingStartedRef.current = true
+    const pollStartTime = Date.now()
 
     const pollForCredentials = async () => {
+      // Timeout after 5 minutes to avoid spinning forever
+      if (Date.now() - pollStartTime > POLL_TIMEOUT_MS) {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current)
+          pollIntervalRef.current = null
+        }
+        setLoginError('Authentication timed out. Please try again.')
+        return
+      }
+
       try {
         const result = await api.get<{ found: boolean; credentials: string; url?: string }>(
           `/api/v1/claude-subscriptions/poll-login/${sessionId}`,

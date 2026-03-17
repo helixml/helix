@@ -1,3 +1,16 @@
+// Open URL in external browser. Works in both WKWebView (desktop app) and regular browsers.
+// In the desktop app the Helix frontend runs in an iframe inside WKWebView — window.open()
+// is silently suppressed. The Wails host listens for 'open-external-url' postMessages.
+// This matches the pattern in index.tsx for link interception.
+export function openExternalUrl(url: string) {
+  if (window.parent !== window) {
+    window.parent.postMessage({ type: 'open-external-url', url }, '*')
+  }
+  // Always try window.open as well — it works in regular browsers and is a
+  // no-op in WKWebView. This avoids silent failure if embedded in a non-Wails iframe.
+  window.open(url, '_blank')
+}
+
 export interface TokenExpiryStatus {
   isExpired: boolean
   isExpiringSoon: boolean // less than 1 hour

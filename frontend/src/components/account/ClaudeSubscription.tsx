@@ -26,7 +26,7 @@ import useSnackbar from '../../hooks/useSnackbar'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useAccount from '../../hooks/useAccount'
 import { useSandboxState } from '../external-agent/ExternalAgentDesktopViewer'
-import { getTokenExpiryStatus } from './claudeSubscriptionUtils'
+import { getTokenExpiryStatus, openExternalUrl } from './claudeSubscriptionUtils'
 
 interface ClaudeSubscriptionData {
   id: string
@@ -454,16 +454,7 @@ interface ClaudeLoginDialogProps {
   onCredentialsCaptured: () => void
 }
 
-// Open URL in external browser, works in both WKWebView (desktop app) and regular browsers.
-// In the desktop app the Helix frontend runs in an iframe inside WKWebView — window.open()
-// is silently suppressed. The Wails host listens for 'open-external-url' postMessages.
-function openExternalUrl(url: string) {
-  if (window.parent !== window) {
-    window.parent.postMessage({ type: 'open-external-url', url }, '*')
-  } else {
-    window.open(url, '_blank')
-  }
-}
+const POLL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
 const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
   sessionId,
@@ -501,13 +492,6 @@ const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
           timeout: 300,
           env: {},
         })
-        // Clean up stale URL file from any previous login attempt in this container
-        await apiClient.v1ExternalAgentsExecCreate(sessionId, {
-          command: ['rm', '-f', '/tmp/claude-auth-url.txt'],
-          background: false,
-          timeout: 5,
-          env: {},
-        }).catch(() => {})
         // Run claude auth login with a URL-capture script instead of a real browser.
         // The script writes the OAuth URL to a file; we poll for it and open it
         // in the user's native browser instead of the in-VM GNOME browser.
@@ -538,8 +522,19 @@ const ClaudeLoginDialog: FC<ClaudeLoginDialogProps> = ({
     if (!loginCommandSent || pollingStartedRef.current) return
 
     pollingStartedRef.current = true
+    const pollStartTime = Date.now()
 
     const pollForCredentials = async () => {
+      // Timeout after 5 minutes to avoid spinning forever
+      if (Date.now() - pollStartTime > POLL_TIMEOUT_MS) {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current)
+          pollIntervalRef.current = null
+        }
+        setLoginError('Authentication timed out. Please try again.')
+        return
+      }
+
       try {
         const result = await api.get<{ found: boolean; credentials: string; url?: string }>(
           `/api/v1/claude-subscriptions/poll-login/${sessionId}`,

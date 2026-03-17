@@ -64,7 +64,6 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		"cat":                true,
 		"test":               true,
 		"npm":                true, // needed to upgrade claude CLI at login time
-		"rm":                 true, // needed to clean up stale auth URL files
 	}
 
 	cmdName := req.Command[0]
