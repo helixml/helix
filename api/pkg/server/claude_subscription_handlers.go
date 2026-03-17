@@ -586,11 +586,28 @@ func (apiServer *HelixAPIServer) pollClaudeLogin(_ http.ResponseWriter, req *htt
 		}
 	}
 
-	// No credentials yet — check for OAuth URL captured by helix-capture-browser
-	urlOutput, urlErr := apiServer.execInContainer(req.Context(), runnerID,
-		[]string{"cat", "/tmp/claude-auth-url.txt"})
-	if urlErr == nil && strings.HasPrefix(strings.TrimSpace(urlOutput), "https://") {
-		return &ClaudePollLoginResponse{Found: false, URL: strings.TrimSpace(urlOutput)}, nil
+	// No credentials yet — check for OAuth URL from claude auth login stdout.
+	// The stdout contains a fallback URL with platform.claude.com/oauth/code/callback
+	// redirect that works from any browser. We parse it from the "If the browser
+	// didn't open, visit:" line. This URL uses a platform redirect (not localhost),
+	// so it works when opened on the user's host machine.
+	stdoutOutput, stdoutErr := apiServer.execInContainer(req.Context(), runnerID,
+		[]string{"cat", "/tmp/claude-auth-stdout.txt"})
+	if stdoutErr == nil && stdoutOutput != "" {
+		// Parse "If the browser didn't open, visit: <URL>" from stdout
+		for _, line := range strings.Split(stdoutOutput, "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "If the browser didn't open, visit:") {
+				url := strings.TrimSpace(strings.TrimPrefix(line, "If the browser didn't open, visit:"))
+				if strings.HasPrefix(url, "https://") {
+					return &ClaudePollLoginResponse{Found: false, URL: url}, nil
+				}
+			}
+			// Also check for bare URL lines starting with https://claude.ai/oauth
+			if strings.HasPrefix(line, "https://claude.ai/oauth") {
+				return &ClaudePollLoginResponse{Found: false, URL: line}, nil
+			}
+		}
 	}
 
 	return &ClaudePollLoginResponse{Found: false}, nil
