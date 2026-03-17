@@ -2,6 +2,7 @@ import React, { FC } from 'react'
 import { useRoute } from 'react-router5'
 import {
   Box,
+  Button,
   IconButton,
   Tooltip,
   CircularProgress,
@@ -9,6 +10,7 @@ import {
 } from '@mui/material'
 import {
   ViewModule as TiledIcon,
+  ArrowBack as ArrowBackIcon,
 } from '@mui/icons-material'
 
 import Page from '../components/system/Page'
@@ -91,7 +93,16 @@ const SpecTaskReviewPage: FC = () => {
       orgBreadcrumbs={true}
       showDrawerButton={true}
       topbarContent={
-        <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', alignItems: 'center' }}>
+        <Stack direction="row" spacing={1} sx={{ justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+          <Button
+            size="small"
+            startIcon={<ArrowBackIcon />}
+            onClick={handleBack}
+            variant="text"
+            sx={{ color: 'text.secondary' }}
+          >
+            Back to task
+          </Button>
           <Tooltip title="Open in Split Screen">
             <IconButton onClick={handleOpenInWorkspace} size="small">
               <TiledIcon />
