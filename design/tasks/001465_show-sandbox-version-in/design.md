@@ -94,3 +94,24 @@ Run `./stack update_openapi` to regenerate `TypesSandboxInstance` with new field
 2. Verify version appears in sandbox list API response
 3. Test with mismatched versions (manually edit DB or use old sandbox)
 4. Verify alert appears/disappears correctly
+
+## Implementation Notes
+
+### Files Modified
+- `api/pkg/types/types.go` - Added `HelixVersion` field to both `SandboxInstance` and `SandboxHeartbeatRequest`
+- `api/cmd/sandbox-heartbeat/main.go` - Import `data` package, add field to local struct, populate with `data.GetHelixVersion()`
+- `api/pkg/store/store_sandbox.go` - Persist `helix_version` in `UpdateSandboxHeartbeat`
+- `frontend/src/pages/Dashboard.tsx` - Display version in dropdown, add mismatch alert
+
+### Key Patterns Used
+- Used existing `data.GetHelixVersion()` which returns git commit hash or ldflags-injected version
+- Version comparison is exact string match (not semantic versioning)
+- Alert only shows for "online" sandboxes (ignores offline/degraded)
+- Version display truncates to 7 chars for git hashes (consistent with git short hash)
+
+### GORM AutoMigrate
+The new `helix_version` column will be added automatically by GORM AutoMigrate on next API restart. No manual migration required.
+
+### Gotchas
+- Sandbox won't report version until next heartbeat (up to 30s after rebuild)
+- Old sandboxes will have empty `helix_version` - UI handles this gracefully (no version shown)

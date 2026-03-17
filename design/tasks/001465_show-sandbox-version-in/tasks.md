@@ -18,11 +18,11 @@
 - [x] Add version mismatch detection comparing sandbox versions to `account.serverConfig.version`
 - [x] Add `<Alert severity="warning">` banner in agent_sandboxes tab when version mismatch detected
 - [x] Format version display (truncate git hashes to 7 chars)
+- [x] Build frontend: `cd frontend && yarn build`
 
-## Testing
+## Testing (Manual - requires deployed environment)
 
 - [ ] Build sandbox image: `./stack build-sandbox`
 - [ ] Start fresh sandbox and verify `helix_version` appears in `GET /api/v1/sandboxes` response
 - [ ] Verify version displays correctly in admin UI sandbox dropdown
 - [ ] Test mismatch alert by manually setting different version in DB
-- [x] Build frontend: `cd frontend && yarn build`
