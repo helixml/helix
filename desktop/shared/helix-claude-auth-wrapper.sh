@@ -7,9 +7,11 @@
 export NO_COLOR=1
 export BROWSER=/usr/local/bin/helix-capture-browser
 
-# Install Claude CLI with retry (network may not be ready immediately after boot)
+# Install Claude CLI with retry (network may not be ready immediately after boot).
+# Uses sudo because the exec handler runs as user retro, but npm install -g
+# writes to /usr/lib/node_modules/ which requires root.
 for i in 1 2 3 4 5; do
-    npm install -g @anthropic-ai/claude-code@latest 2>>/tmp/npm-install.log && break
+    sudo npm install -g @anthropic-ai/claude-code@latest 2>>/tmp/npm-install.log && break
     [ "$i" -lt 5 ] && sleep 3
 done
 
@@ -19,6 +21,7 @@ if ! command -v claude &>/dev/null; then
     exit 1
 fi
 
-# No trailing & — this script is already backgrounded by the exec handler.
-# Running claude in the foreground of the script avoids orphan/zombie processes.
-claude auth login > /tmp/claude-auth-stdout.txt 2>&1
+# Use `script` to create a pseudo-TTY so Node.js (claude) uses line buffering
+# instead of full buffering. Without this, stdout is never flushed to the file
+# and the poll handler can't find the platform OAuth URL.
+script -qefc "claude auth login" /tmp/claude-auth-stdout.txt
