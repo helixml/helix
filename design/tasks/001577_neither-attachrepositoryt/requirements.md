@@ -12,6 +12,10 @@
 
 **US-3:** As a user who detaches a non-default repo, I expect the default repo to remain unchanged.
 
+## Approach
+
+TDD: write failing tests for each acceptance criterion first, confirm they are red, then implement until they are green.
+
 ## Acceptance Criteria
 
 - **AC-1:** When `detachRepositoryFromProject` is called and the detached repo's ID equals `project.default_repo_id`, the project's `default_repo_id` is updated: set to another currently-attached repo if one exists, or cleared to `""` if none remain.
