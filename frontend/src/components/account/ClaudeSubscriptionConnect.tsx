@@ -309,6 +309,17 @@ interface ClaudeLoginDialogInnerProps {
   orgId?: string
 }
 
+// Open URL in external browser, works in both WKWebView (desktop app) and regular browsers.
+// In the desktop app the Helix frontend runs in an iframe inside WKWebView — window.open()
+// is silently suppressed. The Wails host listens for 'open-external-url' postMessages.
+function openExternalUrl(url: string) {
+  if (window.parent !== window) {
+    window.parent.postMessage({ type: 'open-external-url', url }, '*')
+  } else {
+    window.open(url, '_blank')
+  }
+}
+
 const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
   sessionId,
   open,
@@ -322,6 +333,7 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
   const api = useApi()
   const { isRunning } = useSandboxState(sessionId)
   const [authUrl, setAuthUrl] = useState<string | null>(null)
+  const [loginError, setLoginError] = useState<string | null>(null)
   const browserOpenedRef = useRef(false)
 
   // Once the desktop is running, send the `claude auth login` command
@@ -339,6 +351,13 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
           timeout: 300,
           env: {},
         })
+        // Clean up stale URL file from any previous login attempt in this container
+        await apiClient.v1ExternalAgentsExecCreate(sessionId, {
+          command: ['rm', '-f', '/tmp/claude-auth-url.txt'],
+          background: false,
+          timeout: 5,
+          env: {},
+        }).catch(() => {})
         // Run claude auth login with a URL-capture script instead of a real browser.
         // The script writes the OAuth URL to a file; we poll for it and open it
         // in the user's native browser instead of the in-VM GNOME browser.
@@ -352,6 +371,7 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
         setLoginCommandSent(true)
       } catch (err: any) {
         console.error('Failed to send claude auth login command:', err)
+        setLoginError(err?.message || 'Failed to start Claude login. Please try again.')
       }
     }
 
@@ -404,7 +424,7 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
         if (result?.url && !browserOpenedRef.current) {
           setAuthUrl(result.url)
           browserOpenedRef.current = true
-          window.open(result.url, '_blank')
+          openExternalUrl(result.url)
         }
       } catch {
         // Ignore polling errors
@@ -436,7 +456,11 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
         </Typography>
       </DialogTitle>
       <DialogContent>
-        {!isRunning || !loginCommandSent ? (
+        {loginError ? (
+          <Alert severity="error" sx={{ my: 2 }}>
+            {loginError}
+          </Alert>
+        ) : !isRunning || !loginCommandSent ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4, gap: 2 }}>
             <CircularProgress />
             <Typography variant="body2" color="text.secondary">
