@@ -77,5 +77,22 @@ The existing button in `SpecTaskActionButtons.tsx` is kept as-is. It is now a se
 ## Decisions
 
 - **Spec tab calls `handleReviewSpec()`** rather than rendering inline. This reuses the existing, tested flow and avoids embedding a third complex component into an already large file. Inline rendering could be a follow-up.
-- **Default to Spec only for `planning`/`review` phases** — implementation-phase tasks should not surprise the user with a spec view.
+- **Default to Spec only for `spec_review`/`spec_revision` statuses** (not phases). Actual field is `task.status` (TypesSpecTaskStatus enum), not `task.phase`. Guard also checks `task.design_docs_pushed_at`.
 - **Workspace mode (TabsView) already handles back navigation** via the tab bar, so the fix is only needed for standalone page mode.
+- **SpecTaskReviewPage already has `handleBack`** — it already called `account.orgNavigate('project-task-detail', ...)`. I only needed to expose it as a visible "Back to task" button in `topbarContent`.
+- **`onClose` prop on DesignReviewContent** is only called after approve/reject workflow actions (not as a nav button). No change needed there — added the button to the page-level topbar instead.
+
+## Implementation Notes
+
+- Used `ToggleButtonGroup` + `ToggleButton` (already imported in SpecTaskDetailContent) for the Chat/Spec tab strip — no new imports needed.
+- `Description` icon (already imported at line 39) used as the Spec tab icon.
+- **Critical gotcha:** Auto-trigger caused a re-redirect when navigating "Back to task" — the useEffect fired again on component remount. Fixed by using a **module-level `Set<string>` (`autoOpenedSpecTasks`)** instead of a per-instance `useRef`. Module-level state persists across SPA route changes (component unmount/remount) but resets on full page reload — exactly the right behaviour.
+- The left panel Chat/Spec tabs only render inside the `activeSessionId && isBigScreen && !chatCollapsed` code path (the PanelGroup layout). If a task has no session yet, the tabs are not visible — this is acceptable since there's no chat to switch away from.
+- `ToggleButtonGroup value="chat"` is always "chat" (Spec tab navigates away), so `onChange` only handles `val === "spec"` case.
+
+## Files Modified
+
+| File | Change |
+|------|--------|
+| `frontend/src/components/tasks/SpecTaskDetailContent.tsx` | Added module-level `autoOpenedSpecTasks` Set, auto-trigger useEffect, Chat/Spec ToggleButtonGroup in left panel header |
+| `frontend/src/pages/SpecTaskReviewPage.tsx` | Added `ArrowBackIcon` + `Button` import, "Back to task" button in topbarContent |
