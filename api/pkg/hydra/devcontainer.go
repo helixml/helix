@@ -236,8 +236,11 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		Env:      dm.buildEnv(req),
 	}
 
-	// Build host configuration
-	hostConfig := dm.buildHostConfig(req)
+	// Build host configuration (includes ZFS clone/mount for Docker data dir)
+	hostConfig, err := dm.buildHostConfig(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build host config: %w", err)
+	}
 
 	// Configure GPU passthrough
 	dm.configureGPU(hostConfig, req.GPUVendor)
@@ -638,7 +641,7 @@ func overrideEnvVar(env []string, key, value string) []string {
 }
 
 // buildHostConfig builds the host configuration for the container
-func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *container.HostConfig {
+func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (*container.HostConfig, error) {
 	// Use the network from the request if specified, otherwise default to bridge.
 	// Previously we used host network mode which caused port conflicts when running
 	// multiple desktop containers (they all shared ports 9876/9877).
@@ -674,103 +677,82 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *
 	hostConfig.ExtraHosts = dm.buildExtraHosts()
 
 	// Build mounts
-	hostConfig.Mounts = dm.buildMounts(req)
+	mounts, err := dm.buildMounts(req)
+	if err != nil {
+		return nil, err
+	}
+	hostConfig.Mounts = mounts
 
-	return hostConfig
+	return hostConfig, nil
 }
 
 // resolveDockerDataDir determines the host path for a session's /var/lib/docker mount.
 // It tries ZFS zvol clone first (O(1)), then falls back to file-copy golden cache,
-// then plain empty directory. Returns "" if it should remain a named volume.
-func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerRequest, volumeName string) string {
+// then plain empty directory. Returns ("", nil) if it should remain a named volume.
+// Returns ("", error) if ZFS is available but the operation failed — caller should
+// fail the container creation rather than silently starting with no cache.
+func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerRequest, volumeName string) (string, error) {
 	sessionID := strings.TrimPrefix(volumeName, "docker-data-")
 
 	// Strategy 1: ZFS zvol clone (instant)
+	// When ZFS is available, we ALWAYS use it — never fall back to file-copy.
+	// If a ZFS operation fails, return an error so the session creation fails
+	// with a clear message instead of silently starting with no cache.
 	if ZFSAvailable() {
 		if GoldenZvolExists(req.ProjectID) {
-			// Golden zvol exists — clone it (instant for normal sessions,
-			// incremental rebuild for golden builds)
 			dockerDir, err := SetupGoldenClone(req.ProjectID, sessionID)
 			if err != nil {
-				log.Warn().Err(err).
-					Str("project_id", req.ProjectID).
-					Str("session_id", sessionID).
-					Msg("ZFS golden clone failed, falling back to file-copy")
-			} else {
-				log.Info().
-					Str("project_id", req.ProjectID).
-					Str("session_id", sessionID).
-					Str("mount", dockerDir).
-					Msg("Using ZFS zvol clone for inner dockerd (instant golden cache)")
-				return dockerDir
+				return "", fmt.Errorf("ZFS golden clone failed for project %s: %w", req.ProjectID, err)
 			}
+			log.Info().
+				Str("project_id", req.ProjectID).
+				Str("session_id", sessionID).
+				Str("mount", dockerDir).
+				Msg("Using ZFS zvol clone for inner dockerd (instant golden cache)")
+			return dockerDir, nil
 		} else if req.GoldenBuild {
-			// No golden zvol yet, but this IS a golden build — bootstrap the
-			// zvol infrastructure. Create a session zvol and seed it from the
-			// old file-based golden dir if one exists (one-time migration copy).
-			// On promotion, PromoteSessionToGoldenZvol renames this to the golden.
 			dockerDir, err := CreateSessionZvol(sessionID)
 			if err != nil {
-				log.Warn().Err(err).
-					Str("session_id", sessionID).
-					Msg("Failed to create session zvol for golden build, falling back to file-copy")
-			} else {
-				// Seed from old golden dir if it exists (migration path)
-				if GoldenExists(req.ProjectID) {
-					log.Info().
-						Str("project_id", req.ProjectID).
-						Str("session_id", sessionID).
-						Msg("Seeding new zvol from existing golden dir (one-time migration)")
-					if err := seedZvolFromGoldenDir(req.ProjectID, dockerDir); err != nil {
-						log.Warn().Err(err).Msg("Failed to seed zvol from golden dir, golden build starts cold")
-					}
-				}
-				log.Info().
-					Str("session_id", sessionID).
-					Str("mount", dockerDir).
-					Msg("Using ZFS zvol for golden build (bootstrapping zvol infrastructure)")
-				return dockerDir
+				return "", fmt.Errorf("failed to create session zvol for golden build: %w", err)
 			}
-		} else if GoldenExists(req.ProjectID) {
-			// ZFS available, no golden zvol yet, but old file-based golden exists.
-			// Migrate inline: create golden zvol, seed from old dir, snapshot,
-			// then clone for this session. Blocks this one session (~5 min) but
-			// all subsequent sessions get instant clones.
-			if err := MigrateGoldenToZvol(req.ProjectID); err != nil {
-				log.Warn().Err(err).
+			if GoldenExists(req.ProjectID) {
+				log.Info().
 					Str("project_id", req.ProjectID).
-					Msg("Failed to migrate golden to zvol, falling back to file-copy")
-			} else {
-				// Migration complete — now clone
-				dockerDir, err := SetupGoldenClone(req.ProjectID, sessionID)
-				if err != nil {
-					log.Warn().Err(err).
-						Str("project_id", req.ProjectID).
-						Msg("ZFS clone after migration failed, falling back to file-copy")
-				} else {
-					log.Info().
-						Str("project_id", req.ProjectID).
-						Str("session_id", sessionID).
-						Str("mount", dockerDir).
-						Msg("Using ZFS clone after inline golden migration")
-					return dockerDir
+					Str("session_id", sessionID).
+					Msg("Seeding new zvol from existing golden dir (one-time migration)")
+				if err := seedZvolFromGoldenDir(req.ProjectID, dockerDir); err != nil {
+					log.Warn().Err(err).Msg("Failed to seed zvol from golden dir, golden build starts cold")
 				}
 			}
+			log.Info().
+				Str("session_id", sessionID).
+				Str("mount", dockerDir).
+				Msg("Using ZFS zvol for golden build")
+			return dockerDir, nil
+		} else if GoldenExists(req.ProjectID) {
+			if err := MigrateGoldenToZvol(req.ProjectID); err != nil {
+				return "", fmt.Errorf("failed to migrate golden to zvol for project %s: %w", req.ProjectID, err)
+			}
+			dockerDir, err := SetupGoldenClone(req.ProjectID, sessionID)
+			if err != nil {
+				return "", fmt.Errorf("ZFS clone after migration failed for project %s: %w", req.ProjectID, err)
+			}
+			log.Info().
+				Str("project_id", req.ProjectID).
+				Str("session_id", sessionID).
+				Str("mount", dockerDir).
+				Msg("Using ZFS clone after inline golden migration")
+			return dockerDir, nil
 		} else {
-			// ZFS available, no golden zvol, no old golden dir — truly fresh.
-			// Create a plain session zvol (cold start).
 			dockerDir, err := CreateSessionZvol(sessionID)
 			if err != nil {
-				log.Warn().Err(err).
-					Str("session_id", sessionID).
-					Msg("Failed to create session zvol, falling back to file-copy")
-			} else {
-				log.Info().
-					Str("session_id", sessionID).
-					Str("mount", dockerDir).
-					Msg("Using fresh ZFS zvol for session (no golden cache exists)")
-				return dockerDir
+				return "", fmt.Errorf("failed to create session zvol: %w", err)
 			}
+			log.Info().
+				Str("session_id", sessionID).
+				Str("mount", dockerDir).
+				Msg("Using fresh ZFS zvol for session (no golden cache exists)")
+			return dockerDir, nil
 		}
 	}
 
@@ -785,7 +767,7 @@ func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerReque
 					Str("session_dir", sessionDir).
 					Str("volume", volumeName).
 					Msg("Reusing existing session Docker data dir (skipping golden copy)")
-				return sessionDir
+				return sessionDir, nil
 			}
 			log.Warn().
 				Str("session_dir", sessionDir).
@@ -810,29 +792,29 @@ func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerReque
 				Str("volume", volumeName).
 				Msg("Failed to copy golden cache, falling back to empty dir")
 			if mkErr := os.MkdirAll(sessionDir, 0755); mkErr == nil {
-				return sessionDir
+				return sessionDir, nil
 			}
-			return ""
+			return "", nil
 		}
 		log.Info().
 			Str("project_id", req.ProjectID).
 			Str("docker_dir", dockerDir).
 			Msg("Using golden cache copy for inner dockerd")
-		return dockerDir
+		return dockerDir, nil
 	}
 
 	// Strategy 3: Plain bind mount (no golden cache)
 	if err := os.MkdirAll(sessionDir, 0755); err != nil {
 		log.Warn().Err(err).Str("path", sessionDir).
 			Msg("Failed to create container-docker session dir, falling back to named volume")
-		return ""
+		return "", nil
 	}
 	log.Debug().Str("source", sessionDir).Msg("Using ZFS-backed bind mount for inner dockerd")
-	return sessionDir
+	return sessionDir, nil
 }
 
 // buildMounts builds the mount configuration
-func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mount.Mount {
+func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) ([]mount.Mount, error) {
 	var mounts []mount.Mount
 
 	// CONTAINER_DOCKER_PATH: if set, per-session inner dockerd data uses bind mounts
@@ -857,7 +839,10 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 		if containerDockerPath != "" && m.Destination == "/var/lib/docker" && m.Type == "volume" {
 			volumeName := m.Source // e.g. "docker-data-{sessionID}"
 
-			dockerDir := dm.resolveDockerDataDir(req, volumeName)
+			dockerDir, err := dm.resolveDockerDataDir(req, volumeName)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve Docker data dir for session %s: %w", req.SessionID, err)
+			}
 			if dockerDir != "" {
 				mountType = mount.TypeBind
 				m.Source = dockerDir
@@ -885,7 +870,7 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 		log.Debug().Str("source", buildkitCacheDir).Msg("Added shared BuildKit cache mount")
 	}
 
-	return mounts
+	return mounts, nil
 }
 
 // buildExtraHosts returns Docker ExtraHosts entries (format: "hostname:ip")

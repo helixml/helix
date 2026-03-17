@@ -311,6 +311,13 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
+	// XFS refuses to mount two filesystems with the same UUID. The clone
+	// inherits the golden's UUID, so we must generate a new one before mounting.
+	if err := runCmd("xfs_admin", "-U", "generate", devPath); err != nil {
+		_ = runCmd("zfs", "destroy", cloneName)
+		return "", fmt.Errorf("xfs_admin UUID change failed on %s: %w", devPath, err)
+	}
+
 	// Mount the clone
 	if err := mountZvol(cloneName, mountPath); err != nil {
 		// Cleanup the clone on mount failure
