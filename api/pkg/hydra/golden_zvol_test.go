@@ -462,6 +462,8 @@ func (s *GoldenZvolSuite) TestSetupGoldenClone_Success() {
 
 	// Should have cloned
 	assert.True(s.T(), s.mock.hasCommand("zfs clone prod/helix-zvols/golden-prj_abc@gen3 prod/helix-zvols/ses-ses_001"))
+	// Should have regenerated XFS UUID (prevents duplicate UUID mount failures)
+	assert.True(s.T(), s.mock.hasCommand("xfs_admin -U generate"))
 	// Should have mounted
 	assert.True(s.T(), s.mock.hasCommand("mount /dev/zvol/prod/helix-zvols/ses-ses_001"))
 	// Clone dataset should exist
@@ -533,6 +535,48 @@ func (s *GoldenZvolSuite) TestSetupGoldenClone_MountFailsCleansUp() {
 
 	// Should have attempted to destroy the clone on mount failure
 	assert.True(s.T(), s.mock.hasCommand("zfs destroy prod/helix-zvols/ses-ses_001"))
+}
+
+func (s *GoldenZvolSuite) TestSetupGoldenClone_XfsUuidGeneratedBeforeMount() {
+	zfsParentDataset = "prod/helix-zvols"
+	s.mock.addDataset("prod/helix-zvols/golden-prj_abc")
+	s.mock.addSnapshot("prod/helix-zvols/golden-prj_abc", "gen1")
+
+	_, err := SetupGoldenClone("prj_abc", "ses_001")
+	require.NoError(s.T(), err)
+
+	// Verify ordering: clone → xfs_admin → mount
+	cloneIdx, uuidIdx, mountIdx := -1, -1, -1
+	for i, c := range s.mock.commands {
+		cmd := c.String()
+		if strings.HasPrefix(cmd, "zfs clone") {
+			cloneIdx = i
+		}
+		if strings.HasPrefix(cmd, "xfs_admin -U generate") {
+			uuidIdx = i
+		}
+		if strings.HasPrefix(cmd, "mount") {
+			mountIdx = i
+		}
+	}
+	assert.Greater(s.T(), uuidIdx, cloneIdx, "xfs_admin must run after zfs clone")
+	assert.Greater(s.T(), mountIdx, uuidIdx, "mount must run after xfs_admin UUID change")
+}
+
+func (s *GoldenZvolSuite) TestSetupGoldenClone_XfsUuidFailsCleansUp() {
+	zfsParentDataset = "prod/helix-zvols"
+	s.mock.addDataset("prod/helix-zvols/golden-prj_abc")
+	s.mock.addSnapshot("prod/helix-zvols/golden-prj_abc", "gen1")
+	s.mock.failOn("xfs_admin", fmt.Errorf("xfs_admin failed"))
+
+	_, err := SetupGoldenClone("prj_abc", "ses_001")
+	assert.Error(s.T(), err)
+	assert.Contains(s.T(), err.Error(), "xfs_admin UUID change failed")
+
+	// Clone should be destroyed on xfs_admin failure
+	assert.True(s.T(), s.mock.hasCommand("zfs destroy prod/helix-zvols/ses-ses_001"))
+	// Mount should NOT have been attempted
+	assert.False(s.T(), s.mock.hasCommand("mount"))
 }
 
 func (s *GoldenZvolSuite) TestSetupGoldenClone_PicksLatestSnapshot() {
