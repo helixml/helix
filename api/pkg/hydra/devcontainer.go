@@ -1516,7 +1516,12 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 	defer cancel()
 
 	dockerDataVolume := fmt.Sprintf("docker-data-%s", dc.SessionID)
-	resultFile := filepath.Join(sessionsBaseDir, dockerDataVolume, "docker", ".golden-build-result")
+
+	// Check both possible locations for the result file:
+	// - ZFS zvol mount: /container-docker/zvol-mounts/{sessionID}/.golden-build-result
+	// - File-copy path: /container-docker/sessions/docker-data-{sessionID}/docker/.golden-build-result
+	zvolResultFile := filepath.Join(zvolMountBase, dc.SessionID, ".golden-build-result")
+	fileCopyResultFile := filepath.Join(sessionsBaseDir, dockerDataVolume, "docker", ".golden-build-result")
 
 	// Poll for the result file. The workspace-setup script writes this after
 	// the startup script completes and dockerd is stopped.
@@ -1540,7 +1545,11 @@ func (dm *DevContainerManager) monitorGoldenBuild(dc *DevContainer) {
 			return
 
 		case <-ticker.C:
-			data, err := os.ReadFile(resultFile)
+			// Try ZFS zvol path first, then file-copy path
+			data, err := os.ReadFile(zvolResultFile)
+			if err != nil {
+				data, err = os.ReadFile(fileCopyResultFile)
+			}
 			if err != nil {
 				continue // File doesn't exist yet — build still running
 			}
