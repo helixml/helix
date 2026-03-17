@@ -45,7 +45,9 @@ import useApi from "../../hooks/useApi";
 import useSnackbar from "../../hooks/useSnackbar";
 import useApps from "../../hooks/useApps";
 import { useGetProject, useGetProjectRepositories } from "../../services";
-import { useSpecTasks } from "../../services/specTaskService";
+import { useSpecTasks, useProjectLabels, useAddLabel } from "../../services/specTaskService";
+
+const LAST_LABELS_KEY = "helix_last_task_labels";
 
 
 
@@ -82,9 +84,19 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     enabled: !!projectId,
   });
 
+  const { data: projectLabels = [] } = useProjectLabels(projectId);
+  const addLabelMutation = useAddLabel();
+
   // Form state
   const [taskPrompt, setTaskPrompt] = useState("");
   const [taskPriority, setTaskPriority] = useState("medium");
+  const [taskLabels, setTaskLabels] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(LAST_LABELS_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  });
   const [selectedDependencyTaskIds, setSelectedDependencyTaskIds] = useState<
     string[]
   >([]);
@@ -245,6 +257,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const resetForm = useCallback(() => {
     setTaskPrompt("");
     setTaskPriority("medium");
+    // Labels intentionally kept — they persist to the next task via localStorage
     setSelectedDependencyTaskIds([]);
     setSelectedHelixAgent("");
     setJustDoItMode(false);
@@ -317,6 +330,19 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         .v1SpecTasksFromPromptCreate(createTaskRequest);
 
       if (response.data) {
+        // Persist labels to localStorage for next task
+        localStorage.setItem(LAST_LABELS_KEY, JSON.stringify(taskLabels));
+
+        // Add labels to the newly created task
+        const taskId = response.data.id;
+        if (taskId && taskLabels.length > 0) {
+          await Promise.all(
+            taskLabels.map((label) =>
+              addLabelMutation.mutateAsync({ taskId, label })
+            )
+          );
+        }
+
         snackbar.success(
           "SpecTask created! Planning agent will generate specifications.",
         );
@@ -410,6 +436,34 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
               <MenuItem value="critical">Critical</MenuItem>
             </Select>
           </FormControl>
+
+          {/* Labels */}
+          <Autocomplete
+            multiple
+            freeSolo
+            options={projectLabels.filter((l) => !taskLabels.includes(l))}
+            value={taskLabels}
+            onChange={(_, newValue) => setTaskLabels(newValue as string[])}
+            renderTags={(value, getTagProps) =>
+              value.map((label, index) => (
+                <Chip
+                  key={label}
+                  label={label}
+                  size="small"
+                  {...getTagProps({ index })}
+                />
+              ))
+            }
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Labels"
+                placeholder={taskLabels.length === 0 ? "Add label..." : ""}
+                size="small"
+                helperText="Optional: labels are remembered for your next task"
+              />
+            )}
+          />
 
           {/* Single text box for everything */}
           <TextField
