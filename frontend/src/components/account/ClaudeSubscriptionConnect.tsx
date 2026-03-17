@@ -331,19 +331,9 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
     const sendLoginCommand = async () => {
       try {
         const apiClient = api.getApiClient()
-        // Install claude CLI from NPM (not baked into image).
-        // Run blocking so it completes before claude auth login starts.
-        await apiClient.v1ExternalAgentsExecCreate(sessionId, {
-          command: ['npm', 'install', '-g', '@anthropic-ai/claude-code@latest'],
-          background: false,
-          timeout: 300,
-          env: {},
-        })
-        // Run claude auth login in background, capturing stdout to a file.
-        // The stdout contains a fallback URL with platform.claude.com redirect
-        // that works from any browser (unlike the BROWSER-invoked URL which uses
-        // localhost redirect back to the container).
-        // We use sh -c to background the process and redirect stdout.
+        // The wrapper script handles npm install (with retry for network readiness),
+        // sets BROWSER to the capture script, and runs claude auth login with stdout
+        // redirected to /tmp/claude-auth-stdout.txt for URL parsing.
         await apiClient.v1ExternalAgentsExecCreate(sessionId, {
           command: ['helix-claude-auth-wrapper'],
           background: true,
