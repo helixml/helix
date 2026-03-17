@@ -339,15 +339,15 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
           timeout: 300,
           env: {},
         })
-        // Run claude auth login with a URL-capture script instead of a real browser.
-        // The script writes the OAuth URL to a file; we poll for it and open it
-        // in the user's native browser instead of the in-VM GNOME browser.
+        // Run claude auth login in background, capturing stdout to a file.
+        // The stdout contains a fallback URL with platform.claude.com redirect
+        // that works from any browser (unlike the BROWSER-invoked URL which uses
+        // localhost redirect back to the container).
+        // We use sh -c to background the process and redirect stdout.
         await apiClient.v1ExternalAgentsExecCreate(sessionId, {
-          command: ['claude', 'auth', 'login'],
+          command: ['helix-claude-auth-wrapper'],
           background: true,
-          env: {
-            BROWSER: '/usr/local/bin/helix-capture-browser',
-          },
+          env: {},
         })
         setLoginCommandSent(true)
       } catch (err: any) {

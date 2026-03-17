@@ -586,7 +586,30 @@ func (apiServer *HelixAPIServer) pollClaudeLogin(_ http.ResponseWriter, req *htt
 		}
 	}
 
-	// No credentials yet — check for OAuth URL captured by helix-capture-browser
+	// No credentials yet — check for OAuth URL from claude auth login stdout.
+	// The stdout contains a fallback URL with platform.claude.com/oauth/code/callback
+	// redirect that works from any browser. We parse it from the "If the browser
+	// didn't open, visit:" line. The wrapper script sets NO_COLOR=1 to strip ANSI codes.
+	stdoutOutput, stdoutErr := apiServer.execInContainer(req.Context(), runnerID,
+		[]string{"cat", "/tmp/claude-auth-stdout.txt"})
+	if stdoutErr == nil && stdoutOutput != "" {
+		for _, line := range strings.Split(stdoutOutput, "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "If the browser didn't open, visit:") {
+				url := strings.TrimSpace(strings.TrimPrefix(line, "If the browser didn't open, visit:"))
+				if strings.HasPrefix(url, "https://") {
+					return &ClaudePollLoginResponse{Found: false, URL: url}, nil
+				}
+			}
+			if strings.HasPrefix(line, "https://claude.ai/oauth") {
+				return &ClaudePollLoginResponse{Found: false, URL: line}, nil
+			}
+		}
+	}
+
+	// Fallback: read the URL captured by helix-capture-browser via BROWSER env var.
+	// This URL has a localhost redirect that only works inside the container, but
+	// it's better than nothing if the stdout fallback message is suppressed.
 	urlOutput, urlErr := apiServer.execInContainer(req.Context(), runnerID,
 		[]string{"cat", "/tmp/claude-auth-url.txt"})
 	if urlErr == nil && strings.HasPrefix(strings.TrimSpace(urlOutput), "https://") {
