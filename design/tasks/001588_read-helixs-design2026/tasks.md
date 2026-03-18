@@ -9,9 +9,9 @@
 
 ## High (causes agent confusion / duplicate work)
 
-- [~] **#10a** `spec_driven_task_service.go`: before `store.CreateSession` for a spectask, query for an existing session with matching `spec_task_id` + `agent_type=zed_external`; return existing session if found
-- [ ] **#10b** `prompt_history_handlers.go` `processPendingPromptsForIdleSessions`: use the spectask's `planning_session_id` to target only the canonical session, rather than scanning all sessions by `spec_task_id`
-- [ ] **#2** Add `isRequestIDAlreadyDelivered(ctx, sessionID, requestID) bool` helper; call it from both the 30s poller (`processPendingPromptsForIdleSessions`) and the `agent_ready` delivery path in `websocket_external_agent_sync.go` before sending any chat message
+- [x] **#10a** `spec_driven_task_service.go`: before `store.CreateSession` for a spectask, query for an existing session with matching `spec_task_id` + `agent_type=zed_external`; return existing session if found
+- [x] **#10b** `prompt_history_handlers.go` `processPendingPromptsForIdleSessions`: use the spectask's `planning_session_id` to target only the canonical session, rather than scanning all sessions by `spec_task_id`
+- [~] **#2** Add `isRequestIDAlreadyDelivered(ctx, sessionID, requestID) bool` helper; call it from both the 30s poller (`processPendingPromptsForIdleSessions`) and the `agent_ready` delivery path in `websocket_external_agent_sync.go` before sending any chat message
 
 ## Medium (session quality)
 
