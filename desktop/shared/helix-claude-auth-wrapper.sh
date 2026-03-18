@@ -7,13 +7,15 @@
 export NO_COLOR=1
 export BROWSER=/usr/local/bin/helix-capture-browser
 
-# Install Claude CLI with retry (network may not be ready immediately after boot).
-# Uses sudo because the exec handler runs as user retro, but npm install -g
-# writes to /usr/lib/node_modules/ which requires root.
+# Install Claude CLI to user prefix (no root required).
+# The exec handler runs as user retro who cannot write to /usr/lib/node_modules/.
+# Retry loop handles container network not being ready immediately after boot.
+mkdir -p ~/.local
 for i in 1 2 3 4 5; do
-    sudo npm install -g @anthropic-ai/claude-code@latest 2>>/tmp/npm-install.log && break
+    npm install -g --prefix ~/.local @anthropic-ai/claude-code@latest 2>>/tmp/npm-install.log && break
     [ "$i" -lt 5 ] && sleep 3
 done
+export PATH="$HOME/.local/bin:$PATH"
 
 # Verify claude is installed
 if ! command -v claude &>/dev/null; then
