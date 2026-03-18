@@ -355,3 +355,15 @@ kubectl describe project my-fullstack-app
 - `Project.Metadata` is JSONB — `BoardSettings.WIPLimits` already exists, no migration needed
 - The singular `repository` vs plural `repositories` normalisation should happen in a method on `ProjectSpec`, not in the handler
 - Operator `ProjectSpec` must mirror API `ProjectSpec` field-for-field so the same YAML file works for both
+
+## Implementation Notes
+
+- `go.mod` is at the repo root, not in `api/` — build with `CGO_ENABLED=0 go build .` from `/home/retro/work/helix-4/`
+- The operator has its own `go.mod` at `operator/go.mod` — run `go mod tidy` there separately
+- Spec tasks use `Name` field (not `Title`) in the `SpecTask` struct — map `ProjectTaskSpec.Title` → `SpecTask.Name`
+- Task status `TaskStatusBacklog` is the initial state (not `TaskStatusPlanning`) — tasks start in backlog column
+- `ListGitRepositories` does NOT support URL filtering — added `GetGitRepositoryByExternalURL` as a new store method
+- The route `PUT /projects/apply` must be registered BEFORE `GET /projects/{id}` in the gorilla/mux router to avoid the literal "apply" being matched as an ID
+- The operator's `zz_generated.deepcopy.go` is auto-generated but must be manually updated when `controller-gen` is not available; the `v1.Time` import alias (`metav1`) must be added
+- `HELIX_ORGANIZATION_ID` env var should be set in the operator to scope project creation to the right org
+- CLI kind detection reads raw YAML first, detects `kind:`, then re-parses as the appropriate CRD type — avoids modifying the existing app parsing path
