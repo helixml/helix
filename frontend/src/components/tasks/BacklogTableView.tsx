@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Box,
   Table,
@@ -56,6 +56,7 @@ interface BacklogTableViewProps {
   onClose: () => void;
   autoStartBacklogTasks?: boolean;
   onToggleAutoStart?: () => void;
+  projectId?: string;
 }
 
 const BacklogTableView: React.FC<BacklogTableViewProps> = ({
@@ -63,17 +64,37 @@ const BacklogTableView: React.FC<BacklogTableViewProps> = ({
   onClose,
   autoStartBacklogTasks,
   onToggleAutoStart,
+  projectId,
 }) => {
   const theme = useTheme();
   const snackbar = useSnackbar();
   const updateTask = useUpdateSpecTask();
+
+  const labelStorageKey = projectId ? `helix-label-filter-${projectId}` : null;
 
   // Filter state
   const [search, setSearch] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<TypesSpecTaskPriority[]>(
     [],
   );
-  const [labelFilter, setLabelFilter] = useState<string[]>([]);
+  const [labelFilter, setLabelFilter] = useState<string[]>(() => {
+    if (!labelStorageKey) return [];
+    try {
+      const stored = localStorage.getItem(labelStorageKey);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    if (!labelStorageKey) return;
+    if (labelFilter.length === 0) {
+      localStorage.removeItem(labelStorageKey);
+    } else {
+      localStorage.setItem(labelStorageKey, JSON.stringify(labelFilter));
+    }
+  }, [labelFilter, labelStorageKey]);
 
   // Edit state
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
