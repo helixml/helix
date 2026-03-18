@@ -1,6 +1,6 @@
 # ZFS Clone Deployment Issues — 2026-03-18
 
-Issues observed during first production deployment of ZFS zvol cloning on meta.helix.ml.
+Issues observed during first production deployment of ZFS zvol cloning on meta.helix.ml. Each issue has root cause analysis, affected files, and specific fix instructions.
 
 ## 1. Session stuck in "Starting Desktop" forever
 
@@ -12,11 +12,6 @@ The error path at `hydra_executor.go:380` (`setExternalAgentStatus(ctx, sessionI
 
 **Impact**: User cannot interact with the session. The agent IS running (messages flowing, work happening) but the video stream and desktop UI are invisible. The only fix was manual DB update to clear `external_agent_status`.
 
-**Fix needed**:
-- `waitForDesktopBridge` should not use the same context as `CreateDevContainer`. The bridge connect timeout should be independent of the Docker API timeout.
-- The `external_agent_status` should be cleared in a `defer` that runs regardless of which path errors.
-- Frontend should show a "Restart" or "Reconnect" button even in the "Starting Desktop" state so users can recover without admin intervention.
-
 **Relevant logs**:
 ```
 10:40:18  Creating dev container via Hydra
@@ -26,23 +21,68 @@ The error path at `hydra_executor.go:380` (`setExternalAgentStatus(ctx, sessionI
 10:42:37  ✅ RevDial control connection established  ← 53s later, too late
 ```
 
+**Files to change**:
+- `api/pkg/external-agent/hydra_executor.go`
+  - Line ~340: `setExternalAgentStatus(ctx, agent.SessionID, "starting")` — wrap in a defer that clears on ANY error, not just `CreateDevContainer` errors
+  - Line ~371-381: `CreateDevContainer` call — the `dockerCtx` (120s timeout) is used for both container creation AND `waitForDesktopBridge`. These should be separate contexts. The container creation can take a while (ZFS clone + Docker pull), but the bridge wait is independent
+  - Line ~398: `waitForDesktopBridge` — should use its own context with a separate timeout (e.g. 60s), not the same `dockerCtx` that was partially consumed by container creation
+- `api/pkg/server/session_handlers.go`
+  - Line ~1916-1924: `resumeSession` handler — if `StartDesktop` returns `context canceled`, the session is actually running (container started, bridge not yet connected). The handler should still update the session metadata and return success, not propagate the context error
+
+**Fix approach**:
+```go
+// In StartDesktop, use defer to guarantee status cleanup:
+h.setExternalAgentStatus(ctx, agent.SessionID, "starting")
+defer func() {
+    if err != nil {
+        h.setExternalAgentStatus(context.Background(), agent.SessionID, "")
+    }
+}()
+
+// Separate context for bridge wait:
+bridgeCtx, bridgeCancel := context.WithTimeout(context.Background(), 60*time.Second)
+defer bridgeCancel()
+if err := h.waitForDesktopBridge(bridgeCtx, agent.SessionID); err != nil {
+    log.Warn()... // Don't fail the session
+}
+```
+
 ## 2. Duplicate message sends after session restart
 
 **Symptom**: The same `chat_message` with the same `request_id` is sent to Zed twice after a session restart.
 
 **Observed**: `request_id=int_01km08btk5qa7h6ss52072x8qp` was queued at 11:08:04 AND 11:09:12 — same request_id, two sends.
 
-**Likely cause**: The `processPendingPromptsForIdleSessions` poller (runs every 30s) finds the pending prompt and sends it, but the session restart flow also triggers the initial message send. Both fire before the prompt is marked as delivered. Or the prompt queue doesn't deduplicate by request_id.
+**Root cause**: Two delivery paths race to send the same prompt:
+1. The session restart flow in `StartDesktop` triggers `processPendingPromptsForIdleSessions` which finds the pending prompt and sends it
+2. The readiness queue in `websocket_external_agent_sync.go` also queues the same prompt when the agent sends `agent_ready`
 
-**Fix needed**: Deduplicate by `request_id` before sending. If a message with the same `request_id` has already been sent (check Zed thread), skip it.
+Neither path checks if the other already sent the message. No deduplication by `request_id`.
 
-## 3. Session out of sync with Zed thread
+Additionally, issue #10 (two sessions for one spectask) may cause the prompt scanner to find the pending prompt on both sessions.
 
-**Symptom**: After multiple stop/start cycles, the Zed thread state and the Helix session state diverge. The session shows old messages or the thread has messages that Helix doesn't know about.
+**Files to change**:
+- `api/pkg/server/prompt_history_handlers.go`
+  - `processPendingPromptsForIdleSessions` (line ~79) — before sending, check if the `request_id` has already been delivered to the Zed thread. Query the thread messages for a matching `request_id`
+- `api/pkg/server/websocket_external_agent_sync.go`
+  - Line ~448: `Queued initial chat_message for Zed` — before queuing, check if this `request_id` was already sent in the current thread
+  - Line ~1665: readiness queue — same dedup check
 
-**Root cause**: When a session stops, the Zed WebSocket disconnects and the thread state in Zed is frozen. When the session restarts, Helix sends a catch-up snapshot, but this may not account for messages that were in flight during the stop. The `zed_thread_id` persists across restarts (stored in session config), so the thread accumulates state across multiple lifecycle cycles.
+**Fix approach**: Add a `isRequestAlreadySent(sessionID, requestID)` check that queries the Zed thread messages. Both delivery paths call this before sending.
 
-**Fix needed**: Investigation into whether the catch-up snapshot is complete, and whether messages sent during the stop window are lost or duplicated.
+## 3. Session out of sync with Zed thread after restart
+
+**Symptom**: After stop/start cycles, the Zed thread state and the Helix session state diverge. Spec docs that were previously visible become invisible.
+
+**Root cause**: When a session stops, the Zed WebSocket disconnects and the thread state in Zed is frozen. When the session restarts, Helix sends a catch-up snapshot (`websocket_server_user.go:145 Sent late-joiner catch-up snapshot`), but this may not account for messages that were in flight during the stop. The `zed_thread_id` persists across restarts (stored in session config), so the thread accumulates state across multiple lifecycle cycles.
+
+The sync self-healed after the next message was sent — the new message triggered a full thread reconciliation that brought both sides back into alignment.
+
+**Files to change**:
+- `api/pkg/server/websocket_external_agent_sync.go`
+  - The catch-up snapshot logic (around `Sent late-joiner catch-up snapshot`) — on session restart, force a full state reconciliation rather than just sending a snapshot. This should include checking the thread's current state and sending any missing messages
+
+**Fix approach**: On session restart (detected by `agent_ready` event after a session that previously had a thread), do a full bidirectional sync rather than just a catch-up snapshot.
 
 ## 4. `external_agent_status` not cleared on stop
 
@@ -50,13 +90,24 @@ The error path at `hydra_executor.go:380` (`setExternalAgentStatus(ctx, sessionI
 
 **Root cause**: `StopDesktop` in `hydra_executor.go` calls `DeleteDevContainer` which stops the container successfully. But it doesn't explicitly clear `external_agent_status`. The status was set to `"starting"` by the original `StartDesktop` call and never transitioned to `"running"` (because the context was cancelled). `StopDesktop` doesn't know the status is stuck.
 
-**Fix needed**: `StopDesktop` should unconditionally clear `external_agent_status` and `status_message` after successfully stopping the container.
+**Files to change**:
+- `api/pkg/external-agent/hydra_executor.go`
+  - `StopDesktop` function (line ~461) — after successfully stopping the container, unconditionally clear the agent status:
+    ```go
+    h.setExternalAgentStatus(ctx, sessionID, "")
+    h.updateSessionStatusMessage(ctx, sessionID, "")
+    ```
 
 ## 5. No "Restart" button when stuck in "Starting Desktop"
 
 **Symptom**: When the frontend shows "Starting Desktop..." there is no way for the user to recover. No restart, stop, or cancel button is visible.
 
-**Fix needed**: Frontend `SpecTaskDetailContent.tsx` or `ExternalAgentDesktopViewer.tsx` should show a restart/cancel button in all session states, not just "running". A timeout (e.g. 2 minutes) after which the UI shows "Desktop may have failed to start — click to retry" would also help.
+**Files to change**:
+- `frontend/src/components/tasks/SpecTaskDetailContent.tsx` — the desktop viewer section that shows "Starting Desktop..." should also render a "Cancel" or "Restart" button
+- `frontend/src/components/external-agent/ExternalAgentDesktopViewer.tsx` — same
+- Consider adding a client-side timeout: if "Starting Desktop" persists for >2 minutes, show "Desktop may have failed to start" with a retry button
+
+**Fix approach**: Always show a stop/restart affordance regardless of session state. The backend `StopDesktop` endpoint works even when status is stuck.
 
 ## 6. `GoldenBuildService.RecoverStaleBuilds` resets status too quickly
 
@@ -64,7 +115,9 @@ The error path at `hydra_executor.go:380` (`setExternalAgentStatus(ctx, sessionI
 
 **Root cause**: `RecoverStaleBuilds` calls `HasRunningContainer` which goes through RevDial. After an API restart, the sandbox hasn't reconnected yet (RevDial WebSocket re-establishment takes 5-10 seconds). `HasRunningContainer` returns false → status reset to "none".
 
-**Fix applied**: PR #1947 — retry 12 times with 5s sleep (60s total) before giving up.
+**Fix applied**: PR #1947 — `api/pkg/services/golden_build_service.go` `RecoverStaleBuilds` now retries 12 times with 5s sleep (60s total) before giving up.
+
+**Status**: ✅ Fixed, in PR #1947.
 
 ## 7. Golden build promotion race — sessions get "no golden cache"
 
@@ -79,7 +132,26 @@ The error path at `hydra_executor.go:380` (`setExternalAgentStatus(ctx, sessionI
 10:38:00  Promote finishes → gen4 snapshot created (releases lock)
 ```
 
-**Fix needed**: The "no golden zvol" path should also check `GoldenZvolExists` under the golden lock, or wait if a promotion is in progress.
+**Files to change**:
+- `api/pkg/hydra/devcontainer.go`
+  - `resolveDockerDataDir` — the `else` branch (no golden zvol, no old golden dir, create fresh zvol) should take a read lock on the golden lock first. If a promotion is in progress (write lock held), it will block until the promotion completes, then find the new golden zvol
+  - Alternatively, check `GoldenZvolExists` again after `CreateSessionZvol` — if a golden appeared while we were creating the fresh zvol, destroy the fresh one and clone from golden instead
+
+**Fix approach**:
+```go
+} else {
+    // Take read lock to wait for any in-progress promotion
+    lock := getGoldenLock(req.ProjectID)
+    lock.RLock()
+    lock.RUnlock()
+    // Re-check after potential promotion
+    if GoldenZvolExists(req.ProjectID) {
+        return SetupGoldenClone(req.ProjectID, sessionID)
+    }
+    // Genuinely no golden — create fresh zvol
+    return CreateSessionZvol(sessionID)
+}
+```
 
 ## 8. Docker container kill contention slows ZFS operations
 
@@ -95,51 +167,76 @@ The error path at `hydra_executor.go:380` (`setExternalAgentStatus(ctx, sessionI
 10:41  ZFS clone finishes (took 84s)
 ```
 
-**Mitigation**: Not clear. Docker's `ContainerStop` with a 2-second timeout is already aggressive. May need to investigate whether the container has processes that resist SIGKILL (e.g. D-state I/O waits on the zvol being unmounted during promotion).
+**Files to change**: No immediate code fix — this is a kernel-level contention issue between Docker's container teardown and ZFS zvol operations. However:
+- `api/pkg/hydra/devcontainer.go` — `monitorGoldenBuild` calls `DeleteDevContainer` to stop the golden build container. The container uses a zvol that was just unmounted during promotion. If the zvol unmount hasn't fully released kernel resources before Docker tries to kill the container, both operations contend
+- Consider adding a small delay between zvol unmount (in `PromoteSessionToGoldenZvol`) and container stop (in `monitorGoldenBuild`) to let kernel resources drain
+
+**Mitigation**: Investigate whether the golden build container's inner dockerd has processes in D-state (uninterruptible I/O wait) on the zvol that was just unmounted. `docker inspect` the container for process state during the kill timeout.
+
+## 9. Spectask stuck in planning — agent doing implementation
+
+**Symptom**: Spectask in "Planning" column with no "Review Spec" button. Agent is actively doing implementation work (editing Go files, operator controllers) but task status is `spec_generation`.
+
+**Root cause**: Cascade of issues #1 → #2 → #10. The duplicate message send (issue #2, caused by issue #10's duplicate sessions) sent the same user comment twice. The agent interpreted the second send as a new instruction and jumped from spec writing into implementation, bypassing the `spec_generation` → `spec_review` → `approved` → `implementation` flow.
+
+The task eventually self-resolved when the agent pushed design docs to git, triggering the auto-transition to `spec_review` at 11:18.
+
+**Files to change**: Fixing issues #2 and #10 should prevent this. Additionally:
+- `api/pkg/services/spec_driven_task_service.go` — consider adding a manual "Move to Review" button in the UI for admin recovery, in case tasks get stuck in `spec_generation`
+- The agent's system prompt for `spec_generation` includes "Do NOT implement anything yet" but this guardrail failed because the duplicate message overrode the phase context
+
+## 10. Two sessions created for one spectask (race condition)
+
+**Symptom**: Spectask `spt_01kg9w069xs5bfkmxbp7d5y05p` has two sessions created 1 second apart:
+- `ses_01kkv1p6j` (10:04:57) — name "project update:...", `spec_task_id` set, no `agent_type`
+- `ses_01kkv1p7n` (10:04:58) — name "Spec Generation:...", `spec_task_id` set, `agent_type=zed_external`
+
+Both sessions have `spec_task_id` pointing to the same spectask. The spectask's `planning_session_id` correctly points to the second one. The first has incomplete metadata (no `agent_type`).
+
+**Root cause**: Race condition in session creation. When a user clicks to start a spectask, two code paths fire concurrently — likely the spectask start flow and a project-level update flow — both creating sessions with the same `spec_task_id` before either can check if one already exists.
+
+**Impact**: `processPendingPromptsForIdleSessions` scans sessions by `spec_task_id` and finds both. This causes duplicate prompt delivery (issue #2), which cascades into the agent confusion (issue #9).
+
+**Files to change**:
+- `api/pkg/services/spec_driven_task_service.go` — session creation for spectasks. Add a check: if a session with this `spec_task_id` already exists (query by `config->>'spec_task_id'`), return the existing session instead of creating a new one
+- `api/pkg/server/spec_driven_task_handlers.go` — the handler that triggers spectask start. May need a per-spectask mutex to prevent concurrent session creation
+- `api/pkg/server/prompt_history_handlers.go` — `processPendingPromptsForIdleSessions` should only use the session referenced by `planning_session_id`, not scan all sessions with a matching `spec_task_id`
+
+**Fix approach**:
+```go
+// Before creating a new session for a spectask:
+existingSessions, _ := store.ListSessions(ctx, &ListSessionsQuery{
+    SpecTaskID: specTaskID,
+    AgentType:  "zed_external",
+})
+if len(existingSessions) > 0 {
+    return existingSessions[0], nil // reuse existing
+}
+```
 
 ## PR Status
 
-**PR #1947** (`fix/xfs-nouuid-mount`) — OPEN, 6 commits:
+**PR #1947** (`fix/xfs-nouuid-mount`) — OPEN, 8 commits:
 1. `mount -o nouuid` instead of `xfs_admin` for XFS cloned zvols
 2. `DeleteGolden` destroys session clones before golden zvol
 3. `DeleteGolden` refuses if any clones are mounted (running sessions)
 4. `RecoverStaleBuilds` waits 60s for sandbox reconnect
-5. All tested on meta.helix.ml — gen4 promotion working, sessions cloning successfully
+5. Design doc (this file)
+6. All tested on meta.helix.ml — gen4 promotion working, sessions cloning successfully
 
-**Not yet merged**: needs review and merge, then `./stack build-sandbox` to deploy the sandbox changes (Hydra binary). The API changes (golden build service) are already hot-reloaded via Air.
+**Needs merge + rebuild**: The sandbox needs `./stack build-sandbox` after merge for the Hydra changes (nouuid mount, DeleteGolden fixes). The API changes (RecoverStaleBuilds) are already hot-reloaded via Air.
 
-## 9. Spectask UI stuck — "no way to progress"
+## Summary: Fix Priority
 
-**Symptom**: User reports spectask `spt_01kg9w069xs5bfkmxbp7d5y05p` has "no way to progress it". The agent is actively working (tool calls visible in API logs) but the UI may not reflect this.
-
-**Observed state**:
-- Spectask status: `spec_generation` (since 2026-03-18T10:37)
-- Session `ses_01kkv1p7` was stuck in "Starting Desktop" (issue #1)
-- After manual DB fix and restart, session is running and agent is working
-- Agent is making tool calls (Edit, Read, grep) as of 11:15
-- The duplicate message send (issue #2) may have caused the agent to restart its work from scratch, potentially confusing the thread state
-
-**Likely cause**: Combination of issues #1 (stuck UI), #2 (duplicate messages), and #3 (thread sync). The user can't see the agent's progress because the UI was stuck, and after restart the duplicate message may have confused the spec generation flow.
-
-**Root cause**: The task status is `spec_generation` but the agent is doing implementation work (editing `zz_generated.deepcopy.go`, operator controller code). The duplicate message send (issue #2) likely sent the same comment message twice — the second send may have been interpreted by the agent as a new instruction, causing it to jump from spec writing into implementation without the spec being reviewed/approved first.
-
-Because the task is still in `spec_generation` status, the UI shows it in the "Planning" column with no "Review Spec" button (that button appears after the agent pushes spec docs and the task transitions to `spec_review`). The agent skipped that transition by going straight to implementation.
-
-**Result**: Task is stuck — agent is implementing but the task hasn't transitioned through `spec_review` → `approved` → `implementation`. The UI has no button to advance it because the expected flow was skipped.
-
-**Fix needed**:
-1. Fix duplicate message sends (issue #2) to prevent agents from getting confused instructions
-2. Consider adding a manual "Move to Implementation" button for cases where the flow gets stuck
-3. The agent's system prompt for `spec_generation` phase explicitly says "Do NOT implement anything yet" — the duplicate send may have overridden this by sending a comment that the agent interpreted as an instruction to implement
-
-## 10. Two sessions created for one spectask
-
-**Observed**: Spectask `spt_01kg9w069xs5bfkmxbp7d5y05p` has two sessions created 1 second apart:
-- `ses_01kkv1p6j` (10:04:57) — name "project update:...", no `agent_type`, no `external_agent_status`
-- `ses_01kkv1p7n` (10:04:58) — name "Spec Generation:...", `agent_type=zed_external`
-
-The spectask's `planning_session_id` correctly points to the second one. Both sessions have `spec_task_id` set to the same spectask. The first has no `agent_type` (incomplete creation), the second has `agent_type=zed_external` (correct). Both are spectask sessions — this is a race condition in session creation, not a project exploratory session.
-
-**Impact**: Having two sessions for one spectask is likely the root cause of the duplicate message sends (issue #2). `processPendingPromptsForIdleSessions` scans sessions by spectask ID and may find both, sending the same prompt to both (or sending it twice through the active one). This would also explain the agent jumping from spec to implementation — it received contradictory instructions from two concurrent message delivery paths.
-
-**Fix needed**: Spectask session creation must be idempotent — check if a session already exists for this spectask before creating a new one. Or use a per-spectask lock to prevent concurrent session creation.
+| # | Issue | Severity | Fix complexity | Blocks users? |
+|---|-------|----------|----------------|---------------|
+| 1 | Stuck "Starting Desktop" | **Critical** | Medium | Yes — unrecoverable without DB fix |
+| 4 | Status not cleared on stop | **Critical** | Simple | Yes — compounds issue #1 |
+| 5 | No restart button | **Critical** | Simple (frontend) | Yes — no user recovery path |
+| 10 | Duplicate sessions for spectask | **High** | Medium | Causes issues #2 and #9 |
+| 2 | Duplicate message sends | **High** | Medium | Confuses agent, skips phases |
+| 7 | Promotion race (empty zvol) | **Medium** | Simple | Session starts cold |
+| 3 | Thread sync after restart | **Medium** | Complex | Self-heals on next message |
+| 9 | Spectask stuck in planning | **Medium** | N/A (fixed by #2, #10) | Resolved by fixing root causes |
+| 6 | RecoverStaleBuilds too fast | **Low** | ✅ Fixed | Only during API restarts |
+| 8 | Docker kill contention | **Low** | Investigation | Rare, temporary slowdown |
