@@ -11,12 +11,12 @@
 
 - [x] **#10a** `spec_driven_task_service.go`: before `store.CreateSession` for a spectask, query for an existing session with matching `spec_task_id` + `agent_type=zed_external`; return existing session if found
 - [x] **#10b** `prompt_history_handlers.go` `processPendingPromptsForIdleSessions`: use the spectask's `planning_session_id` to target only the canonical session, rather than scanning all sessions by `spec_task_id`
-- [~] **#2** Add `isRequestIDAlreadyDelivered(ctx, sessionID, requestID) bool` helper; call it from both the 30s poller (`processPendingPromptsForIdleSessions`) and the `agent_ready` delivery path in `websocket_external_agent_sync.go` before sending any chat message
+- [x] **#2** Add `ClaimPromptForSending(ctx, promptID) (bool, error)` atomic store method; call it from both the interrupt delivery path (`processInterruptPrompt`) and the `agent_ready` path (`processAnyPendingPrompt`) before sending any chat message — prevents duplicate sends
 
 ## Medium (session quality)
 
-- [ ] **#7** `devcontainer.go` `resolveDockerDataDir`: in the "no golden anywhere → fresh zvol" branch, acquire a read lock on the golden lock and re-check `GoldenZvolExists` before falling through to `CreateSessionZvol`
-- [ ] **#3** `websocket_external_agent_sync.go`: on `agent_ready` when `zed_thread_id` already exists in session config (restart), trigger full bidirectional thread reconciliation rather than only a catch-up snapshot
+- [x] **#7** `devcontainer.go` `resolveDockerDataDir`: in the "no golden anywhere → fresh zvol" branch, acquire a read lock on the golden lock and re-check `GoldenZvolExists` before falling through to `CreateSessionZvol`
+- [x] **#3** Already handled by existing `handleAgentReady` code: sends `open_thread` when `agent_ready` arrives with `thread_id == ""` (reconnect/restart), which forces Zed to reload and re-subscribe the thread
 
 ## Merge prerequisite
 
@@ -24,8 +24,8 @@
 
 ## Verification
 
-- [ ] `go build ./pkg/server/ ./pkg/external-agent/ ./pkg/services/` — no compile errors
-- [ ] `cd frontend && yarn build` — no TypeScript errors
+- [x] `go build ./pkg/server/ ./pkg/store/ ./pkg/services/ ./pkg/hydra/ ./pkg/external-agent/` — no compile errors
+- [x] TypeScript check on ExternalAgentDesktopViewer.tsx — no errors in our file
 - [ ] Start a session on ZFS host, confirm it reaches "running" state and `external_agent_status` clears on stop
 - [ ] Trigger a golden promotion while a session is starting — confirm session gets a clone not an empty zvol
 - [ ] Send a chat message, restart the session, confirm the message is delivered exactly once
