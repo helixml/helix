@@ -2,189 +2,174 @@
 
 ## Architecture Overview
 
-A single `Project` kind covers all use cases: defining a live project, and sharing it as a template. The file is self-contained: project metadata, startup configuration, and default agent inline. The same YAML works for `helix apply -f` and `kubectl apply -f`.
+A single `Project` CRD kind covers all use cases. The file is self-contained: repositories, Kanban board settings, startup config, and agent inline. Works identically with `helix apply -f` and `kubectl apply -f`.
 
 ---
 
-## Existing Startup Script Mechanism
+## Existing Internals We Build On
 
-The codebase already has a `StartupScript` field on `Project`:
-```go
-StartupScript string `json:"startup_script" gorm:"-"`
-```
+### Multi-repo (already implemented)
+- `Project.DefaultRepoID` — the primary repo ID
+- `ProjectRepository` — junction table `(project_id, repository_id, organization_id)`
+- `AttachRepositoryToProject(ctx, projectID, repoID)` — idempotent, writes junction table
+- `SetProjectPrimaryRepository(ctx, projectID, repoID)` — sets `DefaultRepoID`
+- `GitRepository.ExternalURL` — used to look up an existing repo by URL
 
-**Key constraint:** `gorm:"-"` means it is **never persisted to the database**. It is always loaded on-demand from `.helix/startup.sh` in the primary code repository via `LoadStartupScriptFromCodeRepo()`. This means the current mechanism:
-- Requires a git repo to be connected to the project first
-- Requires committing `.helix/startup.sh` to that repo
-- Is not declarable in a project YAML without a pre-existing connected repo
+### Kanban board settings (already implemented)
+- `Project.Metadata` (JSONB) → `ProjectMetadata.BoardSettings.WIPLimits`
+- `WIPLimits.Planning`, `WIPLimits.Review`, `WIPLimits.Implementation` (ints)
 
-**Our approach:** Add two new persistent DB fields `StartupInstall` and `StartupStart` to the `Project` model. These are set from the YAML and stored directly in the database — no git roundtrip required. They represent the declarative, YAML-specified startup config. The existing `.helix/startup.sh` transient mechanism remains untouched for backward compatibility.
-
----
-
-## Idempotency Analysis
-
-All three application paths are idempotent. Here is the key lookup for each:
-
-### Server (`PUT /api/v1/projects/apply`)
-```go
-// Lists projects for org, finds by name, updates in-place
-for _, p := range existingProjects {
-    if p.Name == req.Name {
-        existing = p; break
-    }
-}
-// if existing != nil → update; else → create
-```
-Key: `(OrganizationID, Name)`
-
-### CLI (`runApplyProject` → `applyProjectAgent`)
-```go
-// Lists apps for org, finds by agent name, updates in-place
-for _, existing := range existingApps {
-    if existing.Config.Helix.Name == appConfig.Name {
-        // update
-    }
-}
-// else create
-```
-Key: `(OrganizationID, agent.name)` — defaults to `"<project-name> Assistant"`
-
-### Operator (`reconcileProjectAgent`)
-Identical logic to CLI. **Improvement needed:** on first reconcile it searches by name and stores the `AgentAppID` in status. On subsequent reconciles it should use the stored ID to update directly, avoiding a full list+search on every loop:
-
-```go
-// Improvement: try by stored ID first
-if project.Status.AgentAppID != "" {
-    existing, err := r.helix.GetApp(ctx, project.Status.AgentAppID)
-    if err == nil {
-        existing.Config.Helix = *appConfig
-        updated, err := r.helix.UpdateApp(ctx, existing)
-        return updated.ID, err
-    }
-    // ID not found → fall through to name search (e.g. after manual deletion)
-}
-// fall back to name search
-```
+### Startup (added in previous iteration)
+- `Project.StartupInstall`, `Project.StartupStart` — new DB columns
+- Always applies to the primary repository
 
 ---
 
-## New `startup` Block
+## Repository Block Design
 
-### YAML schema addition
+### Singular shorthand (`repository`)
+
+For the common single-repo case:
+```yaml
+spec:
+  repository:
+    url: "https://github.com/org/my-api"
+    branch: main
+```
+Pre-processing: convert to `repositories: [{url: ..., branch: ..., primary: true}]` before validation.
+
+### Multi-repo array (`repositories`)
 
 ```yaml
 spec:
-  startup:                          # optional
-    install: "npm install"          # run once after clone to install dependencies
-    start: "npm start"              # entry point: start the application
+  repositories:
+    - url: "https://github.com/org/frontend"
+      branch: main
+      primary: true
+    - url: "https://github.com/org/backend"
+      branch: main
 ```
 
-Both fields are optional strings. `install` is run before `start` (dependency installation). `start` is the long-running process that launches the application. Both commands run in the root of the cloned `github_repo_url` repository.
+### Validation rules
+1. `repository` and `repositories` are mutually exclusive
+2. If `len(repositories) == 1`, `primary: true` is implied
+3. If `len(repositories) > 1` and exactly one has `primary: true` → OK
+4. If `len(repositories) > 1` and zero or multiple have `primary: true` → validation error
 
-### Type changes
+### Type: `ProjectRepository` (YAML type, not the DB junction type)
 
-**`api/pkg/types/project.go`** — add to `ProjectSpec`:
 ```go
-type ProjectStartup struct {
-    Install string `yaml:"install,omitempty" json:"install,omitempty"`
-    Start   string `yaml:"start,omitempty" json:"start,omitempty"`
-}
-```
-Add `Startup *ProjectStartup` to `ProjectSpec`.
-
-**`api/pkg/types/project.go`** — add to the DB `Project` type:
-```go
-StartupInstall string `json:"startup_install,omitempty" gorm:"column:startup_install"`
-StartupStart   string `json:"startup_start,omitempty" gorm:"column:startup_start"`
-```
-
-**DB migration:** add `startup_install` and `startup_start` columns to the `projects` table.
-
-### Wire-through in `applyProject` server handler
-
-When a `ProjectApplyRequest` carries `Spec.Startup`, copy to the project model:
-```go
-if spec.Startup != nil {
-    existing.StartupInstall = spec.Startup.Install
-    existing.StartupStart   = spec.Startup.Start
+type ProjectRepositorySpec struct {
+    URL     string `yaml:"url" json:"url"`           // required; external clone URL
+    Branch  string `yaml:"branch,omitempty" json:"branch,omitempty"` // defaults to "main"
+    Primary bool   `yaml:"primary,omitempty" json:"primary,omitempty"`
 }
 ```
 
-### Operator
+### Applying repositories
 
-Add `Startup` to the operator's `ProjectSpec` CRD type and pass through to `ProjectApplyRequest`.
+On `applyProject`:
+1. For each `ProjectRepositorySpec` in the resolved list:
+   a. Look up existing `GitRepository` by `ExternalURL == url` within the org
+   b. If not found: create a new external `GitRepository` (`RepoType: "code"`, `IsExternal: true`)
+   c. Attach to project (idempotent — `AttachRepositoryToProject`)
+2. Set the primary one: `SetProjectPrimaryRepository(ctx, projectID, primaryRepoID)`
 
----
-
-## File-by-File Changes (incremental from existing implementation)
-
-### `api/pkg/types/project.go`
-- Add `ProjectStartup` struct
-- Add `Startup *ProjectStartup` to `ProjectSpec`
-- Add `StartupInstall`, `StartupStart` string fields to the `Project` DB model (with `gorm:"column:..."` tags)
-
-### `api/pkg/server/project_handlers.go`
-- `applyProject`: copy `Startup` fields from request spec to project model on create and update
-
-### DB migration
-- Add migration adding `startup_install` and `startup_start` columns to `projects` table (follow existing GORM auto-migrate or numbered migration pattern)
-
-### `api/pkg/cli/app/apply.go`
-- Pass `Spec.Startup` through in `ProjectApplyRequest` (already included in `Spec`, so no extra change needed if `ProjectApplyRequest.Spec` is `ProjectSpec`)
-
-### `operator/api/v1alpha1/project_types.go`
-- Add `ProjectStartup` struct mirroring the API type
-- Add `Startup *ProjectStartup` to `ProjectSpec`
-
-### `operator/internal/controller/project_controller.go`
-- Improve `reconcileProjectAgent`: check `Status.AgentAppID` first (look up by ID), fall back to name search
-- Pass `Spec.Startup.Install` and `Spec.Startup.Start` in `ProjectApplyRequest`
-
-### `examples/project.yaml`
-- Add `startup` block to the example
+**Key constraint:** We do not clone repos during `apply` — repos are registered and linked. Cloning happens when a spec task starts.
 
 ---
 
-## Full YAML Schema (updated)
+## Kanban Block Design
+
+### YAML type
+
+```go
+type ProjectKanban struct {
+    WIPLimits *ProjectWIPLimits `yaml:"wip_limits,omitempty" json:"wip_limits,omitempty"`
+}
+
+type ProjectWIPLimits struct {
+    Planning       int `yaml:"planning,omitempty" json:"planning,omitempty"`
+    Implementation int `yaml:"implementation,omitempty" json:"implementation,omitempty"`
+    Review         int `yaml:"review,omitempty" json:"review,omitempty"`
+}
+```
+
+### Mapping to internal type
+
+`ProjectWIPLimits` → `Project.Metadata.BoardSettings.WIPLimits`:
+
+```go
+if spec.Kanban != nil && spec.Kanban.WIPLimits != nil {
+    project.Metadata.BoardSettings.WIPLimits.Planning       = spec.Kanban.WIPLimits.Planning
+    project.Metadata.BoardSettings.WIPLimits.Implementation = spec.Kanban.WIPLimits.Implementation
+    project.Metadata.BoardSettings.WIPLimits.Review         = spec.Kanban.WIPLimits.Review
+}
+```
+
+`Project.Metadata` is already stored as JSONB — no migration needed for WIP limit values. The `ProjectMetadata` struct already has `BoardSettings.WIPLimits` fields.
+
+---
+
+## Full YAML Schema
 
 ```yaml
 apiVersion: helix.ml/v1alpha1
 kind: Project
 metadata:
-  name: my-project              # required; idempotency key within org
+  name: my-project
+
 spec:
-  description: "..."            # optional
-  github_repo_url: "..."        # optional; repo to clone for agent work
-  default_branch: main          # optional, defaults to "main"
-  technologies: []              # optional; tags shown in UI
-  guidelines: |                 # optional; AI agent guidelines
+  description: "..."
+  technologies: []
+  guidelines: |
     ...
 
-  startup:                      # optional; how to run the project's code
-    install: "npm install"      # run once after clone (dependency installation)
-    start: "npm start"          # entry point command (relative to repo root)
+  # Option A: single repo shorthand
+  repository:
+    url: "https://github.com/org/repo"
+    branch: main
 
-  agent:                        # optional; inline agent linked to this project
-    name: "..."                 # optional; defaults to "<project-name> Assistant"
-    description: "..."          # optional
-    model: claude-sonnet-4-6    # required if agent block present
-    provider: anthropic         # optional; auto-detected
-    system_prompt: |            # optional
+  # Option B: multi-repo list (mutually exclusive with 'repository')
+  repositories:
+    - url: "https://github.com/org/primary-repo"
+      branch: main
+      primary: true          # required when multiple repos
+    - url: "https://github.com/org/other-repo"
+      branch: main
+
+  # Startup runs in the primary repository root
+  startup:
+    install: "npm install"   # run once after clone
+    start: "npm start"       # entry point for the running process
+
+  # Kanban board WIP limits
+  kanban:
+    wip_limits:
+      planning: 5            # 0 = unlimited
+      implementation: 3
+      review: 3
+
+  # Inline agent (creates/updates a linked Helix App)
+  agent:
+    name: "Project Assistant"
+    model: claude-sonnet-4-6
+    provider: anthropic
+    system_prompt: |
       ...
-    tools:                      # optional; all default to false
-      web_search: false
+    tools:
+      web_search: true
       browser: false
       calculator: false
-    mcps:                       # optional; Model Context Protocol servers
+    mcps:
       - name: github
         transport: stdio
         command: npx
         args: ["-y", "@modelcontextprotocol/server-github"]
         env:
           GITHUB_TOKEN: "${GITHUB_TOKEN}"
-    knowledge:                  # optional; RAG knowledge sources
-      - name: project-docs
+    knowledge:
+      - name: docs
         source:
           web:
             urls: ["https://docs.example.com"]
@@ -192,9 +177,136 @@ spec:
 
 ---
 
+## File-by-File Changes
+
+### `api/pkg/types/project.go`
+- Add `ProjectRepositorySpec` struct (`URL`, `Branch`, `Primary` fields)
+- Add `ProjectKanban` struct with `WIPLimits *ProjectWIPLimits`
+- Add `ProjectWIPLimits` struct (`Planning`, `Implementation`, `Review` ints)
+- Add to `ProjectSpec`:
+  - `Repository  *ProjectRepositorySpec   yaml:"repository"`  (singular shorthand)
+  - `Repositories []ProjectRepositorySpec  yaml:"repositories"`
+  - `Kanban       *ProjectKanban           yaml:"kanban"`
+- Add `ValidateRepositories() error` method on `ProjectSpec` — enforces single-primary rule
+- Add `ResolvedRepositories() []ProjectRepositorySpec` — normalises singular/plural
+
+### `api/pkg/server/project_handlers.go` (`applyProject`)
+1. Call `spec.ValidateRepositories()` — return 400 on error
+2. Get `resolvedRepos := spec.ResolvedRepositories()`
+3. For each repo: find-or-create `GitRepository` by `ExternalURL`, attach to project
+4. Set primary with `SetProjectPrimaryRepository`
+5. Map `spec.Kanban` → `project.Metadata.BoardSettings.WIPLimits`
+
+### `api/pkg/store/` (no new store methods needed)
+- `AttachRepositoryToProject`, `SetProjectPrimaryRepository`, `ListGitRepositories` already exist
+- May need a `GetGitRepositoryByURL(ctx, orgID, url) (*GitRepository, error)` helper if not present
+
+### `operator/api/v1alpha1/project_types.go`
+- Mirror the new types: `ProjectRepositorySpec`, `ProjectKanban`, `ProjectWIPLimits`
+- Add `Repository *ProjectRepositorySpec` and `Repositories []ProjectRepositorySpec` to `ProjectSpec`
+- Add `Kanban *ProjectKanban` to `ProjectSpec`
+
+### `operator/internal/controller/project_controller.go`
+- Map operator `ProjectSpec.Repositories` → `types.ProjectSpec.Repositories` in `applyReq`
+- Map operator `ProjectSpec.Kanban` similarly
+
+### `operator/api/v1alpha1/zz_generated.deepcopy.go`
+- Add deepcopy for `ProjectRepositorySpec`, `ProjectKanban`, `ProjectWIPLimits`
+- Update `ProjectSpec.DeepCopyInto` for new slice and pointer fields
+
+### `examples/project.yaml`
+- Update to show multi-repo + kanban
+
+---
+
+## Store Helper: GetGitRepositoryByURL
+
+Check if `ListGitRepositories` supports URL filtering. If not, add:
+```go
+func (s *PostgresStore) GetGitRepositoryByExternalURL(ctx context.Context, orgID, url string) (*types.GitRepository, error)
+```
+This is needed by `applyProject` to look up an existing repo before creating.
+
+---
+
+## Testing Plan
+
+### Testing `helix apply`
+
+Prerequisites:
+```bash
+# Running Helix stack at localhost:8080 (already available in dev environment)
+# Build the CLI
+cd /home/retro/work/helix/api && CGO_ENABLED=0 go build -o /tmp/helix .
+
+# Set credentials from .env.usercreds
+export HELIX_URL=http://localhost:8080
+export HELIX_API_KEY=$(grep HELIX_API_KEY .env.usercreds | cut -d= -f2-)
+```
+
+Test sequence:
+```bash
+# First apply — creates project + agent
+/tmp/helix apply -f examples/project.yaml --organization <org-id>
+
+# Re-apply unchanged — should return same IDs (idempotency)
+/tmp/helix apply -f examples/project.yaml --organization <org-id>
+
+# Update model and re-apply — agent updated, project unchanged
+# edit examples/project.yaml: change model
+/tmp/helix apply -f examples/project.yaml --organization <org-id>
+
+# Verify via API
+curl -H "Authorization: Bearer $HELIX_API_KEY" $HELIX_URL/api/v1/projects
+```
+
+### Testing `kubectl apply` (operator)
+
+Install required tools in dev environment:
+```bash
+# kind (Kubernetes in Docker)
+go install sigs.k8s.io/kind@latest
+# or: curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64 && chmod +x ./kind && mv ./kind /usr/local/bin/
+
+# kubectl
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x kubectl && mv kubectl /usr/local/bin/
+
+# controller-gen (for CRD manifest generation)
+go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
+```
+
+Test sequence:
+```bash
+# Create cluster
+kind create cluster --name helix-test
+
+# Generate CRD manifests
+cd /home/retro/work/helix/operator && make manifests
+
+# Install CRDs
+kubectl apply -f config/crd/bases/
+
+# Run operator locally (out-of-cluster, pointing at localhost:8080)
+HELIX_URL=http://localhost:8080 \
+HELIX_API_KEY=$HELIX_API_KEY \
+go run ./cmd/main.go &
+
+# Apply project
+kubectl apply -f ../examples/project.yaml
+
+# Check status
+kubectl get projects
+kubectl describe project my-fullstack-app
+# Should show Ready=true, ProjectID=..., AgentAppID=...
+```
+
+---
+
 ## Patterns Found in Codebase
 
-- `Project.StartupScript` is `gorm:"-"` — always loaded from `.helix/startup.sh` in git; do NOT use this field for declarative config. Add new `StartupInstall`/`StartupStart` DB columns instead.
-- Agent idempotency key is `Config.Helix.Name` matched within org — consistent across CLI and operator
-- Operator should prefer `Status.AgentAppID` on subsequent reconciles to avoid O(n) list+search on every loop
-- `ProjectApplyRequest.Spec` carries the full `ProjectSpec` including `Startup` — no extra wiring needed in CLI if the types are correct
+- `GitRepository` is found by `ExternalURL` field — use this for idempotent repo lookup-or-create
+- `AttachRepositoryToProject` is already idempotent (writes to junction table, handles duplicates)
+- `Project.Metadata` is JSONB — `BoardSettings.WIPLimits` already exists, no migration needed
+- The singular `repository` vs plural `repositories` normalisation should happen in a method on `ProjectSpec`, not in the handler
+- Operator `ProjectSpec` must mirror API `ProjectSpec` field-for-field so the same YAML file works for both

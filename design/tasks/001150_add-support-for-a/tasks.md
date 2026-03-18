@@ -1,49 +1,74 @@
 # Implementation Tasks
 
-## New types
+## Types (`api/pkg/types/project.go`)
 
-- [x] Add `ProjectCRD`, `ProjectSpec`, `ProjectAgentSpec`, `ProjectAgentTools` to `api/pkg/types/project.go`
-- [x] Add `ToAppHelixConfig() *AppHelixConfig` conversion method on `ProjectAgentSpec`
-- [ ] Add `ProjectStartup` struct (`Install`, `Start` string fields) to `api/pkg/types/project.go`
-- [ ] Add `Startup *ProjectStartup` to `ProjectSpec`
-- [ ] Add `StartupInstall`, `StartupStart` string fields to the `Project` DB model with `gorm:"column:..."` tags
+- [x] Add `ProjectStartup` struct (`Install`, `Start`)
+- [x] Add `Startup *ProjectStartup` to `ProjectSpec`
+- [x] Add `StartupInstall`, `StartupStart` to `Project` DB model
+- [ ] Add `ProjectRepositorySpec` struct (`URL`, `Branch`, `Primary` bool)
+- [ ] Add `ProjectKanban` struct with `WIPLimits *ProjectWIPLimits`
+- [ ] Add `ProjectWIPLimits` struct (`Planning`, `Implementation`, `Review` int)
+- [ ] Add `Repository *ProjectRepositorySpec` (singular shorthand) to `ProjectSpec`
+- [ ] Add `Repositories []ProjectRepositorySpec` to `ProjectSpec`
+- [ ] Add `Kanban *ProjectKanban` to `ProjectSpec`
+- [ ] Add `ValidateRepositories() error` method on `ProjectSpec`
+- [ ] Add `ResolvedRepositories() []ProjectRepositorySpec` method (normalises singular/plural → always returns a slice)
 
-## `helix apply` — Project kind
+## Store (`api/pkg/store/`)
 
-- [x] Add `kind:` dispatcher to `api/pkg/cli/app/apply.go`
-- [x] Add `ApplyProject` client method (`api/pkg/client/project.go`)
-- [x] Implement `runApplyProject()` with agent create/update + project upsert
-- [ ] Verify `Startup` fields flow through automatically (they will once `ProjectSpec` has them, since `ProjectApplyRequest.Spec` is `ProjectSpec`)
-- [ ] (Deferred) Add `--template` flag for registering org sample project templates
+- [ ] Check if `ListGitRepositories` supports URL filtering; if not, add `GetGitRepositoryByExternalURL(ctx, orgID, url)` helper
 
-## Server
+## Server (`api/pkg/server/project_handlers.go`)
 
-- [x] Add `PUT /api/v1/projects/apply` endpoint — idempotent upsert by name+org
-- [ ] Copy `Spec.Startup.Install` / `Spec.Startup.Start` to project model fields in `applyProject` handler (create and update paths)
-- [ ] Add DB migration for `startup_install` and `startup_start` columns on `projects` table
+- [x] Add `PUT /api/v1/projects/apply` endpoint (idempotent upsert by name+org)
+- [x] Wire `startup` fields through on create and update
+- [ ] Call `spec.ValidateRepositories()` in `applyProject` handler — return 400 on validation error
+- [ ] For each resolved repository: find-or-create `GitRepository` by `ExternalURL`, attach to project with `AttachRepositoryToProject`
+- [ ] Set primary repository with `SetProjectPrimaryRepository` after all repos are attached
+- [ ] Map `spec.Kanban.WIPLimits` → `project.Metadata.BoardSettings.WIPLimits` on create and update
 
-## K8s Operator — Bug fixes (AIApp)
+## CLI (`api/pkg/cli/app/apply.go`)
 
-- [x] Fix GPTScript conversion bug (documented as unsupported; `types.AssistantConfig` has no `GPTScripts` field)
+- [x] Add `kind:` dispatcher routing `Project` to `runApplyProject()`
+- [x] `runApplyProject()` creates/updates agent app and calls `ApplyProject`
+- [ ] Verify `Repositories` and `Kanban` flow through `ProjectApplyRequest.Spec` automatically (no extra wiring needed beyond types)
+
+## `helix apply` — Project kind (completed)
+
+- [x] Kind dispatcher + `runApplyProject()`
+- [x] `ApplyProject` client method
+- [x] Agent idempotency: look up by name, update or create
+
+## K8s Operator — Bug fixes (completed)
+
+- [x] Fix GPTScript conversion bug
 - [x] Fix Knowledge source conversion
-- [x] Add `HELIX_TLS_SKIP_VERIFY` env var support
+- [x] Add `HELIX_TLS_SKIP_VERIFY` support
 - [x] Add `OrganizationID` to `AIAppSpec`
-- [x] Add `Ready`, `AppID`, `LastSynced`, `Message` to `AIAppStatus`
+- [x] Add status fields to `AIAppStatus`
 
 ## K8s Operator — Project CRD
 
-- [x] Create `operator/api/v1alpha1/project_types.go` with `Project`, `ProjectSpec`, `ProjectStatus`, `ProjectList`
-- [x] Register `Project` and `ProjectList` in scheme builder
-- [x] Create `operator/internal/controller/project_controller.go` with full reconciler
-- [x] Register `ProjectReconciler` in `operator/cmd/main.go`
-- [x] Add deepcopy methods to `zz_generated.deepcopy.go`
-- [ ] Add `ProjectStartup` to operator's `ProjectSpec` CRD type
-- [ ] Pass `Startup` fields through in `ProjectApplyRequest` from operator reconciler
-- [ ] Improve `reconcileProjectAgent`: on subsequent reconciles, use `Status.AgentAppID` to update directly (look up by ID first, fall back to name search if ID not found/deleted)
-- [ ] Run `make generate manifests` in `operator/` (requires `controller-gen`; do in CI or dev environment)
+- [x] `Project`, `ProjectSpec`, `ProjectStatus`, `ProjectList` types
+- [x] Scheme registration
+- [x] Full reconciler with finalizer, status reporting
+- [x] Registration in `operator/cmd/main.go`
+- [x] Deepcopy methods in `zz_generated.deepcopy.go`
+- [x] Improve `reconcileProjectAgent`: use `Status.AgentAppID` first (fast path), fall back to name search
+- [ ] Add `ProjectRepositorySpec`, `ProjectKanban`, `ProjectWIPLimits` to operator `ProjectSpec` CRD type
+- [ ] Map operator `Repositories` and `Kanban` through to `ProjectApplyRequest` in reconciler
+- [ ] Update deepcopy for new slice/pointer fields
+- [ ] Run `make generate manifests` (requires `controller-gen`)
 
 ## Examples
 
-- [x] Add `examples/project.yaml`
-- [ ] Add `startup` block to `examples/project.yaml`
-- [ ] Update operator README with `Project` CRD docs and required RBAC
+- [x] `examples/project.yaml` with startup block
+- [ ] Update `examples/project.yaml` to show multi-repo + kanban
+
+## Testing setup
+
+- [ ] Install `kind`: `go install sigs.k8s.io/kind@latest`
+- [ ] Install `kubectl`: download binary or snap
+- [ ] Install `controller-gen`: `go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest`
+- [ ] Verify `helix apply` end-to-end: build CLI, apply project YAML against `localhost:8080`, check idempotency
+- [ ] Verify `kubectl apply` end-to-end: `kind create cluster`, install CRDs, run operator locally, apply project YAML, check `kubectl get projects` status

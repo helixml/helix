@@ -2,41 +2,129 @@
 
 ## Overview
 
-A single `project.yaml` format that declaratively defines a Helix project, its inline agent, and how to start the project's code stack. The same file works for both `helix apply -f project.yaml` (CLI) and `kubectl apply -f project.yaml` (k8s operator). Sharing a project template is simply sharing a `project.yaml` file.
+A single `project.yaml` that declaratively defines a Helix project: its repositories (one or many, one primary), Kanban board settings, startup configuration, and inline agent. Works identically with `helix apply -f` and `kubectl apply -f`.
 
 ---
 
 ## User Stories
 
-### 1. Define and apply a project
+### 1. Single-repository project (shorthand)
 
-**As a developer**, I want to declare my entire Helix project — including its agent and how to run the code — in a single YAML file so I can version-control it and apply it idempotently.
+The common case — one repo, stated simply:
 
 ```yaml
 apiVersion: helix.ml/v1alpha1
 kind: Project
 metadata:
-  name: my-backend-api
+  name: my-api
 spec:
-  description: "Backend API project"
-  github_repo_url: "https://github.com/org/repo"
-  default_branch: main
-  technologies:
-    - Go
-    - PostgreSQL
+  repository:
+    url: "https://github.com/org/my-api"
+    branch: main
+```
+
+**Acceptance Criteria:**
+- `repository` (singular) is a shorthand for a single primary repository
+- Equivalent to `repositories: [{url: ..., branch: ..., primary: true}]`
+- Cannot specify both `repository` and `repositories`
+
+---
+
+### 2. Multi-repository project
+
+```yaml
+spec:
+  repositories:
+    - url: "https://github.com/org/frontend"
+      branch: main
+      primary: true
+    - url: "https://github.com/org/backend"
+      branch: main
+    - url: "https://github.com/org/shared-lib"
+      branch: main
+```
+
+**Acceptance Criteria:**
+- If only one repository is listed, `primary: true` is implied
+- If multiple repositories are listed and none has `primary: true`, applying returns an error: "exactly one repository must be designated primary"
+- If multiple have `primary: true`, applying returns an error
+- All listed repositories are cloned when a spec task starts
+- The primary repository is the working directory; `startup.install` and `startup.start` run there
+- Non-primary repositories are cloned alongside the primary (sibling directories)
+
+---
+
+### 3. Startup block applies to the primary repository
+
+```yaml
+spec:
+  startup:
+    install: "npm install"   # run in primary repo root after cloning
+    start: "npm start"       # entry point; agents attach to this running process
+```
+
+**Acceptance Criteria:**
+- `startup` always applies to the primary repository
+- Commands run in the root of the primary repository
+- Default branch is the primary repository's configured branch
+- Only one startup block per project (not per-repository)
+
+---
+
+### 4. Kanban board settings
+
+```yaml
+spec:
+  kanban:
+    wip_limits:
+      planning: 5
+      implementation: 3
+      review: 3
+```
+
+**Acceptance Criteria:**
+- `kanban.wip_limits` maps to `Project.Metadata.BoardSettings.WIPLimits` (existing internal type)
+- All WIP limit fields are optional; omitting leaves existing values unchanged on update
+- Setting a limit to `0` means unlimited
+
+---
+
+### 5. Full example
+
+```yaml
+apiVersion: helix.ml/v1alpha1
+kind: Project
+metadata:
+  name: my-fullstack-app
+spec:
+  description: "Full-stack web application"
+  technologies: [React, Go, PostgreSQL]
   guidelines: |
     Use conventional commits. All PRs require tests.
+
+  repositories:
+    - url: "https://github.com/org/my-api"
+      branch: main
+      primary: true
+    - url: "https://github.com/org/my-frontend"
+      branch: main
 
   startup:
     install: "go mod download"
     start: "go run ./cmd/server"
+
+  kanban:
+    wip_limits:
+      planning: 5
+      implementation: 3
+      review: 3
 
   agent:
     name: "Project Assistant"
     model: claude-sonnet-4-6
     provider: anthropic
     system_prompt: |
-      You are a coding assistant for this Go/PostgreSQL project.
+      You are a coding assistant for this full-stack application.
     tools:
       web_search: true
     mcps:
@@ -48,84 +136,90 @@ spec:
           GITHUB_TOKEN: "${GITHUB_TOKEN}"
 ```
 
-**Acceptance Criteria:**
-- `helix apply -f project.yaml` creates or updates a project by name (idempotent)
-- Requires `--organization` flag (personal orgs are not supported)
-- Re-applying with changed fields updates in place — never duplicates
-- The inline `agent` block creates or updates a Helix App linked to the project (idempotent by agent name within org)
-- Output prints project ID and agent app ID
-- Errors if required fields (`metadata.name`, org) are missing
-
 ---
 
-### 2. Startup: run the code stack
+### 6. Idempotency
 
-**As a developer**, I want to declare how my project's code stack is started so that Helix agents can launch the application and debug it while it runs.
+Re-applying the same or updated YAML must never create duplicates.
 
-The `startup` block has two fields:
-
-| Field | Purpose |
-|---|---|
-| `startup.install` | Shell command to install dependencies, run once after cloning. E.g. `npm install`, `go mod download`, `pip install -r requirements.txt` |
-| `startup.start` | Entry point command to start the application, run in the repo root. E.g. `npm start`, `go run ./cmd/server`, `python app.py` |
-
-**Acceptance Criteria:**
-- `startup.install` and `startup.start` are stored persistently on the project (DB columns, not git file)
-- Both fields are optional; agents can still work without them
-- The `start` command is a relative shell command run in the root of the cloned `github_repo_url` repository
-- `install` is run once before `start` (e.g. after a fresh clone)
-- The startup configuration is available to Helix agents via the project API so they know how to launch the stack
-
----
-
-### 3. Idempotency guarantee
-
-**As a developer**, I want re-applying the same or updated YAML to be safe — it must update the existing project and agent, never create duplicates.
-
-**Idempotency keys:**
-
-| Resource | Key |
+| Resource | Idempotency key |
 |---|---|
 | Project | `(metadata.name, organization_id)` |
-| Agent app | `(agent.name, organization_id)` — defaults to `"<project-name> Assistant"` |
-| k8s Project | `k8s.<namespace>.<metadata.name>` |
+| Agent app | `(agent.name, organization_id)` |
+| Repository attachment | URL match within org; attach is idempotent |
+| k8s Project | `k8s.<namespace>.<name>` |
 
-**Acceptance Criteria:**
-- Applying twice with no changes: no-op (same IDs returned)
-- Applying with changed `spec.agent.model`: agent is updated in place, same app ID
-- Applying with changed `spec.guidelines`: project is updated in place, same project ID
-- k8s operator: `kubectl apply` on an updated Project spec updates the Helix project and agent; uses `Status.AgentAppID` for subsequent reconciles instead of re-searching by name
+On update: only fields present in the YAML are updated. Repositories are reconciled (attach new, leave existing untouched).
 
 ---
 
-### 4. K8s operator: apply via kubectl
+### 7. k8s operator support
 
-**As a platform engineer**, I want to `kubectl apply -f project.yaml` and have the operator create the Helix project and agent idempotently.
-
-**Acceptance Criteria:**
-- `Project` CRD exists (`helix.ml/v1alpha1`, kind `Project`)
-- Operator reconciles create/update/delete with Helix API
-- Project name namespaced as `k8s.<namespace>.<name>`
-- `spec.startup` fields are passed through to the Helix project
-- `ProjectStatus` reports `Ready`, `ProjectID`, `AgentAppID`, `LastSyncedAt`
-- On subsequent reconciles, uses `Status.AgentAppID` to update the agent directly (not re-search by name)
+`kubectl apply -f project.yaml` works identically to `helix apply -f project.yaml`:
+- Creates/updates the project, attaches repositories, links agent
+- Namespaced project name: `k8s.<namespace>.<name>`
+- `ProjectStatus` reports `Ready`, `ProjectID`, `AgentAppID`, `LastSynced`
 
 ---
 
-### 5. K8s Operator: Bug Fixes
+### 8. Testing approach
 
-**Acceptance Criteria:**
-- Fix: GPTScript conversion loop was iterating `Zapier` instead of `GPTScripts` (resolved: documented as unsupported since `types.AssistantConfig` has no `GPTScripts` field)
-- Fix: Knowledge sources not converted from operator CRD types to Helix API types
-- Add: `HELIX_TLS_SKIP_VERIFY` env var support
-- Add: `OrganizationID` field in `AIAppSpec`
-- Add: `AIAppStatus` exposes `Ready`, `AppID`, `LastSyncedAt`, `Message`
+#### Testing `helix apply`
+
+Requirements: Go build environment, running Helix instance (local stack at `localhost:8080`), org + API key.
+
+```bash
+# Build CLI
+cd api && CGO_ENABLED=0 go build -o /tmp/helix .
+
+# Set credentials
+export HELIX_URL=http://localhost:8080
+export HELIX_API_KEY=<key from .env.usercreds>
+
+# Apply a project
+/tmp/helix apply -f examples/project.yaml --organization <org-id>
+```
+
+#### Testing `kubectl apply` (operator)
+
+Requirements: Docker, [kind](https://kind.sigs.k8s.io/) or k3s, kubectl.
+
+```bash
+# Install kind
+go install sigs.k8s.io/kind@latest
+
+# Create local cluster
+kind create cluster --name helix-test
+
+# Build operator image
+cd operator && docker build -t helix-operator:dev .
+
+# Load into kind
+kind load docker-image helix-operator:dev --name helix-test
+
+# Install CRDs
+kubectl apply -f config/crd/bases/
+
+# Deploy operator (with HELIX_URL + HELIX_API_KEY set)
+kubectl apply -f config/deploy/
+
+# Apply project
+kubectl apply -f examples/project.yaml
+kubectl get projects
+kubectl describe project my-fullstack-app
+```
+
+**Minimum tooling to install in dev environment:**
+- `docker` (already present)
+- `kind`: `go install sigs.k8s.io/kind@latest` or `curl` install
+- `kubectl`: snap/apt or direct binary download
+- `controller-gen`: `go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest` (for CRD manifest generation)
 
 ---
 
 ## Out of Scope
 
-- Writing startup config back to `.helix/startup.sh` in the git repo (startup is stored as DB fields, not git files)
-- Multi-document YAML (`---` separated resources in one file)
-- Declarative SpecTask management via YAML
+- Per-repository startup scripts (startup always applies to primary)
+- Automatic repo cloning at apply time (repos are registered, cloning happens when a spec task starts)
 - `--template` flag for org sample project templates (deferred)
+- Multi-document YAML (`---` separated resources)
