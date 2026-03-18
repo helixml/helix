@@ -28,6 +28,7 @@ if ! grep -q 'export PATH=.*go/bin' ~/.bashrc 2>/dev/null; then
     echo "Added ~/go/bin to ~/.bashrc"
 fi
 
+
 # Also add to /etc/environment so non-interactive terminal tools get it
 # This ensures mockgen etc. are available in all contexts
 if ! grep -q '/home/retro/go/bin' /etc/environment 2>/dev/null; then
