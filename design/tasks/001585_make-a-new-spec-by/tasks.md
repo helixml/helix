@@ -2,19 +2,19 @@
 
 ## Types (`api/pkg/types/project.go`)
 
-- [ ] Add `ProjectStartup` struct (`Install`, `Start`)
-- [ ] Add `Startup *ProjectStartup` to `ProjectSpec`
-- [ ] Add `StartupInstall`, `StartupStart` to `Project` DB model
-- [ ] Add `ProjectRepositorySpec` struct (`URL`, `Branch`, `Primary` bool)
-- [ ] Add `ProjectKanban` struct with `WIPLimits *ProjectWIPLimits`
-- [ ] Add `ProjectWIPLimits` struct (`Planning`, `Implementation`, `Review` int)
-- [ ] Add `ProjectTaskSpec` struct (`Title` string, `Description` string)
-- [ ] Add `Repository *ProjectRepositorySpec` (singular shorthand) to `ProjectSpec`
-- [ ] Add `Repositories []ProjectRepositorySpec` to `ProjectSpec`
-- [ ] Add `Kanban *ProjectKanban` to `ProjectSpec`
-- [ ] Add `Tasks []ProjectTaskSpec` to `ProjectSpec`
-- [ ] Add `ValidateRepositories() error` method on `ProjectSpec`
-- [ ] Add `ResolvedRepositories() []ProjectRepositorySpec` method (normalises singular/plural → always returns a slice)
+- [~] Add `ProjectStartup` struct (`Install`, `Start`)
+- [~] Add `Startup *ProjectStartup` to `ProjectSpec`
+- [~] Add `StartupInstall`, `StartupStart` to `Project` DB model
+- [~] Add `ProjectRepositorySpec` struct (`URL`, `Branch`, `Primary` bool)
+- [~] Add `ProjectKanban` struct with `WIPLimits *ProjectWIPLimits`
+- [~] Add `ProjectWIPLimits` struct (`Planning`, `Implementation`, `Review` int)
+- [~] Add `ProjectTaskSpec` struct (`Title` string, `Description` string)
+- [~] Add `Repository *ProjectRepositorySpec` (singular shorthand) to `ProjectSpec`
+- [~] Add `Repositories []ProjectRepositorySpec` to `ProjectSpec`
+- [~] Add `Kanban *ProjectKanban` to `ProjectSpec`
+- [~] Add `Tasks []ProjectTaskSpec` to `ProjectSpec`
+- [~] Add `ValidateRepositories() error` method on `ProjectSpec`
+- [~] Add `ResolvedRepositories() []ProjectRepositorySpec` method (normalises singular/plural → always returns a slice)
 
 ## Store (`api/pkg/store/`)
 
