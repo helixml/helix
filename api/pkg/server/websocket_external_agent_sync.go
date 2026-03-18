@@ -2246,11 +2246,17 @@ func (apiServer *HelixAPIServer) processAnyPendingPrompt(ctx context.Context, se
 		Bool("is_retry", isRetry).
 		Msg("📤 [QUEUE] Processing pending prompt")
 
-	// CRITICAL: Mark as 'sent' IMMEDIATELY to prevent race conditions.
-	// Once we start processing, mark it done so no other process picks it up.
-	if err := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); err != nil {
-		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent")
-		// Continue anyway - better to risk duplicate than lose the message
+	// Atomically claim this prompt to prevent duplicate delivery (issue #2).
+	// Uses a conditional DB UPDATE (status IN ('pending','failed') → 'sending').
+	// If RowsAffected == 0, another goroutine already claimed it — skip.
+	claimed, claimErr := apiServer.Store.ClaimPromptForSending(ctx, nextPrompt.ID)
+	if claimErr != nil {
+		log.Error().Err(claimErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to claim prompt for sending")
+		return
+	}
+	if !claimed {
+		log.Info().Str("prompt_id", nextPrompt.ID).Msg("📤 [QUEUE] Prompt already claimed by another goroutine — skipping duplicate send")
+		return
 	}
 
 	// Send the prompt to the session (creates interaction and sends to agent)
@@ -2265,6 +2271,11 @@ func (apiServer *HelixAPIServer) processAnyPendingPrompt(ctx context.Context, se
 			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed after interaction creation error")
 		}
 		return
+	}
+
+	// Mark as fully sent after successful delivery
+	if markErr := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); markErr != nil {
+		log.Warn().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent after delivery (non-fatal)")
 	}
 
 	log.Info().

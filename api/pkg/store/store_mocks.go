@@ -4564,6 +4564,21 @@ func (mr *MockStoreMockRecorder) MarkPromptAsSent(ctx, promptID any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPromptAsSent", reflect.TypeOf((*MockStore)(nil).MarkPromptAsSent), ctx, promptID)
 }
 
+// ClaimPromptForSending mocks base method.
+func (m *MockStore) ClaimPromptForSending(ctx context.Context, promptID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimPromptForSending", ctx, promptID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimPromptForSending indicates an expected call of ClaimPromptForSending.
+func (mr *MockStoreMockRecorder) ClaimPromptForSending(ctx, promptID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimPromptForSending", reflect.TypeOf((*MockStore)(nil).ClaimPromptForSending), ctx, promptID)
+}
+
 // ParseAndCreateImplementationTasks mocks base method.
 func (m *MockStore) ParseAndCreateImplementationTasks(ctx context.Context, specTaskID, implementationPlan string) ([]*types.SpecTaskImplementationTask, error) {
 	m.ctrl.T.Helper()

@@ -339,6 +339,16 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// (with progress messages) instead of the paused/absent state.
 	h.setExternalAgentStatus(ctx, agent.SessionID, "starting")
 
+	// Guarantee status cleanup on any error: if StartDesktop returns an error the
+	// status must not remain "starting" permanently (issue #1 from ZFS deployment).
+	startErr := error(nil)
+	defer func() {
+		if startErr != nil {
+			h.setExternalAgentStatus(context.Background(), agent.SessionID, "")
+			h.updateSessionStatusMessage(context.Background(), agent.SessionID, "")
+		}
+	}()
+
 	// Poll golden cache copy progress in a goroutine while CreateDevContainer blocks.
 	// If a golden cache exists, the Hydra side copies it before creating the container.
 	// We poll a separate Hydra endpoint and update session.StatusMessage so the
@@ -375,10 +385,8 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	h.updateSessionStatusMessage(ctx, agent.SessionID, "")
 
 	if err != nil {
-		// Reset agent status so the session isn't stuck in "starting" forever.
-		// The status message was already cleared on line 375 above.
-		h.setExternalAgentStatus(ctx, agent.SessionID, "")
-		return nil, fmt.Errorf("failed to create dev container via Hydra: %w", err)
+		startErr = fmt.Errorf("failed to create dev container via Hydra: %w", err)
+		return nil, startErr
 	}
 
 	log.Info().
@@ -391,16 +399,22 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// No bridging needed - desktop runs its own dockerd, so all containers
 	// are on the same Docker network inside the desktop container.
 
-	// Wait for desktop-bridge to be ready before returning
-	// Desktop-bridge takes time to start: waits for D-Bus, Wayland, portal, GStreamer init
-	// Without this, frontend connects immediately but screenshot/video fail
-	// Uses RevDial for health check since container IP is inside sandbox's DinD network
-	if err := h.waitForDesktopBridge(ctx, agent.SessionID); err != nil {
+	// Wait for desktop-bridge to be ready before returning.
+	// Desktop-bridge takes time to start: waits for D-Bus, Wayland, portal, GStreamer init.
+	// Uses RevDial for health check since container IP is inside sandbox's DinD network.
+	//
+	// IMPORTANT: use an independent context here (issue #1 from ZFS deployment).
+	// The caller's ctx may have been partially consumed by the ZFS clone (which can take
+	// 10-90s). If we reuse it, the bridge wait budget is whatever is left over, which may
+	// be far less than the 90s we need. Using context.Background() gives the full 90s.
+	bridgeCtx, bridgeCancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer bridgeCancel()
+	if err := h.waitForDesktopBridge(bridgeCtx, agent.SessionID); err != nil {
 		log.Warn().Err(err).
 			Str("session_id", agent.SessionID).
 			Msg("Desktop bridge not ready (continuing anyway, frontend may need to retry)")
-		// Don't fail - container is running, just not fully ready yet
-		// Frontend should handle this gracefully with retry logic
+		// Don't fail - container is running, just not fully ready yet.
+		// Frontend should handle this gracefully with retry logic.
 	}
 
 	// Track session
@@ -511,6 +525,11 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 	h.creationLocksMutex.Lock()
 	delete(h.creationLocks, sessionID)
 	h.creationLocksMutex.Unlock()
+
+	// Always clear external_agent_status so the frontend doesn't show a stale
+	// "Starting Desktop" or "running" state after the container is gone (issue #4).
+	h.setExternalAgentStatus(ctx, sessionID, "")
+	h.updateSessionStatusMessage(ctx, sessionID, "")
 
 	return nil
 }

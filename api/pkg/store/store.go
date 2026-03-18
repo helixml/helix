@@ -669,6 +669,10 @@ type Store interface {
 	MarkPromptAsPending(ctx context.Context, promptID string) error
 	MarkPromptAsSent(ctx context.Context, promptID string) error
 	MarkPromptAsFailed(ctx context.Context, promptID string) error
+	// ClaimPromptForSending atomically transitions a prompt from pending/failed→sending.
+	// Returns true if this caller won the claim (rows affected > 0). If false, another
+	// goroutine already claimed it and the caller must not send the prompt.
+	ClaimPromptForSending(ctx context.Context, promptID string) (bool, error)
 	UpdatePromptPin(ctx context.Context, promptID string, pinned bool) error
 	UpdatePromptTags(ctx context.Context, promptID string, tags string) error
 	ListPinnedPrompts(ctx context.Context, userID, specTaskID string) ([]*types.PromptHistoryEntry, error)
