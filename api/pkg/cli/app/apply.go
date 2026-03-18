@@ -236,8 +236,8 @@ func runApplyProject(ctx context.Context, apiClient client.Client, rawYAML []byt
 		return fmt.Errorf("project name is required (set metadata.name or spec.name)")
 	}
 
-	// Resolve organization
-	resolvedOrgID, err := cli.ResolveOrganization(ctx, apiClient, orgRef)
+	// Resolve organization: explicit flag, auto-select if one org, or prompt if many.
+	resolvedOrgID, err := cli.ResolveOrganizationInteractive(ctx, apiClient, orgRef)
 	if err != nil {
 		return fmt.Errorf("failed to resolve organization: %w", err)
 	}

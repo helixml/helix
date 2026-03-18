@@ -17,7 +17,7 @@ func (c *HelixClient) ApplyProject(ctx context.Context, req *types.ProjectApplyR
 	}
 
 	var resp types.ProjectApplyResponse
-	if err := c.makeRequest(ctx, "PUT", "/api/v1/projects/apply", bytes.NewReader(body), &resp); err != nil {
+	if err := c.makeRequest(ctx, "PUT", "/projects/apply", bytes.NewReader(body), &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
