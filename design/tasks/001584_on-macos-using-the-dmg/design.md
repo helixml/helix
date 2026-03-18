@@ -106,6 +106,35 @@ system call exists on macOS 12+ but is not in Go stdlib. Using process groups (F
 is the correct portable solution — it handles the force-kill case by cleaning up at
 next launch via PID file (Fix 3).
 
+## Implementation Notes (from RC testing)
+
+After the first fix landed, the bug persisted. Investigated Wails v2.11.0 source to
+trace the exact quit path for "App menu Quit":
+
+1. macOS calls `applicationShouldTerminate:` on Wails' `AppDelegate`
+2. Wails sends `"Q"` via `processMessage("Q")` and returns **`NSTerminateCancel`**
+   (the OS never terminates the app directly — Wails owns the quit)
+3. Go's message dispatcher processes `"Q"` → `Frontend.Quit()` → `C.Quit()` →
+   `[NSApp stop:]` (called from a Go goroutine)
+4. `[NSApp run]` (in `RunMainLoop()`) returns
+5. `a.shutdownCallback(ctx)` = `app.shutdown()` is called
+
+**Why `ForceStop()` at the end of `shutdown()` wasn't working:**
+
+`tray.Stop()` is called BEFORE `ForceStop()`. The energye/systray library creates its
+status item via `dispatch_async(dispatch_get_main_queue(), ...)` in startup. On shutdown,
+the `endFunc()` may attempt to dispatch back to the main queue. BUT at this point, the
+Wails shutdown callback IS the main thread (CGo/Cocoa, after `[NSApp run]` returns).
+This creates a deadlock: the main thread is blocked waiting for `tray.Stop()` to return,
+while `tray.Stop()` is waiting for the main thread to drain its queue.
+
+**Fix:** Move `ForceStop()` to the very first call in `shutdown()`, before `tray.Stop()`.
+Even if `tray.Stop()` deadlocks (blocking the rest of shutdown), QEMU is already dead.
+
+**Additional fix:** Added SIGTERM/SIGINT handler in `main.go` as belt-and-suspenders
+for cases where the process receives an OS signal directly (external `kill`, SIGHUP from
+terminal close, etc.) and the Wails `shutdown()` callback is bypassed entirely.
+
 ## Files Changed
 
 | File | Change |
