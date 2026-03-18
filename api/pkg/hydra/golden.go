@@ -450,7 +450,11 @@ func DeleteGolden(projectID string) error {
 	if ZFSAvailable() {
 		goldenName := goldenZvolName(projectID)
 		if zfsDatasetExists(goldenName) {
-			// Check for active clones — refuse to delete if sessions are using this golden
+			// Destroy all session clones that originate from this golden.
+			// Stopped clones are safe to destroy (container is gone, data is
+			// disposable). Running containers will have their storage yanked
+			// but that's expected for a "clear cache" operation — the user
+			// explicitly asked to delete everything.
 			prefix := zfsParentDataset + "/ses-"
 			out, err := execCmdOutput("zfs", "list", "-H", "-o", "name,origin", "-t", "volume", "-r", zfsParentDataset)
 			if err == nil {
@@ -459,13 +463,19 @@ func DeleteGolden(projectID string) error {
 					if len(fields) >= 2 && strings.HasPrefix(fields[0], prefix) {
 						origin := fields[1]
 						if strings.HasPrefix(origin, goldenName+"@") {
-							return fmt.Errorf("cannot delete golden cache: active session clone %s depends on it (stop sessions first)", fields[0])
+							cloneName := fields[0]
+							sessionID := strings.TrimPrefix(cloneName, prefix)
+							log.Info().
+								Str("clone", cloneName).
+								Str("session_id", sessionID).
+								Msg("Destroying session clone before golden cache deletion")
+							_ = CleanupSessionZvol(sessionID)
 						}
 					}
 				}
 			}
 
-			// No active clones — safe to destroy
+			// Now destroy the golden zvol and its snapshots
 			if err := runCmd("zfs", "destroy", "-r", goldenName); err != nil {
 				return fmt.Errorf("failed to destroy golden zvol %s: %w", goldenName, err)
 			}
