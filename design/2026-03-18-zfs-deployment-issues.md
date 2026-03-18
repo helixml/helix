@@ -107,3 +107,39 @@ The error path at `hydra_executor.go:380` (`setExternalAgentStatus(ctx, sessionI
 5. All tested on meta.helix.ml — gen4 promotion working, sessions cloning successfully
 
 **Not yet merged**: needs review and merge, then `./stack build-sandbox` to deploy the sandbox changes (Hydra binary). The API changes (golden build service) are already hot-reloaded via Air.
+
+## 9. Spectask UI stuck — "no way to progress"
+
+**Symptom**: User reports spectask `spt_01kg9w069xs5bfkmxbp7d5y05p` has "no way to progress it". The agent is actively working (tool calls visible in API logs) but the UI may not reflect this.
+
+**Observed state**:
+- Spectask status: `spec_generation` (since 2026-03-18T10:37)
+- Session `ses_01kkv1p7` was stuck in "Starting Desktop" (issue #1)
+- After manual DB fix and restart, session is running and agent is working
+- Agent is making tool calls (Edit, Read, grep) as of 11:15
+- The duplicate message send (issue #2) may have caused the agent to restart its work from scratch, potentially confusing the thread state
+
+**Likely cause**: Combination of issues #1 (stuck UI), #2 (duplicate messages), and #3 (thread sync). The user can't see the agent's progress because the UI was stuck, and after restart the duplicate message may have confused the spec generation flow.
+
+**Root cause**: The task status is `spec_generation` but the agent is doing implementation work (editing `zz_generated.deepcopy.go`, operator controller code). The duplicate message send (issue #2) likely sent the same comment message twice — the second send may have been interpreted by the agent as a new instruction, causing it to jump from spec writing into implementation without the spec being reviewed/approved first.
+
+Because the task is still in `spec_generation` status, the UI shows it in the "Planning" column with no "Review Spec" button (that button appears after the agent pushes spec docs and the task transitions to `spec_review`). The agent skipped that transition by going straight to implementation.
+
+**Result**: Task is stuck — agent is implementing but the task hasn't transitioned through `spec_review` → `approved` → `implementation`. The UI has no button to advance it because the expected flow was skipped.
+
+**Fix needed**:
+1. Fix duplicate message sends (issue #2) to prevent agents from getting confused instructions
+2. Consider adding a manual "Move to Implementation" button for cases where the flow gets stuck
+3. The agent's system prompt for `spec_generation` phase explicitly says "Do NOT implement anything yet" — the duplicate send may have overridden this by sending a comment that the agent interpreted as an instruction to implement
+
+## 10. Two sessions created for one spectask
+
+**Observed**: Spectask `spt_01kg9w069xs5bfkmxbp7d5y05p` has two sessions created 1 second apart:
+- `ses_01kkv1p6j` (10:04:57) — name "project update:...", no `agent_type`, no `external_agent_status`
+- `ses_01kkv1p7n` (10:04:58) — name "Spec Generation:...", `agent_type=zed_external`
+
+The spectask's `planning_session_id` correctly points to the second one. The first appears to be a project-level session (different name prefix) that was created in the same click — possibly a race between the project update flow and the spectask planning flow both triggering session creation.
+
+**Impact**: Unclear if this caused any issues directly, but having two sessions referencing the same spectask in their config could confuse the prompt queue (`processPendingPromptsForIdleSessions`), which scans all sessions for a spectask and may find both.
+
+**Needs investigation**: Why did two sessions get created? Is the project exploratory session flow racing with the spectask planning flow?
