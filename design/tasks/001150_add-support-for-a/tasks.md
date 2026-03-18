@@ -3,38 +3,47 @@
 ## New types
 
 - [x] Add `ProjectCRD`, `ProjectSpec`, `ProjectAgentSpec`, `ProjectAgentTools` to `api/pkg/types/project.go`
-- [x] Add `ToAppHelixConfig() *AppHelixConfig` conversion method on `ProjectAgentSpec` that maps simplified agent fields to `AssistantConfig` (model, provider, system_prompt, tools, MCPs, knowledge)
+- [x] Add `ToAppHelixConfig() *AppHelixConfig` conversion method on `ProjectAgentSpec`
+- [ ] Add `ProjectStartup` struct (`Install`, `Start` string fields) to `api/pkg/types/project.go`
+- [ ] Add `Startup *ProjectStartup` to `ProjectSpec`
+- [ ] Add `StartupInstall`, `StartupStart` string fields to the `Project` DB model with `gorm:"column:..."` tags
 
 ## `helix apply` — Project kind
 
-- [x] Add `kind:` dispatcher to `api/pkg/cli/app/apply.go`: peek at `kind` field from YAML and route `Project` to `runApplyProject()`, everything else to existing app logic
-- [x] Add `ApplyProject` client method to `api/pkg/client/` interface (new `project.go` file calling `PUT /api/v1/projects/apply`)
-- [x] Implement `runApplyProject()`: parse project YAML → resolve org → if `spec.agent` present, create/update agent app via `ToAppHelixConfig()` → call `ApplyProject` with agent app ID linked → print project ID and agent app ID
-- [ ] Add `--template` flag to `helix apply`: when set, also registers the project as an org sample project template (deferred)
-- [ ] Add `PUT /api/v1/sample-projects/simple` upsert endpoint (deferred with `--template` flag)
+- [x] Add `kind:` dispatcher to `api/pkg/cli/app/apply.go`
+- [x] Add `ApplyProject` client method (`api/pkg/client/project.go`)
+- [x] Implement `runApplyProject()` with agent create/update + project upsert
+- [ ] Verify `Startup` fields flow through automatically (they will once `ProjectSpec` has them, since `ProjectApplyRequest.Spec` is `ProjectSpec`)
+- [ ] (Deferred) Add `--template` flag for registering org sample project templates
 
 ## Server
 
-- [x] Add `PUT /api/v1/projects/apply` endpoint in `api/pkg/server/project_handlers.go` — idempotent upsert by name+org; registered before `/projects/{id}` to avoid routing conflict
+- [x] Add `PUT /api/v1/projects/apply` endpoint — idempotent upsert by name+org
+- [ ] Copy `Spec.Startup.Install` / `Spec.Startup.Start` to project model fields in `applyProject` handler (create and update paths)
+- [ ] Add DB migration for `startup_install` and `startup_start` columns on `projects` table
 
 ## K8s Operator — Bug fixes (AIApp)
 
-- [x] Fix GPTScript conversion bug in `operator/internal/controller/aiapp_controller.go` (was iterating `Zapier` — documented as unsupported since `types.AssistantConfig` has no `GPTScripts` field; Zapier conversion left correct)
-- [x] Fix Knowledge conversion: add loop to convert `assistant.Knowledge` from operator CRD types to `types.AssistantKnowledge`
-- [x] Add `HELIX_TLS_SKIP_VERIFY` env var support (was TODO'd in code)
-- [x] Add `OrganizationID` field to `AIAppSpec` in `operator/api/v1alpha1/aiapp_types.go` and pass through during create/update
-- [x] Add `Ready`, `AppID`, `LastSynced`, `Message` to `AIAppStatus` and populate after each reconcile
+- [x] Fix GPTScript conversion bug (documented as unsupported; `types.AssistantConfig` has no `GPTScripts` field)
+- [x] Fix Knowledge source conversion
+- [x] Add `HELIX_TLS_SKIP_VERIFY` env var support
+- [x] Add `OrganizationID` to `AIAppSpec`
+- [x] Add `Ready`, `AppID`, `LastSynced`, `Message` to `AIAppStatus`
 
 ## K8s Operator — Project CRD
 
-- [x] Create `operator/api/v1alpha1/project_types.go` with `Project`, `ProjectSpec`, `ProjectAgentSpec`, `ProjectAgentTools`, `ProjectStatus`, `ProjectList`
-- [x] Register `Project` and `ProjectList` in the scheme builder (`groupversion_info.go` / `init()`)
-- [x] Create `operator/internal/controller/project_controller.go`: reconcile Project CRD → create/update Helix project + agent app, use `k8s.<namespace>.<name>` as project name, handle finalizer for deletion, full status reporting
+- [x] Create `operator/api/v1alpha1/project_types.go` with `Project`, `ProjectSpec`, `ProjectStatus`, `ProjectList`
+- [x] Register `Project` and `ProjectList` in scheme builder
+- [x] Create `operator/internal/controller/project_controller.go` with full reconciler
 - [x] Register `ProjectReconciler` in `operator/cmd/main.go`
-- [x] Manually added deepcopy methods to `zz_generated.deepcopy.go` (`make generate` requires `controller-gen` binary not present in this environment)
-- [ ] Run `make generate manifests` in `operator/` to produce CRD YAML in `operator/config/crd/bases/` (requires `controller-gen`; should be done in CI or dev environment with the tool installed)
+- [x] Add deepcopy methods to `zz_generated.deepcopy.go`
+- [ ] Add `ProjectStartup` to operator's `ProjectSpec` CRD type
+- [ ] Pass `Startup` fields through in `ProjectApplyRequest` from operator reconciler
+- [ ] Improve `reconcileProjectAgent`: on subsequent reconciles, use `Status.AgentAppID` to update directly (look up by ID first, fall back to name search if ID not found/deleted)
+- [ ] Run `make generate manifests` in `operator/` (requires `controller-gen`; do in CI or dev environment)
 
 ## Examples
 
-- [x] Add `examples/project.yaml` showing a full project with inline agent (model, system_prompt, tools, one MCP)
+- [x] Add `examples/project.yaml`
+- [ ] Add `startup` block to `examples/project.yaml`
 - [ ] Update operator README with `Project` CRD docs and required RBAC
