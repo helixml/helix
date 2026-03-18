@@ -111,6 +111,39 @@ if spec.Kanban != nil && spec.Kanban.WIPLimits != nil {
 
 ---
 
+## Tasks Block Design
+
+### Purpose
+
+Allows a project YAML to seed the Kanban board with initial spec tasks. Intended for demos and shareable project templates. Production YAMLs omit this field entirely.
+
+### YAML type
+
+```go
+type ProjectTaskSpec struct {
+    Title       string `yaml:"title" json:"title"`                           // required
+    Description string `yaml:"description,omitempty" json:"description,omitempty"` // optional
+}
+```
+
+Add `Tasks []ProjectTaskSpec` to `ProjectSpec`.
+
+### Applying tasks
+
+On `applyProject`, after the project is created or updated:
+1. If `spec.Tasks` is empty, skip entirely
+2. Fetch existing spec tasks for the project
+3. For each task in `spec.Tasks`: if no existing task has the same title (case-sensitive), create it in the Planning column
+4. Never update or delete existing tasks — this is append-only and idempotent
+
+The idempotency key is `(title, project_id)`. Re-applying the same YAML is safe.
+
+### What "create a task" means
+
+Use the existing spec task creation path (same as the Kanban board UI). Tasks land in the **Planning** column with status `planning`. No special handling needed beyond calling the existing create-task store method.
+
+---
+
 ## Full YAML Schema
 
 ```yaml
@@ -150,6 +183,12 @@ spec:
       implementation: 3
       review: 3
 
+  # Optional: seed Kanban board with tasks (demo/template use; omit in production)
+  tasks:
+    - title: "Set up CI pipeline"
+      description: "Configure GitHub Actions"   # description is optional
+    - title: "Add authentication"
+
   # Inline agent (creates/updates a linked Helix App)
   agent:
     name: "Project Assistant"
@@ -183,10 +222,12 @@ spec:
 - Add `ProjectRepositorySpec` struct (`URL`, `Branch`, `Primary` fields)
 - Add `ProjectKanban` struct with `WIPLimits *ProjectWIPLimits`
 - Add `ProjectWIPLimits` struct (`Planning`, `Implementation`, `Review` ints)
+- Add `ProjectTaskSpec` struct (`Title`, `Description` fields)
 - Add to `ProjectSpec`:
   - `Repository  *ProjectRepositorySpec   yaml:"repository"`  (singular shorthand)
   - `Repositories []ProjectRepositorySpec  yaml:"repositories"`
   - `Kanban       *ProjectKanban           yaml:"kanban"`
+  - `Tasks        []ProjectTaskSpec        yaml:"tasks"`
 - Add `ValidateRepositories() error` method on `ProjectSpec` — enforces single-primary rule
 - Add `ResolvedRepositories() []ProjectRepositorySpec` — normalises singular/plural
 
@@ -196,26 +237,30 @@ spec:
 3. For each repo: find-or-create `GitRepository` by `ExternalURL`, attach to project
 4. Set primary with `SetProjectPrimaryRepository`
 5. Map `spec.Kanban` → `project.Metadata.BoardSettings.WIPLimits`
+6. For each task in `spec.Tasks`: fetch existing tasks, create only if title not already present
 
 ### `api/pkg/store/` (no new store methods needed)
 - `AttachRepositoryToProject`, `SetProjectPrimaryRepository`, `ListGitRepositories` already exist
 - May need a `GetGitRepositoryByURL(ctx, orgID, url) (*GitRepository, error)` helper if not present
+- Need to check existing task creation/listing methods for idempotent seeding
 
 ### `operator/api/v1alpha1/project_types.go`
-- Mirror the new types: `ProjectRepositorySpec`, `ProjectKanban`, `ProjectWIPLimits`
+- Mirror the new types: `ProjectRepositorySpec`, `ProjectKanban`, `ProjectWIPLimits`, `ProjectTaskSpec`
 - Add `Repository *ProjectRepositorySpec` and `Repositories []ProjectRepositorySpec` to `ProjectSpec`
 - Add `Kanban *ProjectKanban` to `ProjectSpec`
+- Add `Tasks []ProjectTaskSpec` to `ProjectSpec`
 
 ### `operator/internal/controller/project_controller.go`
 - Map operator `ProjectSpec.Repositories` → `types.ProjectSpec.Repositories` in `applyReq`
 - Map operator `ProjectSpec.Kanban` similarly
+- Map operator `ProjectSpec.Tasks` similarly
 
 ### `operator/api/v1alpha1/zz_generated.deepcopy.go`
-- Add deepcopy for `ProjectRepositorySpec`, `ProjectKanban`, `ProjectWIPLimits`
+- Add deepcopy for `ProjectRepositorySpec`, `ProjectKanban`, `ProjectWIPLimits`, `ProjectTaskSpec`
 - Update `ProjectSpec.DeepCopyInto` for new slice and pointer fields
 
 ### `examples/project.yaml`
-- Update to show multi-repo + kanban
+- Update to show multi-repo + kanban + tasks
 
 ---
 

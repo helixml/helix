@@ -8,9 +8,11 @@
 - [ ] Add `ProjectRepositorySpec` struct (`URL`, `Branch`, `Primary` bool)
 - [ ] Add `ProjectKanban` struct with `WIPLimits *ProjectWIPLimits`
 - [ ] Add `ProjectWIPLimits` struct (`Planning`, `Implementation`, `Review` int)
+- [ ] Add `ProjectTaskSpec` struct (`Title` string, `Description` string)
 - [ ] Add `Repository *ProjectRepositorySpec` (singular shorthand) to `ProjectSpec`
 - [ ] Add `Repositories []ProjectRepositorySpec` to `ProjectSpec`
 - [ ] Add `Kanban *ProjectKanban` to `ProjectSpec`
+- [ ] Add `Tasks []ProjectTaskSpec` to `ProjectSpec`
 - [ ] Add `ValidateRepositories() error` method on `ProjectSpec`
 - [ ] Add `ResolvedRepositories() []ProjectRepositorySpec` method (normalises singular/plural → always returns a slice)
 
@@ -26,6 +28,7 @@
 - [ ] For each resolved repository: find-or-create `GitRepository` by `ExternalURL`, attach to project with `AttachRepositoryToProject`
 - [ ] Set primary repository with `SetProjectPrimaryRepository` after all repos are attached
 - [ ] Map `spec.Kanban.WIPLimits` → `project.Metadata.BoardSettings.WIPLimits` on create and update
+- [ ] For each task in `spec.Tasks`: list existing project tasks, create task in Planning column only if title not already present (idempotent by title)
 
 ## CLI (`api/pkg/cli/app/apply.go`)
 
@@ -51,15 +54,15 @@
 - [ ] Registration in `operator/cmd/main.go`
 - [ ] Deepcopy methods in `zz_generated.deepcopy.go`
 - [ ] Improve `reconcileProjectAgent`: use `Status.AgentAppID` first (fast path), fall back to name search
-- [ ] Add `ProjectRepositorySpec`, `ProjectKanban`, `ProjectWIPLimits` to operator `ProjectSpec` CRD type
-- [ ] Map operator `Repositories` and `Kanban` through to `ProjectApplyRequest` in reconciler
+- [ ] Add `ProjectRepositorySpec`, `ProjectKanban`, `ProjectWIPLimits`, `ProjectTaskSpec` to operator `ProjectSpec` CRD type
+- [ ] Map operator `Repositories`, `Kanban`, and `Tasks` through to `ProjectApplyRequest` in reconciler
 - [ ] Update deepcopy for new slice/pointer fields
 - [ ] Run `make generate manifests` (requires `controller-gen`)
 
 ## Examples
 
 - [ ] `examples/project.yaml` with startup block
-- [ ] Update `examples/project.yaml` to show multi-repo + kanban
+- [ ] Update `examples/project.yaml` to show multi-repo + kanban + tasks
 
 ## Testing setup
 

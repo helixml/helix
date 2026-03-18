@@ -71,7 +71,31 @@ spec:
 
 ---
 
-### 4. Kanban board settings
+### 4. Pre-populated Kanban tasks
+
+An optional `tasks` block seeds the Kanban board with spec tasks when the YAML is first applied. Intended for demos and shared project templates — production YAMLs omit it entirely.
+
+```yaml
+spec:
+  tasks:
+    - title: "Set up CI pipeline"
+      description: "Configure GitHub Actions for build and test"
+    - title: "Add authentication"
+      description: "Implement JWT-based auth for the API"
+    - title: "Write integration tests"
+```
+
+**Acceptance Criteria:**
+- `tasks` is completely optional; omitting it has no effect
+- Each task requires a `title`; `description` is optional
+- Tasks are created in the Kanban board's **Planning** column on first apply
+- Re-applying the same YAML does **not** duplicate tasks (idempotent by title within the project)
+- Re-applying with a modified or extended `tasks` list only creates tasks that don't already exist; existing tasks are left untouched (no deletion, no update)
+- Task order in the YAML is preserved as the initial board order
+
+---
+
+### 5. Kanban board settings
 
 ```yaml
 spec:
@@ -89,7 +113,7 @@ spec:
 
 ---
 
-### 5. Full example
+### 6. Full example
 
 ```yaml
 apiVersion: helix.ml/v1alpha1
@@ -119,6 +143,14 @@ spec:
       implementation: 3
       review: 3
 
+  # Optional: seed the Kanban board with tasks (demo/template use only)
+  tasks:
+    - title: "Set up CI pipeline"
+      description: "Configure GitHub Actions for build and test"
+    - title: "Add authentication"
+      description: "Implement JWT-based auth for the API"
+    - title: "Write integration tests"
+
   agent:
     name: "Project Assistant"
     model: claude-sonnet-4-6
@@ -138,7 +170,7 @@ spec:
 
 ---
 
-### 6. Idempotency
+### 7. Idempotency
 
 Re-applying the same or updated YAML must never create duplicates.
 
@@ -147,13 +179,14 @@ Re-applying the same or updated YAML must never create duplicates.
 | Project | `(metadata.name, organization_id)` |
 | Agent app | `(agent.name, organization_id)` |
 | Repository attachment | URL match within org; attach is idempotent |
+| Kanban task | `(title, project_id)` — created if absent, never updated or deleted |
 | k8s Project | `k8s.<namespace>.<name>` |
 
 On update: only fields present in the YAML are updated. Repositories are reconciled (attach new, leave existing untouched).
 
 ---
 
-### 7. k8s operator support
+### 8. k8s operator support
 
 `kubectl apply -f project.yaml` works identically to `helix apply -f project.yaml`:
 - Creates/updates the project, attaches repositories, links agent
@@ -162,7 +195,7 @@ On update: only fields present in the YAML are updated. Repositories are reconci
 
 ---
 
-### 8. Testing approach
+### 9. Testing approach
 
 #### Testing `helix apply`
 
