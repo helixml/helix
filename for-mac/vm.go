@@ -1672,18 +1672,16 @@ func (vm *VMManager) getAppBundlePath() string {
 // getGPUHostMem returns the hostmem size for virtio-gpu-gl-pci, scaled by
 // system RAM.
 //
-// Context: 8GB M1 Air fails to boot with EDK2 "Out Of Resource!" /
-// PciHostBridgeResourceConflict, dropping to UEFI shell. 16GB M1 boots
-// fine with hostmem=1024M. Root cause unknown. The hostmem parameter
-// sets the PCI BAR size for the virtio-gpu shared memory region. The
-// QEMU virt machine's 32-bit MMIO window (VIRT_PCIE_MMIO) is ~752MB,
-// so a 1GB BAR must go in the 64-bit high MMIO region -- this works on
-// 16GB M1, so EDK2/HVF handles it. Why 8GB fails is unclear; scaling
-// hostmem down is the first thing to test.
+// Context: virtio-gpu-gl-pci with hostmem=512M combined with
+// ipa-granule-size=0x1000 (36-bit IPA space) causes a PCI host bridge
+// memory resource conflict on M1 Macs. The entire PCI bus fails to
+// initialise, making all virtio devices — including the boot disk —
+// invisible to UEFI ("Out Of Resource!" / PciHostBridgeResourceConflict).
+// 256M avoids this while still supporting 2-4 concurrent desktops.
 //
 // Each desktop needs ~64-128MB of GPU blob resources, so:
 //   - <=8GB RAM:  256M (2-4 desktops)
-//   - <=16GB RAM: 512M (4-8 desktops)
+//   - <=16GB RAM: 256M (2-4 desktops)
 //   - >16GB RAM:  1024M (8+ desktops)
 func getGPUHostMem() string {
 	memMB := getSystemMemoryMB()
@@ -1692,7 +1690,7 @@ func getGPUHostMem() string {
 	case memMB <= 8*1024:
 		hostmem = "256M"
 	case memMB <= 16*1024:
-		hostmem = "512M"
+		hostmem = "256M"
 	default:
 		hostmem = "1024M"
 	}
