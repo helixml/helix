@@ -3,7 +3,10 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/helixml/helix/api/pkg/apps"
 	"github.com/helixml/helix/api/pkg/cli"
@@ -80,14 +83,30 @@ var applyCmd = &cobra.Command{
 			return err
 		}
 
-		// Read and parse the YAML file
-		appConfig, err := apps.NewLocalApp(yamlFile)
+		// Detect kind from YAML before full parsing
+		rawYAML, err := os.ReadFile(yamlFile)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to read file: %w", err)
+		}
+		var kindDetect struct {
+			Kind string `yaml:"kind"`
+		}
+		if err := yaml.Unmarshal(rawYAML, &kindDetect); err != nil {
+			return fmt.Errorf("failed to parse YAML: %w", err)
 		}
 
 		// Create API client
 		apiClient, err := client.NewClientFromEnv()
+		if err != nil {
+			return err
+		}
+
+		if kindDetect.Kind == "Project" {
+			return runApplyProject(cmd.Context(), apiClient, rawYAML, organization)
+		}
+
+		// Read and parse the YAML file
+		appConfig, err := apps.NewLocalApp(yamlFile)
 		if err != nil {
 			return err
 		}
@@ -199,6 +218,49 @@ func updateApp(ctx context.Context, apiClient client.Client, app *types.App, app
 
 	fmt.Printf("%s\n", app.ID)
 
+	return nil
+}
+
+// runApplyProject handles `helix apply -f project.yaml` for kind: Project.
+func runApplyProject(ctx context.Context, apiClient client.Client, rawYAML []byte, orgRef string) error {
+	var crd types.ProjectCRD
+	if err := yaml.Unmarshal(rawYAML, &crd); err != nil {
+		return fmt.Errorf("failed to parse project YAML: %w", err)
+	}
+
+	name := crd.Metadata.Name
+	if name == "" {
+		name = crd.Spec.Name
+	}
+	if name == "" {
+		return fmt.Errorf("project name is required (set metadata.name or spec.name)")
+	}
+
+	// Resolve organization
+	resolvedOrgID, err := cli.ResolveOrganization(ctx, apiClient, orgRef)
+	if err != nil {
+		return fmt.Errorf("failed to resolve organization: %w", err)
+	}
+
+	req := &types.ProjectApplyRequest{
+		OrganizationID: resolvedOrgID,
+		Name:           name,
+		Spec:           crd.Spec,
+	}
+
+	resp, err := apiClient.ApplyProject(ctx, req)
+	if err != nil {
+		return fmt.Errorf("failed to apply project: %w", err)
+	}
+
+	action := "updated"
+	if resp.Created {
+		action = "created"
+	}
+	fmt.Printf("Project %s (%s)\n", action, resp.ProjectID)
+	if resp.AgentAppID != "" {
+		fmt.Printf("Agent app: %s\n", resp.AgentAppID)
+	}
 	return nil
 }
 
