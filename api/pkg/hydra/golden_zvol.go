@@ -480,15 +480,25 @@ func PromoteSessionToGoldenZvol(projectID, sessionID string) error {
 	data, _ := json.MarshalIndent(info, "", "  ")
 	_ = os.WriteFile(filepath.Join(goldenMount, "golden-version.json"), data, 0644)
 
-	// Unmount
-	_ = runCmd("umount", goldenMount)
-	_ = os.Remove(goldenMount)
+	// Flush XFS journal before snapshot — ensures clones mount instantly
+	// (no journal replay needed). Without this, every clone pays ~2.3s
+	// of journal replay on mount.
+	_ = runCmd("sync")
+	_ = runCmd("xfs_freeze", "-f", goldenMount)
 
-	// Take snapshot for future clones
+	// Take snapshot while filesystem is frozen (clean journal)
 	snapName := fmt.Sprintf("%s@gen%d", goldenName, nextGeneration)
 	if err := runCmd("zfs", "snapshot", snapName); err != nil {
+		_ = runCmd("xfs_freeze", "-u", goldenMount)
+		_ = runCmd("umount", goldenMount)
+		_ = os.Remove(goldenMount)
 		return fmt.Errorf("zfs snapshot %s failed: %w", snapName, err)
 	}
+
+	// Thaw and unmount
+	_ = runCmd("xfs_freeze", "-u", goldenMount)
+	_ = runCmd("umount", goldenMount)
+	_ = os.Remove(goldenMount)
 
 	log.Info().
 		Str("project_id", projectID).
@@ -716,17 +726,25 @@ func MigrateGoldenToZvol(projectID string) error {
 		return fmt.Errorf("seed failed: %w", err)
 	}
 
-	// Unmount
+	// Flush XFS journal before snapshot — ensures clones mount instantly
+	_ = runCmd("sync")
+	_ = runCmd("xfs_freeze", "-f", mountPath)
+
+	// Take snapshot while filesystem is frozen (clean journal)
+	snapName := fmt.Sprintf("%s@gen1", goldenName)
+	if err := runCmd("zfs", "snapshot", snapName); err != nil {
+		_ = runCmd("xfs_freeze", "-u", mountPath)
+		_ = runCmd("umount", mountPath)
+		_ = os.Remove(mountPath)
+		return fmt.Errorf("zfs snapshot failed: %w", err)
+	}
+
+	// Thaw and unmount
+	_ = runCmd("xfs_freeze", "-u", mountPath)
 	if err := runCmd("umount", mountPath); err != nil {
 		return fmt.Errorf("umount after seed failed: %w", err)
 	}
 	_ = os.Remove(mountPath)
-
-	// Snapshot
-	snapName := fmt.Sprintf("%s@gen1", goldenName)
-	if err := runCmd("zfs", "snapshot", snapName); err != nil {
-		return fmt.Errorf("zfs snapshot failed: %w", err)
-	}
 
 	log.Info().
 		Str("project_id", projectID).
