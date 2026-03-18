@@ -450,12 +450,26 @@ func DeleteGolden(projectID string) error {
 	if ZFSAvailable() {
 		goldenName := goldenZvolName(projectID)
 		if zfsDatasetExists(goldenName) {
-			// Destroy all clones first (sessions using this golden)
-			// then destroy all snapshots, then the zvol itself
-			if err := runCmd("zfs", "destroy", "-R", goldenName); err != nil {
+			// Check for active clones — refuse to delete if sessions are using this golden
+			prefix := zfsParentDataset + "/ses-"
+			out, err := execCmdOutput("zfs", "list", "-H", "-o", "name,origin", "-t", "volume", "-r", zfsParentDataset)
+			if err == nil {
+				for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+					fields := strings.Fields(line)
+					if len(fields) >= 2 && strings.HasPrefix(fields[0], prefix) {
+						origin := fields[1]
+						if strings.HasPrefix(origin, goldenName+"@") {
+							return fmt.Errorf("cannot delete golden cache: active session clone %s depends on it (stop sessions first)", fields[0])
+						}
+					}
+				}
+			}
+
+			// No active clones — safe to destroy
+			if err := runCmd("zfs", "destroy", "-r", goldenName); err != nil {
 				return fmt.Errorf("failed to destroy golden zvol %s: %w", goldenName, err)
 			}
-			log.Info().Str("project_id", projectID).Str("zvol", goldenName).Msg("Deleted golden ZFS zvol and all clones")
+			log.Info().Str("project_id", projectID).Str("zvol", goldenName).Msg("Deleted golden ZFS zvol")
 		}
 	}
 
