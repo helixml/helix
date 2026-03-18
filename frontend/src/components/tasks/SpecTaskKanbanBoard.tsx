@@ -1464,6 +1464,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             onClose={() => setBacklogExpanded(false)}
             autoStartBacklogTasks={autoStartBacklogTasks}
             onToggleAutoStart={handleToggleAutoStart}
+            projectId={projectId}
           />
         ) : isMobile ? (
           <>
