@@ -140,6 +140,12 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) shutdown(ctx context.Context) {
 	log.Println("Helix Desktop shutting down...")
 
+	// Kill QEMU first, before anything else that might block.
+	// tray.Stop() dispatches to the macOS main thread which can deadlock when
+	// called from the Wails shutdown callback (already on the main thread).
+	// QEMU must be dead before any potentially-blocking cleanup runs.
+	a.vm.ForceStop()
+
 	// Stop system tray
 	if a.tray != nil {
 		a.tray.Stop()
@@ -159,10 +165,6 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.scanoutCollector != nil {
 		a.scanoutCollector.Stop()
 	}
-
-	// Kill QEMU unconditionally — handles VMStateRunning, VMStateStarting, and
-	// any other non-stopped state. ForceStop is a no-op if no process is running.
-	a.vm.ForceStop()
 }
 
 // GetVMStatus returns the current VM status
