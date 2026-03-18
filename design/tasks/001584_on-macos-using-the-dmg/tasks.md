@@ -1,10 +1,10 @@
 # Implementation Tasks
 
-- [ ] Add `ForceStop()` method to `VMManager` in `for-mac/vm.go` that cancels the context and kills the QEMU process/process-group without checking state
-- [ ] Set `vm.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}` in `runVM()` so QEMU gets its own process group, and use `syscall.Kill(-pgid, syscall.SIGKILL)` in `ForceStop()`
-- [ ] Write QEMU PID to `~/.helix/qemu.pid` after `cmd.Start()` and delete it after `cmd.Wait()` returns
-- [ ] Update `killStaleQEMU()` to read the PID file first (direct kill), with existing lsof logic as fallback
-- [ ] In `app.go` `shutdown()`: replace `if state == VMStateRunning { vm.Stop() }` with unconditional `vm.ForceStop()`
+- [~] Add `ForceStop()` method to `VMManager` in `for-mac/vm.go` that cancels the context and kills the QEMU process/process-group without checking state
+- [~] Set `vm.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}` in `runVM()` so QEMU gets its own process group, and use `syscall.Kill(-pgid, syscall.SIGKILL)` in `ForceStop()`
+- [~] Write QEMU PID to `~/.helix/qemu.pid` after `cmd.Start()` and delete it after `cmd.Wait()` returns
+- [~] Update `killStaleQEMU()` to read the PID file first (direct kill), with existing lsof logic as fallback
+- [~] In `app.go` `shutdown()`: replace `if state == VMStateRunning { vm.Stop() }` with unconditional `vm.ForceStop()`
 - [ ] Test: quit Helix while VM is in `VMStateRunning` — no qemu process in `ps`
 - [ ] Test: quit Helix while VM is in `VMStateStarting` — no qemu process in `ps`
 - [ ] Test: force-kill Helix (`kill -9`), relaunch — stale QEMU is cleaned up on relaunch
