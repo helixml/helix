@@ -450,28 +450,39 @@ func DeleteGolden(projectID string) error {
 	if ZFSAvailable() {
 		goldenName := goldenZvolName(projectID)
 		if zfsDatasetExists(goldenName) {
-			// Destroy all session clones that originate from this golden.
-			// Stopped clones are safe to destroy (container is gone, data is
-			// disposable). Running containers will have their storage yanked
-			// but that's expected for a "clear cache" operation — the user
-			// explicitly asked to delete everything.
+			// Find all session clones that originate from this golden.
+			// Destroy stopped ones, refuse if any are still running.
 			prefix := zfsParentDataset + "/ses-"
 			out, err := execCmdOutput("zfs", "list", "-H", "-o", "name,origin", "-t", "volume", "-r", zfsParentDataset)
 			if err == nil {
+				var runningClones []string
+				var stoppedClones []string
 				for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 					fields := strings.Fields(line)
 					if len(fields) >= 2 && strings.HasPrefix(fields[0], prefix) {
 						origin := fields[1]
 						if strings.HasPrefix(origin, goldenName+"@") {
-							cloneName := fields[0]
-							sessionID := strings.TrimPrefix(cloneName, prefix)
-							log.Info().
-								Str("clone", cloneName).
-								Str("session_id", sessionID).
-								Msg("Destroying session clone before golden cache deletion")
-							_ = CleanupSessionZvol(sessionID)
+							sessionID := strings.TrimPrefix(fields[0], prefix)
+							mountPath := sessionZvolMountPath(sessionID)
+							if isMounted(mountPath) {
+								runningClones = append(runningClones, sessionID)
+							} else {
+								stoppedClones = append(stoppedClones, sessionID)
+							}
 						}
 					}
+				}
+
+				if len(runningClones) > 0 {
+					return fmt.Errorf("cannot delete golden cache: %d running session(s) depend on it (stop them first): %s",
+						len(runningClones), strings.Join(runningClones, ", "))
+				}
+
+				// Clean up stopped clones
+				for _, sessionID := range stoppedClones {
+					log.Info().Str("session_id", sessionID).
+						Msg("Destroying stopped session clone before golden cache deletion")
+					_ = CleanupSessionZvol(sessionID)
 				}
 			}
 
