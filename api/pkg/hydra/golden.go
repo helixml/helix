@@ -444,7 +444,22 @@ func CleanupSessionDockerDir(volumeName string) error {
 }
 
 // DeleteGolden removes a project's golden Docker cache snapshot.
+// Handles both file-based golden dirs and ZFS zvol-based goldens.
 func DeleteGolden(projectID string) error {
+	// Delete ZFS golden zvol if it exists
+	if ZFSAvailable() {
+		goldenName := goldenZvolName(projectID)
+		if zfsDatasetExists(goldenName) {
+			// Destroy all clones first (sessions using this golden)
+			// then destroy all snapshots, then the zvol itself
+			if err := runCmd("zfs", "destroy", "-R", goldenName); err != nil {
+				return fmt.Errorf("failed to destroy golden zvol %s: %w", goldenName, err)
+			}
+			log.Info().Str("project_id", projectID).Str("zvol", goldenName).Msg("Deleted golden ZFS zvol and all clones")
+		}
+	}
+
+	// Delete file-based golden dir if it exists
 	projectDir := filepath.Join(goldenBaseDir, projectID)
 	if _, err := os.Stat(projectDir); os.IsNotExist(err) {
 		return nil // nothing to delete
