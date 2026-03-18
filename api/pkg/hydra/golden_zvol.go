@@ -325,15 +325,13 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	// XFS refuses to mount two filesystems with the same UUID. The clone
-	// inherits the golden's UUID, so we must generate a new one before mounting.
-	if err := runCmd("xfs_admin", "-U", "generate", devPath); err != nil {
-		_ = runCmd("zfs", "destroy", cloneName)
-		return "", fmt.Errorf("xfs_admin UUID change failed on %s: %w", devPath, err)
-	}
-
-	// Mount the clone
-	if err := mountZvol(cloneName, mountPath); err != nil {
+	// Mount the clone with -o nouuid. XFS refuses to mount two filesystems
+	// with the same UUID, and clones inherit the golden's UUID. We can't use
+	// xfs_admin -U generate because the clone's XFS log may have unplayed
+	// entries from the golden build, which xfs_admin refuses to modify.
+	// nouuid skips the UUID check entirely — safe because each clone is on
+	// its own separate block device (zvol).
+	if err := mountZvolWithOptions(cloneName, mountPath, "nouuid"); err != nil {
 		// Cleanup the clone on mount failure
 		_ = runCmd("zfs", "destroy", cloneName)
 		return "", fmt.Errorf("failed to mount clone %s at %s: %w", cloneName, mountPath, err)
@@ -844,10 +842,18 @@ func seedZvolFromGoldenDir(projectID, zvolMountPath string) error {
 
 // mountZvol mounts a zvol at the given path.
 func mountZvol(zvolName, mountPath string) error {
+	return mountZvolWithOptions(zvolName, mountPath, "")
+}
+
+// mountZvolWithOptions mounts a zvol with optional mount options (e.g. "nouuid" for XFS).
+func mountZvolWithOptions(zvolName, mountPath, options string) error {
 	if err := osMkdirAll(mountPath, 0755); err != nil {
 		return fmt.Errorf("failed to create mount point %s: %w", mountPath, err)
 	}
 	devPath := zvolDevPath(zvolName)
+	if options != "" {
+		return runCmd("mount", "-o", options, devPath, mountPath)
+	}
 	return runCmd("mount", devPath, mountPath)
 }
 
