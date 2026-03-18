@@ -160,10 +160,9 @@ func (a *App) shutdown(ctx context.Context) {
 		a.scanoutCollector.Stop()
 	}
 
-	// Stop VM if running
-	if a.vm.GetStatus().State == VMStateRunning {
-		a.vm.Stop()
-	}
+	// Kill QEMU unconditionally — handles VMStateRunning, VMStateStarting, and
+	// any other non-stopped state. ForceStop is a no-op if no process is running.
+	a.vm.ForceStop()
 }
 
 // GetVMStatus returns the current VM status
