@@ -138,8 +138,8 @@ Because the task is still in `spec_generation` status, the UI shows it in the "P
 - `ses_01kkv1p6j` (10:04:57) — name "project update:...", no `agent_type`, no `external_agent_status`
 - `ses_01kkv1p7n` (10:04:58) — name "Spec Generation:...", `agent_type=zed_external`
 
-The spectask's `planning_session_id` correctly points to the second one. The first appears to be a project-level session (different name prefix) that was created in the same click — possibly a race between the project update flow and the spectask planning flow both triggering session creation.
+The spectask's `planning_session_id` correctly points to the second one. Both sessions have `spec_task_id` set to the same spectask. The first has no `agent_type` (incomplete creation), the second has `agent_type=zed_external` (correct). Both are spectask sessions — this is a race condition in session creation, not a project exploratory session.
 
-**Impact**: Unclear if this caused any issues directly, but having two sessions referencing the same spectask in their config could confuse the prompt queue (`processPendingPromptsForIdleSessions`), which scans all sessions for a spectask and may find both.
+**Impact**: Having two sessions for one spectask is likely the root cause of the duplicate message sends (issue #2). `processPendingPromptsForIdleSessions` scans sessions by spectask ID and may find both, sending the same prompt to both (or sending it twice through the active one). This would also explain the agent jumping from spec to implementation — it received contradictory instructions from two concurrent message delivery paths.
 
-**Needs investigation**: Why did two sessions get created? Is the project exploratory session flow racing with the spectask planning flow?
+**Fix needed**: Spectask session creation must be idempotent — check if a session already exists for this spectask before creating a new one. Or use a per-spectask lock to prevent concurrent session creation.
