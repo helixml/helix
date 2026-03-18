@@ -2,7 +2,7 @@
 
 ## Critical (unrecoverable UX)
 
-- [ ] **#1a** `hydra_executor.go` `StartDesktop`: add `defer` after setting status `"starting"` that calls `setExternalAgentStatus(context.Background(), sessionID, "")` if the function returns a non-nil error
+- [~] **#1a** `hydra_executor.go` `StartDesktop`: add `defer` after setting status `"starting"` that calls `setExternalAgentStatus(context.Background(), sessionID, "")` if the function returns a non-nil error
 - [ ] **#1b** `hydra_executor.go` `StartDesktop`: give `waitForDesktopBridge` its own 90-second `context.WithTimeout(context.Background(), 90*time.Second)` — decoupled from `dockerCtx` so container creation time doesn't consume the bridge wait budget
 - [ ] **#4** `hydra_executor.go` `StopDesktop`: add `h.setExternalAgentStatus(ctx, sessionID, "")` and `h.updateSessionStatusMessage(ctx, sessionID, "")` unconditionally before returning `nil`
 - [ ] **#5** Frontend: find the component that shows "Starting Desktop..." and add a Stop/Restart button visible in the `"starting"` state; add a 2-minute client-side timeout that shows "Desktop may have failed to start — click to retry"
@@ -20,7 +20,7 @@
 
 ## Merge prerequisite
 
-- [ ] Merge PR #1947 (`fix/xfs-nouuid-mount`) which contains: `mount -o nouuid`, `DeleteGolden` clone cleanup, `RecoverStaleBuilds` 60s retry; run `./stack build-sandbox` after merge
+- [x] Merge PR #1947 (`fix/xfs-nouuid-mount`) which contains: `mount -o nouuid`, `DeleteGolden` clone cleanup, `RecoverStaleBuilds` 60s retry; run `./stack build-sandbox` after merge
 
 ## Verification
 
