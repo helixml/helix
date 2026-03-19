@@ -113,7 +113,14 @@ import {
 // Module-level set: tracks which task IDs have already had their spec auto-opened
 // in this SPA session. Persists across component unmount/remount so that navigating
 // back from the spec review page does not immediately redirect the user again.
-const autoOpenedSpecTasks = new Set<string>();
+const AUTO_OPENED_KEY = "helix_auto_opened_spec_tasks";
+const getAutoOpenedSpecTasks = (): Set<string> =>
+  new Set(JSON.parse(sessionStorage.getItem(AUTO_OPENED_KEY) || "[]"));
+const addAutoOpenedSpecTask = (id: string) => {
+  const set = getAutoOpenedSpecTasks();
+  set.add(id);
+  sessionStorage.setItem(AUTO_OPENED_KEY, JSON.stringify([...set]));
+};
 
 interface SpecTaskDetailContentProps {
   taskId: string;
@@ -352,7 +359,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  // (auto-open tracking is handled by the module-level autoOpenedSpecTasks Set)
+  // (auto-open tracking is handled by sessionStorage so it persists across page refreshes)
 
   // Clone dialog state
   const [showCloneDialog, setShowCloneDialog] = useState(false);
@@ -820,17 +827,17 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Auto-open spec review when task is in spec_review or spec_revision status
   // and design docs are available - triggers once per SPA session per task ID.
-  // Uses module-level Set so navigating back from the review doesn't re-trigger.
+  // Uses sessionStorage so navigating back from the review doesn't re-trigger, even after a page refresh.
   useEffect(() => {
     if (
       task?.id &&
-      !autoOpenedSpecTasks.has(task.id) &&
+      !getAutoOpenedSpecTasks().has(task.id) &&
       task?.design_docs_pushed_at &&
       account.organizationTools.organization?.name &&
       (task?.status === TypesSpecTaskStatus.TaskStatusSpecReview ||
         task?.status === TypesSpecTaskStatus.TaskStatusSpecRevision)
     ) {
-      autoOpenedSpecTasks.add(task.id);
+      addAutoOpenedSpecTask(task.id);
       handleReviewSpec();
     }
   }, [task?.id, task?.status, task?.design_docs_pushed_at, handleReviewSpec, account.organizationTools.organization?.name]);
