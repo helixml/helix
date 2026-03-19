@@ -1,25 +1,25 @@
 # Implementation Tasks
 
 ## Module Update
-- [~] Run `go get github.com/helixml/kodit@417f16b7dfce928b0e9d1a888454cfc6cbe98892` in `api/` and commit updated `go.mod` / `go.sum`
+- [x] Run `go get github.com/helixml/kodit@417f16b7dfce928b0e9d1a888454cfc6cbe98892` in `api/` and commit updated `go.mod` / `go.sum`
 
 ## Database
-- [ ] Add `KoditRepositoryID *int64` field (with `gorm:"column:kodit_repository_id"`) to `DataEntity` struct in `api/pkg/types/types.go`
+- [~] Add `KoditRepositoryID *int64` field (with `gorm:"column:kodit_repository_id"`) to `DataEntity` struct in `api/pkg/types/types.go`
 
 ## Config
-- [ ] Add `RAGProviderKodit RAGProvider = "kodit"` constant to `api/pkg/config/config.go`
+- [~] Add `RAGProviderKodit RAGProvider = "kodit"` constant to `api/pkg/config/config.go`
 
 ## RAG Interface
-- [ ] Add `KoditIndexer` interface to `api/pkg/rag/rag.go` with method `RegisterDirectory(ctx context.Context, dataEntityID string, localPath string) error`
+- [~] Add `KoditIndexer` interface to `api/pkg/rag/rag.go`; also export `InitKodit`/`KoditResult` from server pkg and update `NewServer` to accept pre-initialized result
 
 ## KoditRAG Implementation
-- [ ] Create `api/pkg/rag/rag_kodit.go` (build tag `//go:build !nokodit`) implementing `rag.RAG` and `rag.KoditIndexer`:
+- [~] Create `api/pkg/rag/rag_kodit.go` (build tag `//go:build !nokodit`) implementing `rag.RAG` and `rag.KoditIndexer`:
   - `NewKoditRAG(kodit services.KoditServicer, store store.Store, fsCfg config.FileStore) *KoditRAG`
   - `Index()` returns nil (no-op)
-  - `RegisterDirectory()` calls `koditService.RegisterRepository` with `file://localPath`, fetches DataEntity, sets `KoditRepositoryID`, saves via store
+  - `RegisterDirectory()` calls `koditService.RegisterRepository` with `file://localPath`, creates/updates DataEntity with `KoditRepositoryID`
   - `Query()` fetches DataEntity, asserts `KoditRepositoryID != nil`, calls `SemanticSearch`, maps results to `[]*types.SessionRAGResult`
   - `Delete()` fetches DataEntity, calls `DeleteRepository` if `KoditRepositoryID != nil`
-- [ ] Create `api/pkg/rag/rag_kodit_nokodit.go` (build tag `//go:build nokodit`) with stub returning "kodit support not compiled in" error
+- [~] Create `api/pkg/rag/rag_kodit_nokodit.go` (build tag `//go:build nokodit`) with stub returning "kodit support not compiled in" error
 
 ## Knowledge Reconciler
 - [ ] In `api/pkg/controller/knowledge/knowledge_indexer.go`, add a check before `getIndexingData()`: if RAG client implements `rag.KoditIndexer` and source is filestore, call `RegisterDirectory` and skip the normal extraction pipeline
