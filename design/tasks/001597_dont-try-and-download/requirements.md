@@ -1,23 +1,20 @@
-# Requirements: Don't Download Sessions for Stopped Desktops
+# Requirements: Don't Download Session Objects on the Kanban View
 
 ## Problem
 
-The Kanban (specs) page downloads the full session object (`GET /api/v1/sessions/{id}`) for every task card every 3 seconds via `useSandboxState` in `ExternalAgentDesktopViewer.tsx`. This happens regardless of whether the desktop is stopped, absent, or has never been started. Session objects are very large, causing hundreds of MB of unnecessary data transfer just from viewing the page.
+The Kanban (specs) page calls `GET /api/v1/sessions/{id}` every 3 seconds for every task card via `useSandboxState` in `ExternalAgentDesktopViewer.tsx`. Session objects are very large (full interaction history). With many tasks visible, this causes hundreds of MB of unnecessary data transfer just from browsing the board.
 
-## Root Cause
-
-`useSandboxState` polls the full session endpoint to check `config.external_agent_status`. It does this on a 3-second interval for every task that has a `planning_session_id` and isn't in `completed` phase or merged to main — even when the desktop is known to be stopped.
-
-**File:** `frontend/src/components/external-agent/ExternalAgentDesktopViewer.tsx:85`
+The hook only needs 4 small fields from the session config — and the `listTasks` backend handler already batch-fetches those same sessions to populate `session_updated_at`. Those sessions contain the sandbox state fields; they're just not returned.
 
 ## User Stories
 
 - As a user viewing the Kanban board, I should not be downloading hundreds of MB of data just by looking at the page.
-- As a user with many spec tasks, the Kanban page should remain performant and lightweight regardless of how many tasks exist.
+- As a user with many spec tasks, the Kanban page should remain fast regardless of how many task cards are visible.
 
 ## Acceptance Criteria
 
-1. When a task's desktop is in a stopped/absent state, `useSandboxState` stops polling (or never starts) until the user explicitly starts the desktop.
-2. The Kanban page does not make repeated `GET /api/v1/sessions/{id}` calls for desktops that are not running.
-3. Tasks that have active/running desktops continue to poll normally.
-4. Newly started desktops resume polling without a page refresh.
+1. `GET /api/v1/spec-tasks` includes sandbox state fields inline on each task.
+2. The Kanban page makes **zero** calls to `GET /api/v1/sessions/{id}`.
+3. Sandbox state (running / starting / absent) still displays correctly on all task cards.
+4. Status messages (e.g. "Unpacking build cache") still display correctly.
+5. State updates when the task list refreshes (consistent with existing refresh cadence).

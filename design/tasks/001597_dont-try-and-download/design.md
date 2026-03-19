@@ -1,56 +1,69 @@
-# Design: Don't Download Sessions for Stopped Desktops
+# Design: Embed Sandbox State in the Task List Response
 
 ## Root Cause
 
-`useSandboxState` in `ExternalAgentDesktopViewer.tsx` calls `GET /api/v1/sessions/{id}` (the full session object) every 3 seconds per task card. It only uses four fields from it:
+`useSandboxState` in `ExternalAgentDesktopViewer.tsx` calls `GET /api/v1/sessions/{id}` every 3 seconds per task card. It only uses 4 fields from the response:
 
 - `config.external_agent_status` — "stopped" / "running" / "starting"
 - `config.desired_state` — "running" / "stopped"
 - `config.container_name` — existence check only
-- `config.status_message` — transient message e.g. "Unpacking build cache (2.1/7.0 GB)"
+- `config.status_message` — transient message e.g. "Unpacking build cache"
 
-There is already a lightweight endpoint `GET /api/v1/sessions/{id}/sandbox-state` but it's too basic: it only checks `session.SandboxID != ""` and returns "running" or "absent". It doesn't handle "starting", `desired_state`, `status_message`, or `external_agent_status`.
+## Approach: Inline in the Task List
 
-## Fix
+The `listTasks` handler (`spec_driven_task_handlers.go:226`) already batch-fetches all sessions via `GetSessionsByIDs` to populate `session_updated_at`. While those sessions are in memory, derive the sandbox state from their config and add it to the task struct. No extra DB queries needed.
 
-Two-part change:
+### 1. Add fields to `SpecTask` (backend type)
 
-### 1. Extend the backend `/sandbox-state` endpoint
-
-Add the missing fields to `SessionSandboxStateResponse` and populate them from session config:
+In `api/pkg/types/simple_spec_task.go`, add computed (not stored) fields:
 
 ```go
-type SessionSandboxStateResponse struct {
-    SessionID     string `json:"session_id"`
-    State         string `json:"state"`          // "absent", "running", "starting"
-    ContainerID   string `json:"container_id,omitempty"`
-    StatusMessage string `json:"status_message,omitempty"` // transient message
-}
+// Sandbox state — populated from session config in listTasks, not stored in DB
+SandboxState         string `json:"sandbox_state,omitempty" gorm:"-"`          // "absent", "running", "starting"
+SandboxStatusMessage string `json:"sandbox_status_message,omitempty" gorm:"-"` // transient status
 ```
 
-Derive `State` using the same logic currently in `useSandboxState`:
-- `external_agent_status == "stopped"` OR `desired_state == "stopped"` → "absent"
-- `external_agent_status == "running"` OR (`container_name != ""` AND `desired_state == "running"`) → "running"
-- `external_agent_status == "starting"` OR (`container_name == ""` AND `desired_state == "running"`) → "starting"
-- default → "absent"
+### 2. Populate in `listTasks`
 
-Return `status_message` from `config.status_message`.
+In the existing session loop in `spec_driven_task_handlers.go`, after setting `task.SessionUpdatedAt`, also derive sandbox state using the same logic currently in `useSandboxState`:
 
-Run `./stack update_openapi` to regenerate the frontend API client.
+```go
+cfg := session.Config
+status := cfg.ExternalAgentStatus  // "stopped", "running", "starting"
+desiredState := cfg.DesiredState   // "running", "stopped"
+hasContainer := cfg.ContainerName != ""
 
-### 2. Switch `useSandboxState` to use the lightweight endpoint
+switch {
+case status == "stopped" || desiredState == "stopped":
+    task.SandboxState = "absent"
+case status == "running" || (hasContainer && desiredState == "running"):
+    task.SandboxState = "running"
+case status == "starting" || (!hasContainer && desiredState == "running"):
+    task.SandboxState = "starting"
+default:
+    task.SandboxState = "absent"
+}
+task.SandboxStatusMessage = cfg.StatusMessage
+```
 
-Replace `apiClient.v1SessionsDetail(sessionId)` with `apiClient.v1SessionsSandboxStateDetail(sessionId)` and map the response fields directly. No logic change — just a different (tiny) response.
+### 3. Remove `useSandboxState` polling in frontend
+
+`ExternalAgentDesktopViewer.tsx` currently polls independently. Since sandbox state is now in the task object (which the Kanban already refreshes), change `useSandboxState` to accept the state as a prop instead of fetching it. The hook's polling interval (`setInterval` at line 85) is removed entirely.
+
+Pass `task.sandbox_state` and `task.sandbox_status_message` from the task card down into the viewer.
+
+Run `./stack update_openapi` after changing the Go type to regenerate the frontend API client.
 
 ## Key Files
 
 | File | Change |
 |------|--------|
-| `api/pkg/server/agent_sandboxes_handlers.go:80` | Extend `SessionSandboxStateResponse`, fix `getSessionSandboxState` logic |
-| `api/pkg/server/swagger.json` + `docs.go` + `swagger.yaml` | Regenerated via `./stack update_openapi` |
+| `api/pkg/types/simple_spec_task.go` | Add `SandboxState`, `SandboxStatusMessage` fields (gorm:"-") |
+| `api/pkg/server/spec_driven_task_handlers.go:243` | Populate sandbox state from session config in existing session loop |
+| `frontend/src/components/external-agent/ExternalAgentDesktopViewer.tsx` | Remove polling; accept sandbox state as props |
+| `frontend/src/components/tasks/TaskCard.tsx` | Pass `task.sandbox_state` / `task.sandbox_status_message` to viewer |
 | `frontend/src/api/api.ts` | Regenerated via `./stack update_openapi` |
-| `frontend/src/components/external-agent/ExternalAgentDesktopViewer.tsx:43` | Switch to `v1SessionsSandboxStateDetail` |
 
 ## Result
 
-A stopped task card makes exactly 0 repeated requests (or 1 per render if we keep the initial fetch, which returns immediately as "absent"). A running task card fetches ~200 bytes every 3 seconds instead of the full session object.
+Zero calls to `GET /api/v1/sessions/{id}` from the Kanban view. Sandbox state updates at the same cadence as the task list refresh. No separate polling loop needed anywhere on the board.

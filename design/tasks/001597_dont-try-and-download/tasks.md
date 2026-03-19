@@ -1,7 +1,9 @@
 # Implementation Tasks
 
-- [ ] In `api/pkg/server/agent_sandboxes_handlers.go`, add `StatusMessage string` to `SessionSandboxStateResponse` and rewrite `getSessionSandboxState` to derive state from `session.Config` fields (`external_agent_status`, `desired_state`, `container_name`, `status_message`) using the same logic currently in `useSandboxState`
-- [ ] Run `./stack update_openapi` to regenerate the frontend API client (`frontend/src/api/api.ts`)
-- [ ] In `ExternalAgentDesktopViewer.tsx`, replace `apiClient.v1SessionsDetail(sessionId)` with `apiClient.v1SessionsSandboxStateDetail(sessionId)` and map `response.data.state` / `response.data.status_message` directly
-- [ ] Verify the Kanban board no longer calls `GET /api/v1/sessions/{id}` for task cards (check Network tab)
-- [ ] Verify running desktops still show correct state transitions (absent → starting → running)
+- [ ] In `api/pkg/types/simple_spec_task.go`, add `SandboxState string` and `SandboxStatusMessage string` fields with `gorm:"-"` and appropriate JSON tags
+- [ ] In `api/pkg/server/spec_driven_task_handlers.go`, inside the existing session loop (around line 243), derive sandbox state from `session.Config` fields (`ExternalAgentStatus`, `DesiredState`, `ContainerName`, `StatusMessage`) using the same logic as `useSandboxState`, and assign to `task.SandboxState` / `task.SandboxStatusMessage`
+- [ ] Run `./stack update_openapi` to regenerate `frontend/src/api/api.ts`
+- [ ] In `ExternalAgentDesktopViewer.tsx`, remove the `setInterval` polling loop from `useSandboxState`; change it to accept sandbox state as props passed in from the parent task card
+- [ ] In `TaskCard.tsx` (and wherever `ExternalAgentDesktopViewer` is used in the Kanban view), pass `task.sandbox_state` and `task.sandbox_status_message` as props instead of the session ID for polling
+- [ ] Verify in the browser Network tab that `GET /api/v1/sessions/{id}` is never called while browsing the Kanban board
+- [ ] Verify sandbox state (absent / starting / running) still displays correctly on task cards
