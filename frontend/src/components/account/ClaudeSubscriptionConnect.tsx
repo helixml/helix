@@ -322,6 +322,9 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
   const { isRunning } = useSandboxState(sessionId)
   const [authUrl, setAuthUrl] = useState<string | null>(null)
   const [loginError, setLoginError] = useState<string | null>(null)
+  const [authInProgress, setAuthInProgress] = useState(false)
+  const popupRef = useRef<Window | null>(null)
+  const popupPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Once the desktop is running, send the `claude auth login` command
   useEffect(() => {
@@ -345,6 +348,72 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
     const timeout = setTimeout(sendLoginCommand, 3000)
     return () => clearTimeout(timeout)
   }, [isRunning, loginCommandSent, sessionId])
+
+  // Open auth URL in a popup and poll its location to intercept the callback.
+  // After authorization, Claude redirects to http://localhost:PORT/callback?code=CODE&state=STATE.
+  // The browser can't reach localhost (it's inside the container), but we can read the URL
+  // from the popup before it fully loads, extract the code, and forward it.
+  const handleOpenAuth = useCallback(() => {
+    if (!authUrl) return
+    setAuthInProgress(true)
+
+    // For Mac app (iframe in WKWebView), fall back to opening externally
+    if (window.parent !== window) {
+      openExternalUrl(authUrl)
+      return
+    }
+
+    const popup = window.open(authUrl, 'claude-auth', 'width=600,height=700')
+    popupRef.current = popup
+
+    // Poll the popup's URL to catch the localhost redirect
+    popupPollRef.current = setInterval(() => {
+      try {
+        if (!popup || popup.closed) {
+          clearInterval(popupPollRef.current!)
+          popupPollRef.current = null
+          setAuthInProgress(false)
+          return
+        }
+        // Reading popup.location.href throws when on a different origin (claude.ai).
+        // It only succeeds when the popup navigates to localhost (same-origin-ish) or
+        // when the page fails to load (about:blank-like state with the URL visible).
+        const popupUrl = popup.location.href
+        if (popupUrl && popupUrl.includes('/callback?') && popupUrl.includes('code=')) {
+          clearInterval(popupPollRef.current!)
+          popupPollRef.current = null
+          popup.close()
+
+          // Extract code and state from the callback URL
+          const params = new URL(popupUrl).searchParams
+          const code = params.get('code')
+          const state = params.get('state')
+          if (code && state) {
+            // Forward to container's callback server
+            const callbackUrl = popupUrl.split('?')[0] + '?code=' + encodeURIComponent(code) + '&state=' + encodeURIComponent(state)
+            api.getApiClient().v1ExternalAgentsExecCreate(sessionId, {
+              command: ['helix-claude-auth-submit', callbackUrl],
+              background: false,
+              env: {},
+            }).catch((err: any) => {
+              console.error('Failed to forward auth code:', err)
+              setLoginError('Failed to complete authentication. Please try again.')
+            })
+          }
+        }
+      } catch {
+        // Cross-origin — popup is still on claude.ai, keep polling
+      }
+    }, 500)
+  }, [authUrl, sessionId])
+
+  // Clean up popup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (popupPollRef.current) clearInterval(popupPollRef.current)
+      if (popupRef.current && !popupRef.current.closed) popupRef.current.close()
+    }
+  }, [])
 
   // Once login command is sent, start polling for credentials (and OAuth URL).
   // Use a ref guard instead of state in deps to prevent the effect cleanup
@@ -453,24 +522,29 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
           </Box>
         ) : (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <Button
-              variant="contained"
-              color="primary"
-              size="large"
-              onClick={() => openExternalUrl(authUrl!)}
-              fullWidth
-            >
-              Open Claude Sign-in Page
-            </Button>
-            <Alert severity="info">
-              Sign in and authorize access. You'll be redirected back automatically.
-            </Alert>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <CircularProgress size={16} />
-              <Typography variant="body2" color="text.secondary">
-                Waiting for authentication to complete...
-              </Typography>
-            </Box>
+            {!authInProgress ? (
+              <Button
+                variant="contained"
+                color="primary"
+                size="large"
+                onClick={handleOpenAuth}
+                fullWidth
+              >
+                Open Claude Sign-in Page
+              </Button>
+            ) : (
+              <>
+                <Alert severity="info">
+                  Complete the sign-in in the popup window. This dialog will update automatically.
+                </Alert>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <CircularProgress size={16} />
+                  <Typography variant="body2" color="text.secondary">
+                    Waiting for authentication to complete...
+                  </Typography>
+                </Box>
+              </>
+            )}
           </Box>
         )}
       </DialogContent>

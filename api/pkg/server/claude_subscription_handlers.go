@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -587,33 +586,13 @@ func (apiServer *HelixAPIServer) pollClaudeLogin(_ http.ResponseWriter, req *htt
 		}
 	}
 
-	// Read the BROWSER-captured URL. This URL uses redirect_uri=http://localhost:PORT/callback
-	// which matches what claude's local callback server expects for the token exchange.
-	// We rewrite the redirect_uri to point to our proxy endpoint so the user gets a nice
-	// success page instead of a broken localhost page.
+	// Read the BROWSER-captured URL. This uses redirect_uri=http://localhost:PORT/callback
+	// which matches claude's local callback server for the token exchange.
+	// The frontend opens this in a popup and intercepts the redirect to extract the code.
 	urlOutput, urlErr := apiServer.execInContainer(req.Context(), runnerID,
 		[]string{"cat", "/tmp/claude-auth-url.txt"})
-	if urlErr == nil && strings.TrimSpace(urlOutput) != "" {
-		capturedURL := strings.TrimSpace(urlOutput)
-		// Build our proxy callback URL
-		scheme := "https"
-		if req.TLS == nil && !strings.Contains(req.Host, "helix.ml") {
-			scheme = "http"
-		}
-		proxyCallbackURL := fmt.Sprintf("%s://%s/api/v1/claude-auth-callback/%s", scheme, req.Host, sessionID)
-
-		// Rewrite the redirect_uri in the authorize URL to use our proxy.
-		u, parseErr := url.Parse(capturedURL)
-		if parseErr != nil {
-			return &ClaudePollLoginResponse{Found: false, URL: capturedURL}, nil
-		}
-		q := u.Query()
-		q.Set("redirect_uri", proxyCallbackURL)
-		// Remove code=true since we're using the localhost flow via proxy
-		q.Del("code")
-		u.RawQuery = q.Encode()
-		rewrittenURL := u.String()
-		return &ClaudePollLoginResponse{Found: false, URL: rewrittenURL}, nil
+	if urlErr == nil && strings.HasPrefix(strings.TrimSpace(urlOutput), "https://") {
+		return &ClaudePollLoginResponse{Found: false, URL: strings.TrimSpace(urlOutput)}, nil
 	}
 
 	// Fallback: parse stdout URL
@@ -623,9 +602,12 @@ func (apiServer *HelixAPIServer) pollClaudeLogin(_ http.ResponseWriter, req *htt
 		for _, line := range strings.Split(stdoutOutput, "\n") {
 			line = strings.TrimSpace(line)
 			if strings.HasPrefix(line, "If the browser didn't open, visit:") {
-				url := strings.TrimSpace(strings.TrimPrefix(line, "If the browser didn't open, visit:"))
-				if strings.HasPrefix(url, "https://") {
-					return &ClaudePollLoginResponse{Found: false, URL: url}, nil
+				after, found := strings.CutPrefix(line, "If the browser didn't open, visit:")
+				if found {
+					trimmed := strings.TrimSpace(after)
+					if strings.HasPrefix(trimmed, "https://") {
+						return &ClaudePollLoginResponse{Found: false, URL: trimmed}, nil
+					}
 				}
 			}
 			if strings.HasPrefix(line, "https://claude.ai/oauth") {
@@ -635,87 +617,6 @@ func (apiServer *HelixAPIServer) pollClaudeLogin(_ http.ResponseWriter, req *htt
 	}
 
 	return &ClaudePollLoginResponse{Found: false}, nil
-}
-
-// handleClaudeAuthCallback proxies the OAuth callback from Claude to the
-// container's local callback server. After the user authorizes on Claude's site,
-// Claude redirects to this endpoint with ?code=...&state=... . We forward that
-// to http://localhost:PORT/callback inside the container via RevDial, then show
-// a "success" page so the user can close the tab.
-func (apiServer *HelixAPIServer) handleClaudeAuthCallback(w http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	sessionID := vars["sessionId"]
-	code := req.URL.Query().Get("code")
-	state := req.URL.Query().Get("state")
-
-	if code == "" || state == "" {
-		http.Error(w, "missing code or state parameter", http.StatusBadRequest)
-		return
-	}
-
-	runnerID := fmt.Sprintf("desktop-%s", sessionID)
-
-	// Read the BROWSER-captured URL to get the localhost port
-	urlOutput, err := apiServer.execInContainer(req.Context(), runnerID,
-		[]string{"cat", "/tmp/claude-auth-url.txt"})
-	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Claude auth callback: failed to read auth URL")
-		http.Error(w, "container not ready", http.StatusServiceUnavailable)
-		return
-	}
-
-	// Extract the localhost port from the captured URL
-	// URL looks like: https://claude.ai/oauth/authorize?...&redirect_uri=http%3A%2F%2Flocalhost%3A37093%2Fcallback&...
-	capturedURL := strings.TrimSpace(urlOutput)
-	portStart := strings.Index(capturedURL, "localhost%3A")
-	if portStart == -1 {
-		portStart = strings.Index(capturedURL, "localhost:")
-	}
-	var port string
-	if portStart != -1 {
-		// Handle both URL-encoded (%3A) and plain (:) formats
-		rest := capturedURL[portStart:]
-		if strings.HasPrefix(rest, "localhost%3A") {
-			rest = rest[len("localhost%3A"):]
-		} else {
-			rest = rest[len("localhost:"):]
-		}
-		for i, c := range rest {
-			if c < '0' || c > '9' {
-				port = rest[:i]
-				break
-			}
-		}
-		if port == "" {
-			port = rest
-		}
-	}
-
-	if port == "" {
-		log.Error().Str("session_id", sessionID).Str("url", capturedURL).Msg("Claude auth callback: could not extract port")
-		http.Error(w, "could not determine callback port", http.StatusInternalServerError)
-		return
-	}
-
-	// Forward the code to claude's local callback server inside the container
-	// using helix-claude-auth-submit which is in the exec allowlist.
-	callbackURL := fmt.Sprintf("http://localhost:%s/callback?code=%s&state=%s", port, code, state)
-	_, execErr := apiServer.execInContainer(req.Context(), runnerID,
-		[]string{"helix-claude-auth-submit", callbackURL})
-	if execErr != nil {
-		log.Error().Err(execErr).Str("session_id", sessionID).Msg("Claude auth callback: failed to forward code")
-		// Still show success page — the user doesn't need to know about the internal error
-	}
-
-	// Show a nice success page
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, `<!DOCTYPE html>
-<html><head><title>Authentication Complete</title>
-<style>body{font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#1a1a2e;color:#e0e0e0}
-.card{text-align:center;padding:3rem;border-radius:12px;background:#16213e;box-shadow:0 4px 24px rgba(0,0,0,.3)}
-h1{color:#4ecca3;margin-bottom:.5rem}p{color:#a0a0b0}</style></head>
-<body><div class="card"><h1>Authentication Complete</h1><p>You can close this tab and return to Helix.</p></div></body></html>`)
 }
 
 // execInContainer runs a command inside a desktop container via RevDial and
