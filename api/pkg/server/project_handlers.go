@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
@@ -2481,9 +2482,17 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 			if branch == "" {
 				branch = "main"
 			}
-			repo = &types.GitRepository{
+			// Derive a short human-readable name from the URL (e.g. "robot-hq" from
+		// "https://github.com/binocarlos/robot-hq"). This name is used as the
+		// workspace directory name inside the sandbox (/home/retro/work/<name>),
+		// so it must never be the full URL string.
+		repoName := strings.TrimSuffix(path.Base(repoSpec.URL), ".git")
+		if repoName == "" || repoName == "." {
+			repoName = repoSpec.URL
+		}
+		repo = &types.GitRepository{
 				ID:             system.GenerateUUID(),
-				Name:           repoSpec.URL,
+				Name:           repoName,
 				OrganizationID: orgID,
 				OwnerID:        user.ID,
 				RepoType:       types.GitRepositoryTypeCode,
