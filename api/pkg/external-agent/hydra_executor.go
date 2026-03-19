@@ -335,6 +335,16 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Str("container_type", string(req.ContainerType)).
 		Msg("Creating dev container via Hydra")
 
+	// Detach from the HTTP request context before any long-running work.
+	// Container creation (ZFS clone + Docker pull) can take several minutes.
+	// If the user navigates away the browser closes the connection, cancelling
+	// the request context — we must NOT abort a ZFS clone or Docker start
+	// mid-flight because of that. Use a background context with a hard upper
+	// bound instead. All operations below this line use startCtx.
+	startCtx, startCancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer startCancel()
+	ctx = startCtx //nolint:govet // intentional shadow — request ctx no longer needed
+
 	// Mark session as "starting" so the frontend shows the starting UI
 	// (with progress messages) instead of the paused/absent state.
 	h.setExternalAgentStatus(ctx, agent.SessionID, "starting")
@@ -473,6 +483,14 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 
 // StopDesktop stops a dev container using Hydra
 func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error {
+	// Detach from the caller's context immediately. Stopping a container is a
+	// state-machine transition that must run to completion regardless of whether
+	// the triggering HTTP request is still alive (browser navigation, etc.).
+	// A half-stopped container with a stale ZFS zvol is worse than a slow stop.
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer stopCancel()
+	ctx = stopCtx //nolint:govet // intentional shadow — caller ctx not needed
+
 	log.Info().Str("session_id", sessionID).Msg("Stopping dev container via Hydra")
 
 	h.mutex.Lock()
