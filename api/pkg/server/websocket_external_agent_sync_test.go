@@ -600,7 +600,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_Normal() {
 		ID:    "ses_mc",
 		Owner: "user-1",
 	}
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_mc").Return(session, nil).Times(2) // once for handler, once for final publish
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_mc").Return(session, nil).AnyTimes() // handler, final publish, and processPromptQueue goroutine
 
 	waitingInteraction := &types.Interaction{
 		ID:              "int-mc",
@@ -610,7 +610,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_Normal() {
 	}
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{waitingInteraction}, int64(1), nil,
-	).Times(2) // once for finding waiting, once for final publish
+	).AnyTimes() // finding waiting, final publish, and processPromptQueue goroutine
 
 	// Reload interaction
 	reloadedInteraction := &types.Interaction{
@@ -700,7 +700,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_ContextMappingMiss_DBFallback(
 	s.store.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Session{session}, int64(1), nil,
 	)
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_mc_fb").Return(session, nil).Times(2)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_mc_fb").Return(session, nil).AnyTimes()
 
 	waitingInteraction := &types.Interaction{
 		ID:        "int-mc-fb",
@@ -709,7 +709,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_ContextMappingMiss_DBFallback(
 	}
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{waitingInteraction}, int64(1), nil,
-	).Times(2)
+	).AnyTimes()
 	s.store.EXPECT().GetInteraction(gomock.Any(), "int-mc-fb").Return(waitingInteraction, nil)
 	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
@@ -754,7 +754,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_WithCommentFinalization() {
 		ID:    "ses_cf",
 		Owner: "user-1",
 	}
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_cf").Return(session, nil).Times(2)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_cf").Return(session, nil).AnyTimes()
 
 	waitingInteraction := &types.Interaction{
 		ID:        "int-cf",
@@ -763,7 +763,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_WithCommentFinalization() {
 	}
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{waitingInteraction}, int64(1), nil,
-	).Times(2)
+	).AnyTimes()
 	s.store.EXPECT().GetInteraction(gomock.Any(), "int-cf").Return(waitingInteraction, nil)
 	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(waitingInteraction, nil)
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_cf").Return(nil, nil).AnyTimes()
@@ -966,6 +966,11 @@ func (s *WebSocketSyncSuite) TestAgentReady_NoOpenThreadWhenThreadIDPresent() {
 // ──────────────────────────────────────────────────────────────────────────────
 
 func (s *WebSocketSyncSuite) TestProcessPromptQueue_NoPending() {
+	// Session busy check (new): session with no waiting interactions
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_nopq").Return(&types.Session{ID: "ses_nopq"}, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{{ID: "int-done", State: types.InteractionStateComplete}}, int64(1), nil,
+	)
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_nopq").Return(nil, nil)
 
 	s.server.processPromptQueue(context.Background(), "ses_nopq")
@@ -973,6 +978,12 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_NoPending() {
 }
 
 func (s *WebSocketSyncSuite) TestProcessPromptQueue_HasPending() {
+	// Session busy check (new): session is idle (last interaction complete)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_pq").Return(&types.Session{ID: "ses_pq"}, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{{ID: "int-done", State: types.InteractionStateComplete}}, int64(1), nil,
+	)
+
 	prompt := &types.PromptHistoryEntry{
 		ID:        "prompt-pq",
 		SessionID: "ses_pq",
@@ -1001,6 +1012,12 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_HasPending() {
 }
 
 func (s *WebSocketSyncSuite) TestProcessPromptQueue_SendFails_GetSessionFails() {
+	// Session busy check (new): first GetSession succeeds (idle check)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_fail").Return(&types.Session{ID: "ses_fail"}, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{}, int64(0), nil,
+	)
+
 	prompt := &types.PromptHistoryEntry{
 		ID:        "prompt-fail",
 		SessionID: "ses_fail",
@@ -1009,7 +1026,7 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_SendFails_GetSessionFails() 
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_fail").Return(prompt, nil)
 	s.store.EXPECT().MarkPromptAsPending(gomock.Any(), "prompt-fail").Return(nil)
 
-	// sendQueuedPromptToSession fails because GetSession fails
+	// sendQueuedPromptToSession fails because second GetSession fails
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_fail").Return(nil, fmt.Errorf("db error"))
 
 	// Should mark as failed
@@ -1479,7 +1496,7 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_ClearedOnMessageCompleted
 	s.server.streamingContextsMu.Unlock()
 
 	// handleMessageCompleted should clear the cache
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_clear").Return(session, nil).Times(2)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_clear").Return(session, nil).AnyTimes()
 
 	waitingInteraction := &types.Interaction{
 		ID:              "int-clear",
@@ -1489,7 +1506,7 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_ClearedOnMessageCompleted
 	}
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{waitingInteraction}, int64(1), nil,
-	).Times(2)
+	).AnyTimes()
 	s.store.EXPECT().GetInteraction(gomock.Any(), "int-clear").Return(waitingInteraction, nil)
 	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(waitingInteraction, nil)
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_clear").Return(nil, nil).AnyTimes()
@@ -1666,10 +1683,10 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DirtyFlushOnMessageCompleted(
 	)
 
 	// handleMessageCompleted then does its normal flow
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_flush").Return(session, nil).Times(2)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_flush").Return(session, nil).AnyTimes()
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{existingInteraction}, int64(1), nil,
-	).Times(2)
+	).AnyTimes()
 	s.store.EXPECT().GetInteraction(gomock.Any(), "int-flush").Return(&types.Interaction{
 		ID:              "int-flush",
 		SessionID:       "ses_flush",

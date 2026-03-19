@@ -98,12 +98,12 @@ func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForIdleSessions_Id
 		Owner:        "user-1",
 		GenerationID: 0,
 	}
-	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil)
-
-	// ListInteractions returns empty → session is idle
+	// GetSession + ListInteractions called by both processPendingPromptsForIdleSessions
+	// (to check if session is idle) AND processPromptQueue (to check if session is busy)
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
 	s.store.EXPECT().
 		ListInteractions(gomock.Any(), gomock.Any()).
-		Return([]*types.Interaction{}, int64(0), nil)
+		Return([]*types.Interaction{}, int64(0), nil).AnyTimes()
 
 	// processPromptQueue calls GetNextPendingPrompt — return nil to stop further processing
 	s.store.EXPECT().

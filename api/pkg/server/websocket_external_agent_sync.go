@@ -2170,6 +2170,34 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 // processPromptQueue checks for pending non-interrupt prompts and sends the next one
 // This is called after a message is completed to process queued non-interrupt messages
 func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, sessionID string) {
+	// Check if the session is busy (last interaction is waiting for a response).
+	// This prevents sending a queue-mode prompt while Zed is already processing
+	// a locally-submitted message. The check uses DB state which is race-free:
+	// handleMessageAdded creates the interaction synchronously before returning.
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for queue processing")
+		return
+	}
+	if session != nil {
+		interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID:    sessionID,
+			GenerationID: session.GenerationID,
+			PerPage:      1,
+		})
+		if err != nil {
+			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to list interactions for queue processing")
+			return
+		}
+		if len(interactions) > 0 && interactions[len(interactions)-1].State == types.InteractionStateWaiting {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("interaction_id", interactions[len(interactions)-1].ID).
+				Msg("Session is busy (last interaction waiting), deferring queue-mode prompt")
+			return
+		}
+	}
+
 	// Get the next pending non-interrupt prompt for this session
 	nextPrompt, err := apiServer.Store.GetNextPendingPrompt(ctx, sessionID)
 	if err != nil {
