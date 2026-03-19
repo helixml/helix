@@ -826,13 +826,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       task?.id &&
       !autoOpenedSpecTasks.has(task.id) &&
       task?.design_docs_pushed_at &&
+      account.organizationTools.organization?.name &&
       (task?.status === TypesSpecTaskStatus.TaskStatusSpecReview ||
         task?.status === TypesSpecTaskStatus.TaskStatusSpecRevision)
     ) {
       autoOpenedSpecTasks.add(task.id);
       handleReviewSpec();
     }
-  }, [task?.id, task?.status, task?.design_docs_pushed_at, handleReviewSpec]);
+  }, [task?.id, task?.status, task?.design_docs_pushed_at, handleReviewSpec, account.organizationTools.organization?.name]);
 
   // Handle file upload to sandbox
   const handleUploadClick = useCallback(() => {
