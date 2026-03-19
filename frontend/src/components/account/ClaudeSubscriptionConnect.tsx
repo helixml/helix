@@ -363,7 +363,7 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
       // Write the code to the named pipe that the wrapper script reads from.
       // claude auth login is waiting for this on stdin (via the fifo).
       await apiClient.v1ExternalAgentsExecCreate(sessionId, {
-        command: ['bash', '-c', `printf '%s\\n' '${authCode.trim().replace(/'/g, "'\\''")}' > /tmp/claude-auth-input`],
+        command: ['helix-claude-auth-submit', authCode.trim()],
         background: false,
         env: {},
       })

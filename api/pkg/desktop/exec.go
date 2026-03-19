@@ -65,6 +65,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		"test":               true,
 		"npm":                      true, // needed to upgrade claude CLI at login time
 		"helix-claude-auth-wrapper": true, // runs claude auth login with stdout capture
+		"helix-claude-auth-submit":  true, // writes auth code to named pipe for claude auth login
 	}
 
 	cmdName := req.Command[0]

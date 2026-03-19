@@ -28,7 +28,7 @@ fi
 # claude auth login's stdin. Since we're headless, the frontend captures the
 # code from the user and writes it here via the exec endpoint.
 rm -f /tmp/claude-auth-input
-mkfifo /tmp/claude-auth-input
+mkfifo -m 666 /tmp/claude-auth-input
 
 # Use `script` to create a pseudo-TTY so Node.js (claude) uses line buffering
 # instead of full buffering. Without this, stdout is never flushed to the file

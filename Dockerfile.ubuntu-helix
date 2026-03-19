@@ -832,7 +832,8 @@ RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
 # for this file and opens the URL in the user's native browser.
 COPY desktop/shared/helix-capture-browser.sh /usr/local/bin/helix-capture-browser
 COPY desktop/shared/helix-claude-auth-wrapper.sh /usr/local/bin/helix-claude-auth-wrapper
-RUN chmod +x /usr/local/bin/helix-capture-browser /usr/local/bin/helix-claude-auth-wrapper
+COPY desktop/shared/helix-claude-auth-submit.sh /usr/local/bin/helix-claude-auth-submit
+RUN chmod +x /usr/local/bin/helix-capture-browser /usr/local/bin/helix-claude-auth-wrapper /usr/local/bin/helix-claude-auth-submit
 
 # Install drone-ci-mcp (Helix's Drone CI MCP server for build log navigation)
 # Build and pack the package, then install globally from the tarball
