@@ -326,35 +326,17 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// If user is the org owner, skip authorization, they can view all apps
+	// Org owners see all apps
 	if orgMembership.Role == types.OrganizationRoleOwner {
 		return apps, nil
 	}
 
-	// User is not the org owner, so we need to authorize them to each app
-
+	// Non-owners only see apps they have access to (direct access or via project)
 	var authorizedApps []*types.App
-
-	// Authorize the user to each app
 	for _, app := range apps {
-		err := s.authorizeUserToApp(ctx, user, app, types.ActionGet)
-		if err != nil {
-			log.Debug().
-				Str("user_id", user.ID).
-				Str("app_id", app.ID).
-				Str("action", types.ActionGet.String()).
-				Msg("user is not authorized to view app")
+		if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
 			continue
 		}
-
-		// Get user for the app
-		appOwner, err := s.Store.GetUser(ctx, &store.GetUserQuery{ID: app.Owner})
-		if err != nil {
-			return nil, system.NewHTTPError500(err.Error())
-		}
-
-		app.User = *appOwner
-
 		authorizedApps = append(authorizedApps, app)
 	}
 
