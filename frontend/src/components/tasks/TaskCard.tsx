@@ -176,6 +176,9 @@ export interface SpecTaskWithExtras {
   // Agent activity tracking
   session_updated_at?: string;
   agent_work_state?: "idle" | "working" | "done"; // Backend-tracked work state
+  // Sandbox state — populated by the listTasks backend handler, avoids per-card session polling
+  sandbox_state?: string; // "absent" | "running" | "starting"
+  sandbox_status_message?: string; // Transient startup message
   // Task number for display
   task_number?: number;
   depends_on?: TaskDependency[];
@@ -481,7 +484,9 @@ const LiveAgentScreenshot: React.FC<{
   projectId?: string;
   onClick?: () => void;
   startupErrorMessage?: string;
-}> = React.memo(({ sessionId, projectId, onClick, startupErrorMessage }) => {
+  sandboxState?: string;
+  sandboxStatusMessage?: string;
+}> = React.memo(({ sessionId, projectId, onClick, startupErrorMessage, sandboxState, sandboxStatusMessage }) => {
   return (
     <Box
       onClick={(e) => {
@@ -512,6 +517,8 @@ const LiveAgentScreenshot: React.FC<{
           sessionId={sessionId}
           mode="screenshot"
           startupErrorMessage={startupErrorMessage}
+          initialSandboxState={sandboxState}
+          initialSandboxStatusMessage={sandboxStatusMessage}
         />
       </Box>
       <Box
@@ -1053,6 +1060,8 @@ function TaskCardInner({
                   ? task.metadata.error
                   : undefined
               }
+              sandboxState={task.sandbox_state}
+              sandboxStatusMessage={task.sandbox_status_message}
               onClick={() => onTaskClick?.(task)}
             />
           )}

@@ -17403,6 +17403,10 @@ const docTemplate = `{
                 },
                 "found": {
                     "type": "boolean"
+                },
+                "url": {
+                    "description": "OAuth URL for native browser",
+                    "type": "string"
                 }
             }
         },
@@ -22449,10 +22453,6 @@ const docTemplate = `{
                     "description": "Password for the repository",
                     "type": "string"
                 },
-                "project_id": {
-                    "description": "Deprecated: ProjectID is maintained for backward compatibility only.\nUse the project_repositories junction table for many-to-many project-repo relationships.\nThis column is kept in the database for rollback compatibility but reads should use the junction table.",
-                    "type": "string"
-                },
                 "repo_type": {
                     "$ref": "#/definitions/types.GitRepositoryType"
                 },
@@ -27302,6 +27302,14 @@ const docTemplate = `{
                     "description": "User stories + EARS acceptance criteria (markdown)",
                     "type": "string"
                 },
+                "sandbox_state": {
+                    "description": "\"absent\", \"running\", \"starting\" — derived from session config in listTasks",
+                    "type": "string"
+                },
+                "sandbox_status_message": {
+                    "description": "Transient startup message e.g. \"Unpacking build cache\"",
+                    "type": "string"
+                },
                 "session_updated_at": {
                     "description": "Agent activity tracking (computed from session/activity data, not stored)",
                     "type": "string"
@@ -28002,6 +28010,14 @@ const docTemplate = `{
                 },
                 "requirements_spec": {
                     "description": "User stories + EARS acceptance criteria (markdown)",
+                    "type": "string"
+                },
+                "sandbox_state": {
+                    "description": "\"absent\", \"running\", \"starting\" — derived from session config in listTasks",
+                    "type": "string"
+                },
+                "sandbox_status_message": {
+                    "description": "Transient startup message e.g. \"Unpacking build cache\"",
                     "type": "string"
                 },
                 "session_updated_at": {
