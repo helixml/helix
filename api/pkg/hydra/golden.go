@@ -444,7 +444,57 @@ func CleanupSessionDockerDir(volumeName string) error {
 }
 
 // DeleteGolden removes a project's golden Docker cache snapshot.
+// Handles both file-based golden dirs and ZFS zvol-based goldens.
 func DeleteGolden(projectID string) error {
+	// Delete ZFS golden zvol if it exists
+	if ZFSAvailable() {
+		goldenName := goldenZvolName(projectID)
+		if zfsDatasetExists(goldenName) {
+			// Find all session clones that originate from this golden.
+			// Destroy stopped ones, refuse if any are still running.
+			prefix := zfsParentDataset + "/ses-"
+			out, err := execCmdOutput("zfs", "list", "-H", "-o", "name,origin", "-t", "volume", "-r", zfsParentDataset)
+			if err == nil {
+				var runningClones []string
+				var stoppedClones []string
+				for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+					fields := strings.Fields(line)
+					if len(fields) >= 2 && strings.HasPrefix(fields[0], prefix) {
+						origin := fields[1]
+						if strings.HasPrefix(origin, goldenName+"@") {
+							sessionID := strings.TrimPrefix(fields[0], prefix)
+							mountPath := sessionZvolMountPath(sessionID)
+							if isMounted(mountPath) {
+								runningClones = append(runningClones, sessionID)
+							} else {
+								stoppedClones = append(stoppedClones, sessionID)
+							}
+						}
+					}
+				}
+
+				if len(runningClones) > 0 {
+					return fmt.Errorf("cannot delete golden cache: %d running session(s) depend on it (stop them first): %s",
+						len(runningClones), strings.Join(runningClones, ", "))
+				}
+
+				// Clean up stopped clones
+				for _, sessionID := range stoppedClones {
+					log.Info().Str("session_id", sessionID).
+						Msg("Destroying stopped session clone before golden cache deletion")
+					_ = CleanupSessionZvol(sessionID)
+				}
+			}
+
+			// Now destroy the golden zvol and its snapshots
+			if err := runCmd("zfs", "destroy", "-r", goldenName); err != nil {
+				return fmt.Errorf("failed to destroy golden zvol %s: %w", goldenName, err)
+			}
+			log.Info().Str("project_id", projectID).Str("zvol", goldenName).Msg("Deleted golden ZFS zvol")
+		}
+	}
+
+	// Delete file-based golden dir if it exists
 	projectDir := filepath.Join(goldenBaseDir, projectID)
 	if _, err := os.Stat(projectDir); os.IsNotExist(err) {
 		return nil // nothing to delete

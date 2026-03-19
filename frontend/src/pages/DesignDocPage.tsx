@@ -88,7 +88,7 @@ export default function DesignDocPage() {
   }
 
   const taskName = data.spec_task?.name || 'Design Document'
-  const projectName = data.spec_task?.project?.name || ''
+  const projectName = ''
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>

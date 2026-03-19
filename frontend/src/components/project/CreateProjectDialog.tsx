@@ -721,7 +721,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                               const isSelected = selectedOAuthRepo?.full_name === repo.full_name
 
                               return (
-                                <ListItem key={repo.id || repo.full_name || index} disablePadding>
+                                <ListItem key={repo.full_name || index} disablePadding>
                                   <ListItemButton
                                     selected={isSelected}
                                     onClick={() => handleSelectGitHubRepo(repo)}

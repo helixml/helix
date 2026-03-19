@@ -114,9 +114,8 @@ const PullRequests: FC<PullRequestsProps> = ({
                           label={pr.state}
                           size="small"
                           color={
-                            pr.state === 'active' || pr.state === 'open' ? 'success' :
-                            pr.state === 'completed' || pr.state === 'merged' ? 'primary' :
-                            pr.state === 'abandoned' || pr.state === 'closed' ? 'default' :
+                            pr.state === 'open' ? 'success' :
+                            pr.state === 'merged' ? 'primary' :
                             'default'
                           }
                           sx={{ height: 20, fontSize: '0.75rem' }}

@@ -92,7 +92,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const handleStartLogin = useCallback(async () => {
     setLoginStarting(true)
     try {
-      const result = await api.post<{ session_id: string }>('/api/v1/claude-subscriptions/start-login', {})
+      const result = await api.post<{}, { session_id: string }>('/api/v1/claude-subscriptions/start-login', {})
       if (result && result.session_id) {
         setLoginSessionId(result.session_id)
         setLoginDialogOpen(true)
@@ -322,7 +322,6 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
   const { isRunning } = useSandboxState(sessionId)
   const [authUrl, setAuthUrl] = useState<string | null>(null)
   const [loginError, setLoginError] = useState<string | null>(null)
-  const browserOpenedRef = useRef(false)
 
   // Once the desktop is running, send the `claude auth login` command
   useEffect(() => {
@@ -402,11 +401,11 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
           return
         }
 
-        // Check for OAuth URL to open in native browser
-        if (result?.url && !browserOpenedRef.current) {
+        // Set the OAuth URL so the UI can show the sign-in button.
+        // We don't call window.open() here because this runs inside a
+        // setInterval callback — browsers block popups without a user gesture.
+        if (result?.url && !authUrl) {
           setAuthUrl(result.url)
-          browserOpenedRef.current = true
-          openExternalUrl(result.url)
         }
       } catch {
         // Ignore polling errors
@@ -458,10 +457,19 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
           </Box>
         ) : (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Button
+              variant="contained"
+              color="primary"
+              size="large"
+              onClick={() => openExternalUrl(authUrl!)}
+              fullWidth
+            >
+              Open Claude Sign-in Page
+            </Button>
             <Alert severity="info">
-              Your browser will open to Claude's sign-in page. Enter your email address &mdash;
-              Claude will email you a magic link. Click the link to get a code, then paste the
-              code back in the browser to complete authentication.
+              Enter your email address &mdash; Claude will email you a magic link.
+              Click the link to get a code, then paste the code back in the browser
+              to complete authentication.
             </Alert>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <CircularProgress size={16} />
@@ -469,12 +477,6 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
                 Waiting for authentication to complete...
               </Typography>
             </Box>
-            <Typography variant="caption" color="text.secondary">
-              {"Didn't open? "}
-              <a href={authUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}>
-                Click here to open the sign-in page
-              </a>
-            </Typography>
           </Box>
         )}
       </DialogContent>

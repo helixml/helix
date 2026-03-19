@@ -7,7 +7,7 @@ import {
   mapProviderToRepoType,
   hasRequiredScopes,
 } from './oauthProviders'
-import { TypesOAuthConnection, TypesOAuthProvider, TypesExternalRepositoryType } from '../api/api'
+import { TypesOAuthConnection, TypesOAuthProvider, TypesExternalRepositoryType, TypesOAuthProviderType } from '../api/api'
 
 describe('oauthProviders utilities', () => {
   describe('PROVIDER_TYPES', () => {
@@ -97,10 +97,10 @@ describe('oauthProviders utilities', () => {
 
   describe('findOAuthConnectionForProvider', () => {
     const mockConnections: Partial<TypesOAuthConnection>[] = [
-      { id: '1', provider: { type: 'github', name: 'GitHub' } },
-      { id: '2', provider: { type: 'gitlab', name: 'GitLab' } },
-      { id: '3', provider: { type: 'custom', name: 'Azure DevOps' } },
-      { id: '4', provider: { type: 'custom', name: 'My GitHub Enterprise' } },
+      { id: '1', provider: { type: TypesOAuthProviderType.OAuthProviderTypeGitHub, name: 'GitHub' } },
+      { id: '2', provider: { type: TypesOAuthProviderType.OAuthProviderTypeGitLab, name: 'GitLab' } },
+      { id: '3', provider: { type: TypesOAuthProviderType.OAuthProviderTypeCustom, name: 'Azure DevOps' } },
+      { id: '4', provider: { type: TypesOAuthProviderType.OAuthProviderTypeCustom, name: 'My GitHub Enterprise' } },
     ]
 
     it('should find connection by exact type match', () => {
@@ -137,10 +137,10 @@ describe('oauthProviders utilities', () => {
 
   describe('findOAuthProviderForType', () => {
     const mockProviders: Partial<TypesOAuthProvider>[] = [
-      { id: '1', type: 'github', name: 'GitHub', enabled: true },
-      { id: '2', type: 'gitlab', name: 'GitLab', enabled: false },
-      { id: '3', type: 'custom', name: 'Azure DevOps' }, // enabled not set
-      { id: '4', type: 'bitbucket', name: 'Bitbucket', enabled: true },
+      { id: '1', type: TypesOAuthProviderType.OAuthProviderTypeGitHub, name: 'GitHub', enabled: true },
+      { id: '2', type: TypesOAuthProviderType.OAuthProviderTypeGitLab, name: 'GitLab', enabled: false },
+      { id: '3', type: TypesOAuthProviderType.OAuthProviderTypeCustom, name: 'Azure DevOps' }, // enabled not set
+      { id: '4', type: TypesOAuthProviderType.OAuthProviderTypeCustom, name: 'Bitbucket', enabled: true },
     ]
 
     it('should find enabled provider by type', () => {

@@ -744,6 +744,28 @@ func (dm *DevContainerManager) resolveDockerDataDir(req *CreateDevContainerReque
 				Msg("Using ZFS clone after inline golden migration")
 			return dockerDir, nil
 		} else {
+			// No golden anywhere. Before creating a fresh zvol, acquire a read lock
+			// to wait for any in-progress golden promotion (issue #7 from ZFS deployment).
+			// PromoteSessionToGoldenZvol holds the write lock while renaming/snapshotting,
+			// so if we race we block here until promotion finishes, then re-check.
+			lock := getGoldenLock(req.ProjectID)
+			lock.RLock()
+			goldenNowExists := GoldenZvolExists(req.ProjectID)
+			lock.RUnlock()
+
+			if goldenNowExists {
+				// Promotion finished while we waited — clone from the new golden instead.
+				log.Info().
+					Str("project_id", req.ProjectID).
+					Str("session_id", sessionID).
+					Msg("Golden zvol appeared during lock wait — using clone instead of fresh zvol")
+				dockerDir, err := SetupGoldenClone(req.ProjectID, sessionID)
+				if err != nil {
+					return "", fmt.Errorf("ZFS golden clone (post-promotion) failed for project %s: %w", req.ProjectID, err)
+				}
+				return dockerDir, nil
+			}
+
 			dockerDir, err := CreateSessionZvol(sessionID)
 			if err != nil {
 				return "", fmt.Errorf("failed to create session zvol: %w", err)
@@ -1587,8 +1609,20 @@ done:
 		if ZFSAvailable() && zfsDatasetExists(sessionZvolName(dc.SessionID)) {
 			// Session was on a ZFS zvol — promote via ZFS rename+snapshot (instant)
 			promoteErr = PromoteSessionToGoldenZvol(dc.ProjectID, dc.SessionID)
+		} else if ZFSAvailable() {
+			// Session was on file-copy path but ZFS is available.
+			// Promote to file-based golden first, then migrate to zvol
+			// so subsequent sessions get instant clones.
+			promoteErr = PromoteSessionToGolden(dc.ProjectID, dockerDataVolume, dc.SessionID)
+			if promoteErr == nil {
+				if err := MigrateGoldenToZvol(dc.ProjectID); err != nil {
+					log.Warn().Err(err).
+						Str("project_id", dc.ProjectID).
+						Msg("Golden promoted to file dir but failed to migrate to zvol (will retry on next session)")
+				}
+			}
 		} else {
-			// File-copy fallback
+			// No ZFS — file-copy promotion only
 			promoteErr = PromoteSessionToGolden(dc.ProjectID, dockerDataVolume, dc.SessionID)
 		}
 		if promoteErr != nil {

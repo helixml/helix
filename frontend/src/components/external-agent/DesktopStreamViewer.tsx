@@ -595,8 +595,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // Try to get from backend config
         try {
           const configResponse = await apiClient.v1ConfigList();
-          if (configResponse.data.streaming_bitrate_mbps) {
-            streamingBitrateMbps = configResponse.data.streaming_bitrate_mbps;
+          const configData = configResponse.data as typeof configResponse.data & { streaming_bitrate_mbps?: number };
+          if (configData.streaming_bitrate_mbps) {
+            streamingBitrateMbps = configData.streaming_bitrate_mbps;
             console.log(
               `[DesktopStreamViewer] Using configured bitrate: ${streamingBitrateMbps} Mbps`,
             );
@@ -2786,9 +2787,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           rttMs: wsStats.rttMs,
           encoderLatencyMs: wsStats.encoderLatencyMs,
           isHighLatency: wsStats.isHighLatency,
-          batchingRatio: wsStats.batchingRatio,
-          avgBatchSize: wsStats.avgBatchSize,
-          batchesReceived: wsStats.batchesReceived,
+          batchingRatio: 0,
+          avgBatchSize: 0,
+          batchesReceived: 0,
           frameLatencyMs: wsStats.frameLatencyMs,
           adaptiveThrottleRatio: wsStats.adaptiveThrottleRatio,
           effectiveInputFps: wsStats.effectiveInputFps,

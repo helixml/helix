@@ -26,7 +26,7 @@ export const KODIT_SUBTYPE_DATABASE_SCHEMA = 'database_schema' // Database schem
 export const KODIT_SUBTYPE_COMMIT_DESCRIPTION = 'commit_description' // Commit descriptions
 
 // Re-export generated types for Kodit indexing status
-export type { ServicesKoditIndexingStatus as KoditIndexingStatus } from '../api/api'
+export type { ServerKoditIndexingStatusDTO as KoditIndexingStatus } from '../api/api'
 
 /**
  * Query key factory for Kodit enrichments
@@ -164,7 +164,6 @@ export function useKoditSearch(
       const response = await apiClient.v1GitRepositoriesSearchSnippetsDetail(repoId, {
         query,
         limit,
-        commit_sha: commitSha,
       })
       // Response is an array of snippets
       const data = response.data as any

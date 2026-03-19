@@ -102,6 +102,9 @@ func (g *GoldenBuildService) updateSandboxCacheStatus(ctx context.Context, proje
 // RecoverStaleBuilds scans for projects with "building" status in the DB and
 // re-attaches monitoring goroutines. Called on API startup to recover from
 // restarts that killed the monitoring goroutines mid-build.
+//
+// Waits up to 60s for the sandbox to reconnect via RevDial before giving up,
+// because the API typically restarts faster than the sandbox can reconnect.
 func (g *GoldenBuildService) RecoverStaleBuilds(ctx context.Context) {
 	projects, err := g.store.ListProjectsWithActiveGoldenBuild(ctx)
 	if err != nil {
@@ -127,9 +130,27 @@ func (g *GoldenBuildService) RecoverStaleBuilds(ctx context.Context) {
 			sessionID := sbState.BuildSessionID
 			key := buildKey(project.ID, sbID)
 
-			// Check if the container is still running
-			if g.containerExecutor.HasRunningContainer(ctx, sessionID) {
-				// Container still alive — re-attach the monitoring goroutine
+			// Wait for sandbox to reconnect — API restarts faster than
+			// RevDial reconnects, so HasRunningContainer may return false
+			// even though the container is still running.
+			found := false
+			for attempt := 0; attempt < 12; attempt++ {
+				if g.containerExecutor.HasRunningContainer(ctx, sessionID) {
+					found = true
+					break
+				}
+				if attempt < 11 {
+					log.Info().
+						Str("project_id", project.ID).
+						Str("sandbox_id", sbID).
+						Str("session_id", sessionID).
+						Int("attempt", attempt+1).
+						Msg("Golden build recovery: container not found yet, waiting for sandbox reconnect")
+					time.Sleep(5 * time.Second)
+				}
+			}
+
+			if found {
 				log.Info().
 					Str("project_id", project.ID).
 					Str("sandbox_id", sbID).
@@ -142,12 +163,12 @@ func (g *GoldenBuildService) RecoverStaleBuilds(ctx context.Context) {
 
 				go g.waitForGoldenBuildCompletion(ctx, project.ID, sbID, sessionID)
 			} else {
-				// Container gone — reset the status
+				// Container genuinely gone after waiting 60s
 				log.Info().
 					Str("project_id", project.ID).
 					Str("sandbox_id", sbID).
 					Str("session_id", sessionID).
-					Msg("Golden build recovery: container gone, resetting status")
+					Msg("Golden build recovery: container gone after 60s wait, resetting status")
 
 				g.updateSandboxCacheStatus(ctx, project.ID, sbID, func(s *types.SandboxCacheState) {
 					s.Status = "none"
