@@ -1320,6 +1320,13 @@ func (s *GitRepositoryService) initializeGitRepository(
 func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitRepo *types.GitRepository) error {
 	repoPath := gitRepo.LocalPath
 
+	// External repos created declaratively (e.g. via `helix apply`) start with no LocalPath.
+	// Derive the standard storage path so the clone destination is never an empty string.
+	if repoPath == "" && gitRepo.ExternalURL != "" {
+		repoPath = filepath.Join(s.gitRepoBase, gitRepo.ID)
+		gitRepo.LocalPath = repoPath
+	}
+
 	// Check if repo exists locally
 	repoExists := false
 	if _, err := os.Stat(repoPath); err == nil {
