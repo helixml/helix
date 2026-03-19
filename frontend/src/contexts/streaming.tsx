@@ -33,6 +33,12 @@ const getCSRFToken = (): string | null => {
   return match ? decodeURIComponent(match[2]) : null;
 };
 
+// The streaming context holds either raw API interactions (response_entries: number[])
+// or locally-assembled streaming state (response_entries: ResponseEntry[]).
+type StreamingInteraction = Omit<Partial<TypesInteraction>, 'response_entries'> & {
+  response_entries?: ResponseEntry[] | number[];
+};
+
 interface NewInferenceParams {
   regenerate?: boolean;
   type: ISessionType;
@@ -57,7 +63,7 @@ interface NewInferenceParams {
 interface StreamingContextType {
   NewInference: (params: NewInferenceParams) => Promise<TypesSession>;
   setCurrentSessionId: (sessionId: string) => void;
-  currentResponses: Map<string, Partial<TypesInteraction>>;
+  currentResponses: Map<string, StreamingInteraction>;
   stepInfos: Map<string, any[]>;
   updateCurrentResponse: (
     sessionId: string,
@@ -82,7 +88,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
 }) => {
   const queryClient = useQueryClient();
   const [currentResponses, setCurrentResponses] = useState<
-    Map<string, Partial<TypesInteraction>>
+    Map<string, StreamingInteraction>
   >(new Map());
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [stepInfos, setStepInfos] = useState<Map<string, any[]>>(new Map());
@@ -215,7 +221,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
         requestAnimationFrame(() => {
           setCurrentResponses((prev) => {
             const current = prev.get(currentSessionId) || {};
-            let updatedInteraction: Partial<TypesInteraction> = { ...current };
+            let updatedInteraction: StreamingInteraction = { ...current };
 
             if (workerResponse.type === WORKER_TASK_RESPONSE_TYPE_PROGRESS) {
               if (workerResponse.status) {
@@ -389,7 +395,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
 
               // When complete, use server's response_message directly — do NOT fall
               // back to current.response_message which may be truncated streaming data
-              const updated: Partial<TypesInteraction> = isSameInteraction
+              const updated: StreamingInteraction = isSameInteraction
                 ? {
                     ...current,
                     id: updatedInteraction.id,
@@ -478,7 +484,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
               const current = prev.get(currentSessionId!) || {};
 
               const isSameInteraction = current.id === interactionId;
-              const updated: Partial<TypesInteraction> & { response_entries?: ResponseEntry[] } = isSameInteraction
+              const updated: StreamingInteraction = isSameInteraction
                 ? {
                     ...current,
                     id: interactionId,
