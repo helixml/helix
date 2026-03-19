@@ -674,6 +674,11 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking_Organization_Deni
 	// 2. No app access
 	setupAuthorizationMocks(suite.store, app, suite.userID, []types.Resource{types.ResourceApplication}, []types.Action{types.ActionList})
 
+	// No projects reference this app (project-based fallback)
+	suite.store.EXPECT().ListProjects(gomock.Any(), &store.ListProjectsQuery{
+		OrganizationID: app.OrganizationID,
+	}).Return([]*types.Project{}, nil)
+
 	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
 
 	req, err := http.NewRequest("POST", "/v1/chat/completions?app_id=app123", bytes.NewBufferString(`{

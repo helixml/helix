@@ -37,25 +37,21 @@ type CloneProgress struct {
 // GitRepository represents a git repository
 // Supports both Helix-hosted repositories and external repositories (GitHub, GitLab, ADO, etc.)
 type GitRepository struct {
-	ID             string    `gorm:"primaryKey" json:"id"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	Name           string    `gorm:"index" json:"name"`
-	Description    string    `json:"description"`
-	OwnerID        string    `gorm:"index" json:"owner_id"`
-	OrganizationID string    `gorm:"index" json:"organization_id"` // Organization ID - will be backfilled for existing repos
-	// Deprecated: ProjectID is maintained for backward compatibility only.
-	// Use the project_repositories junction table for many-to-many project-repo relationships.
-	// This column is kept in the database for rollback compatibility but reads should use the junction table.
-	ProjectID     string                 `gorm:"index" json:"project_id"`
-	RepoType      GitRepositoryType      `gorm:"index" json:"repo_type"`
-	Status        GitRepositoryStatus    `json:"status"`
-	CloneURL      string                 `json:"clone_url"`  // For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git
-	LocalPath     string                 `json:"local_path"` // Local filesystem path for Helix-hosted repos (empty for external)
-	DefaultBranch string                 `json:"default_branch"`
-	Branches      []string               `json:"branches" gorm:"type:jsonb;serializer:json"`
-	LastActivity  time.Time              `json:"last_activity" gorm:"index"`
-	Metadata      map[string]interface{} `gorm:"type:jsonb;serializer:json" json:"metadata"` // Stores Metadata as JSON
+	ID             string                 `gorm:"primaryKey" json:"id"`
+	CreatedAt      time.Time              `json:"created_at"`
+	UpdatedAt      time.Time              `json:"updated_at"`
+	Name           string                 `gorm:"index" json:"name"`
+	Description    string                 `json:"description"`
+	OwnerID        string                 `gorm:"index" json:"owner_id"`
+	OrganizationID string                 `gorm:"index" json:"organization_id"` // Organization ID - will be backfilled for existing repos
+	RepoType       GitRepositoryType      `gorm:"index" json:"repo_type"`
+	Status         GitRepositoryStatus    `json:"status"`
+	CloneURL       string                 `json:"clone_url"`  // For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git
+	LocalPath      string                 `json:"local_path"` // Local filesystem path for Helix-hosted repos (empty for external)
+	DefaultBranch  string                 `json:"default_branch"`
+	Branches       []string               `json:"branches" gorm:"type:jsonb;serializer:json"`
+	LastActivity   time.Time              `json:"last_activity" gorm:"index"`
+	Metadata       map[string]interface{} `gorm:"type:jsonb;serializer:json" json:"metadata"` // Stores Metadata as JSON
 
 	// External repository fields
 	IsExternal   bool                   `gorm:"index" json:"is_external"` // True for GitHub/GitLab/ADO, false for Helix-hosted
