@@ -16,7 +16,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import { useSandboxState } from '../external-agent/ExternalAgentDesktopViewer'
-import { getTokenExpiryStatus } from './claudeSubscriptionUtils'
+import { getTokenExpiryStatus, openExternalUrl } from './claudeSubscriptionUtils'
 
 interface ClaudeSubscriptionData {
   id: string
@@ -461,9 +461,7 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
               variant="contained"
               color="primary"
               size="large"
-              href={authUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+              onClick={() => openExternalUrl(authUrl!)}
               fullWidth
             >
               Open Claude Sign-in Page
