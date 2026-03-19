@@ -13,16 +13,16 @@
 
 ## Phase 2: Backend — Emit Events at Trigger Points
 
-- [~] Edit `api/pkg/server/websocket_external_agent_sync.go` — in `handleMessageCompleted`, after the existing `updateSpecTaskZedThreadActivity` call: if `helixSession.Metadata.SpecTaskID != ""`, look up the spectask from store and call `attentionService.EmitEvent(ctx, "agent_interaction_completed", task, map{"interaction_id": interactionID, "session_id": helixSessionID})`. Idempotency key: `taskID:agent_interaction_completed:interactionID`. Do NOT change the task status — it stays in `implementation`.
-- [ ] Edit `api/pkg/services/git_http_server.go` — in `processDesignDocsForBranch`, after transitioning task to `spec_review` and calling `UpdateSpecTask`, call `attentionService.EmitEvent(ctx, "specs_pushed", task, map{"commit": commitHash})`. Idempotency key: `taskID:specs_pushed:commitHash`. This fires on every spec commit push.
-- [ ] Edit `api/pkg/services/spec_task_orchestrator.go` — wherever status transitions to `spec_failed` or `implementation_failed`, emit the corresponding attention event. Idempotency key: `taskID:spec_failed` / `taskID:implementation_failed`
-- [ ] Edit `api/pkg/services/spec_task_orchestrator.go` — in `checkTaskForExternalPRActivity`, when task moves to `pull_request`, emit `pr_ready` event. Idempotency key: `taskID:pr_ready:prID`
-- [ ] Add expired event cleanup to the orchestrator's periodic loop — call `CleanupExpiredAttentionEvents` once per hour
+- [x] Edit `api/pkg/server/websocket_external_agent_sync.go` — in `handleMessageCompleted`, after the existing `updateSpecTaskZedThreadActivity` call: if `helixSession.Metadata.SpecTaskID != ""`, look up the spectask from store and call `attentionService.EmitEvent(ctx, "agent_interaction_completed", task, map{"interaction_id": interactionID, "session_id": helixSessionID})`. Idempotency key: `taskID:agent_interaction_completed:interactionID`. Do NOT change the task status — it stays in `implementation`.
+- [x] Edit `api/pkg/services/git_http_server.go` — in `processDesignDocsForBranch`, after transitioning task to `spec_review` and calling `UpdateSpecTask`, call `attentionService.EmitEvent(ctx, "specs_pushed", task, map{"commit": commitHash})`. Idempotency key: `taskID:specs_pushed:commitHash`. This fires on every spec commit push.
+- [x] Edit `api/pkg/services/spec_task_orchestrator.go` — wherever status transitions to `spec_failed` or `implementation_failed`, emit the corresponding attention event. Idempotency key: `taskID:spec_failed` / `taskID:implementation_failed`
+- [x] Edit `api/pkg/services/spec_task_orchestrator.go` — in `checkTaskForExternalPRActivity`, when task moves to `pull_request`, emit `pr_ready` event. Idempotency key: `taskID:pr_ready:prID`
+- [x] Add expired event cleanup to the orchestrator's periodic loop — call `CleanupExpiredAttentionEvents` once per hour
 - [ ] Edit `api/pkg/trigger/slack/slack_project_updates.go` — enhance `buildProjectUpdateReplyAttachment` to produce richer messages when status is `spec_review` ("📋 Specs ready for your review") or failure statuses ("❌ Spec generation failed — needs triage"). Add a public `PostAttentionEventReply(ctx, taskID, message, emoji)` method that `AttentionService` can call for non-status-change events like `agent_interaction_completed`.
 
 ## Phase 3: Frontend — Kanban Visual Treatment
 
-- [ ] Edit `frontend/src/components/tasks/TaskCard.tsx` — widen `useAgentActivityCheck` enabled condition from `showProgress && !!task.planning_session_id` to `!!task.planning_session_id` so attention tracking works in every phase with a session, not just planning/implementation
+- [~] Edit `frontend/src/components/tasks/TaskCard.tsx` — widen `useAgentActivityCheck` enabled condition from `showProgress && !!task.planning_session_id` to `!!task.planning_session_id` so attention tracking works in every phase with a session, not just planning/implementation
 - [ ] Edit `frontend/src/components/tasks/TaskCard.tsx` — remove the `(task.phase === "planning" || task.phase === "implementation")` guards from both the green pulsing dot (`isActive`) and amber dot (`needsAttention`) rendering JSX, so dots show in any phase with a running session
 - [ ] Edit `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx` — sort cards with `needsAttention` (derived from `agent_work_state !== "working" && agent_work_state !== undefined`) to the top of their Kanban column, so tasks needing human attention float up visually
 
