@@ -1012,6 +1012,8 @@ export default function DesignReviewContent({
                     borderColor: "divider",
                     mr: 0.5,
                     color: "text.secondary",
+                    minWidth: { xs: 36, sm: 'auto' },
+                    px: { xs: 1, sm: 2 },
                     "&:hover": { color: "text.primary" },
                   }}
                 />
