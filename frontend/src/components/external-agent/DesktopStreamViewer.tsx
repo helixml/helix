@@ -140,15 +140,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const pendingReconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Cancel pending reconnects to prevent duplicate streams
   const manualReconnectAttemptsRef = useRef(0); // Track manual reconnect attempts to prevent infinite loops
 
-  // Generate unique UUID for this component instance (persists across re-renders)
-  // This ensures multiple floating windows get different streaming client IDs
-  const componentInstanceIdRef = useRef<string>(
-    "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0;
-      const v = c === "x" ? r : (r & 0x3) | 0x8;
-      return v.toString(16);
-    }),
-  );
+  // Generate unique UUID for this component instance (persists across re-renders).
+  // This ensures multiple floating windows get different streaming client IDs.
+  // The backend uses this to deduplicate clients on reconnect — same UUID = same viewer tab.
+  const componentInstanceIdRef = useRef<string>(crypto.randomUUID());
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -554,13 +549,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Reset explicit close flag - we're starting a new connection
     isExplicitlyClosingRef.current = false;
 
-    // Generate fresh UUID for EVERY connection attempt to avoid stale state on reconnect
-    componentInstanceIdRef.current =
-      "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-        const r = (Math.random() * 16) | 0;
-        const v = c === "x" ? r : (r & 0x3) | 0x8;
-        return v.toString(16);
-      });
+    // componentInstanceIdRef is generated once per component instance (in useRef initializer).
+    // It must NOT be regenerated on reconnect — the backend uses it to deduplicate clients
+    // and evict stale connections from the same viewer tab.
 
     setIsConnecting(true);
     setError(null);
@@ -678,7 +669,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         supportedFormats,
         [width, height],
         sessionId,
-        undefined, // clientUniqueId
+        componentInstanceIdRef.current, // clientUniqueId — enables server-side deduplication on reconnect
         account.user?.name, // userName for multi-player presence
         undefined, // avatarUrl
       );

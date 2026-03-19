@@ -339,6 +339,7 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 			v.config.UserID,
 			userName,
 			v.config.AvatarURL,
+			v.config.ClientUniqueID,
 			v.ws,
 			&v.wsMu, // Share mutex to prevent concurrent WebSocket writes
 		)
@@ -442,6 +443,7 @@ func (v *VideoStreamer) startScanoutMode(ctx context.Context) error {
 			v.config.UserID,
 			userName,
 			v.config.AvatarURL,
+			v.config.ClientUniqueID,
 			v.ws,
 			&v.wsMu,
 		)
@@ -1349,7 +1351,14 @@ func (v *VideoStreamer) heartbeat(ctx context.Context) {
 		case <-ticker.C:
 			// Use WebSocket ping frame, not binary message
 			if _, err := v.writeMessage(websocket.PingMessage, nil); err != nil {
-				v.logger.Debug("ping failed", "err", err)
+				v.logger.Warn("ping failed, closing dead connection", "err", err)
+				// Close the underlying TCP connection to unblock ReadMessage() in the main
+				// handler loop. We close at the TCP level (not ws.Close()) because ws.Close()
+				// writes a close frame, which is a write operation — calling it without wsMu
+				// while another goroutine may be writing would be a concurrent write violation.
+				// Closing the underlying conn is safe for concurrent use and causes any
+				// in-progress reads/writes to fail immediately.
+				v.ws.UnderlyingConn().Close()
 				return
 			}
 		}
@@ -1695,6 +1704,21 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 	}
 
 	logger.Info("stream WebSocket connected", "remote", r.RemoteAddr)
+
+	// Set up pong handler with read deadline as defense-in-depth against dead connections.
+	// The server heartbeat sends WebSocket pings every 5s; the client's browser automatically
+	// responds with pongs. If pongs stop arriving (client is dead), the read deadline expires
+	// and ReadMessage() returns an error, triggering cleanup via the defer chain.
+	//
+	// Note: This deadline also acts as a 30s timeout for the init message handshake below.
+	// The pong handler only becomes active once the heartbeat goroutine starts sending pings
+	// (after streamer.Start()), but the deadline ensures connections that never send init
+	// are cleaned up rather than blocking forever.
+	ws.SetReadDeadline(time.Now().Add(30 * time.Second))
+	ws.SetPongHandler(func(string) error {
+		ws.SetReadDeadline(time.Now().Add(30 * time.Second))
+		return nil
+	})
 
 	// Wait for init message from client
 	// Like the Rust implementation, we skip any binary messages that arrive before the JSON init
