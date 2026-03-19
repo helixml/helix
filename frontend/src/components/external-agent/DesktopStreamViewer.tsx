@@ -4885,7 +4885,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // This ensures all touch events go to our handlers
           touchAction: "none",
           // Prevent text selection on double-click in Safari iPad
-          userSelect: "none",
           WebkitUserSelect: "none",
           WebkitTouchCallout: "none",
         }}
