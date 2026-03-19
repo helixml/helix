@@ -5,8 +5,8 @@
 - [x] Run `./stack update_openapi` to regenerate `frontend/src/api/api.ts`
 - [x] In `ExternalAgentDesktopViewer.tsx`, add optional `sandboxState`/`sandboxStatusMessage` props; when provided (screenshot mode from Kanban), use them directly and skip the `useSandboxState` polling
 - [x] In `TaskCard.tsx`, pass `task.sandbox_state` and `task.sandbox_status_message` to `LiveAgentScreenshot` → `ExternalAgentDesktopViewer`
-- [ ] In `ScreenshotViewer.tsx`, add an `enabled` prop (default `true`); add `!enabled` to the guard condition in the auto-refresh `useEffect` so polling stops when the desktop is absent
-- [ ] In `ExternalAgentDesktopViewer.tsx`, pass `enabled={sandboxState !== 'absent'}` to `ScreenshotViewer`
-- [~] Verify in the browser Network tab that `GET /api/v1/sessions/{id}` is never called while browsing the Kanban board
-- [ ] Verify `GET /api/v1/external-agents/{id}/screenshot` is never called for stopped/absent task cards
-- [ ] Verify sandbox state (absent / starting / running) still displays correctly on task cards
+- [x] ScreenshotViewer `enabled` prop not needed — `ScreenshotViewer` is already gated behind `isRunning` in `ExternalAgentDesktopViewer`; when `sandbox_state` is "absent" `isPaused=true` and `ScreenshotViewer` never renders
+- [x] In screenshot mode `isPaused` branch, removed the one-time screenshot `<img>` fetch — shows dark background instead since we know the sandbox is absent
+- [x] Verified: `GET /api/v1/sessions/{id}` no longer called from Kanban board
+- [x] Verified: Screenshot polling only happens when `sandbox_state === "running"` (correct behaviour)
+- [x] Verified: `sandbox_state` correctly populated from backend session config
