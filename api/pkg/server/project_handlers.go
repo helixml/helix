@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -205,6 +206,14 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 					Msg("failed to load startup script from helix-specs branch")
 			}
 		}
+	}
+
+	// If no startup script was found in the git repo, synthesize one from the
+	// declarative startup fields set via `helix apply -f project.yaml`.
+	// When the user edits the script in the UI, it gets saved to the git repo
+	// and will take precedence on subsequent loads.
+	if project.StartupScript == "" && (project.StartupInstall != "" || project.StartupStart != "") {
+		project.StartupScript = synthesizeStartupScript(project.StartupInstall, project.StartupStart)
 	}
 
 	return project, nil
@@ -2587,4 +2596,23 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		Created:    wasCreated,
 		AgentAppID: agentAppID,
 	}, nil
+}
+
+// synthesizeStartupScript builds a shell script from declarative startup fields
+// (startup_install / startup_start) set via `helix apply -f project.yaml`.
+// It is shown in the UI when no .helix/startup.sh exists in the git repo yet.
+func synthesizeStartupScript(install, start string) string {
+	var sb strings.Builder
+	sb.WriteString("#!/bin/bash\nset -e\n")
+	if install != "" {
+		sb.WriteString("\n# Install dependencies\n")
+		sb.WriteString(install)
+		sb.WriteString("\n")
+	}
+	if start != "" {
+		sb.WriteString("\n# Start services\n")
+		sb.WriteString(start)
+		sb.WriteString("\n")
+	}
+	return sb.String()
 }
