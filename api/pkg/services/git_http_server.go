@@ -70,18 +70,24 @@ func (fw *flushingWriter) Write(p []byte) (n int, err error) {
 // GitHTTPServer provides HTTP access to git repositories using native git.
 // This replaces the go-git based implementation for better performance and reliability.
 type GitHTTPServer struct {
-	store           store.Store
-	gitRepoService  *GitRepositoryService
-	serverBaseURL   string
-	authTokenHeader string
-	enablePush      bool
-	enablePull      bool
-	maxRepoSize     int64
-	requestTimeout  time.Duration
-	testMode        bool
-	authorizeFn     AuthorizationToRepositoryFunc
-	triggerManager  TriggerManager
-	wg              sync.WaitGroup
+	store            store.Store
+	gitRepoService   *GitRepositoryService
+	serverBaseURL    string
+	authTokenHeader  string
+	enablePush       bool
+	enablePull       bool
+	maxRepoSize      int64
+	requestTimeout   time.Duration
+	testMode         bool
+	authorizeFn      AuthorizationToRepositoryFunc
+	triggerManager   TriggerManager
+	attentionService *AttentionService
+	wg               sync.WaitGroup
+}
+
+// SetAttentionService sets the attention service for emitting human-needed events.
+func (s *GitHTTPServer) SetAttentionService(svc *AttentionService) {
+	s.attentionService = svc
 }
 
 // GitHTTPServerConfig holds configuration for the git HTTP server
@@ -1179,6 +1185,29 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 				defer s.wg.Done()
 				s.createDesignReviewForPush(context.Background(), t.ID, pushedBranch, commitHash, repoPath, gitRepo)
 			}(task)
+		}
+
+		// Emit specs_pushed attention event for every design doc commit
+		if s.attentionService != nil {
+			s.wg.Add(1)
+			go func(t *types.SpecTask, commit string) {
+				defer s.wg.Done()
+				_, err := s.attentionService.EmitEvent(
+					context.Background(),
+					types.AttentionEventSpecsPushed,
+					t,
+					commit, // qualifier = commit hash for idempotency
+					map[string]interface{}{
+						"commit": commit,
+					},
+				)
+				if err != nil {
+					log.Warn().Err(err).
+						Str("spec_task_id", t.ID).
+						Str("commit", commit).
+						Msg("Failed to emit specs_pushed attention event")
+				}
+			}(task, commitHash)
 		}
 	}
 }
