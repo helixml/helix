@@ -496,13 +496,14 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
               Open Claude Sign-in Page
             </Button>
             <Typography variant="body2" sx={{ mt: 1 }}>
-              <strong>Step 2:</strong> Copy the authentication code and paste it below.
+              <strong>Step 2:</strong> After authorizing, the page may show "can't be reached" &mdash;
+              this is expected. Copy the <strong>full URL</strong> from your browser's address bar and paste it below.
             </Typography>
             <Box sx={{ display: 'flex', gap: 1 }}>
               <TextField
                 fullWidth
                 size="small"
-                placeholder="Paste authentication code here"
+                placeholder="Paste the URL from your browser's address bar"
                 value={authCode}
                 onChange={(e) => setAuthCode(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleSubmitCode() }}

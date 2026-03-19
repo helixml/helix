@@ -586,10 +586,21 @@ func (apiServer *HelixAPIServer) pollClaudeLogin(_ http.ResponseWriter, req *htt
 		}
 	}
 
-	// No credentials yet — check for OAuth URL from claude auth login stdout.
-	// The stdout contains a fallback URL with platform.claude.com/oauth/code/callback
-	// redirect that works from any browser. We parse it from the "If the browser
-	// didn't open, visit:" line. The wrapper script sets NO_COLOR=1 to strip ANSI codes.
+	// Prefer the BROWSER-captured URL — it uses redirect_uri=http://localhost:PORT/callback
+	// which matches claude's local callback server. The auth code MUST be issued for this
+	// redirect_uri or the token exchange will fail with a redirect_uri mismatch.
+	//
+	// The user's browser can't reach localhost:PORT inside the container, so after
+	// authorization Claude redirects to localhost which fails. But the auth code is now
+	// in the URL. The user copies it and pastes it in the UI, then helix-claude-auth-submit
+	// forwards it to claude's local callback server.
+	urlOutput, urlErr := apiServer.execInContainer(req.Context(), runnerID,
+		[]string{"cat", "/tmp/claude-auth-url.txt"})
+	if urlErr == nil && strings.HasPrefix(strings.TrimSpace(urlOutput), "https://") {
+		return &ClaudePollLoginResponse{Found: false, URL: strings.TrimSpace(urlOutput)}, nil
+	}
+
+	// Fallback: parse the stdout URL (platform.claude.com/oauth/code/callback redirect).
 	stdoutOutput, stdoutErr := apiServer.execInContainer(req.Context(), runnerID,
 		[]string{"cat", "/tmp/claude-auth-stdout.txt"})
 	if stdoutErr == nil && stdoutOutput != "" {
@@ -605,15 +616,6 @@ func (apiServer *HelixAPIServer) pollClaudeLogin(_ http.ResponseWriter, req *htt
 				return &ClaudePollLoginResponse{Found: false, URL: line}, nil
 			}
 		}
-	}
-
-	// Fallback: read the URL captured by helix-capture-browser via BROWSER env var.
-	// This URL has a localhost redirect that only works inside the container, but
-	// it's better than nothing if the stdout fallback message is suppressed.
-	urlOutput, urlErr := apiServer.execInContainer(req.Context(), runnerID,
-		[]string{"cat", "/tmp/claude-auth-url.txt"})
-	if urlErr == nil && strings.HasPrefix(strings.TrimSpace(urlOutput), "https://") {
-		return &ClaudePollLoginResponse{Found: false, URL: strings.TrimSpace(urlOutput)}, nil
 	}
 
 	return &ClaudePollLoginResponse{Found: false}, nil
