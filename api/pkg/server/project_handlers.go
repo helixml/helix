@@ -2516,6 +2516,7 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 				ID:             system.GenerateUUID(),
 				ProjectID:      project.ID,
 				UserID:         user.ID,
+				CreatedBy:      user.ID,
 				OrganizationID: orgID,
 				Name:           taskSpec.Title,
 				Description:    taskSpec.Description,
@@ -2529,8 +2530,61 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		}
 	}
 
+	// Create or update the project's agent app from the agent spec
+	var agentAppID string
+	if req.Spec.Agent != nil {
+		agentSpec := req.Spec.Agent
+		assistant := types.AssistantConfig{
+			Name:         agentSpec.Name,
+			Model:        agentSpec.Model,
+			Provider:     agentSpec.Provider,
+			SystemPrompt: agentSpec.SystemPrompt,
+		}
+		if agentSpec.Tools != nil {
+			assistant.WebSearch = types.AssistantWebSearch{Enabled: agentSpec.Tools.WebSearch}
+			assistant.Browser = types.AssistantBrowser{Enabled: agentSpec.Tools.Browser}
+			assistant.Calculator = types.AssistantCalculator{Enabled: agentSpec.Tools.Calculator}
+		}
+		appHelixConfig := types.AppHelixConfig{
+			Name:       agentSpec.Name,
+			Assistants: []types.AssistantConfig{assistant},
+		}
+
+		var agentApp *types.App
+		if project.DefaultHelixAppID != "" {
+			agentApp, _ = s.Store.GetApp(r.Context(), project.DefaultHelixAppID)
+		}
+
+		if agentApp != nil {
+			agentApp.Config.Helix = appHelixConfig
+			if _, err := s.Store.UpdateApp(r.Context(), agentApp); err != nil {
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to update agent app: %v", err))
+			}
+			agentAppID = agentApp.ID
+		} else {
+			agentApp = &types.App{
+				ID:             system.GenerateUUID(),
+				Owner:          user.ID,
+				OwnerType:      types.OwnerTypeUser,
+				OrganizationID: orgID,
+				Config: types.AppConfig{
+					Helix: appHelixConfig,
+				},
+			}
+			if _, err := s.Store.CreateApp(r.Context(), agentApp); err != nil {
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to create agent app: %v", err))
+			}
+			agentAppID = agentApp.ID
+			project.DefaultHelixAppID = agentApp.ID
+			if err := s.Store.UpdateProject(r.Context(), project); err != nil {
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to link agent app to project: %v", err))
+			}
+		}
+	}
+
 	return &types.ProjectApplyResponse{
-		ProjectID: project.ID,
-		Created:   wasCreated,
+		ProjectID:  project.ID,
+		Created:    wasCreated,
+		AgentAppID: agentAppID,
 	}, nil
 }

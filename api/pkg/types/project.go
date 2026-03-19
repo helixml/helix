@@ -19,7 +19,7 @@ type ProjectSpec struct {
 	Startup      *ProjectStartup      `json:"startup,omitempty" yaml:"startup,omitempty"`
 	Kanban       *ProjectKanban       `json:"kanban,omitempty" yaml:"kanban,omitempty"`
 	Tasks        []ProjectTaskSpec    `json:"tasks,omitempty" yaml:"tasks,omitempty"`
-	Agent        *AppHelixConfig      `json:"agent,omitempty" yaml:"agent,omitempty"`
+	Agent        *ProjectAgentSpec    `json:"agent,omitempty" yaml:"agent,omitempty"`
 }
 
 // ValidateRepositories validates the repository configuration in the spec.
@@ -92,6 +92,24 @@ type ProjectWIPLimits struct {
 type ProjectTaskSpec struct {
 	Title       string `json:"title" yaml:"title"`
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+}
+
+// ProjectAgentSpec is the simplified agent configuration in a project YAML.
+// It is converted to a full Helix App when applyProject runs, and stored
+// as the project's DefaultHelixAppID.
+type ProjectAgentSpec struct {
+	Name         string             `json:"name,omitempty" yaml:"name,omitempty"`
+	Model        string             `json:"model,omitempty" yaml:"model,omitempty"`
+	Provider     string             `json:"provider,omitempty" yaml:"provider,omitempty"`
+	SystemPrompt string             `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
+	Tools        *ProjectAgentTools `json:"tools,omitempty" yaml:"tools,omitempty"`
+}
+
+// ProjectAgentTools lists the built-in tools to enable for the project agent.
+type ProjectAgentTools struct {
+	WebSearch  bool `json:"web_search,omitempty" yaml:"web_search,omitempty"`
+	Browser    bool `json:"browser,omitempty" yaml:"browser,omitempty"`
+	Calculator bool `json:"calculator,omitempty" yaml:"calculator,omitempty"`
 }
 
 // ProjectCRD is the top-level structure for a project YAML file.
