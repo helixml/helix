@@ -18,7 +18,7 @@ import {
   IAgentType,
 } from "../types";
 import { applyPatch } from "../utils/patchUtils";
-import { TypesInteraction, TypesMessage, TypesSession } from "../api/api";
+import { TypesInteraction, TypesInteractionState, TypesMessage, TypesSession } from "../api/api";
 import { ResponseEntry } from "../components/session/InteractionInference";
 import {
   GET_SESSION_QUERY_KEY,

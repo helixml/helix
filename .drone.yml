@@ -40,7 +40,7 @@ steps:
     commands:
       - cd frontend
       - yarn install --frozen-lockfile --check-files
-      - yarn tsc --noEmit
+      - npx tsc --noEmit -p tsconfig.json
       - yarn test
       - yarn build
     depends_on: []
