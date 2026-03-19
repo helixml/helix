@@ -1739,12 +1739,32 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         </ToggleButton>
                       </ToggleButtonGroup>
                     ) : (
-                      <Typography
-                        variant="body2"
-                        sx={{ fontWeight: 500, color: "text.secondary" }}
+                      <ToggleButtonGroup
+                        value="chat"
+                        exclusive
+                        size="small"
+                        sx={{
+                          flexShrink: 0,
+                          "& .MuiToggleButton-root": {
+                            px: 1.25,
+                            py: 0.25,
+                            fontSize: "0.8rem",
+                            fontWeight: 500,
+                            textTransform: "none",
+                            border: "1px solid",
+                            borderColor: "divider",
+                            color: "text.secondary",
+                            "&.Mui-selected": {
+                              color: "text.primary",
+                              backgroundColor: "action.selected",
+                            },
+                          },
+                        }}
                       >
-                        Chat
-                      </Typography>
+                        <ToggleButton value="chat" disableRipple={false}>
+                          Chat
+                        </ToggleButton>
+                      </ToggleButtonGroup>
                     )}
                     {/* Thread selector (shown alongside tabs when multiple threads exist) */}
                     {zedThreadsData?.zed_threads &&
