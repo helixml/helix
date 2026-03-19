@@ -1,57 +1,56 @@
 # Design: Don't Download Sessions for Stopped Desktops
 
-## Architecture
+## Root Cause
 
-### Current Flow
+`useSandboxState` in `ExternalAgentDesktopViewer.tsx` calls `GET /api/v1/sessions/{id}` (the full session object) every 3 seconds per task card. It only uses four fields from it:
 
-Every task card on the Kanban board renders `LiveAgentScreenshot` → `ExternalAgentDesktopViewer` → `useSandboxState`. That hook polls `GET /api/v1/sessions/{id}` every 3 seconds unconditionally (while the `enabled` flag is true).
+- `config.external_agent_status` — "stopped" / "running" / "starting"
+- `config.desired_state` — "running" / "stopped"
+- `config.container_name` — existence check only
+- `config.status_message` — transient message e.g. "Unpacking build cache (2.1/7.0 GB)"
 
-The `enabled` flag is set in `TaskCard.tsx` via `showProgress && !!task.planning_session_id`. It does NOT check whether the desktop is stopped.
+There is already a lightweight endpoint `GET /api/v1/sessions/{id}/sandbox-state` but it's too basic: it only checks `session.SandboxID != ""` and returns "running" or "absent". It doesn't handle "starting", `desired_state`, `status_message`, or `external_agent_status`.
 
-`LiveAgentScreenshot` is rendered when:
-- `task.planning_session_id` is set
-- `task.phase !== "completed"`
-- `!task.merged_to_main`
+## Fix
 
-So any in-flight task with a session ID gets a polling hook even if the desktop was stopped days ago.
+Two-part change:
 
-### Key Files
+### 1. Extend the backend `/sandbox-state` endpoint
 
-| File | Role |
-|------|------|
-| `frontend/src/components/tasks/TaskCard.tsx:1044` | Renders `LiveAgentScreenshot` conditionally |
-| `frontend/src/components/external-agent/ExternalAgentDesktopViewer.tsx:30` | `useSandboxState` hook — polls every 3s |
-| `frontend/src/components/external-agent/ExternalAgentDesktopViewer.tsx:85` | `setInterval(fetchState, 3000)` — the polling loop |
+Add the missing fields to `SessionSandboxStateResponse` and populate them from session config:
 
-### Fix
+```go
+type SessionSandboxStateResponse struct {
+    SessionID     string `json:"session_id"`
+    State         string `json:"state"`          // "absent", "running", "starting"
+    ContainerID   string `json:"container_id,omitempty"`
+    StatusMessage string `json:"status_message,omitempty"` // transient message
+}
+```
 
-The spec task object already contains `agent_work_state` (`"idle" | "working" | "done"`) and `phase`. The Kanban board also fetches task data every 3.1 seconds. We can use this information to gate `useSandboxState` polling.
+Derive `State` using the same logic currently in `useSandboxState`:
+- `external_agent_status == "stopped"` OR `desired_state == "stopped"` → "absent"
+- `external_agent_status == "running"` OR (`container_name != ""` AND `desired_state == "running"`) → "running"
+- `external_agent_status == "starting"` OR (`container_name == ""` AND `desired_state == "running"`) → "starting"
+- default → "absent"
 
-**Approach**: Pass the task's known status into `useSandboxState` (or `LiveAgentScreenshot`), and set `enabled = false` when the desktop is known to be stopped.
+Return `status_message` from `config.status_message`.
 
-The `useSandboxState` hook already accepts an `enabled` parameter — we just need to compute it correctly in `TaskCard.tsx`.
+Run `./stack update_openapi` to regenerate the frontend API client.
 
-A desktop is known to be stopped/absent when:
-- `task.agent_work_state === "idle"` AND `task.phase` is not `"planning"` or `"implementation"` — the agent finished
-- OR: `sandboxState === "absent"` was already observed (once we know it's absent, stop re-polling)
+### 2. Switch `useSandboxState` to use the lightweight endpoint
 
-**Simplest correct fix**: Once `useSandboxState` observes `status === "stopped"` or `desired_state === "stopped"` from a session response, set a local `knownStopped` flag and stop the polling interval. The state transitions to `"absent"` and stays there until the user explicitly starts the desktop (which triggers a re-render/remount).
+Replace `apiClient.v1SessionsDetail(sessionId)` with `apiClient.v1SessionsSandboxStateDetail(sessionId)` and map the response fields directly. No logic change — just a different (tiny) response.
 
-This means:
-1. First poll fires to check current state (can't avoid without backend changes)
-2. If stopped: polling stops, no further requests
-3. If running: polling continues normally at 3s
+## Key Files
 
-**Alternative (if we want to avoid even the first poll)**: Use `task.agent_work_state` from the already-polled spec task data to skip the initial poll for tasks where the agent is idle and there's no sign of a running desktop. However, this requires coordinating the task's work state with the sandbox state, which is less reliable.
+| File | Change |
+|------|--------|
+| `api/pkg/server/agent_sandboxes_handlers.go:80` | Extend `SessionSandboxStateResponse`, fix `getSessionSandboxState` logic |
+| `api/pkg/server/swagger.json` + `docs.go` + `swagger.yaml` | Regenerated via `./stack update_openapi` |
+| `frontend/src/api/api.ts` | Regenerated via `./stack update_openapi` |
+| `frontend/src/components/external-agent/ExternalAgentDesktopViewer.tsx:43` | Switch to `v1SessionsSandboxStateDetail` |
 
-**Recommended**: The self-stopping approach (option 1) is the most correct and minimal change. Once we get a "stopped" response, we set a ref to prevent further polling.
+## Result
 
-## Decisions
-
-- **No backend changes needed** — the session endpoint already returns the status correctly; we just need to stop polling it once we know the answer.
-- **Don't remove the initial fetch** — we still need to check once to know whether it's running or stopped. The goal is to not keep re-checking after we know it's stopped.
-- **Avoid prop drilling** — self-stopping within `useSandboxState` is cleaner than threading task state down through multiple components.
-
-## Discovered Pattern
-
-`useSandboxState` already has a `setSessionUnavailable`-style pattern in `ScreenshotViewer.tsx` for stopping on 503/404. We can apply the same pattern in `useSandboxState` for the stopped state.
+A stopped task card makes exactly 0 repeated requests (or 1 per render if we keep the initial fetch, which returns immediately as "absent"). A running task card fetches ~200 bytes every 3 seconds instead of the full session object.

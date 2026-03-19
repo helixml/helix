@@ -1,7 +1,7 @@
 # Implementation Tasks
 
-- [ ] In `useSandboxState` (`ExternalAgentDesktopViewer.tsx`), add a `stopped` ref that is set to `true` when the fetched session state is `"stopped"` or `desired_state === "stopped"` (i.e. `sandboxState` maps to `"absent"`)
-- [ ] Once `stopped` ref is true, skip further polling (clear the interval / return early from `fetchState`) so no more `GET /api/v1/sessions/{id}` calls are made for that card
-- [ ] Reset the `stopped` ref if `sessionId` or `enabled` changes (i.e. if the user starts the desktop and a new session is created, the hook re-runs and polls again)
-- [ ] Verify on the Kanban board that stopped tasks make at most 1 session request (the initial check) and then stop
-- [ ] Verify that actively running desktops still poll at 3s as before
+- [ ] In `api/pkg/server/agent_sandboxes_handlers.go`, add `StatusMessage string` to `SessionSandboxStateResponse` and rewrite `getSessionSandboxState` to derive state from `session.Config` fields (`external_agent_status`, `desired_state`, `container_name`, `status_message`) using the same logic currently in `useSandboxState`
+- [ ] Run `./stack update_openapi` to regenerate the frontend API client (`frontend/src/api/api.ts`)
+- [ ] In `ExternalAgentDesktopViewer.tsx`, replace `apiClient.v1SessionsDetail(sessionId)` with `apiClient.v1SessionsSandboxStateDetail(sessionId)` and map `response.data.state` / `response.data.status_message` directly
+- [ ] Verify the Kanban board no longer calls `GET /api/v1/sessions/{id}` for task cards (check Network tab)
+- [ ] Verify running desktops still show correct state transitions (absent → starting → running)
