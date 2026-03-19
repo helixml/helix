@@ -22,13 +22,13 @@
 
 ## Phase 3: Frontend — Kanban Visual Treatment
 
-- [~] Edit `frontend/src/components/tasks/TaskCard.tsx` — widen `useAgentActivityCheck` enabled condition from `showProgress && !!task.planning_session_id` to `!!task.planning_session_id` so attention tracking works in every phase with a session, not just planning/implementation
-- [ ] Edit `frontend/src/components/tasks/TaskCard.tsx` — remove the `(task.phase === "planning" || task.phase === "implementation")` guards from both the green pulsing dot (`isActive`) and amber dot (`needsAttention`) rendering JSX, so dots show in any phase with a running session
-- [ ] Edit `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx` — sort cards with `needsAttention` (derived from `agent_work_state !== "working" && agent_work_state !== undefined`) to the top of their Kanban column, so tasks needing human attention float up visually
+- [x] Edit `frontend/src/components/tasks/TaskCard.tsx` — widen `useAgentActivityCheck` enabled condition from `showProgress && !!task.planning_session_id` to `!!task.planning_session_id` so attention tracking works in every phase with a session, not just planning/implementation
+- [x] Edit `frontend/src/components/tasks/TaskCard.tsx` — remove the `(task.phase === "planning" || task.phase === "implementation")` guards from both the green pulsing dot (`isActive`) and amber dot (`needsAttention`) rendering JSX, so dots show in any phase with a running session
+- [x] Edit `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx` — sort cards with `needsAttention` (derived from `agent_work_state !== "working" && agent_work_state !== undefined`) to the top of their Kanban column, so tasks needing human attention float up visually
 
 ## Phase 4: Frontend — Attention Queue UI
 
-- [ ] Create `frontend/src/hooks/useAttentionEvents.ts` — React Query hook: polls `GET /api/v1/attention-events?active=true` every 10s via `api.getApiClient()`, returns events sorted by `created_at` desc, exposes `acknowledge`, `dismiss`, `snooze`, `dismissAll` mutation wrappers that call the PATCH/POST endpoints and invalidate the query
+- [~] Create `frontend/src/hooks/useAttentionEvents.ts` — React Query hook: polls `GET /api/v1/attention-events?active=true` every 10s via `api.getApiClient()`, returns events sorted by `created_at` desc, exposes `acknowledge`, `dismiss`, `snooze`, `dismissAll` mutation wrappers that call the PATCH/POST endpoints and invalidate the query
 - [ ] Create `frontend/src/hooks/useBrowserNotifications.ts` — wraps browser `Notification` API: tracks `Notification.permission` state, `requestPermission()`, `fireNotification(title, body, onClick)`, localStorage opt-out flag (`helix_browser_notif_disabled`). Only fires for events not yet acknowledged.
 - [ ] Refactor `frontend/src/components/system/GlobalNotifications.tsx` **in-place** — keep the existing bell `IconButton` / `Badge` / `Bell` icon code as-is; swap data source from status-polling (`useQueries` on `v1SpecTasksList`) to the new `useAttentionEvents` hook; replace the `Popover` with a right-side MUI `Drawer` (~400px wide) containing:
   - `QueueHeader` — title "Needs Attention", event count, "Dismiss All" button
