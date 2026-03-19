@@ -1745,9 +1745,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         Chat
                       </Typography>
                     )}
-                    {/* Thread selector (shown alongside tabs when threads exist) */}
+                    {/* Thread selector (shown alongside tabs when multiple threads exist) */}
                     {zedThreadsData?.zed_threads &&
-                    zedThreadsData.zed_threads.length > 0 && (
+                    zedThreadsData.zed_threads.filter(t => t.work_session?.helix_session_id).length > 0 && (
                       <Select
                         size="small"
                         variant="standard"
