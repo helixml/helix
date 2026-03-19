@@ -89,7 +89,7 @@ steps:
   - name: check-for-secrets
     image: ghcr.io/gitleaks/gitleaks:v8.24.0
     commands:
-      - gitleaks dir -v
+      - gitleaks dir -v; rc=$?; if [ $rc -eq 1 ]; then echo "LEAKS FOUND"; exit 1; fi
     when:
       event:
         - push
