@@ -155,6 +155,43 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
       ? startupErrorMessage
       : undefined;
 
+  // Track how long we've been in "starting" state so we can show a recovery UI
+  // if the desktop fails to start within 2 minutes (issue #5 from ZFS deployment).
+  const startingStartTimeRef = useRef<number | null>(null);
+  const [startingTooLong, setStartingTooLong] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
+
+  useEffect(() => {
+    if (isStarting) {
+      if (startingStartTimeRef.current === null) {
+        startingStartTimeRef.current = Date.now();
+        setStartingTooLong(false);
+      }
+      const check = setInterval(() => {
+        if (startingStartTimeRef.current !== null && Date.now() - startingStartTimeRef.current > 120_000) {
+          setStartingTooLong(true);
+        }
+      }, 5000);
+      return () => clearInterval(check);
+    } else {
+      startingStartTimeRef.current = null;
+      setStartingTooLong(false);
+    }
+  }, [isStarting]);
+
+  const handleStopFromStarting = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setIsStopping(true);
+    try {
+      await api.getApiClient().v1SessionsStopExternalAgentDelete(sessionId);
+    } catch (error: any) {
+      console.error("Failed to stop session:", error);
+      snackbar.error(error?.message || "Failed to stop desktop");
+    } finally {
+      setIsStopping(false);
+    }
+  };
+
   // NOTE: WebSocket subscription is handled by parent components (SpecTaskDetailContent, etc.)
   // based on whether the chat panel is visible. This component no longer subscribes directly
   // to avoid duplicate subscriptions and to allow proper disconnect when chat is collapsed.
@@ -296,8 +333,17 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             <>
               <CircularProgress size={32} sx={{ color: 'primary.main' }} />
               <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
-                {statusMessage || "Starting Desktop..."}
+                {startingTooLong ? "Desktop may have failed to start" : (statusMessage || "Starting Desktop...")}
               </Typography>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={handleStopFromStarting}
+                disabled={isStopping}
+                sx={{ color: 'rgba(255,255,255,0.6)', borderColor: 'rgba(255,255,255,0.3)', mt: 1 }}
+              >
+                {isStopping ? "Stopping..." : "Stop"}
+              </Button>
             </>
           )}
         </Box>
@@ -425,8 +471,17 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           <>
             <CircularProgress size={32} sx={{ color: 'primary.main' }} />
             <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
-              {statusMessage || "Starting Desktop..."}
+              {startingTooLong ? "Desktop may have failed to start — click Stop to retry" : (statusMessage || "Starting Desktop...")}
             </Typography>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={handleStopFromStarting}
+              disabled={isStopping}
+              sx={{ color: 'rgba(255,255,255,0.6)', borderColor: 'rgba(255,255,255,0.3)', mt: 1 }}
+            >
+              {isStopping ? "Stopping..." : "Stop"}
+            </Button>
           </>
         )}
       </Box>
