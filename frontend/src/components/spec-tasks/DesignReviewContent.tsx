@@ -990,7 +990,8 @@ export default function DesignReviewContent({
                     display: { xs: 'none', sm: 'flex' },
                     flexShrink: 0,
                     alignSelf: 'center',
-                    mx: 1,
+                    ml: 2,
+                    mr: 1,
                     "& .MuiToggleButton-root": {
                       px: 1.25,
                       py: 0.25,
