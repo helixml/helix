@@ -1568,8 +1568,9 @@ func (s *HelixAPIServer) getAppUserAccess(_ http.ResponseWriter, r *http.Request
 		return response, nil
 	}
 
-	readErr := s.authorizeUserToResource(r.Context(), user, app.OrganizationID, app.ID, types.ResourceApplication, types.ActionGet)
-	writeErr := s.authorizeUserToResource(r.Context(), user, app.OrganizationID, app.ID, types.ResourceApplication, types.ActionUpdate)
+	// Check app-level access (includes project-based fallback)
+	readErr := s.authorizeUserToApp(r.Context(), user, app, types.ActionGet)
+	writeErr := s.authorizeUserToApp(r.Context(), user, app, types.ActionUpdate)
 
 	if readErr == nil {
 		response.CanRead = true

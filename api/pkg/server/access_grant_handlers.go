@@ -42,10 +42,15 @@ func (apiServer *HelixAPIServer) listAppAccessGrants(rw http.ResponseWriter, r *
 	}
 
 	// Authorize user to view this application's access grants
+	// First check direct access grant permissions, then fall back to app-level access
+	// (which includes project-based access)
 	err = apiServer.authorizeUserToAppAccessGrants(r.Context(), user, app, types.ActionGet)
 	if err != nil {
-		writeErrResponse(rw, err, http.StatusForbidden)
-		return
+		// Fall back: if user has read access to the app (e.g. via project), allow viewing grants
+		if appErr := apiServer.authorizeUserToApp(r.Context(), user, app, types.ActionGet); appErr != nil {
+			writeErrResponse(rw, err, http.StatusForbidden)
+			return
+		}
 	}
 
 	grants, err := apiServer.Store.ListAccessGrants(r.Context(), &store.ListAccessGrantsQuery{
