@@ -110,6 +110,18 @@ import {
   Copy,
 } from "lucide-react";
 
+// Module-level set: tracks which task IDs have already had their spec auto-opened
+// in this SPA session. Persists across component unmount/remount so that navigating
+// back from the spec review page does not immediately redirect the user again.
+const AUTO_OPENED_KEY = "helix_auto_opened_spec_tasks";
+const getAutoOpenedSpecTasks = (): Set<string> =>
+  new Set(JSON.parse(sessionStorage.getItem(AUTO_OPENED_KEY) || "[]"));
+const addAutoOpenedSpecTask = (id: string) => {
+  const set = getAutoOpenedSpecTasks();
+  set.add(id);
+  sessionStorage.setItem(AUTO_OPENED_KEY, JSON.stringify([...set]));
+};
+
 interface SpecTaskDetailContentProps {
   taskId: string;
   onClose?: () => void;
@@ -346,6 +358,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // File upload state
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
+
+  // (auto-open tracking is handled by sessionStorage so it persists across page refreshes)
 
   // Clone dialog state
   const [showCloneDialog, setShowCloneDialog] = useState(false);
@@ -810,6 +824,23 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       snackbar.error("Failed to load design review");
     }
   }, [task?.id, task?.name, task?.project_id, onOpenReview, account]);
+
+  // Auto-open spec review when task is in spec_review or spec_revision status
+  // and design docs are available - triggers once per SPA session per task ID.
+  // Uses sessionStorage so navigating back from the review doesn't re-trigger, even after a page refresh.
+  useEffect(() => {
+    if (
+      task?.id &&
+      !getAutoOpenedSpecTasks().has(task.id) &&
+      task?.design_docs_pushed_at &&
+      account.organizationTools.organization?.name &&
+      (task?.status === TypesSpecTaskStatus.TaskStatusSpecReview ||
+        task?.status === TypesSpecTaskStatus.TaskStatusSpecRevision)
+    ) {
+      addAutoOpenedSpecTask(task.id);
+      handleReviewSpec();
+    }
+  }, [task?.id, task?.status, task?.design_docs_pushed_at, handleReviewSpec, account.organizationTools.organization?.name]);
 
   // Handle file upload to sandbox
   const handleUploadClick = useCallback(() => {
@@ -1669,60 +1700,120 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    px: 1.5,
-                    py: 0.75,
-                    minHeight: 40,
+                    px: 1,
+                    minHeight: 48,
                     borderBottom: "1px solid",
                     borderColor: "divider",
                     backgroundColor: "background.paper",
                     flexShrink: 0,
                   }}
                 >
-                  {zedThreadsData?.zed_threads &&
-                  zedThreadsData.zed_threads.length > 0 ? (
-                    <Select
-                      size="small"
-                      variant="standard"
-                      value={selectedThreadSessionId || "planning"}
-                      onChange={(e) => {
-                        const val = e.target.value as string;
-                        setSelectedThreadSessionId(
-                          val === "planning" ? null : val,
-                        );
-                      }}
-                      sx={{
-                        fontSize: "0.875rem",
-                        fontWeight: 500,
-                        color: "text.secondary",
-                        minWidth: 100,
-                        "&:before": { display: "none" },
-                        "&:after": { display: "none" },
-                        "& .MuiSelect-select": { py: 0 },
-                      }}
-                    >
-                      <MenuItem value="planning">Main thread</MenuItem>
-                      {zedThreadsData.zed_threads.map((thread, index) => {
-                        const sessionId = thread.work_session?.helix_session_id;
-                        if (!sessionId) return null;
-                        const label =
-                          thread.work_session?.name ||
-                          thread.work_session?.implementation_task_title ||
-                          `Thread ${index + 2}`;
-                        return (
-                          <MenuItem key={sessionId} value={sessionId}>
-                            {label}
-                          </MenuItem>
-                        );
-                      })}
-                    </Select>
-                  ) : (
-                    <Typography
-                      variant="body2"
-                      sx={{ fontWeight: 500, color: "text.secondary" }}
-                    >
-                      Chat
-                    </Typography>
-                  )}
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1, minWidth: 0 }}>
+                    {/* Chat / Spec tab strip */}
+                    {task?.design_docs_pushed_at ? (
+                      <ToggleButtonGroup
+                        value="chat"
+                        exclusive
+                        onChange={(_, val) => {
+                          if (val === "spec") handleReviewSpec();
+                        }}
+                        size="small"
+                        sx={{
+                          flexShrink: 0,
+                          "& .MuiToggleButton-root": {
+                            px: 1.25,
+                            py: 0.25,
+                            fontSize: "0.8rem",
+                            fontWeight: 500,
+                            textTransform: "none",
+                            border: "1px solid",
+                            borderColor: "divider",
+                            color: "text.secondary",
+                            "&.Mui-selected": {
+                              color: "text.primary",
+                              backgroundColor: "action.selected",
+                            },
+                          },
+                        }}
+                      >
+                        <ToggleButton value="chat" disableRipple={false}>
+                          Chat
+                        </ToggleButton>
+                        <ToggleButton value="spec" disableRipple={false}>
+                          <Description sx={{ fontSize: 14, mr: 0.5 }} />
+                          Spec
+                        </ToggleButton>
+                      </ToggleButtonGroup>
+                    ) : (
+                      <ToggleButtonGroup
+                        value="chat"
+                        exclusive
+                        size="small"
+                        sx={{
+                          flexShrink: 0,
+                          "& .MuiToggleButton-root": {
+                            px: 1.25,
+                            py: 0.25,
+                            fontSize: "0.8rem",
+                            fontWeight: 500,
+                            textTransform: "none",
+                            border: "1px solid",
+                            borderColor: "divider",
+                            color: "text.secondary",
+                            "&.Mui-selected": {
+                              color: "text.primary",
+                              backgroundColor: "action.selected",
+                            },
+                          },
+                        }}
+                      >
+                        <ToggleButton value="chat" disableRipple disabled sx={{ '&.Mui-disabled': { color: 'text.primary', borderColor: 'divider' } }}>
+                          Chat
+                        </ToggleButton>
+                      </ToggleButtonGroup>
+                    )}
+                    {/* Thread selector (shown alongside tabs when multiple threads exist) */}
+                    {zedThreadsData?.zed_threads &&
+                    zedThreadsData.zed_threads.filter(t => t.work_session?.helix_session_id).length > 0 && (
+                      <Select
+                        size="small"
+                        variant="standard"
+                        value={selectedThreadSessionId || "planning"}
+                        onChange={(e) => {
+                          const val = e.target.value as string;
+                          setSelectedThreadSessionId(
+                            val === "planning" ? null : val,
+                          );
+                        }}
+                        sx={{
+                          fontSize: "0.8rem",
+                          fontWeight: 500,
+                          color: "text.secondary",
+                          minWidth: 80,
+                          maxWidth: 140,
+                          ml: 1,
+                          "&:before": { display: "none" },
+                          "&:after": { display: "none" },
+                          "& .MuiSelect-select": { py: 0 },
+                        }}
+                      >
+                        <MenuItem value="planning">Main thread</MenuItem>
+                        {zedThreadsData.zed_threads.map((thread, index) => {
+                          const sessionId = thread.work_session?.helix_session_id;
+                          if (!sessionId) return null;
+                          const label =
+                            thread.work_session?.name ||
+                            thread.work_session?.implementation_task_title ||
+                            `Thread ${index + 2}`;
+                          return (
+                            <MenuItem key={sessionId} value={sessionId}>
+                              {label}
+                            </MenuItem>
+                          );
+                        })}
+                      </Select>
+                    )}
+                  </Box>
                   <Tooltip title="Collapse chat panel">
                     <IconButton
                       size="small"
@@ -1733,7 +1824,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           handleViewChange("desktop");
                         }
                       }}
-                      sx={{ p: 0.25 }}
+                      sx={{ p: 0.25, flexShrink: 0 }}
                     >
                       <ChevronLeftIcon sx={{ fontSize: 18 }} />
                     </IconButton>

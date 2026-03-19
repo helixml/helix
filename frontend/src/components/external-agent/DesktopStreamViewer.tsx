@@ -4855,6 +4855,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         onTouchCancel={handleTouchCancel}
         onDragStart={(e) => e.preventDefault()}
         style={{
+          userSelect: "none",
           // Use calculated dimensions to maintain aspect ratio, scaled by zoom level
           // By scaling CSS dimensions (not CSS transform), the browser renders more pixels
           // from the canvas's internal buffer, giving access to native resolution detail
@@ -4884,7 +4885,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // This ensures all touch events go to our handlers
           touchAction: "none",
           // Prevent text selection on double-click in Safari iPad
-          userSelect: "none",
           WebkitUserSelect: "none",
           WebkitTouchCallout: "none",
         }}
