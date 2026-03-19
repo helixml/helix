@@ -11,13 +11,13 @@
 
 ## Manual QA
 
-- [~] Open the browser and navigate to `http://localhost:8080`
-- [~] Register an account (go to `/login`, click "Register here", use `test@helix.local` / `testpass123`)
-- [~] Complete onboarding: create an org when prompted
-- [~] Create a project
-- [~] Create several spec tasks, adding different labels to each (e.g. "frontend", "backend", "bug")
-- [~] Use the label filter dropdown in the kanban board toolbar to filter by one or more labels
-- [~] Navigate away from the project page (e.g. go to another project or home)
-- [~] Navigate back to the same project — confirm the label filter is still applied
-- [~] Open Chrome DevTools → Application → Local Storage → `http://localhost:8080` and confirm the key `helix-label-filter-<projectId>` exists with the correct value
-- [~] Clear the label filter — confirm the key is removed from Local Storage
+- [x] Open the browser and navigate to `http://localhost:8080`
+- [x] Register an account (go to `/login`, click "Register here", use `test@helix.local` / `testpass123`)
+- [x] Complete onboarding: create an org when prompted
+- [x] Create a project
+- [x] Create several spec tasks, adding different labels to each (e.g. "frontend", "backend", "bug")
+- [x] Use the label filter dropdown in the kanban board toolbar to filter by one or more labels
+- [x] Navigate away from the project page (e.g. go to another project or home)
+- [x] Navigate back to the same project — confirm the label filter is still applied
+- [x] Open Chrome DevTools → Application → Local Storage → `http://localhost:8080` and confirm the key `helix-label-filter-<projectId>` exists with the correct value
+- [x] Clear the label filter — confirm the key is removed from Local Storage
