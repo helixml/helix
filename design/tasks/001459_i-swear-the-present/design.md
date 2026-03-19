@@ -35,6 +35,12 @@ if primaryRepoID != "" {
 
 Note: `project` must be in scope at this point in session_handlers.go. If it isn't fetched yet, it needs to be retrieved from the store using the session's ProjectID.
 
+## Implementation Notes
+
+- `GetProject` was already called at line 1850 but its return value was discarded with `_`. Simply capturing it as `project` was sufficient — no extra store call needed.
+- The fix is 6 lines changed (net +1 line): capture project return value, extract `primaryRepoID` from `DefaultRepoID`, fall back to `[0]` only when empty.
+- Build: `go build ./pkg/server/` passes cleanly.
+
 ## Secondary Issue (Optional Improvement)
 
 `ListGitRepositories` orders by `git_repositories.created_at DESC`. This means the fallback `[0]` is whichever repo was most recently inserted into the `git_repositories` table — not necessarily the most important one. This is confusing.
