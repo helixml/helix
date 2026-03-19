@@ -4852,9 +4852,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
-        onSelectStart={(e) => e.preventDefault()}
         onDragStart={(e) => e.preventDefault()}
         style={{
+          userSelect: "none",
           // Use calculated dimensions to maintain aspect ratio, scaled by zoom level
           // By scaling CSS dimensions (not CSS transform), the browser renders more pixels
           // from the canvas's internal buffer, giving access to native resolution detail
