@@ -586,21 +586,10 @@ func (apiServer *HelixAPIServer) pollClaudeLogin(_ http.ResponseWriter, req *htt
 		}
 	}
 
-	// Prefer the BROWSER-captured URL — it uses redirect_uri=http://localhost:PORT/callback
-	// which matches claude's local callback server. The auth code MUST be issued for this
-	// redirect_uri or the token exchange will fail with a redirect_uri mismatch.
-	//
-	// The user's browser can't reach localhost:PORT inside the container, so after
-	// authorization Claude redirects to localhost which fails. But the auth code is now
-	// in the URL. The user copies it and pastes it in the UI, then helix-claude-auth-submit
-	// forwards it to claude's local callback server.
-	urlOutput, urlErr := apiServer.execInContainer(req.Context(), runnerID,
-		[]string{"cat", "/tmp/claude-auth-url.txt"})
-	if urlErr == nil && strings.HasPrefix(strings.TrimSpace(urlOutput), "https://") {
-		return &ClaudePollLoginResponse{Found: false, URL: strings.TrimSpace(urlOutput)}, nil
-	}
-
-	// Fallback: parse the stdout URL (platform.claude.com/oauth/code/callback redirect).
+	// Check for OAuth URL from claude auth login stdout.
+	// The stdout URL uses redirect_uri=platform.claude.com/oauth/code/callback which
+	// shows a nice "paste this code" page. The user copies the code and pastes it in
+	// the Helix UI. The submit script then feeds it to claude's stdin via a named pipe.
 	stdoutOutput, stdoutErr := apiServer.execInContainer(req.Context(), runnerID,
 		[]string{"cat", "/tmp/claude-auth-stdout.txt"})
 	if stdoutErr == nil && stdoutOutput != "" {

@@ -23,12 +23,25 @@ if ! command -v claude &>/dev/null; then
     exit 1
 fi
 
+# Create a named pipe so the Helix frontend can send the auth code.
+# The stdout URL uses the "code" flow (platform.claude.com/oauth/code/callback)
+# which shows the code to the user. They paste it in the Helix UI, and
+# helix-claude-auth-submit writes it to this pipe for claude to read.
+rm -f /tmp/claude-auth-input
+mkfifo -m 666 /tmp/claude-auth-input
+
 # Use `script` to create a pseudo-TTY so Node.js (claude) uses line buffering
 # instead of full buffering. Without this, stdout is never flushed to the file
 # and the poll handler can't find the platform OAuth URL.
 #
-# claude auth login starts a local HTTP server for the OAuth callback.
-# The BROWSER env var captures the localhost URL (with port + state) to
-# /tmp/claude-auth-url.txt. The helix-claude-auth-submit script uses that
-# to forward the auth code to claude's callback server.
-script -qefc "claude auth login" /tmp/claude-auth-stdout.txt
+# script reads from its stdin (the fifo). Start it in the background so we can
+# open the write end on fd 3 to prevent premature EOF when no writer is connected.
+script -qefc "claude auth login" /tmp/claude-auth-stdout.txt < /tmp/claude-auth-input &
+SCRIPT_PID=$!
+
+# Open write end to unblock script's read-open and keep the fifo alive.
+exec 3>/tmp/claude-auth-input
+
+# Wait for claude auth login to complete (either success or timeout).
+wait $SCRIPT_PID
+exec 3>&-
