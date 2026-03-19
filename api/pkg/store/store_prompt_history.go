@@ -68,6 +68,7 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 			updateFields := map[string]interface{}{
 				"interrupt":      interrupt,
 				"queue_position": entry.QueuePosition,
+				"content":        entry.Content,
 				"updated_at":     time.Now(),
 			}
 
