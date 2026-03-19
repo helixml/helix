@@ -146,7 +146,7 @@ type SpecTaskPhase =
   | "pull_request"
   | "completed";
 
-interface SpecTaskWithExtras {
+export interface SpecTaskWithExtras {
   id: string;
   name: string;
   status: string;
@@ -179,16 +179,18 @@ interface SpecTaskWithExtras {
   // Task number for display
   task_number?: number;
   depends_on?: TaskDependency[];
+  labels?: string[];
+  updated_at?: string;
 }
 
-interface TaskDependency {
+export interface TaskDependency {
   id?: string;
   task_number?: number;
   status?: string;
   archived?: boolean;
 }
 
-interface KanbanColumn {
+export interface KanbanColumn {
   id: SpecTaskPhase;
   limit?: number;
   tasks: SpecTaskWithExtras[];
@@ -221,6 +223,8 @@ interface TaskCardProps {
   onDependencyHoverEnd?: () => void;
   /** Whether to focus the Start Planning button (for newly created tasks) */
   focusStartPlanning?: boolean;
+  /** Whether the card is currently visible (for virtualization) */
+  isVisible?: boolean;
 }
 
 // Interface for checklist items from API

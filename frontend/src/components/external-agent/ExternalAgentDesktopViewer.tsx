@@ -44,7 +44,7 @@ export const useSandboxState = (sessionId: string, enabled: boolean = true) => {
         if (response.data) {
           // Check external agent status from session metadata
           const status = response.data.config?.external_agent_status || "";
-          const desiredState = response.data.config?.desired_state || "";
+          const desiredState = (response.data.config as (typeof response.data.config & { desired_state?: string }))?.desired_state || "";
           const hasContainer = !!response.data.config?.container_name;
 
           // Pickup transient status message (e.g., "Unpacking build cache (2.1/7.0 GB)")

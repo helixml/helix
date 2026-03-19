@@ -110,7 +110,7 @@ const KoditAdminRepoDetail: FC<KoditAdminRepoDetailProps> = ({ koditRepoId, onBa
   })
 
   // Search (if we have a Helix repo ID)
-  const searchResults = useKoditSearch(helixRepoId, activeSearch, {
+  const searchResults = useKoditSearch(helixRepoId, activeSearch, undefined, undefined, {
     enabled: !!helixRepoId && !!activeSearch,
   })
 

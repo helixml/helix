@@ -1168,12 +1168,12 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
         />
       </Box>
 
-      {koditStatusData?.message && (
+      {koditStatusData?.data?.attributes?.message && (
         <Alert
-          severity={koditStatusData.status === 'failed' ? 'error' : koditStatusData.status === 'completed_with_errors' ? 'warning' : 'info'}
+          severity={koditStatusData.data.attributes.status === 'failed' ? 'error' : koditStatusData.data.attributes.status === 'completed_with_errors' ? 'warning' : 'info'}
           sx={{ mb: 2 }}
         >
-          {koditStatusData.message}
+          {koditStatusData.data.attributes.message}
         </Alert>
       )}
 

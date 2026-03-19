@@ -144,8 +144,8 @@ const BacklogTableView: React.FC<BacklogTableViewProps> = ({
       }
 
       // Secondary sort by created date (newest first)
-      const dateA = new Date(a.created || 0).getTime();
-      const dateB = new Date(b.created || 0).getTime();
+      const dateA = new Date(a.created_at || 0).getTime();
+      const dateB = new Date(b.created_at || 0).getTime();
       return dateB - dateA;
     });
 
