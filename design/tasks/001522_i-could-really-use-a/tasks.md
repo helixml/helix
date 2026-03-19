@@ -40,7 +40,14 @@
 
 ## Phase 5: Verification
 
-- [~] Test agent-interaction-completed detection: start a spectask in any phase (not just implementation), send the agent a message, wait for it to finish responding, verify `agent_interaction_completed` attention event appears in the queue and in the project's Slack thread — and that the task status doesn't change
+- [x] `cd frontend && yarn build` — verify no build errors
+- [x] `cd api && go build ./pkg/server/ ./pkg/store/ ./pkg/types/ ./pkg/services/` — verify no build errors
+- [x] `go vet` — no new warnings (pre-existing warning in mcp_backend_external.go only)
+- [x] Full binary build: `CGO_ENABLED=0 go build ./api/` — passes
+
+### WARNING: Manual tests below require deployment — NOT tested yet
+
+- [ ] Test agent-interaction-completed detection: start a spectask in any phase, send the agent a message, wait for it to finish responding, verify `agent_interaction_completed` attention event appears in the queue and in the project's Slack thread — and that the task status doesn't change
 - [ ] Test Kanban amber dot in all phases: verify the amber attention dot appears on TaskCard when agent finishes in spec_generation, spec_review, spec_revision, implementation — not just planning/implementation; verify clicking the card dismisses the dot; verify cards with attention sort to top of their column
 - [ ] Test specs-pushed detection: have agent push design docs, verify `specs_pushed` event appears in queue and Slack
 - [ ] Test idempotency: trigger same event twice (e.g., `handleMessageCompleted` called twice for same interaction), verify only one event row exists
@@ -48,5 +55,3 @@
 - [ ] Test drawer overlay on Kanban view, task detail page, and split screen view — verify z-index stacking and no layout disruption
 - [ ] Test browser notifications in Chrome and Firefox — verify permission flow, notification content, click-to-navigate
 - [ ] Test with multiple projects — verify queue aggregates events across all projects correctly
-- [x] `cd frontend && yarn build` — verify no build errors
-- [x] `cd api && go build ./pkg/server/ ./pkg/store/ ./pkg/types/ ./pkg/services/` — verify no build errors

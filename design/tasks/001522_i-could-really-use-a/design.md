@@ -259,3 +259,39 @@ POST  /api/v1/attention-events/dismiss-all     — bulk dismiss all active event
 | Slack posting for `agent_interaction_completed` needs access to SlackBot internals | Expose a public `PostAttentionEvent(taskID, message)` method on the Slack trigger system, or have `AttentionService` look up the project's Slack app and thread directly via the store. |
 | Drawer z-index conflicts with chat panel, modals | MUI Drawer handles layering. Test with chat panel open on split screen view. |
 | Swagger/OpenAPI needs updating for new endpoints | Add swagger annotations to handlers, run `./stack update_openapi` to regenerate client. |
+
+## Implementation Notes
+
+### What was built
+- `api/pkg/types/attention_event.go` — `AttentionEvent` struct + 5 event type constants + `BuildAttentionEventIdempotencyKey` helper
+- `api/pkg/system/uuid.go` — added `atev_` prefix and `GenerateAttentionEventID()`
+- `api/pkg/store/store_attention_events.go` — GORM CRUD with `ON CONFLICT DO NOTHING` for idempotent creates, active-only listing, bulk dismiss, expired cleanup
+- `api/pkg/store/store_mocks.go` — manually added mock methods (mockgen not available in build env)
+- `api/pkg/store/postgres.go` — added `AttentionEvent` to AutoMigrate
+- `api/pkg/store/store.go` — added 6 methods to Store interface
+- `api/pkg/services/attention_service.go` — `EmitEvent()` with project lookup, idempotency, fire-and-forget Slack via per-project bot token
+- `api/pkg/server/attention_event_handlers.go` — 3 HTTP handlers with swagger annotations
+- `api/pkg/server/server.go` — routes registered, AttentionService wired into server + GitHTTPServer + orchestrator
+- `api/pkg/server/websocket_external_agent_sync.go` — `handleMessageCompleted` emits `agent_interaction_completed` for spectask sessions
+- `api/pkg/services/git_http_server.go` — `processDesignDocsForBranch` emits `specs_pushed` on every design doc commit
+- `api/pkg/services/spec_task_orchestrator.go` — subscribes to `spec_failed`/`implementation_failed` statuses, emits `pr_ready` on external PR detection, periodic cleanup
+- `frontend/src/hooks/useAttentionEvents.ts` — React Query hook polling every 10s, mutation wrappers
+- `frontend/src/hooks/useBrowserNotifications.ts` — Notification API wrapper with permission flow + localStorage opt-out
+- `frontend/src/components/system/GlobalNotifications.tsx` — refactored in-place: bell icon preserved, Popover → Drawer, grouped event sections
+- `frontend/src/components/system/Page.tsx` — removed `{notifications && ...}` gate so bell renders on every page
+- `frontend/src/components/tasks/TaskCard.tsx` — widened attention dot to all phases with a session
+- `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx` — `sortWithAttentionFirst` bubbles attention cards to top of each column
+
+### Decisions made during implementation
+- Changed PATCH route to PUT for attention event updates because `useApi` hook doesn't expose a `patch` method
+- Used `api.get`/`api.put`/`api.post` from `useApi` instead of generated client methods (swagger not regenerated yet)
+- For Slack notifications: the `AttentionService` directly calls the Slack API using the per-project bot token found via `ListApps` → `SlackTrigger`, rather than going through the `SlackBot` class (which would require complex wiring). It looks up existing `SlackThread` records and posts threaded replies.
+- Failure event detection uses `SubscribeForTasks` in the orchestrator (a second subscription filtered to failure statuses) rather than hooking individual status-change sites — this catches failures regardless of where they originate.
+- `sortWithAttentionFirst` is defined outside the `useMemo` to avoid dependency issues; it's a pure function so this is safe.
+- Browser notification dedup uses both a `shownRef` in the hook and the Notification API's `tag` parameter for belt-and-suspenders dedup.
+
+### Gotchas discovered
+- `helix-4` is a symlink to `helix` — the editor only resolves the canonical path `helix/`
+- `Project.UserID` not `Project.Owner` — the Go struct field name differs from the conceptual "owner"
+- `mockgen` is not installed in the build environment — mock methods had to be added manually to `store_mocks.go`
+- The `GlobalNotifications` component's `organizationId` prop comes from `Page.tsx` but is no longer used for data fetching (the attention events API filters by the authenticated user server-side). The prop is kept for interface compatibility.
