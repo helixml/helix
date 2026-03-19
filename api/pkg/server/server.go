@@ -1188,7 +1188,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Attention event routes
 	authRouter.HandleFunc("/attention-events", apiServer.listAttentionEvents).Methods(http.MethodGet)
 	authRouter.HandleFunc("/attention-events/dismiss-all", apiServer.dismissAllAttentionEvents).Methods(http.MethodPost)
-	authRouter.HandleFunc("/attention-events/{id}", apiServer.updateAttentionEvent).Methods(http.MethodPatch)
+	authRouter.HandleFunc("/attention-events/{id}", apiServer.updateAttentionEvent).Methods(http.MethodPut)
 
 	// Spec-driven task routes
 	authRouter.HandleFunc("/spec-tasks/from-prompt", apiServer.createTaskFromPrompt).Methods(http.MethodPost)
