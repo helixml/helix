@@ -1,9 +1,10 @@
 #!/bin/bash
-# helix-claude-auth-submit.sh — Writes the auth code to the named pipe
-# that helix-claude-auth-wrapper.sh feeds to claude auth login's stdin.
-# Usage: helix-claude-auth-submit <code>
+# helix-claude-auth-submit.sh — Forwards the OAuth callback to claude's local
+# callback server. Called by the API's proxy endpoint.
+# Usage: helix-claude-auth-submit <callback-url>
+#   e.g. helix-claude-auth-submit "http://localhost:37093/callback?code=CODE&state=STATE"
 if [ -z "$1" ]; then
-    echo "Usage: helix-claude-auth-submit <code>" >&2
+    echo "Usage: helix-claude-auth-submit <callback-url>" >&2
     exit 1
 fi
-printf '%s\n' "$1" > /tmp/claude-auth-input
+exec curl -sf "$1"

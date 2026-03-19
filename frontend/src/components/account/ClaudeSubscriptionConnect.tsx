@@ -2,7 +2,6 @@ import React, { FC, useState, useCallback, useEffect, useRef } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import Dialog from '@mui/material/Dialog'
 import DialogTitle from '@mui/material/DialogTitle'
@@ -323,9 +322,6 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
   const { isRunning } = useSandboxState(sessionId)
   const [authUrl, setAuthUrl] = useState<string | null>(null)
   const [loginError, setLoginError] = useState<string | null>(null)
-  const [authCode, setAuthCode] = useState('')
-  const [codeSubmitting, setCodeSubmitting] = useState(false)
-  const [codeSubmitted, setCodeSubmitted] = useState(false)
 
   // Once the desktop is running, send the `claude auth login` command
   useEffect(() => {
@@ -334,9 +330,6 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
     const sendLoginCommand = async () => {
       try {
         const apiClient = api.getApiClient()
-        // The wrapper script handles npm install (with retry for network readiness),
-        // sets BROWSER to the capture script, and runs claude auth login with stdout
-        // redirected to /tmp/claude-auth-stdout.txt for URL parsing.
         await apiClient.v1ExternalAgentsExecCreate(sessionId, {
           command: ['helix-claude-auth-wrapper'],
           background: true,
@@ -349,32 +342,9 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
       }
     }
 
-    // Small delay to let the container initialize
     const timeout = setTimeout(sendLoginCommand, 3000)
     return () => clearTimeout(timeout)
   }, [isRunning, loginCommandSent, sessionId])
-
-  // Submit the auth code to the container's named pipe
-  const handleSubmitCode = useCallback(async () => {
-    if (!authCode.trim()) return
-    setCodeSubmitting(true)
-    try {
-      const apiClient = api.getApiClient()
-      // Write the code to the named pipe that the wrapper script reads from.
-      // claude auth login is waiting for this on stdin (via the fifo).
-      await apiClient.v1ExternalAgentsExecCreate(sessionId, {
-        command: ['helix-claude-auth-submit', authCode.trim()],
-        background: false,
-        env: {},
-      })
-      setCodeSubmitted(true)
-    } catch (err: any) {
-      console.error('Failed to submit auth code:', err)
-      setLoginError('Failed to submit authentication code. Please try again.')
-    } finally {
-      setCodeSubmitting(false)
-    }
-  }, [authCode, sessionId])
 
   // Once login command is sent, start polling for credentials (and OAuth URL).
   // Use a ref guard instead of state in deps to prevent the effect cleanup
@@ -481,11 +451,8 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
               Waiting for Claude login page...
             </Typography>
           </Box>
-        ) : !codeSubmitted ? (
+        ) : (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <Typography variant="body2">
-              <strong>Step 1:</strong> Open the sign-in page and authorize access.
-            </Typography>
             <Button
               variant="contained"
               color="primary"
@@ -495,35 +462,15 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
             >
               Open Claude Sign-in Page
             </Button>
-            <Typography variant="body2" sx={{ mt: 1 }}>
-              <strong>Step 2:</strong> Copy the authentication code and paste it below.
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <TextField
-                fullWidth
-                size="small"
-                placeholder="Paste authentication code here"
-                value={authCode}
-                onChange={(e) => setAuthCode(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleSubmitCode() }}
-                disabled={codeSubmitting}
-                autoFocus
-              />
-              <Button
-                variant="contained"
-                onClick={handleSubmitCode}
-                disabled={!authCode.trim() || codeSubmitting}
-              >
-                {codeSubmitting ? <CircularProgress size={20} /> : 'Submit'}
-              </Button>
+            <Alert severity="info">
+              Sign in and authorize access. You'll be redirected back automatically.
+            </Alert>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <CircularProgress size={16} />
+              <Typography variant="body2" color="text.secondary">
+                Waiting for authentication to complete...
+              </Typography>
             </Box>
-          </Box>
-        ) : (
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4, gap: 2 }}>
-            <CircularProgress />
-            <Typography variant="body2" color="text.secondary">
-              Completing authentication...
-            </Typography>
           </Box>
         )}
       </DialogContent>
