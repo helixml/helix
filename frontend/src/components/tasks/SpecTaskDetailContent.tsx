@@ -1791,6 +1791,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           color: "text.secondary",
                           minWidth: 80,
                           maxWidth: 140,
+                          ml: 1,
                           "&:before": { display: "none" },
                           "&:after": { display: "none" },
                           "& .MuiSelect-select": { py: 0 },
