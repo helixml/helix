@@ -418,6 +418,22 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	// Will run async and watch for changes in the API keys, non-blocking
 	providerManager.StartRefresh(ctx)
 
+	// gitRepositoryService is created early so it can be passed to InitKodit.
+	gitRepositoryService := services.NewGitRepositoryService(
+		postgresStore,
+		cfg.FileStore.LocalFSPath,
+		cfg.WebServer.URL,
+		"Helix System",
+		"system@helix.ml",
+	)
+
+	// Initialize kodit once here so that the kodit RAG provider and the API server
+	// share a single kodit instance (and therefore a single embedding model / worker pool).
+	koditInit, err := server.InitKodit(cfg, gitRepositoryService, postgresStore)
+	if err != nil {
+		return fmt.Errorf("failed to initialize kodit: %w", err)
+	}
+
 	var ragClient rag.RAG
 
 	switch cfg.RAG.DefaultRagProvider {
@@ -440,6 +456,12 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	case config.RAGProviderHaystack:
 		ragClient = rag.NewHaystackRAG(cfg.RAG.Haystack.URL)
 		log.Info().Msgf("Using Haystack for RAG")
+	case config.RAGProviderKodit:
+		if !cfg.Kodit.Enabled {
+			return fmt.Errorf("RAG provider 'kodit' requires KODIT_ENABLED=true")
+		}
+		ragClient = rag.NewKoditRAG(koditInit.Service, postgresStore, cfg.FileStore)
+		log.Info().Msgf("Using Kodit for RAG")
 	default:
 		return fmt.Errorf("unknown RAG provider: %s", cfg.RAG.DefaultRagProvider)
 	}
@@ -453,14 +475,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	searchProvider := searxng.NewSearXNG(&searxng.Config{
 		BaseURL: cfg.Search.SearXNGBaseURL,
 	})
-
-	gitRepositoryService := services.NewGitRepositoryService(
-		postgresStore,
-		cfg.FileStore.LocalFSPath,
-		cfg.WebServer.URL,
-		"Helix System",
-		"system@helix.ml",
-	)
 
 	controllerOptions := controller.Options{
 		Config:                cfg,
@@ -565,6 +579,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		trigger,
 		anthropicProxy,
 		gitRepositoryService,
+		koditInit,
 	)
 	if err != nil {
 		return err
