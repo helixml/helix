@@ -3,7 +3,10 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -83,8 +86,9 @@ var applyCmd = &cobra.Command{
 			return err
 		}
 
-		// Detect kind from YAML before full parsing
-		rawYAML, err := os.ReadFile(yamlFile)
+		// Detect kind from YAML before full parsing.
+		// Supports: local file path, "-" for stdin, or http(s):// URL.
+		rawYAML, err := readYAMLInput(yamlFile)
 		if err != nil {
 			return fmt.Errorf("failed to read file: %w", err)
 		}
@@ -105,8 +109,24 @@ var applyCmd = &cobra.Command{
 			return runApplyProject(cmd.Context(), apiClient, rawYAML, organization)
 		}
 
+		// For non-Project kinds, apps.NewLocalApp needs a real file path.
+		// If the input came from a URL or stdin, write it to a temp file first.
+		localYAMLFile := yamlFile
+		if yamlFile == "-" || strings.HasPrefix(yamlFile, "http://") || strings.HasPrefix(yamlFile, "https://") {
+			tmp, err := os.CreateTemp("", "helix-apply-*.yaml")
+			if err != nil {
+				return fmt.Errorf("failed to create temp file: %w", err)
+			}
+			defer os.Remove(tmp.Name())
+			if _, err := tmp.Write(rawYAML); err != nil {
+				return fmt.Errorf("failed to write temp file: %w", err)
+			}
+			tmp.Close()
+			localYAMLFile = tmp.Name()
+		}
+
 		// Read and parse the YAML file
-		appConfig, err := apps.NewLocalApp(yamlFile)
+		appConfig, err := apps.NewLocalApp(localYAMLFile)
 		if err != nil {
 			return err
 		}
@@ -262,6 +282,28 @@ func runApplyProject(ctx context.Context, apiClient client.Client, rawYAML []byt
 		fmt.Printf("Agent app: %s\n", resp.AgentAppID)
 	}
 	return nil
+}
+
+// readYAMLInput reads YAML bytes from:
+//   - "-"         → stdin
+//   - http(s):// → HTTP GET download
+//   - otherwise  → local file
+func readYAMLInput(source string) ([]byte, error) {
+	if source == "-" {
+		return io.ReadAll(os.Stdin)
+	}
+	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+		resp, err := http.Get(source) //nolint:noctx
+		if err != nil {
+			return nil, fmt.Errorf("failed to download %s: %w", source, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("failed to download %s: HTTP %d", source, resp.StatusCode)
+		}
+		return io.ReadAll(resp.Body)
+	}
+	return os.ReadFile(source)
 }
 
 func createApp(ctx context.Context, apiClient client.Client, orgID string, appConfig *types.AppHelixConfig, global bool) (string, error) {
