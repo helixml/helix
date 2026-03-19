@@ -636,8 +636,25 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   // Local search filter state (use prop as initial value, but manage locally)
   const [searchFilter, setSearchFilter] = useState(searchFilterProp);
 
-  // Label filter state
-  const [labelFilter, setLabelFilter] = useState<string[]>([]);
+  // Label filter state — persisted to localStorage per project
+  const labelStorageKey = projectId ? `helix-label-filter-${projectId}` : null;
+  const [labelFilter, setLabelFilter] = useState<string[]>(() => {
+    if (!labelStorageKey) return [];
+    try {
+      const stored = localStorage.getItem(labelStorageKey);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    if (!labelStorageKey) return;
+    if (labelFilter.length === 0) {
+      localStorage.removeItem(labelStorageKey);
+    } else {
+      localStorage.setItem(labelStorageKey, JSON.stringify(labelFilter));
+    }
+  }, [labelFilter, labelStorageKey]);
 
   // Backlog table view state
   const [backlogExpanded, setBacklogExpanded] = useState(false);
@@ -1476,7 +1493,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             onClose={() => setBacklogExpanded(false)}
             autoStartBacklogTasks={autoStartBacklogTasks}
             onToggleAutoStart={handleToggleAutoStart}
-            projectId={projectId}
           />
         ) : isMobile ? (
           <>

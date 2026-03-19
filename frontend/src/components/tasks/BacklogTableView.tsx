@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Box,
   Table,
@@ -56,7 +56,6 @@ interface BacklogTableViewProps {
   onClose: () => void;
   autoStartBacklogTasks?: boolean;
   onToggleAutoStart?: () => void;
-  projectId?: string;
 }
 
 const BacklogTableView: React.FC<BacklogTableViewProps> = ({
@@ -64,49 +63,21 @@ const BacklogTableView: React.FC<BacklogTableViewProps> = ({
   onClose,
   autoStartBacklogTasks,
   onToggleAutoStart,
-  projectId,
 }) => {
   const theme = useTheme();
   const snackbar = useSnackbar();
   const updateTask = useUpdateSpecTask();
-
-  const labelStorageKey = projectId ? `helix-label-filter-${projectId}` : null;
 
   // Filter state
   const [search, setSearch] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<TypesSpecTaskPriority[]>(
     [],
   );
-  const [labelFilter, setLabelFilter] = useState<string[]>(() => {
-    if (!labelStorageKey) return [];
-    try {
-      const stored = localStorage.getItem(labelStorageKey);
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    if (!labelStorageKey) return;
-    if (labelFilter.length === 0) {
-      localStorage.removeItem(labelStorageKey);
-    } else {
-      localStorage.setItem(labelStorageKey, JSON.stringify(labelFilter));
-    }
-  }, [labelFilter, labelStorageKey]);
 
   // Edit state
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingPrompt, setEditingPrompt] = useState("");
   const [loadingTaskId, setLoadingTaskId] = useState<string | null>(null);
-
-  // Derive available labels from loaded tasks
-  const availableLabels = useMemo(() => {
-    const labelSet = new Set<string>();
-    tasks.forEach((task) => (task.labels || []).forEach((l) => labelSet.add(l)));
-    return Array.from(labelSet).sort();
-  }, [tasks]);
 
   // Filter and sort tasks
   const filteredAndSortedTasks = useMemo(() => {
@@ -127,13 +98,6 @@ const BacklogTableView: React.FC<BacklogTableViewProps> = ({
       );
     }
 
-    // Apply label filter (task must have ALL selected labels)
-    if (labelFilter.length > 0) {
-      result = result.filter((task) =>
-        labelFilter.every((l) => (task.labels || []).includes(l)),
-      );
-    }
-
     // Sort by priority (critical first), then by created date (newest first)
     result.sort((a, b) => {
       const priorityA = PRIORITY_ORDER[a.priority || "medium"] ?? 2;
@@ -150,7 +114,7 @@ const BacklogTableView: React.FC<BacklogTableViewProps> = ({
     });
 
     return result;
-  }, [tasks, search, priorityFilter, labelFilter]);
+  }, [tasks, search, priorityFilter]);
 
   // Handle priority change
   const handlePriorityChange = async (
@@ -329,9 +293,6 @@ const BacklogTableView: React.FC<BacklogTableViewProps> = ({
         onSearchChange={setSearch}
         priorityFilter={priorityFilter}
         onPriorityFilterChange={setPriorityFilter}
-        labelFilter={labelFilter}
-        onLabelFilterChange={setLabelFilter}
-        availableLabels={availableLabels}
       />
 
       {/* Table */}
