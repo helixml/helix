@@ -849,6 +849,7 @@ func (s *WebSocketSyncSuite) TestAgentReady_WithPendingPrompt() {
 		Content:   "queued prompt",
 	}
 	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), "ses_pending").Return(prompt, nil)
+	s.store.EXPECT().ClaimPromptForSending(gomock.Any(), "prompt-1").Return(true, nil)
 	s.store.EXPECT().MarkPromptAsSent(gomock.Any(), "prompt-1").Return(nil)
 
 	// sendQueuedPromptToSession calls
@@ -1034,6 +1035,7 @@ func (s *WebSocketSyncSuite) TestProcessAnyPendingPrompt_HasPending() {
 		Content:   "any prompt",
 	}
 	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), "ses_any").Return(prompt, nil)
+	s.store.EXPECT().ClaimPromptForSending(gomock.Any(), "prompt-any").Return(true, nil)
 	s.store.EXPECT().MarkPromptAsSent(gomock.Any(), "prompt-any").Return(nil)
 
 	session := &types.Session{
@@ -1056,7 +1058,7 @@ func (s *WebSocketSyncSuite) TestProcessAnyPendingPrompt_SendFails_MarkedFailed(
 		Content:   "fail",
 	}
 	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), "ses_anyfail").Return(prompt, nil)
-	s.store.EXPECT().MarkPromptAsSent(gomock.Any(), "prompt-anyfail").Return(nil)
+	s.store.EXPECT().ClaimPromptForSending(gomock.Any(), "prompt-anyfail").Return(true, nil)
 
 	// GetSession fails → sendQueuedPromptToSession fails
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_anyfail").Return(nil, fmt.Errorf("db error"))
