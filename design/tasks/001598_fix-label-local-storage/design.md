@@ -4,57 +4,37 @@
 
 Two separate `labelFilter` states exist in the project task view:
 
-1. **`SpecTaskKanbanBoard.tsx` line 640** — drives the Autocomplete label filter always visible in the kanban toolbar. Initialised as `useState<string[]>([])` with **no localStorage persistence**. This is the filter the user normally interacts with.
+1. **`SpecTaskKanbanBoard.tsx` line 640** — drives the Autocomplete label filter always visible in the kanban toolbar. Initialised as `useState<string[]>([])` with **no localStorage persistence**. This is the correct, single place for label filtering.
 
-2. **`BacklogTableView.tsx` line 80** — drives filtering inside the expanded backlog table panel. Already has localStorage persistence added by commit 8b08006. This component is only mounted when the user explicitly expands the backlog panel, so the localStorage key is rarely written.
+2. **`BacklogTableView.tsx` line 80** — a duplicate label filter added inside the expanded backlog table panel by commit 8b08006. This is not needed: the backlog table is part of the same kanban board and should simply respect the toolbar filter passed down from the parent.
 
-Because the user is using the kanban toolbar filter (case 1), the `helix-label-filter-${projectId}` key is never written, which is why it doesn't appear in Chrome DevTools.
-
-## Pattern Found in Codebase
-
-`BacklogTableView.tsx` already demonstrates the correct pattern:
-
-```typescript
-const labelStorageKey = projectId ? `helix-label-filter-${projectId}` : null;
-
-const [labelFilter, setLabelFilter] = useState<string[]>(() => {
-  if (!labelStorageKey) return [];
-  try {
-    const stored = localStorage.getItem(labelStorageKey);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-});
-
-useEffect(() => {
-  if (!labelStorageKey) return;
-  if (labelFilter.length === 0) {
-    localStorage.removeItem(labelStorageKey);
-  } else {
-    localStorage.setItem(labelStorageKey, JSON.stringify(labelFilter));
-  }
-}, [labelFilter, labelStorageKey]);
-```
+The original implementation was wrong in two ways: it added persistence to the wrong component (BacklogTableView instead of SpecTaskKanbanBoard), and it introduced a redundant, separate label filter inside the backlog panel.
 
 ## Fix
 
-Apply the same pattern to the `labelFilter` state in `SpecTaskKanbanBoard.tsx`:
+**Two changes:**
 
-- Use the same storage key: `helix-label-filter-${projectId}` — this is intentional: both the kanban toolbar and the backlog table view filter the same project's tasks, so sharing the key means a consistent filter is restored regardless of which view the user last used.
-- Replace the simple `useState<string[]>([])` at line 640 with the lazy-initializer that reads from localStorage.
-- Add the `useEffect` to sync changes back to localStorage.
-- Add `useEffect` import if not already present (it is already imported in that file via `React.useEffect` or directly).
+1. **`SpecTaskKanbanBoard.tsx`** — add localStorage persistence to the existing `labelFilter` state (line ~640):
+   - Compute `labelStorageKey = projectId ? \`helix-label-filter-${projectId}\` : null` before the state declaration.
+   - Replace `useState<string[]>([])` with a lazy initializer that reads from localStorage.
+   - Add a `useEffect` that writes/removes the key whenever `labelFilter` changes.
 
-## File to Change
+2. **`BacklogTableView.tsx`** — remove the duplicate label filter:
+   - Remove the `labelStorageKey` const, `labelFilter` state, and its `useEffect`.
+   - Remove `labelFilter` and `onLabelFilterChange` props from `BacklogFilterBar` usage (or remove `BacklogFilterBar` entirely if label filtering is its only purpose).
+   - The backlog table view receives its tasks already filtered by the parent kanban board (the `tasks` prop is the backlog column's tasks after the board-level filter is applied), so no separate filter state is needed inside it.
 
-- `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx` — around line 640, the `labelFilter` state declaration.
+The storage key stays `helix-label-filter-${projectId}`.
 
-No other files need changing. `BacklogTableView.tsx` already works correctly and uses the same key, so both views will share the persisted state.
+## Files to Change
+
+- `frontend/src/components/tasks/SpecTaskKanbanBoard.tsx` — add persistence to the existing `labelFilter` state
+- `frontend/src/components/tasks/BacklogTableView.tsx` — remove the duplicate label filter state, `useEffect`, and related props/UI
 
 ## Codebase Notes
 
 - `helix-4` is a symlink to `helix` — use `/home/retro/work/helix/` for edits.
 - Frontend uses Vite HMR in dev mode; after editing, refresh the browser.
 - If `FRONTEND_URL=/www` in `.env`, run `cd frontend && yarn build` after changes.
-- `projectId` in `SpecTaskKanbanBoard` comes from `SpecTasksPage.tsx` via `router.params.id` — it's a string when on a project page, so the guard `projectId ?` is still needed for safety.
+- `projectId` in `SpecTaskKanbanBoard` comes from `SpecTasksPage.tsx` via `router.params.id` — it's a string when on a project page, so the `projectId ?` guard is still needed for safety.
+- Check whether `BacklogFilterBar` is used anywhere else before removing label filter props from it.
