@@ -1,7 +1,7 @@
 # Implementation Tasks
 
 ## Module Update
-- [ ] Run `go get github.com/helixml/kodit@417f16b7dfce928b0e9d1a888454cfc6cbe98892` in `api/` and commit updated `go.mod` / `go.sum`
+- [~] Run `go get github.com/helixml/kodit@417f16b7dfce928b0e9d1a888454cfc6cbe98892` in `api/` and commit updated `go.mod` / `go.sum`
 
 ## Database
 - [ ] Add `KoditRepositoryID *int64` field (with `gorm:"column:kodit_repository_id"`) to `DataEntity` struct in `api/pkg/types/types.go`
