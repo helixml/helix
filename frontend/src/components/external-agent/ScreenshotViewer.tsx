@@ -8,6 +8,7 @@ interface ScreenshotViewerProps {
   sessionId: string;
   isRunner?: boolean;
   sandboxId?: string; // For desktop video streaming mode
+  onConnectionChange?: (connected: boolean) => void;
   onError?: (error: string) => void;
   width?: number;
   height?: number;

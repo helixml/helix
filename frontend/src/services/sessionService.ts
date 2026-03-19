@@ -119,7 +119,7 @@ export function useGetSessionIdleStatus(sessionId: string, options?: { enabled?:
 
   return useQuery({
     queryKey: ['session-idle-status', sessionId],
-    queryFn: () => apiClient.v1SessionsIdleStatusDetail(sessionId),
+    queryFn: () => apiClient.v1SessionsSandboxStateDetail(sessionId),
     enabled: options?.enabled ?? true,
     refetchInterval: 30000, // Refetch every 30 seconds to update idle time
   })

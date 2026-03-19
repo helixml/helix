@@ -1115,12 +1115,11 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         ) : (
           <List sx={{ maxHeight: 400, overflow: "auto" }}>
             {filteredRepos.map((repo, index) => (
-              <React.Fragment key={repo.id || repo.full_name || index}>
+              <React.Fragment key={repo.full_name || index}>
                 {index > 0 && <Divider />}
                 <ListItem disablePadding>
                   <ListItemButton
                     selected={
-                      selectedRepo?.id === repo.id ||
                       selectedRepo?.full_name === repo.full_name
                     }
                     onClick={() => setSelectedRepo(repo)}

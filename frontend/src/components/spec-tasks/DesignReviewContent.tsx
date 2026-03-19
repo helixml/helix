@@ -139,7 +139,7 @@ export default function DesignReviewContent({
     return dependencies.filter((dependency) => {
       const dependencyStatus = dependency.status || "";
       const isCompleted =
-        dependencyStatus === "done" || dependencyStatus === "completed";
+        (dependencyStatus as string) === "done" || (dependencyStatus as string) === "completed";
       return !dependency.archived && !isCompleted;
     });
   }, [task?.depends_on]);
@@ -893,8 +893,8 @@ export default function DesignReviewContent({
     try {
       const apiClient = api.getApiClient();
       const response =
-        await apiClient.v1SpecTasksStartImplementationCreate(specTaskId);
-      const data = response.data;
+        await apiClient.v1SpecTasksApproveImplementationCreate(specTaskId);
+      const data = response.data as any;
 
       snackbar.success(`Implementation started on branch: ${data.branch_name}`);
 

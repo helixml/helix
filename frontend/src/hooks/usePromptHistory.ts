@@ -33,7 +33,7 @@ export interface PromptHistoryEntry {
   id: string
   content: string
   timestamp: number
-  sessionId: string
+  sessionId?: string
   status: 'sent' | 'pending' | 'failed'
   interrupt?: boolean       // If true, this message interrupts current conversation
   queuePosition?: number    // Position in queue for ordering
