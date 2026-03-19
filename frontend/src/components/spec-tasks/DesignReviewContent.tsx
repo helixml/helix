@@ -35,6 +35,7 @@ import { useTheme } from "@mui/material/styles";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import EditIcon from "@mui/icons-material/Edit";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import Description from "@mui/icons-material/Description";
 import { GitBranch } from "lucide-react";
 import CommentIcon from "@mui/icons-material/Comment";
 import ShareIcon from "@mui/icons-material/Share";
@@ -1007,7 +1008,10 @@ export default function DesignReviewContent({
                   }}
                 >
                   <ToggleButton value="chat">Chat</ToggleButton>
-                  <ToggleButton value="spec">Spec</ToggleButton>
+                  <ToggleButton value="spec">
+                    <Description sx={{ fontSize: 14, mr: 0.5 }} />
+                    Spec
+                  </ToggleButton>
                 </ToggleButtonGroup>
                 {/* Mobile: just an arrow icon */}
                 <IconButton
