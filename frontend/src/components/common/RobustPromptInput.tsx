@@ -463,7 +463,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       // Focus the textarea
       textareaRef.current?.focus()
     }
-  }, [appendText, setDraft])
+  }, [appendText, setDraft, draft])
 
   // DnD sensors
   const sensors = useSensors(
@@ -846,7 +846,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         setDraft(note + (needsSpace ? ' ' : '') + draft)
       }
     }
-  }, [handleFileUploadCallback, uploadAndAddAttachment, setDraft])
+  }, [handleFileUploadCallback, uploadAndAddAttachment, setDraft, draft])
 
   // Track drag state for visual feedback
   const [isDraggingOver, setIsDraggingOver] = useState(false)
