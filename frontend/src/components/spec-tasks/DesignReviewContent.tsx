@@ -28,6 +28,8 @@ import {
   Tooltip,
   Badge,
   useMediaQuery,
+  ToggleButtonGroup,
+  ToggleButton,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -975,15 +977,51 @@ export default function DesignReviewContent({
             }}
           >
             {/* Tabs on the left */}
+            {onBack && (
+              <>
+                {/* Desktop: Chat/Spec toggle matching the issue detail view */}
+                <ToggleButtonGroup
+                  value="spec"
+                  exclusive
+                  onChange={(_, val) => { if (val === "chat") onBack(); }}
+                  size="small"
+                  sx={{
+                    display: { xs: 'none', sm: 'flex' },
+                    flexShrink: 0,
+                    alignSelf: 'center',
+                    mx: 1,
+                    "& .MuiToggleButton-root": {
+                      px: 1.25,
+                      py: 0.25,
+                      fontSize: "0.8rem",
+                      fontWeight: 500,
+                      textTransform: "none",
+                      border: "1px solid",
+                      borderColor: "divider",
+                      color: "text.secondary",
+                      "&.Mui-selected": {
+                        color: "text.primary",
+                        backgroundColor: "action.selected",
+                      },
+                    },
+                  }}
+                >
+                  <ToggleButton value="chat">Chat</ToggleButton>
+                  <ToggleButton value="spec">Spec</ToggleButton>
+                </ToggleButtonGroup>
+                {/* Mobile: just an arrow icon */}
+                <IconButton
+                  onClick={onBack}
+                  size="small"
+                  sx={{ display: { xs: 'flex', sm: 'none' }, ml: 0.5, mr: 0.5 }}
+                >
+                  <ArrowBackIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </>
+            )}
             <Tabs
               value={activeTab}
-              onChange={(_, value) => {
-                if (value === "back") {
-                  onBack?.();
-                } else {
-                  handleTabChange(value);
-                }
-              }}
+              onChange={(_, value) => handleTabChange(value)}
               variant="scrollable"
               scrollButtons="auto"
               sx={{
@@ -998,26 +1036,6 @@ export default function DesignReviewContent({
                 },
               }}
             >
-              {onBack && (
-                <Tab
-                  value="back"
-                  label={
-                    <Box display="flex" alignItems="center" gap={0.5}>
-                      <ArrowBackIcon sx={{ fontSize: 15 }} />
-                      <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Back to task</Box>
-                    </Box>
-                  }
-                  sx={{
-                    borderRight: "1px solid",
-                    borderColor: "divider",
-                    mr: 0.5,
-                    color: "text.secondary",
-                    minWidth: { xs: 36, sm: 'auto' },
-                    px: { xs: 1, sm: 2 },
-                    "&:hover": { color: "text.primary" },
-                  }}
-                />
-              )}
               <Tab
                 label={
                   <Box display="flex" alignItems="center" gap={0.5}>
