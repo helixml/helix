@@ -28,19 +28,19 @@
 
 ## Phase 4: Frontend — Attention Queue UI
 
-- [~] Create `frontend/src/hooks/useAttentionEvents.ts` — React Query hook: polls `GET /api/v1/attention-events?active=true` every 10s via `api.getApiClient()`, returns events sorted by `created_at` desc, exposes `acknowledge`, `dismiss`, `snooze`, `dismissAll` mutation wrappers that call the PATCH/POST endpoints and invalidate the query
-- [ ] Create `frontend/src/hooks/useBrowserNotifications.ts` — wraps browser `Notification` API: tracks `Notification.permission` state, `requestPermission()`, `fireNotification(title, body, onClick)`, localStorage opt-out flag (`helix_browser_notif_disabled`). Only fires for events not yet acknowledged.
-- [ ] Refactor `frontend/src/components/system/GlobalNotifications.tsx` **in-place** — keep the existing bell `IconButton` / `Badge` / `Bell` icon code as-is; swap data source from status-polling (`useQueries` on `v1SpecTasksList`) to the new `useAttentionEvents` hook; replace the `Popover` with a right-side MUI `Drawer` (~400px wide) containing:
+- [x] Create `frontend/src/hooks/useAttentionEvents.ts` — React Query hook: polls `GET /api/v1/attention-events?active=true` every 10s via `api.getApiClient()`, returns events sorted by `created_at` desc, exposes `acknowledge`, `dismiss`, `snooze`, `dismissAll` mutation wrappers that call the PATCH/POST endpoints and invalidate the query
+- [x] Create `frontend/src/hooks/useBrowserNotifications.ts` — wraps browser `Notification` API: tracks `Notification.permission` state, `requestPermission()`, `fireNotification(title, body, onClick)`, localStorage opt-out flag (`helix_browser_notif_disabled`). Only fires for events not yet acknowledged.
+- [x] Refactor `frontend/src/components/system/GlobalNotifications.tsx` **in-place** — keep the existing bell `IconButton` / `Badge` / `Bell` icon code as-is; swap data source from status-polling (`useQueries` on `v1SpecTasksList`) to the new `useAttentionEvents` hook; replace the `Popover` with a right-side MUI `Drawer` (~400px wide) containing:
   - `QueueHeader` — title "Needs Attention", event count, "Dismiss All" button
   - `QueueSection` — collapsible group per category: Failures (red), Agent Done (amber), Specs & PRs (blue)
   - `AttentionEventItem` — event title, task name, project name, relative time ("3m ago"), dismiss button, snooze (1h) button
   - `BrowserNotificationBanner` — inline prompt when `Notification.permission === "default"`, with Enable/Dismiss buttons
-- [ ] Wire browser notifications — when `useAttentionEvents` returns new unacknowledged events, call `useBrowserNotifications.fireNotification()`. Clicking browser notification focuses tab and navigates via `account.orgNavigate('project-task-detail', ...)`.
-- [ ] Edit `frontend/src/components/system/Page.tsx` — render `GlobalNotifications` **unconditionally** (remove the `{notifications && ...}` prop gate so the existing bell icon appears on every page, not just `Projects.tsx`)
+- [x] Wire browser notifications — when `useAttentionEvents` returns new unacknowledged events, call `useBrowserNotifications.fireNotification()`. Clicking browser notification focuses tab and navigates via `account.orgNavigate('project-task-detail', ...)`.
+- [x] Edit `frontend/src/components/system/Page.tsx` — render `GlobalNotifications` **unconditionally** (remove the `{notifications && ...}` prop gate so the existing bell icon appears on every page, not just `Projects.tsx`)
 
 ## Phase 5: Verification
 
-- [ ] Test agent-interaction-completed detection: start a spectask in any phase (not just implementation), send the agent a message, wait for it to finish responding, verify `agent_interaction_completed` attention event appears in the queue and in the project's Slack thread — and that the task status doesn't change
+- [~] Test agent-interaction-completed detection: start a spectask in any phase (not just implementation), send the agent a message, wait for it to finish responding, verify `agent_interaction_completed` attention event appears in the queue and in the project's Slack thread — and that the task status doesn't change
 - [ ] Test Kanban amber dot in all phases: verify the amber attention dot appears on TaskCard when agent finishes in spec_generation, spec_review, spec_revision, implementation — not just planning/implementation; verify clicking the card dismisses the dot; verify cards with attention sort to top of their column
 - [ ] Test specs-pushed detection: have agent push design docs, verify `specs_pushed` event appears in queue and Slack
 - [ ] Test idempotency: trigger same event twice (e.g., `handleMessageCompleted` called twice for same interaction), verify only one event row exists
@@ -48,5 +48,5 @@
 - [ ] Test drawer overlay on Kanban view, task detail page, and split screen view — verify z-index stacking and no layout disruption
 - [ ] Test browser notifications in Chrome and Firefox — verify permission flow, notification content, click-to-navigate
 - [ ] Test with multiple projects — verify queue aggregates events across all projects correctly
-- [ ] `cd frontend && yarn build` — verify no build errors
-- [ ] `cd api && go build ./pkg/server/ ./pkg/store/ ./pkg/types/ ./pkg/services/` — verify no build errors
+- [x] `cd frontend && yarn build` — verify no build errors
+- [x] `cd api && go build ./pkg/server/ ./pkg/store/ ./pkg/types/ ./pkg/services/` — verify no build errors
