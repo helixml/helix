@@ -1813,9 +1813,10 @@ platform:
   arch: amd64
 
 trigger:
-  event:
-    - push
-    - tag
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
 
 volumes:
   - name: dockersocket
@@ -2246,9 +2247,10 @@ platform:
   arch: arm64
 
 trigger:
-  event:
-    - push
-    - tag
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
 
 volumes:
   - name: dockersocket
