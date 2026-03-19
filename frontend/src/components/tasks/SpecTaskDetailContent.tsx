@@ -1761,7 +1761,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           },
                         }}
                       >
-                        <ToggleButton value="chat" disableRipple={false}>
+                        <ToggleButton value="chat" disableRipple disabled sx={{ '&.Mui-disabled': { color: 'text.primary', borderColor: 'divider' } }}>
                           Chat
                         </ToggleButton>
                       </ToggleButtonGroup>
