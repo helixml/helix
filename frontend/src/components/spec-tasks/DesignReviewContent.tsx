@@ -1004,7 +1004,7 @@ export default function DesignReviewContent({
                   label={
                     <Box display="flex" alignItems="center" gap={0.5}>
                       <ArrowBackIcon sx={{ fontSize: 15 }} />
-                      Back to task
+                      <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Back to task</Box>
                     </Box>
                   }
                   sx={{
