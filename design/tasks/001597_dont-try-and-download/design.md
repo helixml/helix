@@ -64,6 +64,28 @@ Run `./stack update_openapi` after changing the Go type to regenerate the fronte
 | `frontend/src/components/tasks/TaskCard.tsx` | Pass `task.sandbox_state` / `task.sandbox_status_message` to viewer |
 | `frontend/src/api/api.ts` | Regenerated via `./stack update_openapi` |
 
+### 4. Skip screenshot polling when sandbox is absent
+
+`ScreenshotViewer.tsx` polls `GET /api/v1/external-agents/{sessionId}/screenshot` every 1.7 seconds unconditionally. Add an `enabled` prop (default `true`) that gates the auto-refresh loop. When `sandbox_state` is `"absent"`, pass `enabled={false}` — the component renders the stopped/idle placeholder UI without making any network requests.
+
+```tsx
+// In ScreenshotViewer.tsx — gate the polling
+if (!autoRefresh || !enabled || streamingMode !== 'screenshot' || sessionUnavailable) return;
+```
+
+`ExternalAgentDesktopViewer` already controls whether to render `ScreenshotViewer` vs. the paused-desktop UI. The `sandbox_state` prop it now receives (step 3) is used to set `enabled` accordingly.
+
+## Key Files
+
+| File | Change |
+|------|--------|
+| `api/pkg/types/simple_spec_task.go` | Add `SandboxState`, `SandboxStatusMessage` fields (gorm:"-") |
+| `api/pkg/server/spec_driven_task_handlers.go:243` | Populate sandbox state from session config in existing session loop |
+| `frontend/src/components/external-agent/ExternalAgentDesktopViewer.tsx` | Remove polling; accept sandbox state as props; pass `enabled` to ScreenshotViewer |
+| `frontend/src/components/external-agent/ScreenshotViewer.tsx:184` | Add `enabled` prop; gate auto-refresh loop on it |
+| `frontend/src/components/tasks/TaskCard.tsx` | Pass `task.sandbox_state` / `task.sandbox_status_message` to viewer |
+| `frontend/src/api/api.ts` | Regenerated via `./stack update_openapi` |
+
 ## Result
 
-Zero calls to `GET /api/v1/sessions/{id}` from the Kanban view. Sandbox state updates at the same cadence as the task list refresh. No separate polling loop needed anywhere on the board.
+Zero calls to `GET /api/v1/sessions/{id}` from the Kanban view. Zero screenshot fetches for stopped desktops. Running desktops still get screenshots at 1.7s cadence. Sandbox state updates at the same pace as the task list refresh.
