@@ -808,7 +808,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             // Use ref to avoid closure issues with event listeners
             retryAttemptRef.current += 1;
             const nextAttempt = retryAttemptRef.current;
-            const retryDelaySeconds = Math.min(nextAttempt + 1, 10); // +1 to start at 2s
+            const retryDelaySeconds = Math.min(Math.pow(2, nextAttempt), 30); // exponential: 2s, 4s, 8s, 16s, 30s
 
             console.warn(
               `[DesktopStreamViewer] AlreadyStreaming error from stream (attempt ${nextAttempt}), will retry in ${retryDelaySeconds} seconds...`,
@@ -1104,7 +1104,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // Use ref to avoid closure issues
         retryAttemptRef.current += 1;
         const nextAttempt = retryAttemptRef.current;
-        const retryDelaySeconds = Math.min(nextAttempt + 1, 10); // +1 to start at 2s
+        const retryDelaySeconds = Math.min(Math.pow(2, nextAttempt), 30); // exponential: 2s, 4s, 8s, 16s, 30s
 
         console.warn(
           `[DesktopStreamViewer] AlreadyStreaming error detected (attempt ${nextAttempt}), will retry in ${retryDelaySeconds} seconds...`,
