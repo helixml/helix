@@ -799,6 +799,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const handleReviewSpec = useCallback(async () => {
     if (!task?.id) return;
 
+    // Mark immediately (before async) so the auto-open effect won't re-trigger
+    // if the user returns to the chat view after visiting spec.
+    addAutoOpenedSpecTask(task.id);
+
     try {
       const response = await api
         .getApiClient()
@@ -827,7 +831,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Auto-open spec review when task is in spec_review or spec_revision status
   // and design docs are available - triggers once per SPA session per task ID.
-  // Uses sessionStorage so navigating back from the review doesn't re-trigger, even after a page refresh.
+  // handleReviewSpec itself writes to sessionStorage before the async call, so returning
+  // to chat (which remounts this component) never re-triggers the auto-open.
   useEffect(() => {
     if (
       task?.id &&
@@ -837,7 +842,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       (task?.status === TypesSpecTaskStatus.TaskStatusSpecReview ||
         task?.status === TypesSpecTaskStatus.TaskStatusSpecRevision)
     ) {
-      addAutoOpenedSpecTask(task.id);
       handleReviewSpec();
     }
   }, [task?.id, task?.status, task?.design_docs_pushed_at, handleReviewSpec, account.organizationTools.organization?.name]);
