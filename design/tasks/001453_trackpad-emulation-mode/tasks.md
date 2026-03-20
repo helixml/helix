@@ -2,7 +2,7 @@
 
 ## Bug 1: Click Location Incorrect
 
-- [ ] In `handleTouchEnd`, update `sendCursorPositionToRemote()` to use `cursorPositionRef.current` instead of `cursorPosition` state
+- [~] In `handleTouchEnd`, update `sendCursorPositionToRemote()` to use `cursorPositionRef.current` instead of `cursorPosition` state
 - [ ] Remove `cursorPosition` from the `handleTouchEnd` `useCallback` dependency array
 
 ## Bug 2: Two-Finger Scroll Improvement
