@@ -159,13 +159,15 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
         <TextField
           autoFocus
           fullWidth
-          multiline
-          rows={3}
+          type="password"
           label="Your Token"
           placeholder="Paste your token here..."
           value={tokenValue}
           onChange={(e) => setTokenValue(e.target.value)}
           variant="outlined"
+          InputProps={{
+            sx: { fontFamily: 'monospace', letterSpacing: '0.05em' },
+          }}
           sx={{ mb: 1 }}
         />
 
