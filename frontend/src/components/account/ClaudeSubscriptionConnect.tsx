@@ -321,6 +321,7 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
   const api = useApi()
   const { isRunning } = useSandboxState(sessionId)
   const [loginError, setLoginError] = useState<string | null>(null)
+  const [authUrl, setAuthUrl] = useState<string | null>(null)
 
   // Once the desktop is running, send the `claude auth login` command
   useEffect(() => {
@@ -365,10 +366,14 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
       }
 
       try {
-        const result = await api.get<{ found: boolean; credentials: string }>(
+        const result = await api.get<{ found: boolean; credentials: string; url?: string }>(
           `/api/v1/claude-subscriptions/poll-login/${sessionId}`,
           {}
         )
+        // Capture the auth URL for display (workaround for Anthropic's redirect_uri bug)
+        if (result && result.url && !authUrl) {
+          setAuthUrl(result.url)
+        }
         if (result && result.found && result.credentials) {
           let parsed: any
           try {
@@ -420,7 +425,7 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
         <Box>
           <Typography variant="h6">Sign in to Claude</Typography>
           <Typography variant="body2" color="text.secondary">
-            Complete the login in the browser below. Your credentials will automatically be reused in desktop sessions configured to use Claude Code.
+            Authorize via the link above, then enter the code in the terminal below. Your credentials will automatically be reused in desktop sessions.
           </Typography>
         </Box>
         {loginCommandSent && (
@@ -438,10 +443,29 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
             {loginError}
           </Alert>
         )}
-        {isRunning && loginCommandSent && (
+        {isRunning && loginCommandSent && authUrl && (
           <Alert severity="info" sx={{ mx: 2, mt: 1, flexShrink: 0 }}>
-            Enter your email address below. Claude will send you a magic link &mdash;
-            open it on any device, authorize, then enter the code back here.
+            <Typography variant="body2" gutterBottom>
+              <strong>Step 1:</strong> Click the link below to authorize in your browser:
+            </Typography>
+            <Typography
+              variant="body2"
+              component="a"
+              href={authUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{ color: 'primary.main', wordBreak: 'break-all', display: 'block', mb: 1 }}
+            >
+              Open Claude Authorization Page
+            </Typography>
+            <Typography variant="body2">
+              <strong>Step 2:</strong> After authorizing, copy the code shown and enter it in the terminal below.
+            </Typography>
+          </Alert>
+        )}
+        {isRunning && loginCommandSent && !authUrl && (
+          <Alert severity="info" sx={{ mx: 2, mt: 1, flexShrink: 0 }}>
+            Waiting for Claude CLI to start...
           </Alert>
         )}
         {!isRunning ? (
