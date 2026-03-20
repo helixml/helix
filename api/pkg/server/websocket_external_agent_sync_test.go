@@ -227,10 +227,16 @@ func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_SpectaskLink() {
 	}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_original").Return(originalSession, nil)
 
-	// UpdateSession to copy SpecTaskID
+	// getAgentNameForSession looks up the spec task and app to determine agent name.
+	// For this test, return a spec task with no app (so it defaults to "zed-agent").
+	s.store.EXPECT().GetSpecTask(gomock.Any(), "spec-task-123").
+		Return(&types.SpecTask{ID: "spec-task-123"}, nil).AnyTimes()
+
+	// UpdateSession to copy SpecTaskID and ZedAgentName
 	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, session types.Session) (*types.Session, error) {
 			s.Equal("spec-task-123", session.Metadata.SpecTaskID)
+			s.Equal("zed-agent", session.Metadata.ZedAgentName)
 			return &session, nil
 		},
 	)

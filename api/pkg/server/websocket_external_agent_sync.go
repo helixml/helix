@@ -652,8 +652,13 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 			return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
 		}
 
-		// Store the zed_context_id on the session metadata
+		// Store the zed_context_id and agent name on the session metadata.
+		// The agent name is persisted so we use the correct agent for this thread
+		// even if the project's default agent changes later.
 		helixSession.Metadata.ZedThreadID = contextID
+		if helixSession.Metadata.ZedAgentName == "" {
+			helixSession.Metadata.ZedAgentName = apiServer.getAgentNameForSession(context.Background(), helixSession)
+		}
 		helixSession.Updated = time.Now()
 
 		// Update the session in the database
@@ -816,6 +821,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 			// Set the SpecTaskID on the new session too
 			createdSession.Metadata.SpecTaskID = originalSession.Metadata.SpecTaskID
 			createdSession.Metadata.ZedThreadID = contextID
+			createdSession.Metadata.ZedAgentName = apiServer.getAgentNameForSession(context.Background(), originalSession)
 			_, _ = apiServer.Controller.Options.Store.UpdateSession(context.Background(), *createdSession)
 
 			go apiServer.trackSpecTaskZedThread(context.Background(), createdSession, acpThreadID, title)
@@ -837,6 +843,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 			if err == nil && originalSession != nil && originalSession.Metadata.SpecTaskID != "" {
 				createdSession.Metadata.SpecTaskID = originalSession.Metadata.SpecTaskID
 				createdSession.Metadata.ZedThreadID = contextID
+				createdSession.Metadata.ZedAgentName = apiServer.getAgentNameForSession(context.Background(), originalSession)
 				_, _ = apiServer.Controller.Options.Store.UpdateSession(context.Background(), *createdSession)
 
 				go apiServer.trackSpecTaskZedThread(context.Background(), createdSession, acpThreadID, title)
