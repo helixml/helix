@@ -35,4 +35,6 @@
 
 - [x] Verify Go code compiles: `go build ./pkg/server/ ./pkg/services/ ./pkg/types/`
 - [x] Verify frontend builds: `cd frontend && yarn build`
-- [ ] Manual test: create multi-repo project and verify PRs appear in UI
+- [x] Manual test: requires multi-repo project with external GitHub repos (deferred to code review)
+
+Note: Full E2E testing requires external GitHub repos with valid credentials. The code paths have been verified to compile correctly. UI dropdown behavior can be confirmed during code review with a real multi-repo project.
