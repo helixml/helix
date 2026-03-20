@@ -680,6 +680,8 @@ export interface ServerClaudePollLoginResponse {
   /** Raw credentials JSON */
   credentials?: string;
   found?: boolean;
+  /** OAuth URL for native browser */
+  url?: string;
 }
 
 export interface ServerClientBufferStats {
@@ -2777,12 +2779,6 @@ export interface TypesGitRepository {
   owner_id?: string;
   /** Password for the repository */
   password?: string;
-  /**
-   * Deprecated: ProjectID is maintained for backward compatibility only.
-   * Use the project_repositories junction table for many-to-many project-repo relationships.
-   * This column is kept in the database for rollback compatibility but reads should use the junction table.
-   */
-  project_id?: string;
   repo_type?: TypesGitRepositoryType;
   status?: TypesGitRepositoryStatus;
   updated_at?: string;
@@ -4824,6 +4820,10 @@ export interface TypesSpecTask {
   pull_request_url?: string;
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  /** "absent", "running", "starting" — derived from session config in listTasks */
+  sandbox_state?: string;
+  /** Transient startup message e.g. "Unpacking build cache" */
+  sandbox_status_message?: string;
   /** Agent activity tracking (computed from session/activity data, not stored) */
   session_updated_at?: string;
   /**
@@ -5116,6 +5116,10 @@ export interface TypesSpecTaskWithProject {
   pull_request_url?: string;
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  /** "absent", "running", "starting" — derived from session config in listTasks */
+  sandbox_state?: string;
+  /** Transient startup message e.g. "Unpacking build cache" */
+  sandbox_status_message?: string;
   /** Agent activity tracking (computed from session/activity data, not stored) */
   session_updated_at?: string;
   /**

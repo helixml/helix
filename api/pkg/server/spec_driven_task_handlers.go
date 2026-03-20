@@ -239,10 +239,29 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 			for _, session := range sessions {
 				sessionMap[session.ID] = session
 			}
-			// Populate SessionUpdatedAt on each task
+			// Populate SessionUpdatedAt and SandboxState on each task
 			for _, task := range tasks {
 				if session, ok := sessionMap[task.PlanningSessionID]; ok {
 					task.SessionUpdatedAt = &session.Updated
+
+					// Derive sandbox state from session config - same logic as useSandboxState in the frontend.
+					// This avoids per-card GET /api/v1/sessions/{id} polling from the Kanban view.
+					cfg := session.Metadata
+					status := cfg.ExternalAgentStatus // "stopped", "running", "starting"
+					hasContainer := cfg.ContainerName != ""
+					switch {
+					case status == "stopped":
+						task.SandboxState = "absent"
+					case status == "running":
+						task.SandboxState = "running"
+					case hasContainer:
+						task.SandboxState = "running"
+					case status == "starting":
+						task.SandboxState = "starting"
+					default:
+						task.SandboxState = "absent"
+					}
+					task.SandboxStatusMessage = cfg.StatusMessage
 				}
 			}
 		}
