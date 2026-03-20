@@ -104,12 +104,26 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		// (handleFeatureBranchPush → ensurePullRequest) will create PRs when
 		// the agent pushes, at which point the PR description files should exist.
 
+		// Gather non-primary repo names so the push instruction tells the agent
+		// to push all repos, not just the primary one
+		var nonPrimaryRepoNames []string
+		projectRepos, repoErr := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			ProjectID: specTask.ProjectID,
+		})
+		if repoErr == nil {
+			for _, r := range projectRepos {
+				if r.Name != repo.Name && r.ExternalURL != "" {
+					nonPrimaryRepoNames = append(nonPrimaryRepoNames, r.Name)
+				}
+			}
+		}
+
 		// Send message to agent to commit and push any remaining uncommitted changes
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
 
-			message, err := prompts.ImplementationApprovedPushInstruction(specTask.BranchName)
+			message, err := prompts.ImplementationApprovedPushInstruction(specTask.BranchName, repo.Name, nonPrimaryRepoNames)
 			if err != nil {
 				log.Error().
 					Err(err).
