@@ -1847,7 +1847,7 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 			Msg("Loading project context for exploratory session resume")
 	}
 
-	_, err = s.Controller.Options.Store.GetProject(ctx, agent.ProjectID)
+	project, err := s.Controller.Options.Store.GetProject(ctx, agent.ProjectID)
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("failed to get project '%s': %s", agent.ProjectID, err.Error()), http.StatusInternalServerError)
 		return
@@ -1865,11 +1865,12 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 			}
 		}
 
-		// Set primary repository from project (repos are now managed at project level)
-		if len(projectRepos) > 0 {
-			// Use first repo as fallback if no default set
-			agent.PrimaryRepositoryID = projectRepos[0].ID
+		// Set primary repository: prefer project's configured default, fall back to first repo
+		primaryRepoID := project.DefaultRepoID
+		if primaryRepoID == "" {
+			primaryRepoID = projectRepos[0].ID
 		}
+		agent.PrimaryRepositoryID = primaryRepoID
 	}
 
 	// Get display settings from app's ExternalAgentConfig (or use defaults)
