@@ -14,6 +14,8 @@ Helix has a skills marketplace with YAML-defined skills (GitHub, Jira, Gmail, et
 
 **US4**: As a Helix developer, I want TDD-first implementation with unit and e2e tests so the feature works now and stays correct as the codebase evolves.
 
+**US5**: As a QA manager, I want a documented manual test procedure so I can verify the end-to-end feature works in a running Helix instance.
+
 ## Acceptance Criteria
 
 - [ ] "Code Intelligence" skill appears in the skills list (`GET /api/v1/skills`)
@@ -40,3 +42,20 @@ Helix has a skills marketplace with YAML-defined skills (GitHub, Jira, Gmail, et
 ### Frontend Tests
 
 - Vitest test confirming the skill marketplace renders the Code Intelligence card and calls the enable endpoint on click (no dialog shown for `autoProvision` skills)
+
+### Manual QA Test Plan
+
+**Pre-conditions:** Helix running at `http://localhost:8080` with Kodit configured.
+
+**Steps:**
+
+1. **Register** — go to `http://localhost:8080/login`, click "Register here", create an account (e.g. `test@helix.local` / `testpass123`)
+2. **Onboarding** — complete the onboarding flow (create an org)
+3. **Add a repository** — in the org settings, add at least one Git repository so Kodit has code to index
+4. **Create an agent** — go to Apps / Agents, create a new agent
+5. **Enable Code Intelligence** — in the agent's Skills section, find "Code Intelligence" and click Enable (no config dialog should appear)
+6. **Save the agent**
+7. **Chat with the agent** — open the agent and ask a question about code in the connected repository (e.g. "What does the `RunAgent` function do?")
+8. **Verify tool use** — confirm the agent's response references actual code from the repository and that the Kodit MCP tools appear in the tool-call trace (semantic_search, grep, or read_file)
+
+**Pass criteria:** The agent answers correctly using code from the repository, and tool calls to Kodit are visible in the session trace. No manual URL or API key was entered at any point.

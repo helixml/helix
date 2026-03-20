@@ -30,4 +30,9 @@ Tests are written first (TDD). Each implementation task is paired with the test 
 - [ ] Run `go build ./pkg/server/ ./pkg/types/ ./pkg/agent/skill/...` — no compile errors
 - [ ] Run `CGO_ENABLED=1 go test -v ./pkg/server/ ./pkg/agent/skill/...` — all tests pass
 - [ ] Run `cd frontend && yarn build && yarn test` — no errors
-- [ ] Manual end-to-end: enable skill in UI → confirm agent can call Kodit tools in a session
+- [ ] **Manual QA** (follow the test plan in `requirements.md`):
+  - [ ] Register account and complete onboarding at `http://localhost:8080`
+  - [ ] Add a repository to the org
+  - [ ] Create an agent, enable Code Intelligence skill (no config dialog)
+  - [ ] Chat with the agent about code in the repository
+  - [ ] Confirm Kodit tool calls appear in the session trace and the answer is correct
