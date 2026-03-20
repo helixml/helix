@@ -99,10 +99,16 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			return
 		}
 
-		// Don't create PRs eagerly here — the agent may not have written
-		// pull_request_<repo>.md files yet. Instead, the push-detection path
-		// (handleFeatureBranchPush → ensurePullRequest) will create PRs when
-		// the agent pushes, at which point the PR description files should exist.
+		// Eagerly create PRs for all repos that have commits on the feature branch.
+		// The push-detection path (handleFeatureBranchPush → ensurePullRequest) is
+		// a backup, but it can fail silently. Eager creation is the primary mechanism.
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			if err := s.ensurePullRequestsForAllRepos(context.Background(), specTask, project.DefaultRepoID); err != nil {
+				log.Error().Err(err).Str("task_id", specTask.ID).Msg("Failed to create PRs on approval (push detection will retry)")
+			}
+		}()
 
 		// Gather non-primary repo names so the push instruction tells the agent
 		// to push all repos, not just the primary one
