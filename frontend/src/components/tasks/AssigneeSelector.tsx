@@ -157,7 +157,10 @@ const AssigneeSelector: FC<AssigneeSelectorProps> = ({
           {/* Unassigned option */}
           <ListItemButton
             selected={!assigneeId}
-            onClick={() => handleSelect(null)}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleSelect(null);
+            }}
             sx={{ py: 1 }}
           >
             <ListItemAvatar sx={{ minWidth: 40 }}>
@@ -192,7 +195,10 @@ const AssigneeSelector: FC<AssigneeSelectorProps> = ({
               <ListItemButton
                 key={userId}
                 selected={isSelected}
-                onClick={() => handleSelect(userId)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSelect(userId);
+                }}
                 sx={{ py: 1 }}
               >
                 <ListItemAvatar sx={{ minWidth: 40 }}>

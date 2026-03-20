@@ -17403,6 +17403,10 @@ const docTemplate = `{
                 },
                 "found": {
                     "type": "boolean"
+                },
+                "url": {
+                    "description": "OAuth URL for native browser",
+                    "type": "string"
                 }
             }
         },
@@ -27129,6 +27133,10 @@ const docTemplate = `{
                     "description": "Archive to hide from main view",
                     "type": "boolean"
                 },
+                "assignee_id": {
+                    "description": "Team member assigned to work on this task",
+                    "type": "string"
+                },
                 "base_branch": {
                     "description": "The base branch this was created from",
                     "type": "string"
@@ -27776,6 +27784,10 @@ const docTemplate = `{
         "types.SpecTaskUpdateRequest": {
             "type": "object",
             "properties": {
+                "assignee_id": {
+                    "description": "Pointer to allow clearing (set to empty string to unassign)",
+                    "type": "string"
+                },
                 "depends_on": {
                     "description": "IDs of tasks this task depends on",
                     "type": "array",
@@ -27827,6 +27839,10 @@ const docTemplate = `{
                 "archived": {
                     "description": "Archive to hide from main view",
                     "type": "boolean"
+                },
+                "assignee_id": {
+                    "description": "Team member assigned to work on this task",
+                    "type": "string"
                 },
                 "base_branch": {
                     "description": "The base branch this was created from",

@@ -599,7 +599,7 @@ function TaskCardInner({
   const handleAssigneeChange = (userId: string | null) => {
     if (task.id) {
       updateSpecTask.mutate({
-        id: task.id,
+        taskId: task.id,
         updates: { assignee_id: userId || "" },
       });
     }

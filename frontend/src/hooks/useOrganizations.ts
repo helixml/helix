@@ -106,13 +106,13 @@ export default function useOrganizations(): IOrganizationTools {
       const orgResult = await api.getApiClient().v1OrganizationsDetail(id)
 
       // Fetch members for the organization
-      const membersResult = await api.getApiClient().v1OrganizationsMembersDetail(id)
+      const membersResult = await api.getApiClient().v1OrganizationsMembersList(id)
 
       // Fetch roles for the organization
-      const rolesResult = await api.getApiClient().v1OrganizationsRolesDetail(id)
+      const rolesResult = await api.getApiClient().v1OrganizationsRolesList(id)
 
       // Fetch teams for the organization
-      const teamsResult = await api.getApiClient().v1OrganizationsTeamsDetail(id)
+      const teamsResult = await api.getApiClient().v1OrganizationsTeamsList(id)
 
       // Fetch team memberships in parallel for each team
       const teamsWithMemberships = await Promise.all(
@@ -120,7 +120,7 @@ export default function useOrganizations(): IOrganizationTools {
           try {
             // Only fetch members if team has an ID
             if (team.id) {
-              const teamMembersResult = await api.getApiClient().v1OrganizationsTeamsMembersDetail(id, team.id)
+              const teamMembersResult = await api.getApiClient().v1OrganizationsTeamsMembersList(id, team.id)
 
               // Sort team members by name in a case-insensitive manner
               const sortedTeamMembers = [...teamMembersResult.data].sort((a, b) => {
@@ -208,7 +208,7 @@ export default function useOrganizations(): IOrganizationTools {
           // Only fetch members if org has an ID
           if (org.id) {
             // Call the API to get members for this organization
-            const membersResult = await api.getApiClient().v1OrganizationsMembersDetail(org.id)
+            const membersResult = await api.getApiClient().v1OrganizationsMembersList(org.id)
 
             // Sort organization members by name in a case-insensitive manner
             const sortedMembers = [...membersResult.data].sort((a, b) => {
@@ -404,7 +404,7 @@ export default function useOrganizations(): IOrganizationTools {
       // Now we need to grant the owner admin access to the team
       // We'll use the access grant system to assign the admin role
       // First, get the admin role ID from the organization roles
-      const roles = await api.getApiClient().v1OrganizationsRolesDetail(organizationId)
+      const roles = await api.getApiClient().v1OrganizationsRolesList(organizationId)
       const adminRole = roles.data.find(role => role.name && role.name.toLowerCase() === 'admin')
 
       if (adminRole && adminRole.id) {
@@ -575,7 +575,7 @@ export default function useOrganizations(): IOrganizationTools {
   const listAppAccessGrants = useCallback(async (appId: string): Promise<TypesAccessGrant[]> => {
     setLoadingAccessGrants(true)
     try {
-      const response = await api.getApiClient().v1AppsAccessGrantsDetail(appId)
+      const response = await api.getApiClient().v1AppsAccessGrantsList(appId)
       setAppAccessGrants(response.data)
       return response.data
     } catch (error) {
