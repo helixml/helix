@@ -1462,6 +1462,8 @@ const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
     prevProps.task.status === nextProps.task.status &&
     prevProps.task.updated_at === nextProps.task.updated_at &&
     prevProps.task.agent_work_state === nextProps.task.agent_work_state &&
+    prevProps.task.sandbox_state === nextProps.task.sandbox_state &&
+    prevProps.task.sandbox_status_message === nextProps.task.sandbox_status_message &&
     prevProps.isArchiving === nextProps.isArchiving &&
     prevProps.isVisible === nextProps.isVisible &&
     prevProps.focusStartPlanning === nextProps.focusStartPlanning
