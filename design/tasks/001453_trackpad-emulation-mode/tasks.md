@@ -15,6 +15,6 @@
 
 ## Verification
 
-- [~] Build frontend successfully (`cd frontend && yarn build`)
+- [x] Build frontend successfully (`cd frontend && yarn build`)
 - [ ] Deploy and test on real touch device
 - [ ] If scroll still broken, report debug panel values for further tuning
