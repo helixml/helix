@@ -81,7 +81,7 @@ func TestEnableSkill_CodeIntelligence(t *testing.T) {
 
 	mcps := returned.Config.Helix.Assistants[0].MCPs
 	require.Len(t, mcps, 1, "expected one MCP entry")
-	assert.Equal(t, "code-intelligence", mcps[0].Name)
+	assert.Equal(t, "Code Intelligence", mcps[0].Name)
 	assert.Equal(t, serverURL+"/api/v1/mcp/kodit", mcps[0].URL)
 	assert.Equal(t, "Bearer "+apiKey, mcps[0].Headers["Authorization"])
 	assert.Equal(t, "http", mcps[0].Transport)

@@ -260,7 +260,7 @@ func (s *HelixAPIServer) handleEnableSkill(w http.ResponseWriter, r *http.Reques
 	koditURL := s.Cfg.WebServer.URL + "/api/v1/mcp/kodit"
 
 	mcpEntry := types.AssistantMCP{
-		Name:      skillName,
+		Name:      skillDef.DisplayName,
 		Transport: skillDef.MCP.Transport,
 		URL:       koditURL,
 		Headers: map[string]string{
