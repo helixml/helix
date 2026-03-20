@@ -6,7 +6,9 @@ The existing YAML skill system handles API-based skills. MCP-based skills are us
 
 ### Approach
 
-Extend the YAML skill format to support an `mcp` spec section (alongside the existing `api` section). When the skill manager loads a YAML skill with `spec.mcp`, it marks the skill as `configurable: true` and MCP-type. The frontend skill marketplace handles these differently: instead of OAuth flow, it opens a URL-input dialog pre-populated with defaults.
+Extend the YAML skill format to support an `mcp` spec section (alongside the existing `api` section). When the skill manager loads a YAML skill with `spec.mcp`, it marks the skill as auto-configurable — no user input needed.
+
+When the user enables the skill, the API generates the `AssistantMCP` config automatically: the Kodit MCP URL comes from the platform config (same source used by the settings-sync-daemon) and the auth token is the user's existing Helix API key. This is exactly how the settings-sync-daemon injects Kodit auth for Zed IDE today.
 
 This reuses all existing MCP infrastructure (`AssistantMCP`, `NewDirectMCPClientSkills`, `MCPClientTool`, etc.) — no new agent/runtime code needed.
 
@@ -23,7 +25,7 @@ metadata:
 spec:
   description: |
     Search and navigate your codebase using semantic search, grep, and file browsing.
-    Connect to a Kodit MCP server to give your agent code intelligence capabilities.
+    Powered by Kodit MCP — enabled automatically using your Helix account.
   systemPrompt: |
     You have access to code intelligence tools that let you search repositories,
     read files, and understand codebases. Use these tools to answer questions
@@ -31,15 +33,13 @@ spec:
   icon:
     type: material-ui
     name: Code
-  configurable: true
+  configurable: false
   mcp:
     transport: http
-    urlPlaceholder: "https://your-kodit-instance/mcp"
-    authHeader: Authorization
-    authPrefix: "Bearer "
+    autoProvision: true   # Helix generates URL + auth internally; no user input
 ```
 
-The `spec.mcp` section tells the frontend this skill needs an MCP URL + auth token to be configured (as opposed to the OAuth flow used by API skills).
+The `spec.mcp.autoProvision: true` flag tells the backend to generate the `AssistantMCP` config server-side when the skill is enabled, rather than asking the user for a URL.
 
 ## Type Changes
 
@@ -52,10 +52,8 @@ type YAMLSkillSpec struct {
 }
 
 type YAMLSkillMCPSpec struct {
-    Transport      string `yaml:"transport" json:"transport"`             // "http" or "sse"
-    URLPlaceholder string `yaml:"urlPlaceholder" json:"urlPlaceholder"`   // hint for UI
-    AuthHeader     string `yaml:"authHeader" json:"authHeader"`
-    AuthPrefix     string `yaml:"authPrefix" json:"authPrefix"`
+    Transport     string `yaml:"transport" json:"transport"`           // "http" or "sse"
+    AutoProvision bool   `yaml:"autoProvision" json:"autoProvision"`   // generate URL+auth server-side
 }
 ```
 
@@ -63,34 +61,42 @@ type YAMLSkillMCPSpec struct {
 
 **`api/pkg/agent/skill/api_skills/code-intelligence.yaml`** — new file (see format above).
 
+## API: Enable Skill Endpoint
+
+Add a new endpoint (or extend an existing one) that handles enabling a marketplace skill on an app/assistant:
+
+`POST /api/v1/apps/{id}/skills/{skillName}/enable`
+
+For skills where `spec.mcp.autoProvision == true`, the handler:
+1. Looks up the Kodit MCP base URL from platform config (same config used by the settings-sync-daemon's `codeAgentConfig`)
+2. Uses the requesting user's Helix API key as the `Authorization: Bearer <key>` header
+3. Constructs an `AssistantMCP` config and appends it to the app's `mcpTools`
+4. Returns the updated app
+
 ## Frontend Changes
 
 **`frontend/src/components/app/Skills.tsx`** (or equivalent skill marketplace component):
-- Detect skills where `skill.spec.mcp` is set
-- When user clicks "Enable" on such a skill, open a simple dialog asking for:
-  - MCP Server URL (pre-filled with `urlPlaceholder`)
-  - API Key / Bearer token
-- On confirm, create an `AssistantMCP` entry and add it to `app.mcpTools`
-
-This reuses the existing `validate` endpoint (`POST /api/v1/skills/validate`) to confirm the connection works before saving.
+- When user clicks "Enable" on an MCP skill with `autoProvision: true`, call the enable endpoint directly — no dialog needed
+- On success, the skill appears as enabled (MCP tool is now in the app config)
 
 ## Data Flow
 
 ```
-User enables "Code Intelligence" in marketplace
-    → Dialog: enter Kodit URL + API key
-    → POST /api/v1/skills/validate (AssistantMCP) → confirm tools available
-    → Save as mcpTools entry on app config
+User clicks "Enable" on Code Intelligence skill in marketplace
+    → POST /api/v1/apps/{id}/skills/code-intelligence/enable
+    → API looks up Kodit URL from platform config + user's API key
+    → API constructs AssistantMCP{URL: koditURL, Headers: {"Authorization": "Bearer <userKey>"}}
+    → Saved as mcpTools entry on app config (no user input)
     → At inference time: NewDirectMCPClientSkills() wraps Kodit tools
     → Agent calls semantic_search, grep, read_file, etc. via MCPClientTool.Execute()
 ```
 
 ## Key Decisions
 
-- **No new runtime code**: All MCP execution infrastructure already exists. Only skill discovery and UI configuration are new.
+- **No new runtime code**: All MCP execution infrastructure already exists. Only skill discovery and the enable endpoint are new.
 - **YAML extension over new file type**: Keeps a single skill definition format; `spec.mcp` presence signals MCP-type skill.
-- **URL per org/instance**: Kodit URLs are not centrally known at skill definition time, so `urlPlaceholder` guides users rather than hard-coding.
-- **Reuse validate endpoint**: No new API endpoint needed; `POST /api/v1/skills/validate` already tests MCP connections and returns available tools.
+- **Auto-provision over user input**: Kodit URL and auth are derived server-side from existing platform config and the user's API key — matching the pattern already used by the settings-sync-daemon.
+- **New enable endpoint**: A dedicated `POST /api/v1/apps/{id}/skills/{name}/enable` keeps the logic server-side and avoids leaking internal URLs to the frontend.
 
 ## Codebase Patterns Found
 
