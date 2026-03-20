@@ -4,8 +4,8 @@ Tests are written first (TDD). Each implementation task is paired with the test 
 
 ## Types & Skill Definition
 
-- [~] Add `YAMLSkillMCPSpec` struct and `MCP` field to `YAMLSkillSpec` in `api/pkg/types/skill.go`
-- [ ] Write `manager_test.go` test: loading `code-intelligence.yaml` produces `Spec.MCP.AutoProvision == true`
+- [x] Add `YAMLSkillMCPSpec` struct and `MCP` field to `YAMLSkillSpec` in `api/pkg/types/skill.go`
+- [~] Write `manager_test.go` test: loading `code-intelligence.yaml` produces `Spec.MCP.AutoProvision == true`
 - [ ] Create `api/pkg/agent/skill/api_skills/code-intelligence.yaml` (make the test pass)
 
 ## Enable Endpoint (backend)
