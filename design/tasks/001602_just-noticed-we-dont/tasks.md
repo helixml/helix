@@ -5,12 +5,12 @@ Tests are written first (TDD). Each implementation task is paired with the test 
 ## Types & Skill Definition
 
 - [x] Add `YAMLSkillMCPSpec` struct and `MCP` field to `YAMLSkillSpec` in `api/pkg/types/skill.go`
-- [~] Write `manager_test.go` test: loading `code-intelligence.yaml` produces `Spec.MCP.AutoProvision == true`
-- [ ] Create `api/pkg/agent/skill/api_skills/code-intelligence.yaml` (make the test pass)
+- [x] Write `manager_test.go` test: loading `code-intelligence.yaml` produces `Spec.MCP.AutoProvision == true`
+- [x] Create `api/pkg/agent/skill/api_skills/code-intelligence.yaml` (make the test pass)
 
 ## Enable Endpoint (backend)
 
-- [ ] Write `skills_test.go` unit tests (testify/suite + gomock):
+- [~] Write `skills_test.go` unit tests (testify/suite + gomock):
   - `POST /api/v1/apps/{id}/skills/code-intelligence/enable` returns 200, `mcpTools` contains Kodit URL + user API key in `Authorization` header
   - Returns error when no Kodit URL is configured in platform config
 - [ ] Implement `POST /api/v1/apps/{id}/skills/{skillName}/enable` handler (make tests pass)
