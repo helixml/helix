@@ -2056,6 +2056,71 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	// This needs to be done before publishing so we can pass it to publishSessionUpdateToFrontend
 	messageRequestID, _ := syncMsg.Data["request_id"].(string)
 
+	// FINALIZE COMMENT RESPONSE before notifying the frontend.
+	// Running this synchronously (not in a goroutine) ensures comment.agent_response is
+	// written to the DB before the frontend receives the completion event and refetches
+	// the comment list. Previously this ran in a goroutine after the publish, causing a
+	// race where the frontend refetch could beat finalization and see an empty
+	// agent_response — eventually triggering the 2-minute timeout error message.
+	if messageRequestID != "" {
+		log.Info().
+			Str("request_id", messageRequestID).
+			Str("helix_session_id", helixSessionID).
+			Msg("🎯 [HELIX] Using request_id from message_completed data to finalize comment")
+
+		if err := apiServer.finalizeCommentResponse(context.Background(), messageRequestID); err != nil {
+			log.Debug().
+				Err(err).
+				Str("request_id", messageRequestID).
+				Msg("No comment found for request_id (this is normal for non-comment interactions)")
+		} else {
+			log.Info().
+				Str("request_id", messageRequestID).
+				Msg("✅ [HELIX] Finalized comment response via request_id from message data")
+		}
+
+		// Clean up requestToCommenterMapping now that response is complete
+		if apiServer.requestToCommenterMapping != nil {
+			delete(apiServer.requestToCommenterMapping, messageRequestID)
+			log.Debug().Str("request_id", messageRequestID).Msg("🧹 [HELIX] Cleaned up requestToCommenterMapping")
+		}
+	} else {
+		// FALLBACK: Session-based lookup (for agents that don't echo request_id)
+		// This may fail if helixSessionID != planning_session_id, but we try anyway
+		log.Debug().
+			Str("helix_session_id", helixSessionID).
+			Msg("No request_id in message_completed data, falling back to session-based lookup")
+
+		pendingComment, err := apiServer.Store.GetPendingCommentByPlanningSessionID(context.Background(), helixSessionID)
+		if err == nil && pendingComment != nil {
+			requestID := pendingComment.RequestID
+			commentID := pendingComment.ID
+
+			if err := apiServer.finalizeCommentResponse(context.Background(), requestID); err != nil {
+				log.Error().
+					Err(err).
+					Str("comment_id", commentID).
+					Str("request_id", requestID).
+					Msg("Failed to finalize comment response")
+			} else {
+				log.Info().
+					Str("comment_id", commentID).
+					Str("request_id", requestID).
+					Msg("✅ [HELIX] Finalized comment response via session-based lookup (fallback)")
+			}
+
+			// Clean up requestToCommenterMapping now that response is complete
+			if apiServer.requestToCommenterMapping != nil {
+				delete(apiServer.requestToCommenterMapping, requestID)
+				log.Debug().Str("request_id", requestID).Msg("🧹 [HELIX] Cleaned up requestToCommenterMapping (fallback path)")
+			}
+		} else {
+			log.Debug().
+				Str("session_id", helixSessionID).
+				Msg("No pending design review comment to finalize for session (this is normal for non-comment interactions)")
+		}
+	}
+
 	// CRITICAL: Publish completion through BOTH event channels:
 	// 1. interaction_update — same channel used during streaming, ensures useLiveInteraction sees state=complete
 	// 2. session_update — full session for React Query cache consistency
@@ -2113,90 +2178,6 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 			default:
 				log.Debug().Str("request_id", messageRequestID).Msg("Done channel already full (normal for streaming case)")
 			}
-		}
-	}
-
-	// FINALIZE COMMENT RESPONSE
-	// PRIMARY APPROACH: Use request_id from message data (echoed back by agent)
-	// This is the definitive link to the comment and doesn't rely on session ID matching
-	// FALLBACK: Session-based lookup (for backwards compatibility with agents that don't echo request_id)
-	// NOTE: messageRequestID was already extracted above for publishSessionUpdateToFrontend
-
-	if messageRequestID != "" {
-		// PRIMARY: Use request_id from message data directly
-		log.Info().
-			Str("request_id", messageRequestID).
-			Str("helix_session_id", helixSessionID).
-			Msg("🎯 [HELIX] Using request_id from message_completed data to finalize comment")
-
-		go func(sessionID, requestID string) {
-			if err := apiServer.finalizeCommentResponse(context.Background(), requestID); err != nil {
-				log.Debug().
-					Err(err).
-					Str("request_id", requestID).
-					Msg("No comment found for request_id (this is normal for non-comment interactions)")
-				return
-			}
-
-			log.Info().
-				Str("session_id", sessionID).
-				Str("request_id", requestID).
-				Msg("✅ [HELIX] Finalized comment response via request_id from message data")
-
-			// Clean up requestToCommenterMapping now that response is complete
-			if apiServer.requestToCommenterMapping != nil {
-				delete(apiServer.requestToCommenterMapping, requestID)
-				log.Debug().Str("request_id", requestID).Msg("🧹 [HELIX] Cleaned up requestToCommenterMapping")
-			}
-		}(helixSessionID, messageRequestID)
-	} else {
-		// FALLBACK: Session-based lookup (for agents that don't echo request_id)
-		// This may fail if helixSessionID != planning_session_id, but we try anyway
-		log.Debug().
-			Str("helix_session_id", helixSessionID).
-			Msg("No request_id in message_completed data, falling back to session-based lookup")
-
-		pendingComment, err := apiServer.Store.GetPendingCommentByPlanningSessionID(context.Background(), helixSessionID)
-		if err == nil && pendingComment != nil {
-			requestID := pendingComment.RequestID
-			commentID := pendingComment.ID
-
-			go func(sessionID, commentID, requestID string) {
-				if err := apiServer.finalizeCommentResponse(context.Background(), requestID); err != nil {
-					log.Error().
-						Err(err).
-						Str("comment_id", commentID).
-						Str("request_id", requestID).
-						Msg("Failed to finalize comment response")
-					return
-				}
-
-				log.Info().
-					Str("comment_id", commentID).
-					Str("session_id", sessionID).
-					Str("request_id", requestID).
-					Msg("✅ [HELIX] Finalized comment response via session-based lookup (fallback)")
-
-				_, doneChan, _, exists := apiServer.getResponseChannel(sessionID, requestID)
-				if exists {
-					select {
-					case doneChan <- true:
-						log.Debug().Str("request_id", requestID).Msg("Sent done signal to channel")
-					default:
-						log.Debug().Msg("Done channel full")
-					}
-				}
-
-				// Clean up requestToCommenterMapping now that response is complete
-				if apiServer.requestToCommenterMapping != nil {
-					delete(apiServer.requestToCommenterMapping, requestID)
-					log.Debug().Str("request_id", requestID).Msg("🧹 [HELIX] Cleaned up requestToCommenterMapping (fallback path)")
-				}
-			}(helixSessionID, commentID, requestID)
-		} else {
-			log.Debug().
-				Str("session_id", helixSessionID).
-				Msg("No pending design review comment to finalize for session (this is normal for non-comment interactions)")
 		}
 	}
 
