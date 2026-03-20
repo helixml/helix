@@ -105,6 +105,18 @@ function clipboardReadText(): Promise<string> {
   return Promise.resolve("");
 }
 
+// Returns a stable UUID for a given sessionId in this browser tab.
+// Stored in sessionStorage so it survives component remounts but differs across tabs.
+function getOrCreateStreamUUID(sessionId: string): string {
+  const storageKey = `helix-stream-uuid-${sessionId}`;
+  let id = sessionStorage.getItem(storageKey);
+  if (!id) {
+    id = crypto.randomUUID();
+    sessionStorage.setItem(storageKey, id);
+  }
+  return id;
+}
+
 /**
  * DesktopStreamViewer - Native React component for desktop streaming
  *
@@ -140,10 +152,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const pendingReconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Cancel pending reconnects to prevent duplicate streams
   const manualReconnectAttemptsRef = useRef(0); // Track manual reconnect attempts to prevent infinite loops
 
-  // Generate unique UUID for this component instance (persists across re-renders).
-  // This ensures multiple floating windows get different streaming client IDs.
+  // Stable UUID for this browser tab + session combination.
+  // Survives component remounts (stored in sessionStorage) but differs across tabs.
   // The backend uses this to deduplicate clients on reconnect — same UUID = same viewer tab.
-  const componentInstanceIdRef = useRef<string>(crypto.randomUUID());
+  const componentInstanceIdRef = useRef<string>(getOrCreateStreamUUID(sessionId));
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
