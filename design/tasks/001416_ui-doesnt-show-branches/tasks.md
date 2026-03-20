@@ -20,9 +20,9 @@
 
 ## API Updates
 
-- [~] Ensure `GetSpecTask` returns `repo_pull_requests` in response
-- [ ] Update OpenAPI spec with new field
-- [ ] Run `./stack update_openapi` to regenerate client
+- [x] Ensure `GetSpecTask` returns `repo_pull_requests` in response
+- [~] Update OpenAPI spec with new field
+- [~] Run `./stack update_openapi` to regenerate client
 
 ## Frontend: UI Updates
 
