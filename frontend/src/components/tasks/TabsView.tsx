@@ -1440,6 +1440,13 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
               specTaskId={activeTab.taskId}
               reviewId={activeTab.reviewId}
               onClose={() => onTabClose(panel.id, activeTab.id)}
+              onImplementationStarted={() => {
+                onTabClose(panel.id, activeTab.id);
+                const task = tasks.find((t) => t.id === activeTab.taskId);
+                if (task) {
+                  onAddTab(panel.id, task);
+                }
+              }}
               hideTitle={true}
             />
           ) : activeTab.type === "create" ? (
