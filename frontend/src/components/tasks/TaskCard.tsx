@@ -1062,7 +1062,6 @@ function TaskCardInner({
             >
               {assignedUser ? (
                 <Avatar
-                  src={assignedUser.avatar_url}
                   sx={{
                     width: 20,
                     height: 20,

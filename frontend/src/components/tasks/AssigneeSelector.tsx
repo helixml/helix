@@ -203,7 +203,7 @@ const AssigneeSelector: FC<AssigneeSelectorProps> = ({
               >
                 <ListItemAvatar sx={{ minWidth: 40 }}>
                   <Avatar
-                    src={user?.avatar_url}
+
                     sx={{
                       width: 28,
                       height: 28,

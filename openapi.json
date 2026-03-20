@@ -2240,6 +2240,188 @@
                 }
             }
         },
+        "/api/v1/attention-events": {
+            "get": {
+                "description": "Returns attention events that need human action for the current user. Only returns events that have not been dismissed and are not currently snoozed.",
+                "tags": [
+                    "attention-events"
+                ],
+                "summary": "List active attention events",
+                "parameters": [
+                    {
+                        "description": "Filter to active (non-dismissed, non-snoozed) events only (default: true)",
+                        "name": "active",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.AttentionEvent"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal server error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/attention-events/dismiss-all": {
+            "post": {
+                "description": "Bulk-dismiss all active (non-dismissed) attention events for the current user.",
+                "tags": [
+                    "attention-events"
+                ],
+                "summary": "Dismiss all active attention events",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal server error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/attention-events/{id}": {
+            "patch": {
+                "description": "Acknowledge, dismiss, or snooze an attention event.",
+                "tags": [
+                    "attention-events"
+                ],
+                "summary": "Update an attention event",
+                "parameters": [
+                    {
+                        "description": "Attention event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.AttentionEventUpdateRequest"
+                            }
+                        }
+                    },
+                    "description": "Update request",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "bad request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal server error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/auth/authenticated": {
             "get": {
                 "description": "Check if the user is authenticated",
@@ -14348,7 +14530,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/types.ClaudeOAuthCredentials"
+                                    "$ref": "#/components/schemas/server.SessionClaudeCredentialsResponse"
                                 }
                             }
                         }
@@ -22322,6 +22504,21 @@
                     }
                 }
             },
+            "server.SessionClaudeCredentialsResponse": {
+                "type": "object",
+                "properties": {
+                    "credential_type": {
+                        "description": "\"oauth\" or \"setup_token\"",
+                        "type": "string"
+                    },
+                    "oauth_credentials": {
+                        "$ref": "#/components/schemas/types.ClaudeOAuthCredentials"
+                    },
+                    "setup_token": {
+                        "type": "string"
+                    }
+                }
+            },
             "server.SessionSandboxStateResponse": {
                 "type": "object",
                 "properties": {
@@ -23673,6 +23870,94 @@
                     }
                 }
             },
+            "types.AttentionEvent": {
+                "type": "object",
+                "properties": {
+                    "acknowledged_at": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "dismissed_at": {
+                        "type": "string"
+                    },
+                    "event_type": {
+                        "$ref": "#/components/schemas/types.AttentionEventType"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "idempotency_key": {
+                        "type": "string"
+                    },
+                    "metadata": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "project_name": {
+                        "description": "Denormalized for display without joins",
+                        "type": "string"
+                    },
+                    "snoozed_until": {
+                        "type": "string"
+                    },
+                    "spec_task_id": {
+                        "type": "string"
+                    },
+                    "spec_task_name": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "user_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.AttentionEventType": {
+                "type": "string",
+                "enum": [
+                    "specs_pushed",
+                    "agent_interaction_completed",
+                    "spec_failed",
+                    "implementation_failed",
+                    "pr_ready"
+                ],
+                "x-enum-varnames": [
+                    "AttentionEventSpecsPushed",
+                    "AttentionEventAgentInteractionCompleted",
+                    "AttentionEventSpecFailed",
+                    "AttentionEventImplementationFailed",
+                    "AttentionEventPRReady"
+                ]
+            },
+            "types.AttentionEventUpdateRequest": {
+                "type": "object",
+                "properties": {
+                    "acknowledge": {
+                        "type": "boolean"
+                    },
+                    "dismiss": {
+                        "type": "boolean"
+                    },
+                    "snoozed_until": {
+                        "type": "string"
+                    }
+                }
+            },
             "types.AuditEventType": {
                 "type": "string",
                 "enum": [
@@ -24132,6 +24417,10 @@
                         "type": "string"
                     },
                     "created_by": {
+                        "type": "string"
+                    },
+                    "credential_type": {
+                        "description": "\"oauth\" or \"setup_token\"",
                         "type": "string"
                     },
                     "id": {
@@ -24668,6 +24957,10 @@
                                 "$ref": "#/components/schemas/types.OwnerType"
                             }
                         ]
+                    },
+                    "setup_token": {
+                        "description": "From `claude setup-token` (alternative to credentials)",
+                        "type": "string"
                     }
                 }
             },
@@ -30557,6 +30850,10 @@
                         "description": "Archive to hide from main view",
                         "type": "boolean"
                     },
+                    "assignee_id": {
+                        "description": "Team member assigned to work on this task",
+                        "type": "string"
+                    },
                     "base_branch": {
                         "description": "The base branch this was created from",
                         "type": "string"
@@ -31220,6 +31517,10 @@
             "types.SpecTaskUpdateRequest": {
                 "type": "object",
                 "properties": {
+                    "assignee_id": {
+                        "description": "Pointer to allow clearing (set to empty string to unassign)",
+                        "type": "string"
+                    },
                     "depends_on": {
                         "description": "IDs of tasks this task depends on",
                         "type": "array",
@@ -31271,6 +31572,10 @@
                     "archived": {
                         "description": "Archive to hide from main view",
                         "type": "boolean"
+                    },
+                    "assignee_id": {
+                        "description": "Team member assigned to work on this task",
+                        "type": "string"
                     },
                     "base_branch": {
                         "description": "The base branch this was created from",
