@@ -680,8 +680,29 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		return nil
 	}
 
-	// If no helixSessionID provided, this is a NEW context created by user inside Zed
-	// Only in this case should we create a new Helix session
+	// PRIORITY 3: Check if a session already exists with this ZedThreadID.
+	// This prevents creating duplicate sessions when the same thread is reported again
+	// (e.g., after Zed reconnects and re-reports an existing thread).
+	existingSession, err := apiServer.findSessionByZedThreadID(context.Background(), contextID)
+	if err == nil && existingSession != nil {
+		log.Info().
+			Str("agent_session_id", sessionID).
+			Str("existing_session_id", existingSession.ID).
+			Str("zed_thread_id", contextID).
+			Msg("✅ [HELIX] Found existing session by ZedThreadID, reusing instead of creating duplicate")
+
+		apiServer.contextMappingsMutex.Lock()
+		apiServer.contextMappings[contextID] = existingSession.ID
+		apiServer.contextMappingsMutex.Unlock()
+
+		if existingSession.Metadata.SpecTaskID != "" {
+			go apiServer.trackSpecTaskZedThread(context.Background(), existingSession, acpThreadID, title)
+		}
+
+		return nil
+	}
+
+	// If no helixSessionID provided and no existing session found, this is a genuinely NEW context
 	log.Info().
 		Str("agent_session_id", sessionID).
 		Str("context_id", contextID).
