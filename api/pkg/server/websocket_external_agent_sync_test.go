@@ -1003,7 +1003,7 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_HasPending() {
 		Status:    "pending",
 	}
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_pq").Return(prompt, nil)
-	s.store.EXPECT().MarkPromptAsPending(gomock.Any(), "prompt-pq").Return(nil)
+	// MarkPromptAsPending no longer called - prompt is atomically claimed by GetNextPendingPrompt
 
 	// sendQueuedPromptToSession calls
 	session := &types.Session{
@@ -1036,7 +1036,7 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_SendFails_GetSessionFails() 
 		Content:   "fail content",
 	}
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_fail").Return(prompt, nil)
-	s.store.EXPECT().MarkPromptAsPending(gomock.Any(), "prompt-fail").Return(nil)
+	// MarkPromptAsPending no longer called - prompt is atomically claimed by GetNextPendingPrompt
 
 	// sendQueuedPromptToSession fails because second GetSession fails
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_fail").Return(nil, fmt.Errorf("db error"))

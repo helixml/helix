@@ -2285,12 +2285,8 @@ func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, session
 		Bool("is_retry", isRetry).
 		Msg("📤 [QUEUE] Processing next non-interrupt prompt from queue")
 
-	// Mark as pending before sending (in case it was 'failed', this prevents race conditions)
-	if err := apiServer.Store.MarkPromptAsPending(ctx, nextPrompt.ID); err != nil {
-		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as pending before send")
-	}
-
-	// Send the prompt to the session
+	// The prompt was atomically claimed by GetNextPendingPrompt (status set to 'sending').
+	// Send it to the session.
 	err = apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt)
 	if err != nil {
 		log.Error().
