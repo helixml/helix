@@ -1096,8 +1096,9 @@ func (h *HydraExecutor) waitForDesktopBridge(ctx context.Context, sessionID stri
 	// RevDial runner ID follows the pattern "desktop-{sessionID}"
 	runnerID := fmt.Sprintf("desktop-%s", sessionID)
 
-	// Poll for up to 60 seconds (desktop startup can be slow)
-	maxAttempts := 60
+	// Poll for up to 120 seconds (desktop startup can be slow, especially
+	// when multiple desktops boot in parallel and contend for GPU/CPU/disk)
+	maxAttempts := 120
 	pollInterval := 1 * time.Second
 
 	log.Info().
