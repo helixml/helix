@@ -216,6 +216,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [debugThrottleRatio, setDebugThrottleRatio] = useState<number | null>(
     null,
   ); // Debug override for throttle ratio
+  // Two-finger gesture debug info for trackpad mode (updated during gestures)
+  const [twoFingerDebug, setTwoFingerDebug] = useState<{
+    gestureType: "undecided" | "pinch" | "scroll";
+    distanceChange: number;
+    centerMovement: number;
+    lastScrollDelta: { dx: number; dy: number };
+  } | null>(null);
   // Connection debug log for iPad (no devtools) - shows recent connection events
   const [connectionLog, setConnectionLog] = useState<
     Array<{ time: string; msg: string }>
@@ -272,7 +279,19 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const twoFingerGestureTypeRef = useRef<"undecided" | "pinch" | "scroll">(
     "undecided",
   ); // Track gesture type
-  const PINCH_VS_SCROLL_THRESHOLD = 30; // Pixels of distance change to classify as pinch vs scroll
+  // Debug info for two-finger gestures (displayed in stats panel)
+  const twoFingerDebugRef = useRef<{
+    gestureType: "undecided" | "pinch" | "scroll";
+    distanceChange: number;
+    centerMovement: number;
+    lastScrollDelta: { dx: number; dy: number };
+  }>({
+    gestureType: "undecided",
+    distanceChange: 0,
+    centerMovement: 0,
+    lastScrollDelta: { dx: 0, dy: 0 },
+  });
+  const PINCH_VS_SCROLL_THRESHOLD = 50; // Pixels of distance change to classify as pinch vs scroll (increased for better scroll detection)
   const SCROLL_SENSITIVITY = 2.0; // Multiplier for scroll speed
   const MIN_ZOOM = 1; // Minimum zoom (no zoom out beyond 1:1)
   const MAX_ZOOM = 5; // Maximum zoom level
@@ -3327,6 +3346,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           centerDx * centerDx + centerDy * centerDy,
         );
 
+        // Update debug info for stats panel (both ref and state)
+        twoFingerDebugRef.current.distanceChange = Math.round(distanceChange);
+        twoFingerDebugRef.current.centerMovement = Math.round(centerMovement);
+
         // Determine gesture type on first significant move
         if (twoFingerGestureTypeRef.current === "undecided") {
           // If distance between fingers changes significantly, it's a pinch
@@ -3339,13 +3362,26 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           }
         }
 
+        // Update debug gesture type
+        twoFingerDebugRef.current.gestureType =
+          twoFingerGestureTypeRef.current;
+
+        // Update state for stats panel display
+        setTwoFingerDebug({ ...twoFingerDebugRef.current });
+
         // Handle scroll gesture - send scroll events to remote
         if (twoFingerGestureTypeRef.current === "scroll") {
+          const scrollDx = -centerDx * SCROLL_SENSITIVITY;
+          const scrollDy = centerDy * SCROLL_SENSITIVITY;
+          // Update debug scroll delta
+          twoFingerDebugRef.current.lastScrollDelta = {
+            dx: Math.round(scrollDx),
+            dy: Math.round(scrollDy),
+          };
+          // Update state for stats panel
+          setTwoFingerDebug({ ...twoFingerDebugRef.current });
           // Send scroll wheel events to remote desktop
-          handler.sendMouseWheel?.(
-            -centerDx * SCROLL_SENSITIVITY, // Invert X for natural scrolling
-            centerDy * SCROLL_SENSITIVITY, // Y is not inverted (swipe up = scroll up)
-          );
+          handler.sendMouseWheel?.(scrollDx, scrollDy);
           lastPinchCenterRef.current = { x: centerX, y: centerY };
           return;
         }
@@ -3433,13 +3469,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // In trackpad mode, handle gestures
       if (touchMode === "trackpad") {
         // Helper to send current cursor position to remote before clicks
+        // Uses cursorPositionRef (not state) to get the latest position synchronously
         const sendCursorPositionToRemote = () => {
           if (!containerRef.current) return;
           const containerRect = containerRef.current.getBoundingClientRect();
           const streamOffsetX = rect.x - containerRect.x;
           const streamOffsetY = rect.y - containerRect.y;
-          const streamRelativeX = cursorPosition.x - streamOffsetX;
-          const streamRelativeY = cursorPosition.y - streamOffsetY;
+          const currentPos = cursorPositionRef.current;
+          const streamRelativeX = currentPos.x - streamOffsetX;
+          const streamRelativeY = currentPos.y - streamOffsetY;
           const streamX = (streamRelativeX / rect.width) * width;
           const streamY = (streamRelativeY / rect.height) * height;
           handler.sendMousePosition?.(streamX, streamY, width, height);
@@ -3576,7 +3614,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       getInputHandler,
       touchMode,
       isDragging,
-      cursorPosition,
       width,
       height,
       stopEdgePan,
@@ -5036,6 +5073,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           connectionLog={connectionLog}
           isConnected={isConnected}
           isConnecting={isConnecting}
+          twoFingerDebug={twoFingerDebug}
         />
       )}
 
