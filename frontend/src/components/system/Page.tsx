@@ -311,8 +311,12 @@ const Page: React.FC<{
                   }}
                 />
               )}
-              { topbarContent }
-              <GlobalNotifications organizationId={organizationId} />
+              <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', minWidth: 0, justifyContent: 'flex-end' }}>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  { topbarContent }
+                </Box>
+                <GlobalNotifications organizationId={organizationId} />
+              </Box>
             </AppBar>
           </Box>
         )
