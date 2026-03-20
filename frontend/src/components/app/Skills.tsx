@@ -526,16 +526,27 @@ const Skills: React.FC<SkillsProps> = ({
         }
       }
 
+      const autoProvision = isAutoProvisionMCPSkill(backendSkill);
+      // autoProvision skills are MCP-backed — use MCP type and category so they appear
+      // under "MCP Servers" and get the right icon/behaviour.
+      const skillType = autoProvision ? SKILL_TYPE_MCP : SKILL_TYPE_HTTP_API;
+      const skillCategories = autoProvision
+        ? [SKILL_CATEGORY_CORE, SKILL_CATEGORY_MCP]
+        : [category];
+      if (autoProvision) {
+        icon = <HubIcon sx={{ color: '#6366F1' }} />;
+      }
+
       return {
         id: `backend-${backendSkill.id}`,
         icon,
         name: backendSkill.displayName || backendSkill.name || 'Unknown Skill',
         description: backendSkill.description || 'Backend-provided skill',
-        type: SKILL_TYPE_HTTP_API,
-        categories: [category],
+        type: skillType,
+        categories: skillCategories,
         // backendSkillId is the raw skill ID used when calling the enable endpoint
         backendSkillId: backendSkill.id || backendSkill.name,
-        autoProvision: isAutoProvisionMCPSkill(backendSkill),
+        autoProvision,
         skill: {
           name: backendSkill.displayName || backendSkill.name || 'Unknown Skill',
           description: backendSkill.description || '',
@@ -631,9 +642,17 @@ const Skills: React.FC<SkillsProps> = ({
   const mcpSkills = useMemo(() => {
     if (!app.mcpTools) return [];
 
-    // Filter to only HTTP/SSE MCPs (not stdio)
+    // Names of MCPs that are managed by autoProvision backend skills — they already
+    // have a card in backendSkills, so we must not create a second one here.
+    const autoProvisionNames = new Set(
+      (backendSkillsResponse?.skills ?? [])
+        .filter(s => s.mcp?.autoProvision)
+        .map(s => s.displayName || s.name || '')
+    );
+
+    // Filter to only HTTP/SSE MCPs (not stdio) that aren't managed by a backend skill
     return app.mcpTools
-      .filter(mcp => mcp.transport !== 'stdio' && !mcp.command)
+      .filter(mcp => mcp.transport !== 'stdio' && !mcp.command && !autoProvisionNames.has(mcp.name || ''))
       .map(mcp => ({
         id: `mcp-${mcp.name}`,
         icon: <HubIcon sx={{ color: '#6366F1' }} />,
@@ -658,7 +677,7 @@ const Skills: React.FC<SkillsProps> = ({
           configurable: true,
         },
       }));
-  }, [app.mcpTools]);
+  }, [app.mcpTools, backendSkillsResponse]);
 
   // Convert local MCP tools (stdio transport) to skills - only for external agents
   const localMcpSkills = useMemo(() => {
@@ -915,7 +934,9 @@ const Skills: React.FC<SkillsProps> = ({
   const handleOpenDialog = (skill: ISkill) => {
     // AutoProvision MCP skills (e.g. Code Intelligence) are enabled with a single API call —
     // no dialog required. The server generates the MCP URL and auth token automatically.
+    // Guard: if already enabled, do nothing (prevents duplicate MCP entries).
     if ((skill as any).autoProvision && (skill as any).backendSkillId && appId) {
+      if (isSkillEnabled(skill.name)) return;
       enableSkill(appId, (skill as any).backendSkillId).then((updatedApp) => {
         // Convert the returned App back to IAppFlatState and refresh the parent.
         onUpdate({

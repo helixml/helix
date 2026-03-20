@@ -268,10 +268,20 @@ func (s *HelixAPIServer) handleEnableSkill(w http.ResponseWriter, r *http.Reques
 		},
 	}
 
-	// Ensure there is at least one assistant, then append the MCP entry.
+	// Ensure there is at least one assistant.
 	if len(app.Config.Helix.Assistants) == 0 {
 		app.Config.Helix.Assistants = []types.AssistantConfig{{}}
 	}
+
+	// Idempotency: skip if the skill is already configured (same display name).
+	for _, existing := range app.Config.Helix.Assistants[0].MCPs {
+		if existing.Name == mcpEntry.Name {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(app)
+			return
+		}
+	}
+
 	app.Config.Helix.Assistants[0].MCPs = append(app.Config.Helix.Assistants[0].MCPs, mcpEntry)
 
 	updated, err := s.Store.UpdateApp(r.Context(), app)
