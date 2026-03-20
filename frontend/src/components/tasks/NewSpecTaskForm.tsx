@@ -336,11 +336,9 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         // Add labels to the newly created task
         const taskId = response.data.id;
         if (taskId && taskLabels.length > 0) {
-          await Promise.all(
-            taskLabels.map((label) =>
-              addLabelMutation.mutateAsync({ taskId, label })
-            )
-          );
+          for (const label of taskLabels) {
+            await addLabelMutation.mutateAsync({ taskId, label });
+          }
         }
 
         snackbar.success(

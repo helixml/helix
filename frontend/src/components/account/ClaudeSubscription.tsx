@@ -32,6 +32,7 @@ interface ClaudeSubscriptionData {
   id: string
   created: string
   name: string
+  credential_type?: string
   subscription_type: string
   rate_limit_tier: string
   status: string
@@ -257,7 +258,8 @@ const ClaudeSubscription: FC = () => {
             <Typography variant="body2" color="text.secondary">Loading...</Typography>
           ) : hasSubscription ? (
             subscriptions.map((sub) => {
-              const expiry = getTokenExpiryStatus(sub.access_token_expires_at)
+              const isSetupToken = sub.credential_type === 'setup_token'
+              const expiry = isSetupToken ? null : getTokenExpiryStatus(sub.access_token_expires_at)
               const isExpired = expiry?.isExpired ?? false
               return (
                 <Box
@@ -276,7 +278,7 @@ const ClaudeSubscription: FC = () => {
                   <Box>
                     <Typography variant="subtitle1">{sub.name || 'Claude Subscription'}</Typography>
                     <Box sx={{ display: 'flex', gap: 1, mt: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
-                      {isExpired ? (
+                      {isExpired && !isSetupToken ? (
                         <Chip
                           icon={<ErrorOutlineIcon />}
                           label="Token Expired"
@@ -289,6 +291,9 @@ const ClaudeSubscription: FC = () => {
                           color={sub.status === 'active' ? 'success' : 'warning'}
                           size="small"
                         />
+                      )}
+                      {isSetupToken && (
+                        <Chip label="Setup Token" size="small" variant="outlined" />
                       )}
                       {sub.subscription_type && (
                         <Chip label={sub.subscription_type} size="small" variant="outlined" />
@@ -307,7 +312,7 @@ const ClaudeSubscription: FC = () => {
                         </Typography>
                       )}
                     </Box>
-                    {isExpired && (
+                    {isExpired && !isSetupToken && (
                       <Alert severity="warning" sx={{ mt: 1, py: 0 }} icon={false}>
                         <Typography variant="caption">
                           Token has expired. Re-login to refresh your credentials for new sessions.

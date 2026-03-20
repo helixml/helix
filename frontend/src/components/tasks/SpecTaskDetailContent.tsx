@@ -273,6 +273,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       return null;
     const sub = claudeSubscriptions?.[0];
     if (!sub) return null;
+    if (sub.credential_type === 'setup_token') return null; // Setup tokens don't expire
     return getTokenExpiryStatus(sub.access_token_expires_at);
   }, [task?.helix_app_id, apps.apps, claudeSubscriptions]);
 
