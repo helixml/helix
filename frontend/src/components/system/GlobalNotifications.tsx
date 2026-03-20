@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
 import Badge from '@mui/material/Badge'
@@ -183,10 +183,33 @@ const AttentionEventItem: React.FC<{
   )
 }
 
+const PANEL_WIDTH = 360
+
 const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange }) => {
   const account = useAccount()
   const lightTheme = useLightTheme()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const styleRef = useRef<HTMLStyleElement | null>(null)
+
+  // Inject a global <style> that pushes <main> content when panel is open.
+  // This is the only reliable way to affect Layout.tsx's <main> from a child component
+  // without threading state through the entire component tree.
+  useEffect(() => {
+    if (!styleRef.current) {
+      const style = document.createElement('style')
+      style.setAttribute('data-attention-panel', '')
+      document.head.appendChild(style)
+      styleRef.current = style
+    }
+    styleRef.current.textContent = drawerOpen
+      ? `main { margin-right: ${PANEL_WIDTH}px !important; transition: margin-right 0.25s ease-in-out !important; }`
+      : `main { margin-right: 0px !important; transition: margin-right 0.25s ease-in-out !important; }`
+    return () => {
+      if (styleRef.current) {
+        styleRef.current.textContent = ''
+      }
+    }
+  }, [drawerOpen])
 
   const {
     events,
@@ -274,7 +297,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     <>
       {/* Bell icon + badge */}
       <IconButton
-        onClick={() => drawerOpen ? handleDrawerClose() : handleDrawerOpen()}
+        onClick={(e) => { e.stopPropagation(); drawerOpen ? handleDrawerClose() : handleDrawerOpen() }}
         sx={{
           ml: 0.5,
           color: 'rgba(255,255,255,0.6)',
@@ -299,7 +322,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
             },
           }}
         >
-          <Bell size={18} />
+          {drawerOpen ? <BellRing size={18} /> : <Bell size={18} />}
         </Badge>
       </IconButton>
 
@@ -307,10 +330,10 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
       <Box
         sx={{
           position: 'fixed',
-          top: 60,
+          top: 0,
           right: 0,
           bottom: 0,
-          width: 360,
+          width: PANEL_WIDTH,
           maxWidth: '100vw',
           backgroundColor: lightTheme.backgroundColor,
           borderLeft: '1px solid rgba(255,255,255,0.06)',
