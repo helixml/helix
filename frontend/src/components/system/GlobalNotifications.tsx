@@ -379,8 +379,8 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                 sx={{
                   fontSize: '0.6rem',
                   fontWeight: 600,
-                  color: 'rgba(255,255,255,0.5)',
-                  backgroundColor: 'rgba(255,255,255,0.06)',
+                  color: hasNew ? '#fff' : 'rgba(255,255,255,0.5)',
+                  backgroundColor: hasNew ? '#ef4444' : 'rgba(255,255,255,0.06)',
                   borderRadius: '4px',
                   px: 0.5,
                   py: 0.125,

@@ -131,7 +131,7 @@ export function useAttentionEvents(enabled: boolean = true) {
     newEvents,
     isLoading: query.isLoading,
     totalCount: query.data?.length || 0,
-    hasNew: newEvents.length > 0,
+    hasNew: (query.data ?? []).some(e => !e.acknowledged_at),
     acknowledge,
     dismiss,
     snooze,
