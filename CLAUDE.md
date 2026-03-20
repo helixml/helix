@@ -296,17 +296,37 @@ The WebSocket sync protocol between Helix (Go) and Zed (Rust) has E2E tests that
 ### Architecture
 - **Go test server**: `zed-repo/crates/external_websocket_sync/e2e-test/helix-ws-test-server/main.go`
 - **Imports real code**: `server.NewTestServer()` from `api/pkg/server/test_helpers.go` + `memorystore` (in-memory, no Postgres)
-- **7-phase test**: thread creation → follow-up → new thread → follow-up → completion → UI state query → open_thread + follow-up
+- **9-phase test**: thread creation, follow-up, new thread, follow-up to non-visible thread, simulate user input, UI state query, open_thread + follow-up, mid-stream interrupt, rapid 3-turn cancel
+- **Multi-agent rounds**: Tests run for both `zed-agent` and `claude` (Claude Code). Set `E2E_AGENTS` env var to control which agents are tested.
 - **Screenshots**: Periodic Xvfb screenshots captured in `/test/screenshots/`
 
-### Running Locally
+### Running Locally (from Zed repo)
+
+**Both repos must be checked out as siblings** (`~/pm/helix` and `~/pm/zed`). The Go test server imports Helix server code via a `replace` directive pointing to `../../../../../helix`.
+
 ```bash
-cd ../zed/crates/external_websocket_sync/e2e-test
-# Requires: zed-binary (from ./stack build-zed release), ANTHROPIC_API_KEY
-cp ../../zed-build/zed zed-binary
-./run_docker_e2e.sh  # builds Go test server + Docker image + runs test
-# Screenshots saved to ./screenshots/
+# 1. Build Zed binary (if not already built)
+cd ~/pm/helix && ./stack build-zed release
+
+# 2. Copy Zed binary to e2e-test dir
+cp ~/pm/helix/zed-build/zed ~/pm/zed/crates/external_websocket_sync/e2e-test/zed-binary
+
+# 3. Run E2E tests (builds Go test server from current checkout + Docker image)
+cd ~/pm/zed/crates/external_websocket_sync/e2e-test
+
+# Single agent (fast, ~2min):
+./run_docker_e2e.sh
+
+# Both agents (zed-agent + claude, ~5min):
+E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh
+
+# Skip Go rebuild (use cached binary):
+E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh --no-build
 ```
+
+**What gets tested**: The Go test server is built from `~/pm/zed/.../helix-ws-test-server/` which imports the Helix Go code from `~/pm/helix/api/` via the `replace` directive. So you're testing the **currently checked out versions of both repos**.
+
+**ANTHROPIC_API_KEY**: Auto-sourced from `~/pm/helix/.env` or `~/pm/helix/.env.usercreds`. Must be set for tests to work.
 
 ### Go Unit Tests (server-side)
 ```bash
@@ -318,7 +338,7 @@ The `zed-e2e-test` step in `.drone.yml` runs automatically on the sandbox-build 
 1. Clones Zed at commit pinned in `sandbox-versions.txt` (`ZED_COMMIT=...`)
 2. Builds Zed binary (cached by commit hash)
 3. Multi-stage Docker build: Go test server (with current helix source) + runtime
-4. Runs 7-phase E2E test with `ANTHROPIC_API_KEY` from Drone secrets
+4. Runs 9-phase E2E test for both `zed-agent` and `claude` with `ANTHROPIC_API_KEY` from Drone secrets
 
 **Updating pinned Zed version**: After pushing Zed changes, update `sandbox-versions.txt` with the new commit hash. The Go test server's `go.mod` has a `replace` directive for local dev; CI overrides it to point to `/drone/src`.
 
@@ -329,7 +349,7 @@ The `zed-e2e-test` step in `.drone.yml` runs automatically on the sandbox-build 
 | `api/pkg/server/test_helpers.go` | `NewTestServer`, `QueueCommand`, `SetSyncEventHook` |
 | `api/pkg/store/memorystore/` | In-memory store for tests (no Postgres) |
 | `api/pkg/server/websocket_external_agent_sync_test.go` | 46 Go unit tests for handler paths |
-| `design/2026-02-25-websocket-sync-test-coverage.md` | Coverage analysis and gaps |
+| `design/2026-03-20-multi-agent-e2e-tests.md` | Multi-agent E2E test design and roadmap |
 
 ## CLI Development
 Use the helix CLI for testing, not raw curl. If functionality is missing, add it to `api/pkg/cli/spectask/`.
