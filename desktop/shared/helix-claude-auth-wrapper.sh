@@ -15,7 +15,10 @@ fi
 # Install Claude CLI to user prefix (no root required).
 mkdir -p ~/.local
 for i in 1 2 3 4 5; do
-    npm install -g --prefix ~/.local @anthropic-ai/claude-code@latest 2>>/tmp/npm-install.log && break
+    # Pin to 2.1.75: versions 2.1.76+ trigger a server-side Anthropic bug where
+    # the redirect_uri is mangled (http://localhost → http:/localhost) during the
+    # login→authorize redirect. See: https://github.com/anthropics/claude-code/issues/36015
+    npm install -g --prefix ~/.local @anthropic-ai/claude-code@2.1.75 2>>/tmp/npm-install.log && break
     [ "$i" -lt 5 ] && sleep 3
 done
 export PATH="$HOME/.local/bin:$PATH"
