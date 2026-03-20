@@ -21,12 +21,12 @@
 ## API Updates
 
 - [x] Ensure `GetSpecTask` returns `repo_pull_requests` in response
-- [~] Update OpenAPI spec with new field
-- [~] Run `./stack update_openapi` to regenerate client
+- [x] Update OpenAPI spec with new field
+- [x] Run `./stack update_openapi` to regenerate client
 
 ## Frontend: UI Updates
 
-- [ ] Update `SpecTaskForActions` interface in `SpecTaskActionButtons.tsx` with `repo_pull_requests`
+- [~] Update `SpecTaskForActions` interface in `SpecTaskActionButtons.tsx` with `repo_pull_requests`
 - [ ] Modify "View Pull Request" button to show dropdown when multiple PRs exist
 - [ ] Display repo name + PR number for each entry
 - [ ] Handle single-PR case (no dropdown, same as current behavior)
