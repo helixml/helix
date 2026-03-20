@@ -411,8 +411,9 @@ func (d *SettingsDaemon) syncClaudeCredentials() {
 	// No file write needed — Claude Code reads CLAUDE_CODE_OAUTH_TOKEN from the environment.
 	if credResp.CredentialType == "setup_token" && credResp.SetupToken != "" {
 		d.claudeSetupToken = credResp.SetupToken
-		// Write the subscription marker so start-zed-core.sh knows credentials are available
+		// Write markers so start-zed-core.sh knows credentials are available
 		_ = os.WriteFile(ClaudeSubscriptionMarkerPath, []byte("1"), 0644)
+		_ = os.WriteFile("/tmp/helix-claude-setup-token-mode", []byte("1"), 0644)
 		// Ensure ~/.claude.json exists with onboarding complete (required for setup tokens)
 		claudeJSON := "/home/retro/.claude.json"
 		if _, err := os.Stat(claudeJSON); os.IsNotExist(err) {
