@@ -6,7 +6,7 @@ import Badge from '@mui/material/Badge'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Tooltip from '@mui/material/Tooltip'
-import { Bell, X, Clock, BellOff, BellRing } from 'lucide-react'
+import { Bell, X, BellOff, BellRing } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
@@ -98,8 +98,7 @@ const AttentionEventItem: React.FC<{
   event: AttentionEvent
   onNavigate: (event: AttentionEvent) => void
   onDismiss: (eventId: string) => void
-  onSnooze: (eventId: string) => void
-}> = ({ event, onNavigate, onDismiss, onSnooze }) => {
+}> = ({ event, onNavigate, onDismiss }) => {
   const accentColor = eventAccentColor(event.event_type)
   const isAcknowledged = !!event.acknowledged_at
 
@@ -158,26 +157,15 @@ const AttentionEventItem: React.FC<{
       <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.65rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
         {timeAgo(event.created_at)}
       </Typography>
-      <Box sx={{ display: 'flex', flexShrink: 0, gap: 0 }}>
-        <Tooltip title="Snooze 1h">
-          <IconButton
-            size="small"
-            onClick={(e) => { e.stopPropagation(); onSnooze(event.id) }}
-            sx={{ p: 0.25, color: 'rgba(255,255,255,0.35)', '&:hover': { color: 'rgba(255,255,255,0.8)' } }}
-          >
-            <Clock size={12} />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Dismiss">
-          <IconButton
-            size="small"
-            onClick={(e) => { e.stopPropagation(); onDismiss(event.id) }}
-            sx={{ p: 0.25, color: 'rgba(255,255,255,0.35)', '&:hover': { color: 'rgba(255,255,255,0.8)' } }}
-          >
-            <X size={12} />
-          </IconButton>
-        </Tooltip>
-      </Box>
+      <Tooltip title="Dismiss">
+        <IconButton
+          size="small"
+          onClick={(e) => { e.stopPropagation(); onDismiss(event.id) }}
+          sx={{ p: 0.25, flexShrink: 0, color: 'rgba(255,255,255,0.35)', '&:hover': { color: 'rgba(255,255,255,0.8)' } }}
+        >
+          <X size={12} />
+        </IconButton>
+      </Tooltip>
     </Box>
   )
 }
@@ -295,9 +283,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     dismiss(eventId)
   }, [dismiss])
 
-  const handleSnooze = useCallback((eventId: string) => {
-    snooze(eventId)
-  }, [snooze])
+
 
   const handleDismissAll = useCallback(() => {
     dismissAll()
@@ -483,7 +469,6 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                   event={event}
                   onNavigate={handleNavigate}
                   onDismiss={handleDismiss}
-                  onSnooze={handleSnooze}
                 />
               ))}
             </Box>
