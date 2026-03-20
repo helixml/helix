@@ -70,6 +70,7 @@ const Page: React.FC<{
   const lightTheme = useLightTheme()
   const [searchDialogOpen, setSearchDialogOpen] = useState(false)
 
+
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
       e.preventDefault()
@@ -311,10 +312,10 @@ const Page: React.FC<{
                   }}
                 />
               )}
-              {notifications && (
+              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                { topbarContent }
                 <GlobalNotifications organizationId={organizationId} />
-              )}
-              { topbarContent }
+              </Box>
             </AppBar>
           </Box>
         )

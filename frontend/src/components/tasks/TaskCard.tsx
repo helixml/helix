@@ -594,10 +594,12 @@ function TaskCardInner({
   const showProgress =
     task.phase === "planning" || task.phase === "implementation";
 
-  // Check agent activity status using backend-tracked work state
+  // Check agent activity status using backend-tracked work state.
+  // Enabled for ANY phase with a running session, not just planning/implementation,
+  // because every phase can have an active agent container.
   const { isActive, needsAttention, markAsSeen } = useAgentActivityCheck(
     task.agent_work_state,
-    showProgress && !!task.planning_session_id,
+    !!task.planning_session_id,
   );
 
   const runningDuration = useRunningDuration(
@@ -923,8 +925,7 @@ function TaskCardInner({
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", mb: 1.5 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
             {isActive &&
-            task.planning_session_id &&
-            (task.phase === "planning" || task.phase === "implementation") ? (
+            task.planning_session_id ? (
               <Tooltip title="Agent is working">
                 <Box
                   sx={{
@@ -937,8 +938,7 @@ function TaskCardInner({
                 />
               </Tooltip>
             ) : needsAttention &&
-              task.planning_session_id &&
-              (task.phase === "planning" || task.phase === "implementation") ? (
+              task.planning_session_id ? (
               <Tooltip title="Agent finished - click card to dismiss">
                 <Box
                   sx={{

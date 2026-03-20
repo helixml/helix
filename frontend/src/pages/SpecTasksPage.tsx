@@ -671,7 +671,6 @@ const SpecTasksPage: FC = () => {
           spacing={2}
           sx={{
             justifyContent: "flex-end",
-            width: "100%",
             minWidth: 0,
             alignItems: "center",
           }}

@@ -2011,6 +2011,34 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	// Update SpecTaskZedThread activity if this is a spectask session
 	if helixSession.Metadata.SpecTaskID != "" {
 		go apiServer.updateSpecTaskZedThreadActivity(context.Background(), acpThreadID)
+
+		// Emit attention event: agent interaction completed
+		if apiServer.attentionService != nil {
+			go func() {
+				task, err := apiServer.Controller.Options.Store.GetSpecTask(context.Background(), helixSession.Metadata.SpecTaskID)
+				if err != nil {
+					log.Warn().Err(err).
+						Str("spec_task_id", helixSession.Metadata.SpecTaskID).
+						Msg("Failed to load spectask for attention event")
+					return
+				}
+				_, err = apiServer.attentionService.EmitEvent(
+					context.Background(),
+					types.AttentionEventAgentInteractionCompleted,
+					task,
+					targetInteraction.ID, // qualifier = interaction ID for idempotency
+					map[string]interface{}{
+						"interaction_id": targetInteraction.ID,
+						"session_id":     helixSessionID,
+					},
+				)
+				if err != nil {
+					log.Warn().Err(err).
+						Str("spec_task_id", task.ID).
+						Msg("Failed to emit agent_interaction_completed attention event")
+				}
+			}()
+		}
 	}
 
 	// Extract request_id from message data for commenter notification
