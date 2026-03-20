@@ -804,14 +804,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           ) {
             setIsConnecting(false);
 
-            // Progressive retry: 2s, 3s, 4s, 5s... (capped at 10s)
+            // Exponential backoff with jitter: 2s, 4s, 8s, 16s, 30s cap
             // Use ref to avoid closure issues with event listeners
             retryAttemptRef.current += 1;
             const nextAttempt = retryAttemptRef.current;
-            const retryDelaySeconds = Math.min(Math.pow(2, nextAttempt), 30); // exponential: 2s, 4s, 8s, 16s, 30s
+            const retryDelaySeconds = Math.min(Math.pow(2, nextAttempt), 30) + Math.random();
 
             console.warn(
-              `[DesktopStreamViewer] AlreadyStreaming error from stream (attempt ${nextAttempt}), will retry in ${retryDelaySeconds} seconds...`,
+              `[DesktopStreamViewer] AlreadyStreaming error from stream (attempt ${nextAttempt}), will retry in ${retryDelaySeconds.toFixed(1)} seconds...`,
             );
 
             setRetryAttemptDisplay(nextAttempt);
@@ -1100,14 +1100,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       ) {
         setIsConnecting(false);
 
-        // Progressive retry: 2s, 3s, 4s, 5s... (capped at 10s)
+        // Exponential backoff with jitter: 2s, 4s, 8s, 16s, 30s cap
         // Use ref to avoid closure issues
         retryAttemptRef.current += 1;
         const nextAttempt = retryAttemptRef.current;
-        const retryDelaySeconds = Math.min(Math.pow(2, nextAttempt), 30); // exponential: 2s, 4s, 8s, 16s, 30s
+        const retryDelaySeconds = Math.min(Math.pow(2, nextAttempt), 30) + Math.random();
 
         console.warn(
-          `[DesktopStreamViewer] AlreadyStreaming error detected (attempt ${nextAttempt}), will retry in ${retryDelaySeconds} seconds...`,
+          `[DesktopStreamViewer] AlreadyStreaming error detected (attempt ${nextAttempt}), will retry in ${retryDelaySeconds.toFixed(1)} seconds...`,
         );
 
         setRetryAttemptDisplay(nextAttempt);
