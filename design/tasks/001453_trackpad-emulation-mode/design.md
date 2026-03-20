@@ -59,14 +59,9 @@ if (distanceChange > PINCH_VS_SCROLL_THRESHOLD) {
 }
 ```
 
-Potential issues:
-1. The gesture starts as "undecided" but may be classified as pinch too quickly
-2. `PINCH_VS_SCROLL_THRESHOLD` (30px) may be too sensitive
-3. The scroll handler calls `handler.sendMouseWheel?.()` but this may not be reaching the backend correctly
+**Likely issue**: The threshold check order means pinch is always checked first. If a user's fingers naturally spread slightly while scrolling, it triggers pinch mode immediately.
 
-**Investigation needed**: Add logging to verify:
-- Is `twoFingerGestureTypeRef.current` being set to "scroll"?
-- Is `sendMouseWheel` being called with correct values?
+**Fix**: Increase `PINCH_VS_SCROLL_THRESHOLD` from 30px to 50px, and add debug info to help diagnose further if needed.
 
 ## Implementation Plan
 
@@ -75,32 +70,42 @@ Potential issues:
 1. In `handleTouchEnd`, change `sendCursorPositionToRemote()` to use `cursorPositionRef.current`
 2. Remove `cursorPosition` from the `useCallback` dependency array (it's no longer used)
 
-### Phase 2: Investigate Two-Finger Scroll (Needs Testing)
+### Phase 2: Improve Two-Finger Scroll + Add Debug Panel
 
-1. Add console logging to track gesture classification
-2. Verify `sendMouseWheel` is being called
-3. If issue is gesture detection threshold, tune `PINCH_VS_SCROLL_THRESHOLD`
-4. If issue is backend, trace through WebSocket → desktop-bridge → Wayland
+1. Increase `PINCH_VS_SCROLL_THRESHOLD` from 30px to 50px (more forgiving for scroll detection)
+2. Add debug state for two-finger gesture tracking:
+   - Last gesture type ("undecided" | "pinch" | "scroll")
+   - Last distance change value
+   - Last center movement value
+   - Last scroll delta sent
+3. Display this in the existing debug overlay (when `showStats` is enabled)
+
+## Debug Panel Addition
+
+Add to the stats debug panel (visible when user clicks the stats icon):
+
+```
+Two-Finger Gesture:
+  Type: scroll
+  Dist Change: 12px
+  Center Move: 45px  
+  Last Scroll: dx=0 dy=15
+```
+
+This lets the user report back what values they're seeing during scroll attempts.
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `frontend/src/components/external-agent/DesktopStreamViewer.tsx` | Touch event handlers, virtual cursor state |
+| `frontend/src/components/external-agent/DesktopStreamViewer.tsx` | Touch event handlers, virtual cursor state, debug panel |
 | `frontend/src/lib/helix-stream/stream/websocket-stream.ts` | WebSocket transport for input events |
-| `frontend/src/lib/helix-stream/stream/input.ts` | StreamInput class with send methods |
 
 ## Testing
 
-1. Open session on touch device (iPad/Android tablet)
-2. Enable trackpad mode (toggle in toolbar)
-3. Move finger to position cursor
-4. Single tap - verify click occurs at cursor, not finger position
-5. Two-finger tap - verify right-click at cursor position
-6. Two-finger scroll (fingers parallel, same distance) - verify remote scrolls
-7. Pinch to zoom - verify local zoom still works (not broken by scroll fix)
+Testing will be done after deployment on real touch device. Debug panel info can be reported back for further tuning if scroll still doesn't work.
 
 ## Risks
 
 - **Low risk**: Using ref instead of state is a safe change
-- **Medium risk**: Adjusting scroll/pinch threshold may affect some users' pinch-to-zoom experience
+- **Low risk**: Increasing pinch threshold may slightly delay pinch-to-zoom detection, but 50px is still responsive
