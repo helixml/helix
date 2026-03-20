@@ -1322,6 +1322,8 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	done := make(chan struct{})
 	thisProxy := &activeStreamProxy{cancel: proxyCancel, done: done}
 	defer func() {
+		// CompareAndDelete uses pointer identity — only removes our own entry,
+		// not a newer proxy that may have replaced us via Swap.
 		apiServer.streamProxies.CompareAndDelete(sessionID, thisProxy)
 		close(done)
 	}()
@@ -1333,7 +1335,7 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 		select {
 		case <-prevProxy.done:
 		case <-time.After(5 * time.Second):
-			log.Warn().Str("session_id", sessionID).Msg("Timed out waiting for previous proxy to close")
+			log.Error().Str("session_id", sessionID).Msg("Timed out waiting for previous proxy to close — old proxy may still be running")
 		}
 	}
 
