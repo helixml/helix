@@ -99,16 +99,12 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			return
 		}
 
-		// Create PRs for all project repos that have commits on the feature branch
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
-			if err := s.ensurePullRequestsForAllRepos(context.Background(), specTask, project.DefaultRepoID); err != nil {
-				log.Error().Err(err).Str("task_id", specTask.ID).Msg("Failed to create PRs on approval")
-			}
-		}()
+		// Don't create PRs eagerly here — the agent may not have written
+		// pull_request_<repo>.md files yet. Instead, the push-detection path
+		// (handleFeatureBranchPush → ensurePullRequest) will create PRs when
+		// the agent pushes, at which point the PR description files should exist.
 
-		// Always send message to agent to commit and push any remaining uncommitted changes
+		// Send message to agent to commit and push any remaining uncommitted changes
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
@@ -429,7 +425,8 @@ func (s *HelixAPIServer) buildPRFooterForTask(ctx context.Context, repo *types.G
 
 // ensurePullRequestForRepo creates a PR for a spec task in a specific repo if one doesn't exist
 // Returns the RepoPR info if successful, nil if no PR needed (internal repo or branch doesn't exist), or error
-func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *types.GitRepository, task *types.SpecTask) (*types.RepoPR, error) {
+// primaryRepoPath is the local path of the primary repo where the helix-specs branch lives
+func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, primaryRepoPath string) (*types.RepoPR, error) {
 	if repo.ExternalURL == "" {
 		return nil, nil
 	}
@@ -486,7 +483,8 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 	}
 
 	// Try to get custom PR content from pull_request_<repo-name>.md or pull_request.md
-	title, description, found := s.getPullRequestContentForTask(repo.LocalPath, task, repo.Name)
+	// Always read from the primary repo path — helix-specs branch only exists there
+	title, description, found := s.getPullRequestContentForTask(primaryRepoPath, task, repo.Name)
 	if !found {
 		// Fallback to existing behavior
 		title = task.Name
@@ -553,6 +551,15 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 		return fmt.Errorf("failed to list project repositories: %w", err)
 	}
 
+	// Find the primary repo's local path — helix-specs branch only exists there
+	primaryRepoPath := ""
+	for _, repo := range projectRepos {
+		if repo.ID == primaryRepoID {
+			primaryRepoPath = repo.LocalPath
+			break
+		}
+	}
+
 	var repoPRs []types.RepoPR
 	var primaryPR *types.RepoPR
 
@@ -561,7 +568,7 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 			continue
 		}
 
-		repoPR, err := s.ensurePullRequestForRepo(ctx, repo, task)
+		repoPR, err := s.ensurePullRequestForRepo(ctx, repo, task, primaryRepoPath)
 		if err != nil {
 			log.Error().Err(err).Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("task_id", task.ID).Msg("Failed to ensure PR for repo")
 			continue
@@ -595,7 +602,7 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 // ensurePullRequestForTask creates a PR for a spec task if one doesn't exist (backward compat wrapper)
 // DEPRECATED: Use ensurePullRequestsForAllRepos for multi-repo support
 func (s *HelixAPIServer) ensurePullRequestForTask(ctx context.Context, repo *types.GitRepository, task *types.SpecTask) error {
-	repoPR, err := s.ensurePullRequestForRepo(ctx, repo, task)
+	repoPR, err := s.ensurePullRequestForRepo(ctx, repo, task, repo.LocalPath)
 	if err != nil {
 		return err
 	}

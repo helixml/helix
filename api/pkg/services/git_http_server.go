@@ -1204,7 +1204,14 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 	}
 
 	// Try to get custom PR content from pull_request_<repo-name>.md or pull_request.md
-	title, description, found := s.getPullRequestContent(repo.LocalPath, task, repo.Name)
+	// Always read from the primary repo path — helix-specs branch only exists there
+	primaryRepoPath := repo.LocalPath
+	if project != nil && project.DefaultRepoID != "" && project.DefaultRepoID != repo.ID {
+		if primaryRepo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID); err == nil {
+			primaryRepoPath = primaryRepo.LocalPath
+		}
+	}
+	title, description, found := s.getPullRequestContent(primaryRepoPath, task, repo.Name)
 	if !found {
 		// Fallback to existing behavior
 		title = task.Name
