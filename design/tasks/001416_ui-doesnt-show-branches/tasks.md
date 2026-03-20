@@ -15,12 +15,12 @@
 
 ## Backend: Push Detection
 
-- [~] Update `handleFeatureBranchPush()` in `git_http_server.go` to trigger PR creation for pushed repo
-- [ ] Ensure non-primary repo pushes also trigger PR workflow
+- [x] Update `handleFeatureBranchPush()` in `git_http_server.go` to trigger PR creation for pushed repo
+- [x] Ensure non-primary repo pushes also trigger PR workflow
 
 ## API Updates
 
-- [ ] Ensure `GetSpecTask` returns `repo_pull_requests` in response
+- [~] Ensure `GetSpecTask` returns `repo_pull_requests` in response
 - [ ] Update OpenAPI spec with new field
 - [ ] Run `./stack update_openapi` to regenerate client
 
