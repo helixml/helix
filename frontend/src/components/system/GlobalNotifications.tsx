@@ -107,33 +107,33 @@ const AttentionEventItem: React.FC<{
       onClick={() => onNavigate(event)}
       sx={{
         display: 'flex',
-        alignItems: 'flex-start',
+        alignItems: 'center',
         gap: 1,
         px: 1.5,
         py: 1,
         cursor: 'pointer',
         transition: 'background-color 0.15s ease',
-        borderLeft: `2px solid ${accentColor}`,
+        borderLeft: `3px solid ${accentColor}`,
         '&:hover': {
-          backgroundColor: 'rgba(255,255,255,0.03)',
+          backgroundColor: 'rgba(255,255,255,0.06)',
         },
-        ...(isAcknowledged ? { opacity: 0.5 } : {}),
+        ...(isAcknowledged ? { opacity: 0.65 } : {}),
       }}
     >
-      <Box sx={{ fontSize: '0.85rem', mt: 0.125, flexShrink: 0 }}>
+      <Box sx={{ fontSize: '0.9rem', flexShrink: 0 }}>
         {eventEmoji(event.event_type)}
       </Box>
       <Box sx={{ minWidth: 0, flex: 1 }}>
         <Typography
           variant="body2"
           sx={{
-            fontWeight: isAcknowledged ? 400 : 500,
-            color: 'rgba(255,255,255,0.85)',
+            fontWeight: isAcknowledged ? 400 : 600,
+            color: '#fff',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
-            fontSize: '0.78rem',
-            lineHeight: 1.3,
+            fontSize: '0.8rem',
+            lineHeight: 1.4,
           }}
         >
           {event.title}
@@ -141,43 +141,41 @@ const AttentionEventItem: React.FC<{
         <Typography
           variant="caption"
           sx={{
-            color: 'rgba(255,255,255,0.4)',
+            color: 'rgba(255,255,255,0.65)',
             display: 'block',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
-            fontSize: '0.68rem',
+            fontSize: '0.72rem',
             lineHeight: 1.3,
-            mt: 0.125,
+            mt: 0.25,
           }}
         >
           {event.spec_task_name || event.spec_task_id} · {event.project_name || event.project_id}
         </Typography>
       </Box>
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0, gap: 0.125 }}>
-        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.6rem', whiteSpace: 'nowrap' }}>
-          {timeAgo(event.created_at)}
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 0.125 }}>
-          <Tooltip title="Snooze 1h">
-            <IconButton
-              size="small"
-              onClick={(e) => { e.stopPropagation(); onSnooze(event.id) }}
-              sx={{ p: 0.25, color: 'rgba(255,255,255,0.2)', '&:hover': { color: 'rgba(255,255,255,0.6)' } }}
-            >
-              <Clock size={11} />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Dismiss">
-            <IconButton
-              size="small"
-              onClick={(e) => { e.stopPropagation(); onDismiss(event.id) }}
-              sx={{ p: 0.25, color: 'rgba(255,255,255,0.2)', '&:hover': { color: 'rgba(255,255,255,0.6)' } }}
-            >
-              <X size={11} />
-            </IconButton>
-          </Tooltip>
-        </Box>
+      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.65rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
+        {timeAgo(event.created_at)}
+      </Typography>
+      <Box sx={{ display: 'flex', flexShrink: 0, gap: 0 }}>
+        <Tooltip title="Snooze 1h">
+          <IconButton
+            size="small"
+            onClick={(e) => { e.stopPropagation(); onSnooze(event.id) }}
+            sx={{ p: 0.25, color: 'rgba(255,255,255,0.35)', '&:hover': { color: 'rgba(255,255,255,0.8)' } }}
+          >
+            <Clock size={12} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Dismiss">
+          <IconButton
+            size="small"
+            onClick={(e) => { e.stopPropagation(); onDismiss(event.id) }}
+            sx={{ p: 0.25, color: 'rgba(255,255,255,0.35)', '&:hover': { color: 'rgba(255,255,255,0.8)' } }}
+          >
+            <X size={12} />
+          </IconButton>
+        </Tooltip>
       </Box>
     </Box>
   )
@@ -266,12 +264,12 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   }, [onOpenChange])
 
   const handleNavigate = useCallback((event: AttentionEvent) => {
-    handleDrawerClose()
+    // Don't close the panel — user wants to keep it open while working
     account.orgNavigate('project-task-detail', {
       id: event.project_id,
       taskId: event.spec_task_id,
     })
-  }, [account, handleDrawerClose])
+  }, [account])
 
   const handleDismiss = useCallback((eventId: string) => {
     dismiss(eventId)
