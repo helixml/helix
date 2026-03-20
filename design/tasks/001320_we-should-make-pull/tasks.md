@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-- [ ] Add `parsePullRequestMarkdown` function in `git_http_server.go` to parse title/description from markdown content
+- [~] Add `parsePullRequestMarkdown` function in `git_http_server.go` to parse title/description from markdown content
 - [ ] Add `getPullRequestContent` function in `git_http_server.go` to read `pull_request.md` from helix-specs branch
 - [ ] Update `ensurePullRequest` in `git_http_server.go` to use custom PR content when available
 - [ ] Add `buildSpecDocLinks` and `getSpecDocsBaseURL` helpers to append spec doc links to PR description
