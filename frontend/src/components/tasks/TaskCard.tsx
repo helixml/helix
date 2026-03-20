@@ -169,6 +169,14 @@ export interface SpecTaskWithExtras {
   cloned_from_id?: string;
   pull_request_id?: string;
   pull_request_url?: string;
+  repo_pull_requests?: Array<{
+    repository_id?: string;
+    repository_name?: string;
+    pr_id?: string;
+    pr_number?: number;
+    pr_url?: string;
+    pr_state?: string;
+  }>;
   implementation_approved_at?: string;
   // Branch tracking for direct-push detection
   base_branch?: string;
@@ -176,6 +184,9 @@ export interface SpecTaskWithExtras {
   // Agent activity tracking
   session_updated_at?: string;
   agent_work_state?: "idle" | "working" | "done"; // Backend-tracked work state
+  // Sandbox state — populated by the listTasks backend handler, avoids per-card session polling
+  sandbox_state?: string; // "absent" | "running" | "starting"
+  sandbox_status_message?: string; // Transient startup message
   // Task number for display
   task_number?: number;
   depends_on?: TaskDependency[];
@@ -481,7 +492,9 @@ const LiveAgentScreenshot: React.FC<{
   projectId?: string;
   onClick?: () => void;
   startupErrorMessage?: string;
-}> = React.memo(({ sessionId, projectId, onClick, startupErrorMessage }) => {
+  sandboxState?: string;
+  sandboxStatusMessage?: string;
+}> = React.memo(({ sessionId, projectId, onClick, startupErrorMessage, sandboxState, sandboxStatusMessage }) => {
   return (
     <Box
       onClick={(e) => {
@@ -512,6 +525,8 @@ const LiveAgentScreenshot: React.FC<{
           sessionId={sessionId}
           mode="screenshot"
           startupErrorMessage={startupErrorMessage}
+          initialSandboxState={sandboxState}
+          initialSandboxStatusMessage={sandboxStatusMessage}
         />
       </Box>
       <Box
@@ -587,10 +602,12 @@ function TaskCardInner({
   const showProgress =
     task.phase === "planning" || task.phase === "implementation";
 
-  // Check agent activity status using backend-tracked work state
+  // Check agent activity status using backend-tracked work state.
+  // Enabled for ANY phase with a running session, not just planning/implementation,
+  // because every phase can have an active agent container.
   const { isActive, needsAttention, markAsSeen } = useAgentActivityCheck(
     task.agent_work_state,
-    showProgress && !!task.planning_session_id,
+    !!task.planning_session_id,
   );
 
   const runningDuration = useRunningDuration(
@@ -916,8 +933,7 @@ function TaskCardInner({
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", mb: 1.5 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
             {isActive &&
-            task.planning_session_id &&
-            (task.phase === "planning" || task.phase === "implementation") ? (
+            task.planning_session_id ? (
               <Tooltip title="Agent is working">
                 <Box
                   sx={{
@@ -930,8 +946,7 @@ function TaskCardInner({
                 />
               </Tooltip>
             ) : needsAttention &&
-              task.planning_session_id &&
-              (task.phase === "planning" || task.phase === "implementation") ? (
+              task.planning_session_id ? (
               <Tooltip title="Agent finished - click card to dismiss">
                 <Box
                   sx={{
@@ -1053,6 +1068,8 @@ function TaskCardInner({
                   ? task.metadata.error
                   : undefined
               }
+              sandboxState={task.sandbox_state}
+              sandboxStatusMessage={task.sandbox_status_message}
               onClick={() => onTaskClick?.(task)}
             />
           )}
@@ -1275,6 +1292,7 @@ function TaskCardInner({
                       id: task.id,
                       status: "pull_request",
                       pull_request_url: task.pull_request_url,
+                      repo_pull_requests: task.repo_pull_requests,
                       archived: task.archived,
                     }}
                     variant="stacked"

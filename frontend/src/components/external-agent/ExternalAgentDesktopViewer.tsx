@@ -117,6 +117,9 @@ interface ExternalAgentDesktopViewerProps {
   apiClient?: Api<unknown>["api"]; // For prompt history sync
   defaultPanelOpen?: boolean; // Default state of the session panel (default: false)
   startupErrorMessage?: string;
+  // Pre-computed sandbox state from the task list (avoids per-card session polling on Kanban)
+  initialSandboxState?: string;
+  initialSandboxStatusMessage?: string;
 }
 
 const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
@@ -134,12 +137,21 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   apiClient,
   defaultPanelOpen = false,
   startupErrorMessage,
+  initialSandboxState,
+  initialSandboxStatusMessage,
 }) => {
   const api = useApi();
   const snackbar = useSnackbar();
   const queryClient = useQueryClient();
   const { NewInference, setCurrentSessionId } = useStreaming();
-  const { isRunning, isPaused, isStarting, statusMessage } = useSandboxState(sessionId);
+  // When initialSandboxState is provided (Kanban screenshot mode), skip polling — state comes from the task list.
+  const pollingEnabled = initialSandboxState === undefined;
+  const polled = useSandboxState(sessionId, pollingEnabled);
+  const sandboxStateValue = initialSandboxState ?? polled.sandboxState;
+  const statusMessage = initialSandboxStatusMessage ?? polled.statusMessage;
+  const isRunning = sandboxStateValue === "running" || sandboxStateValue === "resumable";
+  const isStarting = sandboxStateValue === "starting" || sandboxStateValue === "loading";
+  const isPaused = sandboxStateValue === "absent";
   const [isResuming, setIsResuming] = useState(false);
   // Track if we've ever been running - once running, keep stream mounted to avoid fullscreen exit
   const [hasEverBeenRunning, setHasEverBeenRunning] = useState(false);
@@ -351,7 +363,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     }
 
     if (isPaused) {
-      const screenshotUrl = `/api/v1/external-agents/${sessionId}/screenshot?t=${Date.now()}`;
+      // Don't fetch screenshot when we know sandbox is absent — just show the paused UI.
+      // (The screenshotUrl used to be loaded here, but it's an unnecessary download.)
       return (
         <Box
           sx={{
@@ -363,57 +376,31 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             borderRadius: 1,
             overflow: "hidden",
             backgroundColor: "#1a1a1a",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 2,
           }}
         >
-          <Box
-            component="img"
-            src={screenshotUrl}
-            alt="Paused Desktop"
-            sx={{
-              width: "100%",
-              height: "100%",
-              objectFit: "contain",
-              filter: "grayscale(0.5) brightness(0.7) blur(1px)",
-              opacity: 0.6,
-            }}
-            onError={(e) => {
-              e.currentTarget.style.display = "none";
-            }}
-          />
-          <Box
-            sx={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 2,
-              backgroundColor: "rgba(0,0,0,0.3)",
-            }}
+          <Typography
+            variant="body1"
+            sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
           >
-            <Typography
-              variant="body1"
-              sx={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}
-            >
-              Desktop Paused
-            </Typography>
-            <Button
-              variant="contained"
-              color="primary"
-              size="large"
-              startIcon={
-                isResuming ? <CircularProgress size={20} /> : <PlayArrow />
-              }
-              onClick={handleResume}
-              disabled={isResuming}
-            >
-              {isResuming ? "Starting..." : "Start Desktop"}
-            </Button>
-          </Box>
+            Desktop Paused
+          </Typography>
+          <Button
+            variant="contained"
+            color="primary"
+            size="large"
+            startIcon={
+              isResuming ? <CircularProgress size={20} /> : <PlayArrow />
+            }
+            onClick={handleResume}
+            disabled={isResuming}
+          >
+            {isResuming ? "Starting..." : "Start Desktop"}
+          </Button>
         </Box>
       );
     }

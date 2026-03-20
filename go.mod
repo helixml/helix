@@ -84,7 +84,7 @@ require (
 	golang.org/x/oauth2 v0.32.0
 	golang.org/x/term v0.40.0
 	google.golang.org/api v0.228.0
-	google.golang.org/genai v1.49.0
+	google.golang.org/genai v1.51.0
 	gopkg.in/go-jose/go-jose.v2 v2.6.3
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -191,7 +191,6 @@ require (
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/redis/go-redis/v9 v9.18.0 // indirect
 	github.com/schollz/progressbar/v2 v2.15.0 // indirect
-	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
 	github.com/sugarme/regexpset v0.0.0-20200920021344-4d4ec8eaf93c // indirect
 	github.com/sugarme/tokenizer v0.3.0 // indirect

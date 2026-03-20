@@ -680,6 +680,8 @@ export interface ServerClaudePollLoginResponse {
   /** Raw credentials JSON */
   credentials?: string;
   found?: boolean;
+  /** OAuth URL for native browser */
+  url?: string;
 }
 
 export interface ServerClientBufferStats {
@@ -2777,12 +2779,6 @@ export interface TypesGitRepository {
   owner_id?: string;
   /** Password for the repository */
   password?: string;
-  /**
-   * Deprecated: ProjectID is maintained for backward compatibility only.
-   * Use the project_repositories junction table for many-to-many project-repo relationships.
-   * This column is kept in the database for rollback compatibility but reads should use the junction table.
-   */
-  project_id?: string;
   repo_type?: TypesGitRepositoryType;
   status?: TypesGitRepositoryStatus;
   updated_at?: string;
@@ -4048,6 +4044,16 @@ export interface TypesRegisterRequest {
   password_confirm?: string;
 }
 
+export interface TypesRepoPR {
+  pr_id?: string;
+  pr_number?: number;
+  /** "open", "closed", "merged" */
+  pr_state?: string;
+  pr_url?: string;
+  repository_id?: string;
+  repository_name?: string;
+}
+
 export interface TypesRepositoryAccessCheck {
   can_fork?: boolean;
   default_branch?: string;
@@ -4819,11 +4825,21 @@ export interface TypesSpecTask {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
+  /**
+   * DEPRECATED: Single PR tracking - kept for backward compatibility
+   * Use RepoPullRequests for multi-repo PR tracking
+   */
   pull_request_id?: string;
   /** Computed field, not stored */
   pull_request_url?: string;
+  /** Multi-repo PR tracking: list of PRs across all project repositories */
+  repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  /** "absent", "running", "starting" — derived from session config in listTasks */
+  sandbox_state?: string;
+  /** Transient startup message e.g. "Unpacking build cache" */
+  sandbox_status_message?: string;
   /** Agent activity tracking (computed from session/activity data, not stored) */
   session_updated_at?: string;
   /**
@@ -5111,11 +5127,21 @@ export interface TypesSpecTaskWithProject {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
+  /**
+   * DEPRECATED: Single PR tracking - kept for backward compatibility
+   * Use RepoPullRequests for multi-repo PR tracking
+   */
   pull_request_id?: string;
   /** Computed field, not stored */
   pull_request_url?: string;
+  /** Multi-repo PR tracking: list of PRs across all project repositories */
+  repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  /** "absent", "running", "starting" — derived from session config in listTasks */
+  sandbox_state?: string;
+  /** Transient startup message e.g. "Unpacking build cache" */
+  sandbox_status_message?: string;
   /** Agent activity tracking (computed from session/activity data, not stored) */
   session_updated_at?: string;
   /**

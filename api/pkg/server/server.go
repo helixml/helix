@@ -130,6 +130,7 @@ type HelixAPIServer struct {
 	streamingRateLimiter       map[string]time.Time // session_id -> last connection time
 	streamingRateLimiterMutex  sync.RWMutex
 	specTaskOrchestrator       *services.SpecTaskOrchestrator
+	attentionService           *services.AttentionService
 	projectInternalRepoService *services.ProjectInternalRepoService
 	anthropicProxy             *anthropic.Proxy
 	auditLogService            *services.AuditLogService
@@ -436,7 +437,7 @@ func NewServer(
 		apiServer.authorizeUserToRepository,
 		apiServer.trigger,
 	)
-	log.Info().Msg("Initialized Git HTTP server (native git via gitea/gitcmd)")
+	log.Info().Msg("Initialized Git HTTP server (native git via gitcmd)")
 
 	// Initialize Project Repository Service (startup scripts stored in code repos at .helix/startup.sh)
 	projectsBasePath := filepath.Join(cfg.FileStore.LocalFSPath, "projects")
@@ -455,6 +456,10 @@ func NewServer(
 	// Set the project secrets callback for injecting secrets as env vars into desktop containers
 	apiServer.specDrivenTaskService.GetProjectSecrets = apiServer.GetProjectSecretsAsEnvVars
 
+	// Initialize Attention Service for human-needed event notifications
+	apiServer.attentionService = services.NewAttentionService(store, cfg)
+	apiServer.gitHTTPServer.SetAttentionService(apiServer.attentionService)
+
 	// Initialize SpecTask Orchestrator components
 	apiServer.specTaskOrchestrator = services.NewSpecTaskOrchestrator(
 		store,
@@ -470,6 +475,7 @@ func NewServer(
 		apiServer.specDrivenTaskService,
 	)
 	apiServer.specTaskOrchestrator.SetGoldenBuildService(apiServer.goldenBuildService)
+	apiServer.specTaskOrchestrator.SetAttentionService(apiServer.attentionService)
 
 	// Recover golden builds that were in progress when the API last restarted.
 	// Re-attaches monitoring goroutines for still-running builds, resets stale ones.
@@ -1178,6 +1184,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sample-projects/simple/fork", system.Wrapper(apiServer.forkSimpleProject)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sample-projects/simple/check-access", system.Wrapper(apiServer.checkSampleProjectAccess)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sample-projects/simple/fork-repos", system.Wrapper(apiServer.forkSampleProjectRepositories)).Methods(http.MethodPost)
+
+	// Attention event routes
+	authRouter.HandleFunc("/attention-events", apiServer.listAttentionEvents).Methods(http.MethodGet)
+	authRouter.HandleFunc("/attention-events/dismiss-all", apiServer.dismissAllAttentionEvents).Methods(http.MethodPost)
+	authRouter.HandleFunc("/attention-events/{id}", apiServer.updateAttentionEvent).Methods(http.MethodPut)
 
 	// Spec-driven task routes
 	authRouter.HandleFunc("/spec-tasks/from-prompt", apiServer.createTaskFromPrompt).Methods(http.MethodPost)

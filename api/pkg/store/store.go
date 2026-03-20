@@ -557,6 +557,14 @@ type Store interface {
 	DeleteSpecTaskExternalAgent(ctx context.Context, agentID string) error
 	ListSpecTaskExternalAgents(ctx context.Context, userID string) ([]*types.SpecTaskExternalAgent, error)
 
+	// Attention Event methods
+	CreateAttentionEvent(ctx context.Context, event *types.AttentionEvent) (*types.AttentionEvent, error)
+	ListAttentionEvents(ctx context.Context, userID, organizationID string) ([]*types.AttentionEvent, error)
+	GetAttentionEvent(ctx context.Context, id string) (*types.AttentionEvent, error)
+	UpdateAttentionEvent(ctx context.Context, id string, update *types.AttentionEventUpdateRequest) error
+	BulkDismissAttentionEvents(ctx context.Context, userID, organizationID string) (int64, error)
+	CleanupExpiredAttentionEvents(ctx context.Context, olderThan time.Duration) (int64, error)
+
 	// Clone Group methods
 	CreateCloneGroup(ctx context.Context, group *types.CloneGroup) (*types.CloneGroup, error)
 	GetCloneGroup(ctx context.Context, id string) (*types.CloneGroup, error)

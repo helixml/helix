@@ -23,6 +23,17 @@ const (
 	BranchModeExisting BranchMode = "existing" // Continue work on existing branch
 )
 
+// RepoPR tracks pull request information for a single repository
+// Used to track PRs across multiple repos attached to a project
+type RepoPR struct {
+	RepositoryID   string `json:"repository_id"`
+	RepositoryName string `json:"repository_name"`
+	PRID           string `json:"pr_id"`
+	PRNumber       int    `json:"pr_number"`
+	PRURL          string `json:"pr_url"`
+	PRState        string `json:"pr_state"` // "open", "closed", "merged"
+}
+
 // StartPlanningOptions contains options for starting spec generation or just-do-it mode
 // These options can be passed via query parameters for testing purposes
 type StartPlanningOptions struct {
@@ -106,13 +117,20 @@ type SpecTask struct {
 	TaskNumber    int    `json:"task_number,omitempty" gorm:"default:0"`
 	DesignDocPath string `json:"design_doc_path,omitempty" gorm:"size:255"`
 
+	// DEPRECATED: Single PR tracking - kept for backward compatibility
+	// Use RepoPullRequests for multi-repo PR tracking
 	PullRequestID  string `json:"pull_request_id"`
 	PullRequestURL string `json:"pull_request_url,omitempty"` // Computed field, not stored
 
+	// Multi-repo PR tracking: list of PRs across all project repositories
+	RepoPullRequests []RepoPR `json:"repo_pull_requests,omitempty" gorm:"type:jsonb;serializer:json"`
+
 	// Agent activity tracking (computed from session/activity data, not stored)
-	SessionUpdatedAt  *time.Time     `json:"session_updated_at,omitempty" gorm:"-"`  // When the session was last updated (for active/idle detection)
-	AgentWorkState    AgentWorkState `json:"agent_work_state,omitempty" gorm:"-"`    // Current agent work state (idle/working/done) from activity tracking
-	LastPromptContent string         `json:"last_prompt_content,omitempty" gorm:"-"` // Last prompt sent to agent (for continue functionality)
+	SessionUpdatedAt     *time.Time     `json:"session_updated_at,omitempty" gorm:"-"`     // When the session was last updated (for active/idle detection)
+	AgentWorkState       AgentWorkState `json:"agent_work_state,omitempty" gorm:"-"`       // Current agent work state (idle/working/done) from activity tracking
+	LastPromptContent    string         `json:"last_prompt_content,omitempty" gorm:"-"`    // Last prompt sent to agent (for continue functionality)
+	SandboxState         string         `json:"sandbox_state,omitempty" gorm:"-"`          // "absent", "running", "starting" — derived from session config in listTasks
+	SandboxStatusMessage string         `json:"sandbox_status_message,omitempty" gorm:"-"` // Transient startup message e.g. "Unpacking build cache"
 
 	// Multi-session support
 	ZedInstanceID   string         `json:"zed_instance_id,omitempty" gorm:"size:255;index"`
