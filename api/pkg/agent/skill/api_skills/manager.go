@@ -77,6 +77,7 @@ func (m *Manager) LoadSkills(_ context.Context) error {
 			Headers:            yamlSkill.Spec.API.Headers,
 			Schema:             yamlSkill.Spec.API.Schema,
 			RequiredParameters: yamlSkill.Spec.API.RequiredParameters,
+			MCP:                yamlSkill.Spec.MCP,
 			Configurable:       yamlSkill.Spec.Configurable,
 			SkipUnknownKeys:    yamlSkill.Spec.SkipUnknownKeys,
 			TransformOutput:    yamlSkill.Spec.TransformOutput,

@@ -1856,6 +1856,40 @@ export interface TypesAssistantZapier {
   name?: string;
 }
 
+export interface TypesAttentionEvent {
+  acknowledged_at?: string;
+  created_at?: string;
+  description?: string;
+  dismissed_at?: string;
+  event_type?: TypesAttentionEventType;
+  id?: string;
+  idempotency_key?: string;
+  metadata?: number[];
+  organization_id?: string;
+  project_id?: string;
+  /** Denormalized for display without joins */
+  project_name?: string;
+  snoozed_until?: string;
+  spec_task_id?: string;
+  spec_task_name?: string;
+  title?: string;
+  user_id?: string;
+}
+
+export enum TypesAttentionEventType {
+  AttentionEventSpecsPushed = "specs_pushed",
+  AttentionEventAgentInteractionCompleted = "agent_interaction_completed",
+  AttentionEventSpecFailed = "spec_failed",
+  AttentionEventImplementationFailed = "implementation_failed",
+  AttentionEventPRReady = "pr_ready",
+}
+
+export interface TypesAttentionEventUpdateRequest {
+  acknowledge?: boolean;
+  dismiss?: boolean;
+  snoozed_until?: string;
+}
+
 export enum TypesAuditEventType {
   AuditEventTaskCreated = "task_created",
   AuditEventTaskCloned = "task_cloned",
@@ -4689,6 +4723,8 @@ export interface TypesSkillDefinition {
   icon?: TypesSkillIcon;
   id?: string;
   loadedAt?: string;
+  /** MCP configuration (present when this skill is MCP-backed rather than API-backed) */
+  mcp?: TypesSkillMCPSpec;
   name?: string;
   /** OAuth configuration */
   oauthProvider?: string;
@@ -4714,6 +4750,13 @@ export interface TypesSkillIcon {
   name?: string;
   /** e.g., "material-ui", "custom" */
   type?: string;
+}
+
+export interface TypesSkillMCPSpec {
+  /** if true, URL+auth are generated server-side */
+  autoProvision?: boolean;
+  /** "http" or "sse" */
+  transport?: string;
 }
 
 export interface TypesSkillRequiredParameter {
@@ -6833,6 +6876,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Enable a marketplace skill on an app. For autoProvision MCP skills the server generates URL and auth automatically.
+     *
+     * @tags skills
+     * @name V1AppsSkillsEnableCreate
+     * @summary Enable a marketplace skill on an app
+     * @request POST:/api/v1/apps/{id}/skills/{skill}/enable
+     * @secure
+     */
+    v1AppsSkillsEnableCreate: (id: string, skill: string, params: RequestParams = {}) =>
+      this.request<TypesApp, any>({
+        path: `/api/v1/apps/${id}/skills/${skill}/enable`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description List step info for a specific app and interaction ID, used to build the timeline of events
      *
      * @tags step_info
@@ -6925,6 +6985,67 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns attention events that need human action for the current user. Only returns events that have not been dismissed and are not currently snoozed.
+     *
+     * @tags attention-events
+     * @name V1AttentionEventsList
+     * @summary List active attention events
+     * @request GET:/api/v1/attention-events
+     */
+    v1AttentionEventsList: (
+      query?: {
+        /** Filter to active (non-dismissed, non-snoozed) events only (default: true) */
+        active?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAttentionEvent[], string>({
+        path: `/api/v1/attention-events`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Acknowledge, dismiss, or snooze an attention event.
+     *
+     * @tags attention-events
+     * @name V1AttentionEventsPartialUpdate
+     * @summary Update an attention event
+     * @request PATCH:/api/v1/attention-events/{id}
+     */
+    v1AttentionEventsPartialUpdate: (
+      id: string,
+      request: TypesAttentionEventUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<Record<string, string>, string>({
+        path: `/api/v1/attention-events/${id}`,
+        method: "PATCH",
+        body: request,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Bulk-dismiss all active (non-dismissed) attention events for the current user.
+     *
+     * @tags attention-events
+     * @name V1AttentionEventsDismissAllCreate
+     * @summary Dismiss all active attention events
+     * @request POST:/api/v1/attention-events/dismiss-all
+     */
+    v1AttentionEventsDismissAllCreate: (params: RequestParams = {}) =>
+      this.request<Record<string, any>, string>({
+        path: `/api/v1/attention-events/dismiss-all`,
+        method: "POST",
         format: "json",
         ...params,
       }),

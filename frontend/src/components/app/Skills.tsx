@@ -34,6 +34,7 @@ import useAccount from '../../hooks/useAccount';
 import useRouter from '../../hooks/useRouter';
 import { useSettingsDialog } from '../../contexts/settingsDialog';
 import { useSkills } from '../../hooks/useSkills';
+import { useEnableSkill, isAutoProvisionMCPSkill } from '../../hooks/useEnableSkill';
 
 import { alphaVantageTool } from './examples/skillAlphaVantageApi';
 import { airQualityTool } from './examples/skillAirQualityApi';
@@ -381,6 +382,7 @@ const getFirstLine = (text: string): string => {
 
 interface SkillsProps {
   app: IAppFlatState,
+  appId?: string,
   onUpdate: (updates: IAppFlatState) => Promise<void>,
   hideHeader?: boolean,
   defaultCategory?: string,
@@ -389,6 +391,7 @@ interface SkillsProps {
 
 const Skills: React.FC<SkillsProps> = ({
   app,
+  appId,
   onUpdate,
   hideHeader = false,
   defaultCategory = 'All',
@@ -399,6 +402,7 @@ const Skills: React.FC<SkillsProps> = ({
   const account = useAccount();
   const router = useRouter();
   const settingsDialog = useSettingsDialog();
+  const enableSkill = useEnableSkill();
 
   // Fetch backend skills using react-query
   const { data: backendSkillsResponse, isLoading: isBackendSkillsLoading } = useSkills();
@@ -529,6 +533,9 @@ const Skills: React.FC<SkillsProps> = ({
         description: backendSkill.description || 'Backend-provided skill',
         type: SKILL_TYPE_HTTP_API,
         categories: [category],
+        // backendSkillId is the raw skill ID used when calling the enable endpoint
+        backendSkillId: backendSkill.id || backendSkill.name,
+        autoProvision: isAutoProvisionMCPSkill(backendSkill),
         skill: {
           name: backendSkill.displayName || backendSkill.name || 'Unknown Skill',
           description: backendSkill.description || '',
@@ -906,6 +913,21 @@ const Skills: React.FC<SkillsProps> = ({
   };
 
   const handleOpenDialog = (skill: ISkill) => {
+    // AutoProvision MCP skills (e.g. Code Intelligence) are enabled with a single API call —
+    // no dialog required. The server generates the MCP URL and auth token automatically.
+    if ((skill as any).autoProvision && (skill as any).backendSkillId && appId) {
+      enableSkill(appId, (skill as any).backendSkillId).then((updatedApp) => {
+        // Convert the returned App back to IAppFlatState and refresh the parent.
+        onUpdate({
+          ...app,
+          mcpTools: updatedApp.config?.helix?.assistants?.[0]?.mcps || app.mcpTools,
+        });
+      }).catch((err) => {
+        console.error('Failed to enable skill:', err);
+      });
+      return;
+    }
+
     // Check if this is an OAuth skill with disabled provider for regular users
     const oauthProvider = skill.skill.apiSkill?.oauth_provider;
     if (oauthProvider && !account.admin) {
