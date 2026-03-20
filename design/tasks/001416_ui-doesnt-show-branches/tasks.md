@@ -2,7 +2,7 @@
 
 ## Backend: Data Model
 
-- [ ] Add `RepoPR` struct to `api/pkg/types/simple_spec_task.go`
+- [~] Add `RepoPR` struct to `api/pkg/types/simple_spec_task.go`
 - [ ] Add `RepoPullRequests` field to `SpecTask` struct (JSON column)
 - [ ] Update `SpecTask` JSON serialization to include new field
 
