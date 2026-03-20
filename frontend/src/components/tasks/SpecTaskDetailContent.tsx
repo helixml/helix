@@ -1291,6 +1291,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
       {/* Timestamps */}
       <Box sx={{ mt: 3 }}>
+        {task?.created_by && (
+          <Typography variant="caption" color="text.secondary" display="block">
+            Author: {task.created_by}
+          </Typography>
+        )}
         <Typography variant="caption" color="text.secondary" display="block">
           Created:{" "}
           {task?.created_at
