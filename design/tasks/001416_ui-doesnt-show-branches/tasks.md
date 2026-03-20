@@ -8,10 +8,10 @@
 
 ## Backend: PR Creation Logic
 
-- [~] Refactor `ensurePullRequestForTask()` in `spec_task_workflow_handlers.go` to accept repo parameter
-- [ ] Create `ensurePullRequestsForAllRepos()` that iterates project repos
-- [ ] Update PR creation to store result in `RepoPullRequests` array
-- [ ] Backfill deprecated `PullRequestID`/`PullRequestURL` from primary repo for compat
+- [x] Refactor `ensurePullRequestForTask()` in `spec_task_workflow_handlers.go` to accept repo parameter
+- [x] Create `ensurePullRequestsForAllRepos()` that iterates project repos
+- [x] Update PR creation to store result in `RepoPullRequests` array
+- [x] Backfill deprecated `PullRequestID`/`PullRequestURL` from primary repo for compat
 
 ## Backend: Push Detection
 
