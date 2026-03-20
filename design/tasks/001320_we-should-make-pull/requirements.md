@@ -32,3 +32,8 @@ As a system, when no `pull_request.md` file exists, I want to fall back to the c
 - [ ] First line (after optional `# `) = PR title
 - [ ] Everything after first blank line = PR description (markdown)
 - [ ] Keep it simple - no YAML frontmatter needed
+
+### AC-5: Include spec document links
+- [ ] Append links to requirements.md, design.md, and tasks.md at the bottom of PR description
+- [ ] Links should point to the helix-specs branch on the external repo (GitHub/GitLab)
+- [ ] Only add links for external repos where we can construct valid URLs

@@ -139,13 +139,66 @@ if !found {
     log.Info().Str("task_id", task.ID).Msg("Using pull_request.md for PR content")
 }
 
+// Append links to spec documents
+specLinks := buildSpecDocLinks(repo, task)
+if specLinks != "" {
+    description = description + "\n\n" + specLinks
+}
+
 prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch)
+```
+
+**New helper to build spec doc links:**
+
+```go
+// buildSpecDocLinks generates markdown links to the spec documents in helix-specs
+func buildSpecDocLinks(repo *types.GitRepository, task *types.SpecTask) string {
+    if task.DesignDocPath == "" {
+        return ""
+    }
+    
+    // Build URL base - for GitHub repos, link to the helix-specs branch
+    // Format: https://github.com/{owner}/{repo}/blob/helix-specs/design/tasks/{task_dir}/
+    baseURL := getSpecDocsBaseURL(repo, task.DesignDocPath)
+    if baseURL == "" {
+        return ""
+    }
+    
+    return fmt.Sprintf(`---
+📋 **Spec Documents**
+- [Requirements](%s/requirements.md)
+- [Design](%s/design.md)
+- [Tasks](%s/tasks.md)
+`, baseURL, baseURL, baseURL)
+}
+
+func getSpecDocsBaseURL(repo *types.GitRepository, designDocPath string) string {
+    if repo.ExternalURL == "" {
+        return ""
+    }
+    
+    // Parse external URL to build blob URL
+    // GitHub: https://github.com/owner/repo -> https://github.com/owner/repo/blob/helix-specs/design/tasks/{path}
+    // GitLab: similar pattern
+    // ADO: different pattern
+    
+    switch repo.ExternalType {
+    case types.ExternalRepositoryTypeGitHub:
+        return fmt.Sprintf("%s/blob/helix-specs/design/tasks/%s", 
+            strings.TrimSuffix(repo.ExternalURL, ".git"), designDocPath)
+    case types.ExternalRepositoryTypeGitLab:
+        return fmt.Sprintf("%s/-/blob/helix-specs/design/tasks/%s",
+            strings.TrimSuffix(repo.ExternalURL, ".git"), designDocPath)
+    default:
+        return ""
+    }
+}
 ```
 
 ## Key Files to Modify
 
 1. `helix/api/pkg/services/agent_instruction_service.go` - Add PR content instructions to `approvalPromptTemplate`
-2. `helix/api/pkg/services/git_http_server.go` - Add `getPullRequestContent`, `parsePullRequestMarkdown`, update `ensurePullRequest`
+2. `helix/api/pkg/services/git_http_server.go` - Add `getPullRequestContent`, `parsePullRequestMarkdown`, `buildSpecDocLinks`, update `ensurePullRequest`
 3. `helix/api/pkg/server/spec_task_workflow_handlers.go` - Update `ensurePullRequestForTask` similarly
 
 ## Why This Approach
@@ -155,6 +208,7 @@ prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, title, description
 3. **Graceful fallback**: Existing tasks without the file continue to work
 4. **Reuses existing infra**: helix-specs branch already synced and readable
 5. **Agent has full context**: Can summarize actual changes, not just original prompt
+6. **Spec links in PR**: Reviewers can easily access requirements, design, and task list
 
 ## Testing
 
