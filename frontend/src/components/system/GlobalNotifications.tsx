@@ -375,8 +375,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = () => {
       <IconButton
         onClick={handleDrawerOpen}
         sx={{
-          mr: 2,
-          mb: 1,
+          mr: 0.5,
           color: 'rgba(255,255,255,0.7)',
           '&:hover': {
             color: 'rgba(255,255,255,0.9)',

@@ -311,8 +311,8 @@ const Page: React.FC<{
                   }}
                 />
               )}
-              <GlobalNotifications organizationId={organizationId} />
               { topbarContent }
+              <GlobalNotifications organizationId={organizationId} />
             </AppBar>
           </Box>
         )
