@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -1022,6 +1023,120 @@ func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.Gi
 	}
 }
 
+// parsePullRequestMarkdown parses a pull_request.md file content into title and description.
+// Format: First line (with optional "# " prefix) = title, everything after first blank line = description.
+// Returns (title, description, ok). ok is false if content is empty or has no title.
+func parsePullRequestMarkdown(content string) (string, string, bool) {
+	lines := strings.Split(strings.TrimSpace(content), "\n")
+	if len(lines) == 0 {
+		return "", "", false
+	}
+
+	// First line is title (strip # prefix if present)
+	title := strings.TrimSpace(lines[0])
+	title = strings.TrimPrefix(title, "# ")
+	title = strings.TrimSpace(title)
+
+	if title == "" {
+		return "", "", false
+	}
+
+	// Find first blank line, everything after is description
+	var descLines []string
+	foundBlank := false
+	for i := 1; i < len(lines); i++ {
+		if !foundBlank && strings.TrimSpace(lines[i]) == "" {
+			foundBlank = true
+			continue
+		}
+		if foundBlank {
+			descLines = append(descLines, lines[i])
+		}
+	}
+
+	description := strings.TrimSpace(strings.Join(descLines, "\n"))
+	return title, description, true
+}
+
+// getPullRequestContent reads pull_request.md from helix-specs branch for a task.
+// Returns (title, description, found). If not found or error, returns empty strings and false.
+func (s *GitHTTPServer) getPullRequestContent(repoPath string, task *types.SpecTask) (string, string, bool) {
+	if task.DesignDocPath == "" {
+		return "", "", false
+	}
+
+	// Read from helix-specs branch
+	filePath := "design/tasks/" + task.DesignDocPath + "/pull_request.md"
+	cmd := exec.Command("git", "show", "helix-specs:"+filePath)
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		// File doesn't exist or other error - this is expected for tasks without pull_request.md
+		return "", "", false
+	}
+
+	return parsePullRequestMarkdown(string(output))
+}
+
+// getSpecDocsBaseURL builds a URL to view spec docs in the external repo's web UI.
+// Returns empty string if URL cannot be constructed (unknown provider or internal repo).
+func getSpecDocsBaseURL(repo *types.GitRepository, designDocPath string) string {
+	if repo.ExternalURL == "" {
+		return ""
+	}
+
+	baseURL := strings.TrimSuffix(repo.ExternalURL, ".git")
+
+	// Build blob/browse URL based on provider
+	switch repo.ExternalType {
+	case types.ExternalRepositoryTypeGitHub:
+		// GitHub: https://github.com/owner/repo/blob/helix-specs/design/tasks/{path}
+		return fmt.Sprintf("%s/blob/helix-specs/design/tasks/%s", baseURL, designDocPath)
+	case types.ExternalRepositoryTypeGitLab:
+		// GitLab: https://gitlab.com/owner/repo/-/blob/helix-specs/design/tasks/{path}
+		return fmt.Sprintf("%s/-/blob/helix-specs/design/tasks/%s", baseURL, designDocPath)
+	case types.ExternalRepositoryTypeADO:
+		// Azure DevOps: https://dev.azure.com/org/project/_git/repo?path=/design/tasks/{path}&version=GBhelix-specs
+		return fmt.Sprintf("%s?path=/design/tasks/%s&version=GBhelix-specs", baseURL, designDocPath)
+	case types.ExternalRepositoryTypeBitbucket:
+		// Bitbucket Cloud: https://bitbucket.org/owner/repo/src/helix-specs/design/tasks/{path}
+		return fmt.Sprintf("%s/src/helix-specs/design/tasks/%s", baseURL, designDocPath)
+	default:
+		return ""
+	}
+}
+
+// buildPRFooter generates the PR description footer with:
+// - "Open in Helix" link to the task in Helix UI
+// - Spec doc links (if available for the repo type)
+// - Helix branding
+func buildPRFooter(repo *types.GitRepository, task *types.SpecTask, orgName, helixBaseURL string) string {
+	var parts []string
+
+	// "Open in Helix" link - always include if we have the necessary info
+	if helixBaseURL != "" && orgName != "" && task.ProjectID != "" && task.ID != "" {
+		helixTaskURL := fmt.Sprintf("%s/orgs/%s/projects/%s/tasks/%s",
+			strings.TrimSuffix(helixBaseURL, "/"), orgName, task.ProjectID, task.ID)
+		parts = append(parts, fmt.Sprintf("🔗 [Open in Helix](%s)", helixTaskURL))
+	}
+
+	// Spec doc links (if available for this repo type)
+	specDocsURL := ""
+	if task.DesignDocPath != "" {
+		specDocsURL = getSpecDocsBaseURL(repo, task.DesignDocPath)
+	}
+
+	if specDocsURL != "" {
+		parts = append(parts, fmt.Sprintf("📋 [Requirements](%s/requirements.md) | [Design](%s/design.md) | [Tasks](%s/tasks.md)",
+			specDocsURL, specDocsURL, specDocsURL))
+	}
+
+	// Helix branding - always include
+	parts = append(parts, "🚀 Built with [Helix](https://helix.ml)")
+
+	return "---\n" + strings.Join(parts, " | ")
+}
+
 // ensurePullRequest creates a PR if one doesn't exist
 func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, branch string) error {
 	if repo.ExternalURL == "" {
@@ -1070,8 +1185,30 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 		}
 	}
 
-	description := fmt.Sprintf("> **Helix**: %s\n\n---\n[Created by Helix](https://helix.ml)\n", task.Description)
-	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, task.Name, description, branch, repo.DefaultBranch)
+	// Try to get custom PR content from pull_request.md
+	title, description, found := s.getPullRequestContent(repo.LocalPath, task)
+	if !found {
+		// Fallback to existing behavior
+		title = task.Name
+		description = task.Description
+		log.Debug().Str("task_id", task.ID).Msg("No pull_request.md found, using task name/description")
+	} else {
+		log.Info().Str("task_id", task.ID).Msg("Using pull_request.md for PR content")
+	}
+
+	// Get org name for "Open in Helix" link
+	orgName := ""
+	if task.OrganizationID != "" {
+		if org, err := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: task.OrganizationID}); err == nil && org != nil {
+			orgName = org.Name
+		}
+	}
+
+	// Append footer with "Open in Helix" link, spec doc links, and branding
+	footer := buildPRFooter(repo, task, orgName, s.serverBaseURL)
+	description = description + "\n\n" + footer
+
+	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch)
 	if err != nil {
 		return fmt.Errorf("failed to create PR: %w", err)
 	}
