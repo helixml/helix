@@ -34,6 +34,7 @@ import {
   Cloud,
   Key,
   Trash2,
+  RefreshCw,
 } from "lucide-react";
 import { SiGitlab, SiBitbucket } from "react-icons/si";
 
@@ -194,6 +195,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
     data: repositoriesData,
     isLoading: reposLoading,
     error: reposError,
+    refetch: refetchRepos,
   } = useListOAuthConnectionRepositories(selectedConnectionId || "");
 
   const repositories = repositoriesData?.repositories || [];
@@ -1077,7 +1079,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         Browse {currentProvider?.name} Repositories
       </DialogTitle>
       <DialogContent>
-        <Box sx={{ mb: 2 }}>
+        <Box sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
           <TextField
             fullWidth
             size="small"
@@ -1092,6 +1094,11 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               ),
             }}
           />
+          <Tooltip title="Refresh repository list">
+            <IconButton size="small" onClick={() => refetchRepos()} disabled={currentLoading}>
+              <RefreshCw size={18} />
+            </IconButton>
+          </Tooltip>
         </Box>
 
         {currentError && (

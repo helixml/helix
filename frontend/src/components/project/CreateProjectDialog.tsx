@@ -137,7 +137,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   }, [oauthProviders])
 
   // Fetch GitHub repos when connected with repo scope
-  const { data: githubReposData, isLoading: githubReposLoading, error: githubReposError } =
+  const { data: githubReposData, isLoading: githubReposLoading, error: githubReposError, refetch: refetchGithubRepos } =
     useListOAuthConnectionRepositories(
       githubHasRepoScope && externalType === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub
         ? (githubConnection?.id || '')
@@ -670,21 +670,28 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                     {/* CASE 1: GitHub + OAuth with repo scope - Inline repo browser */}
                     {externalType === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub && githubHasRepoScope && (
                       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                        {/* Search field */}
-                        <TextField
-                          fullWidth
-                          size="small"
-                          placeholder="Search your repositories..."
-                          value={repoSearchQuery}
-                          onChange={(e) => setRepoSearchQuery(e.target.value)}
-                          InputProps={{
-                            startAdornment: (
-                              <InputAdornment position="start">
-                                <Search size={18} />
-                              </InputAdornment>
-                            ),
-                          }}
-                        />
+                        {/* Search field with refresh */}
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            placeholder="Search your repositories..."
+                            value={repoSearchQuery}
+                            onChange={(e) => setRepoSearchQuery(e.target.value)}
+                            InputProps={{
+                              startAdornment: (
+                                <InputAdornment position="start">
+                                  <Search size={18} />
+                                </InputAdornment>
+                              ),
+                            }}
+                          />
+                          <Tooltip title="Refresh repository list">
+                            <IconButton size="small" onClick={() => refetchGithubRepos()} disabled={githubReposLoading}>
+                              <RefreshCw size={18} className={githubReposLoading ? 'spin' : ''} />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
 
                         {/* Error state */}
                         {githubReposError && (
