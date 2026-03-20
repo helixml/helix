@@ -133,41 +133,61 @@ title, description, found := s.getPullRequestContent(ctx, repo.LocalPath, task)
 if !found {
     // Fallback to existing behavior
     title = task.Name
-    description = fmt.Sprintf("> 🚀 Built with [Helix](https://helix.ml)\n\n%s\n", task.Description)
+    description = task.Description
     log.Debug().Str("task_id", task.ID).Msg("No pull_request.md found, using task name/description")
 } else {
     log.Info().Str("task_id", task.ID).Msg("Using pull_request.md for PR content")
 }
 
-// Append footer with spec doc links (if available) and Helix branding
-footer := buildPRFooter(repo, task)
+// Get org name for "Open in Helix" link
+orgName := ""
+if task.OrganizationID != "" {
+    if org, err := s.store.GetOrganization(ctx, task.OrganizationID); err == nil && org != nil {
+        orgName = org.Name
+    }
+}
+
+// Append footer with "Open in Helix" link, spec doc links, and branding
+footer := buildPRFooter(repo, task, orgName, s.serverBaseURL)
 description = description + "\n\n" + footer
 
 prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch)
 ```
 
-**New helper to build spec doc links:**
+**New helper to build PR footer:**
 
 ```go
-// buildPRFooter generates the PR description footer with spec links (if available) and Helix branding
-func buildPRFooter(repo *types.GitRepository, task *types.SpecTask) string {
-    baseURL := ""
-    if task.DesignDocPath != "" {
-        baseURL = getSpecDocsBaseURL(repo, task.DesignDocPath)
+// buildPRFooter generates the PR description footer with:
+// - "Open in Helix" link to the task in Helix UI
+// - Spec doc links (if available for the repo type)
+// - Helix branding
+func buildPRFooter(repo *types.GitRepository, task *types.SpecTask, orgName, helixBaseURL string) string {
+    var parts []string
+    
+    // "Open in Helix" link - always include if we have the necessary info
+    if helixBaseURL != "" && orgName != "" && task.ProjectID != "" && task.ID != "" {
+        helixTaskURL := fmt.Sprintf("%s/orgs/%s/projects/%s/tasks/%s", 
+            strings.TrimSuffix(helixBaseURL, "/"), orgName, task.ProjectID, task.ID)
+        parts = append(parts, fmt.Sprintf("🔗 [Open in Helix](%s)", helixTaskURL))
     }
     
-    if baseURL != "" {
-        // Full footer with spec doc links and Helix branding
-        return fmt.Sprintf(`---
-📋 **Spec Documents** | 🚀 Built with [Helix](https://helix.ml)
+    // Spec doc links (if available for this repo type)
+    specDocsURL := ""
+    if task.DesignDocPath != "" {
+        specDocsURL = getSpecDocsBaseURL(repo, task.DesignDocPath)
+    }
+    
+    if specDocsURL != "" {
+        parts = append(parts, fmt.Sprintf(`📋 **Spec Documents**
 - [Requirements](%s/requirements.md)
 - [Design](%s/design.md)
-- [Tasks](%s/tasks.md)
-`, baseURL, baseURL, baseURL)
+- [Tasks](%s/tasks.md)`, specDocsURL, specDocsURL, specDocsURL))
     }
     
-    // Just Helix branding when no spec links available
-    return "---\n🚀 Built with [Helix](https://helix.ml)"
+    // Helix branding - always include
+    parts = append(parts, "🚀 Built with [Helix](https://helix.ml)")
+    
+    return "---\n" + strings.Join(parts, " | ")
 }
 
 func getSpecDocsBaseURL(repo *types.GitRepository, designDocPath string) string {
@@ -204,8 +224,8 @@ func getSpecDocsBaseURL(repo *types.GitRepository, designDocPath string) string 
 ## Key Files to Modify
 
 1. `helix/api/pkg/services/agent_instruction_service.go` - Add PR content instructions to `approvalPromptTemplate`
-2. `helix/api/pkg/services/git_http_server.go` - Add `getPullRequestContent`, `parsePullRequestMarkdown`, `buildSpecDocLinks`, update `ensurePullRequest`
-3. `helix/api/pkg/server/spec_task_workflow_handlers.go` - Update `ensurePullRequestForTask` similarly
+2. `helix/api/pkg/services/git_http_server.go` - Add `getPullRequestContent`, `parsePullRequestMarkdown`, `buildPRFooter`, `getSpecDocsBaseURL`, update `ensurePullRequest`
+3. `helix/api/pkg/server/spec_task_workflow_handlers.go` - Update `ensurePullRequestForTask` similarly (needs access to org name and server URL)
 
 ## Why This Approach
 
@@ -215,6 +235,7 @@ func getSpecDocsBaseURL(repo *types.GitRepository, designDocPath string) string 
 4. **Reuses existing infra**: helix-specs branch already synced and readable
 5. **Agent has full context**: Can summarize actual changes, not just original prompt
 6. **Spec links in PR**: Reviewers can easily access requirements, design, and task list (GitHub, GitLab, ADO, Bitbucket supported)
+7. **"Open in Helix" link**: Direct link to task in Helix UI for full context and history
 
 ## Testing
 

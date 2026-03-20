@@ -38,3 +38,8 @@ As a system, when no `pull_request.md` file exists, I want to fall back to the c
 - [ ] Support all external repo types: GitHub, GitLab, Azure DevOps, Bitbucket
 - [ ] Each provider has different URL structure - handle appropriately
 - [ ] Skip links for unknown providers rather than generate broken URLs
+
+### AC-6: Include "Open in Helix" link
+- [ ] Add link to the task in Helix UI: `{SERVER_URL}/orgs/{org_name}/projects/{project_id}/tasks/{task_id}`
+- [ ] Requires looking up organization name from task's OrganizationID
+- [ ] Only include if we have all required info (org name, project ID, task ID, server URL)
