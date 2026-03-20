@@ -2088,12 +2088,25 @@ steps:
         rm -f "$${E2E_DIR}/zed-binary" "$${E2E_DIR}/helix-go.mod" "$${E2E_DIR}/helix-go.sum" || true
         rm -rf "$${E2E_DIR}/helix-api" || true
 
-        echo "Running E2E test (agents: zed-agent, claude)..."
-        docker run --rm \
-          -e ANTHROPIC_API_KEY="$${ANTHROPIC_API_KEY}" \
-          -e E2E_AGENTS="zed-agent,claude" \
-          -e TEST_TIMEOUT=480 \
-          zed-ws-e2e:$${ZED_COMMIT}
+        # Retry up to 2 times — the test depends on Anthropic's API which can
+        # be slow/flaky, causing timeouts that aren't test failures.
+        E2E_PASSED=false
+        for attempt in 1 2; do
+          echo "Running E2E test attempt $${attempt}/2 (agents: zed-agent, claude)..."
+          if docker run --rm \
+            -e ANTHROPIC_API_KEY="$${ANTHROPIC_API_KEY}" \
+            -e E2E_AGENTS="zed-agent,claude" \
+            -e TEST_TIMEOUT=600 \
+            zed-ws-e2e:$${ZED_COMMIT}; then
+            E2E_PASSED=true
+            break
+          fi
+          echo "E2E test attempt $${attempt} failed, retrying..."
+        done
+        if [ "$${E2E_PASSED}" != "true" ]; then
+          echo "E2E test failed after 2 attempts"
+          exit 1
+        fi
 
         echo "Zed WebSocket E2E test passed"
     volumes:
