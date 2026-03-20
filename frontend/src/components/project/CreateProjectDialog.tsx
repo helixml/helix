@@ -137,7 +137,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   }, [oauthProviders])
 
   // Fetch GitHub repos when connected with repo scope
-  const { data: githubReposData, isLoading: githubReposLoading, error: githubReposError, refetch: refetchGithubRepos } =
+  const { data: githubReposData, isLoading: githubReposLoading, isFetching: githubReposFetching, error: githubReposError } =
     useListOAuthConnectionRepositories(
       githubHasRepoScope && externalType === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub
         ? (githubConnection?.id || '')
@@ -687,8 +687,13 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                             }}
                           />
                           <Tooltip title="Refresh repository list">
-                            <IconButton size="small" onClick={() => refetchGithubRepos()} disabled={githubReposLoading}>
-                              <RefreshCw size={18} className={githubReposLoading ? 'spin' : ''} />
+                            <IconButton
+                              size="small"
+                              onClick={() => queryClient.invalidateQueries({ queryKey: ["oauth-connection-repositories"] })}
+                              disabled={githubReposFetching}
+                              sx={githubReposFetching ? { animation: 'spin 1s linear infinite', '@keyframes spin': { '100%': { transform: 'rotate(360deg)' } } } : {}}
+                            >
+                              <RefreshCw size={18} />
                             </IconButton>
                           </Tooltip>
                         </Box>

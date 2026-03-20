@@ -194,8 +194,8 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   const {
     data: repositoriesData,
     isLoading: reposLoading,
+    isFetching: reposFetching,
     error: reposError,
-    refetch: refetchRepos,
   } = useListOAuthConnectionRepositories(selectedConnectionId || "");
 
   const repositories = repositoriesData?.repositories || [];
@@ -1095,7 +1095,12 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
             }}
           />
           <Tooltip title="Refresh repository list">
-            <IconButton size="small" onClick={() => refetchRepos()} disabled={currentLoading}>
+            <IconButton
+              size="small"
+              onClick={() => queryClient.invalidateQueries({ queryKey: ["oauth-connection-repositories"] })}
+              disabled={reposFetching}
+              sx={reposFetching ? { animation: 'spin 1s linear infinite', '@keyframes spin': { '100%': { transform: 'rotate(360deg)' } } } : {}}
+            >
               <RefreshCw size={18} />
             </IconButton>
           </Tooltip>
