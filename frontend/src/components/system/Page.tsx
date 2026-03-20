@@ -69,6 +69,7 @@ const Page: React.FC<{
   const account = useAccount()
   const lightTheme = useLightTheme()
   const [searchDialogOpen, setSearchDialogOpen] = useState(false)
+  const [attentionQueueOpen, setAttentionQueueOpen] = useState(false)
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -313,7 +314,7 @@ const Page: React.FC<{
               )}
               <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
                 { topbarContent }
-                <GlobalNotifications organizationId={organizationId} />
+                <GlobalNotifications organizationId={organizationId} onOpenChange={setAttentionQueueOpen} />
               </Box>
             </AppBar>
           </Box>
@@ -340,6 +341,8 @@ const Page: React.FC<{
           width: '100%',
           maxWidth: '100vw',
           minHeight: 0,
+          marginRight: attentionQueueOpen ? '360px' : 0,
+          transition: 'margin-right 0.25s ease-in-out',
         }}
       >
         { children }

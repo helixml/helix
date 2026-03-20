@@ -15,6 +15,7 @@ import { useBrowserNotifications } from '../../hooks/useBrowserNotifications'
 
 interface GlobalNotificationsProps {
   organizationId?: string
+  onOpenChange?: (open: boolean) => void
 }
 
 function eventEmoji(eventType: AttentionEventType): string {
@@ -182,7 +183,7 @@ const AttentionEventItem: React.FC<{
   )
 }
 
-const GlobalNotifications: React.FC<GlobalNotificationsProps> = () => {
+const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange }) => {
   const account = useAccount()
   const lightTheme = useLightTheme()
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -227,17 +228,19 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = () => {
 
   const handleDrawerOpen = useCallback(() => {
     setDrawerOpen(true)
+    onOpenChange?.(true)
     // Acknowledge all visible events when drawer opens
     for (const event of events) {
       if (!event.acknowledged_at) {
         acknowledge(event.id)
       }
     }
-  }, [events, acknowledge])
+  }, [events, acknowledge, onOpenChange])
 
   const handleDrawerClose = useCallback(() => {
     setDrawerOpen(false)
-  }, [])
+    onOpenChange?.(false)
+  }, [onOpenChange])
 
   const handleNavigate = useCallback((event: AttentionEvent) => {
     handleDrawerClose()
@@ -271,7 +274,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = () => {
     <>
       {/* Bell icon + badge */}
       <IconButton
-        onClick={handleDrawerOpen}
+        onClick={() => drawerOpen ? handleDrawerClose() : handleDrawerOpen()}
         sx={{
           ml: 0.5,
           color: 'rgba(255,255,255,0.6)',
@@ -311,6 +314,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = () => {
           maxWidth: '100vw',
           backgroundColor: lightTheme.backgroundColor,
           borderLeft: '1px solid rgba(255,255,255,0.06)',
+          borderTop: '1px solid rgba(255,255,255,0.06)',
           boxShadow: '-8px 0 24px rgba(0,0,0,0.25)',
           zIndex: 1200,
           display: 'flex',
