@@ -6654,6 +6654,22 @@ definitions:
       password_confirm:
         type: string
     type: object
+  types.RepoPR:
+    properties:
+      pr_id:
+        type: string
+      pr_number:
+        type: integer
+      pr_state:
+        description: '"open", "closed", "merged"'
+        type: string
+      pr_url:
+        type: string
+      repository_id:
+        type: string
+      repository_name:
+        type: string
+    type: object
   types.RepositoryAccessCheck:
     properties:
       can_fork:
@@ -7963,10 +7979,18 @@ definitions:
         description: Public sharing
         type: boolean
       pull_request_id:
+        description: |-
+          DEPRECATED: Single PR tracking - kept for backward compatibility
+          Use RepoPullRequests for multi-repo PR tracking
         type: string
       pull_request_url:
         description: Computed field, not stored
         type: string
+      repo_pull_requests:
+        description: 'Multi-repo PR tracking: list of PRs across all project repositories'
+        items:
+          $ref: '#/definitions/types.RepoPR'
+        type: array
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
         type: string
@@ -8492,10 +8516,18 @@ definitions:
         description: Public sharing
         type: boolean
       pull_request_id:
+        description: |-
+          DEPRECATED: Single PR tracking - kept for backward compatibility
+          Use RepoPullRequests for multi-repo PR tracking
         type: string
       pull_request_url:
         description: Computed field, not stored
         type: string
+      repo_pull_requests:
+        description: 'Multi-repo PR tracking: list of PRs across all project repositories'
+        items:
+          $ref: '#/definitions/types.RepoPR'
+        type: array
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
         type: string

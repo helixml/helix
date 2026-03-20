@@ -4044,6 +4044,16 @@ export interface TypesRegisterRequest {
   password_confirm?: string;
 }
 
+export interface TypesRepoPR {
+  pr_id?: string;
+  pr_number?: number;
+  /** "open", "closed", "merged" */
+  pr_state?: string;
+  pr_url?: string;
+  repository_id?: string;
+  repository_name?: string;
+}
+
 export interface TypesRepositoryAccessCheck {
   can_fork?: boolean;
   default_branch?: string;
@@ -4815,9 +4825,15 @@ export interface TypesSpecTask {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
+  /**
+   * DEPRECATED: Single PR tracking - kept for backward compatibility
+   * Use RepoPullRequests for multi-repo PR tracking
+   */
   pull_request_id?: string;
   /** Computed field, not stored */
   pull_request_url?: string;
+  /** Multi-repo PR tracking: list of PRs across all project repositories */
+  repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
   /** "absent", "running", "starting" — derived from session config in listTasks */
@@ -5111,9 +5127,15 @@ export interface TypesSpecTaskWithProject {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
+  /**
+   * DEPRECATED: Single PR tracking - kept for backward compatibility
+   * Use RepoPullRequests for multi-repo PR tracking
+   */
   pull_request_id?: string;
   /** Computed field, not stored */
   pull_request_url?: string;
+  /** Multi-repo PR tracking: list of PRs across all project repositories */
+  repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
   /** "absent", "running", "starting" — derived from session config in listTasks */

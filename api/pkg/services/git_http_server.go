@@ -1059,14 +1059,30 @@ func parsePullRequestMarkdown(content string) (string, string, bool) {
 }
 
 // getPullRequestContent reads pull_request.md from helix-specs branch for a task.
+// For multi-repo projects, tries pull_request_<repo-name>.md first, then falls back to pull_request.md.
 // Returns (title, description, found). If not found or error, returns empty strings and false.
-func (s *GitHTTPServer) getPullRequestContent(repoPath string, task *types.SpecTask) (string, string, bool) {
+func (s *GitHTTPServer) getPullRequestContent(repoPath string, task *types.SpecTask, repoName string) (string, string, bool) {
 	if task.DesignDocPath == "" {
 		return "", "", false
 	}
 
-	// Read from helix-specs branch
-	filePath := "design/tasks/" + task.DesignDocPath + "/pull_request.md"
+	basePath := "design/tasks/" + task.DesignDocPath
+
+	// Try repo-specific file first: pull_request_<repo-name>.md
+	if repoName != "" {
+		filePath := basePath + "/pull_request_" + repoName + ".md"
+		cmd := exec.Command("git", "show", "helix-specs:"+filePath)
+		cmd.Dir = repoPath
+		if output, err := cmd.Output(); err == nil {
+			if title, desc, ok := parsePullRequestMarkdown(string(output)); ok {
+				log.Debug().Str("task_id", task.ID).Str("repo_name", repoName).Str("file", filePath).Msg("Using repo-specific pull_request.md")
+				return title, desc, true
+			}
+		}
+	}
+
+	// Fall back to generic pull_request.md
+	filePath := basePath + "/pull_request.md"
 	cmd := exec.Command("git", "show", "helix-specs:"+filePath)
 	cmd.Dir = repoPath
 	output, err := cmd.Output()
@@ -1174,8 +1190,10 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 			if isDefaultRepo && task.PullRequestID != pr.ID {
 				task.PullRequestID = pr.ID
 				task.UpdatedAt = time.Now()
-				s.store.UpdateSpecTask(ctx, task)
 			}
+			// Update RepoPullRequests array for all repos
+			s.updateRepoPullRequests(task, repo, pr.ID, pr.Number, pr.URL, string(pr.State))
+			s.store.UpdateSpecTask(ctx, task)
 			log.Info().
 				Str("pr_id", pr.ID).
 				Str("repo_id", repo.ID).
@@ -1185,8 +1203,15 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 		}
 	}
 
-	// Try to get custom PR content from pull_request.md
-	title, description, found := s.getPullRequestContent(repo.LocalPath, task)
+	// Try to get custom PR content from pull_request_<repo-name>.md or pull_request.md
+	// Always read from the primary repo path — helix-specs branch only exists there
+	primaryRepoPath := repo.LocalPath
+	if project != nil && project.DefaultRepoID != "" && project.DefaultRepoID != repo.ID {
+		if primaryRepo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID); err == nil {
+			primaryRepoPath = primaryRepo.LocalPath
+		}
+	}
+	title, description, found := s.getPullRequestContent(primaryRepoPath, task, repo.Name)
 	if !found {
 		// Fallback to existing behavior
 		title = task.Name
@@ -1216,9 +1241,11 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 	// Only update task.PullRequestID for the default repo
 	if isDefaultRepo {
 		task.PullRequestID = prID
-		task.UpdatedAt = time.Now()
-		s.store.UpdateSpecTask(ctx, task)
 	}
+	// Update RepoPullRequests array for all repos
+	s.updateRepoPullRequests(task, repo, prID, 0, "", "open")
+	task.UpdatedAt = time.Now()
+	s.store.UpdateSpecTask(ctx, task)
 	log.Info().
 		Str("pr_id", prID).
 		Str("repo_id", repo.ID).
@@ -1226,6 +1253,31 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 		Str("branch", branch).
 		Msg("Created pull request")
 	return nil
+}
+
+// updateRepoPullRequests updates the RepoPullRequests array with PR info for a repo
+func (s *GitHTTPServer) updateRepoPullRequests(task *types.SpecTask, repo *types.GitRepository, prID string, prNumber int, prURL string, prState string) {
+	repoPR := types.RepoPR{
+		RepositoryID:   repo.ID,
+		RepositoryName: repo.Name,
+		PRID:           prID,
+		PRNumber:       prNumber,
+		PRURL:          prURL,
+		PRState:        prState,
+	}
+
+	// Update existing entry or append new one
+	found := false
+	for i, pr := range task.RepoPullRequests {
+		if pr.RepositoryID == repo.ID {
+			task.RepoPullRequests[i] = repoPR
+			found = true
+			break
+		}
+	}
+	if !found {
+		task.RepoPullRequests = append(task.RepoPullRequests, repoPR)
+	}
 }
 
 // processDesignDocsForBranch handles design doc detection and spec task processing

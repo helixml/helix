@@ -1371,8 +1371,23 @@ func (s *HelixAPIServer) sendApprovalInstructionToAgent(
 	// Build repository section listing local + Kodit repos for the agent
 	repoSection := s.buildRepositorySectionForSpecTask(ctx, specTask, project)
 
+	// Gather non-primary repo names for per-repo PR descriptions
+	var nonPrimaryRepoNames []string
+	if specTask.ProjectID != "" {
+		projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			ProjectID: specTask.ProjectID,
+		})
+		if err == nil {
+			for _, repo := range projectRepos {
+				if repo.Name != primaryRepoName && repo.ExternalURL != "" {
+					nonPrimaryRepoNames = append(nonPrimaryRepoNames, repo.Name)
+				}
+			}
+		}
+	}
+
 	// Build the prompt using the shared function from services package
-	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection)
+	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection, nonPrimaryRepoNames)
 
 	_, err := s.sendMessageToSpecTaskAgent(ctx, specTask, message, "")
 	if err != nil {

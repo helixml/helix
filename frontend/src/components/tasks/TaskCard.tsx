@@ -169,6 +169,14 @@ export interface SpecTaskWithExtras {
   cloned_from_id?: string;
   pull_request_id?: string;
   pull_request_url?: string;
+  repo_pull_requests?: Array<{
+    repository_id?: string;
+    repository_name?: string;
+    pr_id?: string;
+    pr_number?: number;
+    pr_url?: string;
+    pr_state?: string;
+  }>;
   implementation_approved_at?: string;
   // Branch tracking for direct-push detection
   base_branch?: string;
@@ -1284,6 +1292,7 @@ function TaskCardInner({
                       id: task.id,
                       status: "pull_request",
                       pull_request_url: task.pull_request_url,
+                      repo_pull_requests: task.repo_pull_requests,
                       archived: task.archived,
                     }}
                     variant="stacked"
