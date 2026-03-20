@@ -9,6 +9,7 @@ import Tooltip from '@mui/material/Tooltip'
 import { Bell, X, Clock, BellOff, BellRing } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
+import useApi from '../../hooks/useApi'
 import useLightTheme from '../../hooks/useLightTheme'
 import { useAttentionEvents, AttentionEvent, AttentionEventType } from '../../hooks/useAttentionEvents'
 import { useBrowserNotifications } from '../../hooks/useBrowserNotifications'
@@ -185,6 +186,7 @@ const PANEL_WIDTH = 360
 
 const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange }) => {
   const account = useAccount()
+  const api = useApi()
   const lightTheme = useLightTheme()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const styleRef = useRef<HTMLStyleElement | null>(null)
@@ -263,13 +265,31 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     onOpenChange?.(false)
   }, [onOpenChange])
 
-  const handleNavigate = useCallback((event: AttentionEvent) => {
+  const handleNavigate = useCallback(async (event: AttentionEvent) => {
     // Don't close the panel — user wants to keep it open while working
+    if (event.event_type === 'specs_pushed') {
+      // Navigate to the spec review page — need to fetch the review ID first
+      try {
+        const response = await api.getApiClient().v1SpecTasksDesignReviewsDetail(event.spec_task_id)
+        const reviews = response.data?.reviews || []
+        if (reviews.length > 0) {
+          const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0]
+          account.orgNavigate('project-task-review', {
+            id: event.project_id,
+            taskId: event.spec_task_id,
+            reviewId: latestReview.id,
+          })
+          return
+        }
+      } catch {
+        // Fall through to default navigation
+      }
+    }
     account.orgNavigate('project-task-detail', {
       id: event.project_id,
       taskId: event.spec_task_id,
     })
-  }, [account])
+  }, [account, api])
 
   const handleDismiss = useCallback((eventId: string) => {
     dismiss(eventId)
