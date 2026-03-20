@@ -4,6 +4,10 @@
 
 When a project has multiple repositories attached, the system only tracks and displays PRs for the primary repository. Branches pushed to non-primary repos are not surfaced in the UI, and PRs may not be automatically created for them.
 
+## Constraints
+
+**Branch Naming**: The Git system enforces that agents can only push to branches matching the pre-ordained branch name for their spec task (e.g., `feature/001234_task-name`). This branch name is consistent across all repositories in the project. This constraint simplifies PR tracking since we can identify task branches by name in any repo.
+
 ## User Stories
 
 ### US-1: View PRs Across All Project Repositories
