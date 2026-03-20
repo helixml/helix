@@ -152,6 +152,9 @@ func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_NewSession() {
 	// No request_id mapping, no sessionID → creates new session
 	s.server.externalAgentUserMapping["agent-1"] = "user-1"
 
+	// findSessionByZedThreadID check: no existing session with this ZedThreadID
+	s.store.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return([]*types.Session{}, int64(0), nil)
+
 	createdSession := &types.Session{
 		ID:    "ses_new",
 		Owner: "user-1",
@@ -194,6 +197,9 @@ func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_SpectaskLink() {
 	// sessionID starts with "ses_" and the original has a SpecTaskID
 	s.server.externalAgentUserMapping["ses_original"] = "user-1"
 
+	// findSessionByZedThreadID check: no existing session with this ZedThreadID
+	s.store.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return([]*types.Session{}, int64(0), nil)
+
 	// First call: no request_id mapping, no syncMsg.SessionID → creates new session
 	createdSession := &types.Session{
 		ID:    "ses_new_spectask",
@@ -221,10 +227,16 @@ func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_SpectaskLink() {
 	}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_original").Return(originalSession, nil)
 
-	// UpdateSession to copy SpecTaskID
+	// getAgentNameForSession looks up the spec task and app to determine agent name.
+	// For this test, return a spec task with no app (so it defaults to "zed-agent").
+	s.store.EXPECT().GetSpecTask(gomock.Any(), "spec-task-123").
+		Return(&types.SpecTask{ID: "spec-task-123"}, nil).AnyTimes()
+
+	// UpdateSession to copy SpecTaskID and ZedAgentName
 	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, session types.Session) (*types.Session, error) {
 			s.Equal("spec-task-123", session.Metadata.SpecTaskID)
+			s.Equal("zed-agent", session.Metadata.ZedAgentName)
 			return &session, nil
 		},
 	)
@@ -991,7 +1003,7 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_HasPending() {
 		Status:    "pending",
 	}
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_pq").Return(prompt, nil)
-	s.store.EXPECT().MarkPromptAsPending(gomock.Any(), "prompt-pq").Return(nil)
+	// MarkPromptAsPending no longer called - prompt is atomically claimed by GetNextPendingPrompt
 
 	// sendQueuedPromptToSession calls
 	session := &types.Session{
@@ -1024,7 +1036,7 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_SendFails_GetSessionFails() 
 		Content:   "fail content",
 	}
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_fail").Return(prompt, nil)
-	s.store.EXPECT().MarkPromptAsPending(gomock.Any(), "prompt-fail").Return(nil)
+	// MarkPromptAsPending no longer called - prompt is atomically claimed by GetNextPendingPrompt
 
 	// sendQueuedPromptToSession fails because second GetSession fails
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_fail").Return(nil, fmt.Errorf("db error"))

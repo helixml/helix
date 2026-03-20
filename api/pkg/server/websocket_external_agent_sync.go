@@ -652,8 +652,13 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 			return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
 		}
 
-		// Store the zed_context_id on the session metadata
+		// Store the zed_context_id and agent name on the session metadata.
+		// The agent name is persisted so we use the correct agent for this thread
+		// even if the project's default agent changes later.
 		helixSession.Metadata.ZedThreadID = contextID
+		if helixSession.Metadata.ZedAgentName == "" {
+			helixSession.Metadata.ZedAgentName = apiServer.getAgentNameForSession(context.Background(), helixSession)
+		}
 		helixSession.Updated = time.Now()
 
 		// Update the session in the database
@@ -680,8 +685,29 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		return nil
 	}
 
-	// If no helixSessionID provided, this is a NEW context created by user inside Zed
-	// Only in this case should we create a new Helix session
+	// PRIORITY 3: Check if a session already exists with this ZedThreadID.
+	// This prevents creating duplicate sessions when the same thread is reported again
+	// (e.g., after Zed reconnects and re-reports an existing thread).
+	existingSession, err := apiServer.findSessionByZedThreadID(context.Background(), contextID)
+	if err == nil && existingSession != nil {
+		log.Info().
+			Str("agent_session_id", sessionID).
+			Str("existing_session_id", existingSession.ID).
+			Str("zed_thread_id", contextID).
+			Msg("✅ [HELIX] Found existing session by ZedThreadID, reusing instead of creating duplicate")
+
+		apiServer.contextMappingsMutex.Lock()
+		apiServer.contextMappings[contextID] = existingSession.ID
+		apiServer.contextMappingsMutex.Unlock()
+
+		if existingSession.Metadata.SpecTaskID != "" {
+			go apiServer.trackSpecTaskZedThread(context.Background(), existingSession, acpThreadID, title)
+		}
+
+		return nil
+	}
+
+	// If no helixSessionID provided and no existing session found, this is a genuinely NEW context
 	log.Info().
 		Str("agent_session_id", sessionID).
 		Str("context_id", contextID).
@@ -795,6 +821,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 			// Set the SpecTaskID on the new session too
 			createdSession.Metadata.SpecTaskID = originalSession.Metadata.SpecTaskID
 			createdSession.Metadata.ZedThreadID = contextID
+			createdSession.Metadata.ZedAgentName = apiServer.getAgentNameForSession(context.Background(), originalSession)
 			_, _ = apiServer.Controller.Options.Store.UpdateSession(context.Background(), *createdSession)
 
 			go apiServer.trackSpecTaskZedThread(context.Background(), createdSession, acpThreadID, title)
@@ -816,6 +843,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 			if err == nil && originalSession != nil && originalSession.Metadata.SpecTaskID != "" {
 				createdSession.Metadata.SpecTaskID = originalSession.Metadata.SpecTaskID
 				createdSession.Metadata.ZedThreadID = contextID
+				createdSession.Metadata.ZedAgentName = apiServer.getAgentNameForSession(context.Background(), originalSession)
 				_, _ = apiServer.Controller.Options.Store.UpdateSession(context.Background(), *createdSession)
 
 				go apiServer.trackSpecTaskZedThread(context.Background(), createdSession, acpThreadID, title)
@@ -2257,12 +2285,8 @@ func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, session
 		Bool("is_retry", isRetry).
 		Msg("📤 [QUEUE] Processing next non-interrupt prompt from queue")
 
-	// Mark as pending before sending (in case it was 'failed', this prevents race conditions)
-	if err := apiServer.Store.MarkPromptAsPending(ctx, nextPrompt.ID); err != nil {
-		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as pending before send")
-	}
-
-	// Send the prompt to the session
+	// The prompt was atomically claimed by GetNextPendingPrompt (status set to 'sending').
+	// Send it to the session.
 	err = apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt)
 	if err != nil {
 		log.Error().

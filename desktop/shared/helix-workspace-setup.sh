@@ -542,7 +542,23 @@ ln -sf $CLAUDE_STATE_DIR ~/.claude
 # This runs synchronously before Zed launch, so Claude Code ACP
 # always sees bypassPermissions on first read.
 echo '{"permissions":{"defaultMode":"bypassPermissions"},"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}' > ~/.claude/settings.json
+# Also symlink ~/.claude.json (separate from ~/.claude/ directory).
+# Claude Code stores userID and firstStartTime here. Without persistence,
+# it gets a new userID on every container restart, which may affect session
+# storage paths and prevents session resume across restarts.
+if [ ! -L ~/.claude.json ]; then
+    # Preserve existing ephemeral .claude.json if persistent one doesn't exist yet
+    if [ -f ~/.claude.json ] && [ ! -f $CLAUDE_STATE_DIR/.claude.json ]; then
+        mv ~/.claude.json $CLAUDE_STATE_DIR/.claude.json
+    else
+        rm -f ~/.claude.json
+    fi
+    # Create persistent file if it doesn't exist (Claude Code will populate it on first run)
+    [ ! -f $CLAUDE_STATE_DIR/.claude.json ] && echo '{}' > $CLAUDE_STATE_DIR/.claude.json
+    ln -sf $CLAUDE_STATE_DIR/.claude.json ~/.claude.json
+fi
 echo "  Claude: ~/.claude -> $CLAUDE_STATE_DIR (settings written)"
+echo "  Claude: ~/.claude.json -> $CLAUDE_STATE_DIR/.claude.json"
 
 # Initialize workspace with README if empty
 if [ ! -f "$WORK_DIR/README.md" ] && [ -z "$(ls -A "$WORK_DIR" 2>/dev/null | grep -v '^\.')" ]; then
