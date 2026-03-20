@@ -99,20 +99,14 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			return
 		}
 
-		// Check if branch already has commits - if so, create PR immediately
-		hasCommits, err := s.branchHasCommitsAhead(ctx, repo.LocalPath, specTask.BranchName, repo.DefaultBranch)
-		if err != nil {
-			log.Warn().Err(err).Str("task_id", specTask.ID).Msg("Failed to check if branch has commits ahead - will wait for agent push")
-		} else if hasCommits {
-			log.Info().Str("task_id", specTask.ID).Str("branch", specTask.BranchName).Msg("Branch has commits ahead - creating PR immediately")
-			s.wg.Add(1)
-			go func() {
-				defer s.wg.Done()
-				if err := s.ensurePullRequestForTask(context.Background(), repo, specTask); err != nil {
-					log.Error().Err(err).Str("task_id", specTask.ID).Msg("Failed to auto-create PR on approval")
-				}
-			}()
-		}
+		// Create PRs for all project repos that have commits on the feature branch
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			if err := s.ensurePullRequestsForAllRepos(context.Background(), specTask, project.DefaultRepoID); err != nil {
+				log.Error().Err(err).Str("task_id", specTask.ID).Msg("Failed to create PRs on approval")
+			}
+		}()
 
 		// Always send message to agent to commit and push any remaining uncommitted changes
 		s.wg.Add(1)
@@ -434,13 +428,33 @@ func (s *HelixAPIServer) buildPRFooterForTask(ctx context.Context, repo *types.G
 }
 
 // ensurePullRequestForRepo creates a PR for a spec task in a specific repo if one doesn't exist
-// Returns the RepoPR info if successful, nil if no PR needed (internal repo), or error
+// Returns the RepoPR info if successful, nil if no PR needed (internal repo or branch doesn't exist), or error
 func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *types.GitRepository, task *types.SpecTask) (*types.RepoPR, error) {
 	if repo.ExternalURL == "" {
 		return nil, nil
 	}
 
 	branch := task.BranchName
+
+	// Check if the branch exists in this repo before trying to push
+	// The agent may not have made changes in every repo
+	branches, err := s.gitRepositoryService.ListBranches(ctx, repo.ID)
+	if err != nil {
+		log.Debug().Err(err).Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("branch", branch).Msg("Failed to list branches, skipping")
+		return nil, nil
+	}
+	branchExists := false
+	for _, b := range branches {
+		if b == branch {
+			branchExists = true
+			break
+		}
+	}
+	if !branchExists {
+		log.Debug().Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("branch", branch).Msg("Branch does not exist in repo, skipping PR creation")
+		return nil, nil
+	}
+
 	log.Info().Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("branch", branch).Str("task_id", task.ID).Msg("Ensuring pull request for repo")
 
 	// Push branch to remote first
