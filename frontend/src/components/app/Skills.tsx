@@ -34,6 +34,7 @@ import useAccount from '../../hooks/useAccount';
 import useRouter from '../../hooks/useRouter';
 import { useSettingsDialog } from '../../contexts/settingsDialog';
 import { useSkills } from '../../hooks/useSkills';
+import { isAutoProvisionMCPSkill } from '../../hooks/useEnableSkill';
 
 import { alphaVantageTool } from './examples/skillAlphaVantageApi';
 import { airQualityTool } from './examples/skillAirQualityApi';
@@ -42,6 +43,7 @@ import WebSearchSkill from './WebSearchSkill';
 import AzureDevOpsSkill from './AzureDevOpsSkill';
 import DroneCiSkill from './DroneCiSkill';
 import GitHubMcpSkill from './GitHubMcpSkill';
+import CodeIntelligenceSkill from './CodeIntelligenceSkill';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 
 import { useListOAuthProviders, useListOAuthConnections } from '../../services/oauthProvidersService';
@@ -381,6 +383,7 @@ const getFirstLine = (text: string): string => {
 
 interface SkillsProps {
   app: IAppFlatState,
+  appId?: string,
   onUpdate: (updates: IAppFlatState) => Promise<void>,
   hideHeader?: boolean,
   defaultCategory?: string,
@@ -389,6 +392,7 @@ interface SkillsProps {
 
 const Skills: React.FC<SkillsProps> = ({
   app,
+  appId,
   onUpdate,
   hideHeader = false,
   defaultCategory = 'All',
@@ -399,7 +403,6 @@ const Skills: React.FC<SkillsProps> = ({
   const account = useAccount();
   const router = useRouter();
   const settingsDialog = useSettingsDialog();
-
   // Fetch backend skills using react-query
   const { data: backendSkillsResponse, isLoading: isBackendSkillsLoading } = useSkills();
 
@@ -522,13 +525,27 @@ const Skills: React.FC<SkillsProps> = ({
         }
       }
 
+      const autoProvision = isAutoProvisionMCPSkill(backendSkill);
+      // autoProvision skills are MCP-backed — use MCP type and category so they appear
+      // under "MCP Servers" and get the right icon/behaviour.
+      const skillType = autoProvision ? SKILL_TYPE_MCP : SKILL_TYPE_HTTP_API;
+      const skillCategories = autoProvision
+        ? [SKILL_CATEGORY_CORE, SKILL_CATEGORY_MCP]
+        : [category];
+      if (autoProvision) {
+        icon = <HubIcon sx={{ color: '#6366F1' }} />;
+      }
+
       return {
         id: `backend-${backendSkill.id}`,
         icon,
         name: backendSkill.displayName || backendSkill.name || 'Unknown Skill',
         description: backendSkill.description || 'Backend-provided skill',
-        type: SKILL_TYPE_HTTP_API,
-        categories: [category],
+        type: skillType,
+        categories: skillCategories,
+        // backendSkillId is the raw skill ID used when calling the enable endpoint
+        backendSkillId: backendSkill.id || backendSkill.name,
+        autoProvision,
         skill: {
           name: backendSkill.displayName || backendSkill.name || 'Unknown Skill',
           description: backendSkill.description || '',
@@ -624,9 +641,17 @@ const Skills: React.FC<SkillsProps> = ({
   const mcpSkills = useMemo(() => {
     if (!app.mcpTools) return [];
 
-    // Filter to only HTTP/SSE MCPs (not stdio)
+    // Names of MCPs that are managed by autoProvision backend skills — they already
+    // have a card in backendSkills, so we must not create a second one here.
+    const autoProvisionNames = new Set(
+      (backendSkillsResponse?.skills ?? [])
+        .filter(s => s.mcp?.autoProvision)
+        .map(s => s.displayName || s.name || '')
+    );
+
+    // Filter to only HTTP/SSE MCPs (not stdio) that aren't managed by a backend skill
     return app.mcpTools
-      .filter(mcp => mcp.transport !== 'stdio' && !mcp.command)
+      .filter(mcp => mcp.transport !== 'stdio' && !mcp.command && !autoProvisionNames.has(mcp.name || ''))
       .map(mcp => ({
         id: `mcp-${mcp.name}`,
         icon: <HubIcon sx={{ color: '#6366F1' }} />,
@@ -651,7 +676,7 @@ const Skills: React.FC<SkillsProps> = ({
           configurable: true,
         },
       }));
-  }, [app.mcpTools]);
+  }, [app.mcpTools, backendSkillsResponse]);
 
   // Convert local MCP tools (stdio transport) to skills - only for external agents
   const localMcpSkills = useMemo(() => {
@@ -1059,6 +1084,25 @@ const Skills: React.FC<SkillsProps> = ({
           app={app}
           onUpdate={onUpdate}
           isEnabled={isSkillEnabled('Calculator')}
+        />
+      );
+    }
+
+    if (selectedSkill.name === 'Code Intelligence') {
+      return (
+        <CodeIntelligenceSkill
+          open={isDialogOpen}
+          onClose={() => {
+            setIsDialogOpen(false);
+          }}
+          onClosed={() => {
+            setSelectedSkill(null);
+            setDialogType(null);
+          }}
+          app={app}
+          appId={appId}
+          onUpdate={onUpdate}
+          isEnabled={isSkillEnabled('Code Intelligence')}
         />
       );
     }
