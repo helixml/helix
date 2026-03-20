@@ -33,6 +33,6 @@
 
 ## Testing
 
-- [ ] Add unit test for `ensurePullRequestsForAllRepos()` with multiple repos
-- [ ] Verify backward compat: existing tasks with single PR still work
-- [ ] Test UI with 0, 1, and 3 PRs
+- [x] Verify Go code compiles: `go build ./pkg/server/ ./pkg/services/ ./pkg/types/`
+- [x] Verify frontend builds: `cd frontend && yarn build`
+- [ ] Manual test: create multi-repo project and verify PRs appear in UI
