@@ -1143,14 +1143,14 @@ func buildPRFooter(repo *types.GitRepository, task *types.SpecTask, orgName, hel
 	}
 
 	if specDocsURL != "" {
-		parts = append(parts, fmt.Sprintf("📋 [Requirements](%s/requirements.md) | [Design](%s/design.md) | [Tasks](%s/tasks.md)",
+		parts = append(parts, fmt.Sprintf("📋 Spec:\n- [Requirements](%s/requirements.md)\n- [Design](%s/design.md)\n- [Tasks](%s/tasks.md)",
 			specDocsURL, specDocsURL, specDocsURL))
 	}
 
 	// Helix branding - always include
 	parts = append(parts, "🚀 Built with [Helix](https://helix.ml)")
 
-	return "---\n" + strings.Join(parts, " | ")
+	return "---\n" + strings.Join(parts, "\n\n")
 }
 
 // ensurePullRequest creates a PR if one doesn't exist

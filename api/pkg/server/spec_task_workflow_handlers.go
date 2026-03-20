@@ -426,7 +426,7 @@ func (s *HelixAPIServer) buildPRFooterForTask(ctx context.Context, repo *types.G
 	// Spec doc links
 	if task.DesignDocPath != "" {
 		if specDocsURL := getSpecDocsBaseURLForTask(repo, task.DesignDocPath); specDocsURL != "" {
-			parts = append(parts, fmt.Sprintf("📋 [Requirements](%s/requirements.md) | [Design](%s/design.md) | [Tasks](%s/tasks.md)",
+			parts = append(parts, fmt.Sprintf("📋 Spec:\n- [Requirements](%s/requirements.md)\n- [Design](%s/design.md)\n- [Tasks](%s/tasks.md)",
 				specDocsURL, specDocsURL, specDocsURL))
 		}
 	}
@@ -434,7 +434,7 @@ func (s *HelixAPIServer) buildPRFooterForTask(ctx context.Context, repo *types.G
 	// Helix branding
 	parts = append(parts, "🚀 Built with [Helix](https://helix.ml)")
 
-	return "---\n" + strings.Join(parts, " | ")
+	return "---\n" + strings.Join(parts, "\n\n")
 }
 
 // ensurePullRequestForRepo creates a PR for a spec task in a specific repo if one doesn't exist
