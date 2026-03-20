@@ -10,14 +10,14 @@ Tests are written first (TDD). Each implementation task is paired with the test 
 
 ## Enable Endpoint (backend)
 
-- [~] Write `skills_test.go` unit tests (testify/suite + gomock):
+- [x] Write `skills_test.go` unit tests (testify/suite + gomock):
   - `POST /api/v1/apps/{id}/skills/code-intelligence/enable` returns 200, `mcpTools` contains Kodit URL + user API key in `Authorization` header
   - Returns error when no Kodit URL is configured in platform config
-- [ ] Implement `POST /api/v1/apps/{id}/skills/{skillName}/enable` handler (make tests pass)
+- [x] Implement `POST /api/v1/apps/{id}/skills/{skillName}/enable` handler (make tests pass)
 
 ## E2E / Integration Tests
 
-- [ ] Write suite-based integration test using `NewTestServer` + mock store: enable endpoint produces an `AssistantMCP` that `NewDirectMCPClientSkills` can consume
+- [~] Write suite-based integration test using `NewTestServer` + mock store: enable endpoint produces an `AssistantMCP` that `NewDirectMCPClientSkills` can consume
 - [ ] Extend `api/pkg/server/mcp_backend_kodit_test.go`: verify an app with a Code Intelligence MCP tool routes calls to the Kodit backend correctly
 
 ## Frontend
