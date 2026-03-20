@@ -79,25 +79,24 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		OrganizationID: r.orgID,
 		Name:           projectName,
 		Spec: types.ProjectSpec{
-			Description:  project.Spec.Description,
-			Technologies: project.Spec.Technologies,
-			Guidelines:   project.Spec.Guidelines,
+			Description: project.Spec.Description,
+			Guidelines:  project.Spec.Guidelines,
 		},
 	}
 
 	// Map repository specs
 	if project.Spec.Repository != nil {
 		applyReq.Spec.Repository = &types.ProjectRepositorySpec{
-			URL:     project.Spec.Repository.URL,
-			Branch:  project.Spec.Repository.Branch,
-			Primary: project.Spec.Repository.Primary,
+			URL:           project.Spec.Repository.URL,
+			DefaultBranch: project.Spec.Repository.DefaultBranch,
+			Primary:       project.Spec.Repository.Primary,
 		}
 	}
 	for _, r2 := range project.Spec.Repositories {
 		applyReq.Spec.Repositories = append(applyReq.Spec.Repositories, types.ProjectRepositorySpec{
-			URL:     r2.URL,
-			Branch:  r2.Branch,
-			Primary: r2.Primary,
+			URL:           r2.URL,
+			DefaultBranch: r2.DefaultBranch,
+			Primary:       r2.Primary,
 		})
 	}
 
@@ -127,6 +126,33 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			Title:       t.Title,
 			Description: t.Description,
 		})
+	}
+
+	// Map agent spec
+	if project.Spec.Agent != nil {
+		a := project.Spec.Agent
+		agentSpec := &types.ProjectAgentSpec{
+			Name:        a.Name,
+			Runtime:     a.Runtime,
+			Model:       a.Model,
+			Provider:    a.Provider,
+			Credentials: a.Credentials,
+		}
+		if a.Tools != nil {
+			agentSpec.Tools = &types.ProjectAgentTools{
+				WebSearch:  a.Tools.WebSearch,
+				Browser:    a.Tools.Browser,
+				Calculator: a.Tools.Calculator,
+			}
+		}
+		if a.Display != nil {
+			agentSpec.Display = &types.ProjectAgentDisplay{
+				Resolution:  a.Display.Resolution,
+				DesktopType: a.Display.DesktopType,
+				FPS:         a.Display.FPS,
+			}
+		}
+		applyReq.Spec.Agent = agentSpec
 	}
 
 	resp, err := r.helix.ApplyProject(ctx, applyReq)

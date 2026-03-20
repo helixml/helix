@@ -22,9 +22,9 @@ import (
 
 // ProjectRepositorySpec describes a repository attachment.
 type ProjectRepositorySpec struct {
-	URL     string `json:"url"`
-	Branch  string `json:"branch,omitempty"`
-	Primary bool   `json:"primary,omitempty"`
+	URL           string `json:"url"`
+	DefaultBranch string `json:"default_branch,omitempty"`
+	Primary       bool   `json:"primary,omitempty"`
 }
 
 // ProjectStartup describes startup commands for the primary repository.
@@ -51,16 +51,52 @@ type ProjectTaskSpec struct {
 	Description string `json:"description,omitempty"`
 }
 
+// ProjectAgentTools lists the built-in tools to enable for the project agent.
+type ProjectAgentTools struct {
+	WebSearch  bool `json:"web_search,omitempty"`
+	Browser    bool `json:"browser,omitempty"`
+	Calculator bool `json:"calculator,omitempty"`
+}
+
+// ProjectAgentDisplay configures the virtual desktop for the agent container.
+type ProjectAgentDisplay struct {
+	// Resolution preset: "1080p" (default), "4k", or "5k"
+	Resolution string `json:"resolution,omitempty"`
+	// Desktop environment: "ubuntu" (default GNOME) or "sway"
+	DesktopType string `json:"desktop_type,omitempty"`
+	// Display refresh rate in Hz (default 60)
+	FPS int `json:"fps,omitempty"`
+}
+
+// ProjectAgentSpec is the simplified agent configuration.
+//
+// Runtime selects the code agent inside the Zed desktop container.
+// Defaults to "claude_code" when omitted (recommended — handles context compaction).
+//   - "claude_code" — Claude Code CLI (default)
+//   - "zed"         — Zed's built-in agent panel
+//   - "qwen_code"   — Qwen Code CLI
+//   - "gemini_cli"  — Gemini CLI
+//   - "codex_cli"   — OpenAI Codex CLI
+type ProjectAgentSpec struct {
+	Name        string             `json:"name,omitempty"`
+	Runtime     string             `json:"runtime,omitempty"`
+	Model       string             `json:"model,omitempty"`
+	Provider    string             `json:"provider,omitempty"`
+	Credentials string             `json:"credentials,omitempty"`
+	Tools       *ProjectAgentTools `json:"tools,omitempty"`
+	Display     *ProjectAgentDisplay `json:"display,omitempty"`
+}
+
 // ProjectSpec defines the desired state of a Project.
 type ProjectSpec struct {
 	Description  string                  `json:"description,omitempty"`
-	Technologies []string                `json:"technologies,omitempty"`
 	Guidelines   string                  `json:"guidelines,omitempty"`
 	Repository   *ProjectRepositorySpec  `json:"repository,omitempty"`
 	Repositories []ProjectRepositorySpec `json:"repositories,omitempty"`
 	Startup      *ProjectStartup         `json:"startup,omitempty"`
 	Kanban       *ProjectKanban          `json:"kanban,omitempty"`
 	Tasks        []ProjectTaskSpec       `json:"tasks,omitempty"`
+	Agent        *ProjectAgentSpec       `json:"agent,omitempty"`
 }
 
 // ProjectStatus defines the observed state of a Project.

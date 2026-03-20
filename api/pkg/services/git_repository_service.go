@@ -560,7 +560,8 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 // CloneRepositoryAsync starts an async clone for an external repository that's already in the database.
 // The repository should have Status=cloning when this is called.
 // On success, updates status to active. On failure, updates status to error with CloneError.
-func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository) {
+// An optional postClone callback is called with the local repo path after a successful clone.
+func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository, postClone ...func(localPath string)) {
 	if gitRepo.ExternalURL == "" {
 		log.Error().Str("repo_id", gitRepo.ID).Msg("CloneRepositoryAsync called for non-external repo")
 		return
@@ -652,6 +653,11 @@ func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository
 			Str("external_url", gitRepo.ExternalURL).
 			Int("branches", len(gitRepo.Branches)).
 			Msg("Async clone completed successfully")
+
+		// Invoke optional post-clone callback (e.g., to write startup script to helix-specs)
+		if len(postClone) > 0 && postClone[0] != nil {
+			postClone[0](repoPath)
+		}
 
 		// Register with Kodit if enabled (non-blocking)
 		// Note: This requires an API key which we don't have in the async context

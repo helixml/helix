@@ -2469,6 +2469,7 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 	}
 
 	// Attach repositories
+	var primaryRepo *types.GitRepository
 	resolvedRepos := req.Spec.ResolvedRepositories()
 	for _, repoSpec := range resolvedRepos {
 		// Find-or-create git repository by external URL
@@ -2478,19 +2479,19 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 				return nil, system.NewHTTPError500(fmt.Sprintf("failed to look up repository %s: %v", repoSpec.URL, err))
 			}
 			// Create it
-			branch := repoSpec.Branch
+			branch := repoSpec.DefaultBranch
 			if branch == "" {
 				branch = "main"
 			}
 			// Derive a short human-readable name from the URL (e.g. "robot-hq" from
-		// "https://github.com/binocarlos/robot-hq"). This name is used as the
-		// workspace directory name inside the sandbox (/home/retro/work/<name>),
-		// so it must never be the full URL string.
-		repoName := strings.TrimSuffix(path.Base(repoSpec.URL), ".git")
-		if repoName == "" || repoName == "." {
-			repoName = repoSpec.URL
-		}
-		repo = &types.GitRepository{
+			// "https://github.com/binocarlos/robot-hq"). This name is used as the
+			// workspace directory name inside the sandbox (/home/retro/work/<name>),
+			// so it must never be the full URL string.
+			repoName := strings.TrimSuffix(path.Base(repoSpec.URL), ".git")
+			if repoName == "" || repoName == "." {
+				repoName = repoSpec.URL
+			}
+			repo = &types.GitRepository{
 				ID:             system.GenerateUUID(),
 				Name:           repoName,
 				OrganizationID: orgID,
@@ -2512,6 +2513,35 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		if repoSpec.Primary {
 			if err := s.Store.SetProjectPrimaryRepository(r.Context(), project.ID, repo.ID); err != nil {
 				return nil, system.NewHTTPError500(fmt.Sprintf("failed to set primary repository: %v", err))
+			}
+			primaryRepo = repo
+		}
+	}
+
+	// Write startup script to helix-specs branch in the primary repo.
+	// For newly-created external repos (LocalPath == ""), trigger an async clone that
+	// calls SaveStartupScriptToHelixSpecs once the clone completes.
+	// For repos already cloned (LocalPath != ""), write the script synchronously.
+	if primaryRepo != nil && req.Spec.Startup != nil && (req.Spec.Startup.Install != "" || req.Spec.Startup.Start != "") {
+		startupScript := synthesizeStartupScript(req.Spec.Startup.Install, req.Spec.Startup.Start)
+		userName := user.FullName
+		userEmail := user.Email
+		repoSvc := s.projectInternalRepoService
+
+		if primaryRepo.LocalPath == "" {
+			// Repo not yet cloned — trigger async clone; write startup script after clone succeeds.
+			log.Info().Str("repo_id", primaryRepo.ID).Msg("Triggering async clone to initialize startup script in helix-specs")
+			s.gitRepositoryService.CloneRepositoryAsync(primaryRepo, func(localPath string) {
+				if _, err := repoSvc.SaveStartupScriptToHelixSpecs(localPath, startupScript, userName, userEmail); err != nil {
+					log.Warn().Err(err).Str("repo_id", primaryRepo.ID).Msg("failed to write startup script to helix-specs after clone")
+				} else {
+					log.Info().Str("repo_id", primaryRepo.ID).Msg("Startup script written to helix-specs after async clone")
+				}
+			})
+		} else {
+			// Repo already cloned — write startup script synchronously.
+			if _, err := repoSvc.SaveStartupScriptToHelixSpecs(primaryRepo.LocalPath, startupScript, userName, userEmail); err != nil {
+				log.Warn().Err(err).Str("repo_id", primaryRepo.ID).Msg("failed to write startup script to helix-specs")
 			}
 		}
 	}
@@ -2552,20 +2582,44 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 	var agentAppID string
 	if req.Spec.Agent != nil {
 		agentSpec := req.Spec.Agent
+		// Map runtime string → AgentType + CodeAgentRuntime.
+		// When runtime is set, the agent runs inside a Zed desktop container (zed_external).
+		// When omitted, a plain chat agent (helix_basic) is created.
+		agentType, codeRuntime := projectAgentRuntimeToTypes(agentSpec.Runtime)
+
+		var credType types.CodeAgentCredentialType
+		if agentSpec.Credentials == "subscription" {
+			credType = types.CodeAgentCredentialTypeSubscription
+		}
+
 		assistant := types.AssistantConfig{
-			Name:         agentSpec.Name,
-			Model:        agentSpec.Model,
-			Provider:     agentSpec.Provider,
-			SystemPrompt: agentSpec.SystemPrompt,
+			Name:                    agentSpec.Name,
+			Model:                   agentSpec.Model,
+			Provider:                agentSpec.Provider,
+			AgentType:               agentType,
+			CodeAgentRuntime:        codeRuntime,
+			CodeAgentCredentialType: credType,
 		}
 		if agentSpec.Tools != nil {
 			assistant.WebSearch = types.AssistantWebSearch{Enabled: agentSpec.Tools.WebSearch}
 			assistant.Browser = types.AssistantBrowser{Enabled: agentSpec.Tools.Browser}
 			assistant.Calculator = types.AssistantCalculator{Enabled: agentSpec.Tools.Calculator}
 		}
+
 		appHelixConfig := types.AppHelixConfig{
-			Name:       agentSpec.Name,
-			Assistants: []types.AssistantConfig{assistant},
+			Name:             agentSpec.Name,
+			Assistants:       []types.AssistantConfig{assistant},
+			DefaultAgentType: agentType,
+		}
+		if agentType == types.AgentTypeZedExternal && agentSpec.Display != nil {
+			appHelixConfig.ExternalAgentEnabled = true
+			appHelixConfig.ExternalAgentConfig = &types.ExternalAgentConfig{
+				Resolution:         agentSpec.Display.Resolution,
+				DesktopType:        agentSpec.Display.DesktopType,
+				DisplayRefreshRate: agentSpec.Display.FPS,
+			}
+		} else if agentType == types.AgentTypeZedExternal {
+			appHelixConfig.ExternalAgentEnabled = true
 		}
 
 		var agentApp *types.App
@@ -2624,4 +2678,24 @@ func synthesizeStartupScript(install, start string) string {
 		sb.WriteString("\n")
 	}
 	return sb.String()
+}
+
+// projectAgentRuntimeToTypes maps the human-friendly runtime string from project.yaml
+// to the internal AgentType + CodeAgentRuntime pair.
+// When runtime is empty or unrecognised, defaults to claude_code (recommended: handles
+// context compaction automatically, unlike Zed's built-in agent).
+func projectAgentRuntimeToTypes(runtime string) (types.AgentType, types.CodeAgentRuntime) {
+	switch runtime {
+	case "zed", "zed_agent":
+		return types.AgentTypeZedExternal, types.CodeAgentRuntimeZedAgent
+	case "qwen_code":
+		return types.AgentTypeZedExternal, types.CodeAgentRuntimeQwenCode
+	case "gemini_cli":
+		return types.AgentTypeZedExternal, types.CodeAgentRuntimeGeminiCLI
+	case "codex_cli":
+		return types.AgentTypeZedExternal, types.CodeAgentRuntimeCodexCLI
+	default:
+		// "claude_code" or empty/unrecognised → Claude Code CLI (default)
+		return types.AgentTypeZedExternal, types.CodeAgentRuntimeClaudeCode
+	}
 }

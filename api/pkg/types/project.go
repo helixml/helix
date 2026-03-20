@@ -64,9 +64,9 @@ func (s *ProjectSpec) ResolvedRepositories() []ProjectRepositorySpec {
 
 // ProjectRepositorySpec describes a repository attachment in a project YAML.
 type ProjectRepositorySpec struct {
-	URL     string `json:"url" yaml:"url"`
-	Branch  string `json:"branch,omitempty" yaml:"branch,omitempty"`
-	Primary bool   `json:"primary,omitempty" yaml:"primary,omitempty"`
+	URL           string `json:"url" yaml:"url"`
+	DefaultBranch string `json:"default_branch,omitempty" yaml:"default_branch,omitempty"`
+	Primary       bool   `json:"primary,omitempty" yaml:"primary,omitempty"`
 }
 
 // ProjectStartup describes startup commands that run in the primary repository.
@@ -97,12 +97,26 @@ type ProjectTaskSpec struct {
 // ProjectAgentSpec is the simplified agent configuration in a project YAML.
 // It is converted to a full Helix App when applyProject runs, and stored
 // as the project's DefaultHelixAppID.
+//
+// Runtime selects the code agent inside the Zed desktop container.
+// Defaults to "claude_code" when omitted (recommended — handles context compaction).
+//   - "claude_code" — Claude Code CLI (default)
+//   - "zed"         — Zed's built-in agent panel
+//   - "qwen_code"   — Qwen Code CLI
+//   - "gemini_cli"  — Gemini CLI
+//   - "codex_cli"   — OpenAI Codex CLI
+//
+// Credentials selects how the agent authenticates with the LLM provider:
+//   - "api_key"      — (default) routes through Helix LLM proxy using the user's API key
+//   - "subscription" — uses OAuth credentials directly (e.g. a Claude subscription)
 type ProjectAgentSpec struct {
-	Name         string             `json:"name,omitempty" yaml:"name,omitempty"`
-	Model        string             `json:"model,omitempty" yaml:"model,omitempty"`
-	Provider     string             `json:"provider,omitempty" yaml:"provider,omitempty"`
-	SystemPrompt string             `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
-	Tools        *ProjectAgentTools `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Name        string               `json:"name,omitempty" yaml:"name,omitempty"`
+	Runtime     string               `json:"runtime,omitempty" yaml:"runtime,omitempty"`
+	Model       string               `json:"model,omitempty" yaml:"model,omitempty"`
+	Provider    string               `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Credentials string               `json:"credentials,omitempty" yaml:"credentials,omitempty"`
+	Tools       *ProjectAgentTools   `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Display     *ProjectAgentDisplay `json:"display,omitempty" yaml:"display,omitempty"`
 }
 
 // ProjectAgentTools lists the built-in tools to enable for the project agent.
@@ -110,6 +124,16 @@ type ProjectAgentTools struct {
 	WebSearch  bool `json:"web_search,omitempty" yaml:"web_search,omitempty"`
 	Browser    bool `json:"browser,omitempty" yaml:"browser,omitempty"`
 	Calculator bool `json:"calculator,omitempty" yaml:"calculator,omitempty"`
+}
+
+// ProjectAgentDisplay configures the virtual desktop for the agent container.
+type ProjectAgentDisplay struct {
+	// Resolution preset: "1080p" (default), "4k", or "5k"
+	Resolution string `json:"resolution,omitempty" yaml:"resolution,omitempty"`
+	// Desktop environment: "ubuntu" (default GNOME) or "sway"
+	DesktopType string `json:"desktop_type,omitempty" yaml:"desktop_type,omitempty"`
+	// Display refresh rate in Hz (default 60)
+	FPS int `json:"fps,omitempty" yaml:"fps,omitempty"`
 }
 
 // ProjectCRD is the top-level structure for a project YAML file.
