@@ -177,19 +177,27 @@ func getSpecDocsBaseURL(repo *types.GitRepository, designDocPath string) string 
         return ""
     }
     
-    // Parse external URL to build blob URL
-    // GitHub: https://github.com/owner/repo -> https://github.com/owner/repo/blob/helix-specs/design/tasks/{path}
-    // GitLab: similar pattern
-    // ADO: different pattern
+    baseURL := strings.TrimSuffix(repo.ExternalURL, ".git")
     
+    // Build blob/browse URL based on provider
+    // Each provider has a different URL structure for viewing files in a branch
     switch repo.ExternalType {
     case types.ExternalRepositoryTypeGitHub:
-        return fmt.Sprintf("%s/blob/helix-specs/design/tasks/%s", 
-            strings.TrimSuffix(repo.ExternalURL, ".git"), designDocPath)
+        // GitHub: https://github.com/owner/repo/blob/helix-specs/design/tasks/{path}
+        return fmt.Sprintf("%s/blob/helix-specs/design/tasks/%s", baseURL, designDocPath)
     case types.ExternalRepositoryTypeGitLab:
-        return fmt.Sprintf("%s/-/blob/helix-specs/design/tasks/%s",
-            strings.TrimSuffix(repo.ExternalURL, ".git"), designDocPath)
+        // GitLab: https://gitlab.com/owner/repo/-/blob/helix-specs/design/tasks/{path}
+        return fmt.Sprintf("%s/-/blob/helix-specs/design/tasks/%s", baseURL, designDocPath)
+    case types.ExternalRepositoryTypeADO:
+        // Azure DevOps: https://dev.azure.com/org/project/_git/repo?path=/design/tasks/{path}&version=GBhelix-specs
+        // Note: ADO uses query params, not path segments for branch
+        return fmt.Sprintf("%s?path=/design/tasks/%s&version=GBhelix-specs", baseURL, designDocPath)
+    case types.ExternalRepositoryTypeBitbucket:
+        // Bitbucket Cloud: https://bitbucket.org/owner/repo/src/helix-specs/design/tasks/{path}
+        // Bitbucket Server uses different format but this covers cloud
+        return fmt.Sprintf("%s/src/helix-specs/design/tasks/%s", baseURL, designDocPath)
     default:
+        // Unknown provider - skip links rather than generate broken URLs
         return ""
     }
 }
@@ -208,7 +216,7 @@ func getSpecDocsBaseURL(repo *types.GitRepository, designDocPath string) string 
 3. **Graceful fallback**: Existing tasks without the file continue to work
 4. **Reuses existing infra**: helix-specs branch already synced and readable
 5. **Agent has full context**: Can summarize actual changes, not just original prompt
-6. **Spec links in PR**: Reviewers can easily access requirements, design, and task list
+6. **Spec links in PR**: Reviewers can easily access requirements, design, and task list (GitHub, GitLab, ADO, Bitbucket supported)
 
 ## Testing
 
