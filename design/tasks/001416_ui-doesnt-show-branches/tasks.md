@@ -2,13 +2,13 @@
 
 ## Backend: Data Model
 
-- [~] Add `RepoPR` struct to `api/pkg/types/simple_spec_task.go`
-- [ ] Add `RepoPullRequests` field to `SpecTask` struct (JSON column)
-- [ ] Update `SpecTask` JSON serialization to include new field
+- [x] Add `RepoPR` struct to `api/pkg/types/simple_spec_task.go`
+- [x] Add `RepoPullRequests` field to `SpecTask` struct (JSON column)
+- [x] Update `SpecTask` JSON serialization to include new field
 
 ## Backend: PR Creation Logic
 
-- [ ] Refactor `ensurePullRequestForTask()` in `spec_task_workflow_handlers.go` to accept repo parameter
+- [~] Refactor `ensurePullRequestForTask()` in `spec_task_workflow_handlers.go` to accept repo parameter
 - [ ] Create `ensurePullRequestsForAllRepos()` that iterates project repos
 - [ ] Update PR creation to store result in `RepoPullRequests` array
 - [ ] Backfill deprecated `PullRequestID`/`PullRequestURL` from primary repo for compat
