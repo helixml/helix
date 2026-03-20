@@ -32,7 +32,7 @@ interface ClaudeSubscriptionData {
   id: string
   created: string
   name: string
-  credential_type: string
+  credential_type?: string
   subscription_type: string
   rate_limit_tier: string
   status: string
