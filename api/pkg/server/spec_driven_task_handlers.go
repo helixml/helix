@@ -121,13 +121,23 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Compute PullRequestURL for tasks with PullRequestID (external repos)
+	// Compute PullRequestURL for tasks with PullRequestID (external repos) - backward compat
 	if task.PullRequestID != "" && task.PullRequestURL == "" {
 		project, err := s.Store.GetProject(ctx, task.ProjectID)
 		if err == nil && project.DefaultRepoID != "" {
 			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
 			if err == nil && repo.ExternalURL != "" {
 				task.PullRequestURL = services.GetPullRequestURL(repo, task.PullRequestID)
+			}
+		}
+	}
+
+	// Compute PR URLs for RepoPullRequests array
+	for i, repoPR := range task.RepoPullRequests {
+		if repoPR.PRURL == "" && repoPR.PRID != "" {
+			repo, err := s.Store.GetGitRepository(ctx, repoPR.RepositoryID)
+			if err == nil && repo.ExternalURL != "" {
+				task.RepoPullRequests[i].PRURL = services.GetPullRequestURL(repo, repoPR.PRID)
 			}
 		}
 	}
@@ -208,7 +218,8 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		tasks = []*types.SpecTask{}
 	}
 
-	// Compute PullRequestURL for tasks with PullRequestID (external repos)
+	// Compute PullRequestURL for tasks with PullRequestID (external repos) - backward compat
+	// Also compute PR URLs for RepoPullRequests array
 	if projectID != "" {
 		project, err := s.Store.GetProject(ctx, projectID)
 		if err == nil && project.DefaultRepoID != "" {
@@ -217,6 +228,37 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 				for _, task := range tasks {
 					if task.PullRequestID != "" && task.PullRequestURL == "" {
 						task.PullRequestURL = services.GetPullRequestURL(repo, task.PullRequestID)
+					}
+				}
+			}
+		}
+
+		// Batch load repos for RepoPullRequests URL computation
+		// Collect all unique repo IDs from all tasks
+		repoIDsMap := make(map[string]bool)
+		for _, task := range tasks {
+			for _, repoPR := range task.RepoPullRequests {
+				if repoPR.PRURL == "" && repoPR.PRID != "" {
+					repoIDsMap[repoPR.RepositoryID] = true
+				}
+			}
+		}
+
+		// Load repos and build lookup map
+		repoMap := make(map[string]*types.GitRepository)
+		for repoID := range repoIDsMap {
+			repo, err := s.Store.GetGitRepository(ctx, repoID)
+			if err == nil {
+				repoMap[repoID] = repo
+			}
+		}
+
+		// Compute URLs for RepoPullRequests
+		for _, task := range tasks {
+			for i, repoPR := range task.RepoPullRequests {
+				if repoPR.PRURL == "" && repoPR.PRID != "" {
+					if repo, ok := repoMap[repoPR.RepositoryID]; ok && repo.ExternalURL != "" {
+						task.RepoPullRequests[i].PRURL = services.GetPullRequestURL(repo, repoPR.PRID)
 					}
 				}
 			}

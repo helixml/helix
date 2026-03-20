@@ -306,40 +306,41 @@ func (s *HelixAPIServer) branchHasCommitsAhead(ctx context.Context, repoPath, fe
 	return ahead > 0, nil
 }
 
-// ensurePullRequestForTask creates a PR for a spec task if one doesn't exist
-func (s *HelixAPIServer) ensurePullRequestForTask(ctx context.Context, repo *types.GitRepository, task *types.SpecTask) error {
+// ensurePullRequestForRepo creates a PR for a spec task in a specific repo if one doesn't exist
+// Returns the RepoPR info if successful, nil if no PR needed (internal repo), or error
+func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *types.GitRepository, task *types.SpecTask) (*types.RepoPR, error) {
 	if repo.ExternalURL == "" {
-		return nil
+		return nil, nil
 	}
 
 	branch := task.BranchName
-	log.Info().Str("repo_id", repo.ID).Str("branch", branch).Str("task_id", task.ID).Msg("Ensuring pull request for task")
+	log.Info().Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("branch", branch).Str("task_id", task.ID).Msg("Ensuring pull request for repo")
 
 	// Push branch to remote first
 	if err := s.gitRepositoryService.WithRepoLock(repo.ID, func() error {
 		return s.gitRepositoryService.PushBranchToRemote(ctx, repo.ID, branch, false)
 	}); err != nil {
-		return fmt.Errorf("failed to push branch: %w", err)
+		return nil, fmt.Errorf("failed to push branch: %w", err)
 	}
 
 	// Check if PR already exists
 	prs, err := s.gitRepositoryService.ListPullRequests(ctx, repo.ID)
 	if err != nil {
-		return fmt.Errorf("failed to list PRs: %w", err)
+		return nil, fmt.Errorf("failed to list PRs: %w", err)
 	}
 
 	sourceBranchRef := "refs/heads/" + branch
 	for _, pr := range prs {
 		if pr.SourceBranch == sourceBranchRef && pr.State == types.PullRequestStateOpen {
-			if task.PullRequestID != pr.ID {
-				task.PullRequestID = pr.ID
-				task.UpdatedAt = time.Now()
-				if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
-					log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with existing PR ID")
-				}
-			}
-			log.Info().Str("pr_id", pr.ID).Str("branch", branch).Msg("Pull request already exists")
-			return nil
+			log.Info().Str("pr_id", pr.ID).Str("branch", branch).Str("repo_name", repo.Name).Msg("Pull request already exists")
+			return &types.RepoPR{
+				RepositoryID:   repo.ID,
+				RepositoryName: repo.Name,
+				PRID:           pr.ID,
+				PRNumber:       pr.Number,
+				PRURL:          pr.URL,
+				PRState:        string(pr.State),
+			}, nil
 		}
 	}
 
@@ -347,15 +348,125 @@ func (s *HelixAPIServer) ensurePullRequestForTask(ctx context.Context, repo *typ
 	description := fmt.Sprintf("> **Helix**: %s\n\n---\n[Created by Helix](https://helix.ml)\n", task.Description)
 	prID, err := s.gitRepositoryService.CreatePullRequest(ctx, repo.ID, task.Name, description, branch, repo.DefaultBranch)
 	if err != nil {
-		return fmt.Errorf("failed to create PR: %w", err)
+		return nil, fmt.Errorf("failed to create PR: %w", err)
 	}
 
-	task.PullRequestID = prID
-	task.UpdatedAt = time.Now()
-	if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
-		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with new PR ID")
+	// Fetch the created PR to get full details
+	prs, err = s.gitRepositoryService.ListPullRequests(ctx, repo.ID)
+	if err != nil {
+		log.Warn().Err(err).Str("pr_id", prID).Msg("Failed to fetch PR details after creation")
+		// Return partial info
+		return &types.RepoPR{
+			RepositoryID:   repo.ID,
+			RepositoryName: repo.Name,
+			PRID:           prID,
+			PRState:        "open",
+		}, nil
 	}
-	log.Info().Str("pr_id", prID).Str("branch", branch).Str("task_id", task.ID).Msg("Created pull request for task")
+
+	for _, pr := range prs {
+		if pr.ID == prID {
+			log.Info().Str("pr_id", prID).Str("branch", branch).Str("repo_name", repo.Name).Str("task_id", task.ID).Msg("Created pull request")
+			return &types.RepoPR{
+				RepositoryID:   repo.ID,
+				RepositoryName: repo.Name,
+				PRID:           pr.ID,
+				PRNumber:       pr.Number,
+				PRURL:          pr.URL,
+				PRState:        string(pr.State),
+			}, nil
+		}
+	}
+
+	// Fallback if we can't find the PR we just created
+	return &types.RepoPR{
+		RepositoryID:   repo.ID,
+		RepositoryName: repo.Name,
+		PRID:           prID,
+		PRState:        "open",
+	}, nil
+}
+
+// ensurePullRequestsForAllRepos creates PRs across all project repos that have external URLs
+// Updates the task's RepoPullRequests field and maintains backward compat with PullRequestID
+func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task *types.SpecTask, primaryRepoID string) error {
+	// Get all repos for the project
+	projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: task.ProjectID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list project repositories: %w", err)
+	}
+
+	var repoPRs []types.RepoPR
+	var primaryPR *types.RepoPR
+
+	for _, repo := range projectRepos {
+		if !s.shouldOpenPullRequest(repo) {
+			continue
+		}
+
+		repoPR, err := s.ensurePullRequestForRepo(ctx, repo, task)
+		if err != nil {
+			log.Error().Err(err).Str("repo_id", repo.ID).Str("repo_name", repo.Name).Str("task_id", task.ID).Msg("Failed to ensure PR for repo")
+			continue
+		}
+
+		if repoPR != nil {
+			repoPRs = append(repoPRs, *repoPR)
+			if repo.ID == primaryRepoID {
+				primaryPR = repoPR
+			}
+		}
+	}
+
+	// Update task with all PRs
+	task.RepoPullRequests = repoPRs
+	task.UpdatedAt = time.Now()
+
+	// Backward compat: set deprecated fields from primary repo PR
+	if primaryPR != nil {
+		task.PullRequestID = primaryPR.PRID
+	}
+
+	if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
+		return fmt.Errorf("failed to update task with PRs: %w", err)
+	}
+
+	log.Info().Str("task_id", task.ID).Int("pr_count", len(repoPRs)).Msg("Updated task with pull requests")
+	return nil
+}
+
+// ensurePullRequestForTask creates a PR for a spec task if one doesn't exist (backward compat wrapper)
+// DEPRECATED: Use ensurePullRequestsForAllRepos for multi-repo support
+func (s *HelixAPIServer) ensurePullRequestForTask(ctx context.Context, repo *types.GitRepository, task *types.SpecTask) error {
+	repoPR, err := s.ensurePullRequestForRepo(ctx, repo, task)
+	if err != nil {
+		return err
+	}
+
+	if repoPR != nil {
+		task.PullRequestID = repoPR.PRID
+		task.UpdatedAt = time.Now()
+
+		// Also update RepoPullRequests if not already present
+		found := false
+		for i, pr := range task.RepoPullRequests {
+			if pr.RepositoryID == repo.ID {
+				task.RepoPullRequests[i] = *repoPR
+				found = true
+				break
+			}
+		}
+		if !found {
+			task.RepoPullRequests = append(task.RepoPullRequests, *repoPR)
+		}
+
+		if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with PR")
+		}
+	}
+
 	return nil
 }
 

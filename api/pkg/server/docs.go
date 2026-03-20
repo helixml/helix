@@ -25456,6 +25456,30 @@ const docTemplate = `{
                 }
             }
         },
+        "types.RepoPR": {
+            "type": "object",
+            "properties": {
+                "pr_id": {
+                    "type": "string"
+                },
+                "pr_number": {
+                    "type": "integer"
+                },
+                "pr_state": {
+                    "description": "\"open\", \"closed\", \"merged\"",
+                    "type": "string"
+                },
+                "pr_url": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "repository_name": {
+                    "type": "string"
+                }
+            }
+        },
         "types.RepositoryAccessCheck": {
             "type": "object",
             "properties": {
@@ -27292,11 +27316,19 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "pull_request_id": {
+                    "description": "DEPRECATED: Single PR tracking - kept for backward compatibility\nUse RepoPullRequests for multi-repo PR tracking",
                     "type": "string"
                 },
                 "pull_request_url": {
                     "description": "Computed field, not stored",
                     "type": "string"
+                },
+                "repo_pull_requests": {
+                    "description": "Multi-repo PR tracking: list of PRs across all project repositories",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RepoPR"
+                    }
                 },
                 "requirements_spec": {
                     "description": "User stories + EARS acceptance criteria (markdown)",
@@ -28002,11 +28034,19 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "pull_request_id": {
+                    "description": "DEPRECATED: Single PR tracking - kept for backward compatibility\nUse RepoPullRequests for multi-repo PR tracking",
                     "type": "string"
                 },
                 "pull_request_url": {
                     "description": "Computed field, not stored",
                     "type": "string"
+                },
+                "repo_pull_requests": {
+                    "description": "Multi-repo PR tracking: list of PRs across all project repositories",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RepoPR"
+                    }
                 },
                 "requirements_spec": {
                     "description": "User stories + EARS acceptance criteria (markdown)",

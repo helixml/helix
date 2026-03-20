@@ -1053,8 +1053,10 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 			if isDefaultRepo && task.PullRequestID != pr.ID {
 				task.PullRequestID = pr.ID
 				task.UpdatedAt = time.Now()
-				s.store.UpdateSpecTask(ctx, task)
 			}
+			// Update RepoPullRequests array for all repos
+			s.updateRepoPullRequests(task, repo, pr.ID, pr.Number, pr.URL, string(pr.State))
+			s.store.UpdateSpecTask(ctx, task)
 			log.Info().
 				Str("pr_id", pr.ID).
 				Str("repo_id", repo.ID).
@@ -1073,9 +1075,11 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 	// Only update task.PullRequestID for the default repo
 	if isDefaultRepo {
 		task.PullRequestID = prID
-		task.UpdatedAt = time.Now()
-		s.store.UpdateSpecTask(ctx, task)
 	}
+	// Update RepoPullRequests array for all repos
+	s.updateRepoPullRequests(task, repo, prID, 0, "", "open")
+	task.UpdatedAt = time.Now()
+	s.store.UpdateSpecTask(ctx, task)
 	log.Info().
 		Str("pr_id", prID).
 		Str("repo_id", repo.ID).
@@ -1083,6 +1087,31 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 		Str("branch", branch).
 		Msg("Created pull request")
 	return nil
+}
+
+// updateRepoPullRequests updates the RepoPullRequests array with PR info for a repo
+func (s *GitHTTPServer) updateRepoPullRequests(task *types.SpecTask, repo *types.GitRepository, prID string, prNumber int, prURL string, prState string) {
+	repoPR := types.RepoPR{
+		RepositoryID:   repo.ID,
+		RepositoryName: repo.Name,
+		PRID:           prID,
+		PRNumber:       prNumber,
+		PRURL:          prURL,
+		PRState:        prState,
+	}
+
+	// Update existing entry or append new one
+	found := false
+	for i, pr := range task.RepoPullRequests {
+		if pr.RepositoryID == repo.ID {
+			task.RepoPullRequests[i] = repoPR
+			found = true
+			break
+		}
+	}
+	if !found {
+		task.RepoPullRequests = append(task.RepoPullRequests, repoPR)
+	}
 }
 
 // processDesignDocsForBranch handles design doc detection and spec task processing
