@@ -152,6 +152,9 @@ func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_NewSession() {
 	// No request_id mapping, no sessionID → creates new session
 	s.server.externalAgentUserMapping["agent-1"] = "user-1"
 
+	// findSessionByZedThreadID check: no existing session with this ZedThreadID
+	s.store.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return([]*types.Session{}, int64(0), nil)
+
 	createdSession := &types.Session{
 		ID:    "ses_new",
 		Owner: "user-1",
@@ -193,6 +196,9 @@ func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_NewSession() {
 func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_SpectaskLink() {
 	// sessionID starts with "ses_" and the original has a SpecTaskID
 	s.server.externalAgentUserMapping["ses_original"] = "user-1"
+
+	// findSessionByZedThreadID check: no existing session with this ZedThreadID
+	s.store.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return([]*types.Session{}, int64(0), nil)
 
 	// First call: no request_id mapping, no syncMsg.SessionID → creates new session
 	createdSession := &types.Session{
