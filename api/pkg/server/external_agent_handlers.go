@@ -22,6 +22,13 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+// activeStreamProxy tracks a running stream proxy so it can be cancelled when a
+// new connection arrives for the same session (prevents proxy accumulation).
+type activeStreamProxy struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
 // addUserAPITokenToAgent adds a session-scoped ephemeral API token to agent environment.
 // The token is minted when the desktop starts and revoked when it shuts down.
 // This ensures RBAC is enforced - agent can only access repos the user can access.
@@ -1306,6 +1313,30 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 
 	log.Info().Str("session_id", sessionID).Msg("Stream WebSocket connection established, starting resilient proxy")
 
+	// Cancel any existing proxy for this session to prevent accumulation.
+	// This handles the case where the frontend reconnects while the old proxy
+	// is still alive (e.g., slow client disconnect → rapid reconnect).
+	proxyCtx, proxyCancel := context.WithCancel(req.Context())
+	defer proxyCancel()
+
+	done := make(chan struct{})
+	thisProxy := &activeStreamProxy{cancel: proxyCancel, done: done}
+	defer func() {
+		apiServer.streamProxies.CompareAndDelete(sessionID, thisProxy)
+		close(done)
+	}()
+
+	if prev, loaded := apiServer.streamProxies.Swap(sessionID, thisProxy); loaded {
+		prevProxy := prev.(*activeStreamProxy)
+		log.Info().Str("session_id", sessionID).Msg("Cancelling previous stream proxy for session")
+		prevProxy.cancel()
+		select {
+		case <-prevProxy.done:
+		case <-time.After(5 * time.Second):
+			log.Warn().Str("session_id", sessionID).Msg("Timed out waiting for previous proxy to close")
+		}
+	}
+
 	// Generate a unique proxy session ID
 	proxySessionID := generateProxySessionID()
 
@@ -1329,7 +1360,7 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	defer resilientProxy.Close()
 
 	// Run the proxy (blocks until connection closes or error)
-	if err := resilientProxy.Run(req.Context()); err != nil {
+	if err := resilientProxy.Run(proxyCtx); err != nil {
 		log.Warn().
 			Str("session_id", sessionID).
 			Str("proxy_session_id", proxySessionID).
