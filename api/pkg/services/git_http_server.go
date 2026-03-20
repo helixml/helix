@@ -1059,14 +1059,30 @@ func parsePullRequestMarkdown(content string) (string, string, bool) {
 }
 
 // getPullRequestContent reads pull_request.md from helix-specs branch for a task.
+// For multi-repo projects, tries pull_request_<repo-name>.md first, then falls back to pull_request.md.
 // Returns (title, description, found). If not found or error, returns empty strings and false.
-func (s *GitHTTPServer) getPullRequestContent(repoPath string, task *types.SpecTask) (string, string, bool) {
+func (s *GitHTTPServer) getPullRequestContent(repoPath string, task *types.SpecTask, repoName string) (string, string, bool) {
 	if task.DesignDocPath == "" {
 		return "", "", false
 	}
 
-	// Read from helix-specs branch
-	filePath := "design/tasks/" + task.DesignDocPath + "/pull_request.md"
+	basePath := "design/tasks/" + task.DesignDocPath
+
+	// Try repo-specific file first: pull_request_<repo-name>.md
+	if repoName != "" {
+		filePath := basePath + "/pull_request_" + repoName + ".md"
+		cmd := exec.Command("git", "show", "helix-specs:"+filePath)
+		cmd.Dir = repoPath
+		if output, err := cmd.Output(); err == nil {
+			if title, desc, ok := parsePullRequestMarkdown(string(output)); ok {
+				log.Debug().Str("task_id", task.ID).Str("repo_name", repoName).Str("file", filePath).Msg("Using repo-specific pull_request.md")
+				return title, desc, true
+			}
+		}
+	}
+
+	// Fall back to generic pull_request.md
+	filePath := basePath + "/pull_request.md"
 	cmd := exec.Command("git", "show", "helix-specs:"+filePath)
 	cmd.Dir = repoPath
 	output, err := cmd.Output()
@@ -1187,8 +1203,8 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 		}
 	}
 
-	// Try to get custom PR content from pull_request.md
-	title, description, found := s.getPullRequestContent(repo.LocalPath, task)
+	// Try to get custom PR content from pull_request_<repo-name>.md or pull_request.md
+	title, description, found := s.getPullRequestContent(repo.LocalPath, task, repo.Name)
 	if !found {
 		// Fallback to existing behavior
 		title = task.Name
