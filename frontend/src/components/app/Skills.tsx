@@ -34,7 +34,7 @@ import useAccount from '../../hooks/useAccount';
 import useRouter from '../../hooks/useRouter';
 import { useSettingsDialog } from '../../contexts/settingsDialog';
 import { useSkills } from '../../hooks/useSkills';
-import { useEnableSkill, isAutoProvisionMCPSkill } from '../../hooks/useEnableSkill';
+import { isAutoProvisionMCPSkill } from '../../hooks/useEnableSkill';
 
 import { alphaVantageTool } from './examples/skillAlphaVantageApi';
 import { airQualityTool } from './examples/skillAirQualityApi';
@@ -43,6 +43,7 @@ import WebSearchSkill from './WebSearchSkill';
 import AzureDevOpsSkill from './AzureDevOpsSkill';
 import DroneCiSkill from './DroneCiSkill';
 import GitHubMcpSkill from './GitHubMcpSkill';
+import CodeIntelligenceSkill from './CodeIntelligenceSkill';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 
 import { useListOAuthProviders, useListOAuthConnections } from '../../services/oauthProvidersService';
@@ -402,8 +403,6 @@ const Skills: React.FC<SkillsProps> = ({
   const account = useAccount();
   const router = useRouter();
   const settingsDialog = useSettingsDialog();
-  const enableSkill = useEnableSkill();
-
   // Fetch backend skills using react-query
   const { data: backendSkillsResponse, isLoading: isBackendSkillsLoading } = useSkills();
 
@@ -932,23 +931,6 @@ const Skills: React.FC<SkillsProps> = ({
   };
 
   const handleOpenDialog = (skill: ISkill) => {
-    // AutoProvision MCP skills (e.g. Code Intelligence) are enabled with a single API call —
-    // no dialog required. The server generates the MCP URL and auth token automatically.
-    // Guard: if already enabled, do nothing (prevents duplicate MCP entries).
-    if ((skill as any).autoProvision && (skill as any).backendSkillId && appId) {
-      if (isSkillEnabled(skill.name)) return;
-      enableSkill(appId, (skill as any).backendSkillId).then((updatedApp) => {
-        // Convert the returned App back to IAppFlatState and refresh the parent.
-        onUpdate({
-          ...app,
-          mcpTools: updatedApp.config?.helix?.assistants?.[0]?.mcps || app.mcpTools,
-        });
-      }).catch((err) => {
-        console.error('Failed to enable skill:', err);
-      });
-      return;
-    }
-
     // Check if this is an OAuth skill with disabled provider for regular users
     const oauthProvider = skill.skill.apiSkill?.oauth_provider;
     if (oauthProvider && !account.admin) {
@@ -1102,6 +1084,25 @@ const Skills: React.FC<SkillsProps> = ({
           app={app}
           onUpdate={onUpdate}
           isEnabled={isSkillEnabled('Calculator')}
+        />
+      );
+    }
+
+    if (selectedSkill.name === 'Code Intelligence') {
+      return (
+        <CodeIntelligenceSkill
+          open={isDialogOpen}
+          onClose={() => {
+            setIsDialogOpen(false);
+          }}
+          onClosed={() => {
+            setSelectedSkill(null);
+            setDialogType(null);
+          }}
+          app={app}
+          appId={appId}
+          onUpdate={onUpdate}
+          isEnabled={isSkillEnabled('Code Intelligence')}
         />
       );
     }
