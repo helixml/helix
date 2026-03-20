@@ -111,6 +111,14 @@ You have tools to explore and screenshot the application during planning:
 
 Screenshots are optional but valuable for UI tasks - save them in your task's screenshots/ folder.
 
+## Startup Script
+
+The project startup script (installs deps, starts dev servers) runs automatically at session start:
+- **Location:** ` + "`/home/retro/work/helix-specs/.helix/startup.sh`" + `
+- **Log:** ` + "`cat /tmp/helix-startup.log`" + ` (written when the script runs at startup)
+
+If the startup script hasn't run yet, the log won't exist. You can re-run it manually: ` + "`bash /home/retro/work/helix-specs/.helix/startup.sh`" + `
+
 ## Document Your Learnings
 
 **Your design docs may be cloned to similar projects.** Write down what you discover:

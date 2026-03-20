@@ -796,13 +796,14 @@ if [ -f "$STARTUP_SCRIPT" ]; then
     echo ""
 
     # Run startup script but don't fail if it errors (user can debug in terminal)
-    if bash -i "$STARTUP_SCRIPT"; then
+    bash -i "$STARTUP_SCRIPT" 2>&1 | tee /tmp/helix-startup.log
+    STARTUP_EXIT="${PIPESTATUS[0]}"
+    if [ "$STARTUP_EXIT" -eq 0 ]; then
         echo ""
         echo "✅ Startup script completed successfully"
     else
-        EXIT_CODE=$?
         echo ""
-        echo "❌ Startup script failed with exit code $EXIT_CODE"
+        echo "❌ Startup script failed with exit code $STARTUP_EXIT"
         echo ""
         echo "You can debug this in the terminal."
     fi
