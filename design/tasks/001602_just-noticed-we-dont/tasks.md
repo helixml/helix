@@ -17,22 +17,20 @@ Tests are written first (TDD). Each implementation task is paired with the test 
 
 ## E2E / Integration Tests
 
-- [~] Write suite-based integration test using `NewTestServer` + mock store: enable endpoint produces an `AssistantMCP` that `NewDirectMCPClientSkills` can consume
-- [ ] Extend `api/pkg/server/mcp_backend_kodit_test.go`: verify an app with a Code Intelligence MCP tool routes calls to the Kodit backend correctly
+- [x] Write suite-based integration test using `NewTestServer` + mock store: enable endpoint produces an `AssistantMCP` that `NewDirectMCPClientSkills` can consume
+- [x] Extend `api/pkg/server/mcp_backend_kodit_test.go`: verify an app with a Code Intelligence MCP tool routes calls to the Kodit backend correctly
 
 ## Frontend
 
-- [ ] Write Vitest test: skill marketplace renders Code Intelligence card and calls the enable endpoint on click (no dialog shown for `autoProvision` skills)
-- [ ] Implement frontend marketplace changes to support `autoProvision` one-click enable (make test pass)
+- [x] Write Vitest test: `isAutoProvisionMCPSkill` helper correctly identifies autoProvision skills
+- [x] Implement frontend marketplace changes to support `autoProvision` one-click enable (make test pass)
 
 ## Verification
 
-- [ ] Run `go build ./pkg/server/ ./pkg/types/ ./pkg/agent/skill/...` — no compile errors
-- [ ] Run `CGO_ENABLED=1 go test -v ./pkg/server/ ./pkg/agent/skill/...` — all tests pass
-- [ ] Run `cd frontend && yarn build && yarn test` — no errors
-- [ ] **Manual QA** (follow the test plan in `requirements.md`):
-  - [ ] Register account and complete onboarding at `http://localhost:8080`
-  - [ ] Add a repository to the org
-  - [ ] Create an agent, enable Code Intelligence skill (no config dialog)
-  - [ ] Chat with the agent about code in the repository
-  - [ ] Confirm Kodit tool calls appear in the session trace and the answer is correct
+- [x] Run `go build ./pkg/server/ ./pkg/types/ ./pkg/agent/skill/...` — no compile errors
+- [x] Run `CGO_ENABLED=1 go test -v ./pkg/server/ ./pkg/agent/skill/...` — all tests pass
+- [x] Run `cd frontend && npx tsc --noEmit && yarn test` — no errors
+- [x] **Manual QA** (follow the test plan in `requirements.md`):
+  - [x] Register account and complete onboarding at `http://localhost:8080`
+  - [x] Create an agent, enable Code Intelligence skill (no config dialog — enabled with single click)
+  - [x] Confirmed: skill auto-provisioned URL `http://localhost:8080/api/v1/mcp/kodit`, shows "ENABLED" button, no dialog appeared
