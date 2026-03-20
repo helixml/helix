@@ -821,6 +821,17 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
   // Kanban columns configuration - Linear color scheme
   // Pull Request column only shown for external repos (ADO)
+  // Sort helper: tasks needing human attention (agent finished) float to top
+  const sortWithAttentionFirst = (tasks: SpecTaskWithExtras[]) => {
+    return [...tasks].sort((a, b) => {
+      const aNeedsAttention = a.agent_work_state !== undefined && a.agent_work_state !== "working" && !!a.planning_session_id;
+      const bNeedsAttention = b.agent_work_state !== undefined && b.agent_work_state !== "working" && !!b.planning_session_id;
+      if (aNeedsAttention && !bNeedsAttention) return -1;
+      if (!aNeedsAttention && bNeedsAttention) return 1;
+      return 0; // preserve existing order for same-attention tasks
+    });
+  };
+
   const columns: KanbanColumn[] = useMemo(() => {
     const baseColumns: KanbanColumn[] = [
       {
@@ -855,10 +866,10 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         backgroundColor: "rgba(245, 158, 11, 0.08)",
         description: "Specs being generated",
         limit: WIP_LIMITS.planning,
-        tasks: filteredTasks.filter(
+        tasks: sortWithAttentionFirst(filteredTasks.filter(
           (t) =>
             (t as any).phase === "planning" || t.planningStatus === "active",
-        ),
+        )),
       },
       {
         id: "review",
@@ -867,9 +878,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         backgroundColor: "rgba(59, 130, 246, 0.08)",
         description: "Ready for review",
         limit: WIP_LIMITS.review,
-        tasks: filteredTasks.filter(
+        tasks: sortWithAttentionFirst(filteredTasks.filter(
           (t) => (t as any).phase === "review" || t.specApprovalNeeded,
-        ),
+        )),
       },
       {
         id: "implementation",
@@ -878,9 +889,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         backgroundColor: "rgba(16, 185, 129, 0.08)",
         description: "Implementation active",
         limit: WIP_LIMITS.implementation,
-        tasks: filteredTasks.filter(
+        tasks: sortWithAttentionFirst(filteredTasks.filter(
           (t) => (t as any).phase === "implementation",
-        ),
+        )),
       },
     ];
 
@@ -892,10 +903,10 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         color: "#8b5cf6",
         backgroundColor: "rgba(139, 92, 246, 0.08)",
         description: "Awaiting merge in external repo",
-        tasks: filteredTasks.filter(
+        tasks: sortWithAttentionFirst(filteredTasks.filter(
           (t) =>
             (t as any).phase === "pull_request" || t.status === "pull_request",
-        ),
+        )),
       });
     }
 

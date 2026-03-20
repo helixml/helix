@@ -24,6 +24,7 @@ type SpecTaskOrchestrator struct {
 	specTaskService       *SpecDrivenTaskService
 	containerExecutor     ContainerExecutor // Executor for external agent containers
 	goldenBuildService    *GoldenBuildService
+	attentionService      *AttentionService
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
 	backlogProjectLocks   sync.Map // map[project_id]*sync.Mutex
@@ -66,6 +67,11 @@ func (o *SpecTaskOrchestrator) SetTestMode(enabled bool) {
 // SetGoldenBuildService sets the golden build service for triggering cache warm-ups on merge.
 func (o *SpecTaskOrchestrator) SetGoldenBuildService(svc *GoldenBuildService) {
 	o.goldenBuildService = svc
+}
+
+// SetAttentionService sets the attention service for emitting human-needed events.
+func (o *SpecTaskOrchestrator) SetAttentionService(svc *AttentionService) {
+	o.attentionService = svc
 }
 
 // Start begins the orchestration loop
@@ -123,6 +129,53 @@ func (o *SpecTaskOrchestrator) orchestrationLoop(ctx context.Context) {
 		}
 	}()
 
+	// Subscribe to failure/PR status transitions to emit attention events.
+	// This is separate from the main orchestration subscription because these
+	// statuses don't need orchestration — they just need human notification.
+	if o.attentionService != nil {
+		attentionSub, err := o.store.SubscribeForTasks(ctx, &store.SpecTaskSubscriptionFilter{
+			Statuses: []types.SpecTaskStatus{
+				types.TaskStatusSpecFailed,
+				types.TaskStatusImplementationFailed,
+			},
+		}, func(task *types.SpecTask) error {
+			var eventType types.AttentionEventType
+			switch task.Status {
+			case types.TaskStatusSpecFailed:
+				eventType = types.AttentionEventSpecFailed
+			case types.TaskStatusImplementationFailed:
+				eventType = types.AttentionEventImplementationFailed
+			default:
+				return nil
+			}
+			go func(t *types.SpecTask, et types.AttentionEventType) {
+				_, emitErr := o.attentionService.EmitEvent(
+					context.Background(),
+					et,
+					t,
+					"", // no qualifier — one event per failure
+					nil,
+				)
+				if emitErr != nil {
+					log.Warn().Err(emitErr).
+						Str("spec_task_id", t.ID).
+						Str("event_type", string(et)).
+						Msg("Failed to emit failure attention event")
+				}
+			}(task, eventType)
+			return nil
+		})
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to subscribe for attention events on failure statuses")
+		} else {
+			defer func() {
+				if err := attentionSub.Unsubscribe(); err != nil {
+					log.Warn().Err(err).Msg("Failed to unsubscribe attention event subscription")
+				}
+			}()
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -142,6 +195,17 @@ func (o *SpecTaskOrchestrator) orchestrationLoop(ctx context.Context) {
 
 // processTasks processes all active tasks
 func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
+	// Periodic cleanup of expired attention events (dismissed > 7 days ago).
+	// This runs on every orchestration tick but the query is cheap (indexed).
+	if o.attentionService != nil {
+		go func() {
+			_, err := o.store.CleanupExpiredAttentionEvents(context.Background(), 7*24*time.Hour)
+			if err != nil {
+				log.Warn().Err(err).Msg("Failed to cleanup expired attention events")
+			}
+		}()
+	}
+
 	// Get all tasks (we'll filter active ones)
 	tasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
 		WithDependsOn: true, // Validate dependencies before processing
@@ -793,7 +857,31 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 				task.PullRequestURL = pr.URL
 				task.Status = types.TaskStatusPullRequest
 				task.UpdatedAt = time.Now()
-				return o.store.UpdateSpecTask(ctx, task)
+				if err := o.store.UpdateSpecTask(ctx, task); err != nil {
+					return err
+				}
+
+				// Emit pr_ready attention event
+				if o.attentionService != nil {
+					go func(t *types.SpecTask, prID string) {
+						_, emitErr := o.attentionService.EmitEvent(
+							context.Background(),
+							types.AttentionEventPRReady,
+							t,
+							prID,
+							map[string]interface{}{
+								"pr_id":  prID,
+								"pr_url": t.PullRequestURL,
+							},
+						)
+						if emitErr != nil {
+							log.Warn().Err(emitErr).
+								Str("spec_task_id", t.ID).
+								Msg("Failed to emit pr_ready attention event")
+						}
+					}(task, pr.ID)
+				}
+				return nil
 			}
 
 			// Check if PR is already merged
