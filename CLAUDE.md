@@ -321,11 +321,21 @@ cd ~/pm/zed/crates/external_websocket_sync/e2e-test
 # Both agents (zed-agent + claude, ~5min):
 E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh
 
-# Skip Go rebuild (use cached binary):
+# Skip Go rebuild (use cached binary — only safe if Go code hasn't changed):
 E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh --no-build
 ```
 
 **What gets tested**: The Go test server is built from `~/pm/zed/.../helix-ws-test-server/` which imports the Helix Go code from `~/pm/helix/api/` via the `replace` directive. So you're testing the **currently checked out versions of both repos**.
+
+**Rebuild checklist** — if you change code, rebuild the affected component:
+| Changed | Rebuild |
+|---------|---------|
+| Helix Go code (`api/`) | `./run_docker_e2e.sh` (rebuilds Go test server) |
+| E2E test server (`helix-ws-test-server/main.go`) | `./run_docker_e2e.sh` (rebuilds Go test server) |
+| Zed Rust code (`crates/`) | `cd ~/pm/helix && ./stack build-zed dev` then copy binary |
+| Dockerfiles or `run_e2e.sh` | `./run_docker_e2e.sh` (rebuilds Docker image) |
+
+The script prints binary timestamps and checksums — check these to verify you're testing the right code.
 
 **ANTHROPIC_API_KEY**: Auto-sourced from `~/pm/helix/.env` or `~/pm/helix/.env.usercreds`. Must be set for tests to work.
 
