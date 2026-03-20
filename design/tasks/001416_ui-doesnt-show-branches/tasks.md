@@ -35,6 +35,13 @@
 
 - [x] Verify Go code compiles: `go build ./pkg/server/ ./pkg/services/ ./pkg/types/`
 - [x] Verify frontend builds: `cd frontend && yarn build`
-- [x] Manual test: requires multi-repo project with external GitHub repos (deferred to code review)
+- [x] Local UI test: Created test task with 3 mock PRs, verified button shows "3 PULL REQUESTS"
 
-Note: Full E2E testing requires external GitHub repos with valid credentials. The code paths have been verified to compile correctly. UI dropdown behavior can be confirmed during code review with a real multi-repo project.
+## Screenshots
+
+- `screenshots/01-multi-pr-button.png` - Shows kanban card with "3 PULL REQUESTS" button
+
+## Additional Fix
+
+- Fixed `TaskCard.tsx` to pass `repo_pull_requests` to `SpecTaskActionButtons` component
+- Added `repo_pull_requests` field to `SpecTaskWithExtras` interface
