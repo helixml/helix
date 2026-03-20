@@ -49,7 +49,9 @@ func (k *KoditRAG) Index(_ context.Context, _ ...*types.SessionRAGIndexChunk) er
 // RegisterDirectory implements rag.KoditIndexer.
 // It registers the given local directory with kodit (using a file:// URI), then
 // creates or updates the DataEntity identified by dataEntityID to store the
-// returned kodit repository ID.
+// returned kodit repository ID. When the repo already exists in Kodit (e.g.
+// a second file was added), it triggers a sync so Kodit rescans and picks up
+// new files.
 func (k *KoditRAG) RegisterDirectory(ctx context.Context, dataEntityID, localPath, owner, ownerType string) error {
 	fileURI := "file://" + filepath.ToSlash(localPath)
 
@@ -59,14 +61,27 @@ func (k *KoditRAG) RegisterDirectory(ctx context.Context, dataEntityID, localPat
 		Str("file_uri", fileURI).
 		Msg("registering directory with kodit")
 
-	repoID, _, err := k.kodit.RegisterRepository(ctx, fileURI, "")
+	repoID, isNew, err := k.kodit.RegisterRepository(ctx, fileURI, "")
 	if err != nil {
 		return fmt.Errorf("kodit RegisterRepository failed for %s: %w", fileURI, err)
+	}
+
+	// If the repo already existed, Kodit won't automatically rescan the
+	// directory. Trigger a sync so it picks up any new or changed files.
+	if !isNew {
+		log.Info().
+			Int64("kodit_repo_id", repoID).
+			Str("file_uri", fileURI).
+			Msg("kodit repo already exists, triggering sync to pick up new files")
+		if err := k.kodit.SyncRepository(ctx, repoID); err != nil {
+			return fmt.Errorf("kodit SyncRepository failed for repo %d: %w", repoID, err)
+		}
 	}
 
 	log.Info().
 		Str("data_entity_id", dataEntityID).
 		Int64("kodit_repo_id", repoID).
+		Bool("is_new", isNew).
 		Msg("kodit repository registered, storing repo ID")
 
 	// Upsert the DataEntity with the kodit repository ID.

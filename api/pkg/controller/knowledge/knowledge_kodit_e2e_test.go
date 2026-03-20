@@ -138,7 +138,7 @@ func (s *KoditE2ESuite) TearDownTest() {
 // 1. indexKnowledge detects KoditIndexer and skips normal extraction
 // 2. RegisterDirectory is called with the correct file:// URI
 // 3. The returned kodit repo ID is stored on the DataEntity
-// 4. Knowledge state is set to Ready
+// 4. Knowledge state remains Indexing (kodit processes async; status checker transitions to Ready)
 func (s *KoditE2ESuite) TestKoditIndexing_RegistersDirectoryAndSetsRepoID() {
 	const (
 		appID   = "app_abc"
@@ -190,24 +190,19 @@ func (s *KoditE2ESuite) TestKoditIndexing_RegistersDirectoryAndSetsRepoID() {
 			return e, nil
 		})
 
-	// After registration, knowledge is updated to Ready
+	// After registration, knowledge stays in Indexing state (kodit processes async)
 	s.mockStore.EXPECT().
 		UpdateKnowledge(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, k *types.Knowledge) (*types.Knowledge, error) {
-			s.Equal(types.KnowledgeStateReady, k.State)
+			s.Equal(types.KnowledgeStateIndexing, k.State)
 			s.Equal(version, k.Version)
 			return k, nil
 		})
 
-	// Knowledge version is created
+	// Knowledge version is created in Indexing state
 	s.mockStore.EXPECT().
 		CreateKnowledgeVersion(gomock.Any(), gomock.Any()).
 		Return(&types.KnowledgeVersion{}, nil)
-
-	// deleteOldVersions calls ListKnowledgeVersions
-	s.mockStore.EXPECT().
-		ListKnowledgeVersions(gomock.Any(), gomock.Any()).
-		Return([]*types.KnowledgeVersion{}, nil)
 
 	err := s.reconciler.indexKnowledge(context.Background(), knowledge, version)
 	s.NoError(err)
