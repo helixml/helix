@@ -109,3 +109,32 @@ Testing will be done after deployment on real touch device. Debug panel info can
 
 - **Low risk**: Using ref instead of state is a safe change
 - **Low risk**: Increasing pinch threshold may slightly delay pinch-to-zoom detection, but 50px is still responsive
+
+## Implementation Notes
+
+### Files Modified
+
+1. **`frontend/src/components/external-agent/DesktopStreamViewer.tsx`**
+   - Line ~275: Added `twoFingerDebugRef` to track gesture debug info
+   - Line ~220: Added `twoFingerDebug` state for stats panel updates
+   - Line ~275: Increased `PINCH_VS_SCROLL_THRESHOLD` from 30 to 50
+   - Line ~3440: Fixed `sendCursorPositionToRemote()` to use `cursorPositionRef.current`
+   - Line ~3350-3380: Added debug state updates during two-finger gestures
+   - Line ~3580: Removed `cursorPosition` from `handleTouchEnd` dependency array
+   - Line ~5075: Pass `twoFingerDebug` prop to StatsOverlay
+
+2. **`frontend/src/components/external-agent/StatsOverlay.tsx`**
+   - Added `TwoFingerDebugInfo` interface export
+   - Added `twoFingerDebug` prop to `StatsOverlayProps`
+   - Added "Two-Finger Gesture" debug section showing gesture type, distance change, center movement, and scroll delta
+
+### Key Pattern Used
+
+The bug was a classic React stale closure issue: `cursorPosition` state was captured when the `useCallback` was created, but React batches state updates so by the time a tap occurs, the state value in the closure is stale. The fix uses `cursorPositionRef.current` which is updated synchronously in `handleTouchMove` and always reflects the latest value.
+
+### Testing After Deployment
+
+On a real touch device with trackpad mode enabled:
+1. Enable stats panel (click the stats icon)
+2. Use two-finger gestures and observe the "Two-Finger Gesture" section
+3. If scroll isn't working, report the values shown (gesture type should be "scroll" not "pinch")
