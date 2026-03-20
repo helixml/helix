@@ -146,7 +146,7 @@ const ClaudeSubscription: FC = () => {
   const handleStartLogin = useCallback(async () => {
     setLoginStarting(true)
     try {
-      const result = await api.post<{ session_id: string }>('/api/v1/claude-subscriptions/start-login', {})
+      const result = await api.post<{}, { session_id: string }>('/api/v1/claude-subscriptions/start-login', {})
       if (result && result.session_id) {
         setLoginSessionId(result.session_id)
         setLoginDialogOpen(true)

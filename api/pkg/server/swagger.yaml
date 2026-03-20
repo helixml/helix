@@ -4527,12 +4527,6 @@ definitions:
       password:
         description: Password for the repository
         type: string
-      project_id:
-        description: |-
-          Deprecated: ProjectID is maintained for backward compatibility only.
-          Use the project_repositories junction table for many-to-many project-repo relationships.
-          This column is kept in the database for rollback compatibility but reads should use the junction table.
-        type: string
       repo_type:
         $ref: '#/definitions/types.GitRepositoryType'
       status:
@@ -6660,6 +6654,22 @@ definitions:
       password_confirm:
         type: string
     type: object
+  types.RepoPR:
+    properties:
+      pr_id:
+        type: string
+      pr_number:
+        type: integer
+      pr_state:
+        description: '"open", "closed", "merged"'
+        type: string
+      pr_url:
+        type: string
+      repository_id:
+        type: string
+      repository_name:
+        type: string
+    type: object
   types.RepositoryAccessCheck:
     properties:
       can_fork:
@@ -7972,12 +7982,27 @@ definitions:
         description: Public sharing
         type: boolean
       pull_request_id:
+        description: |-
+          DEPRECATED: Single PR tracking - kept for backward compatibility
+          Use RepoPullRequests for multi-repo PR tracking
         type: string
       pull_request_url:
         description: Computed field, not stored
         type: string
+      repo_pull_requests:
+        description: 'Multi-repo PR tracking: list of PRs across all project repositories'
+        items:
+          $ref: '#/definitions/types.RepoPR'
+        type: array
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
+        type: string
+      sandbox_state:
+        description: '"absent", "running", "starting" — derived from session config
+          in listTasks'
+        type: string
+      sandbox_status_message:
+        description: Transient startup message e.g. "Unpacking build cache"
         type: string
       session_updated_at:
         description: Agent activity tracking (computed from session/activity data,
@@ -8500,12 +8525,27 @@ definitions:
         description: Public sharing
         type: boolean
       pull_request_id:
+        description: |-
+          DEPRECATED: Single PR tracking - kept for backward compatibility
+          Use RepoPullRequests for multi-repo PR tracking
         type: string
       pull_request_url:
         description: Computed field, not stored
         type: string
+      repo_pull_requests:
+        description: 'Multi-repo PR tracking: list of PRs across all project repositories'
+        items:
+          $ref: '#/definitions/types.RepoPR'
+        type: array
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
+        type: string
+      sandbox_state:
+        description: '"absent", "running", "starting" — derived from session config
+          in listTasks'
+        type: string
+      sandbox_status_message:
+        description: Transient startup message e.g. "Unpacking build cache"
         type: string
       session_updated_at:
         description: Agent activity tracking (computed from session/activity data,

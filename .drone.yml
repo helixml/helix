@@ -40,6 +40,7 @@ steps:
     commands:
       - cd frontend
       - yarn install --frozen-lockfile --check-files
+      - npx tsc --noEmit -p tsconfig.json
       - yarn test
       - yarn build
     depends_on: []
@@ -88,7 +89,7 @@ steps:
   - name: check-for-secrets
     image: ghcr.io/gitleaks/gitleaks:v8.24.0
     commands:
-      - gitleaks dir -v
+      - gitleaks dir -v; rc=$?; if [ $rc -eq 1 ]; then echo "LEAKS FOUND"; exit 1; fi
     when:
       event:
         - push
@@ -1812,9 +1813,10 @@ platform:
   arch: amd64
 
 trigger:
-  event:
-    - push
-    - tag
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
 
 volumes:
   - name: dockersocket
@@ -2086,10 +2088,11 @@ steps:
         rm -f "$${E2E_DIR}/zed-binary" "$${E2E_DIR}/helix-go.mod" "$${E2E_DIR}/helix-go.sum" || true
         rm -rf "$${E2E_DIR}/helix-api" || true
 
-        echo "Running E2E test..."
+        echo "Running E2E test (agents: zed-agent, claude)..."
         docker run --rm \
           -e ANTHROPIC_API_KEY="$${ANTHROPIC_API_KEY}" \
-          -e TEST_TIMEOUT=240 \
+          -e E2E_AGENTS="zed-agent,claude" \
+          -e TEST_TIMEOUT=480 \
           zed-ws-e2e:$${ZED_COMMIT}
 
         echo "Zed WebSocket E2E test passed"
@@ -2245,9 +2248,10 @@ platform:
   arch: arm64
 
 trigger:
-  event:
-    - push
-    - tag
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
 
 volumes:
   - name: dockersocket

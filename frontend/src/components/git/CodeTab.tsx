@@ -45,6 +45,8 @@ import {
   KODIT_SUBTYPE_PHYSICAL,
   KODIT_SUBTYPE_ARCHITECTURE,
   KODIT_SUBTYPE_DATABASE_SCHEMA,
+  getEnrichmentTypeIcon,
+  getEnrichmentTypeName,
 } from '../../services/koditService'
 import MermaidDiagram, { extractMermaidDiagrams, hasMermaidDiagram } from '../widgets/MermaidDiagram'
 import useRouter from '../../hooks/useRouter'

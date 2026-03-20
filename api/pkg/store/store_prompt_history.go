@@ -68,6 +68,7 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 			updateFields := map[string]interface{}{
 				"interrupt":      interrupt,
 				"queue_position": entry.QueuePosition,
+				"content":        entry.Content,
 				"updated_at":     time.Now(),
 			}
 
@@ -223,6 +224,20 @@ func (s *PostgresStore) MarkPromptAsSent(ctx context.Context, promptID string) e
 		Where("id = ?", promptID).
 		Update("status", "sent").
 		Error
+}
+
+// ClaimPromptForSending atomically transitions a prompt from pending/failed to "sending".
+// Returns true if this caller won the race (rows affected > 0).
+// If false is returned, another goroutine already claimed the prompt and the caller must not send it.
+func (s *PostgresStore) ClaimPromptForSending(ctx context.Context, promptID string) (bool, error) {
+	result := s.gdb.WithContext(ctx).
+		Model(&types.PromptHistoryEntry{}).
+		Where("id = ? AND status IN ('pending', 'failed')", promptID).
+		Update("status", "sending")
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
 }
 
 // MarkPromptAsFailed marks a prompt as failed with exponential backoff retry

@@ -19,10 +19,15 @@ export const useSnackbar = () => {
     snackbar.setSnackbar(message, 'success')
   }, [])
 
+  const warning = useCallback((message: string) => {
+    snackbar.setSnackbar(message, 'warning')
+  }, [])
+
   return {
     error,
     info,
     success,
+    warning,
   }
 }
 

@@ -73,7 +73,7 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
 	}
 
-	_, err = s.authorizeOrgMember(ctx, user, org.ID)
+	orgMembership, err := s.authorizeOrgMember(ctx, user, org.ID)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
@@ -86,7 +86,21 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	return projects, nil
+	// Org owners see all projects
+	if orgMembership.Role == types.OrganizationRoleOwner {
+		return projects, nil
+	}
+
+	// Non-owners only see projects they have access to
+	var authorizedProjects []*types.Project
+	for _, project := range projects {
+		if err := s.authorizeUserToProject(ctx, user, project, types.ActionGet); err != nil {
+			continue
+		}
+		authorizedProjects = append(authorizedProjects, project)
+	}
+
+	return authorizedProjects, nil
 }
 
 // getProject godoc
@@ -320,7 +334,6 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	// Attach the primary repository to the project
-	// This sets the project_id on the repository so it shows up in the project's repo list
 	if err := s.Store.AttachRepositoryToProject(r.Context(), created.ID, req.DefaultRepoID); err != nil {
 		log.Warn().
 			Err(err).

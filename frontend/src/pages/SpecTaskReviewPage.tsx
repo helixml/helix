@@ -91,7 +91,7 @@ const SpecTaskReviewPage: FC = () => {
       orgBreadcrumbs={true}
       showDrawerButton={true}
       topbarContent={
-        <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', alignItems: 'center' }}>
+        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end', width: '100%', alignItems: 'center' }}>
           <Tooltip title="Open in Split Screen">
             <IconButton onClick={handleOpenInWorkspace} size="small">
               <TiledIcon />
@@ -106,6 +106,7 @@ const SpecTaskReviewPage: FC = () => {
           specTaskId={taskId}
           reviewId={reviewId}
           onClose={handleBack}
+          onBack={handleBack}
           hideTitle={true}
         />
       </Box>

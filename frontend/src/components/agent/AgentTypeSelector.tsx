@@ -32,6 +32,7 @@ interface AgentTypeSelectorProps {
   externalAgentConfig?: IExternalAgentConfig;
   disabled?: boolean;
   size?: 'small' | 'medium';
+  showExternalConfig?: boolean;
 }
 
 const AgentTypeSelector: React.FC<AgentTypeSelectorProps> = ({

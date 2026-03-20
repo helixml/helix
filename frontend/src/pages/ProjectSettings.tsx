@@ -989,7 +989,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
               >
                 <DesktopStreamViewer
                   sessionId={exploratorySessionData.id}
-                  sandboxId={exploratorySessionData.config?.sandbox_id || ""}
+                  sandboxId={exploratorySessionData.sandbox_id || ""}
                   showLoadingOverlay={testingStartupScript}
                   isRestart={isSessionRestart}
                 />
@@ -1210,7 +1210,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                 >
                   <DesktopStreamViewer
                     sessionId={goldenBuildSessionId}
-                    sandboxId={goldenBuildSession.config?.sandbox_id || ""}
+                    sandboxId={goldenBuildSession.sandbox_id || ""}
                   />
                 </Box>
               ) : (

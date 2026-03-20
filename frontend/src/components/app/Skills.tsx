@@ -528,7 +528,7 @@ const Skills: React.FC<SkillsProps> = ({
         name: backendSkill.displayName || backendSkill.name || 'Unknown Skill',
         description: backendSkill.description || 'Backend-provided skill',
         type: SKILL_TYPE_HTTP_API,
-        category,
+        categories: [category],
         skill: {
           name: backendSkill.displayName || backendSkill.name || 'Unknown Skill',
           description: backendSkill.description || '',
@@ -542,9 +542,9 @@ const Skills: React.FC<SkillsProps> = ({
             skip_unknown_keys: backendSkill.skipUnknownKeys || false,
             transform_output: backendSkill.transformOutput || false,
           },
-          configurable: backendSkill.configurable || false,        
+          configurable: backendSkill.configurable || false,
         },
-      } as ISkill;
+      };
     });
   }, [backendSkillsResponse]);
 
@@ -597,7 +597,7 @@ const Skills: React.FC<SkillsProps> = ({
           name: api.name,
           description: api.description,
           type: SKILL_TYPE_HTTP_API,
-          category,
+          categories: [category],
           skill: {
             name: api.name,
             icon: <ApiIcon />,

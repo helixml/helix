@@ -28,10 +28,14 @@ import {
   Tooltip,
   Badge,
   useMediaQuery,
+  ToggleButtonGroup,
+  ToggleButton,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import EditIcon from "@mui/icons-material/Edit";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import Description from "@mui/icons-material/Description";
 import { GitBranch } from "lucide-react";
 import CommentIcon from "@mui/icons-material/Comment";
 import ShareIcon from "@mui/icons-material/Share";
@@ -75,6 +79,8 @@ interface DesignReviewContentProps {
   initialTab?: DocumentType;
   /** Hide the title in header - use when embedded in a page with its own breadcrumbs */
   hideTitle?: boolean;
+  /** If provided, renders a "← Back to task" tab as the first tab in the tab strip */
+  onBack?: () => void;
 }
 
 const DOCUMENT_LABELS = {
@@ -90,6 +96,7 @@ export default function DesignReviewContent({
   onImplementationStarted,
   initialTab = "requirements",
   hideTitle = false,
+  onBack,
 }: DesignReviewContentProps) {
   const snackbar = useSnackbar();
   const api = useApi();
@@ -139,7 +146,7 @@ export default function DesignReviewContent({
     return dependencies.filter((dependency) => {
       const dependencyStatus = dependency.status || "";
       const isCompleted =
-        dependencyStatus === "done" || dependencyStatus === "completed";
+        (dependencyStatus as string) === "done" || (dependencyStatus as string) === "completed";
       return !dependency.archived && !isCompleted;
     });
   }, [task?.depends_on]);
@@ -893,8 +900,8 @@ export default function DesignReviewContent({
     try {
       const apiClient = api.getApiClient();
       const response =
-        await apiClient.v1SpecTasksStartImplementationCreate(specTaskId);
-      const data = response.data;
+        await apiClient.v1SpecTasksApproveImplementationCreate(specTaskId);
+      const data = response.data as any;
 
       snackbar.success(`Implementation started on branch: ${data.branch_name}`);
 
@@ -971,6 +978,52 @@ export default function DesignReviewContent({
             }}
           >
             {/* Tabs on the left */}
+            {onBack && (
+              <>
+                {/* Desktop: Chat/Spec toggle matching the issue detail view */}
+                <ToggleButtonGroup
+                  value="spec"
+                  exclusive
+                  onChange={(_, val) => { if (val === "chat") onBack(); }}
+                  size="small"
+                  sx={{
+                    display: { xs: 'none', sm: 'flex' },
+                    flexShrink: 0,
+                    alignSelf: 'center',
+                    ml: 3,
+                    mr: 1,
+                    "& .MuiToggleButton-root": {
+                      px: 1.25,
+                      py: 0.25,
+                      fontSize: "0.8rem",
+                      fontWeight: 500,
+                      textTransform: "none",
+                      border: "1px solid",
+                      borderColor: "divider",
+                      color: "text.secondary",
+                      "&.Mui-selected": {
+                        color: "text.primary",
+                        backgroundColor: "action.selected",
+                      },
+                    },
+                  }}
+                >
+                  <ToggleButton value="chat">Chat</ToggleButton>
+                  <ToggleButton value="spec">
+                    <Description sx={{ fontSize: 14, mr: 0.5 }} />
+                    Spec
+                  </ToggleButton>
+                </ToggleButtonGroup>
+                {/* Mobile: just an arrow icon */}
+                <IconButton
+                  onClick={onBack}
+                  size="small"
+                  sx={{ display: { xs: 'flex', sm: 'none' }, ml: 0.5, mr: 0.5 }}
+                >
+                  <ArrowBackIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </>
+            )}
             <Tabs
               value={activeTab}
               onChange={(_, value) => handleTabChange(value)}

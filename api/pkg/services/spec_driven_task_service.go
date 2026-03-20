@@ -380,6 +380,17 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		OwnerType:      types.OwnerTypeUser,
 	}
 
+	// Guard against duplicate session creation (issue #10 from ZFS deployment).
+	// Two concurrent requests can both reach this point before either has written
+	// planning_session_id to the DB. Re-read the task to see if a sibling already won the race.
+	if freshTask, readErr := s.store.GetSpecTask(ctx, task.ID); readErr == nil && freshTask.PlanningSessionID != "" {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("existing_session_id", freshTask.PlanningSessionID).
+			Msg("Planning session already created by concurrent request — skipping duplicate creation")
+		return
+	}
+
 	session, err = s.store.CreateSession(ctx, *session)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create spec generation session")
@@ -746,6 +757,15 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		ProjectID:      task.ProjectID, // For project-level skills
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
+	}
+
+	// Guard against duplicate session creation (issue #10 from ZFS deployment).
+	if freshTask, readErr := s.store.GetSpecTask(ctx, task.ID); readErr == nil && freshTask.PlanningSessionID != "" {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("existing_session_id", freshTask.PlanningSessionID).
+			Msg("Planning session already created by concurrent request — skipping duplicate Just Do It creation")
+		return
 	}
 
 	session, err = s.store.CreateSession(ctx, *session)

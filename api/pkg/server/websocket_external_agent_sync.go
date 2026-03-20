@@ -1421,17 +1421,27 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 	// Look up the session to get its ZedThreadID - we want to continue in the existing thread
 	// instead of creating a new one. This maintains the 1:1 mapping between Zed threads and Helix sessions.
 	var acpThreadID interface{} = nil
+	var agentName string
 	session, err := apiServer.Controller.Options.Store.GetSession(context.Background(), sessionID)
-	if err == nil && session != nil && session.Metadata.ZedThreadID != "" {
-		acpThreadID = session.Metadata.ZedThreadID
-		log.Info().
-			Str("session_id", sessionID).
-			Str("zed_thread_id", session.Metadata.ZedThreadID).
-			Msg("🔗 [HELIX] Using existing ZedThreadID for chat message")
+	if err == nil && session != nil {
+		agentName = apiServer.getAgentNameForSession(context.Background(), session)
+		if session.Metadata.ZedThreadID != "" {
+			acpThreadID = session.Metadata.ZedThreadID
+			log.Info().
+				Str("session_id", sessionID).
+				Str("zed_thread_id", session.Metadata.ZedThreadID).
+				Str("agent_name", agentName).
+				Msg("🔗 [HELIX] Using existing ZedThreadID for chat message")
+		} else {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("agent_name", agentName).
+				Msg("🆕 [HELIX] No ZedThreadID found, will create new thread")
+		}
 	} else {
 		log.Info().
 			Str("session_id", sessionID).
-			Msg("🆕 [HELIX] No ZedThreadID found, will create new thread")
+			Msg("🆕 [HELIX] No session found, will create new thread")
 	}
 
 	command := types.ExternalAgentCommand{
@@ -1440,6 +1450,7 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 			"message":       message,
 			"request_id":    requestID,
 			"acp_thread_id": acpThreadID, // Use existing thread if available, nil = create new
+			"agent_name":    agentName,   // Which agent to use (e.g., "claude", "qwen", "zed-agent")
 		},
 	}
 
@@ -2011,6 +2022,34 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	// Update SpecTaskZedThread activity if this is a spectask session
 	if helixSession.Metadata.SpecTaskID != "" {
 		go apiServer.updateSpecTaskZedThreadActivity(context.Background(), acpThreadID)
+
+		// Emit attention event: agent interaction completed
+		if apiServer.attentionService != nil {
+			go func() {
+				task, err := apiServer.Controller.Options.Store.GetSpecTask(context.Background(), helixSession.Metadata.SpecTaskID)
+				if err != nil {
+					log.Warn().Err(err).
+						Str("spec_task_id", helixSession.Metadata.SpecTaskID).
+						Msg("Failed to load spectask for attention event")
+					return
+				}
+				_, err = apiServer.attentionService.EmitEvent(
+					context.Background(),
+					types.AttentionEventAgentInteractionCompleted,
+					task,
+					targetInteraction.ID, // qualifier = interaction ID for idempotency
+					map[string]interface{}{
+						"interaction_id": targetInteraction.ID,
+						"session_id":     helixSessionID,
+					},
+				)
+				if err != nil {
+					log.Warn().Err(err).
+						Str("spec_task_id", task.ID).
+						Msg("Failed to emit agent_interaction_completed attention event")
+				}
+			}()
+		}
 	}
 
 	// Extract request_id from message data for commenter notification
@@ -2170,6 +2209,34 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 // processPromptQueue checks for pending non-interrupt prompts and sends the next one
 // This is called after a message is completed to process queued non-interrupt messages
 func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, sessionID string) {
+	// Check if the session is busy (last interaction is waiting for a response).
+	// This prevents sending a queue-mode prompt while Zed is already processing
+	// a locally-submitted message. The check uses DB state which is race-free:
+	// handleMessageAdded creates the interaction synchronously before returning.
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for queue processing")
+		return
+	}
+	if session != nil {
+		interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID:    sessionID,
+			GenerationID: session.GenerationID,
+			PerPage:      1,
+		})
+		if err != nil {
+			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to list interactions for queue processing")
+			return
+		}
+		if len(interactions) > 0 && interactions[len(interactions)-1].State == types.InteractionStateWaiting {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("interaction_id", interactions[len(interactions)-1].ID).
+				Msg("Session is busy (last interaction waiting), deferring queue-mode prompt")
+			return
+		}
+	}
+
 	// Get the next pending non-interrupt prompt for this session
 	nextPrompt, err := apiServer.Store.GetNextPendingPrompt(ctx, sessionID)
 	if err != nil {
@@ -2246,11 +2313,17 @@ func (apiServer *HelixAPIServer) processAnyPendingPrompt(ctx context.Context, se
 		Bool("is_retry", isRetry).
 		Msg("📤 [QUEUE] Processing pending prompt")
 
-	// CRITICAL: Mark as 'sent' IMMEDIATELY to prevent race conditions.
-	// Once we start processing, mark it done so no other process picks it up.
-	if err := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); err != nil {
-		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent")
-		// Continue anyway - better to risk duplicate than lose the message
+	// Atomically claim this prompt to prevent duplicate delivery (issue #2).
+	// Uses a conditional DB UPDATE (status IN ('pending','failed') → 'sending').
+	// If RowsAffected == 0, another goroutine already claimed it — skip.
+	claimed, claimErr := apiServer.Store.ClaimPromptForSending(ctx, nextPrompt.ID)
+	if claimErr != nil {
+		log.Error().Err(claimErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to claim prompt for sending")
+		return
+	}
+	if !claimed {
+		log.Info().Str("prompt_id", nextPrompt.ID).Msg("📤 [QUEUE] Prompt already claimed by another goroutine — skipping duplicate send")
+		return
 	}
 
 	// Send the prompt to the session (creates interaction and sends to agent)
@@ -2265,6 +2338,11 @@ func (apiServer *HelixAPIServer) processAnyPendingPrompt(ctx context.Context, se
 			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed after interaction creation error")
 		}
 		return
+	}
+
+	// Mark as fully sent after successful delivery
+	if markErr := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); markErr != nil {
+		log.Warn().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent after delivery (non-fatal)")
 	}
 
 	log.Info().

@@ -12,7 +12,6 @@ import {
   OutlinedInput,
   Checkbox,
   ListItemText,
-  Autocomplete,
 } from '@mui/material';
 import { Search as SearchIcon, Clear as ClearIcon } from '@mui/icons-material';
 
@@ -23,9 +22,6 @@ interface BacklogFilterBarProps {
   onSearchChange: (value: string) => void;
   priorityFilter: TypesSpecTaskPriority[];
   onPriorityFilterChange: (value: TypesSpecTaskPriority[]) => void;
-  labelFilter?: string[];
-  onLabelFilterChange?: (value: string[]) => void;
-  availableLabels?: string[];
 }
 
 const PRIORITY_OPTIONS = [
@@ -40,16 +36,12 @@ const BacklogFilterBar: React.FC<BacklogFilterBarProps> = ({
   onSearchChange,
   priorityFilter,
   onPriorityFilterChange,
-  labelFilter = [],
-  onLabelFilterChange,
-  availableLabels = [],
 }) => {
-  const hasFilters = search.length > 0 || priorityFilter.length > 0 || labelFilter.length > 0;
+  const hasFilters = search.length > 0 || priorityFilter.length > 0;
 
   const handleClearFilters = () => {
     onSearchChange('');
     onPriorityFilterChange([]);
-    onLabelFilterChange?.([]);
   };
 
   return (
@@ -122,32 +114,6 @@ const BacklogFilterBar: React.FC<BacklogFilterBarProps> = ({
           ))}
         </Select>
       </FormControl>
-
-      {/* Label Filter */}
-      {onLabelFilterChange && (
-        <Autocomplete
-          multiple
-          size="small"
-          options={availableLabels}
-          value={labelFilter}
-          onChange={(_, value) => onLabelFilterChange(value)}
-          renderInput={(params) => (
-            <TextField {...params} label="Labels" placeholder={labelFilter.length === 0 ? 'Filter by label...' : ''} />
-          )}
-          renderTags={(value, getTagProps) =>
-            value.map((option, index) => (
-              <Chip
-                {...getTagProps({ index })}
-                key={option}
-                label={option}
-                size="small"
-                sx={{ height: 20, fontSize: '0.7rem' }}
-              />
-            ))
-          }
-          sx={{ minWidth: 180 }}
-        />
-      )}
 
       {/* Clear Filters Button */}
       {hasFilters && (

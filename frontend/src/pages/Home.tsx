@@ -148,6 +148,7 @@ const Home: FC = () => {
   const [selectedImageName, setSelectedImageName] = useState<string | null>(null)
   const [showExamples, setShowExamples] = useState(false)
   const [isFirstLoginToday, setIsFirstLoginToday] = useState(false)
+  const [greeting, setGreeting] = useState('')
 
   const { data: triggers, isLoading, refetch } = useListUserCronTriggers(
     account.organizationTools.organization?.id || ''
@@ -202,6 +203,7 @@ const Home: FC = () => {
     if (account.user) {
       const firstLogin = checkFirstLoginToday()
       setIsFirstLoginToday(firstLogin)
+      setGreeting(getTimeBasedGreeting(account.user.name, firstLogin))
     }
   }, [account.user])
 
@@ -352,7 +354,7 @@ const Home: FC = () => {
                       mb: 2,
                     }}
                   >
-                    {getTimeBasedGreeting(account.user?.name, isFirstLoginToday)}
+                    {greeting}
                   </Typography>
                 </Row>
                 <Row>

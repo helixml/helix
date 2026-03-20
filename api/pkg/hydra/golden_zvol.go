@@ -171,7 +171,21 @@ func detectPoolRoot() string {
 		}
 		// Found the mount. The device is fields[0], e.g. /dev/zd16
 		// or /dev/zvol/prod/container-docker
+		// or just "prod" (ZFS dataset mounted directly, fstype=zfs)
 		dev := fields[0]
+		fstype := ""
+		if len(fields) >= 3 {
+			fstype = fields[2]
+		}
+
+		// If it's a ZFS dataset mount (fstype=zfs, device is the pool/dataset name)
+		// e.g. "prod /container-docker zfs rw,..."
+		if fstype == "zfs" && !strings.HasPrefix(dev, "/dev/") {
+			// Device field is the dataset name (e.g. "prod" or "prod/data")
+			// The pool root is the first component
+			parts := strings.Split(dev, "/")
+			return parts[0]
+		}
 
 		// If it's a /dev/zvol/ path, extract the dataset name
 		if strings.HasPrefix(dev, "/dev/zvol/") {
@@ -311,15 +325,13 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	// XFS refuses to mount two filesystems with the same UUID. The clone
-	// inherits the golden's UUID, so we must generate a new one before mounting.
-	if err := runCmd("xfs_admin", "-U", "generate", devPath); err != nil {
-		_ = runCmd("zfs", "destroy", cloneName)
-		return "", fmt.Errorf("xfs_admin UUID change failed on %s: %w", devPath, err)
-	}
-
-	// Mount the clone
-	if err := mountZvol(cloneName, mountPath); err != nil {
+	// Mount the clone with -o nouuid. XFS refuses to mount two filesystems
+	// with the same UUID, and clones inherit the golden's UUID. We can't use
+	// xfs_admin -U generate because the clone's XFS log may have unplayed
+	// entries from the golden build, which xfs_admin refuses to modify.
+	// nouuid skips the UUID check entirely — safe because each clone is on
+	// its own separate block device (zvol).
+	if err := mountZvolWithOptions(cloneName, mountPath, "nouuid"); err != nil {
 		// Cleanup the clone on mount failure
 		_ = runCmd("zfs", "destroy", cloneName)
 		return "", fmt.Errorf("failed to mount clone %s at %s: %w", cloneName, mountPath, err)
@@ -468,15 +480,25 @@ func PromoteSessionToGoldenZvol(projectID, sessionID string) error {
 	data, _ := json.MarshalIndent(info, "", "  ")
 	_ = os.WriteFile(filepath.Join(goldenMount, "golden-version.json"), data, 0644)
 
-	// Unmount
-	_ = runCmd("umount", goldenMount)
-	_ = os.Remove(goldenMount)
+	// Flush XFS journal before snapshot — ensures clones mount instantly
+	// (no journal replay needed). Without this, every clone pays ~2.3s
+	// of journal replay on mount.
+	_ = runCmd("sync")
+	_ = runCmd("xfs_freeze", "-f", goldenMount)
 
-	// Take snapshot for future clones
+	// Take snapshot while filesystem is frozen (clean journal)
 	snapName := fmt.Sprintf("%s@gen%d", goldenName, nextGeneration)
 	if err := runCmd("zfs", "snapshot", snapName); err != nil {
+		_ = runCmd("xfs_freeze", "-u", goldenMount)
+		_ = runCmd("umount", goldenMount)
+		_ = os.Remove(goldenMount)
 		return fmt.Errorf("zfs snapshot %s failed: %w", snapName, err)
 	}
+
+	// Thaw and unmount
+	_ = runCmd("xfs_freeze", "-u", goldenMount)
+	_ = runCmd("umount", goldenMount)
+	_ = os.Remove(goldenMount)
 
 	log.Info().
 		Str("project_id", projectID).
@@ -704,17 +726,25 @@ func MigrateGoldenToZvol(projectID string) error {
 		return fmt.Errorf("seed failed: %w", err)
 	}
 
-	// Unmount
+	// Flush XFS journal before snapshot — ensures clones mount instantly
+	_ = runCmd("sync")
+	_ = runCmd("xfs_freeze", "-f", mountPath)
+
+	// Take snapshot while filesystem is frozen (clean journal)
+	snapName := fmt.Sprintf("%s@gen1", goldenName)
+	if err := runCmd("zfs", "snapshot", snapName); err != nil {
+		_ = runCmd("xfs_freeze", "-u", mountPath)
+		_ = runCmd("umount", mountPath)
+		_ = os.Remove(mountPath)
+		return fmt.Errorf("zfs snapshot failed: %w", err)
+	}
+
+	// Thaw and unmount
+	_ = runCmd("xfs_freeze", "-u", mountPath)
 	if err := runCmd("umount", mountPath); err != nil {
 		return fmt.Errorf("umount after seed failed: %w", err)
 	}
 	_ = os.Remove(mountPath)
-
-	// Snapshot
-	snapName := fmt.Sprintf("%s@gen1", goldenName)
-	if err := runCmd("zfs", "snapshot", snapName); err != nil {
-		return fmt.Errorf("zfs snapshot failed: %w", err)
-	}
 
 	log.Info().
 		Str("project_id", projectID).
@@ -830,10 +860,18 @@ func seedZvolFromGoldenDir(projectID, zvolMountPath string) error {
 
 // mountZvol mounts a zvol at the given path.
 func mountZvol(zvolName, mountPath string) error {
+	return mountZvolWithOptions(zvolName, mountPath, "")
+}
+
+// mountZvolWithOptions mounts a zvol with optional mount options (e.g. "nouuid" for XFS).
+func mountZvolWithOptions(zvolName, mountPath, options string) error {
 	if err := osMkdirAll(mountPath, 0755); err != nil {
 		return fmt.Errorf("failed to create mount point %s: %w", mountPath, err)
 	}
 	devPath := zvolDevPath(zvolName)
+	if options != "" {
+		return runCmd("mount", "-o", options, devPath, mountPath)
+	}
 	return runCmd("mount", devPath, mountPath)
 }
 
