@@ -2558,23 +2558,10 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 		}
 	}
 
-	// If we have a helix session, clear the stale ZedThreadID and update the interaction
+	// If we have a helix session, update the interaction to show error
 	if helixSessionID != "" {
 		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
 		if err == nil && helixSession != nil {
-			// Clear the stale ZedThreadID so the next message creates a fresh thread
-			// instead of trying to resume a session that no longer exists (e.g., after
-			// container restart wiped Claude Code's session storage).
-			if helixSession.Metadata.ZedThreadID != "" {
-				log.Info().
-					Str("helix_session_id", helixSessionID).
-					Str("stale_zed_thread_id", helixSession.Metadata.ZedThreadID).
-					Msg("🧹 [HELIX] Clearing stale ZedThreadID after thread_load_error")
-				helixSession.Metadata.ZedThreadID = ""
-				apiServer.Controller.Options.Store.UpdateSessionMetadata(
-					context.Background(), helixSessionID, helixSession.Metadata,
-				)
-			}
 			// Find the waiting interaction and mark it with error
 			interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
 				SessionID:    helixSessionID,
