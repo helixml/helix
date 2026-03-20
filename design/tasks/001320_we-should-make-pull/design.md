@@ -243,3 +243,41 @@ func getSpecDocsBaseURL(repo *types.GitRepository, designDocPath string) string 
 2. Approve implementation, verify PR uses custom title/description
 3. Test fallback: task without `pull_request.md` uses task.Name/Description
 4. Test parsing edge cases: empty file, no title, no description
+
+## Implementation Notes
+
+### Files Modified
+
+1. **`api/pkg/services/git_http_server.go`**
+   - Added `parsePullRequestMarkdown` - parses markdown content into title/description
+   - Added `getPullRequestContent` - reads `pull_request.md` from helix-specs branch using `git show`
+   - Added `getSpecDocsBaseURL` - builds URLs for GitHub, GitLab, ADO, Bitbucket
+   - Added `buildPRFooter` - combines "Open in Helix" link, spec doc links, and branding
+   - Modified `ensurePullRequest` to use custom content when available
+
+2. **`api/pkg/server/spec_task_workflow_handlers.go`**
+   - Added similar helper functions (`getPullRequestContentForTask`, `parsePullRequestMarkdownForTask`, etc.)
+   - Modified `ensurePullRequestForTask` to use custom content and footer
+   - Added `store` import for `GetOrganizationQuery`
+
+3. **`api/pkg/services/agent_instruction_service.go`**
+   - Added "Pull Request Description" section to `approvalPromptTemplate`
+   - Instructs agent to create `pull_request.md` with title, summary, changes, testing
+
+4. **`api/pkg/services/git_http_server_test.go`**
+   - Added `TestParsePullRequestMarkdown` - 8 test cases covering edge cases
+   - Added `TestGetSpecDocsBaseURL` - 7 test cases for all repo types
+
+### Key Decisions
+
+- Used `git show helix-specs:{path}` to read files from helix-specs branch without checkout
+- Kept parsing simple: first line = title (strip `# ` prefix), after first blank line = description
+- Made "Open in Helix" link use `org.Name` (the URL slug) not `OrganizationID`
+- Footer always includes Helix branding; spec doc links only when URL can be constructed
+- GetOrganization requires `&store.GetOrganizationQuery{ID: task.OrganizationID}` not just the ID string
+
+### Gotchas
+
+- `store.GetOrganization` takes a pointer to `GetOrganizationQuery`, not a string ID
+- Need to import `store` package in `spec_task_workflow_handlers.go` for the query type
+- The `os/exec` package needed to be added to imports for `exec.Command`
