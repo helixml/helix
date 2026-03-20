@@ -306,7 +306,8 @@ The WebSocket sync protocol between Helix (Go) and Zed (Rust) has E2E tests that
 
 ```bash
 # 1. Build Zed binary (if not already built)
-cd ~/pm/helix && ./stack build-zed release
+#    Use 'dev' for faster iteration (~3min), 'release' for CI/production (~12min)
+cd ~/pm/helix && ./stack build-zed dev
 
 # 2. Copy Zed binary to e2e-test dir
 cp ~/pm/helix/zed-build/zed ~/pm/zed/crates/external_websocket_sync/e2e-test/zed-binary
