@@ -232,6 +232,33 @@ Example addition to design.md:
 
 Don't treat the original plan as fixed - update it based on what you learn.
 
+## Pull Request Description (IMPORTANT)
+
+Before you finish, create a **pull_request.md** file in your task directory. This will be used as the PR title and description when the pull request is created.
+
+` + "```bash" + `
+cat > /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/pull_request.md << 'EOF'
+# Clear, concise PR title (50 chars or less)
+
+## Summary
+Brief description of what this PR does and why.
+
+## Changes
+- Key change 1
+- Key change 2
+
+## Testing
+How this was tested (if applicable).
+EOF
+cd /home/retro/work/helix-specs && git add -A && git commit -m "Add PR description" && git push origin helix-specs
+` + "```" + `
+
+**Tips for good PR descriptions:**
+- Title should be imperative ("Add feature" not "Added feature")
+- Summary explains the "what" and "why"
+- Changes list the key modifications
+- Keep it concise - reviewers appreciate brevity
+
 ---
 
 **Task:** {{.TaskName}}

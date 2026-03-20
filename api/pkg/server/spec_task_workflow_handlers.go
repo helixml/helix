@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -306,6 +309,114 @@ func (s *HelixAPIServer) branchHasCommitsAhead(ctx context.Context, repoPath, fe
 	return ahead > 0, nil
 }
 
+// getPullRequestContentForTask reads pull_request.md from helix-specs branch for a task.
+// Returns (title, description, found). If not found or error, returns empty strings and false.
+func (s *HelixAPIServer) getPullRequestContentForTask(repoPath string, task *types.SpecTask) (string, string, bool) {
+	if task.DesignDocPath == "" {
+		return "", "", false
+	}
+
+	// Read from helix-specs branch
+	filePath := "design/tasks/" + task.DesignDocPath + "/pull_request.md"
+	cmd := exec.Command("git", "show", "helix-specs:"+filePath)
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		// File doesn't exist or other error - this is expected for tasks without pull_request.md
+		return "", "", false
+	}
+
+	return parsePullRequestMarkdownForTask(string(output))
+}
+
+// parsePullRequestMarkdownForTask parses a pull_request.md file content into title and description.
+// Format: First line (with optional "# " prefix) = title, everything after first blank line = description.
+func parsePullRequestMarkdownForTask(content string) (string, string, bool) {
+	lines := strings.Split(strings.TrimSpace(content), "\n")
+	if len(lines) == 0 {
+		return "", "", false
+	}
+
+	// First line is title (strip # prefix if present)
+	title := strings.TrimSpace(lines[0])
+	title = strings.TrimPrefix(title, "# ")
+	title = strings.TrimSpace(title)
+
+	if title == "" {
+		return "", "", false
+	}
+
+	// Find first blank line, everything after is description
+	var descLines []string
+	foundBlank := false
+	for i := 1; i < len(lines); i++ {
+		if !foundBlank && strings.TrimSpace(lines[i]) == "" {
+			foundBlank = true
+			continue
+		}
+		if foundBlank {
+			descLines = append(descLines, lines[i])
+		}
+	}
+
+	description := strings.TrimSpace(strings.Join(descLines, "\n"))
+	return title, description, true
+}
+
+// getSpecDocsBaseURLForTask builds a URL to view spec docs in the external repo's web UI.
+func getSpecDocsBaseURLForTask(repo *types.GitRepository, designDocPath string) string {
+	if repo.ExternalURL == "" {
+		return ""
+	}
+
+	baseURL := strings.TrimSuffix(repo.ExternalURL, ".git")
+
+	switch repo.ExternalType {
+	case types.ExternalRepositoryTypeGitHub:
+		return fmt.Sprintf("%s/blob/helix-specs/design/tasks/%s", baseURL, designDocPath)
+	case types.ExternalRepositoryTypeGitLab:
+		return fmt.Sprintf("%s/-/blob/helix-specs/design/tasks/%s", baseURL, designDocPath)
+	case types.ExternalRepositoryTypeADO:
+		return fmt.Sprintf("%s?path=/design/tasks/%s&version=GBhelix-specs", baseURL, designDocPath)
+	case types.ExternalRepositoryTypeBitbucket:
+		return fmt.Sprintf("%s/src/helix-specs/design/tasks/%s", baseURL, designDocPath)
+	default:
+		return ""
+	}
+}
+
+// buildPRFooterForTask generates the PR description footer.
+func (s *HelixAPIServer) buildPRFooterForTask(ctx context.Context, repo *types.GitRepository, task *types.SpecTask) string {
+	var parts []string
+
+	// "Open in Helix" link
+	helixBaseURL := s.Cfg.WebServer.URL
+	orgName := ""
+	if task.OrganizationID != "" {
+		if org, err := s.Store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: task.OrganizationID}); err == nil && org != nil {
+			orgName = org.Name
+		}
+	}
+	if helixBaseURL != "" && orgName != "" && task.ProjectID != "" && task.ID != "" {
+		helixTaskURL := fmt.Sprintf("%s/orgs/%s/projects/%s/tasks/%s",
+			strings.TrimSuffix(helixBaseURL, "/"), orgName, task.ProjectID, task.ID)
+		parts = append(parts, fmt.Sprintf("🔗 [Open in Helix](%s)", helixTaskURL))
+	}
+
+	// Spec doc links
+	if task.DesignDocPath != "" {
+		if specDocsURL := getSpecDocsBaseURLForTask(repo, task.DesignDocPath); specDocsURL != "" {
+			parts = append(parts, fmt.Sprintf("📋 [Requirements](%s/requirements.md) | [Design](%s/design.md) | [Tasks](%s/tasks.md)",
+				specDocsURL, specDocsURL, specDocsURL))
+		}
+	}
+
+	// Helix branding
+	parts = append(parts, "🚀 Built with [Helix](https://helix.ml)")
+
+	return "---\n" + strings.Join(parts, " | ")
+}
+
 // ensurePullRequestForTask creates a PR for a spec task if one doesn't exist
 func (s *HelixAPIServer) ensurePullRequestForTask(ctx context.Context, repo *types.GitRepository, task *types.SpecTask) error {
 	if repo.ExternalURL == "" {
@@ -343,9 +454,23 @@ func (s *HelixAPIServer) ensurePullRequestForTask(ctx context.Context, repo *typ
 		}
 	}
 
+	// Try to get custom PR content from pull_request.md
+	title, description, found := s.getPullRequestContentForTask(repo.LocalPath, task)
+	if !found {
+		// Fallback to existing behavior
+		title = task.Name
+		description = task.Description
+		log.Debug().Str("task_id", task.ID).Msg("No pull_request.md found, using task name/description")
+	} else {
+		log.Info().Str("task_id", task.ID).Msg("Using pull_request.md for PR content")
+	}
+
+	// Append footer
+	footer := s.buildPRFooterForTask(ctx, repo, task)
+	description = description + "\n\n" + footer
+
 	// Create new PR
-	description := fmt.Sprintf("> **Helix**: %s\n\n---\n[Created by Helix](https://helix.ml)\n", task.Description)
-	prID, err := s.gitRepositoryService.CreatePullRequest(ctx, repo.ID, task.Name, description, branch, repo.DefaultBranch)
+	prID, err := s.gitRepositoryService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch)
 	if err != nil {
 		return fmt.Errorf("failed to create PR: %w", err)
 	}
