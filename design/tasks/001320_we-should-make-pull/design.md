@@ -133,17 +133,15 @@ title, description, found := s.getPullRequestContent(ctx, repo.LocalPath, task)
 if !found {
     // Fallback to existing behavior
     title = task.Name
-    description = fmt.Sprintf("> **Helix**: %s\n", task.Description)
+    description = fmt.Sprintf("> 🚀 Built with [Helix](https://helix.ml)\n\n%s\n", task.Description)
     log.Debug().Str("task_id", task.ID).Msg("No pull_request.md found, using task name/description")
 } else {
     log.Info().Str("task_id", task.ID).Msg("Using pull_request.md for PR content")
 }
 
-// Append links to spec documents
-specLinks := buildSpecDocLinks(repo, task)
-if specLinks != "" {
-    description = description + "\n\n" + specLinks
-}
+// Append footer with spec doc links (if available) and Helix branding
+footer := buildPRFooter(repo, task)
+description = description + "\n\n" + footer
 
 prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch)
 ```
@@ -151,25 +149,25 @@ prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, title, description
 **New helper to build spec doc links:**
 
 ```go
-// buildSpecDocLinks generates markdown links to the spec documents in helix-specs
-func buildSpecDocLinks(repo *types.GitRepository, task *types.SpecTask) string {
-    if task.DesignDocPath == "" {
-        return ""
+// buildPRFooter generates the PR description footer with spec links (if available) and Helix branding
+func buildPRFooter(repo *types.GitRepository, task *types.SpecTask) string {
+    baseURL := ""
+    if task.DesignDocPath != "" {
+        baseURL = getSpecDocsBaseURL(repo, task.DesignDocPath)
     }
     
-    // Build URL base - for GitHub repos, link to the helix-specs branch
-    // Format: https://github.com/{owner}/{repo}/blob/helix-specs/design/tasks/{task_dir}/
-    baseURL := getSpecDocsBaseURL(repo, task.DesignDocPath)
-    if baseURL == "" {
-        return ""
-    }
-    
-    return fmt.Sprintf(`---
-📋 **Spec Documents**
+    if baseURL != "" {
+        // Full footer with spec doc links and Helix branding
+        return fmt.Sprintf(`---
+📋 **Spec Documents** | 🚀 Built with [Helix](https://helix.ml)
 - [Requirements](%s/requirements.md)
 - [Design](%s/design.md)
 - [Tasks](%s/tasks.md)
 `, baseURL, baseURL, baseURL)
+    }
+    
+    // Just Helix branding when no spec links available
+    return "---\n🚀 Built with [Helix](https://helix.ml)"
 }
 
 func getSpecDocsBaseURL(repo *types.GitRepository, designDocPath string) string {
