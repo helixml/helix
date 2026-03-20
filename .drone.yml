@@ -2088,10 +2088,11 @@ steps:
         rm -f "$${E2E_DIR}/zed-binary" "$${E2E_DIR}/helix-go.mod" "$${E2E_DIR}/helix-go.sum" || true
         rm -rf "$${E2E_DIR}/helix-api" || true
 
-        echo "Running E2E test..."
+        echo "Running E2E test (agents: zed-agent, claude)..."
         docker run --rm \
           -e ANTHROPIC_API_KEY="$${ANTHROPIC_API_KEY}" \
-          -e TEST_TIMEOUT=240 \
+          -e E2E_AGENTS="zed-agent,claude" \
+          -e TEST_TIMEOUT=480 \
           zed-ws-e2e:$${ZED_COMMIT}
 
         echo "Zed WebSocket E2E test passed"
