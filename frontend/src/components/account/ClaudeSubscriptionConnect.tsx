@@ -161,8 +161,8 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
           fullWidth
           multiline
           rows={3}
-          label="Setup Token"
-          placeholder="Paste the token from claude setup-token here..."
+          label="Your Token"
+          placeholder="Paste your token here..."
           value={tokenValue}
           onChange={(e) => setTokenValue(e.target.value)}
           variant="outlined"
