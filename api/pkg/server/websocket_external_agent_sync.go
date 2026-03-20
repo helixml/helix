@@ -1421,17 +1421,27 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 	// Look up the session to get its ZedThreadID - we want to continue in the existing thread
 	// instead of creating a new one. This maintains the 1:1 mapping between Zed threads and Helix sessions.
 	var acpThreadID interface{} = nil
+	var agentName string
 	session, err := apiServer.Controller.Options.Store.GetSession(context.Background(), sessionID)
-	if err == nil && session != nil && session.Metadata.ZedThreadID != "" {
-		acpThreadID = session.Metadata.ZedThreadID
-		log.Info().
-			Str("session_id", sessionID).
-			Str("zed_thread_id", session.Metadata.ZedThreadID).
-			Msg("🔗 [HELIX] Using existing ZedThreadID for chat message")
+	if err == nil && session != nil {
+		agentName = apiServer.getAgentNameForSession(context.Background(), session)
+		if session.Metadata.ZedThreadID != "" {
+			acpThreadID = session.Metadata.ZedThreadID
+			log.Info().
+				Str("session_id", sessionID).
+				Str("zed_thread_id", session.Metadata.ZedThreadID).
+				Str("agent_name", agentName).
+				Msg("🔗 [HELIX] Using existing ZedThreadID for chat message")
+		} else {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("agent_name", agentName).
+				Msg("🆕 [HELIX] No ZedThreadID found, will create new thread")
+		}
 	} else {
 		log.Info().
 			Str("session_id", sessionID).
-			Msg("🆕 [HELIX] No ZedThreadID found, will create new thread")
+			Msg("🆕 [HELIX] No session found, will create new thread")
 	}
 
 	command := types.ExternalAgentCommand{
@@ -1440,6 +1450,7 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 			"message":       message,
 			"request_id":    requestID,
 			"acp_thread_id": acpThreadID, // Use existing thread if available, nil = create new
+			"agent_name":    agentName,   // Which agent to use (e.g., "claude", "qwen", "zed-agent")
 		},
 	}
 
