@@ -3,6 +3,7 @@ import useRouter from './useRouter'
 import useAccount from './useAccount'
 import { useGetConfig } from '../services/userService'
 import { useGetWallet } from '../services/useBilling'
+import { useSettingsDialog } from '../contexts/settingsDialog'
 
 interface WalletWithCancelField {
   subscription_status?: string
@@ -19,6 +20,7 @@ interface WalletWithCancelField {
 export function useSubscriptionGate() {
   const router = useRouter()
   const account = useAccount()
+  const settingsDialog = useSettingsDialog()
   const { data: serverConfig, isLoading: isLoadingConfig } = useGetConfig()
 
   const orgId = router.params.org_id || account.organizationTools.organization?.id
@@ -41,9 +43,9 @@ export function useSubscriptionGate() {
     if (orgId) {
       router.navigate('org_billing', { org_id: orgId })
     } else {
-      router.navigate('account')
+      settingsDialog.openDialog('account')
     }
-  }, [orgId, router])
+  }, [orgId, router, settingsDialog])
 
   return {
     paywallActive,

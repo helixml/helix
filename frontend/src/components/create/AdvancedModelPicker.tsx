@@ -213,7 +213,18 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
     if (allModels.length > 0) {
       // If no model is selected, select the first one of the right type (only if autoSelectFirst is enabled)
       if (!selectedModelId && autoSelectFirst) {
-        const firstModel = allModels.find(model => model.enabled && model.type === effectiveType);
+        // Try recommended models first, in priority order
+        let firstModel: ModelWithProvider | undefined;
+        if (recommendedModels.length > 0) {
+          for (const recId of recommendedModels) {
+            firstModel = allModels.find(model => model.id === recId && model.enabled && model.type === effectiveType);
+            if (firstModel) break;
+          }
+        }
+        // Fall back to first available model of the right type
+        if (!firstModel) {
+          firstModel = allModels.find(model => model.enabled && model.type === effectiveType);
+        }
         if (firstModel && firstModel.id) {
           onSelectModel(firstModel.provider?.name || '', firstModel.id);
         }

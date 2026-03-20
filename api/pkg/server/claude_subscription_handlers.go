@@ -3,11 +3,13 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -476,7 +478,6 @@ func (apiServer *HelixAPIServer) startClaudeLogin(_ http.ResponseWriter, req *ht
 			Stream:       true,
 			AgentType:    "zed_external",
 			SessionRole:  "exploratory",
-			DesiredState: types.DesiredStateRunning,
 		},
 	}
 
@@ -534,6 +535,7 @@ func (apiServer *HelixAPIServer) startClaudeLogin(_ http.ResponseWriter, req *ht
 type ClaudePollLoginResponse struct {
 	Found       bool   `json:"found"`
 	Credentials string `json:"credentials,omitempty"` // Raw credentials JSON
+	URL         string `json:"url,omitempty"`         // OAuth URL for native browser
 }
 
 // @Summary Poll for Claude login credentials
@@ -566,71 +568,106 @@ func (apiServer *HelixAPIServer) pollClaudeLogin(_ http.ResponseWriter, req *htt
 		return nil, system.NewHTTPError403("access denied")
 	}
 
-	// Connect to desktop container via RevDial and read credentials file
 	runnerID := fmt.Sprintf("desktop-%s", sessionID)
-	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+
+	// Check for credentials first (takes priority over URL)
+	credOutput, credErr := apiServer.execInContainer(req.Context(), runnerID,
+		[]string{"cat", "/home/retro/.claude/.credentials.json"})
+	if credErr == nil && credOutput != "" {
+		var credCheck map[string]interface{}
+		if err := json.Unmarshal([]byte(credOutput), &credCheck); err == nil {
+			// Check for either claudeAiOauth wrapper or direct accessToken
+			if _, ok := credCheck["claudeAiOauth"]; ok {
+				return &ClaudePollLoginResponse{Found: true, Credentials: credOutput}, nil
+			}
+			if _, ok := credCheck["accessToken"]; ok {
+				return &ClaudePollLoginResponse{Found: true, Credentials: credOutput}, nil
+			}
+		}
+	}
+
+	// No credentials yet — check for OAuth URL from claude auth login stdout.
+	// The stdout contains a fallback URL with platform.claude.com/oauth/code/callback
+	// redirect that works from any browser. We parse it from the "If the browser
+	// didn't open, visit:" line. The wrapper script sets NO_COLOR=1 to strip ANSI codes.
+	stdoutOutput, stdoutErr := apiServer.execInContainer(req.Context(), runnerID,
+		[]string{"cat", "/tmp/claude-auth-stdout.txt"})
+	if stdoutErr == nil && stdoutOutput != "" {
+		for _, line := range strings.Split(stdoutOutput, "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "If the browser didn't open, visit:") {
+				url := strings.TrimSpace(strings.TrimPrefix(line, "If the browser didn't open, visit:"))
+				if strings.HasPrefix(url, "https://") {
+					return &ClaudePollLoginResponse{Found: false, URL: url}, nil
+				}
+			}
+			if strings.HasPrefix(line, "https://claude.ai/oauth") {
+				return &ClaudePollLoginResponse{Found: false, URL: line}, nil
+			}
+		}
+	}
+
+	// Fallback: read the URL captured by helix-capture-browser via BROWSER env var.
+	// This URL has a localhost redirect that only works inside the container, but
+	// it's better than nothing if the stdout fallback message is suppressed.
+	urlOutput, urlErr := apiServer.execInContainer(req.Context(), runnerID,
+		[]string{"cat", "/tmp/claude-auth-url.txt"})
+	if urlErr == nil && strings.HasPrefix(strings.TrimSpace(urlOutput), "https://") {
+		return &ClaudePollLoginResponse{Found: false, URL: strings.TrimSpace(urlOutput)}, nil
+	}
+
+	return &ClaudePollLoginResponse{Found: false}, nil
+}
+
+// execInContainer runs a command inside a desktop container via RevDial and
+// returns the stdout output. Returns an error if the command fails or the
+// container is not reachable.
+func (apiServer *HelixAPIServer) execInContainer(ctx context.Context, runnerID string, command []string) (string, error) {
+	revDialConn, err := apiServer.connman.Dial(ctx, runnerID)
 	if err != nil {
-		// Container not ready yet
-		return &ClaudePollLoginResponse{Found: false}, nil
+		return "", fmt.Errorf("container not ready: %w", err)
 	}
 	defer revDialConn.Close()
 
-	// Execute: cat /home/retro/.claude/.credentials.json
 	execReq := map[string]interface{}{
-		"command": []string{"cat", "/home/retro/.claude/.credentials.json"},
+		"command": command,
 		"timeout": 5,
 	}
 	execBody, _ := json.Marshal(execReq)
 
 	httpReq, err := http.NewRequest("POST", "http://localhost:9876/exec", bytes.NewReader(execBody))
 	if err != nil {
-		return nil, system.NewHTTPError500("failed to create exec request")
+		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	if err := httpReq.Write(revDialConn); err != nil {
-		return &ClaudePollLoginResponse{Found: false}, nil
+		return "", fmt.Errorf("failed to write request: %w", err)
 	}
 
 	execResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
 	if err != nil {
-		return &ClaudePollLoginResponse{Found: false}, nil
+		return "", fmt.Errorf("failed to read response: %w", err)
 	}
 	defer execResp.Body.Close()
 
 	bodyBytes, err := io.ReadAll(execResp.Body)
 	if err != nil {
-		return &ClaudePollLoginResponse{Found: false}, nil
+		return "", fmt.Errorf("failed to read body: %w", err)
 	}
 
-	var execResult struct {
+	var result struct {
 		Success  bool   `json:"success"`
 		Output   string `json:"output"`
 		ExitCode int    `json:"exit_code"`
 	}
-	if err := json.Unmarshal(bodyBytes, &execResult); err != nil {
-		return &ClaudePollLoginResponse{Found: false}, nil
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	if !execResult.Success || execResult.ExitCode != 0 || execResult.Output == "" {
-		return &ClaudePollLoginResponse{Found: false}, nil
+	if !result.Success || result.ExitCode != 0 {
+		return "", fmt.Errorf("command failed: exit %d", result.ExitCode)
 	}
 
-	// Validate it's valid JSON with expected structure
-	var credCheck map[string]interface{}
-	if err := json.Unmarshal([]byte(execResult.Output), &credCheck); err != nil {
-		return &ClaudePollLoginResponse{Found: false}, nil
-	}
-
-	// Check for either claudeAiOauth wrapper or direct accessToken
-	if _, ok := credCheck["claudeAiOauth"]; !ok {
-		if _, ok := credCheck["accessToken"]; !ok {
-			return &ClaudePollLoginResponse{Found: false}, nil
-		}
-	}
-
-	return &ClaudePollLoginResponse{
-		Found:       true,
-		Credentials: execResult.Output,
-	}, nil
+	return result.Output, nil
 }

@@ -73,7 +73,7 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
 	}
 
-	_, err = s.authorizeOrgMember(ctx, user, org.ID)
+	orgMembership, err := s.authorizeOrgMember(ctx, user, org.ID)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
@@ -86,7 +86,21 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	return projects, nil
+	// Org owners see all projects
+	if orgMembership.Role == types.OrganizationRoleOwner {
+		return projects, nil
+	}
+
+	// Non-owners only see projects they have access to
+	var authorizedProjects []*types.Project
+	for _, project := range projects {
+		if err := s.authorizeUserToProject(ctx, user, project, types.ActionGet); err != nil {
+			continue
+		}
+		authorizedProjects = append(authorizedProjects, project)
+	}
+
+	return authorizedProjects, nil
 }
 
 // getProject godoc
@@ -320,7 +334,6 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	// Attach the primary repository to the project
-	// This sets the project_id on the repository so it shows up in the project's repo list
 	if err := s.Store.AttachRepositoryToProject(r.Context(), created.ID, req.DefaultRepoID); err != nil {
 		log.Warn().
 			Err(err).
@@ -508,6 +521,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	}
 	if req.PullRequestReviewsEnabled != nil {
 		project.PullRequestReviewsEnabled = *req.PullRequestReviewsEnabled
+	}
+	if req.KoditEnabled != nil {
+		project.KoditEnabled = *req.KoditEnabled
 	}
 	// Track guidelines changes with versioning
 	if req.Guidelines != nil && *req.Guidelines != project.Guidelines {
@@ -982,6 +998,26 @@ func (s *HelixAPIServer) attachRepositoryToProject(_ http.ResponseWriter, r *htt
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	// Update default_repo_id if it is empty or stale (points to a repo no longer attached).
+	attachedRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{ProjectID: projectID})
+	if err != nil {
+		log.Error().Err(err).Str("project_id", projectID).Msg("failed to list repositories after attach")
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	defaultIsValid := false
+	for _, ar := range attachedRepos {
+		if ar.ID == project.DefaultRepoID {
+			defaultIsValid = true
+			break
+		}
+	}
+	if !defaultIsValid {
+		if err := s.Store.SetProjectPrimaryRepository(r.Context(), projectID, repoID); err != nil {
+			log.Error().Err(err).Str("project_id", projectID).Str("repo_id", repoID).Msg("failed to set default repo after attach")
+			return nil, system.NewHTTPError500(err.Error())
+		}
+	}
+
 	log.Info().
 		Str("user_id", user.ID).
 		Str("project_id", projectID).
@@ -1065,6 +1101,23 @@ func (s *HelixAPIServer) detachRepositoryFromProject(_ http.ResponseWriter, r *h
 			Str("repo_id", repoID).
 			Msg("failed to detach repository from project")
 		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// If the detached repo was the default, update default_repo_id to another attached repo or clear it.
+	if project.DefaultRepoID == repoID {
+		remainingRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{ProjectID: projectID})
+		if err != nil {
+			log.Error().Err(err).Str("project_id", projectID).Msg("failed to list repositories after detach")
+			return nil, system.NewHTTPError500(err.Error())
+		}
+		newDefault := ""
+		if len(remainingRepos) > 0 {
+			newDefault = remainingRepos[0].ID
+		}
+		if err := s.Store.SetProjectPrimaryRepository(r.Context(), projectID, newDefault); err != nil {
+			log.Error().Err(err).Str("project_id", projectID).Msg("failed to update default repo after detach")
+			return nil, system.NewHTTPError500(err.Error())
+		}
 	}
 
 	log.Info().
@@ -2227,4 +2280,89 @@ func (s *HelixAPIServer) deleteDockerCache(_ http.ResponseWriter, r *http.Reques
 	}
 
 	return map[string]string{"message": fmt.Sprintf("cache cleared on %d sandbox(es)", deleted)}, nil
+}
+
+// PinnedProjectsResponse is the response body for pin/unpin endpoints
+type PinnedProjectsResponse struct {
+	PinnedProjectIDs []string `json:"pinned_project_ids"`
+}
+
+// pinProject godoc
+// @Summary Pin a project
+// @Description Pin a project for the current user so it appears at the top of the projects board
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Success 200 {object} PinnedProjectsResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/pin [post]
+func (s *HelixAPIServer) pinProject(_ http.ResponseWriter, r *http.Request) (*PinnedProjectsResponse, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	// Verify project exists
+	_, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	userMeta, err := s.Store.EnsureUserMeta(r.Context(), types.UserMeta{ID: user.ID})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to load user meta: %v", err))
+	}
+
+	// Add project ID if not already pinned
+	for _, id := range userMeta.Config.PinnedProjectIDs {
+		if id == projectID {
+			return &PinnedProjectsResponse{PinnedProjectIDs: userMeta.Config.PinnedProjectIDs}, nil
+		}
+	}
+	userMeta.Config.PinnedProjectIDs = append(userMeta.Config.PinnedProjectIDs, projectID)
+
+	if _, err := s.Store.UpdateUserMeta(r.Context(), *userMeta); err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update user meta: %v", err))
+	}
+
+	return &PinnedProjectsResponse{PinnedProjectIDs: userMeta.Config.PinnedProjectIDs}, nil
+}
+
+// unpinProject godoc
+// @Summary Unpin a project
+// @Description Remove a project from the current user's pinned projects
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Success 200 {object} PinnedProjectsResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/pin [delete]
+func (s *HelixAPIServer) unpinProject(_ http.ResponseWriter, r *http.Request) (*PinnedProjectsResponse, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	userMeta, err := s.Store.EnsureUserMeta(r.Context(), types.UserMeta{ID: user.ID})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to load user meta: %v", err))
+	}
+
+	// Remove project ID from pinned list
+	updated := userMeta.Config.PinnedProjectIDs[:0]
+	for _, id := range userMeta.Config.PinnedProjectIDs {
+		if id != projectID {
+			updated = append(updated, id)
+		}
+	}
+	userMeta.Config.PinnedProjectIDs = updated
+
+	if _, err := s.Store.UpdateUserMeta(r.Context(), *userMeta); err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update user meta: %v", err))
+	}
+
+	return &PinnedProjectsResponse{PinnedProjectIDs: userMeta.Config.PinnedProjectIDs}, nil
 }

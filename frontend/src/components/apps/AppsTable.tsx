@@ -145,6 +145,20 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
         return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' }) // e.g., "Mon 3"
       })      
 
+      // Determine which triggers are enabled
+      const triggers = app.config.helix?.triggers || []
+      const enabledTriggers: string[] = []
+      for (const trigger of triggers) {
+        if (trigger.slack) enabledTriggers.push('Slack')
+        if (trigger.teams) enabledTriggers.push('Teams')
+        if (trigger.crisp) enabledTriggers.push('Crisp')
+        if (trigger.cron) enabledTriggers.push('Cron')
+        if (trigger.discord) enabledTriggers.push('Discord')
+        if (trigger.azure_devops) enabledTriggers.push('Azure DevOps')
+      }
+      // Deduplicate
+      const uniqueTriggers = [...new Set(enabledTriggers)]
+
       const skills = assistant?.tools && assistant.tools.length > 0 ? (
         <>
           {
@@ -266,6 +280,26 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
             alignItems: 'flex-start'
           }}>
             {skills}
+          </Box>
+        ),
+        triggers: (
+          <Box sx={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 0.5,
+          }}>
+            {uniqueTriggers.map((trigger) => (
+              <Chip
+                key={trigger}
+                label={trigger}
+                size="small"
+                variant="outlined"
+                sx={{
+                  color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
+                  border: `1px solid ${theme.palette.mode === 'dark' ? '#555' : '#ccc'}`,
+                }}
+              />
+            ))}
           </Box>
         ),
         usage: (
@@ -404,6 +438,10 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
         name: 'skills',
         title: 'Skills',       
       }, 
+      {
+        name: 'triggers',
+        title: 'Triggers',
+      },
       {
         name: 'usage',
         title: 'Token Usage',

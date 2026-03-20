@@ -527,6 +527,20 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		existingEndpoint.APIKey = ""
 	}
 
+	// Update Vertex AI fields if provided
+	if updatedEndpoint.VertexProjectID != nil {
+		existingEndpoint.VertexProjectID = strings.TrimSpace(*updatedEndpoint.VertexProjectID)
+	}
+	if updatedEndpoint.VertexRegion != nil {
+		existingEndpoint.VertexRegion = strings.TrimSpace(*updatedEndpoint.VertexRegion)
+	}
+	if updatedEndpoint.VertexCredentialsJSON != nil {
+		existingEndpoint.VertexCredentialsJSON = strings.TrimSpace(*updatedEndpoint.VertexCredentialsJSON)
+	}
+	if updatedEndpoint.VertexCredentialsFile != nil {
+		existingEndpoint.VertexCredentialsFile = strings.TrimSpace(*updatedEndpoint.VertexCredentialsFile)
+	}
+
 	// Update the endpoint
 	savedEndpoint, err := s.Store.UpdateProviderEndpoint(ctx, existingEndpoint)
 	if err != nil {

@@ -203,6 +203,11 @@ func getFilestore(ctx context.Context, cfg *config.ServerConfig) (filestore.File
 }
 
 func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
+	// Ensure all internal service hosts (Chrome, Typesense, Tika, SearXNG, etc.)
+	// bypass any configured HTTP proxy. This must run before any HTTP requests
+	// so that Go's proxy configuration includes these hosts.
+	cfg.EnsureNoProxyForInternalHosts()
+
 	// Validate license key if provided
 	var userLicense *license.License
 	if cfg.LicenseKey != "" {
@@ -420,7 +425,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		ragSettings := &types.RAGSettings{}
 		ragSettings.Typesense.URL = cfg.RAG.Typesense.URL
 		ragSettings.Typesense.APIKey = cfg.RAG.Typesense.APIKey
-		ragClient, err = rag.NewTypesense(ragSettings)
+		ragClient, err = rag.NewTypesense(ctx, ragSettings)
 		if err != nil {
 			return fmt.Errorf("failed to create typesense RAG client: %v", err)
 		}

@@ -42,6 +42,7 @@ import { styled, keyframes } from '@mui/material/styles'
 import LoginRegisterDialog from './LoginRegisterDialog'
 import { TypesAuthProvider } from '../../api/api'
 import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
+import { useSettingsDialog } from '../../contexts/settingsDialog'
 
 // Shimmer animation for login button
 const shimmer = keyframes`
@@ -151,6 +152,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const lightTheme = useLightTheme()
   const themeConfig = useThemeConfig()
   const isBigScreen = useIsBigScreen()
+  const settingsDialog = useSettingsDialog()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [loginDialogOpen, setLoginDialogOpen] = useState(false)
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
@@ -210,10 +212,28 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
 
 
   // Get the current organization from the URL or context
-  const defaultOrgName = `${account.user?.name} (Personal)`
   const currentOrg = account.organizationTools.organization
-  const currentOrgSlug = account.organizationTools.organization?.name || 'default'  // Use name (slug) instead of id
   const organizations = account.organizationTools.organizations
+
+  const listOrgs = useMemo(() => {
+    if (!account.user) return []
+    const loadedOrgs = organizations.map((org) => ({
+      id: org.id,
+      name: org.name,
+      display_name: org.display_name,
+      member: org.member,
+    }))
+    return loadedOrgs.sort((a, b) => Number(a.member === false) - Number(b.member === false))
+  }, [organizations, account.user])
+
+  // Fall back to localStorage or first accessible org when no org is selected via URL (e.g. /orgs page)
+  const currentOrgSlug = useMemo(() => {
+    if (currentOrg?.name) return currentOrg.name
+    const stored = localStorage.getItem(SELECTED_ORG_STORAGE_KEY)
+    if (stored && listOrgs.some(org => org.name === stored)) return stored
+    const firstAccessible = listOrgs.find(org => org.member !== false)
+    return firstAccessible?.name
+  }, [currentOrg?.name, listOrgs])
 
   // Add a minimum loading time to prevent flickering
   const [minLoadingComplete, setMinLoadingComplete] = useState(false)
@@ -235,44 +255,26 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     )
   }
 
-  const listOrgs = useMemo(() => {
-    if (!account.user) return []
-    const loadedOrgs = organizations.map((org) => ({
-      id: org.id,
-      name: org.name,
-      display_name: org.display_name,
-    }))
-    return loadedOrgs
-  }, [organizations, account.user])
 
+  // Auto-select first org when no org is saved in localStorage
+  useEffect(() => {
+    if (!account.user) return
+    if (listOrgs.length === 0) return
+    const storedOrg = localStorage.getItem(SELECTED_ORG_STORAGE_KEY)
+    if (storedOrg) return
+    const firstAccessibleOrg = listOrgs.find((org) => org.member !== false)
+    if (!firstAccessibleOrg) return
+    const firstOrgSlug = firstAccessibleOrg.name
+    localStorage.setItem(SELECTED_ORG_STORAGE_KEY, firstOrgSlug)
+    const useRouteName = router.name.startsWith('org_') ? router.name : 'org_projects'
+    const useParams = Object.assign({}, router.params, { org_id: firstOrgSlug })
+    router.navigate(useRouteName, useParams)
+  }, [listOrgs, account.user])
 
   // Handle org select, also remember the last org user has been in
-  const handleOrgSelect = (orgSlug: string | undefined) => {
-    if (orgSlug) {
-      localStorage.setItem(SELECTED_ORG_STORAGE_KEY, orgSlug)
-    } else {
-      localStorage.removeItem(SELECTED_ORG_STORAGE_KEY)
-    }
-    const isDefault = orgSlug === 'default'
-    // For personal <-> org transitions, navigate first
-    if (router.meta.orgRouteAware) {
-      if (isDefault) {
-        const useRouteName = router.name.replace(/^org_/i, '')
-        const useParams = Object.assign({}, router.params)
-        delete useParams.org_id
-        router.navigate(useRouteName, useParams)
-      } else {
-        const useRouteName = 'org_' + router.name.replace(/^org_/i, '')
-        const useParams = Object.assign({}, router.params, {
-          org_id: orgSlug,
-        })
-        router.navigate(useRouteName, useParams)
-      }
-    } else {
-      const routeName = isDefault ? 'projects' : 'org_projects'
-      const useParams = isDefault ? {} : { org_id: orgSlug }
-      router.navigate(routeName, useParams)
-    }
+  const handleOrgSelect = (orgSlug: string) => {
+    localStorage.setItem(SELECTED_ORG_STORAGE_KEY, orgSlug)
+    router.navigate('org_projects', { org_id: orgSlug })
     setDialogOpen(false)
   }
 
@@ -280,17 +282,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     // Navigate to orgs page to add a new org
     router.navigate('orgs')
     setDialogOpen(false)
-  }
-
-  const navigateTo = (route: string) => {
-    router.navigate(route)
-    // Close the appropriate menu state
-    if (sidebarVisible && menuItemsExpanded) {
-      setMenuItemsExpanded(false)
-    }
-    if (!sidebarVisible && compactExpanded) {
-      setCompactExpanded(false)
-    }
   }
 
   const openDocumentation = () => {
@@ -316,10 +307,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   }
 
   const handleProjectsClick = () => {
-    const isDefault = currentOrgSlug === 'default'
-    const routeName = isDefault ? 'projects' : 'org_projects'
-    const useParams = isDefault ? {} : { org_id: currentOrgSlug }
-    router.navigate(routeName, useParams)
+    if (currentOrgSlug) {
+      router.navigate('org_projects', { org_id: currentOrgSlug })
+    }
   }
 
   const postNavigateTo = () => {
@@ -431,8 +421,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       })
     }
 
-    // Add org-specific buttons if we're in an org context
-    if (currentOrgSlug !== 'default') {
+    // Add org settings button when we have an org context
+    if (currentOrgSlug) {
       baseButtons.push(
         {
           icon: <Settings size={NAV_BUTTON_SIZE} />,
@@ -446,6 +436,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
 
     return baseButtons
   }, [isActive, currentOrgSlug, account.serverConfig.providers_management_enabled])
+
+  const isAccountSettingsActive = settingsDialog.activeDialog === 'account'
 
   // Create the collapsed icon with multiple tiles
   const renderCollapsedIcon = () => {
@@ -484,68 +476,10 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       )
     }
 
-    // Determine which organization/context is currently active
-    const isPersonalActive = currentOrgSlug === 'default'
+    // Show the current organization tile prominently
     const currentOrgData = listOrgs.find(org => org.name === currentOrgSlug)
 
-    if (isPersonalActive) {
-      // Personal context is active - show personal tile prominently
-      tiles.push(
-        <Box
-          key="personal"
-          sx={{
-            position: 'absolute',
-            width: TILE_SIZE,
-            height: TILE_SIZE,
-            bgcolor: 'primary.main',
-            color: '#fff',
-            fontWeight: 'bold',
-            fontSize: '0.8rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRadius: 1,
-            border: '2px solid #00E5FF',
-            zIndex: 4,
-            top: 0,
-            left: 0,
-          }}
-        >
-          {account.user?.name?.charAt(0).toUpperCase() || '?'}
-        </Box>
-      )
-
-      // Show first few org tiles in background
-      for (let i = 0; i < Math.min(listOrgs.length, 2); i++) {
-        const org = listOrgs[i]
-        tiles.push(
-          <Box
-            key={org.id}
-            sx={{
-              position: 'absolute',
-              width: TILE_SIZE,
-              height: TILE_SIZE,
-              bgcolor: 'grey.600',
-              color: '#ccc',
-              fontWeight: 'bold',
-              fontSize: '0.8rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: 1,
-              border: '2px solid #4A5568',
-              top: (i + 1) * 3,
-              left: (i + 1) * 3,
-              zIndex: 3 - i,
-              opacity: 0.4,
-            }}
-          >
-            {(org.display_name || org.name || '?').charAt(0).toUpperCase()}
-          </Box>
-        )
-      }
-    } else if (currentOrgData) {
-      // Organization context is active - show current org prominently
+    if (currentOrgData) {
       tiles.push(
         <Box
           key={currentOrgData.id}
@@ -571,36 +505,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         </Box>
       )
 
-      // Show personal tile in background
-      tiles.push(
-        <Box
-          key="personal"
-          sx={{
-            position: 'absolute',
-            width: TILE_SIZE,
-            height: TILE_SIZE,
-            bgcolor: 'grey.800',
-            color: '#ccc',
-            fontWeight: 'bold',
-            fontSize: '0.8rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRadius: 1,
-            border: '2px solid #4A5568',
-            top: 3,
-            left: 3,
-            zIndex: 3,
-            opacity: 0.4,
-          }}
-        >
-          {account.user?.name?.charAt(0).toUpperCase() || '?'}
-        </Box>
-      )
-
       // Show other org tiles in background (exclude current org)
       const otherOrgs = listOrgs.filter(org => org.name !== currentOrgSlug)
-      for (let i = 0; i < Math.min(otherOrgs.length, 1); i++) {
+      for (let i = 0; i < Math.min(otherOrgs.length, 2); i++) {
         const org = otherOrgs[i]
         tiles.push(
           <Box
@@ -618,9 +525,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
               justifyContent: 'center',
               borderRadius: 1,
               border: '2px solid #4A5568',
-              top: 6,
-              left: 6,
-              zIndex: 2,
+              top: (i + 1) * 3,
+              left: (i + 1) * 3,
+              zIndex: 3 - i,
               opacity: 0.4,
             }}
           >
@@ -796,7 +703,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
             <Box
               onClick={(e) => {
                 e.stopPropagation()
-                navigateTo('dashboard')
+                settingsDialog.openDialog('admin')
                 // Close the appropriate menu state
                 if (sidebarVisible && menuItemsExpanded) {
                   setMenuItemsExpanded(false)
@@ -846,11 +753,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
             <Box
               onClick={(e) => {
                 e.stopPropagation()
-                if (currentOrgSlug !== 'default') {
-                  orgNavigateTo('org_billing', { org_id: currentOrgSlug })
-                } else {
-                  navigateTo('account')
-                }
+                settingsDialog.openDialog('account')
                 // Close the appropriate menu state
                 if (sidebarVisible && menuItemsExpanded) {
                   setMenuItemsExpanded(false)
@@ -867,10 +770,10 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 borderRadius: 1,
                 cursor: 'pointer',
                 transition: 'all 0.2s ease-in-out',
-                backgroundColor: isActive(['account', 'org_settings', 'org_billing']) ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
-                border: isActive(['account', 'org_settings', 'org_billing']) ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
+                backgroundColor: isAccountSettingsActive ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                border: isAccountSettingsActive ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
                 '&:hover': {
-                  backgroundColor: isActive(['account', 'org_settings', 'org_billing']) ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.05)',
+                  backgroundColor: isAccountSettingsActive ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.05)',
                 },
               }}
             >
@@ -878,19 +781,19 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 size={16}
                 style={{
                   marginRight: '10px',
-                  color: isActive(['account', 'org_billing']) ? lightTheme.textColor : lightTheme.textColorFaded
+                  color: isAccountSettingsActive ? lightTheme.textColor : lightTheme.textColorFaded
                 }}
               />
               <Typography
                 variant="body2"
                 sx={{
-                  color: isActive(['account', 'org_billing']) ? lightTheme.textColor : lightTheme.textColor,
+                  color: isAccountSettingsActive ? lightTheme.textColor : lightTheme.textColor,
                   fontSize: '0.875rem',
-                  fontWeight: isActive(['account', 'org_billing']) ? 600 : 400,
+                  fontWeight: isAccountSettingsActive ? 600 : 400,
                   lineHeight: 1.2,
                 }}
               >
-                Account & Billing
+                Account Settings
               </Typography>
             </Box>
           )}
@@ -900,7 +803,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
             <Box
               onClick={(e) => {
                 e.stopPropagation()
-                navigateTo('oauth-connections')
+                settingsDialog.openDialog('connected-services')
                 // Close the appropriate menu state
                 if (sidebarVisible && menuItemsExpanded) {
                   setMenuItemsExpanded(false)
@@ -1232,50 +1135,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         }}
       >
         <DialogContent sx={{ p: 0 }}>
-          {/* Personal Organization */}
-          <Box
-            onClick={() => handleOrgSelect('default')}
-            sx={{
-              p: 3,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 2,
-              backgroundColor: currentOrgSlug === 'default' ? 'rgba(0, 229, 255, 0.1)' : 'transparent',
-              '&:hover': {
-                backgroundColor: currentOrgSlug === 'default' ? 'rgba(0, 229, 255, 0.15)' : '#2D3748',
-              },
-            }}
-          >
-            <Box
-              sx={{
-                width: 40,
-                height: 40,
-                bgcolor: currentOrgSlug === 'default' ? 'primary.main' : 'grey.800',
-                color: '#fff',
-                fontWeight: 'bold',
-                fontSize: '1.2rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: 1,
-                border: currentOrgSlug === 'default' ? '2px solid #00E5FF' : '2px solid transparent',
-              }}
-            >
-              {account.user?.name?.charAt(0).toUpperCase() || '?'}
-            </Box>
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="body1" sx={{ color: '#F8FAFC', fontWeight: 500 }}>
-                {defaultOrgName}
-              </Typography>
-              <Typography variant="body2" sx={{ color: '#A0AEC0' }}>
-                Personal workspace
-              </Typography>
-            </Box>
-          </Box>
-
-          <Divider sx={{ bgcolor: '#2D3748' }} />
-
           {/* Organizations */}
           {listOrgs.map((org) => (
             <Box
@@ -1287,9 +1146,18 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 display: 'flex',
                 alignItems: 'center',
                 gap: 2,
-                backgroundColor: currentOrgSlug === org.name ? 'rgba(0, 229, 255, 0.1)' : 'transparent',
+                opacity: org.member === false ? 0.55 : 1,
+                backgroundColor:
+                  currentOrgSlug === org.name && org.member !== false
+                    ? 'rgba(0, 229, 255, 0.1)'
+                    : 'transparent',
                 '&:hover': {
-                  backgroundColor: currentOrgSlug === org.name ? 'rgba(0, 229, 255, 0.15)' : '#2D3748',
+                  backgroundColor:
+                    org.member === false
+                      ? 'transparent'
+                      : currentOrgSlug === org.name
+                        ? 'rgba(0, 229, 255, 0.15)'
+                        : '#2D3748',
                 },
               }}
             >
@@ -1297,25 +1165,41 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 sx={{
                   width: 40,
                   height: 40,
-                  bgcolor: currentOrgSlug === org.name ? 'primary.main' : 'grey.600',
-                  color: currentOrgSlug === org.name ? '#fff' : '#ccc',
+                  bgcolor:
+                    org.member === false
+                      ? 'grey.800'
+                      : currentOrgSlug === org.name
+                        ? 'primary.main'
+                        : 'grey.600',
+                  color:
+                    org.member === false
+                      ? '#94A3B8'
+                      : currentOrgSlug === org.name
+                        ? '#fff'
+                        : '#ccc',
                   fontWeight: 'bold',
                   fontSize: '1.2rem',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderRadius: 1,
-                  border: currentOrgSlug === org.name ? '2px solid #00E5FF' : '2px solid transparent',
+                  border:
+                    currentOrgSlug === org.name && org.member !== false
+                      ? '2px solid #00E5FF'
+                      : '2px solid transparent',
                 }}
               >
                 {(org.display_name || org.name || '?').charAt(0).toUpperCase()}
               </Box>
               <Box sx={{ flex: 1 }}>
-                <Typography variant="body1" sx={{ color: '#F8FAFC', fontWeight: 500 }}>
+                <Typography
+                  variant="body1"
+                  sx={{ color: org.member === false ? '#CBD5E1' : '#F8FAFC', fontWeight: 500 }}
+                >
                   {org.display_name || org.name}
                 </Typography>
                 <Typography variant="body2" sx={{ color: '#A0AEC0' }}>
-                  Organization workspace
+                  {org.member === false ? 'Not a member' : 'Organization workspace'}
                 </Typography>
               </Box>
             </Box>

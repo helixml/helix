@@ -1,6 +1,5 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { stringify as stringifyYaml } from 'yaml'
-import bluebird from 'bluebird'
 import {
   IApp,
   IAppFlatState,
@@ -8,15 +7,13 @@ import {
   IAssistantConfig,
   IKnowledgeSearchResult,
   IAssistantGPTScript,
-  IAssistantApi,
-  IAssistantZapier,
   IAccessGrant,
   CreateAccessGrantRequest,
   SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
 } from '../types'
 
-import { TypesSession, TypesAssistantMCP } from '../api/api'
+import { TypesSession, TypesAssistantMCP, TypesAssistantAPI, TypesAssistantZapier } from '../api/api'
 
 import {
   removeEmptyValues,
@@ -592,7 +589,7 @@ export const useApp = (appId: string) => {
    * 
    * 
    */   
-  const onSaveApiTool = useCallback((tool: IAssistantApi, index?: number) => {
+  const onSaveApiTool = useCallback((tool: TypesAssistantAPI, index?: number) => {
     if(!flatApp) return
     let newTools = flatApp.apiTools || []
     if(typeof index !== 'number') {
@@ -603,7 +600,7 @@ export const useApp = (appId: string) => {
     saveFlatApp({apiTools: newTools})
   }, [saveFlatApp, flatApp])
   
-  const onSaveZapierTool = useCallback((tool: IAssistantZapier, index?: number) => {
+  const onSaveZapierTool = useCallback((tool: TypesAssistantZapier, index?: number) => {
     if(!flatApp) return
     let newTools = flatApp.zapierTools || []
     if(typeof index !== 'number') {
@@ -868,7 +865,7 @@ export const useApp = (appId: string) => {
         showLoading: true,
       })
       
-      await bluebird.all([
+      await Promise.all([
         loadServerKnowledge(),
         // Load other data that doesn't depend on the app's organization status
         // endpointProviders.loadData(),

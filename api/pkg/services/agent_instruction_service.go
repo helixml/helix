@@ -17,13 +17,15 @@ import (
 type AgentInstructionService struct {
 	store         store.Store
 	messageSender SpecTaskMessageSender
+	koditService  KoditServicer
 }
 
 // NewAgentInstructionService creates a new agent instruction service
-func NewAgentInstructionService(store store.Store, messageSender SpecTaskMessageSender) *AgentInstructionService {
+func NewAgentInstructionService(store store.Store, messageSender SpecTaskMessageSender, koditService KoditServicer) *AgentInstructionService {
 	return &AgentInstructionService{
 		store:         store,
 		messageSender: messageSender,
+		koditService:  koditService,
 	}
 }
 
@@ -42,6 +44,8 @@ func getTaskDirName(task *types.SpecTask) string {
 // ApprovalPromptData contains all data for the approval/implementation prompt
 type ApprovalPromptData struct {
 	Guidelines            string // Formatted guidelines section
+	KoditSection          string // Dynamic MCP tool documentation from kodit (empty when disabled)
+	RepositorySection     string // Available repositories section (local + Kodit repos)
 	PrimaryRepoName       string // Name of the primary repository (e.g., "my-app")
 	TaskDirName           string // Design doc directory name
 	BranchName            string // Feature branch name
@@ -123,7 +127,7 @@ If you use an internal to-do tool instead of tasks.md, users cannot see your pro
 
 1. **/home/retro/work/helix-specs/** = Design docs and progress tracking (push to helix-specs branch)
 2. **/home/retro/work/{{.PrimaryRepoName}}/** = Code changes (push to feature branch) - THIS IS YOUR PRIMARY PROJECT
-
+{{.RepositorySection}}
 ## Task Checklist
 
 Your checklist: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/tasks.md
@@ -147,18 +151,9 @@ git add -A && git commit -m "Progress update" && git push origin helix-specs
 3. For each task in tasks.md: mark [~], push helix-specs, do the work, mark [x], push again
 4. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
 
-## Kodit MCP Server - Discover Patterns
-
-You have access to **Kodit**, an MCP server for code intelligence. Use it during implementation:
-
-- Find how similar features are implemented in other repos
-- Discover existing utilities, helpers, or patterns to reuse
-- Search private/internal codebases the organization has indexed
-- Understand conventions before writing new code
-
-When you find useful patterns via Kodit, document them in design.md so future cloned tasks benefit.
-
-## Visual Testing & Screenshots (For UI/Frontend Tasks)
+{{if .KoditSection}}
+{{.KoditSection}}
+{{end}}## Visual Testing & Screenshots (For UI/Frontend Tasks)
 
 You can test your UI changes and capture screenshots as proof of work:
 
@@ -236,6 +231,33 @@ Example addition to design.md:
 ` + "```" + `
 
 Don't treat the original plan as fixed - update it based on what you learn.
+
+## Pull Request Description (IMPORTANT)
+
+Before you finish, create a **pull_request.md** file in your task directory. This will be used as the PR title and description when the pull request is created.
+
+` + "```bash" + `
+cat > /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/pull_request.md << 'EOF'
+# Clear, concise PR title (50 chars or less)
+
+## Summary
+Brief description of what this PR does and why.
+
+## Changes
+- Key change 1
+- Key change 2
+
+## Testing
+How this was tested (if applicable).
+EOF
+cd /home/retro/work/helix-specs && git add -A && git commit -m "Add PR description" && git push origin helix-specs
+` + "```" + `
+
+**Tips for good PR descriptions:**
+- Title should be imperative ("Add feature" not "Added feature")
+- Summary explains the "what" and "why"
+- Changes list the key modifications
+- Keep it concise - reviewers appreciate brevity
 
 ---
 
@@ -317,7 +339,8 @@ git checkout {{.BaseBranch}} && git pull origin {{.BaseBranch}} && git merge {{.
 // This is the single source of truth for this prompt - used by WebSocket and database approaches
 // guidelines contains concatenated organization + project guidelines (can be empty)
 // primaryRepoName is the name of the primary project repository (e.g., "my-app")
-func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines, primaryRepoName string) string {
+// repoSection is the pre-built repository access section (from BuildRepositorySection)
+func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines, primaryRepoName, koditSection, repoSection string) string {
 	taskDirName := getTaskDirName(task)
 
 	// Build guidelines section if provided
@@ -370,6 +393,8 @@ The whole point of cloning is to SKIP re-asking questions that were already answ
 
 	data := ApprovalPromptData{
 		Guidelines:            guidelinesSection,
+		KoditSection:          koditSection,
+		RepositorySection:     repoSection,
 		PrimaryRepoName:       primaryRepoName,
 		TaskDirName:           taskDirName,
 		BranchName:            branchName,
@@ -484,8 +509,15 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	primaryRepoName string,
 ) error {
 	// Fetch guidelines from project and organization
-	guidelines := s.getGuidelinesForTask(ctx, task)
-	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName)
+	guidelines, project := s.getGuidelinesForTask(ctx, task)
+	koditDoc := ""
+	if project != nil && project.KoditEnabled {
+		koditDoc = s.koditService.MCPDocumentation()
+	}
+
+	// Build repository section
+	repoSection := s.buildRepositorySectionForTask(ctx, task, project)
+	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection)
 
 	log.Info().
 		Str("session_id", sessionID).
@@ -508,14 +540,14 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 }
 
 // getGuidelinesForTask fetches concatenated organization/user + project guidelines
-func (s *AgentInstructionService) getGuidelinesForTask(ctx context.Context, task *types.SpecTask) string {
+func (s *AgentInstructionService) getGuidelinesForTask(ctx context.Context, task *types.SpecTask) (string, *types.Project) {
 	if task.ProjectID == "" {
-		return ""
+		return "", nil
 	}
 
 	project, err := s.store.GetProject(ctx, task.ProjectID)
 	if err != nil || project == nil {
-		return ""
+		return "", nil
 	}
 
 	guidelines := ""
@@ -542,7 +574,44 @@ func (s *AgentInstructionService) getGuidelinesForTask(ctx context.Context, task
 		guidelines += project.Guidelines
 	}
 
-	return guidelines
+	return guidelines, project
+}
+
+// buildRepositorySectionForTask fetches project and org repos, then builds the repository section
+func (s *AgentInstructionService) buildRepositorySectionForTask(ctx context.Context, task *types.SpecTask, project *types.Project) string {
+	if task.ProjectID == "" {
+		return ""
+	}
+
+	// Fetch project repos
+	projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: task.ProjectID,
+	})
+	if err != nil {
+		return ""
+	}
+
+	// Fetch Kodit org repos if enabled
+	var koditOrgRepos []*types.GitRepository
+	if project != nil && project.KoditEnabled && project.OrganizationID != "" {
+		orgRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			OrganizationID: project.OrganizationID,
+		})
+		if err == nil {
+			for _, repo := range orgRepos {
+				if repo.KoditIndexing {
+					koditOrgRepos = append(koditOrgRepos, repo)
+				}
+			}
+		}
+	}
+
+	primaryRepoID := ""
+	if project != nil {
+		primaryRepoID = project.DefaultRepoID
+	}
+
+	return BuildRepositorySection(projectRepos, koditOrgRepos, primaryRepoID)
 }
 
 // SendImplementationReviewRequest notifies agent that implementation is ready for review

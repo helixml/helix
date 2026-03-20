@@ -11,18 +11,23 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import DeveloperBoardIcon from '@mui/icons-material/DeveloperBoard'
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney'
 import CodeIcon from '@mui/icons-material/Code'
+import QueueIcon from '@mui/icons-material/Queue'
 
-import useRouter from '../../hooks/useRouter'
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
 import { UsersIcon, BuildingIcon } from 'lucide-react'
 
-const AdminPanelSidebar: FC = () => {
-  const router = useRouter()
-  const { tab } = router.params
-  const currentTab = tab || 'llm_calls'
+interface AdminPanelSidebarProps {
+  activeTab?: string
+  onTabChange?: (tab: string) => void
+}
+
+const AdminPanelSidebar: FC<AdminPanelSidebarProps> = ({ activeTab = 'llm_calls', onTabChange }) => {
+  const currentTab = activeTab
 
   const handleNavigationClick = (tabValue: string) => {
-    router.setParams({ tab: tabValue })  
+    if (onTabChange) {
+      onTabChange(tabValue)
+    }
   }
 
   const sections: ContextSidebarSection[] = [
@@ -113,6 +118,13 @@ const AdminPanelSidebar: FC = () => {
           icon: <CodeIcon />,
           isActive: currentTab === 'kodit',
           onClick: () => handleNavigationClick('kodit')
+        },
+        {
+          id: 'kodit_queue',
+          label: 'Kodit Queue',
+          icon: <QueueIcon />,
+          isActive: currentTab === 'kodit_queue',
+          onClick: () => handleNavigationClick('kodit_queue')
         }
       ]
     },
@@ -141,6 +153,7 @@ const AdminPanelSidebar: FC = () => {
     <ContextSidebar 
       menuType="admin"
       sections={sections}
+      density="compact"
     />
   )
 }

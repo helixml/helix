@@ -36,6 +36,10 @@ export {
   projectExploratorySessionQueryKey,
   projectGuidelinesHistoryQueryKey,
   projectStartupScriptHistoryQueryKey,
+  usePinnedProjectIds,
+  usePinProject,
+  useUnpinProject,
+  pinnedProjectsQueryKey,
 } from './projectService';
 
 // Guidelines Service

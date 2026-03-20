@@ -86,19 +86,17 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
   const [loginSessionId, setLoginSessionId] = useState<string>('')
   const [loginStarting, setLoginStarting] = useState(false)
   const [loginCommandSent, setLoginCommandSent] = useState(false)
-  const [loginPolling, setLoginPolling] = useState(false)
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Start interactive login flow
   const handleStartLogin = useCallback(async () => {
     setLoginStarting(true)
     try {
-      const result = await api.post<{ session_id: string }>('/api/v1/claude-subscriptions/start-login', {})
+      const result = await api.post<{}, { session_id: string }>('/api/v1/claude-subscriptions/start-login', {})
       if (result && result.session_id) {
         setLoginSessionId(result.session_id)
         setLoginDialogOpen(true)
         setLoginCommandSent(false)
-        setLoginPolling(false)
       }
     } catch (err: any) {
       snackbar.error('Failed to start login session: ' + (err?.message || 'unknown error'))
@@ -128,7 +126,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
     setLoginDialogOpen(false)
     setLoginSessionId('')
     setLoginCommandSent(false)
-    setLoginPolling(false)
   }, [loginSessionId])
 
   // Clean up polling on unmount
@@ -156,7 +153,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                 color="warning"
                 onClick={handleStartLogin}
                 disabled={loginStarting}
-                startIcon={<ErrorOutlineIcon />}
+                startIcon={loginStarting ? <CircularProgress size={14} /> : <ErrorOutlineIcon />}
               >
                 {loginStarting ? 'Starting...' : 'Re-authenticate'}
               </Button>
@@ -186,7 +183,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
             onClick={handleStartLogin}
             disabled={loginStarting}
           >
-            {loginStarting ? 'Starting...' : 'Connect'}
+            {loginStarting ? <><CircularProgress size={14} sx={{ mr: 0.5 }} /> Starting...</> : 'Connect'}
           </Button>
         )}
 
@@ -261,7 +258,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
               onClick={handleStartLogin}
               disabled={loginStarting}
             >
-              {loginStarting ? 'Starting...' : isExpired ? 'Re-authenticate' : 'Re-login'}
+              {loginStarting ? <><CircularProgress size={14} sx={{ mr: 0.5 }} /> Starting...</> : isExpired ? 'Re-authenticate' : 'Re-login'}
             </Button>
           </>
         ) : (
@@ -271,7 +268,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
             onClick={handleStartLogin}
             disabled={loginStarting}
           >
-            {loginStarting ? 'Starting...' : 'Login with Browser'}
+            {loginStarting ? <><CircularProgress size={14} sx={{ mr: 0.5 }} /> Starting...</> : 'Login with Browser'}
           </Button>
         )}
       </Box>
@@ -309,6 +306,8 @@ interface ClaudeLoginDialogInnerProps {
   orgId?: string
 }
 
+const POLL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
+
 const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
   sessionId,
   open,
@@ -321,6 +320,7 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
 }) => {
   const api = useApi()
   const { isRunning } = useSandboxState(sessionId)
+  const [loginError, setLoginError] = useState<string | null>(null)
 
   // Once the desktop is running, send the `claude auth login` command
   useEffect(() => {
@@ -330,15 +330,14 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
       try {
         const apiClient = api.getApiClient()
         await apiClient.v1ExternalAgentsExecCreate(sessionId, {
-          command: ['claude', 'auth', 'login'],
+          command: ['helix-claude-auth-wrapper'],
           background: true,
-          env: {
-            WAYLAND_DISPLAY: 'wayland-0',
-          },
+          env: {},
         })
         setLoginCommandSent(true)
       } catch (err: any) {
         console.error('Failed to send claude auth login command:', err)
+        setLoginError(err?.message || 'Failed to start Claude login. Please try again.')
       }
     }
 
@@ -348,15 +347,23 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
   }, [isRunning, loginCommandSent, sessionId])
 
   // Once login command is sent, start polling for credentials.
-  // Use a ref guard instead of state in deps to prevent the effect cleanup
-  // from killing the interval on re-render (state change -> re-render -> cleanup -> no interval).
   const pollingStartedRef = useRef(false)
   useEffect(() => {
     if (!loginCommandSent || pollingStartedRef.current) return
 
     pollingStartedRef.current = true
+    const pollStartTime = Date.now()
 
     const pollForCredentials = async () => {
+      if (Date.now() - pollStartTime > POLL_TIMEOUT_MS) {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current)
+          pollIntervalRef.current = null
+        }
+        setLoginError('Authentication timed out. Please try again.')
+        return
+      }
+
       try {
         const result = await api.get<{ found: boolean; credentials: string }>(
           `/api/v1/claude-subscriptions/poll-login/${sessionId}`,
@@ -426,9 +433,15 @@ const ClaudeLoginDialogInner: FC<ClaudeLoginDialogInnerProps> = ({
         )}
       </DialogTitle>
       <DialogContent sx={{ p: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {loginError && (
+          <Alert severity="error" sx={{ mx: 2, mt: 1 }}>
+            {loginError}
+          </Alert>
+        )}
         {isRunning && loginCommandSent && (
           <Alert severity="info" sx={{ mx: 2, mt: 1, flexShrink: 0 }}>
-            Enter your email address in the browser below. Claude will email you a link — click it to get a code, then paste the code back here to authenticate.
+            Enter your email address below. Claude will send you a magic link &mdash;
+            open it on any device, authorize, then enter the code back here.
           </Alert>
         )}
         {!isRunning ? (

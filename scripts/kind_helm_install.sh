@@ -131,7 +131,7 @@ helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloa
 #   --version "24.3.1" \
 #   --set auth.adminUser=admin \
 #   --set auth.adminPassword=oh-hallo-insecure-password \
-#   --set image.registry=registry.helixml.tech \
+#   --set image.registry=ghcr.io \
 #   --set image.repository=helix/keycloak-bitnami \
 #   --set image.tag="${KEYCLOAK_VERSION}" \
 #   --set httpRelativePath="/auth/"
@@ -213,7 +213,7 @@ if [ -n "$INSTALL_SANDBOX" ] && [ "$INSTALL_SANDBOX" != "false" ] && [ "$INSTALL
   fi
 
   # Get the controlplane service URL for sandbox to connect to
-  CONTROLPLANE_SVC="http://my-helix-controlplane-helix-controlplane:80"
+  CONTROLPLANE_SVC="http://my-helix-controlplane:80"
 
   # Use the same runner token as the controlplane
   RUNNER_TOKEN=${RUNNER_TOKEN:-"oh-hallo-insecure-token"}

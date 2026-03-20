@@ -37,6 +37,21 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds | default 30 }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if ne (.Values.controlplane.waitForPostgres | toString) "false" }}
+      initContainers:
+        - name: wait-for-postgres
+          image: "{{ .Values.postgresql.image.registry }}/{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
+          imagePullPolicy: {{ .Values.postgresql.image.pullPolicy | default "IfNotPresent" }}
+          command: ['sh', '-c', 'timeout {{ .Values.controlplane.waitForPostgresTimeout | default 300 }} sh -c ''until PGPASSWORD=$POSTGRES_PASSWORD psql -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER -d $POSTGRES_DATABASE -c "SELECT 1" > /dev/null 2>&1; do echo "Waiting for PostgreSQL ($POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DATABASE)..."; sleep 2; done''']
+          env:
+            {{- include "helix-controlplane.postgres-env" . | nindent 12 }}
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 32Mi
+      {{- end }}
       containers:
         - name: controlplane
           securityContext:
@@ -136,85 +151,37 @@ spec:
             - name: PROVIDERS_MANAGEMENT_ENABLED
               value: {{ .Values.controlplane.providersManagementEnabled | quote }}
             - name: FILESTORE_LOCALFS_PATH
-              value: {{- with .Values.controlplane }} {{ .filestorePath | default "/filestore" }} {{- else }} "/filestore" {{- end }} 
+              value: {{- with .Values.controlplane }} {{ .filestorePath | default "/filestore" }} {{- else }} "/filestore" {{- end }}
             - name: TEXT_EXTRACTION_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-llamaindex:5000/api/v1/extract
             - name: RAG_INDEX_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-llamaindex:5000/api/v1/rag/chunk
             - name: RAG_QUERY_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-llamaindex:5000/api/v1/rag/query
+            {{- if .Values.typesense.enabled }}
             - name: RAG_TYPESENSE_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-typesense:8108
             - name: RAG_TYPESENSE_API_KEY
-              value: {{ .Values.typesense.apiKey }}
+              value: {{ .Values.typesense.apiKey | quote }}
+            {{- end }}
             - name: TEXT_EXTRACTION_TIKA_URL
-              value: http://{{ include "helix-controlplane.fullname" . }}-tika:9998/tika 
+              value: http://{{ include "helix-controlplane.fullname" . }}-tika:9998/tika
             - name: RAG_CRAWLER_LAUNCHER_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-chrome:7317
             # Postgres configuration
-            {{- if .Values.postgresql.enabled }}
-            - name: POSTGRES_HOST
-              value: {{ .Release.Name }}-postgresql
-            {{- if .Values.postgresql.auth.existingSecret }}
-            - name: POSTGRES_USER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.postgresql.auth.existingSecret }}
-                  key: {{ .Values.postgresql.auth.usernameKey | default "username" }}
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.postgresql.auth.existingSecret }}
-                  key: {{ .Values.postgresql.auth.passwordKey | default "password" }}
-            - name: POSTGRES_DATABASE
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.postgresql.auth.existingSecret }}
-                  key: {{ .Values.postgresql.auth.databaseKey | default "database" }}
-            {{- else }}
-            - name: POSTGRES_USER
-              value: {{ .Values.postgresql.auth.username }}
-            - name: POSTGRES_PASSWORD
-              value: {{ .Values.postgresql.auth.password }}
-            - name: POSTGRES_DATABASE
-              value: {{ .Values.postgresql.auth.database }}
-            {{- end }}
-            {{- else if .Values.postgresql.external.existingSecret }}
-            - name: POSTGRES_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.postgresql.external.existingSecret }}
-                  key: {{ .Values.postgresql.external.existingSecretHostKey | default "host" }}
-            - name: POSTGRES_USER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.postgresql.external.existingSecret }}
-                  key: {{ .Values.postgresql.external.existingSecretUserKey | default "user" }}
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.postgresql.external.existingSecret }}
-                  key: {{ .Values.postgresql.external.existingSecretPasswordKey | default "password" }}
-            - name: POSTGRES_DATABASE
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.postgresql.external.existingSecret }}
-                  key: {{ .Values.postgresql.external.existingSecretDatabaseKey | default "database" }}
-            {{- else }}
-            - name: POSTGRES_HOST
-              value: {{ .Values.postgresql.external.host }}
-            - name: POSTGRES_USER
-              value: {{ .Values.postgresql.external.user }}
-            - name: POSTGRES_PASSWORD
-              value: {{ .Values.postgresql.external.password }}
-            - name: POSTGRES_DATABASE
-              value: {{ .Values.postgresql.external.database }}
+            {{- include "helix-controlplane.postgres-env" . | nindent 12 }}
+            {{- if and .Values.controlplane.rag (default "" .Values.controlplane.rag.defaultProvider) }}
+            - name: RAG_DEFAULT_PROVIDER
+              value: {{ .Values.controlplane.rag.defaultProvider | quote }}
+            {{- else if .Values.typesense.enabled }}
+            {{- /* Typesense takes priority — if a user explicitly enabled it, they have data there */}}
+            - name: RAG_DEFAULT_PROVIDER
+              value: "typesense"
+            {{- else if and .Values.controlplane.haystack .Values.controlplane.haystack.enabled }}
+            - name: RAG_DEFAULT_PROVIDER
+              value: "haystack"
             {{- end }}
             {{- if .Values.controlplane.rag }}
-            {{- with (default "" .Values.controlplane.rag.defaultProvider) }}
-            - name: RAG_DEFAULT_PROVIDER
-              value: {{ . | quote }}
-            {{- end }}
             {{- with (default "" .Values.controlplane.rag.embeddingsProvider) }}
             - name: RAG_PGVECTOR_PROVIDER
               value: {{ . | quote }}
@@ -291,6 +258,22 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
+            {{- end }}
+            {{- with (default "" .Values.controlplane.providers.anthropic.vertexProjectID) }}
+            - name: ANTHROPIC_VERTEX_PROJECT_ID
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with (default "" .Values.controlplane.providers.anthropic.vertexRegion) }}
+            - name: ANTHROPIC_VERTEX_REGION
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with (default "" .Values.controlplane.providers.anthropic.vertexCredentialsJSON) }}
+            - name: ANTHROPIC_VERTEX_CREDENTIALS_JSON
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.controlplane.providers.anthropic.vertexCredentialsSecret }}
+            - name: ANTHROPIC_VERTEX_CREDENTIALS_FILE
+              value: "/run/secrets/vertex-credentials/{{ .Values.controlplane.providers.anthropic.vertexCredentialsSecretKey | default "key" }}"
             {{- end }}
             {{- if .Values.controlplane.providers.togetherai }}
             {{- with (default "" .Values.controlplane.providers.togetherai.baseUrl) }}
@@ -394,6 +377,9 @@ spec:
             - name: KODIT_ENABLED
               value: "false"
             {{- end }}
+            {{- with .Values.global.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
             {{- with .Values.controlplane.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -422,11 +408,16 @@ spec:
           {{- if and .Values.controlplane.haystack .Values.controlplane.haystack.enabled }}
             - name: helix-embeddings-socket
               mountPath: /socket
-          {{- end }}  
+          {{- end }}
           {{- if .Values.persistence.enabled }}
             - name: controlplane-storage
               mountPath: /filestore
-          {{- end }}  
+          {{- end }}
+          {{- if .Values.controlplane.providers.anthropic.vertexCredentialsSecret }}
+            - name: vertex-credentials
+              mountPath: /run/secrets/vertex-credentials
+              readOnly: true
+          {{- end }}
         {{- if .Values.controlplane.sidecar.enabled }}
         - name: {{ .Values.controlplane.sidecar.name | default "sidecar" }}
           image: "{{ .Values.controlplane.sidecar.image }}"
@@ -462,7 +453,7 @@ spec:
         {{- end }}
         {{- if and .Values.controlplane.haystack .Values.controlplane.haystack.enabled }}
         - name: {{ .Values.controlplane.haystack.name | default "haystack" }}
-          image: "{{ .Values.controlplane.haystack.image.repository | default "registry.helixml.tech/helix/haystack" }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.controlplane.haystack.image.repository | default "ghcr.io/helixml/haystack" }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: "{{ .Values.controlplane.haystack.imagePullPolicy | default .Values.image.pullPolicy }}"
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -540,6 +531,9 @@ spec:
               value: "postgresql://{{ .Values.pgvector.auth.username | default "postgres" }}:{{ .Values.pgvector.auth.password | default "pgvector" }}@{{ include "helix-controlplane.fullname" . }}-pgvector:5432/{{ .Values.pgvector.auth.database | default "postgres" }}"
             {{- end }}
             {{- end }}
+            {{- with .Values.global.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
             {{- with .Values.controlplane.haystack.env }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -558,16 +552,21 @@ spec:
       volumes:
       - name: helix-embeddings-socket
         emptyDir: {}
+      {{- if .Values.controlplane.providers.anthropic.vertexCredentialsSecret }}
+      - name: vertex-credentials
+        secret:
+          secretName: {{ .Values.controlplane.providers.anthropic.vertexCredentialsSecret }}
+      {{- end }}
       {{- if .Values.controlplane.extraVolumes }}
       {{- range $name, $volume := .Values.controlplane.extraVolumes }}
       - name: {{ $name }}
       {{- toYaml $volume | nindent 8 }}
       {{- end }}
       {{- end }}
-      {{- if .Values.persistence.enabled }}     
+      {{- if .Values.persistence.enabled }}
       - name: controlplane-storage
         persistentVolumeClaim:
-          claimName: {{ include "helix-controlplane.fullname" . }}-controlplane-pvc      
+          claimName: {{ include "helix-controlplane.fullname" . }}-controlplane-pvc
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

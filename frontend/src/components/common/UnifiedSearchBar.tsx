@@ -307,15 +307,13 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
           open={open}
           anchorEl={anchorRef.current}
           placement="bottom-start"
-          transition
           style={{
             width: compact ? 'min(400px, 90vw)' : anchorRef.current?.offsetWidth,
             minWidth: compact ? 300 : undefined,
             zIndex: 1300
           }}
         >
-          {({ TransitionProps }) => (
-            <Fade {...TransitionProps} timeout={200}>
+          <Fade in={open} timeout={200}>
               <Paper
                 elevation={8}
                 sx={{
@@ -487,7 +485,6 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
                 )}
               </Paper>
             </Fade>
-          )}
         </Popper>
       </Box>
     </ClickAwayListener>

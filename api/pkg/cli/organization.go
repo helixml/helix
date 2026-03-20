@@ -37,6 +37,30 @@ func LookupOrganization(ctx context.Context, apiClient client.Client, orgRef str
 	return nil, fmt.Errorf("organization not found: %s", orgRef)
 }
 
+// ResolveOrganization resolves an organization flag to an org ID.
+// If orgFlag is provided, it looks up the org by name or ID.
+// If orgFlag is empty, it defaults to the user's first organization.
+// Returns empty string if no org is found (backward-compatible).
+func ResolveOrganization(ctx context.Context, apiClient client.Client, orgFlag string) (string, error) {
+	if orgFlag != "" {
+		org, err := LookupOrganization(ctx, apiClient, orgFlag)
+		if err != nil {
+			return "", err
+		}
+		return org.ID, nil
+	}
+
+	orgs, err := apiClient.ListOrganizations(ctx)
+	if err != nil {
+		return "", nil
+	}
+	if len(orgs) > 0 {
+		return orgs[0].ID, nil
+	}
+
+	return "", nil
+}
+
 // LookupTeam looks up a team by name or ID in an organization
 func LookupTeam(ctx context.Context, apiClient *client.HelixClient, orgID, ref string) (*types.Team, error) {
 	if strings.HasPrefix(ref, system.TeamPrefix) {

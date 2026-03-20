@@ -18,6 +18,7 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
+  Chip,
 } from "@mui/material";
 import {
   Description as SpecIcon,
@@ -34,11 +35,13 @@ import {
   Archive as ArchiveIcon,
   Unarchive as UnarchiveIcon,
   RemoveCircleOutline as RemoveFromQueueIcon,
+  Undo as UndoIcon,
 } from "@mui/icons-material";
 import { EllipsisVertical, Wand2 } from "lucide-react";
 import {
   useApproveImplementation,
   useStopAgent,
+  useMoveToBacklog,
 } from "../../services/specTaskWorkflowService";
 import {
   useUpdateSpecTask,
@@ -143,7 +146,7 @@ type SpecTaskPhase =
   | "pull_request"
   | "completed";
 
-interface SpecTaskWithExtras {
+export interface SpecTaskWithExtras {
   id: string;
   name: string;
   status: string;
@@ -173,19 +176,24 @@ interface SpecTaskWithExtras {
   // Agent activity tracking
   session_updated_at?: string;
   agent_work_state?: "idle" | "working" | "done"; // Backend-tracked work state
+  // Sandbox state — populated by the listTasks backend handler, avoids per-card session polling
+  sandbox_state?: string; // "absent" | "running" | "starting"
+  sandbox_status_message?: string; // Transient startup message
   // Task number for display
   task_number?: number;
   depends_on?: TaskDependency[];
+  labels?: string[];
+  updated_at?: string;
 }
 
-interface TaskDependency {
+export interface TaskDependency {
   id?: string;
   task_number?: number;
   status?: string;
   archived?: boolean;
 }
 
-interface KanbanColumn {
+export interface KanbanColumn {
   id: SpecTaskPhase;
   limit?: number;
   tasks: SpecTaskWithExtras[];
@@ -218,6 +226,8 @@ interface TaskCardProps {
   onDependencyHoverEnd?: () => void;
   /** Whether to focus the Start Planning button (for newly created tasks) */
   focusStartPlanning?: boolean;
+  /** Whether the card is currently visible (for virtualization) */
+  isVisible?: boolean;
 }
 
 // Interface for checklist items from API
@@ -474,7 +484,9 @@ const LiveAgentScreenshot: React.FC<{
   projectId?: string;
   onClick?: () => void;
   startupErrorMessage?: string;
-}> = React.memo(({ sessionId, projectId, onClick, startupErrorMessage }) => {
+  sandboxState?: string;
+  sandboxStatusMessage?: string;
+}> = React.memo(({ sessionId, projectId, onClick, startupErrorMessage, sandboxState, sandboxStatusMessage }) => {
   return (
     <Box
       onClick={(e) => {
@@ -505,6 +517,8 @@ const LiveAgentScreenshot: React.FC<{
           sessionId={sessionId}
           mode="screenshot"
           startupErrorMessage={startupErrorMessage}
+          initialSandboxState={sandboxState}
+          initialSandboxStatusMessage={sandboxStatusMessage}
         />
       </Box>
       <Box
@@ -572,6 +586,7 @@ function TaskCardInner({
   }, [focusStartPlanning, task.status]);
   const approveImplementationMutation = useApproveImplementation(task.id!);
   const stopAgentMutation = useStopAgent(task.id!);
+  const moveToBacklogMutation = useMoveToBacklog(task.id!);
   const updateSpecTask = useUpdateSpecTask();
   const deleteSpecTask = useDeleteSpecTask();
 
@@ -579,10 +594,12 @@ function TaskCardInner({
   const showProgress =
     task.phase === "planning" || task.phase === "implementation";
 
-  // Check agent activity status using backend-tracked work state
+  // Check agent activity status using backend-tracked work state.
+  // Enabled for ANY phase with a running session, not just planning/implementation,
+  // because every phase can have an active agent container.
   const { isActive, needsAttention, markAsSeen } = useAgentActivityCheck(
     task.agent_work_state,
-    showProgress && !!task.planning_session_id,
+    !!task.planning_session_id,
   );
 
   const runningDuration = useRunningDuration(
@@ -602,6 +619,10 @@ function TaskCardInner({
     task.status === "queued_implementation" ||
     task.status === "queued_spec_generation" ||
     task.status === "spec_approved";
+
+  // Can move to backlog from any phase except backlog itself and queued states
+  const canMoveToBacklog =
+    !isQueued && task.phase !== "backlog" && task.status !== "backlog";
 
   const handleRemoveFromQueue = async () => {
     if (!task.id) return;
@@ -818,6 +839,28 @@ function TaskCardInner({
                 </ListItemText>
               </MenuItem>
             )}
+            {canMoveToBacklog && (
+              <MenuItem
+                disabled={moveToBacklogMutation.isPending}
+                onClick={() => {
+                  setMenuAnchorEl(null);
+                  moveToBacklogMutation.mutate();
+                }}
+              >
+                <ListItemIcon>
+                  {moveToBacklogMutation.isPending ? (
+                    <CircularProgress size={16} />
+                  ) : (
+                    <UndoIcon sx={{ fontSize: 16 }} />
+                  )}
+                </ListItemIcon>
+                <ListItemText>
+                  {moveToBacklogMutation.isPending
+                    ? "Moving..."
+                    : "Move to Backlog"}
+                </ListItemText>
+              </MenuItem>
+            )}
             {!hideCloneOption && task.design_docs_pushed_at && (
               <MenuItem
                 onClick={() => {
@@ -882,8 +925,7 @@ function TaskCardInner({
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", mb: 1.5 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
             {isActive &&
-            task.planning_session_id &&
-            (task.phase === "planning" || task.phase === "implementation") ? (
+            task.planning_session_id ? (
               <Tooltip title="Agent is working">
                 <Box
                   sx={{
@@ -896,8 +938,7 @@ function TaskCardInner({
                 />
               </Tooltip>
             ) : needsAttention &&
-              task.planning_session_id &&
-              (task.phase === "planning" || task.phase === "implementation") ? (
+              task.planning_session_id ? (
               <Tooltip title="Agent finished - click card to dismiss">
                 <Box
                   sx={{
@@ -958,6 +999,15 @@ function TaskCardInner({
           </Box>
         </Box>
 
+        {/* Label chips */}
+        {task.labels && task.labels.length > 0 && (
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 1 }}>
+            {task.labels.map((label) => (
+              <Chip key={label} label={label} size="small" variant="outlined" sx={{ height: 18, fontSize: "0.65rem" }} />
+            ))}
+          </Box>
+        )}
+
         {/* Usage pulse chart - shows activity over last 3 days (only for active phases) */}
         {showMetrics &&
           (task.phase === "planning" ||
@@ -1010,6 +1060,8 @@ function TaskCardInner({
                   ? task.metadata.error
                   : undefined
               }
+              sandboxState={task.sandbox_state}
+              sandboxStatusMessage={task.sandbox_status_message}
               onClick={() => onTaskClick?.(task)}
             />
           )}

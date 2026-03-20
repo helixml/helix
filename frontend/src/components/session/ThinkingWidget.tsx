@@ -8,6 +8,7 @@ interface ThinkingWidgetProps {
   text: string;
   startTime?: number | Date;
   isStreaming: boolean;
+  compact?: boolean;
 }
 
 function formatDuration(seconds: number) {
@@ -16,7 +17,7 @@ function formatDuration(seconds: number) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStreaming }) => {
+const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStreaming, compact = false }) => {
   const [elapsed, setElapsed] = useState(0);
   const [open, setOpen] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -67,10 +68,10 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
             theme.palette.mode === 'light'
               ? 'rgba(245,245,250,0.95)'
               : 'rgba(30,32,40,0.95)',
-          p: { xs: 2, sm: 3 },
-          my: 2,
+          p: compact ? 1 : { xs: 2, sm: 3 },
+          my: compact ? 1 : 2,
           overflow: 'hidden',
-          minHeight: 60,
+          minHeight: compact ? 36 : 60,
           width: '100%',
           mx: 0,
           cursor: 'pointer',
@@ -99,10 +100,10 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
           theme.palette.mode === 'light'
             ? 'rgba(245,245,250,0.95)'
             : 'rgba(30,32,40,0.95)',
-        p: { xs: 2, sm: 3 },
-        my: 2,
+        p: compact ? 1 : { xs: 2, sm: 3 },
+        my: compact ? 1 : 2,
         overflow: 'hidden',
-        minHeight: 120,
+        minHeight: compact ? 60 : 120,
         width: '100%',
         mx: 0,
       }}
@@ -150,7 +151,7 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
             sx={{
               color: 'text.primary',
               px: { xs: 0, sm: 2 },
-              maxHeight: 200,
+              maxHeight: compact ? 100 : 200,
               overflowY: 'auto',
               fontSize: 16,
               fontFamily: 'inherit',
@@ -166,8 +167,8 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
           sx={{
             position: 'relative',
             zIndex: 2,
-            py: 2,
-            height: 120,
+            py: compact ? 1 : 2,
+            height: compact ? 60 : 120,
             overflow: 'hidden',
           }}
         >

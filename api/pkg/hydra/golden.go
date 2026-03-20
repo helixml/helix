@@ -21,6 +21,11 @@ const (
 
 	// sessionsBaseDir is where per-session Docker data lives.
 	sessionsBaseDir = "/container-docker/sessions"
+
+	// goldenCopyCompleteMarker is written to the session docker dir after a
+	// successful golden cache copy. If absent, the copy was interrupted
+	// (e.g. API crash) and the session dir must be deleted and re-copied.
+	goldenCopyCompleteMarker = ".golden-copy-complete"
 )
 
 // goldenDir returns the golden Docker data path for a project.
@@ -302,6 +307,13 @@ func SetupGoldenCopy(projectID, volumeName string, onProgress func(copied, total
 		onProgress(goldenSize, goldenSize)
 	}
 
+	// Write completion marker so we can detect interrupted copies on restart.
+	markerPath := filepath.Join(dockerDir, goldenCopyCompleteMarker)
+	if err := os.WriteFile(markerPath, []byte(time.Now().UTC().Format(time.RFC3339)), 0644); err != nil {
+		log.Warn().Err(err).Str("path", markerPath).
+			Msg("Failed to write golden copy completion marker")
+	}
+
 	elapsed := time.Since(start)
 	log.Info().
 		Str("golden", golden).
@@ -312,6 +324,16 @@ func SetupGoldenCopy(projectID, volumeName string, onProgress func(copied, total
 		Msg("Golden Docker cache copied to session")
 
 	return dockerDir, nil
+}
+
+// IsGoldenCopyComplete checks whether a session's Docker data directory
+// was fully copied from the golden cache. Returns false if the directory
+// exists but the copy was interrupted (e.g. by an API crash).
+func IsGoldenCopyComplete(volumeName string) bool {
+	dockerDir := filepath.Join(sessionOverlayDir(volumeName), "docker")
+	markerPath := filepath.Join(dockerDir, goldenCopyCompleteMarker)
+	_, err := os.Stat(markerPath)
+	return err == nil
 }
 
 // CleanupGoldenSession removes the session's Docker data directory.
@@ -422,7 +444,57 @@ func CleanupSessionDockerDir(volumeName string) error {
 }
 
 // DeleteGolden removes a project's golden Docker cache snapshot.
+// Handles both file-based golden dirs and ZFS zvol-based goldens.
 func DeleteGolden(projectID string) error {
+	// Delete ZFS golden zvol if it exists
+	if ZFSAvailable() {
+		goldenName := goldenZvolName(projectID)
+		if zfsDatasetExists(goldenName) {
+			// Find all session clones that originate from this golden.
+			// Destroy stopped ones, refuse if any are still running.
+			prefix := zfsParentDataset + "/ses-"
+			out, err := execCmdOutput("zfs", "list", "-H", "-o", "name,origin", "-t", "volume", "-r", zfsParentDataset)
+			if err == nil {
+				var runningClones []string
+				var stoppedClones []string
+				for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+					fields := strings.Fields(line)
+					if len(fields) >= 2 && strings.HasPrefix(fields[0], prefix) {
+						origin := fields[1]
+						if strings.HasPrefix(origin, goldenName+"@") {
+							sessionID := strings.TrimPrefix(fields[0], prefix)
+							mountPath := sessionZvolMountPath(sessionID)
+							if isMounted(mountPath) {
+								runningClones = append(runningClones, sessionID)
+							} else {
+								stoppedClones = append(stoppedClones, sessionID)
+							}
+						}
+					}
+				}
+
+				if len(runningClones) > 0 {
+					return fmt.Errorf("cannot delete golden cache: %d running session(s) depend on it (stop them first): %s",
+						len(runningClones), strings.Join(runningClones, ", "))
+				}
+
+				// Clean up stopped clones
+				for _, sessionID := range stoppedClones {
+					log.Info().Str("session_id", sessionID).
+						Msg("Destroying stopped session clone before golden cache deletion")
+					_ = CleanupSessionZvol(sessionID)
+				}
+			}
+
+			// Now destroy the golden zvol and its snapshots
+			if err := runCmd("zfs", "destroy", "-r", goldenName); err != nil {
+				return fmt.Errorf("failed to destroy golden zvol %s: %w", goldenName, err)
+			}
+			log.Info().Str("project_id", projectID).Str("zvol", goldenName).Msg("Deleted golden ZFS zvol")
+		}
+	}
+
+	// Delete file-based golden dir if it exists
 	projectDir := filepath.Join(goldenBaseDir, projectID)
 	if _, err := os.Stat(projectDir); os.IsNotExist(err) {
 		return nil // nothing to delete
@@ -486,8 +558,22 @@ func PurgeContainersFromGolden(projectID string) error {
 // GetGoldenSize returns the disk usage of a project's golden cache in bytes.
 // Returns 0 if no golden exists.
 func GetGoldenSize(projectID string) int64 {
+	// Try ZFS zvol size first (golden may be a zvol after migration)
+	if ZFSAvailable() && GoldenZvolExists(projectID) {
+		zvol := goldenZvolName(projectID)
+		out, err := execCmdOutput("zfs", "list", "-H", "-o", "used", "-p", zvol)
+		if err == nil {
+			var size int64
+			fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &size)
+			if size > 0 {
+				return size
+			}
+		}
+	}
+
+	// Fall back to file-based golden dir
 	dir := goldenDir(projectID)
-	out, err := exec.Command("du", "-sb", dir).Output()
+	out, err := execCmdOutput("du", "-sb", dir)
 	if err != nil {
 		return 0
 	}

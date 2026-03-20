@@ -53,7 +53,7 @@ func (s *HelixAPIServer) getWalletHandler(_ http.ResponseWriter, req *http.Reque
 	}
 
 	// Sync latest subscription state from Stripe (cancel_at_period_end, status, etc.)
-	s.Stripe.SyncSubscription(wallet)
+	s.Stripe.SyncSubscription(ctx, wallet)
 
 	return wallet, nil
 }

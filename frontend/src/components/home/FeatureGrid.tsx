@@ -28,6 +28,7 @@ import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 
 import useAccount from '../../hooks/useAccount'
+import { useSettingsDialog } from '../../contexts/settingsDialog'
 import useRouter from '../../hooks/useRouter'
 
 
@@ -207,7 +208,7 @@ const DASHBOARD_FEATURE: IFeature = {
     title: 'Dashboard',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('dashboard')},
+    handler: (_navigate, openAdminDialog) => { if (openAdminDialog) openAdminDialog() },
   }, {
     title: 'Docs',
     color: 'primary',
@@ -255,12 +256,14 @@ const HomeFeatureCard: FC<{
   feature,
 }) => {
   const router = useRouter()
+  const settingsDialog = useSettingsDialog()
+  const openAdminDialog = () => settingsDialog.openDialog('admin')
   return (
     <Card>
       <CardActionArea
         disabled={feature.disabled}
         onClick={() => {
-          feature.actions[0].handler(router.navigate)
+          feature.actions[0].handler(router.navigate, openAdminDialog)
         }}
       >
         {
@@ -326,7 +329,7 @@ const HomeFeatureCard: FC<{
                   size="small"
                   variant={ action.variant }
                   color={ action.color }
-                  onClick={ () => action.handler(router.navigate) }
+                  onClick={ () => action.handler(router.navigate, openAdminDialog) }
                   disabled={ feature.disabled } 
                  >
                   { action.title }

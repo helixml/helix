@@ -26,7 +26,7 @@ export const KODIT_SUBTYPE_DATABASE_SCHEMA = 'database_schema' // Database schem
 export const KODIT_SUBTYPE_COMMIT_DESCRIPTION = 'commit_description' // Commit descriptions
 
 // Re-export generated types for Kodit indexing status
-export type { ServicesKoditIndexingStatus as KoditIndexingStatus } from '../api/api'
+export type { ServerKoditIndexingStatusDTO as KoditIndexingStatus } from '../api/api'
 
 /**
  * Query key factory for Kodit enrichments
@@ -38,6 +38,13 @@ export const koditEnrichmentDetailQueryKey = (repoId: string, enrichmentId: stri
 export const koditCommitsQueryKey = (repoId: string) => ['kodit', 'commits', repoId]
 export const koditStatusQueryKey = (repoId: string) => ['kodit', 'status', repoId]
 export const koditSearchQueryKey = (repoId: string, query: string) => ['kodit', 'search', repoId, query]
+export const koditWikiTreeQueryKey = (repoId: string) => ['kodit', 'wiki', 'tree', repoId]
+export const koditWikiPageQueryKey = (repoId: string, pagePath: string) => ['kodit', 'wiki', 'page', repoId, pagePath]
+export const koditSemanticSearchQueryKey = (repoId: string, query: string) => ['kodit', 'semantic-search', repoId, query]
+export const koditKeywordSearchQueryKey = (repoId: string, keywords: string) => ['kodit', 'keyword-search', repoId, keywords]
+export const koditGrepQueryKey = (repoId: string, pattern: string) => ['kodit', 'grep', repoId, pattern]
+export const koditFilesQueryKey = (repoId: string, pattern: string) => ['kodit', 'files', repoId, pattern]
+export const koditFileContentQueryKey = (repoId: string, path: string) => ['kodit', 'file-content', repoId, path]
 
 /**
  * Hook to fetch code intelligence enrichments for a repository
@@ -157,7 +164,6 @@ export function useKoditSearch(
       const response = await apiClient.v1GitRepositoriesSearchSnippetsDetail(repoId, {
         query,
         limit,
-        commit_sha: commitSha,
       })
       // Response is an array of snippets
       const data = response.data as any
@@ -190,6 +196,266 @@ export function useKoditRescan(repoId: string) {
       queryClient.removeQueries({ queryKey: ['kodit', 'status', repoId] })
       queryClient.removeQueries({ queryKey: ['kodit', 'commits', repoId] })
     },
+  })
+}
+
+/**
+ * Wiki tree node type
+ */
+export interface KoditWikiTreeNode {
+  slug: string
+  title: string
+  path: string
+  links?: Record<string, string>
+  children?: KoditWikiTreeNode[]
+}
+
+/**
+ * Wiki page type
+ */
+export interface KoditWikiPage {
+  slug: string
+  title: string
+  content: string
+}
+
+/**
+ * Hook to fetch the wiki navigation tree for a repository
+ */
+export function useKoditWikiTree(repoId: string, options?: { enabled?: boolean }) {
+  const api = useApi()
+
+  return useQuery({
+    queryKey: koditWikiTreeQueryKey(repoId),
+    queryFn: async () => {
+      const response = await api.get<{ data: KoditWikiTreeNode[], links: Record<string, string> }>(`/api/v1/git/repositories/${repoId}/wiki`)
+      return response?.data || []
+    },
+    enabled: options?.enabled !== false && !!repoId,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
+ * Hook to fetch a single wiki page by path
+ */
+export function useKoditWikiPage(repoId: string, pagePath: string, options?: { enabled?: boolean }) {
+  const api = useApi()
+
+  return useQuery({
+    queryKey: koditWikiPageQueryKey(repoId, pagePath),
+    queryFn: async () => {
+      const response = await api.get<{ data: KoditWikiPage, links: Record<string, string> }>(`/api/v1/git/repositories/${repoId}/wiki-page?path=${encodeURIComponent(pagePath)}`)
+      return response?.data
+    },
+    enabled: options?.enabled !== false && !!repoId && !!pagePath,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
+ * Search result types
+ */
+export interface KoditFileResult {
+  path: string
+  language: string
+  lines: string
+  score: number
+  preview: string
+  links?: Record<string, string>
+}
+
+export interface KoditGrepMatch {
+  line: number
+  content: string
+}
+
+export interface KoditGrepResult {
+  path: string
+  language: string
+  matches: KoditGrepMatch[]
+  links?: Record<string, string>
+}
+
+export interface KoditFileEntry {
+  path: string
+  size: number
+  links?: Record<string, string>
+}
+
+export interface KoditFileContent {
+  path: string
+  content: string
+  commit_sha: string
+}
+
+/**
+ * Generic envelope types for JSON:API-style responses
+ */
+export interface KoditSearchMeta {
+  query: string
+  limit: number
+  language?: string
+  count: number
+}
+
+interface KoditSearchResponse {
+  data: KoditFileResult[]
+  meta: KoditSearchMeta
+  links: Record<string, string>
+}
+
+export interface KoditGrepMeta {
+  pattern: string
+  glob?: string
+  limit: number
+  count: number
+}
+
+interface KoditGrepResponse {
+  data: KoditGrepResult[]
+  meta: KoditGrepMeta
+  links: Record<string, string>
+}
+
+export interface KoditFilesMeta {
+  pattern: string
+  count: number
+}
+
+interface KoditFilesResponse {
+  data: KoditFileEntry[]
+  meta: KoditFilesMeta
+  links: Record<string, string>
+}
+
+interface KoditFileContentResponse {
+  data: KoditFileContent
+  links: Record<string, string>
+}
+
+/**
+ * Hook for semantic (vector similarity) search
+ */
+export function useKoditSemanticSearch(
+  repoId: string,
+  query: string,
+  limit?: number,
+  language?: string,
+  options?: { enabled?: boolean }
+) {
+  const api = useApi()
+
+  return useQuery({
+    queryKey: [...koditSemanticSearchQueryKey(repoId, query), language],
+    queryFn: async () => {
+      const params = new URLSearchParams({ query })
+      if (limit) params.set('limit', String(limit))
+      if (language) params.set('language', language)
+      const response = await api.get<KoditSearchResponse>(`/api/v1/git/repositories/${repoId}/semantic-search?${params}`)
+      return { data: response?.data || [], meta: response?.meta }
+    },
+    enabled: options?.enabled !== false && !!repoId && !!query && query.trim().length > 0,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
+ * Hook for keyword (BM25) search
+ */
+export function useKoditKeywordSearch(
+  repoId: string,
+  keywords: string,
+  limit?: number,
+  language?: string,
+  options?: { enabled?: boolean }
+) {
+  const api = useApi()
+
+  return useQuery({
+    queryKey: [...koditKeywordSearchQueryKey(repoId, keywords), language],
+    queryFn: async () => {
+      const params = new URLSearchParams({ keywords })
+      if (limit) params.set('limit', String(limit))
+      if (language) params.set('language', language)
+      const response = await api.get<KoditSearchResponse>(`/api/v1/git/repositories/${repoId}/keyword-search?${params}`)
+      return { data: response?.data || [], meta: response?.meta }
+    },
+    enabled: options?.enabled !== false && !!repoId && !!keywords && keywords.trim().length > 0,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
+ * Hook for grep (regex pattern search via git grep)
+ */
+export function useKoditGrep(
+  repoId: string,
+  pattern: string,
+  glob?: string,
+  limit?: number,
+  options?: { enabled?: boolean }
+) {
+  const api = useApi()
+
+  return useQuery({
+    queryKey: [...koditGrepQueryKey(repoId, pattern), glob],
+    queryFn: async () => {
+      const params = new URLSearchParams({ pattern })
+      if (glob) params.set('glob', glob)
+      if (limit) params.set('limit', String(limit))
+      const response = await api.get<KoditGrepResponse>(`/api/v1/git/repositories/${repoId}/grep?${params}`)
+      return { data: response?.data || [], meta: response?.meta }
+    },
+    enabled: options?.enabled !== false && !!repoId && !!pattern && pattern.trim().length > 0,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
+ * Hook for listing files (glob pattern matching)
+ */
+export function useKoditFiles(
+  repoId: string,
+  pattern: string,
+  options?: { enabled?: boolean }
+) {
+  const api = useApi()
+
+  return useQuery({
+    queryKey: koditFilesQueryKey(repoId, pattern),
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      if (pattern) params.set('pattern', pattern)
+      const response = await api.get<KoditFilesResponse>(`/api/v1/git/repositories/${repoId}/files?${params}`)
+      return { data: response?.data || [], meta: response?.meta }
+    },
+    enabled: options?.enabled !== false && !!repoId && !!pattern && pattern.trim().length > 0,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
+ * Hook for reading file content
+ */
+export function useKoditFileContent(
+  repoId: string,
+  filePath: string,
+  options?: { enabled?: boolean; startLine?: number; endLine?: number }
+) {
+  const api = useApi()
+
+  return useQuery({
+    queryKey: koditFileContentQueryKey(repoId, filePath),
+    queryFn: async () => {
+      const params = new URLSearchParams({ path: filePath })
+      if (options?.startLine) params.set('start_line', String(options.startLine))
+      if (options?.endLine) params.set('end_line', String(options.endLine))
+      const response = await api.get<KoditFileContentResponse>(`/api/v1/git/repositories/${repoId}/file-content?${params}`)
+      return response?.data
+    },
+    enabled: options?.enabled !== false && !!repoId && !!filePath,
+    staleTime: 5 * 60 * 1000,
   })
 }
 

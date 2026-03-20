@@ -10,6 +10,7 @@ import KeyIcon from '@mui/icons-material/Key'
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
 import useLightTheme from '../../hooks/useLightTheme'
+import { useSettingsDialog } from '../../contexts/settingsDialog'
 import { useGetUserTokenUsage } from '../../services/userService'
 import { useListProviders } from '../../services/providersService'
 
@@ -17,6 +18,7 @@ const TokenUsageDisplay: React.FC = () => {
   const router = useRouter()
   const account = useAccount()
   const lightTheme = useLightTheme()
+  const settingsDialog = useSettingsDialog()
   const { data: tokenUsage, isLoading: loading, error } = useGetUserTokenUsage()
 
   // Load providers
@@ -38,13 +40,12 @@ const TokenUsageDisplay: React.FC = () => {
   }
 
   const handleUpgrade = () => {
-    // Navigate to the account page for billing/upgrade
-    router.navigate('account')
+    settingsDialog.openDialog('account')
   }
 
   const handleAddProviders = () => {
     // Navigate to the providers page
-    router.navigate('providers')
+    account.orgNavigate('providers')
   }
 
   // If loading, error, no data, or quotas not enabled, don't render

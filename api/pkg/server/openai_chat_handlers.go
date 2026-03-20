@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/model"
@@ -98,31 +97,26 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		chatCompletionRequest.Model = resolvedModel
 	}
 
-	// Parse provider prefix from model name (e.g., "openrouter/gpt-4" -> provider="openrouter", model="gpt-4")
-	// But first, check if the full model name (with slash) exists in any provider's model list.
-	// This handles HuggingFace-style model IDs like "Qwen/Qwen3-Coder" that might be incorrectly
-	// parsed as provider prefixes when there's also a provider named "Qwen".
+	// Find which provider owns this model by checking all providers' cached model lists.
+	// This handles both unprefixed models (e.g., "claude-haiku-4-5-20251001" → anthropic)
+	// and HuggingFace-style IDs (e.g., "Qwen/Qwen3-Coder") that might be incorrectly
+	// parsed as provider prefixes.
 	var validatedProvider string
-	if strings.Contains(chatCompletionRequest.Model, "/") {
-		// Model name contains a slash - could be a HuggingFace model ID
-		// Check if any provider has this exact full model name in their model list
-		foundProvider := s.findProviderWithModel(r.Context(), chatCompletionRequest.Model, ownerID)
-		if foundProvider != "" {
-			// Found a provider with this exact model - use it and keep the full model name
-			validatedProvider = foundProvider
-			log.Debug().
-				Str("model", chatCompletionRequest.Model).
-				Str("provider", foundProvider).
-				Msg("using full model name match (avoiding HF prefix collision)")
-		}
+	foundProvider := s.findProviderWithModel(r.Context(), chatCompletionRequest.Model, ownerID, user.OrganizationID)
+	if foundProvider != "" {
+		validatedProvider = foundProvider
+		log.Debug().
+			Str("model", chatCompletionRequest.Model).
+			Str("provider", foundProvider).
+			Msg("found provider via model list lookup")
 	}
 
-	// If we didn't find a full model match, fall back to prefix parsing
+	// If no provider found by model name, fall back to prefix parsing
 	if validatedProvider == "" {
 		providerFromModel, modelWithoutPrefix := model.ParseProviderFromModel(chatCompletionRequest.Model)
 		if providerFromModel != "" {
 			// Check if this prefix is a known provider (global or user-defined)
-			if s.isKnownProvider(r.Context(), providerFromModel, ownerID) {
+			if s.isKnownProvider(r.Context(), providerFromModel, ownerID, user.OrganizationID) {
 				validatedProvider = providerFromModel
 				chatCompletionRequest.Model = modelWithoutPrefix
 			}
@@ -155,10 +149,11 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	})
 
 	options := &controller.ChatCompletionOptions{
-		AppID:       r.URL.Query().Get("app_id"),
-		AssistantID: r.URL.Query().Get("assistant_id"),
-		RAGSourceID: r.URL.Query().Get("rag_source_id"),
-		Provider:    validatedProvider,
+		OrganizationID: user.OrganizationID,
+		AppID:          r.URL.Query().Get("app_id"),
+		AssistantID:    r.URL.Query().Get("assistant_id"),
+		RAGSourceID:    r.URL.Query().Get("rag_source_id"),
+		Provider:       validatedProvider,
 		QueryParams: func() map[string]string {
 			params := make(map[string]string)
 			for key, values := range r.URL.Query() {
@@ -303,8 +298,8 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	}
 }
 
-// isKnownProvider checks if a provider name exists as a global or user-defined provider
-func (s *HelixAPIServer) isKnownProvider(ctx context.Context, providerName, ownerID string) bool {
+// isKnownProvider checks if a provider name exists as a global, user-defined, or org-scoped provider
+func (s *HelixAPIServer) isKnownProvider(ctx context.Context, providerName, ownerID, orgID string) bool {
 	// Check global providers first (fast path)
 	if types.IsGlobalProvider(providerName) {
 		return true
@@ -325,6 +320,16 @@ func (s *HelixAPIServer) isKnownProvider(ctx context.Context, providerName, owne
 	})
 	if err == nil {
 		return true
+	}
+	// Check for org-scoped providers (endpoint owned by the org, not the user)
+	if orgID != "" && orgID != ownerID {
+		_, err = s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{
+			Name:  providerName,
+			Owner: orgID,
+		})
+		if err == nil {
+			return true
+		}
 	}
 	// Check for admin-created global endpoints (owned by other users but endpoint_type = 'global')
 	// These are visible to all users but owned by the admin who created them
@@ -351,7 +356,7 @@ func (s *HelixAPIServer) isKnownProvider(ctx context.Context, providerName, owne
 // incorrectly parsed as provider prefixes when there's also a provider named "Qwen".
 //
 // Returns the provider name if found, empty string otherwise.
-func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, ownerID string) string {
+func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, ownerID, orgID string) string {
 	// First check global providers from env vars (these are not in the database)
 	// Their cache key uses "system" as owner
 	globalProviders, err := s.providerManager.ListProviders(ctx, "")
@@ -375,7 +380,7 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 		}
 	}
 
-	// Now check database-stored provider endpoints (user + global from DB)
+	// Check database-stored provider endpoints for the user (user + global from DB)
 	providers, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
 		Owner:      ownerID,
 		WithGlobal: true,
@@ -383,6 +388,19 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to list provider endpoints for model lookup")
 		return ""
+	}
+
+	// Also check org-scoped endpoints if the user belongs to an org
+	if orgID != "" && orgID != ownerID {
+		orgProviders, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+			Owner:      orgID,
+			WithGlobal: false, // Global already covered above
+		})
+		if err != nil {
+			log.Warn().Err(err).Str("org_id", orgID).Msg("failed to list org provider endpoints for model lookup")
+		} else {
+			providers = append(providers, orgProviders...)
+		}
 	}
 
 	// Check each provider's model list for the full model name

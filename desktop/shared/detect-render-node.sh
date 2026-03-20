@@ -99,12 +99,12 @@ detect_render_node() {
         done
     fi
 
-    # Fallback: auto-detect best available GPU if specified driver not found
-    # This handles cases where GPU_VENDOR doesn't match reality (e.g., nvidia-smi
-    # exists but no NVIDIA GPU available, or multi-GPU system with wrong vendor set)
     if [ -z "$detected_node" ]; then
-        echo "[render-node] FATAL: Could not find $target_driver driver"
-        return 1
+        echo "[render-node] WARNING: Could not find $target_driver driver for GPU_VENDOR=$gpu_vendor, falling back to software rendering"
+        export HELIX_RENDER_NODE="SOFTWARE"
+        export LIBGL_ALWAYS_SOFTWARE=1
+        export MESA_GL_VERSION_OVERRIDE=4.5
+        return 0
     fi
 
     export HELIX_RENDER_NODE="$detected_node"

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -24,7 +25,7 @@ import (
 // is useful for all agents, not just desktop environments.
 type MCPServer struct {
 	mcpServer     *server.MCPServer
-	sseServer     *server.SSEServer
+	httpServer    *server.StreamableHTTPServer
 	helixAPIURL   string // Helix API URL for session endpoints
 	helixAPIToken string // Helix API token for authentication
 	sessionID     string // Current session ID (most likely to be relevant)
@@ -33,7 +34,7 @@ type MCPServer struct {
 
 // MCPConfig holds configuration for the session MCP server
 type MCPConfig struct {
-	// Port for the MCP SSE server (default: 9878)
+	// Port for the MCP server (default: 9878)
 	Port string
 	// HelixAPIURL is the Helix API endpoint (from HELIX_API_URL env)
 	HelixAPIURL string
@@ -225,9 +226,9 @@ Use this when you have an interaction ID (e.g., from title_history) and want to 
 	)
 	m.mcpServer.AddTool(getInteractionTool, m.handleGetInteraction)
 
-	// Create SSE server
-	m.sseServer = server.NewSSEServer(m.mcpServer,
-		server.WithBasePath("/mcp"),
+	// Create Streamable HTTP server for direct POST support (compatible with Zed's HttpTransport)
+	m.httpServer = server.NewStreamableHTTPServer(m.mcpServer,
+		server.WithStateLess(true),
 	)
 
 	return m
@@ -235,10 +236,10 @@ Use this when you have an interaction ID (e.g., from title_history) and want to 
 
 // ServeHTTP serves MCP requests
 func (m *MCPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	m.sseServer.ServeHTTP(w, r)
+	m.httpServer.ServeHTTP(w, r)
 }
 
-// Run starts the MCP SSE server
+// Run starts the MCP server
 func (m *MCPServer) Run(ctx context.Context, port string) error {
 	if port == "" {
 		port = "9878"
@@ -246,7 +247,7 @@ func (m *MCPServer) Run(ctx context.Context, port string) error {
 
 	httpServer := &http.Server{
 		Addr:    ":" + port,
-		Handler: m.sseServer,
+		Handler: m.httpServer,
 	}
 
 	m.logger.Info("Session MCP server starting", "port", port)
@@ -782,9 +783,10 @@ func (m *MCPServer) handleGetTurn(ctx context.Context, request mcp.CallToolReque
 	var turnData struct {
 		Turn        int `json:"turn"`
 		Interaction struct {
-			PromptMessage   string `json:"prompt_message"`
-			ResponseMessage string `json:"response_message"`
-			Summary         string `json:"summary"`
+			PromptMessage   string          `json:"prompt_message"`
+			ResponseMessage string          `json:"response_message"`
+			ResponseEntries json.RawMessage `json:"response_entries"`
+			Summary         string          `json:"summary"`
 		} `json:"interaction"`
 		Previous *struct {
 			Turn    int    `json:"turn"`
@@ -812,9 +814,9 @@ func (m *MCPServer) handleGetTurn(ctx context.Context, request mcp.CallToolReque
 		sb.WriteString("\n\n")
 	}
 
-	if turnData.Interaction.ResponseMessage != "" {
+	if assistantText := types.TextFromEntries(turnData.Interaction.ResponseEntries, turnData.Interaction.ResponseMessage); assistantText != "" {
 		sb.WriteString("ASSISTANT:\n")
-		sb.WriteString(turnData.Interaction.ResponseMessage)
+		sb.WriteString(assistantText)
 		sb.WriteString("\n\n")
 	}
 
@@ -885,10 +887,11 @@ func (m *MCPServer) handleGetTurns(ctx context.Context, request mcp.CallToolRequ
 	var turnsData struct {
 		SessionName string `json:"session_name"`
 		Turns       []struct {
-			Turn            int    `json:"turn"`
-			PromptMessage   string `json:"prompt_message"`
-			ResponseMessage string `json:"response_message"`
-			Summary         string `json:"summary"`
+			Turn            int             `json:"turn"`
+			PromptMessage   string          `json:"prompt_message"`
+			ResponseMessage string          `json:"response_message"`
+			ResponseEntries json.RawMessage `json:"response_entries"`
+			Summary         string          `json:"summary"`
 		} `json:"turns"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&turnsData); err != nil {
@@ -908,9 +911,9 @@ func (m *MCPServer) handleGetTurns(ctx context.Context, request mcp.CallToolRequ
 			sb.WriteString(t.PromptMessage)
 			sb.WriteString("\n\n")
 		}
-		if t.ResponseMessage != "" {
+		if responseText := types.TextFromEntries(t.ResponseEntries, t.ResponseMessage); responseText != "" {
 			sb.WriteString("ASSISTANT:\n")
-			sb.WriteString(t.ResponseMessage)
+			sb.WriteString(responseText)
 			sb.WriteString("\n\n")
 		}
 	}
@@ -954,12 +957,13 @@ func (m *MCPServer) handleGetInteraction(ctx context.Context, request mcp.CallTo
 	}
 
 	var interaction struct {
-		ID              string `json:"id"`
-		SessionID       string `json:"session_id"`
-		Created         string `json:"created"`
-		PromptMessage   string `json:"prompt_message"`
-		ResponseMessage string `json:"response_message"`
-		Summary         string `json:"summary"`
+		ID              string          `json:"id"`
+		SessionID       string          `json:"session_id"`
+		Created         string          `json:"created"`
+		PromptMessage   string          `json:"prompt_message"`
+		ResponseMessage string          `json:"response_message"`
+		ResponseEntries json.RawMessage `json:"response_entries"`
+		Summary         string          `json:"summary"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&interaction); err != nil {
 		return mcp.NewToolResultError("failed to parse interaction: " + err.Error()), nil
@@ -980,9 +984,9 @@ func (m *MCPServer) handleGetInteraction(ctx context.Context, request mcp.CallTo
 		sb.WriteString("\n\n")
 	}
 
-	if interaction.ResponseMessage != "" {
+	if responseText := types.TextFromEntries(interaction.ResponseEntries, interaction.ResponseMessage); responseText != "" {
 		sb.WriteString("ASSISTANT:\n")
-		sb.WriteString(interaction.ResponseMessage)
+		sb.WriteString(responseText)
 		sb.WriteString("\n")
 	}
 

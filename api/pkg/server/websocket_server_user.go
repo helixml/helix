@@ -112,6 +112,40 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 			}
 		}()
 
+		// Late-joiner catch-up: if the agent is currently streaming for this session,
+		// send a full-state snapshot so the client has a correct baseline for subsequent
+		// delta patches. The subscription is established first (above) to avoid missing
+		// any patches published between reading the snapshot and starting the read loop.
+		apiServer.streamingContextsMu.RLock()
+		sctx := apiServer.streamingContexts[sessionID]
+		apiServer.streamingContextsMu.RUnlock()
+
+		if sctx != nil {
+			sctx.mu.Lock()
+			var catchUpPayload []byte
+			if sctx.accumulator != nil {
+				entries := sctx.accumulator.Entries()
+				interactionID := sctx.interaction.ID
+				owner := sctx.session.Owner
+				sctx.mu.Unlock()
+				var buildErr error
+				catchUpPayload, buildErr = buildFullStatePatchEvent(sessionID, owner, interactionID, entries)
+				if buildErr != nil {
+					log.Warn().Err(buildErr).Str("session_id", sessionID).Msg("Failed to build late-joiner catch-up event")
+				}
+			} else {
+				sctx.mu.Unlock()
+			}
+			if len(catchUpPayload) > 0 {
+				wsMu.Lock()
+				if writeErr := conn.WriteMessage(websocket.TextMessage, catchUpPayload); writeErr != nil {
+					log.Warn().Err(writeErr).Str("session_id", sessionID).Msg("Failed to send late-joiner catch-up event")
+				}
+				wsMu.Unlock()
+				log.Debug().Str("session_id", sessionID).Msg("Sent late-joiner catch-up snapshot")
+			}
+		}
+
 		log.Trace().
 			Str("user_id", user.ID).
 			Str("session_id", sessionID).

@@ -86,7 +86,7 @@ func Test_GetGptOSS20B(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, "OpenAI: gpt-oss-20b", modelInfo.Name)
-	assert.Equal(t, "0.0000001", modelInfo.Pricing.Completion)
+	assert.Equal(t, "0.00000014", modelInfo.Pricing.Completion)
 }
 
 func Test_GetGeminiFlash_CustomUserProvider(t *testing.T) {

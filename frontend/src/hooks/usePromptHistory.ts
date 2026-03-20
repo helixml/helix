@@ -33,7 +33,7 @@ export interface PromptHistoryEntry {
   id: string
   content: string
   timestamp: number
-  sessionId: string
+  sessionId?: string
   status: 'sent' | 'pending' | 'failed'
   interrupt?: boolean       // If true, this message interrupts current conversation
   queuePosition?: number    // Position in queue for ordering
@@ -619,7 +619,7 @@ export function usePromptHistory({
   const updateContent = useCallback((id: string, content: string) => {
     setHistory(prev => {
       const updated = prev.map(h =>
-        h.id === id ? { ...h, content } : h
+        h.id === id ? { ...h, content, syncedToBackend: false } : h
       )
       saveHistory(updated, specTaskId)
       return updated
@@ -630,7 +630,7 @@ export function usePromptHistory({
   const updateInterrupt = useCallback((id: string, interrupt: boolean) => {
     setHistory(prev => {
       const updated = prev.map(h =>
-        h.id === id ? { ...h, interrupt } : h
+        h.id === id ? { ...h, interrupt, syncedToBackend: false } : h
       )
       saveHistory(updated, specTaskId)
       return updated
@@ -668,6 +668,12 @@ export function usePromptHistory({
 
   // Clear current draft
   const clearDraft = useCallback(() => {
+    // Cancel any pending debounced save — otherwise it fires after clearDraft
+    // and writes the sent content back to localStorage
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = null
+    }
     setDraftState('')
     clearDraftStorage(sessionId)
     setHistoryIndex(-1)

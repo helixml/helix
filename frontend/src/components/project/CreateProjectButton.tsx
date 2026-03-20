@@ -11,7 +11,7 @@ import {
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import { FilePlus, Package } from 'lucide-react'
 
-import { TypesSampleProject } from '../../api/api'
+import { TypesProject as TypesSampleProject } from '../../api/api'
 import { getSampleProjectIcon } from '../../utils/sampleProjectIcons'
 
 // Component for creating new projects with sample templates
@@ -134,7 +134,7 @@ const CreateProjectButton: FC<CreateProjectButtonProps> = ({
                   {sample.description || 'Sample project with pre-configured tasks'}
                 </Typography>
                 <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                  {sample.category} • {sample.difficulty}
+                  Sample project
                 </Typography>
               </Box>
             }
@@ -147,7 +147,7 @@ const CreateProjectButton: FC<CreateProjectButtonProps> = ({
                 disabled={isCreating}
               >
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 200 }}>
-                  {getSampleProjectIcon(sample.id, sample.category)}
+                  {getSampleProjectIcon(sample.id, undefined)}
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
                     {sample.name}
                   </Typography>

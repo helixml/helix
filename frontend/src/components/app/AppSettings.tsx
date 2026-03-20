@@ -252,7 +252,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [reasoning_model_effort, setReasoningModelEffort] = useState(app.reasoning_model_effort || 'none')
   const [generation_model, setGenerationModel] = useState(app.generation_model || '')
   const [generation_model_provider, setGenerationModelProvider] = useState(app.generation_model_provider || '')
-  const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code' | 'claude_code'>(app.code_agent_runtime || 'zed_agent')
+  const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli'>(app.code_agent_runtime || 'zed_agent')
   // External agent display settings
   const [resolution, setResolution] = useState<'1080p' | '4k' | '5k'>(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
   const [desktopType, setDesktopType] = useState<'ubuntu' | 'sway'>(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
@@ -283,9 +283,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   })
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
   const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
-  const hasAnthropicProvider = providerEndpoints.some(
-    ep => ep.endpoint_type === 'user' && ep.name === 'anthropic'
-  )
+  const hasAnthropicProvider = providerEndpoints.some(ep => ep.name === 'anthropic')
 
   // Advanced settings state
   const [contextLimit, setContextLimit] = useState(app.context_limit || 0)

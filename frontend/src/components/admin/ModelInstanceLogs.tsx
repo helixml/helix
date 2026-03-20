@@ -249,7 +249,7 @@ const ModelInstanceLogs: FC<{ runner: TypesDashboardRunner }> = ({ runner }) => 
             {/* Logs Display */}
             {selectedSlot && (
               <Paper sx={{ maxHeight: 400, overflow: 'auto', backgroundColor: 'rgba(0, 0, 0, 0.9)' }}>
-                {logs.length === 0 && !loading ? (
+                {logs.length === 0 && !isLoading ? (
                   <Box sx={{ p: 2, textAlign: 'center', color: 'rgba(255, 255, 255, 0.6)' }}>
                     No logs available for this slot
                   </Box>

@@ -43,7 +43,7 @@ type Interaction struct {
 
 	// TODO: add the full multi-part response content
 	// ResponseMessageContent MessageContent `json:"response_message_content"` // LLM response
-	ResponseMessage        string         `json:"response_message"`                                  // LLM response
+	ResponseMessage        string         `json:"response_message,omitempty"`                        // LLM response (legacy — omit from wire when empty)
 	ResponseFormat         ResponseFormat `json:"response_format" gorm:"type:jsonb;serializer:json"` // e.g. json
 	ResponseFormatResponse string         `json:"response_format_response"`                          // e.g. json
 
@@ -79,6 +79,13 @@ type Interaction struct {
 	// current message's portion during streaming updates, preserving earlier messages.
 	LastZedMessageOffset int `json:"last_zed_message_offset,omitempty"`
 
+	// ResponseEntries holds the structured response as an ordered list of typed entries.
+	// Each entry is either "text" (assistant prose) or "tool_call" (tool invocation),
+	// preserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.
+	// This is populated on completion alongside ResponseMessage (flat string, backward compat).
+	// The frontend uses this to render entries with the correct component in the correct order.
+	ResponseEntries datatypes.JSON `json:"response_entries,omitempty" gorm:"type:jsonb"`
+
 	// Summary is a one-line description of this interaction for search/indexing.
 	// Generated lazily on first access or via background job.
 	Summary          string     `json:"summary,omitempty"`
@@ -100,12 +107,6 @@ type Feedback string
 const (
 	FeedbackLike    Feedback = "like"
 	FeedbackDislike Feedback = "dislike"
-)
-
-// DesiredState constants for session reconciliation
-const (
-	DesiredStateRunning = "running" // Container should exist, reconciler will restart if missing
-	DesiredStateStopped = "stopped" // Container can be terminated, no auto-restart
 )
 
 func InteractionsToOpenAIMessages(systemPrompt string, interactions []*Interaction) []openai.ChatCompletionMessage {
@@ -396,8 +397,7 @@ type SessionMetadata struct {
 	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"`     // Configuration for external agents
 	ExternalAgentID         string               `json:"external_agent_id,omitempty"`         // NEW: External agent ID for this session
 	ExternalAgentStatus     string               `json:"external_agent_status,omitempty"`     // NEW: External agent status (running, stopped, terminated_idle)
-	DesiredState            string               `json:"desired_state,omitempty"`             // "running" = should be running, "stopped" = can terminate
-	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
+Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
 	DevContainerID          string               `json:"dev_container_id,omitempty"`          // Dev container ID for streaming
 	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
 	GPUVendor               string               `json:"gpu_vendor,omitempty"`                // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
@@ -874,12 +874,27 @@ type WebsocketEvent struct {
 	WorkerTaskResponse *RunnerTaskResponse         `json:"worker_task_response"`
 	InferenceResponse  *RunnerLLMInferenceResponse `json:"inference_response"`
 	StepInfo           *StepInfo                   `json:"step_info"`
-	// Patch fields for efficient streaming updates (interaction_patch events).
-	// Instead of sending the full interaction, we send only the changed portion
-	// of ResponseMessage. Frontend applies: content = content[:PatchOffset] + Patch
-	Patch       string `json:"patch,omitempty"`        // Content from PatchOffset onwards
-	PatchOffset int    `json:"patch_offset,omitempty"` // Byte position of first change
-	TotalLength int    `json:"total_length,omitempty"` // Final content length after patch
+	// Per-entry structured patches for streaming (interaction_patch events).
+	// Each EntryPatch carries a per-entry string patch (offset/patch/length) so the
+	// frontend can maintain a ResponseEntry[] with correct type boundaries during
+	// streaming. EntryCount is the total number of entries so the frontend can grow
+	// its array when new entries appear.
+	EntryPatches []EntryPatch `json:"entry_patches,omitempty"`
+	EntryCount   int          `json:"entry_count,omitempty"`
+}
+
+// EntryPatch is a per-entry delta for structured streaming. The frontend
+// applies the same patch logic as the flat content patch, but scoped to a
+// single ResponseEntry's content.
+type EntryPatch struct {
+	Index       int    `json:"index"`                  // Position in the entries array
+	MessageID   string `json:"message_id"`             // Zed message_id for this entry
+	Type        string `json:"type"`                   // "text" or "tool_call"
+	Patch       string `json:"patch,omitempty"`        // Content delta from PatchOffset onwards
+	PatchOffset int    `json:"patch_offset,omitempty"` // UTF-16 offset of first change in this entry
+	TotalLength int    `json:"total_length,omitempty"` // Final content length of this entry after patch
+	ToolName    string `json:"tool_name,omitempty"`    // For tool_call: the tool label
+	ToolStatus  string `json:"tool_status,omitempty"`  // For tool_call: "Completed", "In Progress", etc.
 }
 
 type StepInfoType string
@@ -1826,10 +1841,12 @@ type CrispTrigger struct {
 }
 
 type CronTrigger struct {
-	Enabled  bool     `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Schedule string   `json:"schedule,omitempty" yaml:"schedule,omitempty"`
-	Input    string   `json:"input,omitempty" yaml:"input,omitempty"`
-	Emails   []string `json:"emails,omitempty" yaml:"emails,omitempty"`
+	Enabled   bool     `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Schedule  string   `json:"schedule,omitempty" yaml:"schedule,omitempty"`
+	Input     string   `json:"input,omitempty" yaml:"input,omitempty"`
+	Emails    []string `json:"emails,omitempty" yaml:"emails,omitempty"`
+	Action    string   `json:"action,omitempty" yaml:"action,omitempty"`         // "session" (default) or "spec_task"
+	ProjectID string   `json:"project_id,omitempty" yaml:"project_id,omitempty"` // Target project for spec_task action
 }
 
 // AzureDevOpsTrigger - once enabled, a trigger in the database will be created
@@ -3164,4 +3181,36 @@ type DiskUsageHistory struct {
 // TableName returns the table name for GORM
 func (DiskUsageHistory) TableName() string {
 	return "disk_usage_history"
+}
+
+// TextFromInteraction returns the plain-text response for an interaction,
+// preferring ResponseEntries (structured) over ResponseMessage (legacy flat string).
+// TextFromEntries reconstructs plain text from a ResponseEntries JSON blob,
+// falling back to fallback when entries are absent or contain no text.
+func TextFromEntries(responseEntries json.RawMessage, fallback string) string {
+	if len(responseEntries) > 0 {
+		var entries []struct {
+			Type    string `json:"type"`
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal(responseEntries, &entries); err == nil {
+			var sb strings.Builder
+			for _, e := range entries {
+				if e.Type == "text" {
+					sb.WriteString(e.Content)
+				}
+			}
+			if sb.Len() > 0 {
+				return sb.String()
+			}
+		}
+	}
+	return fallback
+}
+
+// TextFromInteraction returns the plain-text response for an interaction.
+// ResponseEntries became the primary source in the response_entries migration;
+// ResponseMessage is kept only for backwards compat with old interactions.
+func TextFromInteraction(i *Interaction) string {
+	return TextFromEntries(json.RawMessage(i.ResponseEntries), i.ResponseMessage)
 }

@@ -203,9 +203,9 @@ func GenerateZedMCPConfig(
 	// Only add if Kodit is enabled - otherwise Zed will get 501 errors
 	if koditEnabled {
 		// The Helix MCP gateway at /api/v1/mcp/kodit authenticates users and forwards to Kodit
-		koditMCPURL := fmt.Sprintf("%s/api/v1/mcp/kodit", helixAPIURL)
+		koditMCPURL := fmt.Sprintf("%s/api/v1/mcp/kodit?session_id=%s", helixAPIURL, sessionID)
 		config.ContextServers["kodit"] = ContextServerConfig{
-			URL:    koditMCPURL,
+			URL: koditMCPURL,
 			Headers: map[string]string{
 				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
 			},
@@ -213,11 +213,17 @@ func GenerateZedMCPConfig(
 	}
 
 	// 3. Add desktop MCP server (screenshot, clipboard, input, window management tools)
-	// This runs locally in the sandbox container on port 9878 (desktop-bridge MCP server)
+	// Proxied through the Helix API gateway so it works in both local dev and SaaS (app.helix.ml).
+	// The gateway authenticates the request and forwards it via RevDial to the desktop HTTP
+	// server's /mcp route inside the sandbox container.
 	// Provides take_screenshot, save_screenshot, type_text, mouse_click, get_clipboard, set_clipboard,
 	// list_windows, focus_window, maximize_window, tile_window, move_to_workspace, switch_to_workspace, get_workspaces
+	desktopMCPURL := fmt.Sprintf("%s/api/v1/mcp/desktop?session_id=%s", helixAPIURL, sessionID)
 	config.ContextServers["helix-desktop"] = ContextServerConfig{
-		URL:    "http://localhost:9878/mcp", // Desktop MCP server (desktop-bridge runs on 9878)
+		URL: desktopMCPURL,
+		Headers: map[string]string{
+			"Authorization": fmt.Sprintf("Bearer %s", helixToken),
+		},
 	}
 
 	// 4. Add session MCP server (session navigation and context tools)
@@ -226,7 +232,7 @@ func GenerateZedMCPConfig(
 	// search_all_sessions, list_sessions, get_turn, get_turns, get_interaction
 	sessionMCPURL := fmt.Sprintf("%s/api/v1/mcp/session?session_id=%s", helixAPIURL, sessionID)
 	config.ContextServers["helix-session"] = ContextServerConfig{
-		URL:    sessionMCPURL,
+		URL: sessionMCPURL,
 		Headers: map[string]string{
 			"Authorization": fmt.Sprintf("Bearer %s", helixToken),
 		},
@@ -362,7 +368,7 @@ func mcpToContextServerWithProxy(ctx context.Context, mcp types.AssistantMCP, us
 		// The proxy always exposes as Streamable HTTP (the modern protocol)
 		// It handles SSE transport internally when connecting to legacy servers
 		return ContextServerConfig{
-			URL:    proxyURL,
+			URL: proxyURL,
 			Headers: map[string]string{
 				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
 			},
@@ -446,7 +452,15 @@ func normalizeModelIDForZed(modelID string) string {
 		return modelID
 	}
 
-	// Claude 4.5 models (new naming: claude-opus-4-5, claude-sonnet-4-5, claude-haiku-4-5)
+	// Claude 4.6 models
+	if strings.HasPrefix(modelID, "claude-opus-4-6") {
+		return "claude-opus-4-6-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-sonnet-4-6") {
+		return "claude-sonnet-4-6-latest"
+	}
+
+	// Claude 4.5 models
 	if strings.HasPrefix(modelID, "claude-opus-4-5") {
 		return "claude-opus-4-5-latest"
 	}
@@ -455,6 +469,19 @@ func normalizeModelIDForZed(modelID string) string {
 	}
 	if strings.HasPrefix(modelID, "claude-haiku-4-5") {
 		return "claude-haiku-4-5-latest"
+	}
+
+	// Claude 4.1 models (must come before generic claude-opus-4 / claude-sonnet-4)
+	if strings.HasPrefix(modelID, "claude-opus-4-1") {
+		return "claude-opus-4-1-latest"
+	}
+
+	// Claude 4.0 models (generic — catches claude-opus-4-20250514, claude-sonnet-4-20250514, etc.)
+	if strings.HasPrefix(modelID, "claude-opus-4") {
+		return "claude-opus-4-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-sonnet-4") {
+		return "claude-sonnet-4-latest"
 	}
 
 	// Claude 3.x models (old naming: claude-3-5-sonnet, claude-3-5-haiku, etc.)

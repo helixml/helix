@@ -26,6 +26,7 @@ import {
 } from "@mui/material";
 import { Add as AddIcon, Close as CloseIcon } from "@mui/icons-material";
 import { X } from "lucide-react";
+import { RECOMMENDED_CODING_MODELS } from "../../constants/models";
 
 import { CodeAgentRuntime, generateAgentName } from "../../contexts/apps";
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from "../../types";
@@ -39,36 +40,16 @@ import AgentDropdown from "../agent/AgentDropdown";
 import CodingAgentForm, {
   CodingAgentFormHandle,
 } from "../agent/CodingAgentForm";
-import { useClaudeSubscriptions } from "../account/ClaudeSubscriptionConnect";
-import { useListProviders } from "../../services/providersService";
-import { TypesProviderEndpointType } from "../../api/api";
-
 import useAccount from "../../hooks/useAccount";
 import useApi from "../../hooks/useApi";
 import useSnackbar from "../../hooks/useSnackbar";
 import useApps from "../../hooks/useApps";
 import { useGetProject, useGetProjectRepositories } from "../../services";
-import { useSpecTasks } from "../../services/specTaskService";
+import { useSpecTasks, useProjectLabels, useAddLabel } from "../../services/specTaskService";
 
-// Recommended models for zed_external agents (state-of-the-art coding models)
-const RECOMMENDED_MODELS = [
-  // Anthropic
-  "claude-opus-4-5-20251101",
-  "claude-sonnet-4-5-20250929",
-  "claude-haiku-4-5-20251001",
-  // OpenAI
-  "openai/gpt-5.1-codex",
-  "openai/gpt-oss-120b",
-  // Google Gemini
-  "gemini-2.5-pro",
-  "gemini-2.5-flash",
-  // Zhipu GLM
-  "glm-4.6",
-  // Qwen (Coder + Large)
-  "Qwen/Qwen3-Coder-480B-A35B-Instruct",
-  "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-  "Qwen/Qwen3-235B-A22B-fp8-tput",
-];
+const LAST_LABELS_KEY = "helix_last_task_labels";
+
+
 
 interface NewSpecTaskFormProps {
   projectId: string;
@@ -103,9 +84,19 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
     enabled: !!projectId,
   });
 
+  const { data: projectLabels = [] } = useProjectLabels(projectId);
+  const addLabelMutation = useAddLabel();
+
   // Form state
   const [taskPrompt, setTaskPrompt] = useState("");
   const [taskPriority, setTaskPriority] = useState("medium");
+  const [taskLabels, setTaskLabels] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(LAST_LABELS_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  });
   const [selectedDependencyTaskIds, setSelectedDependencyTaskIds] = useState<
     string[]
   >([]);
@@ -183,26 +174,6 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const [userModifiedName, setUserModifiedName] = useState(false);
   const [creatingAgent, setCreatingAgent] = useState(false);
   const codingAgentFormRef = useRef<CodingAgentFormHandle>(null);
-  const { data: claudeSubscriptions } = useClaudeSubscriptions();
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0;
-  const { data: providerEndpoints } = useListProviders({ loadModels: false });
-  const hasAnthropicProvider = useMemo(() => {
-    if (!providerEndpoints) return false;
-    return providerEndpoints.some(
-      (p) =>
-        p.endpoint_type ===
-          TypesProviderEndpointType.ProviderEndpointTypeUser &&
-        p.name === "anthropic",
-    );
-  }, [providerEndpoints]);
-  const userProviderCount = useMemo(() => {
-    if (!providerEndpoints) return 0;
-    return providerEndpoints.filter(
-      (p) =>
-        p.endpoint_type === TypesProviderEndpointType.ProviderEndpointTypeUser,
-    ).length;
-  }, [providerEndpoints]);
-
   // Ref for task prompt text field
   const taskPromptRef = useRef<HTMLTextAreaElement>(null);
 
@@ -230,6 +201,16 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
       }
     });
 
+    // Sort zed_external agents by model quality (opus > sonnet > haiku > other)
+    const modelPriority = (app: IApp): number => {
+      const name = (app.config?.helix?.name || "").toLowerCase();
+      if (name.includes("opus")) return 0;
+      if (name.includes("sonnet")) return 1;
+      if (name.includes("haiku")) return 3;
+      return 2; // unknown models between sonnet and haiku
+    };
+    zedExternalApps.sort((a, b) => modelPriority(a) - modelPriority(b));
+
     const result: IApp[] = [];
     if (defaultApp) result.push(defaultApp);
     result.push(...zedExternalApps, ...otherApps);
@@ -242,17 +223,6 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
       setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime));
     }
   }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm]);
-
-  useEffect(() => {
-    if (
-      hasClaudeSubscription &&
-      !hasAnthropicProvider &&
-      userProviderCount === 0
-    ) {
-      setCodeAgentRuntime("claude_code");
-      setClaudeCodeMode("subscription");
-    }
-  }, [hasClaudeSubscription, hasAnthropicProvider, userProviderCount]);
 
   // Load apps on mount
   useEffect(() => {
@@ -287,6 +257,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const resetForm = useCallback(() => {
     setTaskPrompt("");
     setTaskPriority("medium");
+    // Labels intentionally kept — they persist to the next task via localStorage
     setSelectedDependencyTaskIds([]);
     setSelectedHelixAgent("");
     setJustDoItMode(false);
@@ -359,6 +330,19 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
         .v1SpecTasksFromPromptCreate(createTaskRequest);
 
       if (response.data) {
+        // Persist labels to localStorage for next task
+        localStorage.setItem(LAST_LABELS_KEY, JSON.stringify(taskLabels));
+
+        // Add labels to the newly created task
+        const taskId = response.data.id;
+        if (taskId && taskLabels.length > 0) {
+          await Promise.all(
+            taskLabels.map((label) =>
+              addLabelMutation.mutateAsync({ taskId, label })
+            )
+          );
+        }
+
         snackbar.success(
           "SpecTask created! Planning agent will generate specifications.",
         );
@@ -452,6 +436,77 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
               <MenuItem value="critical">Critical</MenuItem>
             </Select>
           </FormControl>
+
+          {/* Labels */}
+          <Autocomplete
+            multiple
+            freeSolo
+            options={projectLabels.filter((l) => !taskLabels.includes(l))}
+            value={taskLabels}
+            filterOptions={(options, params) => {
+              const filtered = options.filter((o) =>
+                o.toLowerCase().includes(params.inputValue.toLowerCase()),
+              );
+              const trimmed = params.inputValue.trim();
+              if (
+                trimmed &&
+                !taskLabels.some(
+                  (l) => l.toLowerCase() === trimmed.toLowerCase(),
+                ) &&
+                !options.some(
+                  (o) => o.toLowerCase() === trimmed.toLowerCase(),
+                )
+              ) {
+                filtered.push(`__create__:${trimmed}`);
+              }
+              return filtered;
+            }}
+            onChange={(_, newValue) => {
+              const resolved = (newValue as string[]).map((v) =>
+                v.startsWith("__create__:") ? v.slice("__create__:".length) : v,
+              );
+              setTaskLabels(resolved);
+            }}
+            getOptionLabel={(option) =>
+              option.startsWith("__create__:")
+                ? option.slice("__create__:".length)
+                : option
+            }
+            renderOption={(props, option) => {
+              if (option.startsWith("__create__:")) {
+                const label = option.slice("__create__:".length);
+                return (
+                  <li {...props} key="__create__">
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                      <Typography variant="body2" color="primary">
+                        + Create &ldquo;{label}&rdquo;
+                      </Typography>
+                    </Box>
+                  </li>
+                );
+              }
+              return <li {...props} key={option}>{option}</li>;
+            }}
+            renderTags={(value, getTagProps) =>
+              value.map((label, index) => (
+                <Chip
+                  key={label}
+                  label={label}
+                  size="small"
+                  {...getTagProps({ index })}
+                />
+              ))
+            }
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Labels"
+                placeholder={taskLabels.length === 0 ? "Add label..." : ""}
+                size="small"
+                helperText="Optional: labels are remembered for your next task"
+              />
+            )}
+          />
 
           {/* Single text box for everything */}
           <TextField
@@ -769,9 +824,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
                     setNewAgentName(nextValue.agentName);
                   }}
                   disabled={creatingAgent || isCreating}
-                  hasClaudeSubscription={hasClaudeSubscription}
-                  hasAnthropicProvider={hasAnthropicProvider}
-                  recommendedModels={RECOMMENDED_MODELS}
+                  recommendedModels={RECOMMENDED_CODING_MODELS}
                   createAgentDescription="Code development agent for spec tasks"
                   onCreateStateChange={setCreatingAgent}
                   onAgentCreated={(app) => {

@@ -110,9 +110,11 @@ type SpecTask struct {
 	PullRequestURL string `json:"pull_request_url,omitempty"` // Computed field, not stored
 
 	// Agent activity tracking (computed from session/activity data, not stored)
-	SessionUpdatedAt  *time.Time     `json:"session_updated_at,omitempty" gorm:"-"`  // When the session was last updated (for active/idle detection)
-	AgentWorkState    AgentWorkState `json:"agent_work_state,omitempty" gorm:"-"`    // Current agent work state (idle/working/done) from activity tracking
-	LastPromptContent string         `json:"last_prompt_content,omitempty" gorm:"-"` // Last prompt sent to agent (for continue functionality)
+	SessionUpdatedAt    *time.Time     `json:"session_updated_at,omitempty" gorm:"-"`    // When the session was last updated (for active/idle detection)
+	AgentWorkState      AgentWorkState `json:"agent_work_state,omitempty" gorm:"-"`      // Current agent work state (idle/working/done) from activity tracking
+	LastPromptContent   string         `json:"last_prompt_content,omitempty" gorm:"-"`   // Last prompt sent to agent (for continue functionality)
+	SandboxState        string         `json:"sandbox_state,omitempty" gorm:"-"`         // "absent", "running", "starting" — derived from session config in listTasks
+	SandboxStatusMessage string        `json:"sandbox_status_message,omitempty" gorm:"-"` // Transient startup message e.g. "Unpacking build cache"
 
 	// Multi-session support
 	ZedInstanceID   string         `json:"zed_instance_id,omitempty" gorm:"size:255;index"`
@@ -220,6 +222,7 @@ type SpecTaskFilters struct {
 	DesignDocPath     string         `json:"design_doc_path,omitempty"`     // Filter by exact DesignDocPath (for git push detection)
 	BranchName        string         `json:"branch_name,omitempty"`         // Filter by exact BranchName (for uniqueness check)
 	PlanningSessionID string         `json:"planning_session_id,omitempty"` // Filter by PlanningSessionID (reverse lookup)
+	Labels            []string       `json:"labels,omitempty"`              // Filter tasks that have ALL of these labels (AND semantics)
 }
 
 // SpecTaskUpdateRequest represents a request to update a SpecTask

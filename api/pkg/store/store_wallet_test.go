@@ -264,6 +264,7 @@ func (suite *WalletTestSuite) TestUpdateWallet() {
 	periodStart := int64(1640995200) // Jan 1, 2022
 	periodEnd := int64(1672531200)   // Jan 1, 2023
 	subscriptionCreated := int64(1640995100)
+	cancelAtPeriodEnd := true
 
 	updatedWallet := &types.Wallet{
 		ID:                             createdWallet.ID,
@@ -272,6 +273,7 @@ func (suite *WalletTestSuite) TestUpdateWallet() {
 		SubscriptionCurrentPeriodStart: periodStart,
 		SubscriptionCurrentPeriodEnd:   periodEnd,
 		SubscriptionCreated:            subscriptionCreated,
+		SubscriptionCancelAtPeriodEnd:  cancelAtPeriodEnd,
 	}
 
 	result, err := suite.db.UpdateWallet(suite.ctx, updatedWallet)
@@ -284,6 +286,7 @@ func (suite *WalletTestSuite) TestUpdateWallet() {
 	suite.Equal(periodStart, result.SubscriptionCurrentPeriodStart)
 	suite.Equal(periodEnd, result.SubscriptionCurrentPeriodEnd)
 	suite.Equal(subscriptionCreated, result.SubscriptionCreated)
+	suite.Equal(cancelAtPeriodEnd, result.SubscriptionCancelAtPeriodEnd)
 
 	// Verify balance was NOT changed (UpdateWallet should not update balance)
 	suite.Equal(100.0, result.Balance)

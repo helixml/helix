@@ -199,7 +199,7 @@ func (h *HelixCodeReviewTrigger) runReviewSession(ctx context.Context, project *
 	log.Info().
 		Str("app_id", app.ID).
 		Str("spec_task_id", specTask.ID).
-		Str("response", resp.ResponseMessage).
+		Str("response", types.TextFromInteraction(resp)).
 		Msg("Pull request review completed")
 
 	return nil

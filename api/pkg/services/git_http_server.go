@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -25,8 +26,8 @@ type TriggerManager interface {
 	ProcessGitPushEvent(ctx context.Context, specTask *types.SpecTask, repo *types.GitRepository, commitHash string) error
 }
 
-// AuthorizationFunc is the function signature for authorization checks
-type AuthorizationFunc func(ctx context.Context, user *types.User, orgID string, resourceID string, resourceType types.Resource, action types.Action) error
+// AuthorizationToRepositoryFunc is the function signature for authorization checks
+type AuthorizationToRepositoryFunc func(ctx context.Context, user *types.User, repository *types.GitRepository, action types.Action) error
 
 // SpecTaskMessageSender is a function type for sending messages to spec task agents
 type SpecTaskMessageSender func(ctx context.Context, task *types.SpecTask, message string, docPath string) (string, error)
@@ -70,18 +71,24 @@ func (fw *flushingWriter) Write(p []byte) (n int, err error) {
 // GitHTTPServer provides HTTP access to git repositories using native git.
 // This replaces the go-git based implementation for better performance and reliability.
 type GitHTTPServer struct {
-	store           store.Store
-	gitRepoService  *GitRepositoryService
-	serverBaseURL   string
-	authTokenHeader string
-	enablePush      bool
-	enablePull      bool
-	maxRepoSize     int64
-	requestTimeout  time.Duration
-	testMode        bool
-	authorizeFn     AuthorizationFunc
-	triggerManager  TriggerManager
-	wg              sync.WaitGroup
+	store            store.Store
+	gitRepoService   *GitRepositoryService
+	serverBaseURL    string
+	authTokenHeader  string
+	enablePush       bool
+	enablePull       bool
+	maxRepoSize      int64
+	requestTimeout   time.Duration
+	testMode         bool
+	authorizeFn      AuthorizationToRepositoryFunc
+	triggerManager   TriggerManager
+	attentionService *AttentionService
+	wg               sync.WaitGroup
+}
+
+// SetAttentionService sets the attention service for emitting human-needed events.
+func (s *GitHTTPServer) SetAttentionService(svc *AttentionService) {
+	s.attentionService = svc
 }
 
 // GitHTTPServerConfig holds configuration for the git HTTP server
@@ -99,7 +106,7 @@ func NewGitHTTPServer(
 	store store.Store,
 	gitRepoService *GitRepositoryService,
 	config GitHTTPServerConfig,
-	authorizeFn AuthorizationFunc,
+	authorizeFn AuthorizationToRepositoryFunc,
 	triggerManager TriggerManager,
 ) *GitHTTPServer {
 	// Note: gitcmd is already initialized by GitRepositoryService.Initialize()
@@ -795,12 +802,12 @@ func (s *GitHTTPServer) hasReadAccess(ctx context.Context, user *types.User, rep
 	}
 
 	// Use ActionGet for read access on projects (requires org membership)
-	err = s.authorizeFn(ctx, user, repo.OrganizationID, repo.ProjectID, types.ResourceProject, types.ActionGet)
+	err = s.authorizeFn(ctx, user, repo, types.ActionGet)
 	if err != nil {
-		log.Warn().Err(err).Str("repo_id", repoID).Str("project_id", repo.ProjectID).Str("org_id", repo.OrganizationID).Str("user_id", user.ID).Msg("hasReadAccess: authorization failed")
+		log.Warn().Err(err).Str("repo_id", repoID).Str("user_id", user.ID).Msg("hasReadAccess: authorization failed")
 		return false
 	}
-	log.Debug().Str("repo_id", repoID).Str("project_id", repo.ProjectID).Str("user_id", user.ID).Msg("hasReadAccess: authorized")
+	log.Debug().Str("repo_id", repoID).Str("user_id", user.ID).Msg("hasReadAccess: authorized")
 	return true
 }
 
@@ -823,12 +830,12 @@ func (s *GitHTTPServer) hasWriteAccess(ctx context.Context, user *types.User, re
 	}
 
 	// Use ActionUpdate for write access on projects (requires org membership)
-	err = s.authorizeFn(ctx, user, repo.OrganizationID, repo.ProjectID, types.ResourceProject, types.ActionUpdate)
+	err = s.authorizeFn(ctx, user, repo, types.ActionUpdate)
 	if err != nil {
-		log.Warn().Err(err).Str("repo_id", repoID).Str("project_id", repo.ProjectID).Str("org_id", repo.OrganizationID).Str("user_id", user.ID).Msg("hasWriteAccess: authorization failed")
+		log.Warn().Err(err).Str("repo_id", repoID).Str("org_id", repo.OrganizationID).Str("user_id", user.ID).Msg("hasWriteAccess: authorization failed")
 		return false
 	}
-	log.Debug().Str("repo_id", repoID).Str("project_id", repo.ProjectID).Str("user_id", user.ID).Msg("hasWriteAccess: authorized")
+	log.Debug().Str("repo_id", repoID).Str("user_id", user.ID).Msg("hasWriteAccess: authorized")
 	return true
 }
 
@@ -1016,6 +1023,120 @@ func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.Gi
 	}
 }
 
+// parsePullRequestMarkdown parses a pull_request.md file content into title and description.
+// Format: First line (with optional "# " prefix) = title, everything after first blank line = description.
+// Returns (title, description, ok). ok is false if content is empty or has no title.
+func parsePullRequestMarkdown(content string) (string, string, bool) {
+	lines := strings.Split(strings.TrimSpace(content), "\n")
+	if len(lines) == 0 {
+		return "", "", false
+	}
+
+	// First line is title (strip # prefix if present)
+	title := strings.TrimSpace(lines[0])
+	title = strings.TrimPrefix(title, "# ")
+	title = strings.TrimSpace(title)
+
+	if title == "" {
+		return "", "", false
+	}
+
+	// Find first blank line, everything after is description
+	var descLines []string
+	foundBlank := false
+	for i := 1; i < len(lines); i++ {
+		if !foundBlank && strings.TrimSpace(lines[i]) == "" {
+			foundBlank = true
+			continue
+		}
+		if foundBlank {
+			descLines = append(descLines, lines[i])
+		}
+	}
+
+	description := strings.TrimSpace(strings.Join(descLines, "\n"))
+	return title, description, true
+}
+
+// getPullRequestContent reads pull_request.md from helix-specs branch for a task.
+// Returns (title, description, found). If not found or error, returns empty strings and false.
+func (s *GitHTTPServer) getPullRequestContent(repoPath string, task *types.SpecTask) (string, string, bool) {
+	if task.DesignDocPath == "" {
+		return "", "", false
+	}
+
+	// Read from helix-specs branch
+	filePath := "design/tasks/" + task.DesignDocPath + "/pull_request.md"
+	cmd := exec.Command("git", "show", "helix-specs:"+filePath)
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		// File doesn't exist or other error - this is expected for tasks without pull_request.md
+		return "", "", false
+	}
+
+	return parsePullRequestMarkdown(string(output))
+}
+
+// getSpecDocsBaseURL builds a URL to view spec docs in the external repo's web UI.
+// Returns empty string if URL cannot be constructed (unknown provider or internal repo).
+func getSpecDocsBaseURL(repo *types.GitRepository, designDocPath string) string {
+	if repo.ExternalURL == "" {
+		return ""
+	}
+
+	baseURL := strings.TrimSuffix(repo.ExternalURL, ".git")
+
+	// Build blob/browse URL based on provider
+	switch repo.ExternalType {
+	case types.ExternalRepositoryTypeGitHub:
+		// GitHub: https://github.com/owner/repo/blob/helix-specs/design/tasks/{path}
+		return fmt.Sprintf("%s/blob/helix-specs/design/tasks/%s", baseURL, designDocPath)
+	case types.ExternalRepositoryTypeGitLab:
+		// GitLab: https://gitlab.com/owner/repo/-/blob/helix-specs/design/tasks/{path}
+		return fmt.Sprintf("%s/-/blob/helix-specs/design/tasks/%s", baseURL, designDocPath)
+	case types.ExternalRepositoryTypeADO:
+		// Azure DevOps: https://dev.azure.com/org/project/_git/repo?path=/design/tasks/{path}&version=GBhelix-specs
+		return fmt.Sprintf("%s?path=/design/tasks/%s&version=GBhelix-specs", baseURL, designDocPath)
+	case types.ExternalRepositoryTypeBitbucket:
+		// Bitbucket Cloud: https://bitbucket.org/owner/repo/src/helix-specs/design/tasks/{path}
+		return fmt.Sprintf("%s/src/helix-specs/design/tasks/%s", baseURL, designDocPath)
+	default:
+		return ""
+	}
+}
+
+// buildPRFooter generates the PR description footer with:
+// - "Open in Helix" link to the task in Helix UI
+// - Spec doc links (if available for the repo type)
+// - Helix branding
+func buildPRFooter(repo *types.GitRepository, task *types.SpecTask, orgName, helixBaseURL string) string {
+	var parts []string
+
+	// "Open in Helix" link - always include if we have the necessary info
+	if helixBaseURL != "" && orgName != "" && task.ProjectID != "" && task.ID != "" {
+		helixTaskURL := fmt.Sprintf("%s/orgs/%s/projects/%s/tasks/%s",
+			strings.TrimSuffix(helixBaseURL, "/"), orgName, task.ProjectID, task.ID)
+		parts = append(parts, fmt.Sprintf("🔗 [Open in Helix](%s)", helixTaskURL))
+	}
+
+	// Spec doc links (if available for this repo type)
+	specDocsURL := ""
+	if task.DesignDocPath != "" {
+		specDocsURL = getSpecDocsBaseURL(repo, task.DesignDocPath)
+	}
+
+	if specDocsURL != "" {
+		parts = append(parts, fmt.Sprintf("📋 [Requirements](%s/requirements.md) | [Design](%s/design.md) | [Tasks](%s/tasks.md)",
+			specDocsURL, specDocsURL, specDocsURL))
+	}
+
+	// Helix branding - always include
+	parts = append(parts, "🚀 Built with [Helix](https://helix.ml)")
+
+	return "---\n" + strings.Join(parts, " | ")
+}
+
 // ensurePullRequest creates a PR if one doesn't exist
 func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, branch string) error {
 	if repo.ExternalURL == "" {
@@ -1064,8 +1185,30 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 		}
 	}
 
-	description := fmt.Sprintf("> **Helix**: %s\n", task.Description)
-	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, task.Name, description, branch, repo.DefaultBranch)
+	// Try to get custom PR content from pull_request.md
+	title, description, found := s.getPullRequestContent(repo.LocalPath, task)
+	if !found {
+		// Fallback to existing behavior
+		title = task.Name
+		description = task.Description
+		log.Debug().Str("task_id", task.ID).Msg("No pull_request.md found, using task name/description")
+	} else {
+		log.Info().Str("task_id", task.ID).Msg("Using pull_request.md for PR content")
+	}
+
+	// Get org name for "Open in Helix" link
+	orgName := ""
+	if task.OrganizationID != "" {
+		if org, err := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: task.OrganizationID}); err == nil && org != nil {
+			orgName = org.Name
+		}
+	}
+
+	// Append footer with "Open in Helix" link, spec doc links, and branding
+	footer := buildPRFooter(repo, task, orgName, s.serverBaseURL)
+	description = description + "\n\n" + footer
+
+	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch)
 	if err != nil {
 		return fmt.Errorf("failed to create PR: %w", err)
 	}
@@ -1179,6 +1322,29 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 				defer s.wg.Done()
 				s.createDesignReviewForPush(context.Background(), t.ID, pushedBranch, commitHash, repoPath, gitRepo)
 			}(task)
+		}
+
+		// Emit specs_pushed attention event for every design doc commit
+		if s.attentionService != nil {
+			s.wg.Add(1)
+			go func(t *types.SpecTask, commit string) {
+				defer s.wg.Done()
+				_, err := s.attentionService.EmitEvent(
+					context.Background(),
+					types.AttentionEventSpecsPushed,
+					t,
+					commit, // qualifier = commit hash for idempotency
+					map[string]interface{}{
+						"commit": commit,
+					},
+				)
+				if err != nil {
+					log.Warn().Err(err).
+						Str("spec_task_id", t.ID).
+						Str("commit", commit).
+						Msg("Failed to emit specs_pushed attention event")
+				}
+			}(task, commitHash)
 		}
 	}
 }

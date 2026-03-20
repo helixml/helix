@@ -64,8 +64,9 @@ type SpecTaskDesignReviewComment struct {
 	CommentType SpecTaskDesignReviewCommentType `json:"comment_type,omitempty" gorm:"size:50"` // Made optional - simplified to single type
 
 	// Agent integration (NEW FIELDS)
-	AgentResponse   string     `json:"agent_response,omitempty" gorm:"type:text"`       // Agent's response to comment
-	AgentResponseAt *time.Time `json:"agent_response_at,omitempty"`                     // When agent responded
+	AgentResponse        string         `json:"agent_response,omitempty" gorm:"type:text"`          // Agent's response (plain text)
+	AgentResponseEntries datatypes.JSON `json:"agent_response_entries,omitempty" gorm:"type:jsonb"` // Agent's structured entries (for tool call rendering)
+	AgentResponseAt      *time.Time     `json:"agent_response_at,omitempty"`                        // When agent responded
 	InteractionID   string     `json:"interaction_id,omitempty" gorm:"size:255;index"` // Link to Helix interaction
 	RequestID       string     `json:"request_id,omitempty" gorm:"size:255;index"`     // Request ID used when sending to agent (for response linking)
 
