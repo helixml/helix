@@ -1,110 +1,82 @@
-# Multi-Agent E2E Test Coverage
+# Multi-Agent E2E Tests & Session Integrity Fixes
 
 **Date:** 2026-03-20
-**Status:** In progress
+**PRs:** #1967 (merged), #1975 (open)
 
 ## Problem
 
-The Zed WebSocket sync E2E tests currently only test with `zed-agent` (Zed's built-in native agent). We ship three agent types:
+Spectask `spt_01km320kmz9x3b1w1z92y8cmmd` failed with "Thread load failed: no thread found with ID" on follow-up messages. Investigation uncovered multiple related bugs in agent routing, session management, and the E2E test infrastructure.
 
-1. **zed-agent** — Zed's built-in agent (NativeAgent, uses local SQLite for persistence)
-2. **claude** — Claude Code via `@zed-industries/claude-agent-acp` (ACP agent, own persistence)
-3. **qwen** — Qwen Code via custom binary (ACP agent, forked for session persistence)
+## Bugs Found & Fixed
 
-The bug fixed in PR #1967 (`sendChatMessageToExternalAgent` missing `agent_name`) only affected non-native agents (claude, qwen) but was never caught because E2E tests only exercised zed-agent.
+### 1. Missing `agent_name` in `sendChatMessageToExternalAgent` (PR #1967)
 
-## Root Cause of PR #1967
+**Root cause:** `sendChatMessageToExternalAgent` was the only code path sending `chat_message` commands without `agent_name`. For Claude Code sessions, Zed received `agent_name=null`, defaulted to `NativeAgent`, and tried to load the thread from local SQLite instead of via the Claude Code ACP agent.
 
-`sendChatMessageToExternalAgent` sent `chat_message` commands without `agent_name`. For Claude Code sessions, Zed received `agent_name=null`, defaulted to `NativeAgent`, and tried to load the thread from local SQLite — failing because Claude Code threads exist only in ACP persistence, not Zed's SQLite.
+**Fix:** Added `agent_name` (from `getAgentNameForSession`) to the command data. Also added `agent_name` to `sendOpenThread`.
 
-## Design: Multi-Agent Test Rounds
+### 2. Multi-agent E2E test coverage (PR #1967)
 
-### Architecture
+**Problem:** E2E tests only covered `zed-agent` (native). The `agent_name` bug would have been caught if we tested Claude Code.
 
-Refactor `testDriver` in `helix-ws-test-server/main.go` to run "rounds":
-- Each round executes all 9 test phases with a specific `agentName`
-- Between rounds, reset per-round state (threadIDs, completions, phase counters)
-- Same WebSocket connection shared across rounds (single Zed instance)
-- Request IDs are namespaced per round: `req-phase1-zed-agent`, `req-phase1-claude`
-- Validation runs per round with round-specific assertions
+**Fix:** Refactored the E2E test driver to run "rounds" — each agent gets all 9 test phases. CI now tests both `zed-agent` and `claude`. Added nodejs to Docker images for Claude Code auto-install. All 9 phases pass for both agents including mid-stream interrupt and rapid cancel.
 
-### Round State
+### 3. Stale `ZedThreadID` after container restart (PR #1975)
 
-```go
-type roundState struct {
-    agentName           string
-    threadIDs           []string
-    completions         map[string][]string
-    // ... per-phase state (phase8ThreadID, etc.)
-}
-```
+**Root cause:** When a container restarts, Claude Code's in-process session state is lost. The old `ZedThreadID` stored in the Helix session points to a session that no longer exists, causing "Resource not found" errors on every subsequent `open_thread`.
 
-### Agent Configuration
+**Fix:** When Zed reports `thread_load_error`, clear the stale `ZedThreadID` from the session so the next message creates a fresh thread.
 
-| Agent | How it works in E2E |
-|-------|-------------------|
-| zed-agent | Already works. Uses Anthropic API via `ANTHROPIC_API_KEY` env var |
-| claude | Zed auto-installs via npm (`@zed-industries/claude-agent-acp`). Needs nodejs in Dockerfile. API key via `agent_servers.claude.env.ANTHROPIC_API_KEY` in settings.json |
-| qwen | Needs custom binary. Not auto-installable. **Deferred** (see roadmap) |
+### 4. Slack creating duplicate sessions per spectask (PR #1975)
 
-### Dockerfile Changes
+**Root cause:** `slack_project_updates.go:postProjectUpdateNew` created a new session for every Slack project update notification without checking if a session already existed for the spectask. This broke the 1:1 session-to-spectask invariant.
 
-Add to `Dockerfile.runtime`:
-```dockerfile
-RUN apt-get install -y nodejs npm
-```
+**Fix:** Reuse the spectask's existing `PlanningSessionID` when available.
 
-### Settings Changes
+### 5. `handleThreadCreated` creating duplicate sessions for same Zed thread (PR #1975)
 
-Update `run_e2e.sh` settings.json:
-```json
-{
-  "agent_servers": {
-    "claude": {
-      "env": {
-        "ANTHROPIC_API_KEY": "<injected from env>"
-      }
-    }
-  }
-}
-```
+**Root cause:** When Zed reports `thread_created` for a user-initiated thread (no `request_id` mapping), `handleThreadCreated` fell through to creating a new session without checking if a session already existed with the same `ZedThreadID`. This happened on reconnects when Zed re-reported existing threads.
 
-### Phase Flow
+**Fix:** Added a "PRIORITY 3" check: before creating a new session, call `findSessionByZedThreadID` to see if one already exists. If so, reuse it.
 
-```
-Round 1: zed-agent
-  Phase 1-9 (all existing tests)
-  Validation for zed-agent round
+### 6. Thread dropdown showing duplicate entries for same session (PR #1975)
 
-Round 2: claude
-  Phase 1-9 (same tests, agent_name="claude")
-  Validation for claude round
+**Root cause:** The thread selector dropdown in `SpecTaskDetailContent.tsx` showed "Main thread" + "New Conversation" even when both pointed to the same underlying session (the work session's `helix_session_id` equaled the planning session). Switching appeared broken because both options loaded the same data.
 
-[Future] Round 3: qwen
-  Phase 1-9 (same tests, agent_name="qwen")
-```
+**Fix:** Filter out threads whose `helix_session_id` matches the `planning_session_id`. Only show the dropdown when there are genuinely separate threads.
 
-### sendOpenThread Fix
+## Architecture Notes
 
-The `sendOpenThread` helper in the test server also needs `agent_name` — without it, Zed defaults to NativeAgent for `open_thread` too (same class of bug as PR #1967).
+### Session-to-Spectask Invariant
+
+Each Zed thread should map to exactly one Helix session. Multiple Zed threads on the same spectask = multiple sessions (this is fine — e.g., context exhaustion creates a new thread). But the same Zed thread should never create duplicate sessions.
+
+### Claude Code Session Persistence
+
+Claude Code stores sessions in `~/.claude/projects/<hash>/`. Inside desktop containers, `~/.claude` is symlinked to `/home/retro/work/.claude-state`, which is on the persistent workspace mount. However, the `projects/` subdirectory (where actual session histories live) was empty in tested containers — sessions appear to be in-memory only in the `claude-agent-acp` process. When the process restarts, sessions are lost despite the persistent mount being available.
+
+### E2E Test Infrastructure
+
+- **Go test server:** `zed-repo/crates/external_websocket_sync/e2e-test/helix-ws-test-server/main.go`
+- **Imports real Helix code** via `replace` directive — tests the currently checked out versions of both repos
+- **Multi-agent rounds:** Controlled by `E2E_AGENTS` env var (default: `zed-agent`)
+- **CI config:** `.drone.yml` sets `E2E_AGENTS="zed-agent,claude"`
+- **Local runs:** `cd ~/pm/zed/crates/external_websocket_sync/e2e-test && E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh`
+- **Dev builds:** Use `./stack build-zed dev` (~3min) instead of `release` (~12min) for iteration
 
 ## Roadmap
 
-### Now (this PR)
-- [x] Fix `sendChatMessageToExternalAgent` missing `agent_name` (PR #1967)
-- [ ] Refactor test driver for multi-agent rounds
-- [ ] Add nodejs to Dockerfile.runtime for Claude Code
-- [ ] Configure Claude Code API key in E2E settings
-- [ ] Run all 9 phases for both `zed-agent` and `claude`
+### Session integrity
+- [ ] **Investigate Claude Code session persistence**: Why aren't sessions being written to `~/.claude/projects/` despite the persistent mount? Is `claude-agent-acp` or the Claude Code SDK not using the expected path? Fix this to enable session resume across process restarts.
+- [ ] **Audit all session creation paths**: Run a DB query to identify remaining spectasks with duplicate sessions and determine which code paths created them. Beyond Slack and `handleThreadCreated`, are there other sources?
+- [ ] **Data cleanup**: Write a migration to consolidate existing duplicate sessions — for each spectask, keep the session with the active WebSocket connection (or the one referenced by `PlanningSessionID`), soft-delete the rest.
 
-### Soon
-- [ ] Investigate upstream Qwen ACP session persistence
-  - Our fork (`~/pm/qwen-code`) added `resume` and `list_sessions` support before ACP officially supported these capabilities
-  - Check if upstream Qwen Code now supports `session_capabilities.resume` in the ACP protocol
-  - If upstream supports it, we can drop our fork and use the official package
-  - If not, we need to keep the fork or contribute upstream
-- [ ] Add Qwen Code as a third E2E test round (needs binary in container)
+### Thread dropdown / multi-thread UX
+- [ ] **Threads not showing in Helix session list**: Sessions created by `handleThreadCreated` (user-initiated Zed threads) may not appear in the session list UI due to missing `project_id` or other metadata. Investigate and fix.
+- [ ] **Better thread naming**: "New Conversation" comes from Zed's default thread title. Should use a more meaningful name — either from the first message content or the spectask name.
+- [ ] **Thread switching should show different content**: Verify that when there are genuinely separate threads, selecting one in the dropdown actually loads its interactions (not just the planning session's interactions).
 
-### Later
-- [ ] Codex agent E2E testing
-- [ ] Cross-agent thread migration tests (switch agent mid-session)
+### E2E test coverage
+- [ ] **Qwen Code agent round**: Check if upstream Qwen ACP now supports `session_capabilities.resume` (our fork added this before the protocol officially supported it). If so, drop our fork and add Qwen as a third E2E test round.
+- [ ] **Test stale ZedThreadID recovery**: Add an E2E phase that simulates a stale thread ID and verifies the error recovery path (clear + retry).
+- [ ] **Codex agent**: Add as fourth E2E test round once available.
