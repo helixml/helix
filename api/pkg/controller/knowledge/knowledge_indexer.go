@@ -279,8 +279,9 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 
 // indexKnowledgeWithKodit handles indexing for RAG providers that implement KoditIndexer.
 // Instead of the normal extract → chunk → embed pipeline, it registers the local filestore
-// directory with kodit (which handles conversion and embedding natively) and marks the
-// knowledge as ready.
+// directory with kodit (which handles conversion and embedding natively). The knowledge
+// remains in "indexing" state because kodit processes files asynchronously; the
+// kodit status checker loop will transition it to "ready" once kodit finishes.
 func (r *Reconciler) indexKnowledgeWithKodit(ctx context.Context, ki rag.KoditIndexer, k *types.Knowledge, version string) error {
 	if r.config.FileStore.Type != "fs" {
 		return fmt.Errorf("kodit RAG provider requires a local filesystem filestore (FILESTORE_TYPE=fs), got: %s", r.config.FileStore.Type)
@@ -324,26 +325,29 @@ func (r *Reconciler) indexKnowledgeWithKodit(ctx context.Context, ki rag.KoditIn
 
 	r.resetKnowledgeProgress(k.ID)
 
-	k.State = types.KnowledgeStateReady
+	// Kodit indexes asynchronously after registration. Keep the knowledge in
+	// "indexing" state — the kodit status checker loop will poll Kodit's
+	// summary status and transition to "ready" when indexing completes.
+	k.State = types.KnowledgeStateIndexing
 	k.Version = version
-	k.Message = ""
+	k.Message = "kodit is indexing"
 
 	_, err = r.store.UpdateKnowledge(ctx, k)
 	if err != nil {
-		return fmt.Errorf("failed to update knowledge after kodit indexing: %w", err)
+		return fmt.Errorf("failed to update knowledge after kodit registration: %w", err)
 	}
 
 	_, err = r.store.CreateKnowledgeVersion(ctx, &types.KnowledgeVersion{
 		KnowledgeID: k.ID,
 		Version:     version,
-		State:       types.KnowledgeStateReady,
+		State:       types.KnowledgeStateIndexing,
 		Provider:    string(r.config.RAG.DefaultRagProvider),
 	})
 	if err != nil {
 		log.Warn().Err(err).Str("knowledge_id", k.ID).Msg("failed to create kodit knowledge version")
 	}
 
-	return r.deleteOldVersions(ctx, k)
+	return nil
 }
 
 // getLocalFilestorePath resolves the full local filesystem path for a knowledge source.
