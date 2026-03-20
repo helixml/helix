@@ -67,9 +67,10 @@ Claude Code stores sessions in `~/.claude/projects/<hash>/`. Inside desktop cont
 ## Roadmap
 
 ### Session integrity
-- [ ] **Investigate Claude Code session persistence**: Why aren't sessions being written to `~/.claude/projects/` despite the persistent mount? Is `claude-agent-acp` or the Claude Code SDK not using the expected path? Fix this to enable session resume across process restarts.
-- [ ] **Audit all session creation paths**: Run a DB query to identify remaining spectasks with duplicate sessions and determine which code paths created them. Beyond Slack and `handleThreadCreated`, are there other sources?
-- [ ] **Data cleanup**: Write a migration to consolidate existing duplicate sessions — for each spectask, keep the session with the active WebSocket connection (or the one referenced by `PlanningSessionID`), soft-delete the rest.
+- [x] ~~**Audit all session creation paths**~~: Done. Slack `postProjectUpdateNew` and `handleThreadCreated` were the two sources of duplicates. Both fixed.
+- [x] ~~**Data cleanup**~~: Done. 122 duplicate sessions soft-deleted, 1091 sessions backfilled with `zed_agent_name`.
+- [ ] **Investigate Claude Code session persistence**: Sessions exist in `~/.claude/projects/` on newer containers (confirmed working) but not on older ones. The `~/.claude.json` symlink fix may resolve this for future containers. Monitor.
+- [ ] **Per-session prompt queue worker**: Currently `processPromptQueue`, `processAnyPendingPrompt`, and `processPendingPromptsForIdleSessions` all run as independent goroutines with no coordination. This caused a race where the same prompt was sent twice (fixed with atomic `UPDATE ... FOR UPDATE SKIP LOCKED`). The proper fix: a single goroutine per session fed by a channel, which deduplicates triggers, serializes prompt sends, and coalesces multiple "check for pending" signals into one check.
 
 ### Thread dropdown / multi-thread UX
 - [ ] **Threads not showing in Helix session list**: Sessions created by `handleThreadCreated` (user-initiated Zed threads) may not appear in the session list UI due to missing `project_id` or other metadata. Investigate and fix.
