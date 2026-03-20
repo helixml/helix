@@ -34,6 +34,7 @@ import {
   Cloud,
   Key,
   Trash2,
+  RefreshCw,
 } from "lucide-react";
 import { SiGitlab, SiBitbucket } from "react-icons/si";
 
@@ -193,6 +194,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   const {
     data: repositoriesData,
     isLoading: reposLoading,
+    isFetching: reposFetching,
     error: reposError,
   } = useListOAuthConnectionRepositories(selectedConnectionId || "");
 
@@ -1077,7 +1079,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         Browse {currentProvider?.name} Repositories
       </DialogTitle>
       <DialogContent>
-        <Box sx={{ mb: 2 }}>
+        <Box sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
           <TextField
             fullWidth
             size="small"
@@ -1092,6 +1094,16 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               ),
             }}
           />
+          <Tooltip title="Refresh repository list">
+            <IconButton
+              size="small"
+              onClick={() => queryClient.invalidateQueries({ queryKey: ["oauth-connection-repositories"] })}
+              disabled={reposFetching}
+              sx={reposFetching ? { animation: 'spin 1s linear infinite', '@keyframes spin': { '100%': { transform: 'rotate(360deg)' } } } : {}}
+            >
+              <RefreshCw size={18} />
+            </IconButton>
+          </Tooltip>
         </Box>
 
         {currentError && (
