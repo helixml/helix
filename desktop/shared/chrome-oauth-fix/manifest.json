@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Fix Claude OAuth redirect_uri",
+  "version": "1.0",
+  "description": "Workaround for Anthropic server bug that mangles redirect_uri during login redirect",
+  "content_scripts": [{
+    "matches": ["https://claude.ai/*"],
+    "js": ["content.js"],
+    "run_at": "document_start"
+  }]
+}

@@ -72,13 +72,11 @@ before the error page renders. The fix is a regex that adds the missing second
 slash (`http:/localhost` → `http://localhost`). Safe no-op when Anthropic fixes
 this — the regex won't match correct URLs.
 
-Additionally, `helix-fix-oauth-url.sh` is set as the BROWSER command in the
-auth wrapper as a defensive second layer (catches any future client-side
-malformation).
+Pinning Claude Code to 2.1.75 (pre-bug-report version) was tested and made
+no difference — confirms this is purely server-side and version-independent.
 
 ## Recommendation
-1. **Ship now**: In-container browser flow with Chrome extension + BROWSER fix
+1. **Ship now**: In-container browser flow with Chrome extension fix
 2. **Feature request**: Upvote https://github.com/anthropics/claude-code/issues/22992 for device flow support
 3. **Contact Anthropic**: Report the server-side URL mangling bug with reproduction steps
-4. **Mac app**: May be able to SSH-forward the port from the VM to the host since they're on the same machine
-5. **Remove workaround later**: Both the extension and BROWSER script are safe no-ops once the bug is fixed
+4. **Remove workaround later**: Extension is a safe no-op once the bug is fixed
