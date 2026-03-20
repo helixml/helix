@@ -15,7 +15,7 @@
 
 ## Backend: Push Detection
 
-- [ ] Update `handleFeatureBranchPush()` in `git_http_server.go` to trigger PR creation for pushed repo
+- [~] Update `handleFeatureBranchPush()` in `git_http_server.go` to trigger PR creation for pushed repo
 - [ ] Ensure non-primary repo pushes also trigger PR workflow
 
 ## API Updates
