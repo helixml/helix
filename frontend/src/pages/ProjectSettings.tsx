@@ -187,7 +187,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const sandboxCacheMap = project?.metadata?.docker_cache_status?.sandboxes ?? {};
   const sandboxEntries = Object.entries(sandboxCacheMap);
   const anyBuilding = sandboxEntries.some(([, s]) => s.status === "building");
-  const anyReady = sandboxEntries.some(([, s]) => s.status === "ready" || (s.status === "none" && s.last_ready_at));
+  const anyReady = sandboxEntries.some(([, s]) => s.status === "ready");
   const anyFailed = sandboxEntries.some(([, s]) => s.status === "failed");
 
   // Golden build session
@@ -1112,8 +1112,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                         {sbState.status === "ready" && "Ready"}
                         {sbState.status === "building" && "Building..."}
                         {sbState.status === "failed" && "Failed"}
-                        {sbState.status === "none" && sbState.last_ready_at && "Ready"}
-                        {sbState.status === "none" && !sbState.last_ready_at && "No cache"}
+                        {sbState.status === "none" && "No cache"}
                         {(sbState.size_bytes ?? 0) > 0 && (
                           <> &middot; {((sbState.size_bytes ?? 0) / 1e9).toFixed(1)} GB</>
                         )}
@@ -1164,7 +1163,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                   disabled={primeCacheMutation.isPending || anyBuilding}
                   onClick={() => primeCacheMutation.mutate()}
                 >
-                  {primeCacheMutation.isPending ? "Triggering..." : anyReady ? "Rebuild Cache" : "Prime Cache"}
+                  {primeCacheMutation.isPending ? "Triggering..." : "Prime Cache"}
                 </Button>
                 {anyBuilding && (
                   <Button
