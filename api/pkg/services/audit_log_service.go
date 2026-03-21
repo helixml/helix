@@ -275,13 +275,17 @@ func (s *AuditLogService) LogAgentStarted(ctx context.Context, task *types.SpecT
 
 // buildTaskMetadata creates common task metadata
 func (s *AuditLogService) buildTaskMetadata(task *types.SpecTask) types.AuditMetadata {
-	return types.AuditMetadata{
-		TaskNumber:     task.TaskNumber,
-		TaskName:       task.Name,
-		BranchName:     task.BranchName,
-		PullRequestID:  task.PullRequestID,
-		PullRequestURL: task.PullRequestURL,
+	metadata := types.AuditMetadata{
+		TaskNumber: task.TaskNumber,
+		TaskName:   task.Name,
+		BranchName: task.BranchName,
 	}
+	// Use first open PR for audit metadata (backward compat with AuditMetadata fields)
+	if pr := task.GetFirstOpenPR(); pr != nil {
+		metadata.PullRequestID = pr.PRID
+		metadata.PullRequestURL = pr.PRURL
+	}
+	return metadata
 }
 
 // hashContent creates a SHA256 hash of content for versioning

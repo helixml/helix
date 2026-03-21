@@ -37,10 +37,12 @@ func TestHelixCodeReviewTrigger_ProcessGitPushEvent(t *testing.T) {
 	ctx := context.Background()
 
 	specTask := &types.SpecTask{
-		ID:            "test-spec-task-id",
-		ProjectID:     "test-project-id",
-		Name:          "Test Task",
-		PullRequestID: "3",
+		ID:        "test-spec-task-id",
+		ProjectID: "test-project-id",
+		Name:      "Test Task",
+		RepoPullRequests: []types.RepoPR{
+			{RepositoryID: "test-repo-id", PRID: "3", PRState: "open"},
+		},
 	}
 
 	repo := &types.GitRepository{

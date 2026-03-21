@@ -736,6 +736,11 @@ if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
         # Remove unused volumes (build step caches that won't carry forward)
         docker volume prune -f 2>/dev/null || true
 
+        # Prune Docker build cache — keep only layers referenced by existing
+        # images. Without this, build cache grows ~5GB per golden build and
+        # the golden zvol balloons from 56GB to 95GB+ over 20 builds.
+        docker builder prune -f --filter 'unused-for=0s' 2>/dev/null || true
+
         # Show after state
         echo "  After cleanup:"
         docker system df 2>/dev/null | sed 's/^/    /' || true

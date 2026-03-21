@@ -154,15 +154,12 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			}
 		}()
 
-		// Re-fetch to get the latest PullRequestID (may have been set by concurrent push)
+		// Re-fetch to get the latest RepoPullRequests (may have been set by concurrent push)
 		updatedTask, err := s.Store.GetSpecTask(ctx, specTaskID)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to get updated spec task: %s", err.Error()), http.StatusInternalServerError)
 			return
 		}
-
-		// Construct PR URL for ADO repos
-		updatedTask.PullRequestURL = services.GetPullRequestURL(repo, updatedTask.PullRequestID)
 
 		writeResponse(w, updatedTask, http.StatusOK)
 		return
@@ -489,7 +486,9 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 
 	sourceBranchRef := "refs/heads/" + branch
 	for _, pr := range prs {
-		if pr.SourceBranch == sourceBranchRef && pr.State == types.PullRequestStateOpen {
+		// Match both full ref (refs/heads/branch) and short name (branch)
+		branchMatches := pr.SourceBranch == sourceBranchRef || pr.SourceBranch == branch
+		if branchMatches && pr.State == types.PullRequestStateOpen {
 			log.Info().Str("pr_id", pr.ID).Str("branch", branch).Str("repo_name", repo.Name).Msg("Pull request already exists")
 			return &types.RepoPR{
 				RepositoryID:   repo.ID,
@@ -561,7 +560,7 @@ func (s *HelixAPIServer) ensurePullRequestForRepo(ctx context.Context, repo *typ
 }
 
 // ensurePullRequestsForAllRepos creates PRs across all project repos that have external URLs
-// Updates the task's RepoPullRequests field and maintains backward compat with PullRequestID
+// Updates the task's RepoPullRequests field
 func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task *types.SpecTask, primaryRepoID string) error {
 	// Get all repos for the project
 	projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
@@ -581,7 +580,6 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 	}
 
 	var repoPRs []types.RepoPR
-	var primaryPR *types.RepoPR
 
 	for _, repo := range projectRepos {
 		if !s.shouldOpenPullRequest(repo) {
@@ -596,20 +594,12 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 
 		if repoPR != nil {
 			repoPRs = append(repoPRs, *repoPR)
-			if repo.ID == primaryRepoID {
-				primaryPR = repoPR
-			}
 		}
 	}
 
 	// Update task with all PRs
 	task.RepoPullRequests = repoPRs
 	task.UpdatedAt = time.Now()
-
-	// Backward compat: set deprecated fields from primary repo PR
-	if primaryPR != nil {
-		task.PullRequestID = primaryPR.PRID
-	}
 
 	if err := s.Store.UpdateSpecTask(ctx, task); err != nil {
 		return fmt.Errorf("failed to update task with PRs: %w", err)
@@ -628,10 +618,9 @@ func (s *HelixAPIServer) ensurePullRequestForTask(ctx context.Context, repo *typ
 	}
 
 	if repoPR != nil {
-		task.PullRequestID = repoPR.PRID
 		task.UpdatedAt = time.Now()
 
-		// Also update RepoPullRequests if not already present
+		// Update RepoPullRequests if not already present
 		found := false
 		for i, pr := range task.RepoPullRequests {
 			if pr.RepositoryID == repo.ID {

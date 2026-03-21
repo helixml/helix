@@ -656,6 +656,61 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 	return cleaned, nil
 }
 
+// GCStaleSnapshots destroys old golden snapshots that have no remaining clones.
+// After session clones are GC'd, their parent snapshots become orphaned but
+// aren't automatically destroyed. This reclaims the delta space held by old
+// snapshots, keeping only the latest snapshot for each golden zvol.
+func GCStaleSnapshots() int {
+	if !ZFSAvailable() {
+		return 0
+	}
+
+	// List all golden zvols
+	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume", "-r", zfsParentDataset)
+	if err != nil {
+		return 0
+	}
+
+	var cleaned int
+	goldenPrefix := zfsParentDataset + "/golden-"
+	for _, zvol := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if !strings.HasPrefix(zvol, goldenPrefix) {
+			continue
+		}
+
+		// List snapshots for this golden, oldest first
+		snapOut, err := execCmdOutput("zfs", "list", "-H", "-t", "snapshot", "-o", "name",
+			"-s", "creation", "-r", zvol)
+		if err != nil {
+			continue
+		}
+		snaps := strings.Split(strings.TrimSpace(string(snapOut)), "\n")
+		if len(snaps) <= 1 {
+			continue // only one snapshot (or none), nothing to GC
+		}
+
+		// Keep the latest, try to destroy all others
+		for _, snap := range snaps[:len(snaps)-1] {
+			if snap == "" {
+				continue
+			}
+			// zfs destroy will fail if the snapshot has dependent clones — that's fine
+			if err := runCmd("zfs", "destroy", snap); err != nil {
+				log.Debug().
+					Str("snapshot", snap).
+					Msg("Cannot destroy snapshot (likely has dependent clones), will retry next GC")
+			} else {
+				log.Info().
+					Str("snapshot", snap).
+					Msg("Destroyed stale golden snapshot")
+				cleaned++
+			}
+		}
+	}
+
+	return cleaned
+}
+
 // effectiveGoldenBaseDir returns the golden base directory, respecting test overrides.
 func effectiveGoldenBaseDir() string {
 	if goldenBaseDirOverride != "" {
