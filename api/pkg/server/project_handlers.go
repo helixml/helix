@@ -163,17 +163,17 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 	// After an API restart, the monitoring goroutine is dead but DB still says
 	// "building". If the build isn't tracked in memory AND the container isn't
 	// running, reset the status so the UI doesn't get stuck.
-	if project.Metadata.DockerCacheStatus != nil {
+	//
+	// Skip during the first 90s after startup — RecoverStaleBuilds needs up
+	// to 60s to wait for sandbox reconnect and re-attach monitoring goroutines.
+	// Without this grace period, a page load during startup races with recovery
+	// and resets status to "none" before the sandbox can reconnect.
+	if project.Metadata.DockerCacheStatus != nil && time.Since(s.startTime) > 90*time.Second {
 		staleRecovered := false
 		for sbID, sbState := range project.Metadata.DockerCacheStatus.Sandboxes {
 			if sbState.Status != "building" || sbState.BuildSessionID == "" {
 				continue
 			}
-			// Two conditions must BOTH be false for recovery:
-			// 1. Monitoring goroutine alive (in-memory tracking)
-			// 2. Container still running on sandbox
-			// During normal operation, condition 1 is true → no recovery.
-			// After API restart, both are false → recovery triggers.
 			if s.goldenBuildService.IsTracking(project.ID, sbID) {
 				continue
 			}
