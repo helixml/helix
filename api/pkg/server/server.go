@@ -120,7 +120,7 @@ type HelixAPIServer struct {
 	sampleProjectCodeService  *services.SampleProjectCodeService
 	gitRepositoryService      *services.GitRepositoryService
 	koditService              services.KoditServicer
-	kodit                     *koditResult
+	kodit                     *KoditResult
 	mcpGateway                *MCPGateway
 	gitHTTPServer             *services.GitHTTPServer
 	// Streaming context cache - avoids redundant DB queries during token streaming
@@ -161,6 +161,7 @@ func NewServer(
 	trigger *trigger.Manager,
 	anthropicProxy *anthropic.Proxy,
 	gitRepositoryService *services.GitRepositoryService,
+	preInitKodit *KoditResult,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -384,14 +385,26 @@ func NewServer(
 		}
 	}
 
-	// Initialize Kodit code intelligence library (in-process)
-	kr, err := initKodit(cfg, apiServer.gitRepositoryService, apiServer.Store)
-	if err != nil {
-		return nil, err
+	// Initialize Kodit code intelligence library (in-process).
+	// If a pre-initialized KoditResult is provided (e.g. when using the kodit RAG provider),
+	// reuse it to avoid creating a second kodit client with duplicate workers/embedding models.
+	var kr *KoditResult
+	if preInitKodit != nil {
+		kr = preInitKodit
+		// gitRepositoryService needs the kodit service set on it even when reusing a pre-init result.
+		if apiServer.gitRepositoryService != nil && kr.Service != nil {
+			apiServer.gitRepositoryService.SetKoditService(kr.Service)
+		}
+	} else {
+		var initErr error
+		kr, initErr = InitKodit(cfg, apiServer.gitRepositoryService, apiServer.Store)
+		if initErr != nil {
+			return nil, initErr
+		}
 	}
 	apiServer.kodit = kr
-	apiServer.koditService = kr.service
-	apiServer.specDrivenTaskService.SetKoditService(kr.service)
+	apiServer.koditService = kr.Service
+	apiServer.specDrivenTaskService.SetKoditService(kr.Service)
 
 	// Initialize MCP Gateway for authenticated MCP proxying
 	apiServer.mcpGateway = NewMCPGateway()
@@ -400,7 +413,7 @@ func NewServer(
 	apiServer.initExposedPortManager()
 
 	// Register Kodit MCP backend (code intelligence)
-	apiServer.mcpGateway.RegisterBackend("kodit", kr.mcpBackend)
+	apiServer.mcpGateway.RegisterBackend("kodit", kr.mcpBackend) //nolint:staticcheck // mcpBackend is package-private but accessible within this package
 
 	// Register Helix native MCP backend (APIs, Knowledge, Zapier)
 	apiServer.mcpGateway.RegisterBackend("helix", NewHelixMCPBackend(store, appController))
