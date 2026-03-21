@@ -656,10 +656,10 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 	return cleaned, nil
 }
 
-// GCStaleSnapshots destroys old golden snapshots that have no remaining clones.
-// After session clones are GC'd, their parent snapshots become orphaned but
-// aren't automatically destroyed. This reclaims the delta space held by old
-// snapshots, keeping only the latest snapshot for each golden zvol.
+// GCStaleSnapshots destroys golden snapshots older than 7 days that have no
+// remaining clones. Keeps recent snapshots so the user can see cache progression.
+// Snapshots with active session clones can't be destroyed (ZFS refuses) — that's
+// handled gracefully.
 func GCStaleSnapshots() int {
 	if !ZFSAvailable() {
 		return 0
@@ -678,22 +678,44 @@ func GCStaleSnapshots() int {
 			continue
 		}
 
-		// List snapshots for this golden, oldest first
-		snapOut, err := execCmdOutput("zfs", "list", "-H", "-t", "snapshot", "-o", "name",
+		// List snapshots with creation time, oldest first
+		snapOut, err := execCmdOutput("zfs", "list", "-H", "-t", "snapshot", "-o", "name,creation",
 			"-s", "creation", "-r", zvol)
 		if err != nil {
 			continue
 		}
-		snaps := strings.Split(strings.TrimSpace(string(snapOut)), "\n")
-		if len(snaps) <= 1 {
+		lines := strings.Split(strings.TrimSpace(string(snapOut)), "\n")
+		if len(lines) <= 1 {
 			continue // only one snapshot (or none), nothing to GC
 		}
 
-		// Keep the latest, try to destroy all others
-		for _, snap := range snaps[:len(snaps)-1] {
-			if snap == "" {
+		// Always keep the latest snapshot regardless of age
+		for _, line := range lines[:len(lines)-1] {
+			if line == "" {
 				continue
 			}
+			// Parse name and creation time
+			// Format: "pool/helix-zvols/golden-prj_xxx@gen1\tDow Mon DD HH:MM YYYY"
+			parts := strings.SplitN(line, "\t", 2)
+			snap := parts[0]
+			if len(parts) < 2 {
+				continue
+			}
+
+			// Parse ZFS creation timestamp
+			created, err := time.Parse("Mon Jan  2 15:04 2006", strings.TrimSpace(parts[1]))
+			if err != nil {
+				// Try alternate format (some ZFS versions use different format)
+				created, err = time.Parse("Mon Jan 2 15:04 2006", strings.TrimSpace(parts[1]))
+				if err != nil {
+					continue // can't parse, skip
+				}
+			}
+
+			if time.Since(created) < 7*24*time.Hour {
+				continue // less than 7 days old, keep it
+			}
+
 			// zfs destroy will fail if the snapshot has dependent clones — that's fine
 			if err := runCmd("zfs", "destroy", snap); err != nil {
 				log.Debug().
@@ -702,7 +724,7 @@ func GCStaleSnapshots() int {
 			} else {
 				log.Info().
 					Str("snapshot", snap).
-					Msg("Destroyed stale golden snapshot")
+					Msg("Destroyed stale golden snapshot (>7 days old)")
 				cleaned++
 			}
 		}

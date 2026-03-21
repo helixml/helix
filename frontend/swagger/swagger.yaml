@@ -3168,11 +3168,11 @@ definitions:
       project_name:
         description: Project information
         type: string
-      pull_request_id:
+      pull_requests:
         description: Pull request information
-        type: string
-      pull_request_url:
-        type: string
+        items:
+          $ref: '#/definitions/types.RepoPR'
+        type: array
       requirements_spec_hash:
         description: Hash of requirements spec content
         type: string

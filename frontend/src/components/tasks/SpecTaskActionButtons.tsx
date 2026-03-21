@@ -34,7 +34,6 @@ export interface SpecTaskForActions {
   id: string;
   status: string;
   design_docs_pushed_at?: string;
-  pull_request_url?: string;
   base_branch?: string;
   branch_name?: string;
   archived?: boolean;
@@ -513,17 +512,15 @@ export default function SpecTaskActionButtons({
   }
 
   // Pull Request phase: View Pull Request button(s)
-  // Support multiple PRs from repo_pull_requests or fallback to single pull_request_url
   const pullRequests = task.repo_pull_requests?.filter(pr => pr.pr_url) || [];
-  const hasSinglePR = pullRequests.length === 0 && task.pull_request_url;
   const hasMultiplePRs = pullRequests.length > 1;
-  const hasAnyPR = pullRequests.length > 0 || hasSinglePR;
+  const hasAnyPR = pullRequests.length > 0;
 
   if (task.status === "pull_request" && hasAnyPR) {
-    // Single PR case (either from repo_pull_requests or legacy pull_request_url)
-    if (hasSinglePR || pullRequests.length === 1) {
-      const prUrl = hasSinglePR ? task.pull_request_url : pullRequests[0].pr_url;
-      const prLabel = pullRequests.length === 1 && pullRequests[0].repository_name
+    // Single PR case
+    if (pullRequests.length === 1) {
+      const prUrl = pullRequests[0].pr_url;
+      const prLabel = pullRequests[0].repository_name
         ? `PR: ${pullRequests[0].repository_name}`
         : "Pull Request";
 

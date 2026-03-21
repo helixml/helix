@@ -631,9 +631,11 @@ func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *type
 
 func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Context, task *types.SpecTask) error {
 	// Check each tracked PR across all repos.
-	// If ANY PR is merged, move to done. If ALL are closed, archive.
+	// Only move to done when ALL PRs are merged (stopping the agent prematurely
+	// would prevent remaining PRs from getting review fixes pushed).
+	// If ALL are closed (without merge), archive.
 	anyOpen := false
-	anyMerged := false
+	allMerged := true
 	allClosed := true
 	updated := false
 
@@ -660,6 +662,7 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 		switch pr.State {
 		case types.PullRequestStateOpen:
 			anyOpen = true
+			allMerged = false
 			allClosed = false
 			log.Debug().
 				Str("task_id", task.ID).
@@ -667,11 +670,11 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 				Str("pr_id", repoPR.PRID).
 				Msg("PR still active, awaiting merge")
 		case types.PullRequestStateMerged:
-			anyMerged = true
 			allClosed = false
 		case types.PullRequestStateClosed:
-			// This one is closed; allClosed stays true unless others aren't
+			allMerged = false
 		case types.PullRequestStateUnknown:
+			allMerged = false
 			allClosed = false
 			log.Warn().
 				Str("task_id", task.ID).
@@ -681,8 +684,8 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 		}
 	}
 
-	if anyMerged {
-		// Any PR merged - move to done
+	if allMerged && len(task.RepoPullRequests) > 0 {
+		// ALL PRs merged - move to done
 		now := time.Now()
 		task.Status = types.TaskStatusDone
 		task.StatusUpdatedAt = &now

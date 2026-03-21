@@ -205,10 +205,9 @@ func (s *AuditLogService) LogTaskApproved(ctx context.Context, task *types.SpecT
 }
 
 // LogPRCreated logs a pull request creation event
-func (s *AuditLogService) LogPRCreated(ctx context.Context, task *types.SpecTask, prID, prURL, userID, userEmail string) {
+func (s *AuditLogService) LogPRCreated(ctx context.Context, task *types.SpecTask, pr types.RepoPR, userID, userEmail string) {
 	metadata := s.buildTaskMetadata(task)
-	metadata.PullRequestID = prID
-	metadata.PullRequestURL = prURL
+	metadata.PullRequests = []types.RepoPR{pr}
 
 	s.LogEvent(ctx, &types.ProjectAuditLog{
 		ProjectID:  task.ProjectID,
@@ -280,10 +279,8 @@ func (s *AuditLogService) buildTaskMetadata(task *types.SpecTask) types.AuditMet
 		TaskName:   task.Name,
 		BranchName: task.BranchName,
 	}
-	// Use first open PR for audit metadata (backward compat with AuditMetadata fields)
-	if pr := task.GetFirstOpenPR(); pr != nil {
-		metadata.PullRequestID = pr.PRID
-		metadata.PullRequestURL = pr.PRURL
+	if len(task.RepoPullRequests) > 0 {
+		metadata.PullRequests = task.RepoPullRequests
 	}
 	return metadata
 }
