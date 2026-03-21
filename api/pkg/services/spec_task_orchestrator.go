@@ -619,10 +619,10 @@ func (o *SpecTaskOrchestrator) handleSpecApproved(ctx context.Context, task *typ
 // handlePullRequest polls external repo for PR merge status
 // Called from the dedicated PR polling loop (runs every 1 minute)
 func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *types.SpecTask) error {
-	if task.PullRequestID == "" {
+	if !task.HasAnyPR() {
 		log.Warn().
 			Str("task_id", task.ID).
-			Msg("Task in pull_request status but no PullRequestID set")
+			Msg("Task in pull_request status but no PRs tracked in RepoPullRequests")
 		return nil
 	}
 
@@ -630,25 +630,62 @@ func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *type
 }
 
 func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Context, task *types.SpecTask) error {
-	project, err := o.store.GetProject(ctx, task.ProjectID)
-	if err != nil {
-		return fmt.Errorf("failed to get project: %w", err)
+	// Check each tracked PR across all repos.
+	// Only move to done when ALL PRs are merged (stopping the agent prematurely
+	// would prevent remaining PRs from getting review fixes pushed).
+	// If ALL are closed (without merge), archive.
+	anyOpen := false
+	allMerged := true
+	allClosed := true
+	updated := false
+
+	for i, repoPR := range task.RepoPullRequests {
+		pr, err := o.gitService.GetPullRequest(ctx, repoPR.RepositoryID, repoPR.PRID)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("task_id", task.ID).
+				Str("repo_id", repoPR.RepositoryID).
+				Str("pr_id", repoPR.PRID).
+				Msg("Failed to get pull request status, skipping")
+			allClosed = false // Can't confirm it's closed
+			continue
+		}
+
+		// Update state in RepoPullRequests
+		newState := string(pr.State)
+		if task.RepoPullRequests[i].PRState != newState {
+			task.RepoPullRequests[i].PRState = newState
+			updated = true
+		}
+
+		switch pr.State {
+		case types.PullRequestStateOpen:
+			anyOpen = true
+			allMerged = false
+			allClosed = false
+			log.Debug().
+				Str("task_id", task.ID).
+				Str("repo_id", repoPR.RepositoryID).
+				Str("pr_id", repoPR.PRID).
+				Msg("PR still active, awaiting merge")
+		case types.PullRequestStateMerged:
+			allClosed = false
+		case types.PullRequestStateClosed:
+			allMerged = false
+		case types.PullRequestStateUnknown:
+			allMerged = false
+			allClosed = false
+			log.Warn().
+				Str("task_id", task.ID).
+				Str("repo_id", repoPR.RepositoryID).
+				Str("pr_id", repoPR.PRID).
+				Msg("PR state unknown, skipping")
+		}
 	}
 
-	pr, err := o.gitService.GetPullRequest(ctx, project.DefaultRepoID, task.PullRequestID)
-	if err != nil {
-		return fmt.Errorf("failed to get pull request: %w", err)
-	}
-
-	switch pr.State {
-	case types.PullRequestStateOpen:
-		// Active - still open, nothing to do
-		log.Debug().
-			Str("task_id", task.ID).
-			Str("pr_id", task.PullRequestID).
-			Msg("PR still active, awaiting merge")
-	case types.PullRequestStateMerged:
-		// PR merged - move to done
+	if allMerged && len(task.RepoPullRequests) > 0 {
+		// ALL PRs merged - move to done
 		now := time.Now()
 		task.Status = types.TaskStatusDone
 		task.StatusUpdatedAt = &now
@@ -658,7 +695,6 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 		task.UpdatedAt = now
 		log.Info().
 			Str("task_id", task.ID).
-			Str("pr_id", task.PullRequestID).
 			Msg("PR merged! Moving task to done")
 
 		// Trigger golden Docker cache build if enabled for this project
@@ -670,24 +706,22 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 		}
 
 		return o.store.UpdateSpecTask(ctx, task)
-	case types.PullRequestStateClosed:
-		// PR abandoned - archive the task
+	}
+
+	if allClosed && !anyOpen {
+		// All PRs abandoned - archive the task
 		task.Archived = true
 		task.UpdatedAt = time.Now()
 		log.Info().
 			Str("task_id", task.ID).
-			Str("pr_id", task.PullRequestID).
-			Msg("PR abandoned, archiving task")
+			Msg("All PRs abandoned, archiving task")
 		return o.store.UpdateSpecTask(ctx, task)
-	case types.PullRequestStateUnknown:
-		// PR state unknown - don't know what to do
-		log.Warn().
-			Str("task_id", task.ID).
-			Str("pr_id", task.PullRequestID).
-			Str("pr_state", string(pr.State)).
-			Str("repository_id", project.DefaultRepoID).
-			Msg("PR state unknown, skipping")
-		return nil
+	}
+
+	// Persist any state updates
+	if updated {
+		task.UpdatedAt = time.Now()
+		return o.store.UpdateSpecTask(ctx, task)
 	}
 
 	return nil
@@ -773,10 +807,10 @@ func (o *SpecTaskOrchestrator) detectExternalPRActivity(ctx context.Context) {
 		tasksToCheck = append(tasksToCheck, tasks...)
 	}
 
-	// Filter to tasks with a branch but no PullRequestID
+	// Filter to tasks with a branch but no PRs tracked
 	var eligibleTasks []*types.SpecTask
 	for _, task := range tasksToCheck {
-		if task.BranchName != "" && task.PullRequestID == "" {
+		if task.BranchName != "" && !task.HasAnyPR() {
 			eligibleTasks = append(eligibleTasks, task)
 		}
 	}
@@ -853,8 +887,15 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 					Str("branch", task.BranchName).
 					Msg("Detected externally-opened PR, moving task to pull_request status")
 
-				task.PullRequestID = pr.ID
-				task.PullRequestURL = pr.URL
+				// Add to RepoPullRequests
+				task.RepoPullRequests = append(task.RepoPullRequests, types.RepoPR{
+					RepositoryID:   repo.ID,
+					RepositoryName: repo.Name,
+					PRID:           pr.ID,
+					PRNumber:       pr.Number,
+					PRURL:          pr.URL,
+					PRState:        string(pr.State),
+				})
 				task.Status = types.TaskStatusPullRequest
 				task.UpdatedAt = time.Now()
 				if err := o.store.UpdateSpecTask(ctx, task); err != nil {
@@ -863,7 +904,7 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 
 				// Emit pr_ready attention event
 				if o.attentionService != nil {
-					go func(t *types.SpecTask, prID string) {
+					go func(t *types.SpecTask, prID string, prURL string) {
 						_, emitErr := o.attentionService.EmitEvent(
 							context.Background(),
 							types.AttentionEventPRReady,
@@ -871,7 +912,7 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 							prID,
 							map[string]interface{}{
 								"pr_id":  prID,
-								"pr_url": t.PullRequestURL,
+								"pr_url": prURL,
 							},
 						)
 						if emitErr != nil {
@@ -879,7 +920,7 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 								Str("spec_task_id", t.ID).
 								Msg("Failed to emit pr_ready attention event")
 						}
-					}(task, pr.ID)
+					}(task, pr.ID, pr.URL)
 				}
 				return nil
 			}
@@ -895,8 +936,15 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 					Msg("Detected merged PR, moving task to done status")
 
 				now := time.Now()
-				task.PullRequestID = pr.ID
-				task.PullRequestURL = pr.URL
+				// Add to RepoPullRequests
+				task.RepoPullRequests = append(task.RepoPullRequests, types.RepoPR{
+					RepositoryID:   repo.ID,
+					RepositoryName: repo.Name,
+					PRID:           pr.ID,
+					PRNumber:       pr.Number,
+					PRURL:          pr.URL,
+					PRState:        string(pr.State),
+				})
 				task.Status = types.TaskStatusDone
 				task.MergedToMain = true
 				task.MergedAt = &now

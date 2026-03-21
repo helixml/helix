@@ -34,6 +34,31 @@ type RepoPR struct {
 	PRState        string `json:"pr_state"` // "open", "closed", "merged"
 }
 
+// GetFirstOpenPR returns the first open PR from RepoPullRequests, or nil if none.
+func (t *SpecTask) GetFirstOpenPR() *RepoPR {
+	for i := range t.RepoPullRequests {
+		if t.RepoPullRequests[i].PRState == "open" {
+			return &t.RepoPullRequests[i]
+		}
+	}
+	return nil
+}
+
+// GetPRForRepo returns the PR for a specific repository, or nil if none.
+func (t *SpecTask) GetPRForRepo(repoID string) *RepoPR {
+	for i := range t.RepoPullRequests {
+		if t.RepoPullRequests[i].RepositoryID == repoID {
+			return &t.RepoPullRequests[i]
+		}
+	}
+	return nil
+}
+
+// HasAnyPR returns true if there are any PRs tracked.
+func (t *SpecTask) HasAnyPR() bool {
+	return len(t.RepoPullRequests) > 0
+}
+
 // StartPlanningOptions contains options for starting spec generation or just-do-it mode
 // These options can be passed via query parameters for testing purposes
 type StartPlanningOptions struct {
@@ -117,11 +142,6 @@ type SpecTask struct {
 	// DesignDocPath format: "YYYY-MM-DD_shortname_N" e.g., "2025-12-09_install-cowsay_1"
 	TaskNumber    int    `json:"task_number,omitempty" gorm:"default:0"`
 	DesignDocPath string `json:"design_doc_path,omitempty" gorm:"size:255"`
-
-	// DEPRECATED: Single PR tracking - kept for backward compatibility
-	// Use RepoPullRequests for multi-repo PR tracking
-	PullRequestID  string `json:"pull_request_id"`
-	PullRequestURL string `json:"pull_request_url,omitempty"` // Computed field, not stored
 
 	// Multi-repo PR tracking: list of PRs across all project repositories
 	RepoPullRequests []RepoPR `json:"repo_pull_requests,omitempty" gorm:"type:jsonb;serializer:json"`

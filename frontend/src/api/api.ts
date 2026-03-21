@@ -1941,8 +1941,7 @@ export interface TypesAuditMetadata {
   /** Project information */
   project_name?: string;
   /** Pull request information */
-  pull_request_id?: string;
-  pull_request_url?: string;
+  pull_requests?: TypesRepoPR[];
   /** Hash of requirements spec content */
   requirements_spec_hash?: string;
   /** Helix session/interaction linking */
@@ -4667,6 +4666,8 @@ export interface TypesSessionMetadata {
   uploaded_data_entity_id?: string;
   /** ID of associated WorkSession */
   work_session_id?: string;
+  /** Agent name used when thread was created (e.g., "zed-agent", "claude", "qwen") */
+  zed_agent_name?: string;
   /** Associated Zed instance ID */
   zed_instance_id?: string;
   /** Associated Zed thread ID */
@@ -4872,13 +4873,6 @@ export interface TypesSpecTask {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
-  /**
-   * DEPRECATED: Single PR tracking - kept for backward compatibility
-   * Use RepoPullRequests for multi-repo PR tracking
-   */
-  pull_request_id?: string;
-  /** Computed field, not stored */
-  pull_request_url?: string;
   /** Multi-repo PR tracking: list of PRs across all project repositories */
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
@@ -5178,13 +5172,6 @@ export interface TypesSpecTaskWithProject {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
-  /**
-   * DEPRECATED: Single PR tracking - kept for backward compatibility
-   * Use RepoPullRequests for multi-repo PR tracking
-   */
-  pull_request_id?: string;
-  /** Computed field, not stored */
-  pull_request_url?: string;
   /** Multi-repo PR tracking: list of PRs across all project repositories */
   repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */

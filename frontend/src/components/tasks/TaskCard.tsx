@@ -171,8 +171,6 @@ export interface SpecTaskWithExtras {
   design_docs_pushed_at?: string;
   clone_group_id?: string;
   cloned_from_id?: string;
-  pull_request_id?: string;
-  pull_request_url?: string;
   repo_pull_requests?: Array<{
     repository_id?: string;
     repository_name?: string;
@@ -1364,14 +1362,13 @@ function TaskCardInner({
         {/* Pull Request phase - awaiting merge in external repo */}
         {task.phase === "pull_request" && (
           <Box sx={{ mt: 1.5 }}>
-            {task.pull_request_url ? (
+            {task.repo_pull_requests && task.repo_pull_requests.length > 0 ? (
               <>
                 <Box sx={{ mb: 1 }}>
                   <SpecTaskActionButtons
                     task={{
                       id: task.id,
                       status: "pull_request",
-                      pull_request_url: task.pull_request_url,
                       repo_pull_requests: task.repo_pull_requests,
                       archived: task.archived,
                     }}

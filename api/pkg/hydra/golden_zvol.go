@@ -656,6 +656,83 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 	return cleaned, nil
 }
 
+// GCStaleSnapshots destroys golden snapshots older than 7 days that have no
+// remaining clones. Keeps recent snapshots so the user can see cache progression.
+// Snapshots with active session clones can't be destroyed (ZFS refuses) — that's
+// handled gracefully.
+func GCStaleSnapshots() int {
+	if !ZFSAvailable() {
+		return 0
+	}
+
+	// List all golden zvols
+	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume", "-r", zfsParentDataset)
+	if err != nil {
+		return 0
+	}
+
+	var cleaned int
+	goldenPrefix := zfsParentDataset + "/golden-"
+	for _, zvol := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if !strings.HasPrefix(zvol, goldenPrefix) {
+			continue
+		}
+
+		// List snapshots with creation time, oldest first
+		snapOut, err := execCmdOutput("zfs", "list", "-H", "-t", "snapshot", "-o", "name,creation",
+			"-s", "creation", "-r", zvol)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(strings.TrimSpace(string(snapOut)), "\n")
+		if len(lines) <= 1 {
+			continue // only one snapshot (or none), nothing to GC
+		}
+
+		// Always keep the latest snapshot regardless of age
+		for _, line := range lines[:len(lines)-1] {
+			if line == "" {
+				continue
+			}
+			// Parse name and creation time
+			// Format: "pool/helix-zvols/golden-prj_xxx@gen1\tDow Mon DD HH:MM YYYY"
+			parts := strings.SplitN(line, "\t", 2)
+			snap := parts[0]
+			if len(parts) < 2 {
+				continue
+			}
+
+			// Parse ZFS creation timestamp
+			created, err := time.Parse("Mon Jan  2 15:04 2006", strings.TrimSpace(parts[1]))
+			if err != nil {
+				// Try alternate format (some ZFS versions use different format)
+				created, err = time.Parse("Mon Jan 2 15:04 2006", strings.TrimSpace(parts[1]))
+				if err != nil {
+					continue // can't parse, skip
+				}
+			}
+
+			if time.Since(created) < 7*24*time.Hour {
+				continue // less than 7 days old, keep it
+			}
+
+			// zfs destroy will fail if the snapshot has dependent clones — that's fine
+			if err := runCmd("zfs", "destroy", snap); err != nil {
+				log.Debug().
+					Str("snapshot", snap).
+					Msg("Cannot destroy snapshot (likely has dependent clones), will retry next GC")
+			} else {
+				log.Info().
+					Str("snapshot", snap).
+					Msg("Destroyed stale golden snapshot (>7 days old)")
+				cleaned++
+			}
+		}
+	}
+
+	return cleaned
+}
+
 // effectiveGoldenBaseDir returns the golden base directory, respecting test overrides.
 func effectiveGoldenBaseDir() string {
 	if goldenBaseDirOverride != "" {

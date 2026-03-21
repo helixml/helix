@@ -20624,12 +20624,12 @@ const docTemplate = `{
                     "description": "Project information",
                     "type": "string"
                 },
-                "pull_request_id": {
+                "pull_requests": {
                     "description": "Pull request information",
-                    "type": "string"
-                },
-                "pull_request_url": {
-                    "type": "string"
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RepoPR"
+                    }
                 },
                 "requirements_spec_hash": {
                     "description": "Hash of requirements spec content",
@@ -27080,6 +27080,10 @@ const docTemplate = `{
                     "description": "ID of associated WorkSession",
                     "type": "string"
                 },
+                "zed_agent_name": {
+                    "description": "Agent name used when thread was created (e.g., \"zed-agent\", \"claude\", \"qwen\")",
+                    "type": "string"
+                },
                 "zed_instance_id": {
                     "description": "Associated Zed instance ID",
                     "type": "string"
@@ -27573,14 +27577,6 @@ const docTemplate = `{
                 "public_design_docs": {
                     "description": "Public sharing",
                     "type": "boolean"
-                },
-                "pull_request_id": {
-                    "description": "DEPRECATED: Single PR tracking - kept for backward compatibility\nUse RepoPullRequests for multi-repo PR tracking",
-                    "type": "string"
-                },
-                "pull_request_url": {
-                    "description": "Computed field, not stored",
-                    "type": "string"
                 },
                 "repo_pull_requests": {
                     "description": "Multi-repo PR tracking: list of PRs across all project repositories",
@@ -28299,14 +28295,6 @@ const docTemplate = `{
                 "public_design_docs": {
                     "description": "Public sharing",
                     "type": "boolean"
-                },
-                "pull_request_id": {
-                    "description": "DEPRECATED: Single PR tracking - kept for backward compatibility\nUse RepoPullRequests for multi-repo PR tracking",
-                    "type": "string"
-                },
-                "pull_request_url": {
-                    "description": "Computed field, not stored",
-                    "type": "string"
                 },
                 "repo_pull_requests": {
                     "description": "Multi-repo PR tracking: list of PRs across all project repositories",
