@@ -1173,9 +1173,18 @@ function transfer-desktop-to-sandbox() {
     return 1
   fi
 
+  # Verify tags exist before cleanup
+  echo "🔍 DEBUG: images after tagging (before rmi):"
+  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker images "${IMAGE_NAME}" --format '  {{.Repository}}:{{.Tag}} {{.ID}}'
+  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker images "registry:5000/${IMAGE_NAME}" --format '  {{.Repository}}:{{.Tag}} {{.ID}}'
+
   # Remove the registry-prefixed tag to allow proper cleanup later
   # (layers are shared, so this just removes the tag, not the data)
   sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker rmi "$SANDBOX_REGISTRY_TAG" 2>/dev/null || true
+
+  # Verify tags still exist after rmi
+  echo "🔍 DEBUG: images after rmi registry tag:"
+  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker images "${IMAGE_NAME}" --format '  {{.Repository}}:{{.Tag}} {{.ID}}'
 
   _tx_elapsed "✅ ${IMAGE_NAME}:${IMAGE_TAG} transferred via registry"
 
@@ -1204,6 +1213,15 @@ function transfer-desktop-to-sandbox() {
 
   # Prune dangling images in sandbox
   sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker image prune -f 2>/dev/null || true
+
+  # Final verification — if the image we just transferred is gone, something is very wrong
+  echo "🔍 DEBUG: final verification after cleanup:"
+  sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker images "${IMAGE_NAME}" --format '  {{.Repository}}:{{.Tag}} {{.ID}}'
+  if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker inspect "${IMAGE_NAME}:${IMAGE_TAG}" >/dev/null 2>&1; then
+    echo "❌ CRITICAL: ${IMAGE_NAME}:${IMAGE_TAG} MISSING after transfer+cleanup! Something removed it."
+  else
+    echo "✅ VERIFIED: ${IMAGE_NAME}:${IMAGE_TAG} exists in sandbox"
+  fi
 
   # Registry cleanup
   # Clean up old registry-tagged images on host
