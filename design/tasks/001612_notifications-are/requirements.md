@@ -1,24 +1,35 @@
-# Requirements: Notifications Should Not Auto-Dismiss on Panel Open
+# Requirements: Notifications Read/Dismiss and Grouping
 
 ## Problem
 
-When the user opens the notification panel (clicks the bell icon), all unacknowledged notifications are automatically marked as acknowledged. This clears the red badge and changes their visual state, making it feel like the notifications were "dismissed" without any explicit user action.
+Two issues with the current notification panel:
 
-The user expects notifications to persist until they explicitly dismiss them — either via the X button on an individual notification or the "Dismiss all" button.
+1. **Read state triggered too eagerly.** Opening the notification panel auto-marks all notifications as "read" (acknowledged). The user wants a notification to only turn gray/dimmed when they explicitly click on it.
+
+2. **Duplicate notifications for the same event.** When an agent finishes, two notifications appear close together: "spec ready" (`specs_pushed`) and "agent finished work" (`agent_interaction_completed`) for the same task. These should be grouped into one notification.
+
+## Definitions
+
+| State | Visual | Trigger |
+|-------|--------|---------|
+| **Unread** | Bold title, full opacity | Default when created |
+| **Read** | Normal weight, 65% opacity | User **clicks** the notification row (navigates) |
+| **Dismissed** | Removed from list | User clicks X or "Dismiss all" |
 
 ## User Stories
 
-**US-1:** As a user, when I open the notification panel, I want my notifications to remain in exactly the same state — so I can open the panel freely without accidentally "consuming" notifications.
+**US-1:** As a user, opening the notification panel should not change any notification's state — I want to be able to glance at the list without marking anything as read.
 
-**US-2:** As a user, I want notifications (and the red badge indicator) to only clear after I explicitly click the X button on a notification or click "Dismiss all."
+**US-2:** As a user, a notification should only become "read" (dimmed) when I explicitly click on it to navigate.
 
-**US-3:** As a user, I want clicking on a notification to navigate me to the relevant page without automatically dismissing the notification, so I can revisit it.
+**US-3:** As a user, when a "spec ready" and "agent finished work" notification arrive for the same task within a minute of each other, I want to see them as a single grouped notification — not two separate items.
 
 ## Acceptance Criteria
 
-- [ ] Opening the notification panel does NOT call `acknowledge()` for any event
-- [ ] The red badge count does not change merely from opening the panel
-- [ ] Individual notifications are only dismissed when the user clicks the X button
-- [ ] All notifications are only dismissed when the user clicks "Dismiss all"
-- [ ] Clicking a notification (navigating) does NOT auto-dismiss or auto-acknowledge it
-- [ ] The `acknowledged_at` field is no longer set automatically on panel open
+- [ ] Opening the panel does NOT call `acknowledge()` — no auto-read on drawer open
+- [ ] Clicking a notification row calls `acknowledge()` for that event (and navigates)
+- [ ] X button and "Dismiss all" continue to work exactly as before
+- [ ] `specs_pushed` + `agent_interaction_completed` events with the same `spec_task_id` and `created_at` within 60 seconds of each other are rendered as a single grouped notification item
+- [ ] A grouped notification navigates to the spec review page (same behavior as `specs_pushed`)
+- [ ] A grouped notification is "read" when clicked and "dismissed" when its X is clicked — both underlying events are acknowledged/dismissed together
+- [ ] If only one of the two event types is present (no pair), it continues to display individually as before
