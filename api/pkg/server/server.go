@@ -1161,6 +1161,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}/docker-cache/build", system.Wrapper(apiServer.triggerGoldenBuild)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/docker-cache/cancel", system.Wrapper(apiServer.cancelGoldenBuild)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/docker-cache", system.Wrapper(apiServer.deleteDockerCache)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/projects/{id}/docker-cache/zfs-tree", system.Wrapper(apiServer.getDockerCacheZFSTree)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/tasks-progress", apiServer.getBatchTaskProgress).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/tasks-usage", apiServer.getBatchTaskUsage).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{projectId}/labels", apiServer.listProjectLabels).Methods(http.MethodGet)

@@ -2282,6 +2282,45 @@ func (s *HelixAPIServer) deleteDockerCache(_ http.ResponseWriter, r *http.Reques
 	return map[string]string{"message": fmt.Sprintf("cache cleared on %d sandbox(es)", deleted)}, nil
 }
 
+// getDockerCacheZFSTree returns the ZFS snapshot/clone tree for a project's docker cache.
+// Proxies to Hydra on the first online sandbox.
+func (s *HelixAPIServer) getDockerCacheZFSTree(_ http.ResponseWriter, r *http.Request) (interface{}, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	project, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	sandboxes, err := s.Store.ListSandboxes(r.Context())
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list sandboxes: %v", err))
+	}
+
+	for _, sb := range sandboxes {
+		if sb.Status != "online" {
+			continue
+		}
+		hydraClient := hydra.NewRevDialClient(s.connman, fmt.Sprintf("hydra-%s", sb.ID))
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		tree, err := hydraClient.GetZFSTree(ctx, projectID)
+		cancel()
+		if err != nil {
+			continue // try next sandbox
+		}
+		return tree, nil
+	}
+
+	// No sandbox available — return empty tree
+	return &hydra.ZFSTree{Available: false}, nil
+}
+
 // PinnedProjectsResponse is the response body for pin/unpin endpoints
 type PinnedProjectsResponse struct {
 	PinnedProjectIDs []string `json:"pinned_project_ids"`
