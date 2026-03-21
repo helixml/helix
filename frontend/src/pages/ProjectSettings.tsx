@@ -212,8 +212,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const { data: zfsTree } = useQuery({
     queryKey: ["zfs-tree", projectId],
     queryFn: async () => {
-      const resp = await api.getApiClient().instance.get(`/api/v1/projects/${projectId}/docker-cache/zfs-tree`);
-      return resp.data;
+      return api.get(`/projects/${projectId}/docker-cache/zfs-tree`);
     },
     enabled: !!projectId && (autoWarmDockerCache || sandboxEntries.length > 0),
     refetchInterval: 30000,
