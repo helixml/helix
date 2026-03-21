@@ -829,6 +829,41 @@ if [ -f "$STARTUP_SCRIPT" ]; then
         echo "You can debug this in the terminal."
     fi
     echo ""
+elif [ -n "$HELIX_STARTUP_INSTALL" ] || [ -n "$HELIX_STARTUP_START" ]; then
+    # Fallback: run declarative startup commands from project YAML
+    # (used when no .helix/startup.sh exists in the helix-specs branch,
+    #  e.g. for externally-applied projects with a public GitHub repo)
+    echo ""
+    echo "========================================="
+    echo "Running declarative startup commands (Zed starting in parallel)..."
+    echo "========================================="
+
+    # Change to primary repo directory
+    if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -d "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME" ]; then
+        cd "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
+        echo "Working directory: $HELIX_PRIMARY_REPO_NAME"
+    fi
+    echo ""
+
+    if [ -n "$HELIX_STARTUP_INSTALL" ]; then
+        echo "▶ Install: $HELIX_STARTUP_INSTALL"
+        if bash -i -c "$HELIX_STARTUP_INSTALL"; then
+            echo "✅ Install completed"
+        else
+            echo "❌ Install failed (exit $?). You can debug this in the terminal."
+        fi
+        echo ""
+    fi
+
+    if [ -n "$HELIX_STARTUP_START" ]; then
+        echo "▶ Start: $HELIX_STARTUP_START"
+        if bash -i -c "$HELIX_STARTUP_START"; then
+            echo "✅ Start completed"
+        else
+            echo "❌ Start failed (exit $?). You can debug this in the terminal."
+        fi
+        echo ""
+    fi
 fi
 
 echo "========================================="

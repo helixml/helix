@@ -1,11 +1,167 @@
 package types
 
 import (
+	"fmt"
 	"time"
 
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
+
+// ProjectSpec is the declarative specification for a project YAML (helix apply -f / kubectl apply -f).
+type ProjectSpec struct {
+	Name         string               `json:"name,omitempty" yaml:"name,omitempty"`
+	Description  string               `json:"description,omitempty" yaml:"description,omitempty"`
+	Technologies []string             `json:"technologies,omitempty" yaml:"technologies,omitempty"`
+	Guidelines   string               `json:"guidelines,omitempty" yaml:"guidelines,omitempty"`
+	Repository   *ProjectRepositorySpec `json:"repository,omitempty" yaml:"repository,omitempty"`   // Singular shorthand
+	Repositories []ProjectRepositorySpec `json:"repositories,omitempty" yaml:"repositories,omitempty"` // Multi-repo list
+	Startup      *ProjectStartup      `json:"startup,omitempty" yaml:"startup,omitempty"`
+	Kanban       *ProjectKanban       `json:"kanban,omitempty" yaml:"kanban,omitempty"`
+	Tasks        []ProjectTaskSpec    `json:"tasks,omitempty" yaml:"tasks,omitempty"`
+	Agent        *ProjectAgentSpec    `json:"agent,omitempty" yaml:"agent,omitempty"`
+}
+
+// ValidateRepositories validates the repository configuration in the spec.
+func (s *ProjectSpec) ValidateRepositories() error {
+	if s.Repository != nil && len(s.Repositories) > 0 {
+		return fmt.Errorf("cannot specify both 'repository' and 'repositories'")
+	}
+	resolved := s.ResolvedRepositories()
+	if len(resolved) > 1 {
+		primaryCount := 0
+		for _, r := range resolved {
+			if r.Primary {
+				primaryCount++
+			}
+		}
+		if primaryCount == 0 {
+			return fmt.Errorf("exactly one repository must be designated primary")
+		}
+		if primaryCount > 1 {
+			return fmt.Errorf("only one repository may be designated primary")
+		}
+	}
+	return nil
+}
+
+// ResolvedRepositories normalises singular/plural into a single slice.
+// If only one repository is present, primary is implied.
+func (s *ProjectSpec) ResolvedRepositories() []ProjectRepositorySpec {
+	var repos []ProjectRepositorySpec
+	if s.Repository != nil {
+		repo := *s.Repository
+		repo.Primary = true
+		repos = []ProjectRepositorySpec{repo}
+	} else {
+		repos = s.Repositories
+	}
+	if len(repos) == 1 {
+		repos[0].Primary = true
+	}
+	return repos
+}
+
+// ProjectRepositorySpec describes a repository attachment in a project YAML.
+type ProjectRepositorySpec struct {
+	URL           string `json:"url" yaml:"url"`
+	DefaultBranch string `json:"default_branch,omitempty" yaml:"default_branch,omitempty"`
+	Primary       bool   `json:"primary,omitempty" yaml:"primary,omitempty"`
+}
+
+// ProjectStartup describes startup commands that run in the primary repository.
+type ProjectStartup struct {
+	Install string `json:"install,omitempty" yaml:"install,omitempty"`
+	Start   string `json:"start,omitempty" yaml:"start,omitempty"`
+}
+
+// ProjectKanban holds Kanban board settings from a project YAML.
+type ProjectKanban struct {
+	WIPLimits *ProjectWIPLimits `json:"wip_limits,omitempty" yaml:"wip_limits,omitempty"`
+}
+
+// ProjectWIPLimits holds per-column WIP limit values.
+type ProjectWIPLimits struct {
+	Planning       int `json:"planning,omitempty" yaml:"planning,omitempty"`
+	Implementation int `json:"implementation,omitempty" yaml:"implementation,omitempty"`
+	Review         int `json:"review,omitempty" yaml:"review,omitempty"`
+}
+
+// ProjectTaskSpec is a task to seed onto the Kanban board when the YAML is applied.
+// Intended for demos and project templates; omit in production YAMLs.
+type ProjectTaskSpec struct {
+	Title       string `json:"title" yaml:"title"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+}
+
+// ProjectAgentSpec is the simplified agent configuration in a project YAML.
+// It is converted to a full Helix App when applyProject runs, and stored
+// as the project's DefaultHelixAppID.
+//
+// Runtime selects the code agent inside the Zed desktop container.
+// Defaults to "claude_code" when omitted (recommended — handles context compaction).
+//   - "claude_code" — Claude Code CLI (default)
+//   - "zed"         — Zed's built-in agent panel
+//   - "qwen_code"   — Qwen Code CLI
+//   - "gemini_cli"  — Gemini CLI
+//   - "codex_cli"   — OpenAI Codex CLI
+//
+// Credentials selects how the agent authenticates with the LLM provider:
+//   - "api_key"      — (default) routes through Helix LLM proxy using the user's API key
+//   - "subscription" — uses OAuth credentials directly (e.g. a Claude subscription)
+type ProjectAgentSpec struct {
+	Name        string               `json:"name,omitempty" yaml:"name,omitempty"`
+	Runtime     string               `json:"runtime,omitempty" yaml:"runtime,omitempty"`
+	Model       string               `json:"model,omitempty" yaml:"model,omitempty"`
+	Provider    string               `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Credentials string               `json:"credentials,omitempty" yaml:"credentials,omitempty"`
+	Tools       *ProjectAgentTools   `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Display     *ProjectAgentDisplay `json:"display,omitempty" yaml:"display,omitempty"`
+}
+
+// ProjectAgentTools lists the built-in tools to enable for the project agent.
+type ProjectAgentTools struct {
+	WebSearch  bool `json:"web_search,omitempty" yaml:"web_search,omitempty"`
+	Browser    bool `json:"browser,omitempty" yaml:"browser,omitempty"`
+	Calculator bool `json:"calculator,omitempty" yaml:"calculator,omitempty"`
+}
+
+// ProjectAgentDisplay configures the virtual desktop for the agent container.
+type ProjectAgentDisplay struct {
+	// Resolution preset: "1080p" (default), "4k", or "5k"
+	Resolution string `json:"resolution,omitempty" yaml:"resolution,omitempty"`
+	// Desktop environment: "ubuntu" (default GNOME) or "sway"
+	DesktopType string `json:"desktop_type,omitempty" yaml:"desktop_type,omitempty"`
+	// Display refresh rate in Hz (default 60)
+	FPS int `json:"fps,omitempty" yaml:"fps,omitempty"`
+}
+
+// ProjectCRD is the top-level structure for a project YAML file.
+type ProjectCRD struct {
+	APIVersion string                `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string                `json:"kind" yaml:"kind"`
+	Metadata   ProjectCRDMetadata    `json:"metadata" yaml:"metadata"`
+	Spec       ProjectSpec           `json:"spec" yaml:"spec"`
+}
+
+// ProjectCRDMetadata holds metadata for a project CRD.
+type ProjectCRDMetadata struct {
+	Name string `json:"name" yaml:"name"`
+}
+
+// ProjectApplyRequest is the request body for PUT /api/v1/projects/apply.
+type ProjectApplyRequest struct {
+	OrganizationID string      `json:"organization_id"`
+	Name           string      `json:"name"`
+	Spec           ProjectSpec `json:"spec"`
+}
+
+// ProjectApplyResponse is the response for PUT /api/v1/projects/apply.
+type ProjectApplyResponse struct {
+	ProjectID  string `json:"project_id"`
+	AgentAppID string `json:"agent_app_id,omitempty"`
+	Created    bool   `json:"created"` // true if created, false if updated
+}
 
 // Project represents a Helix project that can contain tasks and agent work
 type Project struct {
@@ -25,6 +181,10 @@ type Project struct {
 
 	// Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database
 	StartupScript string `json:"startup_script" gorm:"-"`
+
+	// Startup commands from declarative project YAML (persisted)
+	StartupInstall string `json:"startup_install,omitempty"`
+	StartupStart   string `json:"startup_start,omitempty"`
 
 	// Automation settings
 	AutoStartBacklogTasks bool `json:"auto_start_backlog_tasks"` // Automatically move backlog tasks to planning when capacity available

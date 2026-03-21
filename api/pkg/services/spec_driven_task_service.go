@@ -561,6 +561,16 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		}
 	}
 
+	// Inject declarative startup commands from project YAML.
+	// helix-workspace-setup.sh uses these as a fallback when no .helix/startup.sh
+	// exists in the helix-specs branch (typical for externally-applied projects).
+	if project.StartupInstall != "" {
+		envVars = append(envVars, "HELIX_STARTUP_INSTALL="+project.StartupInstall)
+	}
+	if project.StartupStart != "" {
+		envVars = append(envVars, "HELIX_STARTUP_START="+project.StartupStart)
+	}
+
 	zedAgent := &types.DesktopAgent{
 		OrganizationID:      orgID,
 		SessionID:           session.ID,
@@ -953,6 +963,14 @@ Follow these guidelines when making changes:
 			envVarsJDI = append(envVarsJDI, projectSecrets...)
 			log.Info().Int("secret_count", len(projectSecrets)).Str("project_id", task.ProjectID).Msg("Just Do It: Injected project secrets into desktop env")
 		}
+	}
+
+	// Inject declarative startup commands (same as planning phase)
+	if project.StartupInstall != "" {
+		envVarsJDI = append(envVarsJDI, "HELIX_STARTUP_INSTALL="+project.StartupInstall)
+	}
+	if project.StartupStart != "" {
+		envVarsJDI = append(envVarsJDI, "HELIX_STARTUP_START="+project.StartupStart)
 	}
 
 	// Create ZedAgent struct with session info for Wolf executor

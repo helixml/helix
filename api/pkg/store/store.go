@@ -537,6 +537,7 @@ type Store interface {
 	// git repositories
 	CreateGitRepository(ctx context.Context, repo *types.GitRepository) error
 	GetGitRepository(ctx context.Context, id string) (*types.GitRepository, error)
+	GetGitRepositoryByExternalURL(ctx context.Context, orgID, externalURL string) (*types.GitRepository, error)
 	UpdateGitRepository(ctx context.Context, repo *types.GitRepository) error
 	DeleteGitRepository(ctx context.Context, id string) error
 	ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error)
