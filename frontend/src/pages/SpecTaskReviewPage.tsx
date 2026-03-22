@@ -52,6 +52,11 @@ const SpecTaskReviewPage: FC = () => {
     account.orgNavigate('project-task-detail', { id: projectId, taskId })
   }
 
+  const handleApproved = () => {
+    // After approval, navigate to the workspace so the user can see the agent working
+    account.orgNavigate('project-specs', { id: projectId, openTask: taskId })
+  }
+
   const handleOpenInWorkspace = () => {
     // Navigate to project specs page with split screen view and open this review
     account.orgNavigate('project-specs', { id: projectId, tab: 'workspace', openTask: taskId, openReview: reviewId })
@@ -107,6 +112,7 @@ const SpecTaskReviewPage: FC = () => {
           reviewId={reviewId}
           onClose={handleBack}
           onBack={handleBack}
+          onImplementationStarted={handleApproved}
           hideTitle={true}
         />
       </Box>
