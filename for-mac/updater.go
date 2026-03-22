@@ -364,7 +364,7 @@ func (u *Updater) StartCombinedUpdate(settings *SettingsManager, downloader *VMD
 	defer dmgCancel()
 
 	// Download DMG with progress scaled to 90-100%
-	dmgEmitter := &updateEmitter{emitFn: func(p UpdateProgress) {
+	dmgEmitter := &updateEmitter{defaultPhase: "downloading_app", emitFn: func(p UpdateProgress) {
 		u.emitAppProgress(p)
 		overallPct := 90.0 + p.Percent*0.1
 		u.emitCombinedProgress(CombinedUpdateProgress{
@@ -441,7 +441,7 @@ func (u *Updater) ApplyAppUpdate(appCtx context.Context, downloader *VMDownloade
 		u.mu.Unlock()
 		defer dmgCancel()
 
-		appEmitter := &updateEmitter{emitFn: u.emitAppProgress}
+		appEmitter := &updateEmitter{emitFn: u.emitAppProgress, defaultPhase: "downloading_app"}
 		if err := downloader.DownloadURL(dmgCtx, appEmitter, info.DMGURL, dmgPath); err != nil {
 			return fmt.Errorf("failed to download update: %w", err)
 		}
@@ -602,7 +602,7 @@ func (u *Updater) DownloadVMUpdate(settings *SettingsManager, downloader *VMDown
 	// Set the manifest on the downloader so downloadFileParallel can use it.
 	downloader.SetManifest(&manifest)
 
-	emitter := &updateEmitter{emitFn: u.emitVMProgress}
+	emitter := &updateEmitter{emitFn: u.emitVMProgress, defaultPhase: "downloading_vm"}
 
 	// Download each file in the manifest to a .staged path
 	for _, f := range manifest.Files {
@@ -660,16 +660,22 @@ func (u *Updater) DownloadVMUpdate(settings *SettingsManager, downloader *VMDown
 }
 
 // updateEmitter adapts the VMDownloader's emitter interface for update progress.
+// defaultPhase controls the base phase string (e.g. "downloading_vm" or
+// "downloading_app") so the same adapter works for both VM and DMG downloads.
 type updateEmitter struct {
-	emitFn func(UpdateProgress)
+	emitFn       func(UpdateProgress)
+	defaultPhase string // "downloading_vm" or "downloading_app"
 }
 
 func (e *updateEmitter) EventsEmit(eventName string, data ...interface{}) {
-	// We only care about progress events for the UI; the decompressor
+	// We only care about progress events for the UI; the downloader
 	// emits "download:progress" events which we translate.
 	if len(data) > 0 {
 		if p, ok := data[0].(DownloadProgress); ok {
-			phase := "downloading_vm"
+			phase := e.defaultPhase
+			if phase == "" {
+				phase = "downloading_vm"
+			}
 			if p.Status == "decompressing" {
 				phase = "decompressing_vm"
 			} else if p.Status == "verifying" {
