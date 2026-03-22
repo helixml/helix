@@ -26,7 +26,7 @@ Two completely separate download implementations exist:
 - [ ] `Updater.downloadFile` is deleted — one download path for everything
 - [ ] Update downloads achieve comparable throughput to initial downloads (~100+ MB/s on fast connections)
 - [ ] Progress reporting continues to work correctly in the combined update UI (the 0-90% scaling for phase 1, 90-100% for phase 2)
-- [ ] Resume support (chunk-based `.tmp` + `.chunks` progress files) works for all update downloads
+- [ ] Auto-resume works for all update downloads — if the app is killed or crashes mid-download, clicking "Start update" again picks up where it left off (the parallel downloader detects existing `.tmp` + `.chunks` files on disk and skips completed chunks; no separate "resume" button needed)
 - [ ] SHA256 verification still occurs after download
 - [ ] Cancellation still works mid-download
 - [ ] No regression in initial download path
