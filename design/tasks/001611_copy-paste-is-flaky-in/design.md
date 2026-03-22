@@ -16,7 +16,7 @@ useEffect(() => {
       event.preventDefault();
       // ... sync clipboard and forward Ctrl+V ...
     }
-    // FALLTHROUGH: sends raw event to VNC
+    // FALLTHROUGH: sends raw event via custom WebSocket protocol
     getInput()?.onKeyDown(event);
     event.preventDefault();
   };
@@ -29,7 +29,7 @@ useEffect(() => {
 When `sessionId` is falsy:
 - `if (isPasteKeystroke && sessionId)` is false → paste block is skipped
 - The raw Ctrl+V event falls through to `getInput()?.onKeyDown(event)` at line 4054
-- The remote VNC receives the raw event; depending on the remote app/compositor, the ctrl modifier may be dropped, producing a literal "v"
+- `getInput()` returns a `StreamInput` from the custom WebSocket stream; depending on how it serializes the event, the ctrl modifier may be dropped, producing a literal "v"
 
 Later the session loads and `sessionId` is set, but since `isConnected` didn't change, the effect doesn't re-run. However, a re-render triggered by other state changes can cause the effect to re-run naturally (or component unmounts/remounts) — explaining why subsequent presses often work.
 
