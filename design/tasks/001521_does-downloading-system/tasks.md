@@ -2,10 +2,10 @@
 
 ## Refactor `downloadFileParallel` to accept `context.Context`
 
-- [ ] Add `context.Context` parameter to `downloadFileParallel` in `for-mac/download.go`
-- [ ] Replace `d.cancel` channel checks inside `downloadFileParallel` with `ctx.Done()`
-- [ ] Propagate context to `downloadChunk` and `downloadChunkOnce` (replace cancel channel with context)
-- [ ] Update `DownloadAll` to create a `context.Context` from the existing `d.cancel` channel and pass it to `downloadFileParallel`
+- [~] Add `context.Context` parameter to `downloadFileParallel` in `for-mac/download.go`
+- [~] Replace `d.cancel` channel checks inside `downloadFileParallel` with `ctx.Done()`
+- [~] Propagate context to `downloadChunk` and `downloadChunkOnce` (replace cancel channel with context)
+- [~] Update `DownloadAll` to create a `context.Context` from the existing `d.cancel` channel and pass it to `downloadFileParallel`
 - [ ] Verify initial download path still works (parallel, resume, cancellation)
 
 ## Add a standalone `DownloadURL` method for arbitrary URLs
