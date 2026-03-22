@@ -4141,14 +4141,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     };
 
     // Attach to container, not document (so we only capture when focused)
-    container.addEventListener("keydown", handleKeyDown, { capture: true });
-    container.addEventListener("keyup", handleKeyUp, { capture: true });
+    container.addEventListener("keydown", handleKeyDown);
+    container.addEventListener("keyup", handleKeyUp);
     container.addEventListener("beforeinput", handleBeforeInput);
     window.addEventListener("focus", handleWindowFocus);
 
     return () => {
-      container.removeEventListener("keydown", handleKeyDown, true);
-      container.removeEventListener("keyup", handleKeyUp, true);
+      container.removeEventListener("keydown", handleKeyDown);
+      container.removeEventListener("keyup", handleKeyUp);
       container.removeEventListener("beforeinput", handleBeforeInput);
       window.removeEventListener("focus", handleWindowFocus);
     };
