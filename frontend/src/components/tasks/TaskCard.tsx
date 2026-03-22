@@ -18,6 +18,7 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
+  Avatar,
   Chip,
 } from "@mui/material";
 import {
@@ -37,7 +38,7 @@ import {
   RemoveCircleOutline as RemoveFromQueueIcon,
   Undo as UndoIcon,
 } from "@mui/icons-material";
-import { EllipsisVertical, Wand2 } from "lucide-react";
+import { EllipsisVertical, Wand2, UserCircle2 } from "lucide-react";
 import {
   useApproveImplementation,
   useStopAgent,
@@ -57,6 +58,9 @@ import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopVi
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
+import AssigneeSelector from "./AssigneeSelector";
+import useAccount from "../../hooks/useAccount";
+import { TypesOrganizationMembership, TypesUser } from "../../api/api";
 
 // Pulse animation for the active task spinner
 const pulseRing = keyframes`
@@ -167,8 +171,6 @@ export interface SpecTaskWithExtras {
   design_docs_pushed_at?: string;
   clone_group_id?: string;
   cloned_from_id?: string;
-  pull_request_id?: string;
-  pull_request_url?: string;
   repo_pull_requests?: Array<{
     repository_id?: string;
     repository_name?: string;
@@ -190,6 +192,8 @@ export interface SpecTaskWithExtras {
   // Task number for display
   task_number?: number;
   depends_on?: TaskDependency[];
+  // Assignee tracking
+  assignee_id?: string;
   labels?: string[];
   updated_at?: string;
 }
@@ -582,7 +586,41 @@ function TaskCardInner({
   const [showCloneBatchProgress, setShowCloneBatchProgress] = useState(false);
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [isRemovingFromQueue, setIsRemovingFromQueue] = useState(false);
+  const [assigneeAnchorEl, setAssigneeAnchorEl] = useState<null | HTMLElement>(null);
   const startPlanningButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Get account context for organization members
+  const account = useAccount();
+  const orgMembers = account.organizationTools.organization?.memberships || [];
+
+  // Find the assigned user from org members
+  const assignedMember = useMemo(() => {
+    if (!task.assignee_id) return null;
+    return orgMembers.find((m) => m.user_id === task.assignee_id);
+  }, [task.assignee_id, orgMembers]);
+
+  const assignedUser = assignedMember?.user as TypesUser | undefined;
+
+  // Get initials for avatar
+  const getAssigneeInitials = (user: TypesUser | undefined): string => {
+    if (!user) return "?";
+    const name = user.full_name || user.username || user.email || "";
+    const parts = name.split(" ");
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  };
+
+  // Handle assignee change
+  const handleAssigneeChange = (userId: string | null) => {
+    if (task.id) {
+      updateSpecTask.mutate({
+        taskId: task.id,
+        updates: { assignee_id: userId || "" },
+      });
+    }
+  };
 
   // Focus the Start Planning button when focusStartPlanning is true
   useEffect(() => {
@@ -1005,7 +1043,47 @@ function TaskCardInner({
               </Typography>
             )}
           </Box>
+
+          {/* Assignee avatar */}
+          <Tooltip title={assignedUser ? `Assigned to ${assignedUser.full_name || assignedUser.username || assignedUser.email}` : "Unassigned - click to assign"}>
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                setAssigneeAnchorEl(e.currentTarget);
+              }}
+              sx={{
+                width: 24,
+                height: 24,
+                ml: "auto",
+              }}
+            >
+              {assignedUser ? (
+                <Avatar
+                  sx={{
+                    width: 20,
+                    height: 20,
+                    fontSize: "0.6rem",
+                  }}
+                >
+                  {getAssigneeInitials(assignedUser)}
+                </Avatar>
+              ) : (
+                <UserCircle2 size={18} style={{ opacity: 0.4 }} />
+              )}
+            </IconButton>
+          </Tooltip>
         </Box>
+
+        {/* Assignee selector popover */}
+        <AssigneeSelector
+          assigneeId={task.assignee_id}
+          members={orgMembers}
+          onAssigneeChange={handleAssigneeChange}
+          isLoading={updateSpecTask.isPending}
+          anchorEl={assigneeAnchorEl}
+          onClose={() => setAssigneeAnchorEl(null)}
+        />
 
         {/* Label chips */}
         {task.labels && task.labels.length > 0 && (
@@ -1284,14 +1362,13 @@ function TaskCardInner({
         {/* Pull Request phase - awaiting merge in external repo */}
         {task.phase === "pull_request" && (
           <Box sx={{ mt: 1.5 }}>
-            {task.pull_request_url ? (
+            {task.repo_pull_requests && task.repo_pull_requests.length > 0 ? (
               <>
                 <Box sx={{ mb: 1 }}>
                   <SpecTaskActionButtons
                     task={{
                       id: task.id,
                       status: "pull_request",
-                      pull_request_url: task.pull_request_url,
                       repo_pull_requests: task.repo_pull_requests,
                       archived: task.archived,
                     }}
@@ -1462,6 +1539,8 @@ const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
     prevProps.task.status === nextProps.task.status &&
     prevProps.task.updated_at === nextProps.task.updated_at &&
     prevProps.task.agent_work_state === nextProps.task.agent_work_state &&
+    prevProps.task.sandbox_state === nextProps.task.sandbox_state &&
+    prevProps.task.sandbox_status_message === nextProps.task.sandbox_status_message &&
     prevProps.isArchiving === nextProps.isArchiving &&
     prevProps.isVisible === nextProps.isVisible &&
     prevProps.focusStartPlanning === nextProps.focusStartPlanning

@@ -105,6 +105,18 @@ function clipboardReadText(): Promise<string> {
   return Promise.resolve("");
 }
 
+// Returns a stable UUID for a given sessionId in this browser tab.
+// Stored in sessionStorage so it survives component remounts but differs across tabs.
+function getOrCreateStreamUUID(sessionId: string): string {
+  const storageKey = `helix-stream-uuid-${sessionId}`;
+  let id = sessionStorage.getItem(storageKey);
+  if (!id) {
+    id = crypto.randomUUID();
+    sessionStorage.setItem(storageKey, id);
+  }
+  return id;
+}
+
 /**
  * DesktopStreamViewer - Native React component for desktop streaming
  *
@@ -140,15 +152,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const pendingReconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Cancel pending reconnects to prevent duplicate streams
   const manualReconnectAttemptsRef = useRef(0); // Track manual reconnect attempts to prevent infinite loops
 
-  // Generate unique UUID for this component instance (persists across re-renders)
-  // This ensures multiple floating windows get different streaming client IDs
-  const componentInstanceIdRef = useRef<string>(
-    "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0;
-      const v = c === "x" ? r : (r & 0x3) | 0x8;
-      return v.toString(16);
-    }),
-  );
+  // Stable UUID for this browser tab + session combination.
+  // Survives component remounts (stored in sessionStorage) but differs across tabs.
+  // The backend uses this to deduplicate clients on reconnect — same UUID = same viewer tab.
+  const componentInstanceIdRef = useRef<string>(getOrCreateStreamUUID(sessionId));
+  const sessionIdRef = useRef<string>(sessionId);
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -573,13 +584,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Reset explicit close flag - we're starting a new connection
     isExplicitlyClosingRef.current = false;
 
-    // Generate fresh UUID for EVERY connection attempt to avoid stale state on reconnect
-    componentInstanceIdRef.current =
-      "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-        const r = (Math.random() * 16) | 0;
-        const v = c === "x" ? r : (r & 0x3) | 0x8;
-        return v.toString(16);
-      });
+    // componentInstanceIdRef is generated once per component instance (in useRef initializer).
+    // It must NOT be regenerated on reconnect — the backend uses it to deduplicate clients
+    // and evict stale connections from the same viewer tab.
 
     setIsConnecting(true);
     setError(null);
@@ -697,7 +704,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         supportedFormats,
         [width, height],
         sessionId,
-        undefined, // clientUniqueId
+        componentInstanceIdRef.current, // clientUniqueId — enables server-side deduplication on reconnect
         account.user?.name, // userName for multi-player presence
         undefined, // avatarUrl
       );
@@ -3779,7 +3786,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return; // Don't preventDefault, let browser copy the selected text
       }
 
-      if (isCopyKeystroke && sessionId) {
+      if (isCopyKeystroke && sessionIdRef.current) {
         // Send the copy keystroke to remote first (translate Cmd to Ctrl for Linux)
         const input = getInput();
         if (input) {
@@ -3822,7 +3829,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           try {
             const apiClient = helixApi.getApiClient();
             const response =
-              await apiClient.v1ExternalAgentsClipboardDetail(sessionId);
+              await apiClient.v1ExternalAgentsClipboardDetail(sessionIdRef.current);
             const clipboardData: TypesClipboardData = response.data;
 
             if (!clipboardData || !clipboardData.type || !clipboardData.data) {
@@ -3886,7 +3893,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         event.metaKey && event.shiftKey && event.code === "KeyV";
       const isPasteKeystroke = isCtrlV || isCmdV || isCtrlShiftV || isCmdShiftV;
 
-      if (isPasteKeystroke && sessionId) {
+      if (isPasteKeystroke && sessionIdRef.current) {
         event.preventDefault();
         event.stopPropagation();
 
@@ -3990,7 +3997,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         const syncAndPaste = (payload: TypesClipboardData) => {
           const apiClient = helixApi.getApiClient();
           apiClient
-            .v1ExternalAgentsClipboardCreate(sessionId, payload)
+            .v1ExternalAgentsClipboardCreate(sessionIdRef.current, payload)
             .then(() => {
               console.log(`[Clipboard] Synced ${payload.type} to remote`);
               showClipboardToast("Pasted", "success");

@@ -273,6 +273,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       return null;
     const sub = claudeSubscriptions?.[0];
     if (!sub) return null;
+    if (sub.credential_type === 'setup_token') return null; // Setup tokens don't expire
     return getTokenExpiryStatus(sub.access_token_expires_at);
   }, [task?.helix_app_id, apps.apps, claudeSubscriptions]);
 
@@ -1782,46 +1783,52 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       </ToggleButtonGroup>
                     )}
                     {/* Thread selector (shown alongside tabs when multiple threads exist) */}
-                    {zedThreadsData?.zed_threads &&
-                    zedThreadsData.zed_threads.filter(t => t.work_session?.helix_session_id).length > 0 && (
-                      <Select
-                        size="small"
-                        variant="standard"
-                        value={selectedThreadSessionId || "planning"}
-                        onChange={(e) => {
-                          const val = e.target.value as string;
-                          setSelectedThreadSessionId(
-                            val === "planning" ? null : val,
-                          );
-                        }}
-                        sx={{
-                          fontSize: "0.8rem",
-                          fontWeight: 500,
-                          color: "text.secondary",
-                          minWidth: 80,
-                          maxWidth: 140,
-                          ml: 1,
-                          "&:before": { display: "none" },
-                          "&:after": { display: "none" },
-                          "& .MuiSelect-select": { py: 0 },
-                        }}
-                      >
-                        <MenuItem value="planning">Main thread</MenuItem>
-                        {zedThreadsData.zed_threads.map((thread, index) => {
-                          const sessionId = thread.work_session?.helix_session_id;
-                          if (!sessionId) return null;
-                          const label =
-                            thread.work_session?.name ||
-                            thread.work_session?.implementation_task_title ||
-                            `Thread ${index + 2}`;
-                          return (
-                            <MenuItem key={sessionId} value={sessionId}>
-                              {label}
-                            </MenuItem>
-                          );
-                        })}
-                      </Select>
-                    )}
+                    {(() => {
+                      // Filter out threads that point to the same session as planning (they're the same conversation)
+                      const extraThreads = zedThreadsData?.zed_threads?.filter(
+                        t => t.work_session?.helix_session_id && t.work_session.helix_session_id !== task?.planning_session_id
+                      ) || [];
+                      if (extraThreads.length === 0) return null;
+                      return (
+                        <Select
+                          size="small"
+                          variant="standard"
+                          value={selectedThreadSessionId || "planning"}
+                          onChange={(e) => {
+                            const val = e.target.value as string;
+                            setSelectedThreadSessionId(
+                              val === "planning" ? null : val,
+                            );
+                          }}
+                          sx={{
+                            fontSize: "0.8rem",
+                            fontWeight: 500,
+                            color: "text.secondary",
+                            minWidth: 80,
+                            maxWidth: 140,
+                            ml: 1,
+                            "&:before": { display: "none" },
+                            "&:after": { display: "none" },
+                            "& .MuiSelect-select": { py: 0 },
+                          }}
+                        >
+                          <MenuItem value="planning">Main thread</MenuItem>
+                          {extraThreads.map((thread, index) => {
+                            const sessionId = thread.work_session?.helix_session_id;
+                            if (!sessionId) return null;
+                            const label =
+                              thread.work_session?.name ||
+                              thread.work_session?.implementation_task_title ||
+                              `Thread ${index + 2}`;
+                            return (
+                              <MenuItem key={sessionId} value={sessionId}>
+                                {label}
+                              </MenuItem>
+                            );
+                          })}
+                        </Select>
+                      );
+                    })()}
                   </Box>
                   <Tooltip title="Collapse chat panel">
                     <IconButton
@@ -1982,7 +1989,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       id: task.id || "",
                       status: task.status || "",
                       design_docs_pushed_at: task.design_docs_pushed_at,
-                      pull_request_url: task.pull_request_url,
+                      repo_pull_requests: task.repo_pull_requests,
                       base_branch: task.base_branch,
                       branch_name: task.branch_name,
                       archived: task.archived,
@@ -2360,7 +2367,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   id: task.id || "",
                   status: task.status || "",
                   design_docs_pushed_at: task.design_docs_pushed_at,
-                  pull_request_url: task.pull_request_url,
+                  repo_pull_requests: task.repo_pull_requests,
                   base_branch: task.base_branch,
                   branch_name: task.branch_name,
                   archived: task.archived,
@@ -2538,8 +2545,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   overflow: "hidden",
                 }}
               >
-                {zedThreadsData?.zed_threads &&
-                  zedThreadsData.zed_threads.length > 0 && (
+                {(() => {
+                  const extraThreads = zedThreadsData?.zed_threads?.filter(
+                    t => t.work_session?.helix_session_id && t.work_session.helix_session_id !== task?.planning_session_id
+                  ) || [];
+                  if (extraThreads.length === 0) return null;
+                  return (
                     <Box
                       sx={{
                         px: 1.5,
@@ -2570,7 +2581,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         }}
                       >
                         <MenuItem value="planning">Main thread</MenuItem>
-                        {zedThreadsData.zed_threads.map((thread, index) => {
+                        {extraThreads.map((thread, index) => {
                           const sessionId =
                             thread.work_session?.helix_session_id;
                           if (!sessionId) return null;
@@ -2586,7 +2597,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         })}
                       </Select>
                     </Box>
-                  )}
+                  );
+                })()}
                 <EmbeddedSessionView
                   ref={sessionViewRef}
                   sessionId={activeSessionId}

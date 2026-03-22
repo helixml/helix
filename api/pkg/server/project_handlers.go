@@ -163,17 +163,17 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 	// After an API restart, the monitoring goroutine is dead but DB still says
 	// "building". If the build isn't tracked in memory AND the container isn't
 	// running, reset the status so the UI doesn't get stuck.
-	if project.Metadata.DockerCacheStatus != nil {
+	//
+	// Skip during the first 90s after startup — RecoverStaleBuilds needs up
+	// to 60s to wait for sandbox reconnect and re-attach monitoring goroutines.
+	// Without this grace period, a page load during startup races with recovery
+	// and resets status to "none" before the sandbox can reconnect.
+	if project.Metadata.DockerCacheStatus != nil && time.Since(s.startTime) > 90*time.Second {
 		staleRecovered := false
 		for sbID, sbState := range project.Metadata.DockerCacheStatus.Sandboxes {
 			if sbState.Status != "building" || sbState.BuildSessionID == "" {
 				continue
 			}
-			// Two conditions must BOTH be false for recovery:
-			// 1. Monitoring goroutine alive (in-memory tracking)
-			// 2. Container still running on sandbox
-			// During normal operation, condition 1 is true → no recovery.
-			// After API restart, both are false → recovery triggers.
 			if s.goldenBuildService.IsTracking(project.ID, sbID) {
 				continue
 			}
@@ -2280,6 +2280,45 @@ func (s *HelixAPIServer) deleteDockerCache(_ http.ResponseWriter, r *http.Reques
 	}
 
 	return map[string]string{"message": fmt.Sprintf("cache cleared on %d sandbox(es)", deleted)}, nil
+}
+
+// getDockerCacheZFSTree returns the ZFS snapshot/clone tree for a project's docker cache.
+// Proxies to Hydra on the first online sandbox.
+func (s *HelixAPIServer) getDockerCacheZFSTree(_ http.ResponseWriter, r *http.Request) (interface{}, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	project, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	sandboxes, err := s.Store.ListSandboxes(r.Context())
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list sandboxes: %v", err))
+	}
+
+	for _, sb := range sandboxes {
+		if sb.Status != "online" {
+			continue
+		}
+		hydraClient := hydra.NewRevDialClient(s.connman, fmt.Sprintf("hydra-%s", sb.ID))
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		tree, err := hydraClient.GetZFSTree(ctx, projectID)
+		cancel()
+		if err != nil {
+			continue // try next sandbox
+		}
+		return tree, nil
+	}
+
+	// No sandbox available — return empty tree
+	return &hydra.ZFSTree{Available: false}, nil
 }
 
 // PinnedProjectsResponse is the response body for pin/unpin endpoints

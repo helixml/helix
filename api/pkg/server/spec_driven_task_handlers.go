@@ -12,6 +12,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -121,17 +122,6 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Compute PullRequestURL for tasks with PullRequestID (external repos) - backward compat
-	if task.PullRequestID != "" && task.PullRequestURL == "" {
-		project, err := s.Store.GetProject(ctx, task.ProjectID)
-		if err == nil && project.DefaultRepoID != "" {
-			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
-			if err == nil && repo.ExternalURL != "" {
-				task.PullRequestURL = services.GetPullRequestURL(repo, task.PullRequestID)
-			}
-		}
-	}
-
 	// Compute PR URLs for RepoPullRequests array
 	for i, repoPR := range task.RepoPullRequests {
 		if repoPR.PRURL == "" && repoPR.PRID != "" {
@@ -218,21 +208,8 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		tasks = []*types.SpecTask{}
 	}
 
-	// Compute PullRequestURL for tasks with PullRequestID (external repos) - backward compat
-	// Also compute PR URLs for RepoPullRequests array
+	// Compute PR URLs for RepoPullRequests array
 	if projectID != "" {
-		project, err := s.Store.GetProject(ctx, projectID)
-		if err == nil && project.DefaultRepoID != "" {
-			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
-			if err == nil && repo.ExternalURL != "" {
-				for _, task := range tasks {
-					if task.PullRequestID != "" && task.PullRequestURL == "" {
-						task.PullRequestURL = services.GetPullRequestURL(repo, task.PullRequestID)
-					}
-				}
-			}
-		}
-
 		// Batch load repos for RepoPullRequests URL computation
 		// Collect all unique repo IDs from all tasks
 		repoIDsMap := make(map[string]bool)
@@ -840,7 +817,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 			task.MergedToMain = false
 			task.MergedAt = nil
 			task.MergeCommitHash = ""
-			task.PullRequestID = ""
+			task.RepoPullRequests = nil
 		}
 	}
 	if updateReq.Priority != "" {
@@ -884,6 +861,29 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	// Update public design docs setting (pointer allows explicit false)
 	if updateReq.PublicDesignDocs != nil {
 		task.PublicDesignDocs = *updateReq.PublicDesignDocs
+	}
+	// Update assignee (pointer allows clearing with empty string to unassign)
+	if updateReq.AssigneeID != nil {
+		newAssigneeID := *updateReq.AssigneeID
+		// Only validate if assigning (not when clearing)
+		if newAssigneeID != "" {
+			// Validate that assignee is an organization member
+			_, err := s.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
+				OrganizationID: task.OrganizationID,
+				UserID:         newAssigneeID,
+			})
+			if err != nil {
+				log.Warn().
+					Str("task_id", taskID).
+					Str("assignee_id", newAssigneeID).
+					Str("org_id", task.OrganizationID).
+					Err(err).
+					Msg("Assignee is not an organization member")
+				http.Error(w, "assignee must be an organization member", http.StatusBadRequest)
+				return
+			}
+		}
+		task.AssigneeID = newAssigneeID
 	}
 
 	// If depends_on is provided, pass IDs to store via task.DependsOn and let UpdateSpecTask sync associations.

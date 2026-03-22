@@ -52,6 +52,50 @@ function timeAgo(dateStr: string): string {
   return `${days}d ago`
 }
 
+type EventGroup =
+  | { kind: 'single'; event: AttentionEvent }
+  | { kind: 'grouped'; primary: AttentionEvent; secondary: AttentionEvent }
+
+function groupEvents(events: AttentionEvent[]): EventGroup[] {
+  const WINDOW_MS = 60_000
+  const used = new Set<string>()
+  const groups: EventGroup[] = []
+
+  for (const event of events) {
+    if (used.has(event.id)) continue
+
+    if (event.event_type === 'specs_pushed' || event.event_type === 'agent_interaction_completed') {
+      const partnerType: AttentionEventType = event.event_type === 'specs_pushed'
+        ? 'agent_interaction_completed'
+        : 'specs_pushed'
+
+      const partner = events.find(
+        (e) =>
+          !used.has(e.id) &&
+          e.id !== event.id &&
+          e.spec_task_id === event.spec_task_id &&
+          e.event_type === partnerType &&
+          Math.abs(new Date(e.created_at).getTime() - new Date(event.created_at).getTime()) <= WINDOW_MS,
+      )
+
+      if (partner) {
+        used.add(event.id)
+        used.add(partner.id)
+        // Primary is always specs_pushed (determines navigation behavior)
+        const primary = event.event_type === 'specs_pushed' ? event : partner
+        const secondary = event.event_type === 'specs_pushed' ? partner : event
+        groups.push({ kind: 'grouped', primary, secondary })
+        continue
+      }
+    }
+
+    used.add(event.id)
+    groups.push({ kind: 'single', event })
+  }
+
+  return groups
+}
+
 const BrowserNotificationBanner: React.FC<{
   onEnable: () => void
   onDismiss: () => void
@@ -96,11 +140,12 @@ const BrowserNotificationBanner: React.FC<{
 
 const AttentionEventItem: React.FC<{
   event: AttentionEvent
+  groupedWith?: AttentionEvent
   onNavigate: (event: AttentionEvent) => void
   onDismiss: (eventId: string) => void
-}> = ({ event, onNavigate, onDismiss }) => {
+}> = ({ event, groupedWith, onNavigate, onDismiss }) => {
   const accentColor = eventAccentColor(event.event_type)
-  const isAcknowledged = !!event.acknowledged_at
+  const isAcknowledged = !!event.acknowledged_at && (!groupedWith || !!groupedWith.acknowledged_at)
 
   return (
     <Box
@@ -121,7 +166,7 @@ const AttentionEventItem: React.FC<{
       }}
     >
       <Box sx={{ fontSize: '0.9rem', flexShrink: 0 }}>
-        {eventEmoji(event.event_type)}
+        {groupedWith ? '📋' : eventEmoji(event.event_type)}
       </Box>
       <Box sx={{ minWidth: 0, flex: 1 }}>
         <Typography
@@ -136,7 +181,7 @@ const AttentionEventItem: React.FC<{
             lineHeight: 1.4,
           }}
         >
-          {event.title}
+          {groupedWith ? 'Spec ready & agent finished' : event.title}
         </Typography>
         <Typography
           variant="caption"
@@ -240,13 +285,8 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   const handleDrawerOpen = useCallback(() => {
     setDrawerOpen(true)
     onOpenChange?.(true)
-    // Acknowledge all visible events when drawer opens
-    for (const event of events) {
-      if (!event.acknowledged_at) {
-        acknowledge(event.id)
-      }
-    }
-  }, [events, acknowledge, onOpenChange])
+    // No auto-acknowledgment — user must explicitly click a notification to mark it as read
+  }, [onOpenChange])
 
   const handleDrawerClose = useCallback(() => {
     setDrawerOpen(false)
@@ -254,6 +294,9 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   }, [onOpenChange])
 
   const handleNavigate = useCallback(async (event: AttentionEvent) => {
+    // Mark as read on explicit click
+    acknowledge(event.id)
+
     // Don't close the panel — user wants to keep it open while working
     if (event.event_type === 'specs_pushed') {
       // Navigate to the spec review page — need to fetch the review ID first
@@ -277,13 +320,11 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
       id: event.project_id,
       taskId: event.spec_task_id,
     })
-  }, [account, api])
+  }, [acknowledge, account, api])
 
   const handleDismiss = useCallback((eventId: string) => {
     dismiss(eventId)
   }, [dismiss])
-
-
 
   const handleDismissAll = useCallback(() => {
     dismissAll()
@@ -296,6 +337,8 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   const handleDismissNotificationBanner = useCallback(() => {
     setOptOut(true)
   }, [setOptOut])
+
+  const groups = groupEvents(events)
 
   return (
     <>
@@ -379,8 +422,8 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                 sx={{
                   fontSize: '0.6rem',
                   fontWeight: 600,
-                  color: 'rgba(255,255,255,0.5)',
-                  backgroundColor: 'rgba(255,255,255,0.06)',
+                  color: hasNew ? '#fff' : 'rgba(255,255,255,0.5)',
+                  backgroundColor: hasNew ? '#ef4444' : 'rgba(255,255,255,0.06)',
                   borderRadius: '4px',
                   px: 0.5,
                   py: 0.125,
@@ -444,7 +487,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
           />
         )}
 
-        {/* Event list — flat, sorted by date (newest first, from the API) */}
+        {/* Event list — grouped where applicable, sorted newest-first */}
         <Box sx={{ overflowY: 'auto', flex: 1 }}>
           {totalCount === 0 ? (
             <Box sx={{ py: 6, textAlign: 'center' }}>
@@ -463,14 +506,33 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
             </Box>
           ) : (
             <Box sx={{ py: 0.5 }}>
-              {events.map((event) => (
-                <AttentionEventItem
-                  key={event.id}
-                  event={event}
-                  onNavigate={handleNavigate}
-                  onDismiss={handleDismiss}
-                />
-              ))}
+              {groups.map((group) => {
+                if (group.kind === 'grouped') {
+                  return (
+                    <AttentionEventItem
+                      key={group.primary.id}
+                      event={group.primary}
+                      groupedWith={group.secondary}
+                      onNavigate={(ev) => {
+                        acknowledge(group.secondary.id)
+                        handleNavigate(ev)
+                      }}
+                      onDismiss={(id) => {
+                        dismiss(group.secondary.id)
+                        handleDismiss(id)
+                      }}
+                    />
+                  )
+                }
+                return (
+                  <AttentionEventItem
+                    key={group.event.id}
+                    event={group.event}
+                    onNavigate={handleNavigate}
+                    onDismiss={handleDismiss}
+                  />
+                )
+              })}
             </Box>
           )}
         </Box>

@@ -652,8 +652,13 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 			return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
 		}
 
-		// Store the zed_context_id on the session metadata
+		// Store the zed_context_id and agent name on the session metadata.
+		// The agent name is persisted so we use the correct agent for this thread
+		// even if the project's default agent changes later.
 		helixSession.Metadata.ZedThreadID = contextID
+		if helixSession.Metadata.ZedAgentName == "" {
+			helixSession.Metadata.ZedAgentName = apiServer.getAgentNameForSession(context.Background(), helixSession)
+		}
 		helixSession.Updated = time.Now()
 
 		// Update the session in the database
@@ -680,8 +685,29 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		return nil
 	}
 
-	// If no helixSessionID provided, this is a NEW context created by user inside Zed
-	// Only in this case should we create a new Helix session
+	// PRIORITY 3: Check if a session already exists with this ZedThreadID.
+	// This prevents creating duplicate sessions when the same thread is reported again
+	// (e.g., after Zed reconnects and re-reports an existing thread).
+	existingSession, err := apiServer.findSessionByZedThreadID(context.Background(), contextID)
+	if err == nil && existingSession != nil {
+		log.Info().
+			Str("agent_session_id", sessionID).
+			Str("existing_session_id", existingSession.ID).
+			Str("zed_thread_id", contextID).
+			Msg("✅ [HELIX] Found existing session by ZedThreadID, reusing instead of creating duplicate")
+
+		apiServer.contextMappingsMutex.Lock()
+		apiServer.contextMappings[contextID] = existingSession.ID
+		apiServer.contextMappingsMutex.Unlock()
+
+		if existingSession.Metadata.SpecTaskID != "" {
+			go apiServer.trackSpecTaskZedThread(context.Background(), existingSession, acpThreadID, title)
+		}
+
+		return nil
+	}
+
+	// If no helixSessionID provided and no existing session found, this is a genuinely NEW context
 	log.Info().
 		Str("agent_session_id", sessionID).
 		Str("context_id", contextID).
@@ -795,6 +821,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 			// Set the SpecTaskID on the new session too
 			createdSession.Metadata.SpecTaskID = originalSession.Metadata.SpecTaskID
 			createdSession.Metadata.ZedThreadID = contextID
+			createdSession.Metadata.ZedAgentName = apiServer.getAgentNameForSession(context.Background(), originalSession)
 			_, _ = apiServer.Controller.Options.Store.UpdateSession(context.Background(), *createdSession)
 
 			go apiServer.trackSpecTaskZedThread(context.Background(), createdSession, acpThreadID, title)
@@ -816,6 +843,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 			if err == nil && originalSession != nil && originalSession.Metadata.SpecTaskID != "" {
 				createdSession.Metadata.SpecTaskID = originalSession.Metadata.SpecTaskID
 				createdSession.Metadata.ZedThreadID = contextID
+				createdSession.Metadata.ZedAgentName = apiServer.getAgentNameForSession(context.Background(), originalSession)
 				_, _ = apiServer.Controller.Options.Store.UpdateSession(context.Background(), *createdSession)
 
 				go apiServer.trackSpecTaskZedThread(context.Background(), createdSession, acpThreadID, title)
@@ -2238,12 +2266,8 @@ func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, session
 		Bool("is_retry", isRetry).
 		Msg("📤 [QUEUE] Processing next non-interrupt prompt from queue")
 
-	// Mark as pending before sending (in case it was 'failed', this prevents race conditions)
-	if err := apiServer.Store.MarkPromptAsPending(ctx, nextPrompt.ID); err != nil {
-		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as pending before send")
-	}
-
-	// Send the prompt to the session
+	// The prompt was atomically claimed by GetNextPendingPrompt (status set to 'sending').
+	// Send it to the session.
 	err = apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt)
 	if err != nil {
 		log.Error().
@@ -2635,13 +2659,25 @@ func (apiServer *HelixAPIServer) handleAgentReady(sessionID string, syncMsg *typ
 	if threadID == "" && connExists {
 		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), sessionID)
 		if err == nil && helixSession != nil && helixSession.Metadata.ZedThreadID != "" {
+			// Use the latest thread for this spectask (not necessarily the one stored
+			// on this session). When the user creates new threads in Zed, the latest
+			// thread is the one they're working in — reopening the original thread
+			// would jump them back to stale context.
+			targetThreadID := helixSession.Metadata.ZedThreadID
+			if helixSession.Metadata.SpecTaskID != "" {
+				latestThreadID := apiServer.findLatestZedThreadForSpecTask(context.Background(), helixSession.Metadata.SpecTaskID)
+				if latestThreadID != "" {
+					targetThreadID = latestThreadID
+				}
+			}
+
 			agentNameForOpen := apiServer.getAgentNameForSession(context.Background(), helixSession)
 			log.Info().
 				Str("session_id", sessionID).
-				Str("zed_thread_id", helixSession.Metadata.ZedThreadID).
+				Str("zed_thread_id", targetThreadID).
 				Str("agent_name", agentNameForOpen).
 				Msg("🔄 [READINESS] Sending open_thread to re-establish Zed subscription after reconnect")
-			if err := apiServer.sendOpenThreadCommand(sessionID, helixSession.Metadata.ZedThreadID, agentNameForOpen); err != nil {
+			if err := apiServer.sendOpenThreadCommand(sessionID, targetThreadID, agentNameForOpen); err != nil {
 				log.Warn().
 					Str("session_id", sessionID).
 					Err(err).
@@ -2655,6 +2691,31 @@ func (apiServer *HelixAPIServer) handleAgentReady(sessionID string, syncMsg *typ
 	go apiServer.processAnyPendingPrompt(context.Background(), sessionID)
 
 	return nil
+}
+
+// findLatestZedThreadForSpecTask returns the most recently active Zed thread ID
+// for a spectask. Used on reconnect to open the user's current thread rather than
+// the original one.
+func (apiServer *HelixAPIServer) findLatestZedThreadForSpecTask(ctx context.Context, specTaskID string) string {
+	workSessions, err := apiServer.Controller.Options.Store.ListSpecTaskWorkSessions(ctx, specTaskID)
+	if err != nil || len(workSessions) == 0 {
+		return ""
+	}
+
+	// Find the work session with the most recent activity
+	var latestThread string
+	var latestTime time.Time
+	for _, ws := range workSessions {
+		session, err := apiServer.Controller.Options.Store.GetSession(ctx, ws.HelixSessionID)
+		if err != nil || session == nil {
+			continue
+		}
+		if session.Metadata.ZedThreadID != "" && session.Updated.After(latestTime) {
+			latestTime = session.Updated
+			latestThread = session.Metadata.ZedThreadID
+		}
+	}
+	return latestThread
 }
 
 // findSessionByZedThreadID finds a session by its ZedThreadID metadata
@@ -3045,8 +3106,9 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 		return fmt.Errorf("failed to load existing session: %w", err)
 	}
 
-	// Create new Helix session for this user-created thread
-	// CRITICAL: Copy config from existing session so it has same parent_app, agent_type, etc.
+	// Create new Helix session for this user-created thread.
+	// Copy ALL metadata from existing session so the new session is properly
+	// associated with the spectask, project, and agent runtime.
 	session := &types.Session{
 		ID:             system.GenerateSessionID(),
 		Created:        time.Now(),
@@ -3054,14 +3116,17 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 		Mode:           types.SessionModeInference,
 		Type:           existingSession.Type,
 		ModelName:      existingSession.ModelName,
-		ParentApp:      existingSession.ParentApp, // Copy parent_app for screenshot view
+		ParentApp:      existingSession.ParentApp,
 		OrganizationID: existingSession.OrganizationID,
+		ProjectID:      existingSession.ProjectID,
 		Owner:          existingSession.Owner,
 		OwnerType:      existingSession.OwnerType,
 		Metadata: types.SessionMetadata{
 			ZedThreadID:         acpThreadID,
 			AgentType:           existingSession.Metadata.AgentType,
 			ExternalAgentConfig: existingSession.Metadata.ExternalAgentConfig,
+			SpecTaskID:          existingSession.Metadata.SpecTaskID,
+			CodeAgentRuntime:    existingSession.Metadata.CodeAgentRuntime,
 		},
 		Name: title,
 	}
@@ -3072,6 +3137,42 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 
+	// Create SpecTaskWorkSession + SpecTaskZedThread if this is a spectask session.
+	// This wires the new thread into the multi-session model so it appears in
+	// the session dropdown and gets proper lifecycle management.
+	specTaskID := existingSession.Metadata.SpecTaskID
+	if specTaskID != "" {
+		// Determine phase from existing work session
+		phase := types.SpecTaskPhaseImplementation
+		existingWorkSession, wsErr := apiServer.Controller.Options.Store.GetSpecTaskWorkSessionByHelixSession(ctx, agentSessionID)
+		if wsErr == nil && existingWorkSession != nil {
+			phase = existingWorkSession.Phase
+		}
+
+		workSession := &types.SpecTaskWorkSession{
+			SpecTaskID:     specTaskID,
+			HelixSessionID: session.ID,
+			Name:           title,
+			Phase:          phase,
+			Status:         types.SpecTaskWorkSessionStatusActive,
+		}
+		if wsErr := apiServer.Controller.Options.Store.CreateSpecTaskWorkSession(ctx, workSession); wsErr != nil {
+			log.Warn().Err(wsErr).Msg("Failed to create work session for user-created thread (session still created)")
+		} else {
+			now := time.Now()
+			zedThread := &types.SpecTaskZedThread{
+				WorkSessionID:  workSession.ID,
+				SpecTaskID:     specTaskID,
+				ZedThreadID:    acpThreadID,
+				Status:         types.SpecTaskZedStatusActive,
+				LastActivityAt: &now,
+			}
+			if ztErr := apiServer.Controller.Options.Store.CreateSpecTaskZedThread(ctx, zedThread); ztErr != nil {
+				log.Warn().Err(ztErr).Msg("Failed to create zed thread record (work session still created)")
+			}
+		}
+	}
+
 	// Map Zed thread to Helix session (same as handleThreadCreated)
 	apiServer.contextMappingsMutex.Lock()
 	apiServer.contextMappings[acpThreadID] = session.ID
@@ -3080,8 +3181,9 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 	log.Info().
 		Str("acp_thread_id", acpThreadID).
 		Str("helix_session_id", session.ID).
+		Str("spec_task_id", specTaskID).
 		Str("title", title).
-		Msg("✅ [HELIX] Created new session for user-created Zed thread")
+		Msg("✅ [HELIX] Created new session + work session for user-created Zed thread")
 
 	return nil
 }

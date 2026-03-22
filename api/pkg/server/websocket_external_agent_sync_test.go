@@ -152,6 +152,9 @@ func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_NewSession() {
 	// No request_id mapping, no sessionID → creates new session
 	s.server.externalAgentUserMapping["agent-1"] = "user-1"
 
+	// findSessionByZedThreadID check: no existing session with this ZedThreadID
+	s.store.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return([]*types.Session{}, int64(0), nil)
+
 	createdSession := &types.Session{
 		ID:    "ses_new",
 		Owner: "user-1",
@@ -194,6 +197,9 @@ func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_SpectaskLink() {
 	// sessionID starts with "ses_" and the original has a SpecTaskID
 	s.server.externalAgentUserMapping["ses_original"] = "user-1"
 
+	// findSessionByZedThreadID check: no existing session with this ZedThreadID
+	s.store.EXPECT().ListSessions(gomock.Any(), gomock.Any()).Return([]*types.Session{}, int64(0), nil)
+
 	// First call: no request_id mapping, no syncMsg.SessionID → creates new session
 	createdSession := &types.Session{
 		ID:    "ses_new_spectask",
@@ -221,10 +227,16 @@ func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_SpectaskLink() {
 	}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_original").Return(originalSession, nil)
 
-	// UpdateSession to copy SpecTaskID
+	// getAgentNameForSession looks up the spec task and app to determine agent name.
+	// For this test, return a spec task with no app (so it defaults to "zed-agent").
+	s.store.EXPECT().GetSpecTask(gomock.Any(), "spec-task-123").
+		Return(&types.SpecTask{ID: "spec-task-123"}, nil).AnyTimes()
+
+	// UpdateSession to copy SpecTaskID and ZedAgentName
 	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, session types.Session) (*types.Session, error) {
 			s.Equal("spec-task-123", session.Metadata.SpecTaskID)
+			s.Equal("zed-agent", session.Metadata.ZedAgentName)
 			return &session, nil
 		},
 	)
@@ -991,7 +1003,7 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_HasPending() {
 		Status:    "pending",
 	}
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_pq").Return(prompt, nil)
-	s.store.EXPECT().MarkPromptAsPending(gomock.Any(), "prompt-pq").Return(nil)
+	// MarkPromptAsPending no longer called - prompt is atomically claimed by GetNextPendingPrompt
 
 	// sendQueuedPromptToSession calls
 	session := &types.Session{
@@ -1024,7 +1036,7 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_SendFails_GetSessionFails() 
 		Content:   "fail content",
 	}
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_fail").Return(prompt, nil)
-	s.store.EXPECT().MarkPromptAsPending(gomock.Any(), "prompt-fail").Return(nil)
+	// MarkPromptAsPending no longer called - prompt is atomically claimed by GetNextPendingPrompt
 
 	// sendQueuedPromptToSession fails because second GetSession fails
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_fail").Return(nil, fmt.Errorf("db error"))
@@ -2258,4 +2270,131 @@ func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_ResumesExistingThread(
 	s.server.externalAgentWSManager.readinessMu.Unlock()
 	s.Require().Len(state.PendingQueue, 1)
 	s.Equal(zedThreadID, state.PendingQueue[0].Data["acp_thread_id"])
+}
+
+// --- handleUserCreatedThread tests ---
+
+func (s *WebSocketSyncSuite) TestUserCreatedThread_CreatesWorkSessionForSpectask() {
+	// Setup: existing session with spectask metadata
+	existingSession := &types.Session{
+		ID:             "ses_existing",
+		Owner:          "user-1",
+		OrganizationID: "org-1",
+		ProjectID:      "prj-1",
+		ParentApp:      "app-1",
+		Metadata: types.SessionMetadata{
+			AgentType:        "zed_external",
+			SpecTaskID:       "spt_test",
+			CodeAgentRuntime: "zed_agent",
+			ZedThreadID:      "thread-original",
+		},
+	}
+
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_existing").Return(existingSession, nil)
+
+	// Expect new session to be created with all metadata copied
+	var capturedSession types.Session
+	s.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, session types.Session) (*types.Session, error) {
+			capturedSession = session
+			return &session, nil
+		},
+	)
+
+	// Expect existing work session lookup for phase
+	existingWorkSession := &types.SpecTaskWorkSession{
+		ID:             "stws_existing",
+		SpecTaskID:     "spt_test",
+		HelixSessionID: "ses_existing",
+		Phase:          types.SpecTaskPhaseImplementation,
+		Status:         types.SpecTaskWorkSessionStatusActive,
+	}
+	s.store.EXPECT().GetSpecTaskWorkSessionByHelixSession(gomock.Any(), "ses_existing").
+		Return(existingWorkSession, nil)
+
+	// Expect work session creation
+	var capturedWorkSession *types.SpecTaskWorkSession
+	s.store.EXPECT().CreateSpecTaskWorkSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, ws *types.SpecTaskWorkSession) error {
+			capturedWorkSession = ws
+			return nil
+		},
+	)
+
+	// Expect zed thread creation
+	var capturedZedThread *types.SpecTaskZedThread
+	s.store.EXPECT().CreateSpecTaskZedThread(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, zt *types.SpecTaskZedThread) error {
+			capturedZedThread = zt
+			return nil
+		},
+	)
+
+	syncMsg := &types.SyncMessage{
+		EventType: "user_created_thread",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-new-from-user",
+			"title":         "My New Thread",
+		},
+	}
+
+	err := s.server.handleUserCreatedThread("ses_existing", syncMsg)
+	s.NoError(err)
+
+	// Verify new session has all metadata from parent
+	s.Equal("spt_test", capturedSession.Metadata.SpecTaskID)
+	s.Equal(types.CodeAgentRuntime("zed_agent"), capturedSession.Metadata.CodeAgentRuntime)
+	s.Equal("zed_external", capturedSession.Metadata.AgentType)
+	s.Equal("thread-new-from-user", capturedSession.Metadata.ZedThreadID)
+	s.Equal("prj-1", capturedSession.ProjectID)
+	s.Equal("org-1", capturedSession.OrganizationID)
+	s.Equal("app-1", capturedSession.ParentApp)
+	s.Equal("My New Thread", capturedSession.Name)
+
+	// Verify work session created with correct phase
+	s.Require().NotNil(capturedWorkSession)
+	s.Equal("spt_test", capturedWorkSession.SpecTaskID)
+	s.Equal(types.SpecTaskPhaseImplementation, capturedWorkSession.Phase)
+	s.Equal(types.SpecTaskWorkSessionStatusActive, capturedWorkSession.Status)
+
+	// Verify zed thread created
+	s.Require().NotNil(capturedZedThread)
+	s.Equal("spt_test", capturedZedThread.SpecTaskID)
+	s.Equal("thread-new-from-user", capturedZedThread.ZedThreadID)
+	s.Equal(types.SpecTaskZedStatusActive, capturedZedThread.Status)
+
+	// Verify context mapping updated
+	s.server.contextMappingsMutex.RLock()
+	mappedSession := s.server.contextMappings["thread-new-from-user"]
+	s.server.contextMappingsMutex.RUnlock()
+	s.Equal(capturedSession.ID, mappedSession)
+}
+
+func (s *WebSocketSyncSuite) TestUserCreatedThread_NonSpectaskSkipsWorkSession() {
+	// Session without SpecTaskID — should create session but skip work session
+	existingSession := &types.Session{
+		ID:             "ses_exploratory",
+		Owner:          "user-1",
+		OrganizationID: "org-1",
+		Metadata: types.SessionMetadata{
+			AgentType: "zed_external",
+			// No SpecTaskID
+		},
+	}
+
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_exploratory").Return(existingSession, nil)
+	s.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(&types.Session{ID: "ses_new_exploratory"}, nil)
+
+	// No CreateSpecTaskWorkSession or CreateSpecTaskZedThread expected
+
+	syncMsg := &types.SyncMessage{
+		EventType: "user_created_thread",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-exploratory",
+			"title":         "Exploratory Chat",
+		},
+	}
+
+	err := s.server.handleUserCreatedThread("ses_exploratory", syncMsg)
+	s.NoError(err)
 }

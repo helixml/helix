@@ -120,21 +120,27 @@ func (s *PostgresStore) GetPromptHistoryEntry(ctx context.Context, id string) (*
 func (s *PostgresStore) GetNextPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
 	var entry types.PromptHistoryEntry
 
-	// Find the oldest pending or ready-to-retry prompt for this session with interrupt=false
-	// Order by queue_position (if set) then by created_at
-	// Failed prompts only included if next_retry_at has passed (or is NULL for legacy entries)
+	// Atomically claim the next pending prompt by setting status='sending' in a single query.
+	// This prevents race conditions where two concurrent callers both read the same prompt.
 	now := time.Now()
-	result := s.gdb.WithContext(ctx).
-		Where("session_id = ? AND interrupt = ?", sessionID, false).
-		Where("(status = ? OR (status = ? AND (next_retry_at IS NULL OR next_retry_at <= ?)))", "pending", "failed", now).
-		Order("COALESCE(queue_position, 999999) ASC, created_at ASC").
-		First(&entry)
+	result := s.gdb.WithContext(ctx).Raw(`
+		UPDATE prompt_history_entries SET status = 'sending', updated_at = NOW()
+		WHERE id = (
+			SELECT id FROM prompt_history_entries
+			WHERE session_id = ? AND interrupt = false
+			AND (status = 'pending' OR (status = 'failed' AND (next_retry_at IS NULL OR next_retry_at <= ?)))
+			ORDER BY COALESCE(queue_position, 999999) ASC, created_at ASC
+			LIMIT 1
+			FOR UPDATE SKIP LOCKED
+		)
+		RETURNING *
+	`, sessionID, now).Scan(&entry)
 
 	if result.Error != nil {
-		if result.Error.Error() == "record not found" {
-			return nil, nil // No pending prompts
-		}
 		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, nil // No pending prompts
 	}
 
 	return &entry, nil
@@ -146,21 +152,26 @@ func (s *PostgresStore) GetNextPendingPrompt(ctx context.Context, sessionID stri
 func (s *PostgresStore) GetAnyPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
 	var entry types.PromptHistoryEntry
 
-	// Find the oldest pending or ready-to-retry prompt for this session
-	// Order: interrupt first (DESC so true=1 comes before false=0), then queue_position, then created_at
-	// Failed prompts only included if next_retry_at has passed (or is NULL for legacy entries)
+	// Atomically claim the next prompt (same pattern as GetNextPendingPrompt)
 	now := time.Now()
-	result := s.gdb.WithContext(ctx).
-		Where("session_id = ?", sessionID).
-		Where("(status = ? OR (status = ? AND (next_retry_at IS NULL OR next_retry_at <= ?)))", "pending", "failed", now).
-		Order("interrupt DESC, COALESCE(queue_position, 999999) ASC, created_at ASC").
-		First(&entry)
+	result := s.gdb.WithContext(ctx).Raw(`
+		UPDATE prompt_history_entries SET status = 'sending', updated_at = NOW()
+		WHERE id = (
+			SELECT id FROM prompt_history_entries
+			WHERE session_id = ?
+			AND (status = 'pending' OR (status = 'failed' AND (next_retry_at IS NULL OR next_retry_at <= ?)))
+			ORDER BY interrupt DESC, COALESCE(queue_position, 999999) ASC, created_at ASC
+			LIMIT 1
+			FOR UPDATE SKIP LOCKED
+		)
+		RETURNING *
+	`, sessionID, now).Scan(&entry)
 
 	if result.Error != nil {
-		if result.Error.Error() == "record not found" {
-			return nil, nil // No pending prompts
-		}
 		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, nil
 	}
 
 	return &entry, nil
@@ -172,21 +183,26 @@ func (s *PostgresStore) GetAnyPendingPrompt(ctx context.Context, sessionID strin
 func (s *PostgresStore) GetNextInterruptPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
 	var entry types.PromptHistoryEntry
 
-	// Find the oldest pending or ready-to-retry interrupt prompt for this session
-	// Only get interrupt=true prompts - queue prompts wait for message_completed
-	// Failed prompts only included if next_retry_at has passed (or is NULL for legacy entries)
+	// Atomically claim the next interrupt prompt (same pattern as GetNextPendingPrompt)
 	now := time.Now()
-	result := s.gdb.WithContext(ctx).
-		Where("session_id = ? AND interrupt = ?", sessionID, true).
-		Where("(status = ? OR (status = ? AND (next_retry_at IS NULL OR next_retry_at <= ?)))", "pending", "failed", now).
-		Order("COALESCE(queue_position, 999999) ASC, created_at ASC").
-		First(&entry)
+	result := s.gdb.WithContext(ctx).Raw(`
+		UPDATE prompt_history_entries SET status = 'sending', updated_at = NOW()
+		WHERE id = (
+			SELECT id FROM prompt_history_entries
+			WHERE session_id = ? AND interrupt = true
+			AND (status = 'pending' OR (status = 'failed' AND (next_retry_at IS NULL OR next_retry_at <= ?)))
+			ORDER BY COALESCE(queue_position, 999999) ASC, created_at ASC
+			LIMIT 1
+			FOR UPDATE SKIP LOCKED
+		)
+		RETURNING *
+	`, sessionID, now).Scan(&entry)
 
 	if result.Error != nil {
-		if result.Error.Error() == "record not found" {
-			return nil, nil // No pending interrupt prompts
-		}
 		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, nil
 	}
 
 	return &entry, nil

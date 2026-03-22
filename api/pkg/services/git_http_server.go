@@ -1143,14 +1143,14 @@ func buildPRFooter(repo *types.GitRepository, task *types.SpecTask, orgName, hel
 	}
 
 	if specDocsURL != "" {
-		parts = append(parts, fmt.Sprintf("📋 [Requirements](%s/requirements.md) | [Design](%s/design.md) | [Tasks](%s/tasks.md)",
+		parts = append(parts, fmt.Sprintf("📋 Spec:\n- [Requirements](%s/requirements.md)\n- [Design](%s/design.md)\n- [Tasks](%s/tasks.md)",
 			specDocsURL, specDocsURL, specDocsURL))
 	}
 
 	// Helix branding - always include
 	parts = append(parts, "🚀 Built with [Helix](https://helix.ml)")
 
-	return "---\n" + strings.Join(parts, " | ")
+	return "---\n" + strings.Join(parts, "\n\n")
 }
 
 // ensurePullRequest creates a PR if one doesn't exist
@@ -1173,38 +1173,13 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 		return fmt.Errorf("failed to list PRs: %w", err)
 	}
 
-	// Check if this is the project's default repo. We only store PullRequestID for the
-	// default repo to prevent false merge detection. When PRs are created on secondary
-	// repos, storing their PR number would cause the orchestrator to check the wrong repo
-	// (it always uses project.DefaultRepoID), potentially matching an old merged PR.
-	isDefaultRepo := false
 	project, err := s.store.GetProject(ctx, task.ProjectID)
-	if err == nil && project != nil {
-		isDefaultRepo = (repo.ID == project.DefaultRepoID)
+	if err != nil {
+		project = nil
 	}
 
-	sourceBranchRef := "refs/heads/" + branch
-	for _, pr := range prs {
-		if pr.SourceBranch == sourceBranchRef && pr.State == types.PullRequestStateOpen {
-			// Only update task.PullRequestID for the default repo
-			if isDefaultRepo && task.PullRequestID != pr.ID {
-				task.PullRequestID = pr.ID
-				task.UpdatedAt = time.Now()
-			}
-			// Update RepoPullRequests array for all repos
-			s.updateRepoPullRequests(task, repo, pr.ID, pr.Number, pr.URL, string(pr.State))
-			s.store.UpdateSpecTask(ctx, task)
-			log.Info().
-				Str("pr_id", pr.ID).
-				Str("repo_id", repo.ID).
-				Bool("is_default_repo", isDefaultRepo).
-				Msg("Found existing pull request")
-			return nil
-		}
-	}
-
-	// Try to get custom PR content from pull_request_<repo-name>.md or pull_request.md
-	// Always read from the primary repo path — helix-specs branch only exists there
+	// Read PR content from helix-specs (pull_request_<repo-name>.md or pull_request.md)
+	// Do this before checking for existing PRs so we can update their content if needed
 	primaryRepoPath := repo.LocalPath
 	if project != nil && project.DefaultRepoID != "" && project.DefaultRepoID != repo.ID {
 		if primaryRepo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID); err == nil {
@@ -1213,7 +1188,6 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 	}
 	title, description, found := s.getPullRequestContent(primaryRepoPath, task, repo.Name)
 	if !found {
-		// Fallback to existing behavior
 		title = task.Name
 		description = task.Description
 		log.Debug().Str("task_id", task.ID).Msg("No pull_request.md found, using task name/description")
@@ -1221,27 +1195,64 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 		log.Info().Str("task_id", task.ID).Msg("Using pull_request.md for PR content")
 	}
 
-	// Get org name for "Open in Helix" link
 	orgName := ""
 	if task.OrganizationID != "" {
 		if org, err := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: task.OrganizationID}); err == nil && org != nil {
 			orgName = org.Name
 		}
 	}
-
-	// Append footer with "Open in Helix" link, spec doc links, and branding
 	footer := buildPRFooter(repo, task, orgName, s.serverBaseURL)
 	description = description + "\n\n" + footer
 
-	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch)
-	if err != nil {
-		return fmt.Errorf("failed to create PR: %w", err)
+	// Check for existing PR on this branch
+	sourceBranchRef := "refs/heads/" + branch
+	for _, pr := range prs {
+		branchMatches := pr.SourceBranch == sourceBranchRef || pr.SourceBranch == branch
+		if branchMatches && pr.State == types.PullRequestStateOpen {
+			// Update the PR title/description in case helix-specs changed
+			if pr.Number > 0 {
+				if updateErr := s.gitRepoService.UpdatePullRequest(ctx, repo.ID, pr.Number, title, description); updateErr != nil {
+					log.Warn().Err(updateErr).Str("pr_id", pr.ID).Msg("Failed to update existing PR content")
+				}
+			}
+			s.updateRepoPullRequests(task, repo, pr.ID, pr.Number, pr.URL, string(pr.State))
+			task.UpdatedAt = time.Now()
+			s.store.UpdateSpecTask(ctx, task)
+			log.Info().
+				Str("pr_id", pr.ID).
+				Str("repo_id", repo.ID).
+				Msg("Found and updated existing pull request")
+			return nil
+		}
 	}
 
-	// Only update task.PullRequestID for the default repo
-	if isDefaultRepo {
-		task.PullRequestID = prID
+	// No existing PR — create one
+	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch)
+	if err != nil {
+		// If PR already exists (422), try to find it and use it
+		if strings.Contains(err.Error(), "already exists") {
+			log.Info().Str("branch", branch).Str("repo_id", repo.ID).Msg("PR already exists on remote, looking it up")
+			// Re-fetch PRs to find the existing one
+			freshPRs, listErr := s.gitRepoService.ListPullRequests(ctx, repo.ID)
+			if listErr == nil {
+				for _, pr := range freshPRs {
+					branchMatches := pr.SourceBranch == sourceBranchRef || pr.SourceBranch == branch
+					if branchMatches && pr.State == types.PullRequestStateOpen {
+						prID = pr.ID
+						log.Info().Str("pr_id", prID).Str("repo_id", repo.ID).Msg("Found existing PR after 422")
+						err = nil
+						break
+					}
+				}
+			}
+			if err != nil {
+				return fmt.Errorf("failed to create PR and couldn't find existing: %w", err)
+			}
+		} else {
+			return fmt.Errorf("failed to create PR: %w", err)
+		}
 	}
+
 	// Update RepoPullRequests array for all repos
 	s.updateRepoPullRequests(task, repo, prID, 0, "", "open")
 	task.UpdatedAt = time.Now()
@@ -1249,7 +1260,6 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 	log.Info().
 		Str("pr_id", prID).
 		Str("repo_id", repo.ID).
-		Bool("is_default_repo", isDefaultRepo).
 		Str("branch", branch).
 		Msg("Created pull request")
 	return nil
