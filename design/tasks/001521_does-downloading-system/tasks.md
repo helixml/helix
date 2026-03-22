@@ -37,6 +37,8 @@
 
 ## Testing
 
+WARNING: macOS-only project — cannot build or run on Linux. These require manual testing on a macOS machine.
+
 - [ ] Build the mac-app (`cd for-mac && wails build`) and verify it compiles
 - [ ] Test initial VM download still works at full speed (~110 MB/s)
 - [ ] Test "Downloading system update (1/2)..." now uses parallel connections (check log output for "N parallel connections")
@@ -44,3 +46,14 @@
 - [ ] Test combined update progress bar (0-90% for VM, 90-100% for DMG) still reports correctly
 - [ ] Test cancelling a system update mid-download
 - [ ] Test resume: kill the app during system update download, relaunch, confirm it resumes from chunks
+
+## Verified without build
+
+- [x] No remaining references to deleted `Updater.downloadFile` (grep confirmed)
+- [x] No diagnostic errors in `download.go` or `updater.go` (IDE analysis clean)
+- [x] All imports still used after deletion (checked `io`, `time`, etc.)
+- [x] `RedownloadVMImage` calls `DownloadVMUpdate` which now uses parallel downloader — no changes needed
+- [x] `ApplyAppUpdate` callers in `app.go` updated to pass `downloader` argument
+- [x] `updateEmitter.defaultPhase` set correctly: `"downloading_vm"` for VM, `"downloading_app"` for DMG
+- [x] SHA256 verification correctly skipped for `DownloadURL` (empty SHA256 in synthetic `VMManifestFile`)
+- [x] Frontend only listens to `update:combined-progress` / `update:vm-progress` — no breakage from phase field changes

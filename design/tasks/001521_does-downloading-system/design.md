@@ -94,3 +94,41 @@ Option 2 is cleaner — extract the core parallel download logic into a function
 - **Staged path difference**: `DownloadVMUpdate` writes to `finalName + ".staged"`, while `downloadFileParallel` writes to `f.Name`. The staging path logic needs to be preserved — either by adjusting the `vmDir` or the file name passed in.
 - **Concurrency on `VMDownloader`**: If an initial download and an update download could theoretically race, the `d.running` mutex guard already prevents this.
 - **DMG SHA256**: The current DMG download path doesn't verify a hash. The parallel downloader does SHA256 verification by default. Either skip verification when no hash is provided, or add DMG hashes to the update manifest (better long-term).
+
+## Implementation Notes
+
+### Approach taken: URL passed directly instead of manifest construction
+
+The design originally proposed two options for manifest handling. During implementation, a third cleaner option emerged: refactor `downloadFileParallel` and `downloadFileSingle` to accept the download URL and destination path as explicit parameters instead of constructing them from `d.manifest.BaseURL`/`d.manifest.Version`. This eliminated the need for synthetic manifests or manifest swapping in `DownloadURL`. The URL construction (`fmt.Sprintf("%s/%s/%s", baseURL, version, name)`) was moved to the two callers (`DownloadAll` and `DownloadVMUpdate`).
+
+### Parameter naming: `ctx` vs `emitter`
+
+The original `downloadFileParallel` used `ctx` for the `EventsEmit` interface parameter — confusing since Go convention reserves `ctx` for `context.Context`. The refactor renamed the emitter parameters to `emitter` throughout and added `ctx context.Context` as a proper first parameter.
+
+### `DownloadURL` is very simple
+
+`DownloadURL` builds a synthetic `VMManifestFile{Name: basename, Size: 0, SHA256: ""}` and passes the URL straight to `downloadFileParallel`. Size is populated from the HEAD response inside `downloadFileParallel`. SHA256 is empty so verification is skipped.
+
+### `updateEmitter.defaultPhase` added
+
+The existing `updateEmitter` hardcoded `phase = "downloading_vm"`. Since we now use it for DMG downloads too, a `defaultPhase` field was added so DMG downloads correctly report `"downloading_app"`.
+
+### `ApplyAppUpdate` signature change
+
+`ApplyAppUpdate` gained a `downloader *VMDownloader` parameter since it now calls `downloader.DownloadURL` instead of the deleted `u.downloadFile`. Both callers in `app.go` (`ApplyAppUpdate()` and `ApplyCombinedUpdate()`) were updated to pass `a.downloader`.
+
+### `decompressZstd` also refactored
+
+`decompressZstd` used `d.cancel` for cancellation checks. It was also refactored to accept `ctx context.Context` and use `ctx.Done()`, keeping the cancellation chain consistent.
+
+### Frontend is unaffected
+
+The frontend only listens to `update:combined-progress`, `update:vm-progress`, `update:vm-ready`, and `update:combined-ready` events. It does NOT listen to `update:app-progress`. The `Phase` field inside `UpdateProgress` is not used by the frontend for routing — event names handle that. So phase field changes are safe.
+
+### Cannot build on Linux
+
+This is a macOS-only Wails app with darwin-specific dependencies (`systray`, `hdiutil`, Cocoa notifications). The code compiles only on macOS. IDE diagnostics confirmed no errors in `download.go` and `updater.go`. The pre-existing `app.go` errors (`initNotifications`, `sendNotification`) are from build-tagged macOS files.
+
+### Net code delta
+
+The change is net -55 lines (151 added, 206 removed). The deleted `Updater.downloadFile` was ~95 lines of single-connection download logic.
