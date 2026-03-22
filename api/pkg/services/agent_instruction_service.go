@@ -585,7 +585,7 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	// NOTE: We do NOT call sendMessage here - that would create a duplicate interaction
 	// and overwrite the sessionToWaitingInteraction mapping, causing responses to go
 	// to the wrong (empty) interaction.
-	_, err := s.messageSender(ctx, task, message, userID)
+	_, _, err := s.messageSender(ctx, task, message, userID)
 	if err != nil {
 		return fmt.Errorf("failed to send approval instruction to agent: %w", err)
 	}

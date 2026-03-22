@@ -29,8 +29,9 @@ type TriggerManager interface {
 // AuthorizationToRepositoryFunc is the function signature for authorization checks
 type AuthorizationToRepositoryFunc func(ctx context.Context, user *types.User, repository *types.GitRepository, action types.Action) error
 
-// SpecTaskMessageSender is a function type for sending messages to spec task agents
-type SpecTaskMessageSender func(ctx context.Context, task *types.SpecTask, message string, docPath string) (string, error)
+// SpecTaskMessageSender is a function type for sending messages to spec task agents.
+// Returns (requestID, interactionID, error).
+type SpecTaskMessageSender func(ctx context.Context, task *types.SpecTask, message string, docPath string) (string, string, error)
 
 // BranchRestriction holds the result of checking branch permissions for an API key
 type BranchRestriction struct {
