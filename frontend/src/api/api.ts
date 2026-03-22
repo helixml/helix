@@ -43,6 +43,7 @@ export enum TypesTokenType {
   TokenTypeOIDC = "oidc",
   TokenTypeAPIKey = "api_key",
   TokenTypeSocket = "socket",
+  /** BFF session for regular (email/password) auth */
   TokenTypeSession = "session",
 }
 
@@ -69,19 +70,33 @@ export enum TypesSpecTaskWorkSessionStatus {
 }
 
 export enum TypesSpecTaskStatus {
+  /** Initial state, waiting for spec generation */
   TaskStatusBacklog = "backlog",
+  /** Transitional state, waiting for the orchestrator to pick it up */
   TaskStatusQueuedImplementation = "queued_implementation",
+  /** Transitional state, waiting for the orchestrator to pick it up */
   TaskStatusQueuedSpecGeneration = "queued_spec_generation",
+  /** Helix agent generating specs */
   TaskStatusSpecGeneration = "spec_generation",
+  /** Human reviewing generated specs */
   TaskStatusSpecReview = "spec_review",
+  /** Human requested spec changes */
   TaskStatusSpecRevision = "spec_revision",
+  /** Specs approved, ready for implementation */
   TaskStatusSpecApproved = "spec_approved",
+  /** Waiting for Zed agent pickup */
   TaskStatusImplementationQueued = "implementation_queued",
+  /** Zed agent coding */
   TaskStatusImplementation = "implementation",
+  /** Code review (PR created) */
   TaskStatusImplementationReview = "implementation_review",
+  /** External repo: PR opened, awaiting merge */
   TaskStatusPullRequest = "pull_request",
+  /** Task completed */
   TaskStatusDone = "done",
+  /** Spec generation failed */
   TaskStatusSpecFailed = "spec_failed",
+  /** Implementation failed */
   TaskStatusImplementationFailed = "implementation_failed",
 }
 
@@ -99,18 +114,28 @@ export enum TypesSpecTaskPhase {
 }
 
 export enum TypesSpecTaskDesignReviewStatus {
+  /** Waiting for reviewer */
   SpecTaskDesignReviewStatusPending = "pending",
+  /** Reviewer is actively reviewing */
   SpecTaskDesignReviewStatusInReview = "in_review",
+  /** Reviewer requested changes */
   SpecTaskDesignReviewStatusChangesRequested = "changes_requested",
+  /** Approved, ready for implementation */
   SpecTaskDesignReviewStatusApproved = "approved",
+  /** Newer review exists (agent pushed updates) */
   SpecTaskDesignReviewStatusSuperseded = "superseded",
 }
 
 export enum TypesSpecTaskDesignReviewCommentType {
+  /** General comment */
   SpecTaskDesignReviewCommentTypeGeneral = "general",
+  /** Question needing clarification */
   SpecTaskDesignReviewCommentTypeQuestion = "question",
+  /** Suggested improvement */
   SpecTaskDesignReviewCommentTypeSuggestion = "suggestion",
+  /** Critical issue must be fixed */
   SpecTaskDesignReviewCommentTypeCritical = "critical",
+  /** Positive feedback */
   SpecTaskDesignReviewCommentTypePraise = "praise",
 }
 
@@ -124,6 +149,7 @@ export enum TypesSessionMode {
   SessionModeNone = "",
   SessionModeInference = "inference",
   SessionModeFinetune = "finetune",
+  /** Running tool actions (e.g. API, function calls) */
   SessionModeAction = "action",
 }
 
@@ -133,12 +159,19 @@ export enum TypesServiceConnectionType {
 }
 
 export enum TypesSchedulingDecisionType {
+  /** Added to queue */
   SchedulingDecisionTypeQueued = "queued",
+  /** Reused existing warm model instance */
   SchedulingDecisionTypeReuseWarmSlot = "reuse_warm_slot",
+  /** Started new model instance */
   SchedulingDecisionTypeCreateNewSlot = "create_new_slot",
+  /** Evicted stale slot to free memory */
   SchedulingDecisionTypeEvictStaleSlot = "evict_stale_slot",
+  /** Rejected (insufficient resources, etc.) */
   SchedulingDecisionTypeRejected = "rejected",
+  /** Error during scheduling */
   SchedulingDecisionTypeError = "error",
+  /** Cannot be scheduled (no warm slots available) */
   SchedulingDecisionTypeUnschedulable = "unschedulable",
 }
 
@@ -212,7 +245,9 @@ export enum TypesOwnerType {
 }
 
 export enum TypesOrganizationRole {
+  /** Has full administrative access to the entire organization. */
   OrganizationRoleOwner = "owner",
+  /** Can see every member and team in the organization and can create new apps */
   OrganizationRoleMember = "member",
 }
 
@@ -278,13 +313,17 @@ export enum TypesImageURLDetail {
 }
 
 export enum TypesGitRepositoryType {
+  /** Internal project config repository */
   GitRepositoryTypeInternal = "internal",
+  /** Code repository (user projects, samples, external repos) */
   GitRepositoryTypeCode = "code",
 }
 
 export enum TypesGitRepositoryStatus {
   GitRepositoryStatusActive = "active",
+  /** Clone in progress */
   GitRepositoryStatusCloning = "cloning",
+  /** Clone or sync failed */
   GitRepositoryStatusError = "error",
   GitRepositoryStatusArchived = "archived",
   GitRepositoryStatusDeleted = "deleted",
@@ -326,47 +365,71 @@ export enum TypesChatMessagePartType {
 }
 
 export enum TypesBranchMode {
+  /** Create new branch from base */
   BranchModeNew = "new",
+  /** Continue work on existing branch */
   BranchModeExisting = "existing",
 }
 
 export enum TypesAuthProvider {
+  /** Embedded in Helix, no external dependencies */
   AuthProviderRegular = "regular",
   AuthProviderOIDC = "oidc",
 }
 
 export enum TypesAuditEventType {
   AuditEventTaskCreated = "task_created",
+  /** Task cloned from another task */
   AuditEventTaskCloned = "task_cloned",
   AuditEventTaskApproved = "task_approved",
   AuditEventTaskCompleted = "task_completed",
   AuditEventTaskArchived = "task_archived",
   AuditEventTaskUnarchived = "task_unarchived",
+  /** Prompt sent from Helix UI to agent */
   AuditEventAgentPrompt = "agent_prompt",
+  /** Message sent by user inside agent (via WebSocket) */
   AuditEventUserMessage = "user_message",
+  /** Agent session started */
   AuditEventAgentStarted = "agent_started",
+  /** Spec was generated */
   AuditEventSpecGenerated = "spec_generated",
+  /** Spec was modified */
   AuditEventSpecUpdated = "spec_updated",
+  /** Comment added to design review */
   AuditEventReviewComment = "review_comment",
+  /** Reply to a comment */
   AuditEventReviewCommentReply = "review_comment_reply",
+  /** Pull request created */
   AuditEventPRCreated = "pr_created",
+  /** Pull request merged */
   AuditEventPRMerged = "pr_merged",
+  /** Git push detected */
   AuditEventGitPush = "git_push",
+  /** Project was created */
   AuditEventProjectCreated = "project_created",
+  /** Project was deleted */
   AuditEventProjectDeleted = "project_deleted",
+  /** Project settings were modified */
   AuditEventProjectSettingsUpdated = "project_settings_updated",
+  /** Project guidelines were modified */
   AuditEventProjectGuidelinesUpdated = "project_guidelines_updated",
 }
 
 export enum TypesAgentWorkState {
+  /** Agent connected but not actively working */
   AgentWorkStateIdle = "idle",
+  /** Agent actively processing a prompt */
   AgentWorkStateWorking = "working",
+  /** Agent finished its assigned task */
   AgentWorkStateDone = "done",
 }
 
 export enum TypesAgentType {
+  /** Basic Helix agent */
   AgentTypeHelixBasic = "helix_basic",
+  /** Standard Helix agent with skills */
   AgentTypeHelixAgent = "helix_agent",
+  /** Zed-integrated agent */
   AgentTypeZedExternal = "zed_external",
 }
 
@@ -376,6 +439,7 @@ export enum TypesAction {
   ActionDelete = "Delete",
   ActionUpdate = "Update",
   ActionCreate = "Create",
+  /** For example "use app" */
   ActionUseAction = "UseAction",
 }
 
@@ -440,8 +504,11 @@ export enum McpTaskSupport {
 }
 
 export enum HydraDevContainerType {
+  /** Sway compositor with Zed */
   DevContainerTypeSway = "sway",
+  /** GNOME with Zed */
   DevContainerTypeUbuntu = "ubuntu",
+  /** No GUI, just agent (future) */
   DevContainerTypeHeadless = "headless",
 }
 
@@ -5724,7 +5791,7 @@ export enum ContentType {
 }
 
 export class HttpClient<SecurityDataType = unknown> {
-  public baseUrl: string = "";
+  public baseUrl: string = "https://app.helix.ml";
   private securityData: SecurityDataType | null = null;
   private securityWorker?: ApiConfig<SecurityDataType>["securityWorker"];
   private abortControllers = new Map<CancelToken, AbortController>();
@@ -5927,8 +5994,12 @@ export class HttpClient<SecurityDataType = unknown> {
 }
 
 /**
- * @title No title
- * @contact
+ * @title HelixML API reference
+ * @version 0.1
+ * @baseUrl https://app.helix.ml
+ * @contact Helix support <info@helix.ml> (https://app.helix.ml/)
+ *
+ * This is the HelixML API.
  */
 export class Api<
   SecurityDataType extends unknown,

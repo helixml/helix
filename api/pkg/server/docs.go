@@ -9,8 +9,16 @@ const docTemplate = `{
     "info": {
         "description": "{{escape .Description}}",
         "title": "{{.Title}}",
-        "contact": {},
-        "version": "{{.Version}}"
+        "contact": {
+            "name": "Helix support",
+            "url": "https://app.helix.ml/",
+            "email": "info@helix.ml"
+        },
+        "version": "{{.Version}}",
+        "x-logo": {
+            "altText": "Helix logo",
+            "url": "https://avatars.githubusercontent.com/u/149581110?s=200\u0026v=4"
+        }
     },
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
@@ -15133,6 +15141,11 @@ const docTemplate = `{
                 "DevContainerTypeSway": "Sway compositor with Zed",
                 "DevContainerTypeUbuntu": "GNOME with Zed"
             },
+            "x-enum-descriptions": [
+                "Sway compositor with Zed",
+                "GNOME with Zed",
+                "No GUI, just agent (future)"
+            ],
             "x-enum-varnames": [
                 "DevContainerTypeSway",
                 "DevContainerTypeUbuntu",
@@ -17905,6 +17918,14 @@ const docTemplate = `{
             "x-enum-comments": {
                 "ActionUseAction": "For example \"use app\""
             },
+            "x-enum-descriptions": [
+                "",
+                "",
+                "",
+                "",
+                "",
+                "For example \"use app\""
+            ],
             "x-enum-varnames": [
                 "ActionGet",
                 "ActionList",
@@ -17983,6 +18004,11 @@ const docTemplate = `{
                 "AgentTypeHelixBasic": "Basic Helix agent",
                 "AgentTypeZedExternal": "Zed-integrated agent"
             },
+            "x-enum-descriptions": [
+                "Basic Helix agent",
+                "Standard Helix agent with skills",
+                "Zed-integrated agent"
+            ],
             "x-enum-varnames": [
                 "AgentTypeHelixBasic",
                 "AgentTypeHelixAgent",
@@ -18001,6 +18027,11 @@ const docTemplate = `{
                 "AgentWorkStateIdle": "Agent connected but not actively working",
                 "AgentWorkStateWorking": "Agent actively processing a prompt"
             },
+            "x-enum-descriptions": [
+                "Agent connected but not actively working",
+                "Agent actively processing a prompt",
+                "Agent finished its assigned task"
+            ],
             "x-enum-varnames": [
                 "AgentWorkStateIdle",
                 "AgentWorkStateWorking",
@@ -18088,7 +18119,8 @@ const docTemplate = `{
                     "description": "GPU index -\u003e total memory",
                     "type": "object",
                     "additionalProperties": {
-                        "type": "integer"
+                        "type": "integer",
+                        "format": "int64"
                     }
                 },
                 "runner_id": {
@@ -18098,7 +18130,8 @@ const docTemplate = `{
                     "description": "GPU index -\u003e allocated memory",
                     "type": "object",
                     "additionalProperties": {
-                        "type": "integer"
+                        "type": "integer",
+                        "format": "int64"
                     }
                 },
                 "runtime": {
@@ -18816,6 +18849,28 @@ const docTemplate = `{
                 "AuditEventTaskCloned": "Task cloned from another task",
                 "AuditEventUserMessage": "Message sent by user inside agent (via WebSocket)"
             },
+            "x-enum-descriptions": [
+                "",
+                "Task cloned from another task",
+                "",
+                "",
+                "",
+                "",
+                "Prompt sent from Helix UI to agent",
+                "Message sent by user inside agent (via WebSocket)",
+                "Agent session started",
+                "Spec was generated",
+                "Spec was modified",
+                "Comment added to design review",
+                "Reply to a comment",
+                "Pull request created",
+                "Pull request merged",
+                "Git push detected",
+                "Project was created",
+                "Project was deleted",
+                "Project settings were modified",
+                "Project guidelines were modified"
+            ],
             "x-enum-varnames": [
                 "AuditEventTaskCreated",
                 "AuditEventTaskCloned",
@@ -18924,6 +18979,10 @@ const docTemplate = `{
             "x-enum-comments": {
                 "AuthProviderRegular": "Embedded in Helix, no external dependencies"
             },
+            "x-enum-descriptions": [
+                "Embedded in Helix, no external dependencies",
+                ""
+            ],
             "x-enum-varnames": [
                 "AuthProviderRegular",
                 "AuthProviderOIDC"
@@ -19003,6 +19062,10 @@ const docTemplate = `{
                 "BranchModeExisting": "Continue work on existing branch",
                 "BranchModeNew": "Create new branch from base"
             },
+            "x-enum-descriptions": [
+                "Create new branch from base",
+                "Continue work on existing branch"
+            ],
             "x-enum-varnames": [
                 "BranchModeNew",
                 "BranchModeExisting"
@@ -21076,6 +21139,13 @@ const docTemplate = `{
                 "GitRepositoryStatusCloning": "Clone in progress",
                 "GitRepositoryStatusError": "Clone or sync failed"
             },
+            "x-enum-descriptions": [
+                "",
+                "Clone in progress",
+                "Clone or sync failed",
+                "",
+                ""
+            ],
             "x-enum-varnames": [
                 "GitRepositoryStatusActive",
                 "GitRepositoryStatusCloning",
@@ -21108,6 +21178,10 @@ const docTemplate = `{
                 "GitRepositoryTypeCode": "Code repository (user projects, samples, external repos)",
                 "GitRepositoryTypeInternal": "Internal project config repository"
             },
+            "x-enum-descriptions": [
+                "Internal project config repository",
+                "Code repository (user projects, samples, external repos)"
+            ],
             "x-enum-varnames": [
                 "GitRepositoryTypeInternal",
                 "GitRepositoryTypeCode"
@@ -22782,6 +22856,10 @@ const docTemplate = `{
                 "OrganizationRoleMember": "Can see every member and team in the organization and can create new apps",
                 "OrganizationRoleOwner": "Has full administrative access to the entire organization."
             },
+            "x-enum-descriptions": [
+                "Has full administrative access to the entire organization.",
+                "Can see every member and team in the organization and can create new apps"
+            ],
             "x-enum-varnames": [
                 "OrganizationRoleOwner",
                 "OrganizationRoleMember"
@@ -24530,6 +24608,15 @@ const docTemplate = `{
                 "SchedulingDecisionTypeReuseWarmSlot": "Reused existing warm model instance",
                 "SchedulingDecisionTypeUnschedulable": "Cannot be scheduled (no warm slots available)"
             },
+            "x-enum-descriptions": [
+                "Added to queue",
+                "Reused existing warm model instance",
+                "Started new model instance",
+                "Evicted stale slot to free memory",
+                "Rejected (insufficient resources, etc.)",
+                "Error during scheduling",
+                "Cannot be scheduled (no warm slots available)"
+            ],
             "x-enum-varnames": [
                 "SchedulingDecisionTypeQueued",
                 "SchedulingDecisionTypeReuseWarmSlot",
@@ -25300,6 +25387,12 @@ const docTemplate = `{
             "x-enum-comments": {
                 "SessionModeAction": "Running tool actions (e.g. API, function calls)"
             },
+            "x-enum-descriptions": [
+                "",
+                "",
+                "",
+                "Running tool actions (e.g. API, function calls)"
+            ],
             "x-enum-varnames": [
                 "SessionModeNone",
                 "SessionModeInference",
@@ -26079,6 +26172,13 @@ const docTemplate = `{
                 "SpecTaskDesignReviewCommentTypeQuestion": "Question needing clarification",
                 "SpecTaskDesignReviewCommentTypeSuggestion": "Suggested improvement"
             },
+            "x-enum-descriptions": [
+                "General comment",
+                "Question needing clarification",
+                "Suggested improvement",
+                "Critical issue must be fixed",
+                "Positive feedback"
+            ],
             "x-enum-varnames": [
                 "SpecTaskDesignReviewCommentTypeGeneral",
                 "SpecTaskDesignReviewCommentTypeQuestion",
@@ -26134,6 +26234,13 @@ const docTemplate = `{
                 "SpecTaskDesignReviewStatusPending": "Waiting for reviewer",
                 "SpecTaskDesignReviewStatusSuperseded": "Newer review exists (agent pushed updates)"
             },
+            "x-enum-descriptions": [
+                "Waiting for reviewer",
+                "Reviewer is actively reviewing",
+                "Reviewer requested changes",
+                "Approved, ready for implementation",
+                "Newer review exists (agent pushed updates)"
+            ],
             "x-enum-varnames": [
                 "SpecTaskDesignReviewStatusPending",
                 "SpecTaskDesignReviewStatusInReview",
@@ -26227,6 +26334,22 @@ const docTemplate = `{
                 "TaskStatusSpecReview": "Human reviewing generated specs",
                 "TaskStatusSpecRevision": "Human requested spec changes"
             },
+            "x-enum-descriptions": [
+                "Initial state, waiting for spec generation",
+                "Transitional state, waiting for the orchestrator to pick it up",
+                "Transitional state, waiting for the orchestrator to pick it up",
+                "Helix agent generating specs",
+                "Human reviewing generated specs",
+                "Human requested spec changes",
+                "Specs approved, ready for implementation",
+                "Waiting for Zed agent pickup",
+                "Zed agent coding",
+                "Code review (PR created)",
+                "External repo: PR opened, awaiting merge",
+                "Task completed",
+                "Spec generation failed",
+                "Implementation failed"
+            ],
             "x-enum-varnames": [
                 "TaskStatusBacklog",
                 "TaskStatusQueuedImplementation",
@@ -27099,6 +27222,14 @@ const docTemplate = `{
             "x-enum-comments": {
                 "TokenTypeSession": "BFF session for regular (email/password) auth"
             },
+            "x-enum-descriptions": [
+                "",
+                "",
+                "",
+                "",
+                "",
+                "BFF session for regular (email/password) auth"
+            ],
             "x-enum-varnames": [
                 "TokenTypeNone",
                 "TokenTypeRunner",
@@ -28211,17 +28342,24 @@ const docTemplate = `{
                 }
             }
         }
+    },
+    "securityDefinitions": {
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
     }
 }`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
-	Version:          "",
-	Host:             "",
+	Version:          "0.1",
+	Host:             "app.helix.ml",
 	BasePath:         "",
-	Schemes:          []string{},
-	Title:            "",
-	Description:      "",
+	Schemes:          []string{"https"},
+	Title:            "HelixML API reference",
+	Description:      "This is the HelixML API.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",
