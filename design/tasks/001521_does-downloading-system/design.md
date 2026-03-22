@@ -1,8 +1,8 @@
-# Design: VM Update Download Should Use Parallel Downloads
+# Design: Use Parallel Downloader for All Update Downloads
 
 ## Summary
 
-Reuse the existing `VMDownloader.downloadFileParallel` for VM update downloads instead of the single-connection `Updater.downloadFile`. This is a wiring change, not new download logic.
+Reuse the existing `VMDownloader.downloadFileParallel` for all update downloads (VM images and DMGs) instead of the single-connection `Updater.downloadFile`, then delete `Updater.downloadFile` entirely. This is a wiring change, not new download logic.
 
 ## Architecture
 
@@ -13,6 +13,8 @@ Updater.StartCombinedUpdate
   → Updater.DownloadVMUpdate
     → for each manifest file:
         Updater.downloadFile          ← single HTTP GET, 256KB buffer, ~30 MB/s
+  → DMG download:
+        Updater.downloadFile          ← same slow path
 ```
 
 ### Proposed Flow (fast)
@@ -22,25 +24,25 @@ Updater.StartCombinedUpdate
   → Updater.DownloadVMUpdate
     → for each manifest file:
         VMDownloader.downloadFileParallel  ← 16 parallel Range requests, 1MB buffer, ~110 MB/s
+  → DMG download:
+        VMDownloader.downloadFileParallel  ← same fast path (falls back to single conn for small files)
 ```
 
 ## Key Decisions
 
-### Reuse `downloadFileParallel`, don't duplicate it
+### Reuse `downloadFileParallel` for everything, delete `Updater.downloadFile`
 
 The parallel downloader in `download.go` already handles:
 - 16 concurrent HTTP Range requests (`downloadConcurrency = 16`)
 - Chunk-based resume (`.tmp` + `.chunks` progress files)
-- Fallback to single connection for small files or servers without Range support
+- Fallback to single connection for small files (< 10 MB) or servers without Range support
 - SHA256 verification
 - Cancellation via `d.cancel` channel
 - Progress reporting via the `EventsEmit` interface
 
-There's no reason to write new download logic. The updater just needs to call the existing method.
+There's no reason to maintain a separate single-connection downloader. The parallel downloader's built-in fallback handles small files like DMGs (~100 MB) naturally — they'll use single or few connections based on chunk size. If DMGs ever grow larger, parallel downloads kick in automatically.
 
-### Keep `Updater.downloadFile` for DMGs
-
-The DMG (phase 2 of combined update) is ~100 MB. Single-connection is fine for that size and keeps the code simple. Only the VM image files (multi-GB) need parallel downloads.
+After migration, `Updater.downloadFile` is dead code and should be deleted.
 
 ### Progress adapter
 
@@ -49,7 +51,7 @@ The DMG (phase 2 of combined update) is ~100 MB. Single-connection is fine for t
 - `downloadFileParallel` calls `ctx.EventsEmit("vm:download-progress", DownloadProgress{...})`
 - The adapter translates `DownloadProgress` → `UpdateProgress` and calls `u.emitVMProgress`
 
-The simplest approach: pass an adapter struct that implements `EventsEmit(string, ...interface{})` and intercepts the progress events to call `u.emitVMProgress`. This is exactly what the existing `updateEmitter` struct in `updater.go` already does for decompression — extend or reuse that pattern.
+The simplest approach: pass an adapter struct that implements `EventsEmit(string, ...interface{})` and intercepts the progress events to call `u.emitVMProgress`. This is exactly what the existing `updateEmitter` struct in `updater.go` already does for decompression — extend or reuse that pattern. The same adapter approach works for DMG progress (translating to `u.emitAppProgress`).
 
 ### Cancellation bridging
 
@@ -69,17 +71,26 @@ Option 1 is better since it's a small change and makes the API more standard.
 
 Option 1 is simpler — `VMDownloader` already has a `manifest` field and `LoadManifest` sets it. The updater can set it to the CDN manifest before downloading.
 
+For DMG downloads, the file isn't described by a `VMManifestFile`. Options:
+1. Construct a synthetic `VMManifestFile` with the DMG URL, size, and empty SHA256 (skip verification if no hash available)
+2. Add a standalone download function that takes a URL and destination path directly, backed by the same parallel logic
+
+Option 2 is cleaner — extract the core parallel download logic into a function like `DownloadURL(ctx, url, destPath, emitter)` that both `downloadFileParallel` and the DMG path can call.
+
 ## Files Changed
 
 | File | Change |
 |------|--------|
 | `for-mac/download.go` | Add `context.Context` parameter to `downloadFileParallel` (and `downloadChunk`/`downloadChunkOnce`). Replace `d.cancel` channel checks with context cancellation. |
 | `for-mac/download.go` | Update `DownloadAll` to create a context from `d.cancel` and pass it through. |
+| `for-mac/download.go` | Add a `DownloadURL` or similar method for downloading arbitrary URLs (used by DMG path). |
 | `for-mac/updater.go` | In `DownloadVMUpdate`, set the manifest on `VMDownloader`, then call `downloadFileParallel` per file instead of `u.downloadFile`. Use a progress adapter. |
-| `for-mac/updater.go` | Optionally remove `Updater.downloadFile` if DMG download is also moved to use `downloadFileSingle` from `download.go` (cleanup, not required). |
+| `for-mac/updater.go` | In `StartCombinedUpdate` and `ApplyAppUpdate`, replace `u.downloadFile` for DMG downloads with the parallel downloader. |
+| `for-mac/updater.go` | Delete `Updater.downloadFile` entirely. |
 
 ## Risks
 
 - **CDN Range support**: The parallel downloader already handles servers that don't support Range (falls back to single connection), so this is a non-issue.
 - **Staged path difference**: `DownloadVMUpdate` writes to `finalName + ".staged"`, while `downloadFileParallel` writes to `f.Name`. The staging path logic needs to be preserved — either by adjusting the `vmDir` or the file name passed in.
 - **Concurrency on `VMDownloader`**: If an initial download and an update download could theoretically race, the `d.running` mutex guard already prevents this.
+- **DMG SHA256**: The current DMG download path doesn't verify a hash. The parallel downloader does SHA256 verification by default. Either skip verification when no hash is provided, or add DMG hashes to the update manifest (better long-term).

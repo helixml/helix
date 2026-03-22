@@ -1,4 +1,4 @@
-# Requirements: VM Update Download Should Use Parallel Downloads
+# Requirements: Use Parallel Downloader for All Update Downloads
 
 ## Problem
 
@@ -12,8 +12,9 @@ Two completely separate download implementations exist:
 |------|--------|-------------|--------|----------|
 | Initial download | `VMDownloader.DownloadAll` → `downloadFileParallel` | 16 parallel Range requests | 1 MB | `download.go` |
 | Update download | `Updater.DownloadVMUpdate` → `u.downloadFile` | 1 sequential GET | 256 KB | `updater.go` |
+| DMG download | `Updater.StartCombinedUpdate` / `ApplyAppUpdate` → `u.downloadFile` | 1 sequential GET | 256 KB | `updater.go` |
 
-`Updater.downloadFile` was written as a simple helper for DMG downloads (small files, ~100 MB) and then reused for VM image downloads (~10+ GB) where it's inadequate.
+`Updater.downloadFile` was written as a simple helper and then reused for all update downloads — both multi-GB VM images and DMGs. The parallel downloader already handles small files gracefully (falls back to single connection for files < 10 MB or servers without Range support), so there's no reason to maintain a separate single-connection implementation.
 
 ## User Stories
 
@@ -21,11 +22,11 @@ Two completely separate download implementations exist:
 
 ## Acceptance Criteria
 
-- [ ] `Updater.DownloadVMUpdate` uses `VMDownloader.downloadFileParallel` (or equivalent parallel logic) for VM image files
+- [ ] All update downloads (VM images and DMGs) use `VMDownloader.downloadFileParallel` (or equivalent parallel logic)
+- [ ] `Updater.downloadFile` is deleted — one download path for everything
 - [ ] Update downloads achieve comparable throughput to initial downloads (~100+ MB/s on fast connections)
-- [ ] Progress reporting continues to work correctly in the combined update UI (the 0-90% scaling for phase 1)
-- [ ] Resume support (chunk-based `.tmp` + `.chunks` progress files) works for update downloads
-- [ ] DMG download (phase 2, "Downloading app update (2/2)...") can remain single-connection — DMGs are small
+- [ ] Progress reporting continues to work correctly in the combined update UI (the 0-90% scaling for phase 1, 90-100% for phase 2)
+- [ ] Resume support (chunk-based `.tmp` + `.chunks` progress files) works for all update downloads
 - [ ] SHA256 verification still occurs after download
 - [ ] Cancellation still works mid-download
 - [ ] No regression in initial download path
