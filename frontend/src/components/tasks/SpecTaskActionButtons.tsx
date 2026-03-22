@@ -1,8 +1,11 @@
-import React, { RefObject } from "react";
+import React, { RefObject, useState } from "react";
 import {
   Box,
   Button,
   CircularProgress,
+  Menu,
+  MenuItem,
+  ListItemText,
   Tooltip,
   Typography,
 } from "@mui/material";
@@ -18,17 +21,26 @@ import {
   useStopAgent,
 } from "../../services/specTaskWorkflowService";
 
+export interface RepoPR {
+  repository_id?: string;
+  repository_name?: string;
+  pr_id?: string;
+  pr_number?: number;
+  pr_url?: string;
+  pr_state?: string;
+}
+
 export interface SpecTaskForActions {
   id: string;
   status: string;
   design_docs_pushed_at?: string;
-  pull_request_url?: string;
   base_branch?: string;
   branch_name?: string;
   archived?: boolean;
   just_do_it_mode?: boolean;
   planning_session_id?: string;
   metadata?: { error?: string };
+  repo_pull_requests?: RepoPR[];
 }
 
 interface SpecTaskActionButtonsProps {
@@ -40,7 +52,7 @@ interface SpecTaskActionButtonsProps {
   /** Ref for the Start Planning button (for focus management) */
   startPlanningButtonRef?: RefObject<HTMLButtonElement>;
   /** Called when Review Spec is clicked */
-  onReviewSpec?: () => void;
+  onReviewSpec?: () => Promise<void> | void;
   /** Called when Reject/Archive is clicked */
   onReject?: (shiftKey?: boolean) => void;
   /** Whether the connected project has an external repo (affects Accept vs Open PR text) */
@@ -159,6 +171,8 @@ export default function SpecTaskActionButtons({
 }: SpecTaskActionButtonsProps) {
   const approveImplementationMutation = useApproveImplementation(task.id);
   const stopAgentMutation = useStopAgent(task.id);
+  const [isReviewingSpec, setIsReviewingSpec] = useState(false);
+  const [prMenuAnchor, setPrMenuAnchor] = useState<null | HTMLElement>(null);
 
   const isArchived = task.archived ?? false;
   const isInline = variant === "inline";
@@ -268,18 +282,19 @@ export default function SpecTaskActionButtons({
             tooltip={isArchived ? "Task is archived" : ""}
             color="info"
             icon={
-              isQueued ? (
+              isQueued || isReviewingSpec ? (
                 <CircularProgress size={18} color="inherit" />
               ) : (
                 <SpecIcon sx={{ fontSize: 18 }} />
               )
             }
             label={isQueued ? "Queued" : "Review Spec"}
-            onClick={(e) => {
+            onClick={async (e) => {
               e.stopPropagation();
-              onReviewSpec();
+              setIsReviewingSpec(true);
+              try { await onReviewSpec(); } finally { setIsReviewingSpec(false); }
             }}
-            disabled={isArchived || isQueued}
+            disabled={isArchived || isQueued || isReviewingSpec}
             sx={{
               animation: "pulse-glow 2s infinite",
               "@keyframes pulse-glow": {
@@ -301,17 +316,18 @@ export default function SpecTaskActionButtons({
               variant="contained"
               color="info"
               startIcon={
-                isQueued ? (
+                isQueued || isReviewingSpec ? (
                   <CircularProgress size={16} color="inherit" />
                 ) : (
                   <SpecIcon />
                 )
               }
-              onClick={(e) => {
+              onClick={async (e) => {
                 e.stopPropagation();
-                onReviewSpec();
+                setIsReviewingSpec(true);
+                try { await onReviewSpec(); } finally { setIsReviewingSpec(false); }
               }}
-              disabled={isArchived || isQueued}
+              disabled={isArchived || isQueued || isReviewingSpec}
               fullWidth={!isInline}
               sx={{
                 ...buttonSx,
@@ -387,11 +403,12 @@ export default function SpecTaskActionButtons({
               variant="outlined"
               color="primary"
               disabled={isArchived}
-              icon={<SpecIcon sx={{ fontSize: 18 }} />}
+              icon={isReviewingSpec ? <CircularProgress size={18} color="inherit" /> : <SpecIcon sx={{ fontSize: 18 }} />}
               label="View Spec"
-              onClick={(e) => {
+              onClick={async (e) => {
                 e.stopPropagation();
-                onReviewSpec();
+                setIsReviewingSpec(true);
+                try { await onReviewSpec(); } finally { setIsReviewingSpec(false); }
               }}
             />
           )}
@@ -475,12 +492,13 @@ export default function SpecTaskActionButtons({
                 <Button
                   size={buttonSize}
                   variant="outlined"
-                  startIcon={<SpecIcon />}
-                  onClick={(e) => {
+                  startIcon={isReviewingSpec ? <CircularProgress size={16} color="inherit" /> : <SpecIcon />}
+                  onClick={async (e) => {
                     e.stopPropagation();
-                    onReviewSpec();
+                    setIsReviewingSpec(true);
+                    try { await onReviewSpec(); } finally { setIsReviewingSpec(false); }
                   }}
-                  disabled={isArchived}
+                  disabled={isArchived || isReviewingSpec}
                   sx={buttonSx}
                 >
                   View Spec
@@ -493,50 +511,150 @@ export default function SpecTaskActionButtons({
     );
   }
 
-  // Pull Request phase: View Pull Request button
-  if (task.status === "pull_request" && task.pull_request_url) {
-    if (isInline) {
+  // Pull Request phase: View Pull Request button(s)
+  const pullRequests = task.repo_pull_requests?.filter(pr => pr.pr_url) || [];
+  const hasMultiplePRs = pullRequests.length > 1;
+  const hasAnyPR = pullRequests.length > 0;
+
+  if (task.status === "pull_request" && hasAnyPR) {
+    // Single PR case
+    if (pullRequests.length === 1) {
+      const prUrl = pullRequests[0].pr_url;
+      const prLabel = pullRequests[0].repository_name
+        ? `PR: ${pullRequests[0].repository_name}`
+        : "Pull Request";
+
+      if (isInline) {
+        return (
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <CompactActionButton
+              tooltip={isArchived ? "Task is archived" : ""}
+              variant="contained"
+              color="secondary"
+              disabled={isArchived}
+              icon={<LaunchIcon sx={{ fontSize: 18 }} />}
+              label={prLabel}
+              onClick={(e) => {
+                e.stopPropagation();
+                window.open(prUrl, "_blank");
+              }}
+            />
+          </Box>
+        );
+      }
+
       return (
-        <Box sx={{ display: "flex", gap: 1 }}>
-          <CompactActionButton
-            tooltip={isArchived ? "Task is archived" : ""}
-            variant="contained"
-            color="secondary"
-            disabled={isArchived}
-            icon={<LaunchIcon sx={{ fontSize: 18 }} />}
-            label="Pull Request"
-            onClick={(e) => {
-              e.stopPropagation();
-              window.open(task.pull_request_url, "_blank");
-            }}
-          />
+        <Box sx={isInline ? { display: "flex", gap: 1 } : { mt: 1.5 }}>
+          <Tooltip title={isArchived ? "Task is archived" : ""} placement="top">
+            <span style={{ width: isInline ? "auto" : "100%", display: "block" }}>
+              <Button
+                size={buttonSize}
+                variant="contained"
+                color="secondary"
+                startIcon={<LaunchIcon />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.open(prUrl, "_blank");
+                }}
+                disabled={isArchived}
+                fullWidth={!isInline}
+                sx={buttonSx}
+              >
+                View Pull Request
+              </Button>
+            </span>
+          </Tooltip>
         </Box>
       );
     }
 
-    return (
-      <Box sx={isInline ? { display: "flex", gap: 1 } : { mt: 1.5 }}>
-        <Tooltip title={isArchived ? "Task is archived" : ""} placement="top">
-          <span style={{ width: isInline ? "auto" : "100%", display: "block" }}>
-            <Button
-              size={buttonSize}
+    // Multiple PRs case - show dropdown
+    if (hasMultiplePRs) {
+      if (isInline) {
+        return (
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <CompactActionButton
+              tooltip={isArchived ? "Task is archived" : `${pullRequests.length} Pull Requests`}
               variant="contained"
               color="secondary"
-              startIcon={<LaunchIcon />}
+              disabled={isArchived}
+              icon={<LaunchIcon sx={{ fontSize: 18 }} />}
+              label={`${pullRequests.length} PRs`}
               onClick={(e) => {
                 e.stopPropagation();
-                window.open(task.pull_request_url, "_blank");
+                setPrMenuAnchor(e.currentTarget);
               }}
-              disabled={isArchived}
-              fullWidth={!isInline}
-              sx={buttonSx}
+            />
+            <Menu
+              anchorEl={prMenuAnchor}
+              open={Boolean(prMenuAnchor)}
+              onClose={() => setPrMenuAnchor(null)}
+              onClick={(e) => e.stopPropagation()}
             >
-              View Pull Request
-            </Button>
-          </span>
-        </Tooltip>
-      </Box>
-    );
+              {pullRequests.map((pr, idx) => (
+                <MenuItem
+                  key={pr.repository_id || idx}
+                  onClick={() => {
+                    window.open(pr.pr_url, "_blank");
+                    setPrMenuAnchor(null);
+                  }}
+                >
+                  <ListItemText
+                    primary={pr.repository_name || `Repository ${idx + 1}`}
+                    secondary={pr.pr_number ? `#${pr.pr_number}` : undefined}
+                  />
+                </MenuItem>
+              ))}
+            </Menu>
+          </Box>
+        );
+      }
+
+      return (
+        <Box sx={isInline ? { display: "flex", gap: 1 } : { mt: 1.5 }}>
+          <Tooltip title={isArchived ? "Task is archived" : ""} placement="top">
+            <span style={{ width: isInline ? "auto" : "100%", display: "block" }}>
+              <Button
+                size={buttonSize}
+                variant="contained"
+                color="secondary"
+                startIcon={<LaunchIcon />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPrMenuAnchor(e.currentTarget);
+                }}
+                disabled={isArchived}
+                fullWidth={!isInline}
+                sx={buttonSx}
+              >
+                {pullRequests.length} Pull Requests
+              </Button>
+            </span>
+          </Tooltip>
+          <Menu
+            anchorEl={prMenuAnchor}
+            open={Boolean(prMenuAnchor)}
+            onClose={() => setPrMenuAnchor(null)}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {pullRequests.map((pr, idx) => (
+              <MenuItem
+                key={pr.repository_id || idx}
+                onClick={() => {
+                  window.open(pr.pr_url, "_blank");
+                  setPrMenuAnchor(null);
+                }}
+              >
+                <ListItemText
+                  primary={pr.repository_name || `Repository ${idx + 1}`}
+                  secondary={pr.pr_number ? `#${pr.pr_number}` : undefined}
+                />
+              </MenuItem>
+            ))}
+          </Menu>
+        </Box>
+      );
+    }
   }
 
   // No action buttons for other statuses

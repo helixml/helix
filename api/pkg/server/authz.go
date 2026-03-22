@@ -154,7 +154,34 @@ func (apiServer *HelixAPIServer) authorizeUserToApp(ctx context.Context, user *t
 		return nil
 	}
 
-	return apiServer.authorizeUserToResource(ctx, user, app.OrganizationID, app.ID, types.ResourceApplication, action)
+	err = apiServer.authorizeUserToResource(ctx, user, app.OrganizationID, app.ID, types.ResourceApplication, action)
+	if err == nil {
+		return nil
+	}
+
+	// List all projects in the org and check if the app is referenced by any project
+	// the user has access to. We can't filter by UserID here because that only matches
+	// the project owner, not users who were granted access via RBAC.
+	projects, err := apiServer.Store.ListProjects(ctx, &store.ListProjectsQuery{
+		OrganizationID: app.OrganizationID,
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, project := range projects {
+		if project.DefaultHelixAppID != app.ID &&
+			project.ProjectManagerHelixAppID != app.ID &&
+			project.PullRequestReviewerHelixAppID != app.ID {
+			continue
+		}
+		// App is referenced by this project — check if user has access to the project
+		if err := apiServer.authorizeUserToProject(ctx, user, project, types.ActionGet); err == nil {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("user does not have access to the app")
 }
 
 // authorizeUserToProjectByID helper function to authorize a user to a project by ID, used
@@ -232,7 +259,40 @@ func (apiServer *HelixAPIServer) authorizeUserToRepository(ctx context.Context, 
 		return nil
 	}
 
-	return apiServer.authorizeUserToResource(ctx, user, repository.OrganizationID, repository.ID, types.ResourceGitRepository, action)
+	err = apiServer.authorizeUserToResource(ctx, user, repository.OrganizationID, repository.ID, types.ResourceGitRepository, action)
+	if err == nil {
+		return nil
+	}
+
+	// List all projects in the org and check if the repository is attached to any project
+	// the user has access to. We can't filter by UserID here because that only matches
+	// the project owner, not users who were granted access via RBAC.
+	projects, err := apiServer.Store.ListProjects(ctx, &store.ListProjectsQuery{
+		OrganizationID: repository.OrganizationID,
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, project := range projects {
+		projectRepositories, err := apiServer.Store.ListProjectRepositories(ctx, &types.ListProjectRepositoriesQuery{
+			ProjectID:    project.ID,
+			RepositoryID: repository.ID,
+		})
+		if err != nil {
+			return err
+		}
+		for _, projectRepository := range projectRepositories {
+			if projectRepository.RepositoryID == repository.ID {
+				// Repo is attached to this project — check if user has access to the project
+				if err := apiServer.authorizeUserToProject(ctx, user, project, types.ActionGet); err == nil {
+					return nil
+				}
+			}
+		}
+	}
+
+	return fmt.Errorf("user does not have access to the repository")
 }
 
 func (apiServer *HelixAPIServer) authorizeUserToSession(ctx context.Context, user *types.User, session *types.Session, action types.Action) error {

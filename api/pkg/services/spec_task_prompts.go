@@ -2,6 +2,10 @@ package services
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
 	"text/template"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -11,6 +15,7 @@ import (
 type PlanningPromptData struct {
 	Guidelines         string // Formatted guidelines section (includes header if non-empty)
 	KoditSection       string // Dynamic MCP tool documentation from kodit (empty when disabled)
+	RepositorySection  string // Available repositories section (local + Kodit repos)
 	TaskDirName        string // Directory name for task (e.g., "0042-add-dark-mode")
 	ProjectID          string
 	TaskType           string
@@ -40,7 +45,7 @@ ALL work happens in /home/retro/work/. No other paths.
 
 - /home/retro/work/helix-specs/ = Your design docs go here (ALREADY EXISTS - don't create it)
 - /home/retro/work/<repo>/ = Code repos (don't touch these - implementation happens later)
-
+{{.RepositorySection}}
 ## Your Task Directory
 
 Create exactly 3 files in /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/ (directory already exists):
@@ -106,6 +111,14 @@ You have tools to explore and screenshot the application during planning:
 
 Screenshots are optional but valuable for UI tasks - save them in your task's screenshots/ folder.
 
+## Startup Script
+
+The project startup script (installs deps, starts dev servers) runs automatically at session start:
+- **Location:** ` + "`/home/retro/work/helix-specs/.helix/startup.sh`" + `
+- **Log:** ` + "`cat /tmp/helix-startup.log`" + ` (written when the script runs at startup)
+
+If the startup script hasn't run yet, the log won't exist. You can re-run it manually: ` + "`bash /home/retro/work/helix-specs/.helix/startup.sh`" + `
+
 ## Document Your Learnings
 
 **Your design docs may be cloned to similar projects.** Write down what you discover:
@@ -131,8 +144,8 @@ Tell the user the design is ready for review. The backend detects your push and 
 // - SpecDrivenTaskService.StartSpecGeneration (explicit user action)
 // - SpecTaskOrchestrator.handleBacklog (auto-start when enabled)
 // guidelines contains concatenated organization + project guidelines (can be empty)
-// primaryRepoName is the name of the primary code repository (e.g., "my-app")
-func BuildPlanningPrompt(task *types.SpecTask, guidelines, koditSection string) string {
+// repoSection is the pre-built repository access section (from BuildRepositorySection)
+func BuildPlanningPrompt(task *types.SpecTask, guidelines, koditSection, repoSection string) string {
 	// Use DesignDocPath if set (new human-readable format), fall back to task ID
 	taskDirName := task.DesignDocPath
 	if taskDirName == "" {
@@ -214,6 +227,7 @@ contain everything learned during the original implementation - use this knowled
 	data := PlanningPromptData{
 		Guidelines:         guidelinesSection,
 		KoditSection:       koditSection,
+		RepositorySection:  repoSection,
 		ClonedTaskPreamble: clonedTaskPreamble,
 		TaskDirName:        taskDirName,
 		ProjectID:          task.ProjectID,
@@ -228,4 +242,95 @@ contain everything learned during the original implementation - use this knowled
 		return "Error generating planning prompt: " + err.Error()
 	}
 	return buf.String()
+}
+
+// BuildRepositorySection builds a markdown section listing available repositories
+// for injection into spec task prompts. Returns empty string when both lists are empty.
+//
+// projectRepos: repos cloned locally (from store.ListGitRepositories by ProjectID)
+// koditOrgRepos: org repos with KoditIndexing=true (from store.ListGitRepositories by OrgID, pre-filtered)
+// primaryRepoID: the project's DefaultRepoID (to mark primary)
+func BuildRepositorySection(projectRepos []*types.GitRepository, koditOrgRepos []*types.GitRepository, primaryRepoID string) string {
+	if len(projectRepos) == 0 && len(koditOrgRepos) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Available Repositories\n\n")
+
+	// Local repositories (read/write)
+	if len(projectRepos) > 0 {
+		b.WriteString("### Local Repositories (Read/Write)\n")
+		b.WriteString("These are cloned locally. You can read, edit, and commit.\n")
+		for _, repo := range projectRepos {
+			isPrimary := repo.ID == primaryRepoID
+			if isPrimary {
+				b.WriteString(fmt.Sprintf("- `%s` at `/home/retro/work/%s/` <- primary project\n", repo.Name, repo.Name))
+			} else {
+				b.WriteString(fmt.Sprintf("- `%s` at `/home/retro/work/%s/`\n", repo.Name, repo.Name))
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	// Build set of local repo IDs to exclude from Kodit list
+	localRepoIDs := make(map[string]bool, len(projectRepos))
+	for _, repo := range projectRepos {
+		localRepoIDs[repo.ID] = true
+	}
+
+	// Kodit repositories (read-only via Kodit MCP)
+	var koditRepos []*types.GitRepository
+	for _, repo := range koditOrgRepos {
+		if localRepoIDs[repo.ID] {
+			continue
+		}
+		koditID := extractKoditRepoIDFromMetadata(repo.Metadata)
+		if koditID <= 0 {
+			continue
+		}
+		koditRepos = append(koditRepos, repo)
+	}
+
+	if len(koditRepos) > 0 {
+		b.WriteString("### Kodit Repositories (Read-Only via Kodit MCP)\n")
+		b.WriteString("These are accessible read-only through the Kodit MCP tools (semantic_search, keyword_search, grep, list_files, read_file).\n")
+		for _, repo := range koditRepos {
+			koditID := extractKoditRepoIDFromMetadata(repo.Metadata)
+			b.WriteString(fmt.Sprintf("- `%s` (Kodit repo ID: %d)\n", repo.Name, koditID))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("**IMPORTANT:** Only directories listed under \"Local Repositories\" exist on this machine.\n")
+	b.WriteString("Do NOT attempt to access repo directories that are not listed. Use Kodit MCP tools for Kodit repositories.\n\n")
+
+	return b.String()
+}
+
+// extractKoditRepoIDFromMetadata extracts the kodit_repo_id from metadata,
+// handling int64, float64, int, string, and json.Number formats.
+// Same logic as extractKoditRepoID in server/kodit_handlers.go but in the services package.
+func extractKoditRepoIDFromMetadata(metadata map[string]interface{}) int64 {
+	raw, ok := metadata["kodit_repo_id"]
+	if !ok {
+		return 0
+	}
+	switch v := raw.(type) {
+	case int64:
+		return v
+	case float64:
+		return int64(v)
+	case int:
+		return int64(v)
+	case string:
+		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return id
+		}
+	case json.Number:
+		if id, err := v.Int64(); err == nil {
+			return id
+		}
+	}
+	return 0
 }

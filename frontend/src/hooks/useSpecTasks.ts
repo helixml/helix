@@ -1,21 +1,11 @@
 import { useState, useCallback } from 'react'
 import useApi from './useApi'
 import useSnackbar from './useSnackbar'
-import { 
-  TypesSpecTask, 
+import {
+  TypesSpecTask,
   TypesSpecTaskUpdateRequest,
   TypesSpecApprovalResponse,
-  ServerApprovalWithHandoffRequest,
-  ServerCombinedApprovalHandoffResult,
-  ServicesDocumentHandoffConfig,
-  ServicesHandoffResult,
-  ServicesSpecDocumentConfig,
-  ServicesSpecDocumentResult,
-  ServerCoordinationLogResponse,
-  ServicesDocumentHandoffStatus,
-  ServerSpecDocumentContentResponse,
-  TypesSpecTaskMultiSessionOverviewResponse,
-  TypesSpecTaskProgressResponse
+  ServerTaskProgressResponse,
 } from '../api/api'
 
 export const useSpecTasks = () => {
@@ -29,14 +19,15 @@ export const useSpecTasks = () => {
     project_id?: string;
     status?: string;
     user_id?: string;
-    type?: string;
-    priority?: string;
+    include_archived?: boolean;
+    with_depends_on?: boolean;
+    labels?: string;
     limit?: number;
     offset?: number;
   }) => {
     setLoading(true)
     try {
-      const result = await api.getApiClient().v1SpecTasksList(filters)
+      const result = await api.getApiClient().v1SpecTasksList(filters as { project_id: string; status?: string; user_id?: string; include_archived?: boolean; with_depends_on?: boolean; labels?: string; limit?: number; offset?: number })
       if (result.data) {
         setData(result.data)
         return result.data
@@ -93,97 +84,43 @@ export const useSpecTasks = () => {
     return null
   }, [api, snackbar])
 
-  const approveWithHandoff = useCallback(async (taskId: string, request: ServerApprovalWithHandoffRequest): Promise<ServerCombinedApprovalHandoffResult | null> => {
-    try {
-      const result = await api.getApiClient().v1SpecTasksApproveWithHandoffCreate(taskId, request)
-      if (result.data) {
-        snackbar.success('Specifications approved and handoff initiated')
-        return result.data
-      }
-    } catch (error) {
-      snackbar.error('Failed to approve and handoff')
-      console.error('Error in approve with handoff:', error)
-    }
+  // TODO: These methods use API endpoints not yet in the generated client
+  const approveWithHandoff = useCallback(async (_taskId: string, _request: Record<string, unknown>): Promise<Record<string, unknown> | null> => {
+    snackbar.error('approveWithHandoff: API endpoint not available')
     return null
-  }, [api, snackbar])
+  }, [snackbar])
 
-  const executeHandoff = useCallback(async (taskId: string, config: ServicesDocumentHandoffConfig): Promise<ServicesHandoffResult | null> => {
-    try {
-      const result = await api.getApiClient().v1SpecTasksExecuteHandoffCreate(taskId, config)
-      if (result.data) {
-        snackbar.success('Document handoff executed successfully')
-        return result.data
-      }
-    } catch (error) {
-      snackbar.error('Failed to execute handoff')
-      console.error('Error executing handoff:', error)
-    }
+  const executeHandoff = useCallback(async (_taskId: string, _config: Record<string, unknown>): Promise<Record<string, unknown> | null> => {
+    snackbar.error('executeHandoff: API endpoint not available')
     return null
-  }, [api, snackbar])
+  }, [snackbar])
 
-  const generateDocuments = useCallback(async (taskId: string, config: ServicesSpecDocumentConfig): Promise<ServicesSpecDocumentResult | null> => {
-    try {
-      const result = await api.getApiClient().v1SpecTasksGenerateDocumentsCreate(taskId, config)
-      if (result.data) {
-        snackbar.success('Documents generated successfully')
-        return result.data
-      }
-    } catch (error) {
-      snackbar.error('Failed to generate documents')
-      console.error('Error generating documents:', error)
-    }
+  const generateDocuments = useCallback(async (_taskId: string, _config: Record<string, unknown>): Promise<Record<string, unknown> | null> => {
+    snackbar.error('generateDocuments: API endpoint not available')
     return null
-  }, [api, snackbar])
+  }, [snackbar])
 
-  const getCoordinationLog = useCallback(async (taskId: string, filters?: {
-    event_type?: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<ServerCoordinationLogResponse | null> => {
-    try {
-      const result = await api.getApiClient().v1SpecTasksCoordinationLogDetail(taskId, filters)
-      return result.data || null
-    } catch (error) {
-      snackbar.error('Failed to load coordination log')
-      console.error('Error loading coordination log:', error)
-    }
+  const getCoordinationLog = useCallback(async (_taskId: string, _filters?: Record<string, unknown>): Promise<Record<string, unknown> | null> => {
+    snackbar.error('getCoordinationLog: API endpoint not available')
     return null
-  }, [api, snackbar])
+  }, [snackbar])
 
-  const getDocumentStatus = useCallback(async (taskId: string): Promise<ServicesDocumentHandoffStatus | null> => {
-    try {
-      const result = await api.getApiClient().v1SpecTasksDocumentStatusDetail(taskId)
-      return result.data || null
-    } catch (error) {
-      snackbar.error('Failed to load document status')
-      console.error('Error loading document status:', error)
-    }
+  const getDocumentStatus = useCallback(async (_taskId: string): Promise<Record<string, unknown> | null> => {
+    snackbar.error('getDocumentStatus: API endpoint not available')
     return null
-  }, [api, snackbar])
+  }, [snackbar])
 
-  const getDocument = useCallback(async (taskId: string, document: "requirements" | "design" | "tasks" | "metadata"): Promise<ServerSpecDocumentContentResponse | null> => {
-    try {
-      const result = await api.getApiClient().v1SpecTasksDocumentsDetail(taskId, document)
-      return result.data || null
-    } catch (error) {
-      snackbar.error(`Failed to load ${document} document`)
-      console.error(`Error loading ${document} document:`, error)
-    }
+  const getDocument = useCallback(async (_taskId: string, _document: string): Promise<Record<string, unknown> | null> => {
+    snackbar.error('getDocument: API endpoint not available')
     return null
-  }, [api, snackbar])
+  }, [snackbar])
 
-  const getMultiSessionOverview = useCallback(async (taskId: string): Promise<TypesSpecTaskMultiSessionOverviewResponse | null> => {
-    try {
-      const result = await api.getApiClient().v1SpecTasksMultiSessionOverviewDetail(taskId)
-      return result.data || null
-    } catch (error) {
-      snackbar.error('Failed to load multi-session overview')
-      console.error('Error loading multi-session overview:', error)
-    }
+  const getMultiSessionOverview = useCallback(async (_taskId: string): Promise<Record<string, unknown> | null> => {
+    snackbar.error('getMultiSessionOverview: API endpoint not available')
     return null
-  }, [api, snackbar])
+  }, [snackbar])
 
-  const getProgress = useCallback(async (taskId: string): Promise<TypesSpecTaskProgressResponse | null> => {
+  const getProgress = useCallback(async (taskId: string): Promise<ServerTaskProgressResponse | null> => {
     try {
       const result = await api.getApiClient().v1SpecTasksProgressDetail(taskId)
       return result.data || null

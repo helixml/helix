@@ -17,6 +17,9 @@ import {
   TypesSession,
   TypesAssistantMCP,
   TypesToolMCPClientConfig,
+  TypesTokenType,
+  TypesAssistantAPI,
+  TypesAssistantZapier,
 } from './api/api'
 
 export type ISessionCreator = 'system' | 'user' | 'assistant'
@@ -150,10 +153,12 @@ export interface IKeycloakUser {
   name: string,
   onboarding_completed?: boolean,
   waitlisted?: boolean,
+  admin?: boolean,
 }
 
 export interface IUserConfig {
   // Removed stripe subscription fields - now come from wallet
+  pinned_project_ids?: string[]
 }
 
 export interface IHelixModel {
@@ -663,7 +668,7 @@ export interface IAssistantConfig {
    * Options: "zed_agent" (Zed's built-in agent) or "qwen_code" (qwen command as custom agent).
    * If empty, defaults to "zed_agent".
    */
-  code_agent_runtime?: 'zed_agent' | 'qwen_code';
+  code_agent_runtime?: 'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli';
   /**
    * CodeAgentCredentialType specifies how the code agent authenticates.
    * "api_key" (default): uses an API key routed through the Helix proxy.
@@ -715,10 +720,10 @@ export interface IAssistantConfig {
   lora_id?: string;
   is_actionable_template?: string;
   is_actionable_history_length?: number;
-  apis?: IAssistantApi[];
+  apis?: TypesAssistantAPI[];
   mcps?: TypesAssistantMCP[];
   gptscripts?: IAssistantGPTScript[];
-  zapier?: IAssistantZapier[];
+  zapier?: TypesAssistantZapier[];
   browser?: TypesAssistantBrowser;
   web_search?: TypesAssistantWebSearch;
   calculator?: TypesAssistantCalculator;
@@ -894,7 +899,7 @@ export interface IAppFlatState {
   small_reasoning_model_effort?: string
   small_generation_model?: string
   small_generation_model_provider?: string
-  code_agent_runtime?: 'zed_agent' | 'qwen_code'
+  code_agent_runtime?: 'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli'
   code_agent_credential_type?: 'api_key' | 'subscription'
   context_limit?: number
   frequency_penalty?: number
@@ -907,8 +912,8 @@ export interface IAppFlatState {
   knowledge?: IKnowledgeSource[] // Added knowledge parameter
   is_actionable_template?: string;
   is_actionable_history_length?: number;
-  apiTools?: IAssistantApi[]
-  zapierTools?: IAssistantZapier[]
+  apiTools?: TypesAssistantAPI[]
+  zapierTools?: TypesAssistantZapier[]
   gptscriptTools?: IAssistantGPTScript[]
   mcpTools?: TypesAssistantMCP[]
   browserTool?: TypesAssistantBrowser
@@ -965,7 +970,7 @@ export interface IFeatureAction {
   title: string,
   color: 'primary' | 'secondary',
   variant: 'text' | 'contained' | 'outlined',
-  handler: (navigate: IRouterNavigateFunction) => void,
+  handler: (navigate: IRouterNavigateFunction, openAdminDialog?: () => void) => void,
   id?: string;
 }
 
@@ -1128,7 +1133,7 @@ export interface IUser {
   id: string;
   created_at: string;
   updated_at: string;
-  token_type?: string;
+  token_type?: TypesTokenType;
   email?: string;
   username?: string;
   full_name?: string;

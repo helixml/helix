@@ -787,7 +787,7 @@ export default function Onboarding() {
                 },
               },
             },
-          });
+          } as any);
         } catch (err) {
           console.error("Failed to update agent resolution config:", err);
           // Continue anyway - agent was created, just resolution wasn't set
@@ -2263,7 +2263,7 @@ export default function Onboarding() {
                 </Button>
                 <Button
                   variant="text"
-                  onClick={handleComplete}
+                  onClick={() => handleComplete()}
                   sx={{
                     color: "rgba(255,255,255,0.3)",
                     textTransform: "none",
@@ -2442,7 +2442,7 @@ export default function Onboarding() {
               </Typography>
               <Button
                 variant="contained"
-                onClick={handleComplete}
+                onClick={() => handleComplete()}
                 sx={{
                   ...btnSx,
                   px: 4,

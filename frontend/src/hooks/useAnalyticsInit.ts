@@ -51,7 +51,7 @@ export default function useAnalyticsInit() {
       document.head.appendChild(script)
 
       win.dataLayer = win.dataLayer || []
-      function gtag() { win.dataLayer.push(arguments) }
+      function gtag(...args: any[]) { win.dataLayer.push(args) }
       gtag('js', new Date())
       gtag('config', gaId)
     }

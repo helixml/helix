@@ -519,29 +519,46 @@ echo "========================================="
 echo "Additional setup..."
 echo "========================================="
 
-# Create Claude Code state symlink for persistence across container restarts.
-# The Dockerfile writes settings.json to /home/retro/.claude/ with permissions
-# config (allow all tools). We must preserve it when symlinking to persistent storage.
+# Claude Code ACP state: symlink ~/.claude to persistent storage and write
+# settings.json with bypassPermissions. The ACP adapter (bundled in Zed as an
+# npm package) reads ~/.claude/settings.json for permissions.defaultMode —
+# without it, ACP falls back to "default" mode and prompts for every tool use.
+# NOTE: Don't gate on `command -v claude` — the claude CLI may not be on PATH
+# since ACP uses Zed's bundled npm package, not the standalone binary.
 CLAUDE_STATE_DIR=$WORK_DIR/.claude-state
-if command -v claude &> /dev/null; then
-    mkdir -p $CLAUDE_STATE_DIR
-    # Preserve any files the settings-sync-daemon already wrote to ~/.claude
-    # (e.g., .credentials.json) before replacing with the symlink.
-    # Without this, credentials get deleted and Zed startup blocks for ~20s
-    # waiting for the daemon's next 30s poll to re-write them.
-    if [ -d ~/.claude ] && [ ! -L ~/.claude ]; then
-        cp -a ~/.claude/. $CLAUDE_STATE_DIR/ 2>/dev/null || true
-    fi
-    # Symlink ~/.claude to persistent storage so credentials and state
-    # survive container restarts.
-    rm -rf ~/.claude
-    ln -sf $CLAUDE_STATE_DIR ~/.claude
-    # Write correct permissions before Zed/Claude Code starts.
-    # This runs synchronously before Zed launch, so Claude Code
-    # always sees bypassPermissions on first read.
-    echo '{"permissions":{"allow":["Bash","Read","Edit"],"defaultMode":"bypassPermissions"},"skipDangerousModePermissionPrompt":true,"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}' > ~/.claude/settings.json
-    echo "  Claude: ~/.claude -> $CLAUDE_STATE_DIR (settings written)"
+mkdir -p $CLAUDE_STATE_DIR
+# Preserve any files the settings-sync-daemon already wrote to ~/.claude
+# (e.g., .credentials.json) before replacing with the symlink.
+# Without this, credentials get deleted and Zed startup blocks for ~20s
+# waiting for the daemon's next 30s poll to re-write them.
+if [ -d ~/.claude ] && [ ! -L ~/.claude ]; then
+    cp -a ~/.claude/. $CLAUDE_STATE_DIR/ 2>/dev/null || true
 fi
+# Symlink ~/.claude to persistent storage so credentials and state
+# survive container restarts.
+rm -rf ~/.claude
+ln -sf $CLAUDE_STATE_DIR ~/.claude
+# Write correct permissions before Zed/Claude Code starts.
+# This runs synchronously before Zed launch, so Claude Code ACP
+# always sees bypassPermissions on first read.
+echo '{"permissions":{"defaultMode":"bypassPermissions"},"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}' > ~/.claude/settings.json
+# Also symlink ~/.claude.json (separate from ~/.claude/ directory).
+# Claude Code stores userID and firstStartTime here. Without persistence,
+# it gets a new userID on every container restart, which may affect session
+# storage paths and prevents session resume across restarts.
+if [ ! -L ~/.claude.json ]; then
+    # Preserve existing ephemeral .claude.json if persistent one doesn't exist yet
+    if [ -f ~/.claude.json ] && [ ! -f $CLAUDE_STATE_DIR/.claude.json ]; then
+        mv ~/.claude.json $CLAUDE_STATE_DIR/.claude.json
+    else
+        rm -f ~/.claude.json
+    fi
+    # Create persistent file if it doesn't exist (Claude Code will populate it on first run)
+    [ ! -f $CLAUDE_STATE_DIR/.claude.json ] && echo '{}' > $CLAUDE_STATE_DIR/.claude.json
+    ln -sf $CLAUDE_STATE_DIR/.claude.json ~/.claude.json
+fi
+echo "  Claude: ~/.claude -> $CLAUDE_STATE_DIR (settings written)"
+echo "  Claude: ~/.claude.json -> $CLAUDE_STATE_DIR/.claude.json"
 
 # Initialize workspace with README if empty
 if [ ! -f "$WORK_DIR/README.md" ] && [ -z "$(ls -A "$WORK_DIR" 2>/dev/null | grep -v '^\.')" ]; then
@@ -719,6 +736,11 @@ if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
         # Remove unused volumes (build step caches that won't carry forward)
         docker volume prune -f 2>/dev/null || true
 
+        # Prune Docker build cache — keep only layers referenced by existing
+        # images. Without this, build cache grows ~5GB per golden build and
+        # the golden zvol balloons from 56GB to 95GB+ over 20 builds.
+        docker builder prune -f --filter 'unused-for=0s' 2>/dev/null || true
+
         # Show after state
         echo "  After cleanup:"
         docker system df 2>/dev/null | sed 's/^/    /' || true
@@ -795,13 +817,14 @@ if [ -f "$STARTUP_SCRIPT" ]; then
     echo ""
 
     # Run startup script but don't fail if it errors (user can debug in terminal)
-    if bash -i "$STARTUP_SCRIPT"; then
+    bash -i "$STARTUP_SCRIPT" 2>&1 | tee /tmp/helix-startup.log
+    STARTUP_EXIT="${PIPESTATUS[0]}"
+    if [ "$STARTUP_EXIT" -eq 0 ]; then
         echo ""
         echo "✅ Startup script completed successfully"
     else
-        EXIT_CODE=$?
         echo ""
-        echo "❌ Startup script failed with exit code $EXIT_CODE"
+        echo "❌ Startup script failed with exit code $STARTUP_EXIT"
         echo ""
         echo "You can debug this in the terminal."
     fi

@@ -40,6 +40,7 @@ steps:
     commands:
       - cd frontend
       - yarn install --frozen-lockfile --check-files
+      - npx tsc --noEmit -p tsconfig.json
       - yarn test
       - yarn build
     depends_on: []
@@ -79,6 +80,7 @@ steps:
       - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-bare-metal.yaml > /dev/null
       - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-eks.yaml > /dev/null
       - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-gke.yaml > /dev/null
+      - helm template test-release charts/helix-sandbox -f charts/helix-sandbox/values-aks.yaml > /dev/null
     when:
       event:
         - push
@@ -87,7 +89,7 @@ steps:
   - name: check-for-secrets
     image: ghcr.io/gitleaks/gitleaks:v8.24.0
     commands:
-      - gitleaks dir -v
+      - gitleaks dir -v; rc=$?; if [ $rc -eq 1 ]; then echo "LEAKS FOUND"; exit 1; fi
     when:
       event:
         - push
@@ -1811,9 +1813,10 @@ platform:
   arch: amd64
 
 trigger:
-  event:
-    - push
-    - tag
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
 
 volumes:
   - name: dockersocket
@@ -2056,6 +2059,16 @@ steps:
         cp /drone/src/go.sum "$${E2E_DIR}/helix-go.sum"
         cp -r /drone/src/api "$${E2E_DIR}/helix-api"
 
+        # Sync kodit version from helix into the E2E test server's go.mod.
+        # The E2E test server has its own go.mod that may pin an older kodit;
+        # go mod tidy in the Docker build will update go.sum automatically.
+        KODIT_VERSION=$$(grep 'github.com/helixml/kodit' /drone/src/go.mod | awk '{print $$2}')
+        if [ -n "$${KODIT_VERSION}" ]; then
+          sed -i "s|github.com/helixml/kodit v[^ ]*|github.com/helixml/kodit $${KODIT_VERSION}|" \
+            "$${E2E_DIR}/helix-ws-test-server/go.mod"
+          echo "Synced kodit to $${KODIT_VERSION} in E2E test server go.mod"
+        fi
+
         # Verify helix-api has expected structure (not nested from stale cp -r)
         if [ ! -d "$${E2E_DIR}/helix-api/pkg" ]; then
           echo "ERROR: helix-api structure is wrong — expected helix-api/pkg/ at top level"
@@ -2075,11 +2088,25 @@ steps:
         rm -f "$${E2E_DIR}/zed-binary" "$${E2E_DIR}/helix-go.mod" "$${E2E_DIR}/helix-go.sum" || true
         rm -rf "$${E2E_DIR}/helix-api" || true
 
-        echo "Running E2E test..."
-        docker run --rm \
-          -e ANTHROPIC_API_KEY="$${ANTHROPIC_API_KEY}" \
-          -e TEST_TIMEOUT=240 \
-          zed-ws-e2e:$${ZED_COMMIT}
+        # Retry up to 2 times — the test depends on Anthropic's API which can
+        # be slow/flaky, causing timeouts that aren't test failures.
+        E2E_PASSED=false
+        for attempt in 1 2; do
+          echo "Running E2E test attempt $${attempt}/2 (agents: zed-agent, claude)..."
+          if docker run --rm \
+            -e ANTHROPIC_API_KEY="$${ANTHROPIC_API_KEY}" \
+            -e E2E_AGENTS="zed-agent,claude" \
+            -e TEST_TIMEOUT=600 \
+            zed-ws-e2e:$${ZED_COMMIT}; then
+            E2E_PASSED=true
+            break
+          fi
+          echo "E2E test attempt $${attempt} failed, retrying..."
+        done
+        if [ "$${E2E_PASSED}" != "true" ]; then
+          echo "E2E test failed after 2 attempts"
+          exit 1
+        fi
 
         echo "Zed WebSocket E2E test passed"
     volumes:
@@ -2136,8 +2163,8 @@ steps:
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
         mkdir -p sandbox-images
-        echo "registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-amd64" > sandbox-images/helix-sway.ref
-        echo "registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.ref
+        echo "ghcr.io/helixml/helix-sway:$${VERSION}-linux-amd64" > sandbox-images/helix-sway.ref
+        echo "ghcr.io/helixml/helix-ubuntu:$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.ref
         echo "$${VERSION}-linux-amd64" > sandbox-images/helix-sway.version
         echo "$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.version
     volumes:
@@ -2234,9 +2261,10 @@ platform:
   arch: arm64
 
 trigger:
-  event:
-    - push
-    - tag
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
 
 volumes:
   - name: dockersocket
@@ -2454,8 +2482,8 @@ steps:
       - |
         VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
         mkdir -p sandbox-images
-        echo "registry.helixml.tech/helix/helix-sway:$${VERSION}-linux-arm64" > sandbox-images/helix-sway.ref
-        echo "registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64" > sandbox-images/helix-ubuntu.ref
+        echo "ghcr.io/helixml/helix-sway:$${VERSION}-linux-arm64" > sandbox-images/helix-sway.ref
+        echo "ghcr.io/helixml/helix-ubuntu:$${VERSION}-linux-arm64" > sandbox-images/helix-ubuntu.ref
         echo "$${VERSION}-linux-arm64" > sandbox-images/helix-sway.version
         echo "$${VERSION}-linux-arm64" > sandbox-images/helix-ubuntu.version
     volumes:

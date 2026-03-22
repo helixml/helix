@@ -76,6 +76,9 @@ import {
   useCloneGroups,
   useZedThreads,
   useSpecTasks,
+  useProjectLabels,
+  useAddLabel,
+  useRemoveLabel,
 } from "../../services/specTaskService";
 import {
   useGetProject,
@@ -106,6 +109,18 @@ import {
   Wand2,
   Copy,
 } from "lucide-react";
+
+// Module-level set: tracks which task IDs have already had their spec auto-opened
+// in this SPA session. Persists across component unmount/remount so that navigating
+// back from the spec review page does not immediately redirect the user again.
+const AUTO_OPENED_KEY = "helix_auto_opened_spec_tasks";
+const getAutoOpenedSpecTasks = (): Set<string> =>
+  new Set(JSON.parse(sessionStorage.getItem(AUTO_OPENED_KEY) || "[]"));
+const addAutoOpenedSpecTask = (id: string) => {
+  const set = getAutoOpenedSpecTasks();
+  set.add(id);
+  sessionStorage.setItem(AUTO_OPENED_KEY, JSON.stringify([...set]));
+};
 
 interface SpecTaskDetailContentProps {
   taskId: string;
@@ -148,6 +163,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     withDependsOn: true,
     enabled: !!task?.project_id,
   });
+
+  // Label state
+  const { data: projectLabels = [] } = useProjectLabels(
+    task?.project_id || "",
+  );
+  const addLabelMutation = useAddLabel();
+  const removeLabelMutation = useRemoveLabel();
+  const [labelInput, setLabelInput] = useState("");
 
   // Fetch zed threads for thread switching
   const { data: zedThreadsData } = useZedThreads(taskId);
@@ -250,6 +273,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       return null;
     const sub = claudeSubscriptions?.[0];
     if (!sub) return null;
+    if (sub.credential_type === 'setup_token') return null; // Setup tokens don't expire
     return getTokenExpiryStatus(sub.access_token_expires_at);
   }, [task?.helix_app_id, apps.apps, claudeSubscriptions]);
 
@@ -335,6 +359,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // File upload state
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
+
+  // (auto-open tracking is handled by sessionStorage so it persists across page refreshes)
 
   // Clone dialog state
   const [showCloneDialog, setShowCloneDialog] = useState(false);
@@ -774,6 +800,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const handleReviewSpec = useCallback(async () => {
     if (!task?.id) return;
 
+    // Mark immediately (before async) so the auto-open effect won't re-trigger
+    // if the user returns to the chat view after visiting spec.
+    addAutoOpenedSpecTask(task.id);
+
     try {
       const response = await api
         .getApiClient()
@@ -799,6 +829,23 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       snackbar.error("Failed to load design review");
     }
   }, [task?.id, task?.name, task?.project_id, onOpenReview, account]);
+
+  // Auto-open spec review when task is in spec_review or spec_revision status
+  // and design docs are available - triggers once per SPA session per task ID.
+  // handleReviewSpec itself writes to sessionStorage before the async call, so returning
+  // to chat (which remounts this component) never re-triggers the auto-open.
+  useEffect(() => {
+    if (
+      task?.id &&
+      !getAutoOpenedSpecTasks().has(task.id) &&
+      task?.design_docs_pushed_at &&
+      account.organizationTools.organization?.name &&
+      (task?.status === TypesSpecTaskStatus.TaskStatusSpecReview ||
+        task?.status === TypesSpecTaskStatus.TaskStatusSpecRevision)
+    ) {
+      handleReviewSpec();
+    }
+  }, [task?.id, task?.status, task?.design_docs_pushed_at, handleReviewSpec, account.organizationTools.organization?.name]);
 
   // Handle file upload to sandbox
   const handleUploadClick = useCallback(() => {
@@ -1054,6 +1101,84 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         )}
       </Box>
 
+      {/* Labels */}
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          Labels
+        </Typography>
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 1 }}>
+          {(task?.labels || []).map((label) => (
+            <Chip
+              key={label}
+              label={label}
+              size="small"
+              onDelete={() =>
+                removeLabelMutation.mutate({ taskId, label })
+              }
+            />
+          ))}
+        </Box>
+        <Autocomplete
+          freeSolo
+          options={projectLabels.filter(
+            (l) => !(task?.labels || []).includes(l),
+          )}
+          inputValue={labelInput}
+          onInputChange={(_, value) => setLabelInput(value)}
+          filterOptions={(options, params) => {
+            const filtered = options.filter((o) =>
+              o.toLowerCase().includes(params.inputValue.toLowerCase()),
+            );
+            const trimmed = params.inputValue.trim();
+            if (
+              trimmed &&
+              !options.some((o) => o.toLowerCase() === trimmed.toLowerCase())
+            ) {
+              filtered.push(`__create__:${trimmed}`);
+            }
+            return filtered;
+          }}
+          onChange={(_, value) => {
+            if (value && typeof value === "string") {
+              const label = value.startsWith("__create__:")
+                ? value.slice("__create__:".length)
+                : value.trim();
+              if (label) {
+                addLabelMutation.mutate({ taskId, label });
+                setLabelInput("");
+              }
+            }
+          }}
+          getOptionLabel={(option) =>
+            option.startsWith("__create__:")
+              ? option.slice("__create__:".length)
+              : option
+          }
+          renderOption={(props, option) => {
+            if (option.startsWith("__create__:")) {
+              const label = option.slice("__create__:".length);
+              return (
+                <li {...props} key="__create__">
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Typography variant="body2" color="primary">
+                      + Create &ldquo;{label}&rdquo;
+                    </Typography>
+                  </Box>
+                </li>
+              );
+            }
+            return <li {...props} key={option}>{option}</li>;
+          }}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              size="small"
+              placeholder="Add label..."
+            />
+          )}
+        />
+      </Box>
+
       <Box sx={{ mb: 4 }}>
         {isEditMode ? (
           <Autocomplete
@@ -1171,6 +1296,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
       {/* Timestamps */}
       <Box sx={{ mt: 3 }}>
+        {task?.created_by && (
+          <Typography variant="caption" color="text.secondary" display="block">
+            Author: {task.created_by}
+          </Typography>
+        )}
         <Typography variant="caption" color="text.secondary" display="block">
           Created:{" "}
           {task?.created_at
@@ -1580,60 +1710,126 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    px: 1.5,
-                    py: 0.75,
-                    minHeight: 40,
+                    px: 1,
+                    minHeight: 48,
                     borderBottom: "1px solid",
                     borderColor: "divider",
                     backgroundColor: "background.paper",
                     flexShrink: 0,
                   }}
                 >
-                  {zedThreadsData?.zed_threads &&
-                  zedThreadsData.zed_threads.length > 0 ? (
-                    <Select
-                      size="small"
-                      variant="standard"
-                      value={selectedThreadSessionId || "planning"}
-                      onChange={(e) => {
-                        const val = e.target.value as string;
-                        setSelectedThreadSessionId(
-                          val === "planning" ? null : val,
-                        );
-                      }}
-                      sx={{
-                        fontSize: "0.875rem",
-                        fontWeight: 500,
-                        color: "text.secondary",
-                        minWidth: 100,
-                        "&:before": { display: "none" },
-                        "&:after": { display: "none" },
-                        "& .MuiSelect-select": { py: 0 },
-                      }}
-                    >
-                      <MenuItem value="planning">Main thread</MenuItem>
-                      {zedThreadsData.zed_threads.map((thread, index) => {
-                        const sessionId = thread.work_session?.helix_session_id;
-                        if (!sessionId) return null;
-                        const label =
-                          thread.work_session?.name ||
-                          thread.work_session?.implementation_task_title ||
-                          `Thread ${index + 2}`;
-                        return (
-                          <MenuItem key={sessionId} value={sessionId}>
-                            {label}
-                          </MenuItem>
-                        );
-                      })}
-                    </Select>
-                  ) : (
-                    <Typography
-                      variant="body2"
-                      sx={{ fontWeight: 500, color: "text.secondary" }}
-                    >
-                      Chat
-                    </Typography>
-                  )}
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1, minWidth: 0 }}>
+                    {/* Chat / Spec tab strip */}
+                    {task?.design_docs_pushed_at ? (
+                      <ToggleButtonGroup
+                        value="chat"
+                        exclusive
+                        onChange={(_, val) => {
+                          if (val === "spec") handleReviewSpec();
+                        }}
+                        size="small"
+                        sx={{
+                          flexShrink: 0,
+                          "& .MuiToggleButton-root": {
+                            px: 1.25,
+                            py: 0.25,
+                            fontSize: "0.8rem",
+                            fontWeight: 500,
+                            textTransform: "none",
+                            border: "1px solid",
+                            borderColor: "divider",
+                            color: "text.secondary",
+                            "&.Mui-selected": {
+                              color: "text.primary",
+                              backgroundColor: "action.selected",
+                            },
+                          },
+                        }}
+                      >
+                        <ToggleButton value="chat" disableRipple={false}>
+                          Chat
+                        </ToggleButton>
+                        <ToggleButton value="spec" disableRipple={false}>
+                          <Description sx={{ fontSize: 14, mr: 0.5 }} />
+                          Spec
+                        </ToggleButton>
+                      </ToggleButtonGroup>
+                    ) : (
+                      <ToggleButtonGroup
+                        value="chat"
+                        exclusive
+                        size="small"
+                        sx={{
+                          flexShrink: 0,
+                          "& .MuiToggleButton-root": {
+                            px: 1.25,
+                            py: 0.25,
+                            fontSize: "0.8rem",
+                            fontWeight: 500,
+                            textTransform: "none",
+                            border: "1px solid",
+                            borderColor: "divider",
+                            color: "text.secondary",
+                            "&.Mui-selected": {
+                              color: "text.primary",
+                              backgroundColor: "action.selected",
+                            },
+                          },
+                        }}
+                      >
+                        <ToggleButton value="chat" disableRipple disabled sx={{ '&.Mui-disabled': { color: 'text.primary', borderColor: 'divider' } }}>
+                          Chat
+                        </ToggleButton>
+                      </ToggleButtonGroup>
+                    )}
+                    {/* Thread selector (shown alongside tabs when multiple threads exist) */}
+                    {(() => {
+                      // Filter out threads that point to the same session as planning (they're the same conversation)
+                      const extraThreads = zedThreadsData?.zed_threads?.filter(
+                        t => t.work_session?.helix_session_id && t.work_session.helix_session_id !== task?.planning_session_id
+                      ) || [];
+                      if (extraThreads.length === 0) return null;
+                      return (
+                        <Select
+                          size="small"
+                          variant="standard"
+                          value={selectedThreadSessionId || "planning"}
+                          onChange={(e) => {
+                            const val = e.target.value as string;
+                            setSelectedThreadSessionId(
+                              val === "planning" ? null : val,
+                            );
+                          }}
+                          sx={{
+                            fontSize: "0.8rem",
+                            fontWeight: 500,
+                            color: "text.secondary",
+                            minWidth: 80,
+                            maxWidth: 140,
+                            ml: 1,
+                            "&:before": { display: "none" },
+                            "&:after": { display: "none" },
+                            "& .MuiSelect-select": { py: 0 },
+                          }}
+                        >
+                          <MenuItem value="planning">Main thread</MenuItem>
+                          {extraThreads.map((thread, index) => {
+                            const sessionId = thread.work_session?.helix_session_id;
+                            if (!sessionId) return null;
+                            const label =
+                              thread.work_session?.name ||
+                              thread.work_session?.implementation_task_title ||
+                              `Thread ${index + 2}`;
+                            return (
+                              <MenuItem key={sessionId} value={sessionId}>
+                                {label}
+                              </MenuItem>
+                            );
+                          })}
+                        </Select>
+                      );
+                    })()}
+                  </Box>
                   <Tooltip title="Collapse chat panel">
                     <IconButton
                       size="small"
@@ -1644,7 +1840,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           handleViewChange("desktop");
                         }
                       }}
-                      sx={{ p: 0.25 }}
+                      sx={{ p: 0.25, flexShrink: 0 }}
                     >
                       <ChevronLeftIcon sx={{ fontSize: 18 }} />
                     </IconButton>
@@ -1793,7 +1989,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       id: task.id || "",
                       status: task.status || "",
                       design_docs_pushed_at: task.design_docs_pushed_at,
-                      pull_request_url: task.pull_request_url,
+                      repo_pull_requests: task.repo_pull_requests,
                       base_branch: task.base_branch,
                       branch_name: task.branch_name,
                       archived: task.archived,
@@ -2171,7 +2367,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   id: task.id || "",
                   status: task.status || "",
                   design_docs_pushed_at: task.design_docs_pushed_at,
-                  pull_request_url: task.pull_request_url,
+                  repo_pull_requests: task.repo_pull_requests,
                   base_branch: task.base_branch,
                   branch_name: task.branch_name,
                   archived: task.archived,
@@ -2349,8 +2545,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   overflow: "hidden",
                 }}
               >
-                {zedThreadsData?.zed_threads &&
-                  zedThreadsData.zed_threads.length > 0 && (
+                {(() => {
+                  const extraThreads = zedThreadsData?.zed_threads?.filter(
+                    t => t.work_session?.helix_session_id && t.work_session.helix_session_id !== task?.planning_session_id
+                  ) || [];
+                  if (extraThreads.length === 0) return null;
+                  return (
                     <Box
                       sx={{
                         px: 1.5,
@@ -2381,7 +2581,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         }}
                       >
                         <MenuItem value="planning">Main thread</MenuItem>
-                        {zedThreadsData.zed_threads.map((thread, index) => {
+                        {extraThreads.map((thread, index) => {
                           const sessionId =
                             thread.work_session?.helix_session_id;
                           if (!sessionId) return null;
@@ -2397,7 +2597,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         })}
                       </Select>
                     </Box>
-                  )}
+                  );
+                })()}
                 <EmbeddedSessionView
                   ref={sessionViewRef}
                   sessionId={activeSessionId}

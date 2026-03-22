@@ -52,6 +52,11 @@ const SpecTaskReviewPage: FC = () => {
     account.orgNavigate('project-task-detail', { id: projectId, taskId })
   }
 
+  const handleApproved = () => {
+    // After approval, navigate to the workspace so the user can see the agent working
+    account.orgNavigate('project-specs', { id: projectId, openTask: taskId })
+  }
+
   const handleOpenInWorkspace = () => {
     // Navigate to project specs page with split screen view and open this review
     account.orgNavigate('project-specs', { id: projectId, tab: 'workspace', openTask: taskId, openReview: reviewId })
@@ -91,7 +96,7 @@ const SpecTaskReviewPage: FC = () => {
       orgBreadcrumbs={true}
       showDrawerButton={true}
       topbarContent={
-        <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', alignItems: 'center' }}>
+        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end', width: '100%', alignItems: 'center' }}>
           <Tooltip title="Open in Split Screen">
             <IconButton onClick={handleOpenInWorkspace} size="small">
               <TiledIcon />
@@ -106,6 +111,8 @@ const SpecTaskReviewPage: FC = () => {
           specTaskId={taskId}
           reviewId={reviewId}
           onClose={handleBack}
+          onBack={handleBack}
+          onImplementationStarted={handleApproved}
           hideTitle={true}
         />
       </Box>

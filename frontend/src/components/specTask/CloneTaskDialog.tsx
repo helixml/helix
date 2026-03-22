@@ -83,8 +83,8 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
     return projects.filter((p: TypesProject) => p.id !== sourceProjectId);
   }, [projectsData, sourceProjectId]);
 
-  // Fetch repos without projects
-  const { data: reposWithoutProjects, isLoading: loadingRepos } = useReposWithoutProjects();
+  // Fetch repos without projects — only when the dialog is open
+  const { data: reposWithoutProjects, isLoading: loadingRepos } = useReposWithoutProjects(undefined, open);
 
   // Filtered projects based on search
   const filteredProjects = useMemo(() => {

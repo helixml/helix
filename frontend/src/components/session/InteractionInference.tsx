@@ -83,6 +83,7 @@ export const MessageWithToolCalls: FC<{
   showBlinker: boolean;
   isStreaming: boolean;
   onFilterDocument?: (docId: string) => void;
+  compactThinking?: boolean;
 }> = ({
   text,
   responseEntries,
@@ -91,6 +92,7 @@ export const MessageWithToolCalls: FC<{
   showBlinker,
   isStreaming,
   onFilterDocument,
+  compactThinking = false,
 }) => {
   // Structured path: use response_entries from the Go API (preserves type + order)
   if (responseEntries && responseEntries.length > 0) {
@@ -123,6 +125,7 @@ export const MessageWithToolCalls: FC<{
               showBlinker={showBlinker && i === responseEntries.length - 1}
               isStreaming={isStreaming && i === responseEntries.length - 1}
               onFilterDocument={onFilterDocument}
+              compactThinking={compactThinking}
             />
           );
         })}
@@ -143,6 +146,7 @@ export const MessageWithToolCalls: FC<{
         showBlinker={showBlinker}
         isStreaming={isStreaming}
         onFilterDocument={onFilterDocument}
+        compactThinking={compactThinking}
       />
     );
   }
@@ -169,6 +173,7 @@ export const MessageWithToolCalls: FC<{
             showBlinker={showBlinker && i === segments.length - 1}
             isStreaming={isStreaming && i === segments.length - 1}
             onFilterDocument={onFilterDocument}
+            compactThinking={compactThinking}
           />
         );
       })}

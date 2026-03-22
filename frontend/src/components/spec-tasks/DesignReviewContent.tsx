@@ -28,10 +28,14 @@ import {
   Tooltip,
   Badge,
   useMediaQuery,
+  ToggleButtonGroup,
+  ToggleButton,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import EditIcon from "@mui/icons-material/Edit";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import Description from "@mui/icons-material/Description";
 import { GitBranch } from "lucide-react";
 import CommentIcon from "@mui/icons-material/Comment";
 import ShareIcon from "@mui/icons-material/Share";
@@ -75,6 +79,8 @@ interface DesignReviewContentProps {
   initialTab?: DocumentType;
   /** Hide the title in header - use when embedded in a page with its own breadcrumbs */
   hideTitle?: boolean;
+  /** If provided, renders a "← Back to task" tab as the first tab in the tab strip */
+  onBack?: () => void;
 }
 
 const DOCUMENT_LABELS = {
@@ -90,6 +96,7 @@ export default function DesignReviewContent({
   onImplementationStarted,
   initialTab = "requirements",
   hideTitle = false,
+  onBack,
 }: DesignReviewContentProps) {
   const snackbar = useSnackbar();
   const api = useApi();
@@ -139,7 +146,7 @@ export default function DesignReviewContent({
     return dependencies.filter((dependency) => {
       const dependencyStatus = dependency.status || "";
       const isCompleted =
-        dependencyStatus === "done" || dependencyStatus === "completed";
+        (dependencyStatus as string) === "done" || (dependencyStatus as string) === "completed";
       return !dependency.archived && !isCompleted;
     });
   }, [task?.depends_on]);
@@ -192,6 +199,7 @@ export default function DesignReviewContent({
   const [streamingResponse, setStreamingResponse] = useState<{
     commentId: string;
     content: string;
+    entries: Array<{ type: 'text' | 'tool_call'; content: string; message_id: string; tool_name?: string; tool_status?: string }>;
   } | null>(null);
   const account = useAccount();
   const queryClient = useQueryClient();
@@ -304,8 +312,9 @@ export default function DesignReviewContent({
     });
 
     let accumulatedResponse = "";
-    // Track per-entry streaming content (same pattern as streaming.tsx)
-    let entryContents: string[] = [];
+    // Track per-entry streaming content with type metadata
+    type StreamEntry = { type: 'text' | 'tool_call'; content: string; message_id: string; tool_name?: string; tool_status?: string };
+    let streamEntries: StreamEntry[] = [];
 
     const messageHandler = (event: MessageEvent) => {
       try {
@@ -326,26 +335,32 @@ export default function DesignReviewContent({
             patch: string;
             patch_offset: number;
             total_length: number;
+            type?: string;
+            tool_name?: string;
+            tool_status?: string;
           }>;
           const entryCount = parsedData.entry_count as number;
 
           // Grow array if new entries appeared
-          while (entryContents.length < entryCount) {
-            entryContents.push("");
+          while (streamEntries.length < entryCount) {
+            streamEntries.push({ type: 'text', content: '', message_id: String(streamEntries.length) });
           }
-          // Apply per-entry patches
+          // Apply per-entry patches and capture type metadata
           for (const ep of entryPatches) {
-            if (ep.index < entryContents.length) {
-              entryContents[ep.index] = applyPatch(
-                entryContents[ep.index],
+            if (ep.index < streamEntries.length) {
+              streamEntries[ep.index].content = applyPatch(
+                streamEntries[ep.index].content,
                 ep.patch_offset,
                 ep.patch,
                 ep.total_length,
               );
+              if (ep.type) streamEntries[ep.index].type = ep.type as 'text' | 'tool_call';
+              if (ep.tool_name) streamEntries[ep.index].tool_name = ep.tool_name;
+              if (ep.tool_status) streamEntries[ep.index].tool_status = ep.tool_status;
             }
           }
-          // Join all entry contents for the design review bubble (plain text display)
-          accumulatedResponse = entryContents.filter(Boolean).join("\n\n");
+          // Join text entries for flat content fallback
+          accumulatedResponse = streamEntries.filter(e => e.content).map(e => e.content).join("\n\n");
 
           console.log(
             "[DRWS-DEBUG] interaction_patch received, entry_count:",
@@ -370,6 +385,7 @@ export default function DesignReviewContent({
             setStreamingResponse({
               commentId: targetCommentId,
               content: accumulatedResponse,
+              entries: [...streamEntries],
             });
           }
         }
@@ -435,6 +451,7 @@ export default function DesignReviewContent({
               setStreamingResponse({
                 commentId: targetCommentId,
                 content: accumulatedResponse,
+                entries: [...streamEntries],
               });
             } else {
               console.warn(
@@ -455,8 +472,8 @@ export default function DesignReviewContent({
                 queryKey: designReviewKeys.detail(specTaskId, reviewId),
               });
               setStreamingResponse(null);
-              // Reset entry contents for next streaming response
-              entryContents = [];
+              // Reset entry tracking for next streaming response
+              streamEntries = [];
             }
           }
         }
@@ -474,7 +491,12 @@ export default function DesignReviewContent({
 
           if (interaction.response_message) {
             accumulatedResponse = interaction.response_message;
-            entryContents = [interaction.response_message];
+            // Use structured entries from the wire if available, else flat text entry
+            if (interaction.response_entries?.length) {
+              streamEntries = interaction.response_entries;
+            } else {
+              streamEntries = [{ type: 'text', content: interaction.response_message, message_id: '0' }];
+            }
 
             const currentQueueStatus = queueStatusRef.current;
             const currentComments = allCommentsRef.current;
@@ -491,6 +513,7 @@ export default function DesignReviewContent({
               setStreamingResponse({
                 commentId: targetCommentId,
                 content: accumulatedResponse,
+                entries: [...streamEntries],
               });
             }
           }
@@ -506,7 +529,7 @@ export default function DesignReviewContent({
               queryKey: designReviewKeys.detail(specTaskId, reviewId),
             });
             setStreamingResponse(null);
-            entryContents = [];
+            streamEntries = [];
           }
         }
       } catch (error) {
@@ -877,8 +900,8 @@ export default function DesignReviewContent({
     try {
       const apiClient = api.getApiClient();
       const response =
-        await apiClient.v1SpecTasksStartImplementationCreate(specTaskId);
-      const data = response.data;
+        await apiClient.v1SpecTasksApproveImplementationCreate(specTaskId);
+      const data = response.data as any;
 
       snackbar.success(`Implementation started on branch: ${data.branch_name}`);
 
@@ -955,6 +978,52 @@ export default function DesignReviewContent({
             }}
           >
             {/* Tabs on the left */}
+            {onBack && (
+              <>
+                {/* Desktop: Chat/Spec toggle matching the issue detail view */}
+                <ToggleButtonGroup
+                  value="spec"
+                  exclusive
+                  onChange={(_, val) => { if (val === "chat") onBack(); }}
+                  size="small"
+                  sx={{
+                    display: { xs: 'none', sm: 'flex' },
+                    flexShrink: 0,
+                    alignSelf: 'center',
+                    ml: 3,
+                    mr: 1,
+                    "& .MuiToggleButton-root": {
+                      px: 1.25,
+                      py: 0.25,
+                      fontSize: "0.8rem",
+                      fontWeight: 500,
+                      textTransform: "none",
+                      border: "1px solid",
+                      borderColor: "divider",
+                      color: "text.secondary",
+                      "&.Mui-selected": {
+                        color: "text.primary",
+                        backgroundColor: "action.selected",
+                      },
+                    },
+                  }}
+                >
+                  <ToggleButton value="chat">Chat</ToggleButton>
+                  <ToggleButton value="spec">
+                    <Description sx={{ fontSize: 14, mr: 0.5 }} />
+                    Spec
+                  </ToggleButton>
+                </ToggleButtonGroup>
+                {/* Mobile: just an arrow icon */}
+                <IconButton
+                  onClick={onBack}
+                  size="small"
+                  sx={{ display: { xs: 'flex', sm: 'none' }, ml: 0.5, mr: 0.5 }}
+                >
+                  <ArrowBackIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </>
+            )}
             <Tabs
               value={activeTab}
               onChange={(_, value) => handleTabChange(value)}
@@ -1252,6 +1321,11 @@ export default function DesignReviewContent({
                         ? streamingResponse.content
                         : undefined
                     }
+                    streamingEntries={
+                      isCurrentlyStreaming
+                        ? streamingResponse.entries
+                        : undefined
+                    }
                     commentRef={(el) => {
                       if (el) {
                         commentRefs.current.set(comment.id!, el);
@@ -1278,6 +1352,7 @@ export default function DesignReviewContent({
                   setSelectedText("");
                 }}
                 isNarrowViewport={isNarrowViewport}
+                isSubmitting={createCommentMutation.isPending}
               />
             </Box>
           </Box>
@@ -1288,6 +1363,7 @@ export default function DesignReviewContent({
           show={showCommentLog}
           comments={activeDocComments}
           onResolveComment={handleResolveComment}
+          streamingResponse={streamingResponse}
         />
       </Box>
 

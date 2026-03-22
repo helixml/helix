@@ -680,6 +680,8 @@ export interface ServerClaudePollLoginResponse {
   /** Raw credentials JSON */
   credentials?: string;
   found?: boolean;
+  /** OAuth URL for native browser */
+  url?: string;
 }
 
 export interface ServerClientBufferStats {
@@ -1162,6 +1164,10 @@ export interface ServerPhaseProgress {
   status?: string;
 }
 
+export interface ServerPinnedProjectsResponse {
+  pinned_project_ids?: string[];
+}
+
 export interface ServerPromptPinRequest {
   pinned?: boolean;
 }
@@ -1257,6 +1263,13 @@ export interface ServerSandboxInstanceInfo {
   id?: string;
   session_id?: string;
   status?: string;
+}
+
+export interface ServerSessionClaudeCredentialsResponse {
+  /** "oauth" or "setup_token" */
+  credential_type?: string;
+  oauth_credentials?: TypesClaudeOAuthCredentials;
+  setup_token?: string;
 }
 
 export interface ServerSessionSandboxStateResponse {
@@ -1379,6 +1392,10 @@ export interface ServerVideoStreamingStats {
   client_count?: number;
   frames_received?: number;
   gop_buffer_size?: number;
+}
+
+export interface ServerAddLabelRequest {
+  label?: string;
 }
 
 export interface ServicesSampleProjectCode {
@@ -1846,6 +1863,40 @@ export interface TypesAssistantZapier {
   name?: string;
 }
 
+export interface TypesAttentionEvent {
+  acknowledged_at?: string;
+  created_at?: string;
+  description?: string;
+  dismissed_at?: string;
+  event_type?: TypesAttentionEventType;
+  id?: string;
+  idempotency_key?: string;
+  metadata?: number[];
+  organization_id?: string;
+  project_id?: string;
+  /** Denormalized for display without joins */
+  project_name?: string;
+  snoozed_until?: string;
+  spec_task_id?: string;
+  spec_task_name?: string;
+  title?: string;
+  user_id?: string;
+}
+
+export enum TypesAttentionEventType {
+  AttentionEventSpecsPushed = "specs_pushed",
+  AttentionEventAgentInteractionCompleted = "agent_interaction_completed",
+  AttentionEventSpecFailed = "spec_failed",
+  AttentionEventImplementationFailed = "implementation_failed",
+  AttentionEventPRReady = "pr_ready",
+}
+
+export interface TypesAttentionEventUpdateRequest {
+  acknowledge?: boolean;
+  dismiss?: boolean;
+  snoozed_until?: string;
+}
+
 export enum TypesAuditEventType {
   AuditEventTaskCreated = "task_created",
   AuditEventTaskCloned = "task_cloned",
@@ -1890,8 +1941,7 @@ export interface TypesAuditMetadata {
   /** Project information */
   project_name?: string;
   /** Pull request information */
-  pull_request_id?: string;
-  pull_request_url?: string;
+  pull_requests?: TypesRepoPR[];
   /** Hash of requirements spec content */
   requirements_spec_hash?: string;
   /** Helix session/interaction linking */
@@ -2041,6 +2091,8 @@ export interface TypesClaudeSubscription {
   access_token_expires_at?: string;
   created?: string;
   created_by?: string;
+  /** "oauth" or "setup_token" */
+  credential_type?: string;
   id?: string;
   last_error?: string;
   last_refreshed_at?: string;
@@ -2268,6 +2320,8 @@ export interface TypesCreateClaudeSubscriptionRequest {
   owner_id?: string;
   /** "user" or "org" */
   owner_type?: TypesOwnerType;
+  /** From `claude setup-token` (alternative to credentials) */
+  setup_token?: string;
 }
 
 export interface TypesCreatePullRequestRequest {
@@ -2769,12 +2823,6 @@ export interface TypesGitRepository {
   owner_id?: string;
   /** Password for the repository */
   password?: string;
-  /**
-   * Deprecated: ProjectID is maintained for backward compatibility only.
-   * Use the project_repositories junction table for many-to-many project-repo relationships.
-   * This column is kept in the database for rollback compatibility but reads should use the junction table.
-   */
-  project_id?: string;
   repo_type?: TypesGitRepositoryType;
   status?: TypesGitRepositoryStatus;
   updated_at?: string;
@@ -2949,6 +2997,14 @@ export interface TypesInteraction {
   /** User prompt (multi-part) */
   prompt_message_content?: TypesMessageContent;
   rag_results?: TypesSessionRAGResult[];
+  /**
+   * ResponseEntries holds the structured response as an ordered list of typed entries.
+   * Each entry is either "text" (assistant prose) or "tool_call" (tool invocation),
+   * preserving the ordering and boundaries that Zed's internal Vec<AgentThreadEntry> has.
+   * This is populated on completion alongside ResponseMessage (flat string, backward compat).
+   * The frontend uses this to render entries with the correct component in the correct order.
+   */
+  response_entries?: number[];
   /** e.g. json */
   response_format?: TypesResponseFormat;
   /** e.g. json */
@@ -3755,6 +3811,7 @@ export interface TypesPromptHistoryEntry {
   /**
    * Interrupt indicates this message should interrupt the current conversation
    * When false, message waits until current conversation completes
+   * Default is false: queue mode is the default, interrupt is explicit
    */
   interrupt?: boolean;
   /** Saved as a reusable template */
@@ -4029,6 +4086,16 @@ export interface TypesRegisterRequest {
   full_name?: string;
   password?: string;
   password_confirm?: string;
+}
+
+export interface TypesRepoPR {
+  pr_id?: string;
+  pr_number?: number;
+  /** "open", "closed", "merged" */
+  pr_state?: string;
+  pr_url?: string;
+  repository_id?: string;
+  repository_name?: string;
 }
 
 export interface TypesRepositoryAccessCheck {
@@ -4527,8 +4594,6 @@ export interface TypesSessionMetadata {
   container_ip?: string;
   /** Container fields (Hydra executor) */
   container_name?: string;
-  /** "running" = should be running, "stopped" = can terminate */
-  desired_state?: string;
   /** Dev container ID for streaming */
   dev_container_id?: string;
   document_group_id?: string;
@@ -4601,6 +4666,8 @@ export interface TypesSessionMetadata {
   uploaded_data_entity_id?: string;
   /** ID of associated WorkSession */
   work_session_id?: string;
+  /** Agent name used when thread was created (e.g., "zed-agent", "claude", "qwen") */
+  zed_agent_name?: string;
   /** Associated Zed instance ID */
   zed_instance_id?: string;
   /** Associated Zed thread ID */
@@ -4734,6 +4801,8 @@ export interface TypesSpecTask {
   agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
   archived?: boolean;
+  /** Team member assigned to work on this task */
+  assignee_id?: string;
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */
@@ -4804,11 +4873,14 @@ export interface TypesSpecTask {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
-  pull_request_id?: string;
-  /** Computed field, not stored */
-  pull_request_url?: string;
+  /** Multi-repo PR tracking: list of PRs across all project repositories */
+  repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  /** "absent", "running", "starting" — derived from session config in listTasks */
+  sandbox_state?: string;
+  /** Transient startup message e.g. "Unpacking build cache" */
+  sandbox_status_message?: string;
   /** Agent activity tracking (computed from session/activity data, not stored) */
   session_updated_at?: string;
   /**
@@ -4879,6 +4951,8 @@ export interface TypesSpecTaskDesignReviewComment {
   agent_response?: string;
   /** When agent responded */
   agent_response_at?: string;
+  /** Agent's structured entries (for tool call rendering) */
+  agent_response_entries?: number[];
   /** The actual comment */
   comment_text?: string;
   /** Made optional - simplified to single type */
@@ -5002,6 +5076,8 @@ export enum TypesSpecTaskStatus {
 }
 
 export interface TypesSpecTaskUpdateRequest {
+  /** Pointer to allow clearing (set to empty string to unassign) */
+  assignee_id?: string;
   /** IDs of tasks this task depends on */
   depends_on?: string[];
   description?: string;
@@ -5023,6 +5099,8 @@ export interface TypesSpecTaskWithProject {
   agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
   archived?: boolean;
+  /** Team member assigned to work on this task */
+  assignee_id?: string;
   /** The base branch this was created from */
   base_branch?: string;
   /** "new" or "existing" */
@@ -5094,11 +5172,14 @@ export interface TypesSpecTaskWithProject {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
-  pull_request_id?: string;
-  /** Computed field, not stored */
-  pull_request_url?: string;
+  /** Multi-repo PR tracking: list of PRs across all project repositories */
+  repo_pull_requests?: TypesRepoPR[];
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  /** "absent", "running", "starting" — derived from session config in listTasks */
+  sandbox_state?: string;
+  /** Transient startup message e.g. "Unpacking build cache" */
+  sandbox_status_message?: string;
   /** Agent activity tracking (computed from session/activity data, not stored) */
   session_updated_at?: string;
   /**
@@ -6882,6 +6963,67 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns attention events that need human action for the current user. Only returns events that have not been dismissed and are not currently snoozed.
+     *
+     * @tags attention-events
+     * @name V1AttentionEventsList
+     * @summary List active attention events
+     * @request GET:/api/v1/attention-events
+     */
+    v1AttentionEventsList: (
+      query?: {
+        /** Filter to active (non-dismissed, non-snoozed) events only (default: true) */
+        active?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAttentionEvent[], string>({
+        path: `/api/v1/attention-events`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Acknowledge, dismiss, or snooze an attention event.
+     *
+     * @tags attention-events
+     * @name V1AttentionEventsPartialUpdate
+     * @summary Update an attention event
+     * @request PATCH:/api/v1/attention-events/{id}
+     */
+    v1AttentionEventsPartialUpdate: (
+      id: string,
+      request: TypesAttentionEventUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<Record<string, string>, string>({
+        path: `/api/v1/attention-events/${id}`,
+        method: "PATCH",
+        body: request,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Bulk-dismiss all active (non-dismissed) attention events for the current user.
+     *
+     * @tags attention-events
+     * @name V1AttentionEventsDismissAllCreate
+     * @summary Dismiss all active attention events
+     * @request POST:/api/v1/attention-events/dismiss-all
+     */
+    v1AttentionEventsDismissAllCreate: (params: RequestParams = {}) =>
+      this.request<Record<string, any>, string>({
+        path: `/api/v1/attention-events/dismiss-all`,
+        method: "POST",
         format: "json",
         ...params,
       }),
@@ -9979,6 +10121,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Remove a project from the current user's pinned projects
+     *
+     * @tags Projects
+     * @name V1ProjectsPinDelete
+     * @summary Unpin a project
+     * @request DELETE:/api/v1/projects/{id}/pin
+     * @secure
+     */
+    v1ProjectsPinDelete: (id: string, params: RequestParams = {}) =>
+      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/pin`,
+        method: "DELETE",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Pin a project for the current user so it appears at the top of the projects board
+     *
+     * @tags Projects
+     * @name V1ProjectsPinCreate
+     * @summary Pin a project
+     * @request POST:/api/v1/projects/{id}/pin
+     * @secure
+     */
+    v1ProjectsPinCreate: (id: string, params: RequestParams = {}) =>
+      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/pin`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get all repositories attached to a project
      *
      * @tags Projects
@@ -10180,6 +10360,22 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns a sorted list of unique labels across all spec tasks in a project
+     *
+     * @tags spec-driven-tasks
+     * @name V1ProjectsLabelsDetail
+     * @summary List all labels used in a project
+     * @request GET:/api/v1/projects/{projectId}/labels
+     */
+    v1ProjectsLabelsDetail: (projectId: string, params: RequestParams = {}) =>
+      this.request<string[], TypesAPIError>({
+        path: `/api/v1/projects/${projectId}/labels`,
+        method: "GET",
         format: "json",
         ...params,
       }),
@@ -11417,7 +11613,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SessionsClaudeCredentialsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesClaudeOAuthCredentials, SystemHTTPError>({
+      this.request<ServerSessionClaudeCredentialsResponse, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/claude-credentials`,
         method: "GET",
         secure: true,
@@ -11918,6 +12114,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
          * @default false
          */
         with_depends_on?: boolean;
+        /** Filter by labels (comma-separated, AND semantics) */
+        labels?: string;
         /**
          * Limit number of results
          * @default 50
@@ -12277,6 +12475,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/${taskId}/clone-groups`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Adds a label to a spec task (idempotent - no error if label already exists)
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksLabelsCreate
+     * @summary Add a label to a spec task
+     * @request POST:/api/v1/spec-tasks/{taskId}/labels
+     */
+    v1SpecTasksLabelsCreate: (taskId: string, request: ServerAddLabelRequest, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/labels`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Removes a label from a spec task (no-op if label does not exist)
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksLabelsDelete
+     * @summary Remove a label from a spec task
+     * @request DELETE:/api/v1/spec-tasks/{taskId}/labels/{label}
+     */
+    v1SpecTasksLabelsDelete: (taskId: string, label: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/labels/${label}`,
+        method: "DELETE",
         format: "json",
         ...params,
       }),
@@ -12927,6 +13159,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesUser, SystemHTTPError>({
         path: `/api/v1/users/me/onboarding`,
         method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the list of project IDs pinned by the current user
+     *
+     * @tags Users
+     * @name V1UsersMePinnedProjectsList
+     * @summary Get pinned project IDs
+     * @request GET:/api/v1/users/me/pinned-projects
+     * @secure
+     */
+    v1UsersMePinnedProjectsList: (params: RequestParams = {}) =>
+      this.request<ServerPinnedProjectsResponse, SystemHTTPError>({
+        path: `/api/v1/users/me/pinned-projects`,
+        method: "GET",
         secure: true,
         format: "json",
         ...params,

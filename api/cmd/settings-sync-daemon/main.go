@@ -44,6 +44,9 @@ type SettingsDaemon struct {
 	// Track the last expiresAt we know about, so we can detect Claude Code token refreshes
 	lastKnownExpiresAt int64
 
+	// Setup token from `claude setup-token` (alternative to file-based OAuth credentials)
+	claudeSetupToken string
+
 	// Timestamp of our last write to the credentials file (to ignore our own fsnotify events)
 	lastCredWrite time.Time
 
@@ -158,26 +161,20 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 				env["ANTHROPIC_API_KEY"] = d.userAPIKey
 			}
 			log.Printf("Using claude_code runtime (API key mode): base_url=%s", baseURL)
+		} else if d.claudeSetupToken != "" {
+			// Setup token mode: inject CLAUDE_CODE_OAUTH_TOKEN env var.
+			// No credentials file needed — Claude Code reads the token from the environment.
+			env["CLAUDE_CODE_OAUTH_TOKEN"] = d.claudeSetupToken
+			env["ANTHROPIC_BASE_URL"] = "https://api.anthropic.com"
+			_ = os.WriteFile(ClaudeSubscriptionMarkerPath, []byte("1"), 0644)
+			log.Printf("Using claude_code runtime (setup token mode)")
 		} else {
-			// Subscription mode: Claude Code reads OAuth credentials
-			// (including refresh token) from ~/.claude/.credentials.json.
-			// Gate on the file existing — Claude Code's credential reader is
-			// memoized, so if it reads before the file is written, it caches
-			// null permanently. By returning nil here, we omit agent_servers
-			// from Zed settings so Claude Code won't start. On the next poll
-			// cycle, syncClaudeCredentials() will have written the file and
-			// this check will pass.
+			// OAuth subscription mode: Claude Code reads credentials from ~/.claude/.credentials.json.
 			if _, err := os.Stat(ClaudeCredentialsPath); err != nil {
 				log.Printf("Claude credentials file not yet available, deferring claude_code agent_servers: %v", err)
 				return nil
 			}
-			// Write marker so start-zed-core.sh knows to wait for credentials
-			// before launching Zed (belt-and-suspenders with the os.Stat gate above).
 			_ = os.WriteFile(ClaudeSubscriptionMarkerPath, []byte("1"), 0644)
-			// IMPORTANT: Hydra sets ANTHROPIC_BASE_URL on ALL containers, which
-			// leaks into Claude Code's process via env inheritance. We must
-			// explicitly override it to the real Anthropic API so Claude Code
-			// talks directly to Anthropic with OAuth credentials.
 			env["ANTHROPIC_BASE_URL"] = "https://api.anthropic.com"
 			log.Printf("Using claude_code runtime (subscription mode)")
 		}
@@ -360,11 +357,9 @@ const (
 	ClaudeSubscriptionMarkerPath = "/tmp/helix-claude-subscription-mode"
 )
 
-// syncClaudeCredentials fetches Claude OAuth credentials from the Helix API
-// and writes them to ~/.claude/.credentials.json for Claude Code to use.
-// Claude Code handles its own token refresh natively — if the on-disk file
-// has a newer expiresAt than the API response, we skip the write to avoid
-// clobbering a token that Claude Code just refreshed.
+// syncClaudeCredentials fetches Claude credentials from the Helix API.
+// For OAuth credentials: writes ~/.claude/.credentials.json (Claude Code reads this).
+// For setup tokens: stores in memory and injects via CLAUDE_CODE_OAUTH_TOKEN env var.
 func (d *SettingsDaemon) syncClaudeCredentials() {
 	if !d.claudeSubscriptionAvailable {
 		return
@@ -394,35 +389,56 @@ func (d *SettingsDaemon) syncClaudeCredentials() {
 		return
 	}
 
-	// Parse the credentials from the API response
-	var creds struct {
-		AccessToken      string   `json:"accessToken"`
-		RefreshToken     string   `json:"refreshToken"`
-		ExpiresAt        int64    `json:"expiresAt"`
-		Scopes           []string `json:"scopes"`
-		SubscriptionType string   `json:"subscriptionType"`
-		RateLimitTier    string   `json:"rateLimitTier"`
+	// Parse the new unified response format
+	var credResp struct {
+		CredentialType   string `json:"credential_type"`
+		SetupToken       string `json:"setup_token,omitempty"`
+		OAuthCredentials *struct {
+			AccessToken      string   `json:"accessToken"`
+			RefreshToken     string   `json:"refreshToken"`
+			ExpiresAt        int64    `json:"expiresAt"`
+			Scopes           []string `json:"scopes"`
+			SubscriptionType string   `json:"subscriptionType"`
+			RateLimitTier    string   `json:"rateLimitTier"`
+		} `json:"oauth_credentials,omitempty"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&creds); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&credResp); err != nil {
 		log.Printf("Failed to parse Claude credentials: %v", err)
 		return
 	}
 
+	// Handle setup token mode: store in memory, inject via env var in generateAgentServerConfig.
+	// No file write needed — Claude Code reads CLAUDE_CODE_OAUTH_TOKEN from the environment.
+	if credResp.CredentialType == "setup_token" && credResp.SetupToken != "" {
+		d.claudeSetupToken = credResp.SetupToken
+		// Write markers so start-zed-core.sh knows credentials are available
+		_ = os.WriteFile(ClaudeSubscriptionMarkerPath, []byte("1"), 0644)
+		_ = os.WriteFile("/tmp/helix-claude-setup-token-mode", []byte("1"), 0644)
+		// Ensure ~/.claude.json exists with onboarding complete (required for setup tokens)
+		claudeJSON := "/home/retro/.claude.json"
+		if _, err := os.Stat(claudeJSON); os.IsNotExist(err) {
+			_ = os.WriteFile(claudeJSON, []byte(`{"hasCompletedOnboarding":true}`), 0644)
+		}
+		log.Printf("Using Claude setup token (CLAUDE_CODE_OAUTH_TOKEN mode)")
+		return
+	}
+
+	// OAuth credentials mode: write to file (existing behavior)
+	creds := credResp.OAuthCredentials
+	if creds == nil {
+		log.Printf("No OAuth credentials in response")
+		return
+	}
+
 	// Before writing, check if the on-disk file has a newer token (Claude Code refreshed it).
-	// If so, skip the write and push the refreshed token back to the API instead.
-	// We push directly here rather than relying on the fsnotify watcher because:
-	// 1. The watcher may not be running (subscription became available after startup)
-	// 2. The watcher's inode may be stale (workspace setup recreates ~/.claude as a symlink)
 	if fileExpiresAt := readCredentialsExpiresAt(ClaudeCredentialsPath); fileExpiresAt > creds.ExpiresAt {
 		log.Printf("On-disk credentials are newer (file expiresAt=%d > api expiresAt=%d), pushing to API", fileExpiresAt, creds.ExpiresAt)
 		d.pushCredentialsToAPI()
 		return
 	}
 
-	// Track what the API thinks the current expiresAt is
 	d.lastKnownExpiresAt = creds.ExpiresAt
 
-	// Build the credentials file in Claude's expected format
 	credFile := map[string]interface{}{
 		"claudeAiOauth": map[string]interface{}{
 			"accessToken":      creds.AccessToken,
@@ -440,14 +456,12 @@ func (d *SettingsDaemon) syncClaudeCredentials() {
 		return
 	}
 
-	// Ensure directory exists
 	credDir := filepath.Dir(ClaudeCredentialsPath)
 	if err := os.MkdirAll(credDir, 0700); err != nil {
 		log.Printf("Failed to create Claude credentials directory: %v", err)
 		return
 	}
 
-	// Atomic write
 	tmpFile := ClaudeCredentialsPath + ".tmp"
 	if err := os.WriteFile(tmpFile, credJSON, 0600); err != nil {
 		log.Printf("Failed to write Claude credentials temp file: %v", err)

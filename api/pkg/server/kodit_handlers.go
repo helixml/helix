@@ -472,7 +472,7 @@ func (apiServer *HelixAPIServer) reRegisterWithKodit(r *http.Request, repository
 		Str("clone_url", koditCloneURL).
 		Msg("Attempting to re-register repository with Kodit")
 
-	koditRepoID, _, err := apiServer.koditService.RegisterRepository(r.Context(), koditCloneURL)
+	koditRepoID, _, err := apiServer.koditService.RegisterRepository(r.Context(), koditCloneURL, repository.ExternalURL)
 	if err != nil {
 		return 0, fmt.Errorf("failed to register repository with Kodit: %w", err)
 	}

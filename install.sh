@@ -1470,11 +1470,11 @@ generate_encryption_key() {
 # Function to clean up old Helix Docker images that are no longer needed
 # This helps reclaim disk space after upgrades by removing old image versions
 # Parameters:
-#   $1 - image_prefix: Prefix pattern for images to clean (e.g., "registry.helixml.tech/helix/")
+#   $1 - image_prefix: Prefix pattern for images to clean (e.g., "ghcr.io/helixml/")
 #   $2 - keep_version: Version tag to keep (e.g., "1.5.0") - all other versions are removed
 #   $3 - image_filter: Optional filter pattern (e.g., "controlplane" or "runner")
 cleanup_old_helix_images() {
-    local image_prefix="${1:-registry.helixml.tech/helix/}"
+    local image_prefix="${1:-ghcr.io/helixml/}"
     local keep_version="${2:-}"
     local image_filter="${3:-}"
 
@@ -1856,7 +1856,7 @@ EOF
 # Sandbox streaming configuration
 # GPU vendor for video pipeline configuration: nvidia, amd, intel, none (software rendering)
 GPU_VENDOR=${GPU_VENDOR}
-ZED_IMAGE=registry.helixml.tech/helix/zed-agent:${LATEST_RELEASE}
+ZED_IMAGE=ghcr.io/helixml/zed-agent:${LATEST_RELEASE}
 HELIX_HOST_HOME=${INSTALL_DIR}
 
 # Helix hostname (displayed in browser to distinguish between servers)
@@ -2032,7 +2032,7 @@ CADDYEOF"
             docker compose up -d --remove-orphans
         fi
         # Clean up old controlplane Docker images to free disk space
-        cleanup_old_helix_images "registry.helixml.tech/helix/" "$LATEST_RELEASE"
+        cleanup_old_helix_images "ghcr.io/helixml/" "$LATEST_RELEASE"
         if [ "$CADDY" = true ]; then
             echo "Restarting Caddy reverse proxy..."
             sudo systemctl restart caddy
@@ -2085,7 +2085,7 @@ GPU_VENDOR="${GPU_VENDOR}"  # Set by install.sh: "nvidia" or "amd"
 HF_TOKEN_PARAM=""
 
 # Check if api-1 container is running
-if docker ps --format '{{.Image}}' | grep 'registry.helixml.tech/helix/controlplane'; then
+if docker ps --format '{{.Image}}' | grep -E '(registry\.helixml\.tech/helix|ghcr\.io/helixml)/controlplane'; then
     API_HOST="http://api:8080"
     echo "Detected controlplane container running. Setting API_HOST to \${API_HOST}"
 fi
@@ -2286,7 +2286,7 @@ for i in \$(seq 1 \$SPLIT_RUNNERS); do
         --name \$CONTAINER_NAME --ipc=host --ulimit memlock=-1 \\
         --ulimit stack=67108864 \\
         --network="helix_default" \\
-        registry.helixml.tech/helix/runner:\${RUNNER_TAG} \\
+        ghcr.io/helixml/runner:\${RUNNER_TAG} \\
         --api-host \${API_HOST} --api-token \${RUNNER_TOKEN} \\
         --runner-id \$RUNNER_ID
 done
@@ -2302,7 +2302,7 @@ if [ -z "\$RUNNER_TAG" ]; then
     echo "   Skipping cleanup: no version specified to keep"
 else
     # Get all runner images
-    ALL_RUNNER_IMAGES=\$(docker images --format '{{.Repository}}:{{.Tag}}' | grep "registry.helixml.tech/helix/runner" | sort -u)
+    ALL_RUNNER_IMAGES=\$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E "(registry\.helixml\.tech/helix|ghcr\.io/helixml)/runner" | sort -u)
 
     REMOVED_COUNT=0
     KEPT_COUNT=0
@@ -2421,7 +2421,7 @@ HELIX_HOSTNAME="${HELIX_HOSTNAME}"
 PRIVILEGED_DOCKER="${PRIVILEGED_DOCKER}"
 
 # Check if controlplane container is running locally - if so, use Docker network hostname
-if docker ps --format '{{.Image}}' | grep -q 'registry.helixml.tech/helix/controlplane'; then
+if docker ps --format '{{.Image}}' | grep -qE '(registry\.helixml\.tech/helix|ghcr\.io/helixml)/controlplane'; then
     HELIX_API_URL="http://api:8080"
     echo "Detected controlplane container running. Setting HELIX_API_URL to ${HELIX_API_URL}"
 fi
@@ -2560,7 +2560,7 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS $VIRTIO_FLAGS \
     --device /dev/uhid \
     --device-cgroup-rule='c 13:* rmw' \
     --device-cgroup-rule='c 226:* rmw' \
-    registry.helixml.tech/helix/helix-sandbox:${SANDBOX_TAG}
+    ghcr.io/helixml/helix-sandbox:${SANDBOX_TAG}
 
 if [ $? -eq 0 ]; then
     echo "✅ Helix Sandbox container started successfully"
@@ -2574,7 +2574,7 @@ if [ $? -eq 0 ]; then
         echo "   Skipping cleanup: no version specified to keep"
     else
         # Get all sandbox images
-        ALL_SANDBOX_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep "registry.helixml.tech/helix/helix-sandbox" | sort -u)
+        ALL_SANDBOX_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E "(registry\.helixml\.tech/helix|ghcr\.io/helixml)/helix-sandbox" | sort -u)
 
         REMOVED_COUNT=0
         KEPT_COUNT=0
@@ -2676,7 +2676,7 @@ EOF
             docker compose up -d --remove-orphans
         fi
         # Clean up old controlplane Docker images to free disk space
-        cleanup_old_helix_images "registry.helixml.tech/helix/" "$LATEST_RELEASE"
+        cleanup_old_helix_images "ghcr.io/helixml/" "$LATEST_RELEASE"
         # Restart Caddy if it was installed (for HTTPS reverse proxy)
         if [ "$CADDY" = true ]; then
             echo "Restarting Caddy reverse proxy..."

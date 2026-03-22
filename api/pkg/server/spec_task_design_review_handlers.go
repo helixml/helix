@@ -899,7 +899,8 @@ func (s *HelixAPIServer) linkAgentResponseToComment(
 	}
 
 	// Update comment with agent response
-	comment.AgentResponse = interaction.ResponseMessage
+	comment.AgentResponse = types.TextFromInteraction(interaction)
+	comment.AgentResponseEntries = interaction.ResponseEntries
 	now := time.Now()
 	comment.AgentResponseAt = &now
 
@@ -910,7 +911,7 @@ func (s *HelixAPIServer) linkAgentResponseToComment(
 	log.Info().
 		Str("comment_id", comment.ID).
 		Str("interaction_id", interaction.ID).
-		Int("response_length", len(interaction.ResponseMessage)).
+		Int("response_length", len(comment.AgentResponse)).
 		Msg("Linked agent response to design review comment")
 
 	return nil
@@ -973,15 +974,19 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 	// AgentResponse directly. We need to copy it over at finalization time.
 	if comment.AgentResponse == "" && comment.InteractionID != "" {
 		interaction, interactionErr := s.Store.GetInteraction(ctx, comment.InteractionID)
-		if interactionErr == nil && interaction.ResponseMessage != "" {
-			comment.AgentResponse = interaction.ResponseMessage
-			now := time.Now()
-			comment.AgentResponseAt = &now
-			log.Info().
-				Str("comment_id", comment.ID).
-				Str("interaction_id", comment.InteractionID).
-				Int("response_length", len(interaction.ResponseMessage)).
-				Msg("📝 [HELIX] Populated comment AgentResponse from interaction at finalization")
+		if interactionErr == nil {
+			text := types.TextFromInteraction(interaction)
+			if text != "" {
+				comment.AgentResponse = text
+				comment.AgentResponseEntries = interaction.ResponseEntries
+				now := time.Now()
+				comment.AgentResponseAt = &now
+				log.Info().
+					Str("comment_id", comment.ID).
+					Str("interaction_id", comment.InteractionID).
+					Int("response_length", len(text)).
+					Msg("📝 [HELIX] Populated comment AgentResponse from interaction at finalization")
+			}
 		}
 	}
 
@@ -1089,14 +1094,16 @@ func (s *HelixAPIServer) populateAgentResponseFromSession(ctx context.Context, c
 	}
 	// Walk backwards to find the most recent interaction with a response
 	for i := len(session.Interactions) - 1; i >= 0; i-- {
-		if session.Interactions[i].ResponseMessage != "" {
-			comment.AgentResponse = session.Interactions[i].ResponseMessage
+		text := types.TextFromInteraction(session.Interactions[i])
+		if text != "" {
+			comment.AgentResponse = text
+			comment.AgentResponseEntries = session.Interactions[i].ResponseEntries
 			now := time.Now()
 			comment.AgentResponseAt = &now
 			log.Info().
 				Str("comment_id", comment.ID).
 				Str("interaction_id", session.Interactions[i].ID).
-				Int("response_length", len(session.Interactions[i].ResponseMessage)).
+				Int("response_length", len(text)).
 				Msg("📝 [HELIX] Populated comment AgentResponse from latest session interaction")
 			return
 		}
@@ -1361,8 +1368,26 @@ func (s *HelixAPIServer) sendApprovalInstructionToAgent(
 		koditDoc = s.koditService.MCPDocumentation()
 	}
 
+	// Build repository section listing local + Kodit repos for the agent
+	repoSection := s.buildRepositorySectionForSpecTask(ctx, specTask, project)
+
+	// Gather non-primary repo names for per-repo PR descriptions
+	var nonPrimaryRepoNames []string
+	if specTask.ProjectID != "" {
+		projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			ProjectID: specTask.ProjectID,
+		})
+		if err == nil {
+			for _, repo := range projectRepos {
+				if repo.Name != primaryRepoName && repo.ExternalURL != "" {
+					nonPrimaryRepoNames = append(nonPrimaryRepoNames, repo.Name)
+				}
+			}
+		}
+	}
+
 	// Build the prompt using the shared function from services package
-	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines, primaryRepoName, koditDoc)
+	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines, primaryRepoName, koditDoc, repoSection, nonPrimaryRepoNames)
 
 	_, err := s.sendMessageToSpecTaskAgent(ctx, specTask, message, "")
 	if err != nil {
@@ -1407,4 +1432,41 @@ func (s *HelixAPIServer) getGuidelinesForSpecTask(ctx context.Context, task *typ
 	}
 
 	return guidelines, project
+}
+
+// buildRepositorySectionForSpecTask fetches project and org repos, then builds the repository section
+func (s *HelixAPIServer) buildRepositorySectionForSpecTask(ctx context.Context, task *types.SpecTask, project *types.Project) string {
+	if task.ProjectID == "" {
+		return ""
+	}
+
+	// Fetch project repos
+	projectRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: task.ProjectID,
+	})
+	if err != nil {
+		return ""
+	}
+
+	// Fetch Kodit org repos if enabled
+	var koditOrgRepos []*types.GitRepository
+	if project != nil && project.KoditEnabled && project.OrganizationID != "" {
+		orgRepos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			OrganizationID: project.OrganizationID,
+		})
+		if err == nil {
+			for _, repo := range orgRepos {
+				if repo.KoditIndexing {
+					koditOrgRepos = append(koditOrgRepos, repo)
+				}
+			}
+		}
+	}
+
+	primaryRepoID := ""
+	if project != nil {
+		primaryRepoID = project.DefaultRepoID
+	}
+
+	return services.BuildRepositorySection(projectRepos, koditOrgRepos, primaryRepoID)
 }

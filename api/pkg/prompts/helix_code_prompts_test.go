@@ -8,7 +8,7 @@ import (
 
 func TestImplementationApprovedPushInstruction(t *testing.T) {
 	branchName := "test-branch"
-	prompt, err := ImplementationApprovedPushInstruction(branchName)
+	prompt, err := ImplementationApprovedPushInstruction(branchName, "my-project", nil)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}

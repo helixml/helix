@@ -29,16 +29,17 @@ var userColors = []string{
 
 // ConnectedClient represents a client connected to a streaming session
 type ConnectedClient struct {
-	ID        uint32          // Unique client ID within session
-	UserID    string          // Helix user ID (from auth)
-	UserName  string          // Display name
-	AvatarURL string          // Avatar URL (optional)
-	Color     string          // Assigned color from palette
-	Conn      *websocket.Conn // WebSocket connection
-	LastX     int32           // Last known cursor X position
-	LastY     int32           // Last known cursor Y position
-	LastSeen  time.Time       // Last activity timestamp
-	wsMu      *sync.Mutex     // Shared mutex for WebSocket writes (from VideoStreamer)
+	ID             uint32          // Unique client ID within session
+	ClientUniqueID string          // Frontend-generated UUID for deduplication (per viewer tab)
+	UserID         string          // Helix user ID (from auth)
+	UserName       string          // Display name
+	AvatarURL      string          // Avatar URL (optional)
+	Color          string          // Assigned color from palette
+	Conn           *websocket.Conn // WebSocket connection
+	LastX          int32           // Last known cursor X position
+	LastY          int32           // Last known cursor Y position
+	LastSeen       time.Time       // Last activity timestamp
+	wsMu           *sync.Mutex     // Shared mutex for WebSocket writes (from VideoStreamer)
 }
 
 // SessionRegistry manages connected clients for all sessions
@@ -127,14 +128,48 @@ func (r *SessionRegistry) UpdateClientActivity(sessionID string, clientID uint32
 
 // RegisterClient adds a new client to a session and returns assigned client ID.
 // The wsMu mutex is shared with the VideoStreamer to serialize all WebSocket writes.
-func (r *SessionRegistry) RegisterClient(sessionID string, userID, userName, avatarURL string, conn *websocket.Conn, wsMu *sync.Mutex) *ConnectedClient {
+// If clientUniqueID is non-empty and a client with the same ID already exists in the session,
+// the old client is evicted (WebSocket closed, triggering cleanup in the old handler goroutine).
+func (r *SessionRegistry) RegisterClient(sessionID string, userID, userName, avatarURL, clientUniqueID string, conn *websocket.Conn, wsMu *sync.Mutex) *ConnectedClient {
 	slog.Info("[MULTIPLAYER] RegisterClient called",
 		"sessionID", sessionID,
 		"userID", userID,
-		"userName", userName)
+		"userName", userName,
+		"clientUniqueID", clientUniqueID)
 	// Get or create session
 	sessionI, _ := r.sessions.LoadOrStore(sessionID, &SessionClients{})
 	session := sessionI.(*SessionClients)
+
+	// Evict existing client with same clientUniqueID (reconnection from same viewer tab).
+	// Closing the old WebSocket unblocks the old handler's ReadMessage() loop, triggering
+	// the defer chain: Stop() -> Unsubscribe() + UnregisterClient().
+	if clientUniqueID != "" {
+		var evictIDs []uint32
+		var evictConns []*websocket.Conn
+		session.clients.Range(func(key, value any) bool {
+			existing := value.(*ConnectedClient)
+			if existing.ClientUniqueID == clientUniqueID {
+				evictIDs = append(evictIDs, existing.ID)
+				evictConns = append(evictConns, existing.Conn)
+			}
+			return true
+		})
+		for i, id := range evictIDs {
+			slog.Info("[MULTIPLAYER] Evicting stale client (same clientUniqueID reconnected)",
+				"sessionID", sessionID,
+				"evictedClientID", id,
+				"clientUniqueID", clientUniqueID)
+			session.clients.Delete(id)
+			r.broadcastUserLeft(sessionID, id)
+			// Close old connection's underlying TCP conn to unblock its handler goroutine.
+			// We close at the TCP level (not ws.Close()) because ws.Close() writes a close
+			// frame — calling it while the old handler may be mid-write would be a concurrent
+			// write violation on gorilla/websocket. TCP Close is safe for concurrent use.
+			if evictConns[i] != nil {
+				evictConns[i].UnderlyingConn().Close()
+			}
+		}
+	}
 
 	// Assign client ID and color
 	clientID := r.nextID.Add(1)
@@ -145,14 +180,15 @@ func (r *SessionRegistry) RegisterClient(sessionID string, userID, userName, ava
 	session.colorLock.Unlock()
 
 	client := &ConnectedClient{
-		ID:        clientID,
-		UserID:    userID,
-		UserName:  userName,
-		AvatarURL: avatarURL,
-		Color:     color,
-		Conn:      conn,
-		LastSeen:  time.Now(),
-		wsMu:      wsMu,
+		ID:             clientID,
+		ClientUniqueID: clientUniqueID,
+		UserID:         userID,
+		UserName:       userName,
+		AvatarURL:      avatarURL,
+		Color:          color,
+		Conn:           conn,
+		LastSeen:       time.Now(),
+		wsMu:           wsMu,
 	}
 
 	session.clients.Store(clientID, client)
@@ -187,17 +223,20 @@ func (r *SessionRegistry) sendSelfId(client *ConnectedClient) {
 	}
 }
 
-// UnregisterClient removes a client from a session
+// UnregisterClient removes a client from a session.
+// Returns false if the client was already removed (e.g., by eviction in RegisterClient).
 func (r *SessionRegistry) UnregisterClient(sessionID string, clientID uint32) {
 	sessionI, ok := r.sessions.Load(sessionID)
 	if !ok {
 		return
 	}
 	session := sessionI.(*SessionClients)
-	session.clients.Delete(clientID)
 
-	// Broadcast user left to remaining clients
-	r.broadcastUserLeft(sessionID, clientID)
+	// Only broadcast if the client was actually present — avoids duplicate "user left"
+	// broadcasts when eviction in RegisterClient already removed and broadcast for this client.
+	if _, loaded := session.clients.LoadAndDelete(clientID); loaded {
+		r.broadcastUserLeft(sessionID, clientID)
+	}
 }
 
 // broadcastCursorMissCount tracks how many times session was not found

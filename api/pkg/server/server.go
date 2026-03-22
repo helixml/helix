@@ -91,12 +91,12 @@ type HelixAPIServer struct {
 	externalAgentExecutor       external_agent.Executor
 	externalAgentWSManager      *ExternalAgentWSManager
 	externalAgentRunnerManager  *ExternalAgentRunnerManager
-	contextMappings             map[string]string // Zed context_id -> Helix session_id mapping
-	contextMappingsMutex        sync.RWMutex      // Mutex for contextMappings (and related mappings below)
+	contextMappings             map[string]string   // Zed context_id -> Helix session_id mapping
+	contextMappingsMutex        sync.RWMutex        // Mutex for contextMappings (and related mappings below)
 	sessionToWaitingInteraction map[string][]string // Helix session_id -> FIFO queue of waiting interaction IDs
-	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
-	externalAgentSessionMapping map[string]string // External agent session_id -> Helix session_id mapping
-	externalAgentUserMapping    map[string]string // External agent session_id -> user_id mapping
+	requestToSessionMapping     map[string]string   // request_id -> Helix session_id mapping (for chat_message routing)
+	externalAgentSessionMapping map[string]string   // External agent session_id -> Helix session_id mapping
+	externalAgentUserMapping    map[string]string   // External agent session_id -> user_id mapping
 	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
 	sessionCommentTimeout     map[string]*time.Timer // planning_session_id -> timeout timer for current comment
 	sessionCommentMutex       sync.RWMutex           // Mutex for timeout operations
@@ -130,6 +130,7 @@ type HelixAPIServer struct {
 	streamingRateLimiter       map[string]time.Time // session_id -> last connection time
 	streamingRateLimiterMutex  sync.RWMutex
 	specTaskOrchestrator       *services.SpecTaskOrchestrator
+	attentionService           *services.AttentionService
 	projectInternalRepoService *services.ProjectInternalRepoService
 	anthropicProxy             *anthropic.Proxy
 	auditLogService            *services.AuditLogService
@@ -139,6 +140,7 @@ type HelixAPIServer struct {
 	summaryService             *SummaryService
 	goldenBuildService         *services.GoldenBuildService
 	syncEventHook              SyncEventHook // optional test hook, nil in production
+	startTime                  time.Time     // when the server started, for grace periods
 }
 
 func NewServer(
@@ -274,6 +276,15 @@ func NewServer(
 	// Set it after initializing it as it depends on the external agent executor
 	externalAgentExecutor.SetQuotaManager(quotaManager)
 
+	// Wire up callback to clear session metadata when sandbox disconnects
+	// The key format is "hydra-{sandboxID}" - we strip the prefix to get the sandbox ID
+	connectionManager.SetOnGracePeriodExpired(func(key string) {
+		if strings.HasPrefix(key, "hydra-") {
+			sandboxID := strings.TrimPrefix(key, "hydra-")
+			externalAgentExecutor.OnSandboxDisconnected(sandboxID)
+		}
+	})
+
 	// Initialize external agent runner connection manager
 	externalAgentRunnerManager := NewExternalAgentRunnerManager()
 
@@ -283,6 +294,7 @@ func NewServer(
 		Cfg:                         cfg,
 		Store:                       store,
 		Stripe:                      stripe,
+		startTime:                   time.Now(),
 		quotaManager:                quotaManager,
 		Controller:                  appController,
 		Janitor:                     janitor,
@@ -424,10 +436,10 @@ func NewServer(
 		store,
 		apiServer.gitRepositoryService,
 		*gitHTTPConfig, // Dereference the pointer
-		apiServer.authorizeUserToResource,
+		apiServer.authorizeUserToRepository,
 		apiServer.trigger,
 	)
-	log.Info().Msg("Initialized Git HTTP server (native git via gitea/gitcmd)")
+	log.Info().Msg("Initialized Git HTTP server (native git via gitcmd)")
 
 	// Initialize Project Repository Service (startup scripts stored in code repos at .helix/startup.sh)
 	projectsBasePath := filepath.Join(cfg.FileStore.LocalFSPath, "projects")
@@ -446,6 +458,10 @@ func NewServer(
 	// Set the project secrets callback for injecting secrets as env vars into desktop containers
 	apiServer.specDrivenTaskService.GetProjectSecrets = apiServer.GetProjectSecretsAsEnvVars
 
+	// Initialize Attention Service for human-needed event notifications
+	apiServer.attentionService = services.NewAttentionService(store, cfg)
+	apiServer.gitHTTPServer.SetAttentionService(apiServer.attentionService)
+
 	// Initialize SpecTask Orchestrator components
 	apiServer.specTaskOrchestrator = services.NewSpecTaskOrchestrator(
 		store,
@@ -461,6 +477,11 @@ func NewServer(
 		apiServer.specDrivenTaskService,
 	)
 	apiServer.specTaskOrchestrator.SetGoldenBuildService(apiServer.goldenBuildService)
+	apiServer.specTaskOrchestrator.SetAttentionService(apiServer.attentionService)
+
+	// Recover golden builds that were in progress when the API last restarted.
+	// Re-attaches monitoring goroutines for still-running builds, resets stale ones.
+	go apiServer.goldenBuildService.RecoverStaleBuilds(context.Background())
 
 	// Start orchestrator
 	go func() {
@@ -468,6 +489,14 @@ func NewServer(
 			log.Error().Err(err).Msg("Failed to start SpecTask orchestrator")
 		}
 	}()
+
+	// Clear sessions stuck in "starting" state from a previous API crash.
+	// If the API just started, no session can legitimately be mid-startup.
+	if cleaned, err := store.ClearStaleStartingSessions(context.Background()); err != nil {
+		log.Error().Err(err).Msg("Failed to clear stale starting sessions")
+	} else if cleaned > 0 {
+		log.Info().Int64("cleaned", cleaned).Msg("Cleared stale 'starting' sessions from previous API crash")
+	}
 
 	// Assign admin alerter to server (initialized earlier for OIDC wiring)
 	if adminAlerter != nil {
@@ -662,6 +691,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/users/me/guidelines", apiServer.getUserGuidelines).Methods(http.MethodGet)
 	authRouter.HandleFunc("/users/me/guidelines", apiServer.updateUserGuidelines).Methods(http.MethodPut)
 	authRouter.HandleFunc("/users/me/guidelines-history", apiServer.getUserGuidelinesHistory).Methods(http.MethodGet)
+
+	// Pinned projects
+	authRouter.HandleFunc("/users/me/pinned-projects", system.Wrapper(apiServer.getPinnedProjects)).Methods(http.MethodGet)
 
 	// Onboarding
 	authRouter.HandleFunc("/users/me/onboarding", apiServer.completeOnboarding).Methods(http.MethodPost)
@@ -1131,8 +1163,12 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}/docker-cache/build", system.Wrapper(apiServer.triggerGoldenBuild)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/docker-cache/cancel", system.Wrapper(apiServer.cancelGoldenBuild)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/docker-cache", system.Wrapper(apiServer.deleteDockerCache)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/projects/{id}/docker-cache/zfs-tree", system.Wrapper(apiServer.getDockerCacheZFSTree)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/tasks-progress", apiServer.getBatchTaskProgress).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/tasks-usage", apiServer.getBatchTaskUsage).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{projectId}/labels", apiServer.listProjectLabels).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/pin", system.Wrapper(apiServer.pinProject)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/pin", system.Wrapper(apiServer.unpinProject)).Methods(http.MethodDelete)
 
 	// Project access grant routes
 	authRouter.HandleFunc("/projects/{id}/access-grants", apiServer.listProjectAccessGrants).Methods(http.MethodGet)
@@ -1152,6 +1188,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sample-projects/simple/check-access", system.Wrapper(apiServer.checkSampleProjectAccess)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sample-projects/simple/fork-repos", system.Wrapper(apiServer.forkSampleProjectRepositories)).Methods(http.MethodPost)
 
+	// Attention event routes
+	authRouter.HandleFunc("/attention-events", apiServer.listAttentionEvents).Methods(http.MethodGet)
+	authRouter.HandleFunc("/attention-events/dismiss-all", apiServer.dismissAllAttentionEvents).Methods(http.MethodPost)
+	authRouter.HandleFunc("/attention-events/{id}", apiServer.updateAttentionEvent).Methods(http.MethodPut)
+
 	// Spec-driven task routes
 	authRouter.HandleFunc("/spec-tasks/from-prompt", apiServer.createTaskFromPrompt).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks", apiServer.listTasks).Methods(http.MethodGet)
@@ -1165,6 +1206,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/{taskId}/approve-specs", apiServer.approveSpecs).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/clone", apiServer.cloneSpecTask).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/clone-groups", apiServer.listCloneGroups).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/labels", apiServer.addSpecTaskLabel).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/labels/{label}", apiServer.removeSpecTaskLabel).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/spec-tasks/{id}/usage", system.Wrapper(apiServer.getSpecTaskUsage)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/clone-groups/{groupId}/progress", apiServer.getCloneGroupProgress).Methods(http.MethodGet)
 	authRouter.HandleFunc("/repositories/without-projects", apiServer.listReposWithoutProjects).Methods(http.MethodGet)

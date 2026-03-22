@@ -234,7 +234,8 @@ type Store interface {
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
-	ListSessionsWithDesiredState(ctx context.Context, desiredState string) ([]*types.Session, error) // For reconciliation
+	ClearStaleStartingSessions(ctx context.Context) (int64, error)
+	ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error) // For cleanup on sandbox disconnect
 
 	// interactions
 	ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error)
@@ -463,6 +464,9 @@ type Store interface {
 	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
 	DeleteSpecTask(ctx context.Context, id string) error
 	ListSpecTasks(ctx context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error)
+	ListProjectLabels(ctx context.Context, projectID string) ([]string, error)
+	AddSpecTaskLabel(ctx context.Context, taskID string, label string) error
+	RemoveSpecTaskLabel(ctx context.Context, taskID string, label string) error
 	SubscribeForTasks(ctx context.Context, filter *SpecTaskSubscriptionFilter, handler func(task *types.SpecTask) error) (pubsub.Subscription, error)
 
 	// spec-driven task work sessions
@@ -536,6 +540,7 @@ type Store interface {
 	UpdateGitRepository(ctx context.Context, repo *types.GitRepository) error
 	DeleteGitRepository(ctx context.Context, id string) error
 	ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error)
+	CountGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64, excludeRepoID string) (int64, error)
 
 	// spec-driven task multi-session management
 	CreateImplementationSessions(ctx context.Context, specTaskID string, config *types.SpecTaskImplementationSessionsCreateRequest) ([]*types.SpecTaskWorkSession, error)
@@ -551,6 +556,14 @@ type Store interface {
 	UpdateSpecTaskExternalAgent(ctx context.Context, agent *types.SpecTaskExternalAgent) error
 	DeleteSpecTaskExternalAgent(ctx context.Context, agentID string) error
 	ListSpecTaskExternalAgents(ctx context.Context, userID string) ([]*types.SpecTaskExternalAgent, error)
+
+	// Attention Event methods
+	CreateAttentionEvent(ctx context.Context, event *types.AttentionEvent) (*types.AttentionEvent, error)
+	ListAttentionEvents(ctx context.Context, userID, organizationID string) ([]*types.AttentionEvent, error)
+	GetAttentionEvent(ctx context.Context, id string) (*types.AttentionEvent, error)
+	UpdateAttentionEvent(ctx context.Context, id string, update *types.AttentionEventUpdateRequest) error
+	BulkDismissAttentionEvents(ctx context.Context, userID, organizationID string) (int64, error)
+	CleanupExpiredAttentionEvents(ctx context.Context, olderThan time.Duration) (int64, error)
 
 	// Clone Group methods
 	CreateCloneGroup(ctx context.Context, group *types.CloneGroup) (*types.CloneGroup, error)
@@ -574,6 +587,7 @@ type Store interface {
 	CreateProject(ctx context.Context, project *types.Project) (*types.Project, error)
 	GetProject(ctx context.Context, projectID string) (*types.Project, error)
 	ListProjects(ctx context.Context, query *ListProjectsQuery) ([]*types.Project, error)
+	ListProjectsWithActiveGoldenBuild(ctx context.Context) ([]*types.Project, error)
 	GetProjectsCount(ctx context.Context, query *GetProjectsCountQuery) (int64, error)
 	UpdateProject(ctx context.Context, project *types.Project) error
 	DeleteProject(ctx context.Context, projectID string) error
@@ -663,6 +677,10 @@ type Store interface {
 	MarkPromptAsPending(ctx context.Context, promptID string) error
 	MarkPromptAsSent(ctx context.Context, promptID string) error
 	MarkPromptAsFailed(ctx context.Context, promptID string) error
+	// ClaimPromptForSending atomically transitions a prompt from pending/failed→sending.
+	// Returns true if this caller won the claim (rows affected > 0). If false, another
+	// goroutine already claimed it and the caller must not send the prompt.
+	ClaimPromptForSending(ctx context.Context, promptID string) (bool, error)
 	UpdatePromptPin(ctx context.Context, promptID string, pinned bool) error
 	UpdatePromptTags(ctx context.Context, promptID string, tags string) error
 	ListPinnedPrompts(ctx context.Context, userID, specTaskID string) ([]*types.PromptHistoryEntry, error)
