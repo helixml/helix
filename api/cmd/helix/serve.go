@@ -460,7 +460,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		if !cfg.Kodit.Enabled {
 			return fmt.Errorf("RAG provider 'kodit' requires KODIT_ENABLED=true")
 		}
-		ragClient = rag.NewKoditRAG(koditInit.RAGService, postgresStore, cfg.FileStore)
+		ragClient = rag.NewKoditRAG(koditInit.Service, postgresStore, cfg.FileStore)
 		log.Info().Msgf("Using Kodit for RAG")
 	default:
 		return fmt.Errorf("unknown RAG provider: %s", cfg.RAG.DefaultRagProvider)
