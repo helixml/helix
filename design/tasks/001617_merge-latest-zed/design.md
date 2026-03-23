@@ -9,7 +9,7 @@
 
 ## Merge Strategy
 
-**Branch name**: `feature/001617-merge-latest-zed` — the internal git server only accepts pushes to branches matching the `feature/<task-id>-*` pattern, as seen across all existing task branches (e.g. `feature/001608-when-zed-first-starts-up`).
+**Branch name**: `feature/001617-merge-latest-zed`
 
 **Rebase onto upstream** (preferred) rather than a merge commit, to keep history linear and diffs against upstream readable. If upstream has diverged significantly and rebase produces too many conflicts, a merge commit is acceptable.
 
