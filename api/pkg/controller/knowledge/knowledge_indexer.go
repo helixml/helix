@@ -323,6 +323,25 @@ func (r *Reconciler) indexKnowledgeWithKodit(ctx context.Context, ki rag.KoditIn
 		return fmt.Errorf("kodit directory registration failed: %w", err)
 	}
 
+	// Apply app-level chunk settings to the kodit repository if configured.
+	if r.koditService != nil && (k.RAGSettings.ChunkSize > 0 || k.RAGSettings.ChunkOverflow > 0) {
+		entity, err := r.store.GetDataEntity(ctx, dataEntityID)
+		if err == nil && entity.KoditRepositoryID != nil {
+			chunkSize := k.RAGSettings.ChunkSize
+			if chunkSize <= 0 {
+				chunkSize = 1500 // kodit default
+			}
+			chunkOverlap := k.RAGSettings.ChunkOverflow
+			minChunkSize := 50 // kodit default, not exposed in Helix RAGSettings
+			if err := r.koditService.UpdateChunkingConfig(ctx, *entity.KoditRepositoryID, chunkSize, chunkOverlap, minChunkSize); err != nil {
+				log.Warn().Err(err).
+					Str("knowledge_id", k.ID).
+					Int64("kodit_repo_id", *entity.KoditRepositoryID).
+					Msg("failed to update kodit chunking config, using defaults")
+			}
+		}
+	}
+
 	r.resetKnowledgeProgress(k.ID)
 
 	// Kodit indexes asynchronously after registration. Keep the knowledge in

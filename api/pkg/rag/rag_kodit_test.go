@@ -113,6 +113,9 @@ func (m *koditServiceMock) ListAllTasks(context.Context, int, int) ([]services.K
 func (m *koditServiceMock) ActiveTasks(context.Context) ([]services.KoditActiveTask, error) {
 	return nil, nil
 }
+func (m *koditServiceMock) UpdateChunkingConfig(context.Context, int64, int, int, int) error {
+	return nil
+}
 
 // KoditRAGSuite tests the KoditRAG implementation.
 type KoditRAGSuite struct {

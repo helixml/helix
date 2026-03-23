@@ -101,6 +101,9 @@ func (f *fakeKoditService) ListFiles(_ context.Context, _ int64, _ string) ([]se
 func (f *fakeKoditService) ReadFile(_ context.Context, _ int64, _ string, _, _ int) (*services.KoditFileContent, error) {
 	return nil, f.err
 }
+func (f *fakeKoditService) UpdateChunkingConfig(_ context.Context, _ int64, _, _, _ int) error {
+	return f.err
+}
 
 type fakeGitRepositoryStore struct {
 	store.Store

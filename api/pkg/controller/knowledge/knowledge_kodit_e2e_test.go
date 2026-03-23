@@ -84,6 +84,7 @@ func (k *koditSvcE2E) ListAllTasks(context.Context, int, int) ([]services.KoditP
 	return nil, 0, nil
 }
 func (k *koditSvcE2E) ActiveTasks(context.Context) ([]services.KoditActiveTask, error) { return nil, nil }
+func (k *koditSvcE2E) UpdateChunkingConfig(context.Context, int64, int, int, int) error { return nil }
 
 // KoditE2ESuite is a high-level integration test of the kodit knowledge indexing pipeline.
 // It verifies that indexKnowledge routes to kodit when the RAG client is a KoditIndexer,
